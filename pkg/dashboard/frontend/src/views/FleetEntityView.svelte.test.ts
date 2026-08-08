@@ -261,6 +261,27 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('owner attention action is built from the canonical owner KEY, not the display label (F3)', async () => {
+    // The owner entity's key differs from its display label; the "view all attention
+    // for this owner" action must use the stable key the backend filter matches.
+    detailFn.mockResolvedValue({
+      meta,
+      entity: { kind: 'owner', key: 'team:platform', label: 'Platform Team', href: '/fleet/owners/team%3Aplatform' },
+      owner: {
+        services: { total: 0, count: 0, truncated: false, items: [] },
+        revisions: { total: 0, count: 0, truncated: false, items: [] },
+        deployments: { total: 0, count: 0, truncated: false, items: [] },
+        attention: { total: 1, count: 1, truncated: true, items: [{ severity: 'warning', category: 'stale', entity: ref('target', 'prod/k8s/a'), summary: 'stale' }] },
+      },
+    });
+    const { target, component } = mountView('owner', 'team:platform');
+    await vi.waitFor(() => expect(target.textContent).toContain('Needs attention'));
+    const viewAll = Array.from(target.querySelectorAll('a')).find((a) => a.textContent?.includes('View all for this owner')) as HTMLAnchorElement;
+    expect(viewAll.getAttribute('href')).toBe(`#/fleet/attention?owner=${encodeURIComponent('team:platform')}`);
+    expect(viewAll.getAttribute('href')).not.toContain('Platform'); // never the display label
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('source page renders health, records and contributed entities', async () => {
     detailFn.mockResolvedValue({
       meta, entity: ref('source', 'kubernetes'),
@@ -277,6 +298,102 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     expect(text).toContain('12 revisions');
     expect(text).toContain('1 of 20');   // contributed-entities preview honest count
     expect(Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim())).toEqual(expect.arrayContaining(['Sources']));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // requirement B: a bounded preview whose exact total is UNKNOWN must never be
+  // rendered as "X of X", and the RuntimePreview `scanned` lower bound is never
+  // presented as the total.
+  it('target observed-runtime with an unknown total never presents scanned as the total', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: ref('target', 'prod/k8s/app', { status: 'Compliant' }), status: 'Compliant',
+      target: {
+        linkState: 'exact', compliance: 'Compliant', service: ref('service', 'domain-a/app'),
+        identity: { retrievable: false, identityClass: 'no-ref' }, stale: false,
+        findings: { total: 0, count: 0, truncated: false, items: [] },
+        // walk stopped early: total absent, scanned=400 (a lower bound), count=200.
+        observedRuntime: { count: 200, scanned: 400, truncated: true, items: [{ key: 'a', value: 'b' }] },
+        sources: { total: 0, count: 0, truncated: false, items: [] },
+        limitations: { total: 0, count: 0, truncated: false, items: [] },
+      },
+    });
+    const { target, component } = mountView('target', 'prod/k8s/app');
+    await vi.waitFor(() => expect(target.textContent).toContain('Observed runtime'));
+    const text = (target.textContent || '').replace(/\s+/g, ' ');
+    expect(text).not.toContain('200 of 400'); // scanned is NOT the total
+    expect(text).not.toContain('200 of 200'); // count is NOT the total
+    expect(text).not.toContain('400');        // scanned is not surfaced as a total at all
+    expect(text).toContain('Showing 200. More exist; total unknown.');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // requirement F item 2: the revision page renders the already-available bounded
+  // ownership, readiness checks, tools, skills and docs as honest previews, not bare
+  // count badges.
+  it('revision page renders ownership, readiness checks, tools, skills and docs previews', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: ref('revision', 'domain-a/app@sha256:1'), status: 'Compliant',
+      revision: {
+        service: ref('service', 'domain-a/app'), version: '1.2.3', valid: true,
+        identity: { retrievable: true, identityClass: 'exact', digest: 'sha256:1' },
+        ownership: { owner: 'platform', ref: ref('owner', 'platform'), conflicts: { total: 0, count: 0, truncated: false, items: [] } },
+        readiness: {
+          score: 80, minScore: 70, doneCount: 3, partialCount: 1, notDoneCount: 1, deferredCount: 0, passing: true, expired: false,
+          checks: { total: 5, count: 2, truncated: true, items: [
+            { id: 'has-health', status: 'done', category: 'observability', description: 'exposes a health capability' },
+            { id: 'has-owner', status: 'done', category: 'ownership' },
+          ] },
+        },
+        interfaces: 2, configurations: 1, policies: 0, capabilities: 1,
+        validation: { total: 0, count: 0, truncated: false, items: [] },
+        dependencies: { total: 0, count: 0, truncated: false, items: [] },
+        tools: { total: 3, count: 1, truncated: true, items: [{ name: 'createOrder', method: 'post', path: '/orders', summary: 'place an order', mutating: true }] },
+        skills: { total: 2, count: 2, truncated: false, items: ['summarize', 'classify'] },
+        docs: { total: 1, count: 1, truncated: false, items: [{ path: 'docs/readme.md', title: 'Readme' }] },
+        exactTargets: { total: 0, count: 0, truncated: false, items: [] },
+        inferredTargets: { total: 0, count: 0, truncated: false, items: [] },
+        limitations: { total: 0, count: 0, truncated: false, items: [] },
+      },
+    });
+    const { target, component } = mountView('revision', 'domain-a/app@sha256:1');
+    await vi.waitFor(() => expect(target.textContent).toContain('Readiness checks'));
+    const text = (target.textContent || '').replace(/\s+/g, ' ');
+    // Ownership rendered (not just a count).
+    expect(text).toContain('platform');
+    // Readiness checks preview with honest truncation.
+    expect(text).toContain('has-health');
+    expect(text).toContain('2 of 5');
+    // Tools rendered as a real preview (path + name), not a bare "3 Tools" badge.
+    expect(text).toContain('/orders');
+    expect(text).toContain('createOrder');
+    expect(text).not.toContain('3 Tools');
+    // Skills and docs contents render.
+    expect(text).toContain('summarize');
+    expect(text).toContain('Readme');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('service relationships with an unknown total never says X of X', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: ref('service', 'domain-a/app'), status: 'Compliant',
+      service: {
+        domain: 'domain-a',
+        revisions: { total: 0, count: 0, truncated: false, items: [] },
+        deployments: { total: 0, count: 0, truncated: false, items: [] },
+        dependencies: { total: 0, count: 0, truncated: false, items: [] },
+        dependents: { total: 0, count: 0, truncated: false, items: [] },
+        // RelationshipsPreview from an already-truncated neighborhood: total absent.
+        relationships: { count: 200, truncated: true, items: [{ from: ref('service', 'domain-a/app'), to: ref('service', 'domain-a/dep'), expected: true, observed: false, difference: 'expected-not-observed' }] },
+        findings: { total: 0, count: 0, truncated: false, items: [] },
+        evidence: { total: 0, count: 0, truncated: false, items: [] },
+        limitations: { total: 0, count: 0, truncated: false, items: [] },
+      },
+    });
+    const { target, component } = mountView('service', 'domain-a/app');
+    await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic and differences'));
+    const text = (target.textContent || '').replace(/\s+/g, ' ');
+    expect(text).not.toContain('200 of 200');
+    expect(text).toContain('Showing 200. More exist; total unknown.');
     unmount(component); document.body.removeChild(target);
   });
 });

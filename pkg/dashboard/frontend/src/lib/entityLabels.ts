@@ -66,6 +66,7 @@ export function retrievabilityTone(identityClass: string | undefined, retrievabl
 export function knowledgeLabel(level: string | undefined): string {
   switch (level) {
     case 'complete': return 'Complete knowledge';
+    case 'empty': return 'Empty fleet';
     case 'partial': return 'Partial knowledge';
     case 'stale': return 'Stale knowledge';
     case 'unavailable': return 'Source unavailable';
@@ -76,6 +77,7 @@ export function knowledgeLabel(level: string | undefined): string {
 export function knowledgeTone(level: string | undefined): Tone {
   switch (level) {
     case 'complete': return 'ok';
+    case 'empty': return 'neutral';
     case 'partial': return 'warn';
     case 'stale': return 'warn';
     case 'unavailable': return 'err';

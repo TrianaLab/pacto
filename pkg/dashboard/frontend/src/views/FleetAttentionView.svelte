@@ -1,6 +1,7 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
+  import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetAttentionUrl } from '../lib/router.ts';
@@ -29,43 +30,30 @@
   const isStale = $derived(staleOnly === '1');
   const anyFilter = $derived(!!(category || severity || status || owner || source || isStale));
 
-  let list = $state(null);
-  let loading = $state(true);
-  let error = $state(null);
-  let lastKey = '';
-
-  async function load() {
-    loading = true;
-    error = null;
-    try {
-      list = await api.fleetAttention({
-        category: category || undefined,
-        severity: severity || undefined,
-        status: status || undefined,
-        owner: owner || undefined,
-        source: source || undefined,
-        staleOnly: isStale ? true : undefined,
-        offset: pageOffset || undefined,
-        limit: PAGE_SIZE,
-      });
-    } catch (e) {
-      error = e;
-    } finally {
-      loading = false;
-    }
-  }
-
-  onMount(load);
-  // Reload when any filter, the page offset (all from the URL) or the refresh tick
-  // changes, so back/forward and deep links restore the exact page.
+  // One reusable, race-safe loader (requirement E): the fetcher reads current filters
+  // at request time; sync(key) dedupes the initial load and the generation guard stops
+  // an older response overwriting a newer route/filter/refresh. Reloads when any
+  // filter, the page offset (all from the URL) or the refresh tick changes, so
+  // back/forward and deep links restore the exact page.
+  const loader = createProductLoader(() => api.fleetAttention({
+    category: category || undefined,
+    severity: severity || undefined,
+    status: status || undefined,
+    owner: owner || undefined,
+    source: source || undefined,
+    staleOnly: isStale ? true : undefined,
+    offset: pageOffset || undefined,
+    limit: PAGE_SIZE,
+  }));
   $effect(() => {
-    const key = [category, severity, status, owner, source, staleOnly, pageOffset, refreshTick].join('@@');
-    if (key !== lastKey) {
-      lastKey = key;
-      load();
-    }
+    loader.sync([category, severity, status, owner, source, staleOnly, pageOffset, refreshTick].join('@@'));
   });
+  onDestroy(() => loader.destroy());
+  function load() { loader.refresh(); }
 
+  const list = $derived(loader.data);
+  const loading = $derived(loader.loading);
+  const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.items?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
@@ -156,7 +144,7 @@
 
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
-  {#if knowledge.incomplete && state.kind === 'ready'}
+  {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <div class="av-knowledge tone-{knowledgeTone(knowledge.level)}" role="status">
       {knowledgeLabel(knowledge.level)} — this attention list may be incomplete.
     </div>

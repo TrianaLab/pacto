@@ -167,4 +167,24 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     expect(target.querySelector('.knowledge-banner')).toBeTruthy();
     unmount(component); document.body.removeChild(target);
   });
+
+  it('requirement D: an `empty`-completeness fleet is honestly empty, NOT "sources degraded"', async () => {
+    // Every source healthy, no record: completeness `empty`. This is a confidently
+    // empty fleet, not degraded knowledge and not an all-clear health assessment.
+    const ov = baseOverview(false);
+    ov.meta.completeness = 'empty';
+    ov.summary.services = 0;
+    ov.summary.exactTargetLinks = 0; ov.summary.inferredTargetLinks = 0;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
+    const text = target.textContent || '';
+    // The honest empty-fleet message shows; the degraded-source banner and all-clear do NOT.
+    expect(target.querySelector('.empty-fleet')).toBeTruthy();
+    expect(target.querySelector('.knowledge-banner')).toBeFalsy();
+    expect(target.querySelector('.all-clear')).toBeFalsy();
+    expect(text).not.toMatch(/sources are degraded/i);
+    expect(text).toMatch(/no services tracked yet/i);
+    unmount(component); document.body.removeChild(target);
+  });
 });

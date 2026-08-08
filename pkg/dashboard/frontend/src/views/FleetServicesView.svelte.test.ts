@@ -137,6 +137,27 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     unmount(m.component); document.body.removeChild(m.target);
   });
 
+  it('issues exactly ONE initial request (no onMount + effect double-fire) [requirement E]', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    // Let any further scheduled effects settle, then assert a single backend call.
+    flushSync();
+    await Promise.resolve();
+    expect(entitiesFn).toHaveBeenCalledTimes(1);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('filtered-empty UNDER incomplete knowledge shows BOTH facts, never hiding either [requirement D]', async () => {
+    entitiesFn.mockResolvedValue(listResp([], { total: 0, partial: true }));
+    const { target, component } = mountView({ status: 'NonCompliant' });
+    await vi.waitFor(() => expect(target.textContent).toMatch(/no matching services/i));
+    const text = target.textContent || '';
+    expect(text).toMatch(/no matching services/i);       // the filter matched nothing
+    expect(text).toMatch(/this list may be incomplete/i); // AND knowledge is incomplete
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('Clear filters returns to the unfiltered first page', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
     const { target, component } = mountView({ owner: 'team-a', status: 'NonCompliant', offset: '25' });

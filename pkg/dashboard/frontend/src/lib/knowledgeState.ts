@@ -14,8 +14,17 @@
 
 import { ApiError, SchemaCompatibilityError, ApiContractError } from './api.ts';
 
-/** CompletenessLevel is the worst knowledge level a snapshot's sources imply. */
-export type CompletenessLevel = 'complete' | 'partial' | 'stale' | 'unavailable' | 'unknown';
+/**
+ * CompletenessLevel is the worst knowledge level a snapshot's sources imply.
+ *
+ * `empty` is a DISTINCT level from `unknown`: it is the backend `empty`
+ * completeness (all sources healthy, but no record exists), i.e. a fully-understood
+ * empty fleet. It is NOT incomplete -- knowledge is complete, there is simply
+ * nothing. `unknown` is the opposite: we never received a completeness we could
+ * assert (a missing meta), which IS incomplete. Conflating the two would render a
+ * confidently-empty fleet as "knowledge unavailable".
+ */
+export type CompletenessLevel = 'complete' | 'empty' | 'partial' | 'stale' | 'unavailable' | 'unknown';
 
 export interface SnapshotKnowledge {
   level: CompletenessLevel;
@@ -23,7 +32,9 @@ export interface SnapshotKnowledge {
   staleSources: number;
   unavailableSources: number;
   /** incomplete is true when knowledge is anything less than fully complete, so a
-   *  caller can gate "all clear" on it without re-checking every counter. */
+   *  caller can gate "all clear" on it without re-checking every counter. A
+   *  fully-understood empty snapshot (`empty`) is COMPLETE knowledge, so it is NOT
+   *  incomplete. */
   incomplete: boolean;
 }
 
@@ -54,17 +65,22 @@ export function snapshotKnowledge(meta: MetaLike | null | undefined): SnapshotKn
     }
   }
   // Strictest-first: an unavailable source is the worst, then stale, then partial.
-  // Fall back to the declared completeness when no source is individually degraded.
+  // A degraded source ALWAYS wins over the declared completeness (so a source that
+  // is down is never masked by a snapshot that happens to say `empty`/`complete`).
+  // Fall back to the declared completeness when no source is individually degraded:
+  // `empty` (all sources healthy, no records) is a distinct, COMPLETE-knowledge
+  // level, never `unknown`; a missing/unrecognized completeness is `unknown`.
   let level: CompletenessLevel;
   if (unavailable > 0) level = 'unavailable';
   else if (stale > 0) level = 'stale';
   else if (degraded > 0) level = 'partial';
   else if (meta.completeness === 'partial') level = 'partial';
   else if (meta.completeness === 'complete') level = 'complete';
+  else if (meta.completeness === 'empty') level = 'empty';
   else level = 'unknown';
   return {
     level, degradedSources: degraded, staleSources: stale, unavailableSources: unavailable,
-    incomplete: level !== 'complete',
+    incomplete: level !== 'complete' && level !== 'empty',
   };
 }
 
@@ -90,9 +106,12 @@ export type ViewState =
   | { kind: 'backend-error'; message: string }
   | { kind: 'schema-error'; message: string }
   | { kind: 'not-found'; message: string }
-  | { kind: 'empty-fleet' }        // no items, knowledge complete -> genuinely empty
+  | { kind: 'empty-fleet' }        // no items, knowledge complete/empty -> genuinely empty
   | { kind: 'empty-unknown'; knowledge: SnapshotKnowledge } // no items, knowledge incomplete
-  | { kind: 'filtered-empty' }     // a filter/search matched nothing
+  // A filter/search matched nothing. It carries the snapshot knowledge so a caller
+  // can STILL surface an incompleteness caveat: "no records match this filter" and
+  // "knowledge is incomplete" are both true and neither may hide the other.
+  | { kind: 'filtered-empty'; knowledge: SnapshotKnowledge }
   | { kind: 'ready'; knowledge: SnapshotKnowledge }; // has data (possibly degraded)
 
 export interface ViewStateInput {
@@ -118,9 +137,12 @@ export function decideViewState(input: ViewStateInput): ViewState {
   }
   const knowledge = input.knowledge ?? snapshotKnowledge(null);
   if (input.itemCount <= 0) {
-    if (input.filtered) return { kind: 'filtered-empty' };
+    // A filter matched nothing: distinct from an empty fleet, and it still carries the
+    // knowledge so an incompleteness caveat is not hidden by the filtered-empty state.
+    if (input.filtered) return { kind: 'filtered-empty', knowledge };
     // The non-negotiable rule: no items under INCOMPLETE knowledge is not "empty",
-    // it is "nothing known that we can see" -- never an all-clear.
+    // it is "nothing known that we can see" -- never an all-clear. A fully-understood
+    // empty snapshot (complete/empty knowledge) is a genuine empty-fleet.
     if (knowledge.incomplete) return { kind: 'empty-unknown', knowledge };
     return { kind: 'empty-fleet' };
   }

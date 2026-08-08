@@ -59,7 +59,7 @@
   </div>
 
   {#if (d.relationships?.count ?? 0) > 0}
-    <PreviewSection title="Observed traffic and differences" total={d.relationships?.total ?? d.relationships?.count ?? 0} count={d.relationships?.count ?? 0} truncated={d.relationships?.truncated} viewAllHref={graphHref} viewAllLabel="Open differences view">
+    <PreviewSection title="Observed traffic and differences" total={d.relationships?.total ?? null} count={d.relationships?.count ?? 0} truncated={d.relationships?.truncated} viewAllHref={graphHref} viewAllLabel="Open differences view">
       <RelationshipList items={d.relationships?.items ?? []} />
     </PreviewSection>
   {/if}

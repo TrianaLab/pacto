@@ -1,6 +1,7 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
+  import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetOwnersUrl } from '../lib/router.ts';
@@ -18,25 +19,19 @@
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
   const anyFilter = $derived(!!text);
 
-  let list = $state(null);
-  let loading = $state(true);
-  let error = $state(null);
-  let lastKey = '';
   let textDraft = $state(text);
   $effect(() => { textDraft = text; });
 
-  async function load() {
-    loading = true; error = null;
-    try {
-      list = await api.fleetEntities({ kinds: ['owner'], text: text || undefined, offset: pageOffset || undefined, limit: PAGE_SIZE });
-    } catch (e) { error = e; } finally { loading = false; }
-  }
-  onMount(load);
-  $effect(() => {
-    const key = `${text}@@${pageOffset}@@${refreshTick}`;
-    if (key !== lastKey) { lastKey = key; load(); }
-  });
+  // One reusable, race-safe loader (requirement E): dedupes the initial load and
+  // guards against a stale response overwriting a newer route/filter/refresh.
+  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['owner'], text: text || undefined, offset: pageOffset || undefined, limit: PAGE_SIZE }));
+  $effect(() => { loader.sync(`${text}@@${pageOffset}@@${refreshTick}`); });
+  onDestroy(() => loader.destroy());
+  function load() { loader.refresh(); }
 
+  const list = $derived(loader.data);
+  const loading = $derived(loader.loading);
+  const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.entities?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
@@ -65,7 +60,7 @@
   </form>
   <ActiveFilterChips {chips} onRemove={clearAll} onClear={clearAll} />
 
-  {#if knowledge.incomplete && state.kind === 'ready'}
+  {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <div class="lv-knowledge tone-{knowledgeTone(knowledge.level)}" role="status">{knowledgeLabel(knowledge.level)} — this list may be incomplete.</div>
   {/if}
 

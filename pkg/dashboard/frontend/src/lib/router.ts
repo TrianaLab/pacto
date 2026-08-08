@@ -166,7 +166,10 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'services') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['text', 'owner', 'status', 'domain', 'scope', 'source', 'offset']) {
+    // Only the filters the product Services list actually implements live in its
+    // route state -- scope (target-only in the Entities API) and source were inert
+    // URL params no view consumed, so they are not parsed here (requirement F1).
+    for (const k of ['text', 'owner', 'status', 'domain', 'offset']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -276,19 +279,19 @@ export function fleetOverviewUrl(): string {
 }
 
 // fleetServicesUrl builds the product service-list route, preserving the backend
-// filters and page offset in the URL so a filtered/paged list is deep-linkable and
-// restored by refresh/back/forward. A zero/absent offset is omitted (canonical page 1).
+// filters the list implements and the page offset in the URL so a filtered/paged
+// list is deep-linkable and restored by refresh/back/forward. A zero/absent offset
+// is omitted (canonical page 1). scope/source are NOT accepted: scope is a
+// target-only Entities filter and source was never wired into the Services list, so
+// carrying them would be an inert URL filter (requirement F1).
 export function fleetServicesUrl(opts: {
-  text?: string; owner?: string; status?: string; domain?: string; scope?: string;
-  source?: string; offset?: number;
+  text?: string; owner?: string; status?: string; domain?: string; offset?: number;
 } = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.owner) qs.set('owner', opts.owner);
   if (opts.status) qs.set('status', opts.status);
   if (opts.domain) qs.set('domain', opts.domain);
-  if (opts.scope) qs.set('scope', opts.scope);
-  if (opts.source) qs.set('source', opts.source);
   if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';

@@ -27,6 +27,11 @@
   <div class="state-box">
     <h3>No matching {noun}</h3>
     <p>No {noun} match the current filters or search.</p>
+    <!-- Both facts must survive: a filter matched nothing AND knowledge is incomplete.
+         The empty match never hides the incompleteness caveat (requirement D). -->
+    {#if state.knowledge?.incomplete}
+      <span class="ps-knowledge" role="status">{knowledgeLabel(state.knowledge.level)} — the match may be incomplete.</span>
+    {/if}
     {#if onClearFilters}
       <button type="button" class="ps-btn" onclick={onClearFilters}>Clear filters</button>
     {/if}

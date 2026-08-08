@@ -327,6 +327,17 @@ describe('parseHash — fleet product IA (Phase 2)', () => {
     });
   });
 
+  it('drops the inert scope/source params the Services list does not implement (F1)', () => {
+    // scope is a target-only Entities filter and source was never wired into the
+    // Services list, so neither round-trips into the route state.
+    expect(parseHash('#/fleet/services?scope=prod&source=k8s&owner=team-a')).toEqual({
+      view: 'fleet-services',
+      params: { owner: 'team-a' },
+    });
+    // fleetServicesUrl accepts only the implemented filters.
+    expect(fleetServicesUrl({ owner: 'team-a', offset: 25 })).toBe('#/fleet/services?owner=team-a&offset=25');
+  });
+
   it('a bare /fleet/services must NOT be shadowed by service detail (regression A3)', () => {
     // /fleet/services is the LIST; /fleet/services/:key is one service. The list must
     // never fall through to the entity route (which needs a key) or the overview.

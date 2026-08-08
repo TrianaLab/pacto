@@ -74,7 +74,7 @@
   {/if}
 
   {#if (d.observedRuntime?.count ?? 0) > 0}
-    <PreviewSection title="Observed runtime" total={d.observedRuntime?.total ?? d.observedRuntime?.scanned ?? d.observedRuntime?.count ?? 0} count={d.observedRuntime?.count ?? 0} truncated={d.observedRuntime?.truncated}>
+    <PreviewSection title="Observed runtime" total={d.observedRuntime?.total ?? null} count={d.observedRuntime?.count ?? 0} truncated={d.observedRuntime?.truncated}>
       <ul class="te-runtime">
         {#each d.observedRuntime.items as f, i (i)}
           <li><span class="rt-key">{f.key}</span><span class="rt-val">{f.value}</span></li>

@@ -10,7 +10,10 @@
   // Every owned/affected entity is navigable via EntityLink.
   let { detail } = $props();
   const d = $derived(detail.owner ?? {});
-  const owner = $derived(detail.entity?.label || detail.entity?.key || '');
+  // The owner filter/action is built from the CANONICAL owner key, never the display
+  // label (requirement F3): the key is the stable identity the backend owner filter
+  // matches; a label is presentation and may not round-trip.
+  const owner = $derived(detail.entity?.key || detail.entity?.label || '');
   const attnHref = $derived(fleetAttentionUrl({ owner }));
 </script>
 

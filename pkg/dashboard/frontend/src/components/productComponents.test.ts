@@ -16,6 +16,8 @@ import ProductEmptyState from './ProductEmptyState.svelte';
 import SourceHealth from './SourceHealth.svelte';
 // @ts-expect-error
 import OperationalSummary from './OperationalSummary.svelte';
+// @ts-expect-error
+import PreviewSection from './PreviewSection.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -135,5 +137,60 @@ describe('OperationalSummary', () => {
     // The lead tile links to the full attention list.
     const lead = target.querySelector('a.tile-lead') as HTMLAnchorElement;
     expect(lead.getAttribute('href')).toBe('#/fleet/attention');
+  });
+});
+
+describe('ProductEmptyState — filtered-empty never hides incompleteness (requirement D)', () => {
+  it('a filter matching nothing UNDER incomplete knowledge shows BOTH facts', () => {
+    const partial = snapshotKnowledge({ sources: [{ status: 'partial' }] });
+    const state = decideViewState({ loading: false, itemCount: 0, filtered: true, knowledge: partial });
+    comp = mount(ProductEmptyState, { target, props: { state, noun: 'services' } });
+    const text = target.textContent || '';
+    expect(text).toContain('No matching services');   // the filter matched nothing
+    expect(text).toContain('Partial knowledge');       // AND knowledge is incomplete
+  });
+
+  it('a filter matching nothing under COMPLETE knowledge shows no incompleteness caveat', () => {
+    const complete = snapshotKnowledge({ completeness: 'complete', sources: [{ status: 'available' }] });
+    const state = decideViewState({ loading: false, itemCount: 0, filtered: true, knowledge: complete });
+    comp = mount(ProductEmptyState, { target, props: { state, noun: 'services' } });
+    const text = target.textContent || '';
+    expect(text).toContain('No matching services');
+    expect(text).not.toMatch(/knowledge/i);
+    expect(text).not.toMatch(/incomplete/i);
+  });
+});
+
+describe('PreviewSection — honest known vs unknown totals (requirement B)', () => {
+  const count = (t: HTMLElement) => t.querySelector('[data-testid="preview-count"]')?.textContent?.trim() ?? '';
+  const more = (t: HTMLElement) => t.querySelector('[data-testid="preview-more"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+  it('known total keeps the count-of-total behavior', () => {
+    comp = mount(PreviewSection, { target, props: { title: 'Findings', total: 37, count: 20, truncated: true } });
+    expect(count(target)).toBe('20 of 37');
+    expect(more(target)).toContain('Showing 20 of 37.');
+  });
+
+  it('known total, not truncated: count of total, no continuation line', () => {
+    comp = mount(PreviewSection, { target, props: { title: 'Revisions', total: 5, count: 5, truncated: false } });
+    expect(count(target)).toBe('5 of 5');
+    expect(target.querySelector('[data-testid="preview-more"]')).toBeNull();
+  });
+
+  it('unknown total + truncated NEVER says X of X (service relationships case)', () => {
+    // RelationshipsPreview from an already-truncated neighborhood: count=200, total absent.
+    comp = mount(PreviewSection, { target, props: { title: 'Observed traffic and differences', total: null, count: 200, truncated: true } });
+    const text = target.textContent || '';
+    expect(text).not.toContain('200 of 200');
+    expect(text).not.toMatch(/\bof\b/); // no synthesized "of <total>" anywhere
+    expect(count(target)).toBe('200');
+    expect(more(target)).toBe('Showing 200. More exist; total unknown.');
+  });
+
+  it('unknown total + not truncated: just the count, no continuation line', () => {
+    comp = mount(PreviewSection, { target, props: { title: 'Observed runtime', total: null, count: 20, truncated: false } });
+    expect(count(target)).toBe('20');
+    expect((target.textContent || '')).not.toMatch(/\bof\b/);
+    expect(target.querySelector('[data-testid="preview-more"]')).toBeNull();
   });
 });
