@@ -9,7 +9,9 @@ import { test, expect } from '@playwright/test';
 // the live page renders and a seeded service is navigable.
 
 test('the live operational graph page renders (canvas + non-zero service count)', async ({ page }) => {
-  await page.goto('/#/fleet');
+  // The operational graph moved to /fleet/graph in the Phase-2 IA (/fleet is now the
+  // operational overview).
+  await page.goto('/#/fleet/graph');
   await expect(page.getByRole('heading', { name: 'Operational Graph' })).toBeVisible();
 
   // The snapshot is non-empty (served live over HTTP).
@@ -27,7 +29,7 @@ test('a seeded service is navigable in the live operational graph', async ({ pag
   // already asserts checkout/orders/payments in /api/fleet/snapshot). Here we prove
   // the UI renders and is navigable: deep-link a reconciled service (a default-
   // domain k8s key) and confirm its bounded detail loads over the live HTTP API.
-  await page.goto('/#/fleet?sel=checkout');
+  await page.goto('/#/fleet/graph?sel=checkout');
   const panel = page.getByTestId('detail-panel');
   await expect(panel).toContainText('checkout', { timeout: 20_000 });
   await expect(panel).toContainText('key:'); // domain-qualified identity, live from the operator
