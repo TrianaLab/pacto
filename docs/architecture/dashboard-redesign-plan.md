@@ -106,12 +106,19 @@ The residual counterexamples this pass closed (final state in section 8):
    canonicalizes every finite-value field at INGESTION (conservatively, to
    Unknown/partial), keeps the usable record, and surfaces a `SOURCE_RECORD_INVALID`
    limitation, so invalid extension data can never escape as an out-of-schema enum.
-6. Target-link identity (item 7): target-to-revision linking used an independent
-   digest rule that contradicted `ClassifyExactIdentity` (a target could be `exact`
-   in one place and `digest-mismatch` in another). `matchRevision` now uses
-   `ClassifyExactIdentity` for the exact tier, so a target's identity class and
-   linkState can never contradict; an internally inconsistent or malformed identity
-   is never exact and surfaces a limitation.
+6. Target-link identity (item 7): the model now tracks TWO orthogonal identity
+   dimensions instead of conflating them. Revision-match certainty (`matchRevision`
+   -> a target's `LinkState`: exact / inferred / ambiguous / unresolved) answers "how
+   confidently do we know which revision this target is running". Content
+   retrievability (`ClassifyContentIdentity` -> `RevisionIdentity.Retrievable` +
+   `IdentityClass`: exact / missing-digest / mutable / no-ref / local / malformed /
+   digest-mismatch) answers "can Pacto retrieve exactly this content". `matchRevision`
+   reuses the retrievability classifier only to derive the effective content digest
+   and to reject a self-contradictory identity, so the two never DISAGREE dishonestly
+   -- but they may differ HONESTLY: a target with a trusted digest and no canonical
+   ref is an EXACT match whose content is NOT retrievable. A digest/ref DISAGREEMENT,
+   by contrast, is a genuine inconsistency: never an exact link, and it surfaces a
+   limitation.
 7. RuntimePreview work (item 4): `RuntimePreview` bounded its OUTPUT but not its
    WORK — `keysBounded` scanned the whole observed-runtime map at QUERY time
    (O(map width)). The bounded projection is now computed ONCE at Build (the single
@@ -181,8 +188,10 @@ Endpoints:
   product knowledge views (expected / observed / differences), graph-ready node
   and edge DTOs with canonical routes and reconciliation state authoritative
   from the backend.
-- `GET /api/fleet/entities/{kind}/{key}` (requirement 2.4) — unified entity
-  detail envelope for service / revision / target / owner / source.
+- `GET /api/fleet/entities/{kind}?key=<key>` (requirement 2.4) — unified entity
+  detail envelope for service / revision / target / owner / source. The key is a
+  QUERY parameter, not a path segment (see the transport note below); the canonical
+  FRONTEND route stays `/fleet/<kind>/:key`.
 - `GET /api/fleet/attention` (requirement 2.5) — redesigned attention with rich,
   navigable items.
 - `POST /api/fleet/impact` (requirement 2.6) — impact by canonical fleet
@@ -260,11 +269,11 @@ section 8.
    product-query immutability enforced, strongly typed discriminated entity
    detail, genuinely bounded responses with typed page metadata, corrected
    entity-search / neighborhood / impact semantics, a typed frontend product
-   API client with drift protection, and complete U+00A7 enforcement. This is
-   the current phase; it must be finished before any UI migration begins.
-2. Frontend IA and routing: route state, breadcrumbs, history, global search,
-   the reusable product components, consuming the typed client. No UI redesign
-   before phase 1 is complete.
+   API client with drift protection, and the two-dimension identity model
+   (revision-match certainty vs content retrievability). COMPLETE (only the
+   U+00A7 commit-history CI enforcement remains deferred; see section 8 item 9).
+2. Frontend IA and routing (CURRENT PHASE): route state, breadcrumbs, history,
+   global search, the reusable product components, consuming the typed client.
 3. Overview, Services, Attention and entity pages (service / revision / target /
    owner / source) built on the typed detail model.
 4. Search-first Operational Graph: neighborhood-oriented topology with the
@@ -468,39 +477,40 @@ all pass.
    (and vice versa). Regression tests cover expected/observed/differences across
    incoming and outgoing directions. True revision/deployment graph projections
    remain a later phase.
-7. Correct contextual product impact (exact-content identity), applied
-   CONSISTENTLY. DONE. `fleet.ClassifyExactIdentity(resolvedRef, recordedDigest)` is
-   the ONE exact-content evaluation used by RevisionDetail, TargetDetail, Product
-   Impact AND target-to-revision linking, so `immutable`/`exact` means the same thing
-   everywhere and distinguishes exact / missing-digest / mutable / local / malformed
-   / digest-mismatch. `ParseCanonicalOCIRef` validates the repository with the same
-   go-containerregistry name grammar the production BundleStore uses (proven by a
-   resolver-parse-compatibility test), and `internal/cli/dashboard_impact_e2e_test.go`
-   drives the complete real-provider impact vertical for the dashboard-stripped, tag
-   and digest input spellings plus the mutable / local / inconsistent rejections.
-   The last correction pass closed the remaining inconsistencies: target-to-revision
-   linking used an INDEPENDENT digest rule (match `TargetRecord.Digest` directly) that
-   could contradict the classifier — a target whose recorded digest contradicted its
-   digest-pinned resolved ref was reported `digest-mismatch` by the classifier yet
-   could get an `exact` link, and a canonical digest ref with no separate recorded
-   digest was reported `exact` yet linked only `inferred`. `matchRevision` now links
-   exact by the target's EFFECTIVE content digest reconciled through the shared
-   classifier: the classifier's canonical digest for an `oci://` digest-pinned ref, or
-   a digest embedded in a non-`oci://` ref cross-checked against the recorded digest,
-   or the recorded digest. A ref that embeds a digest CONTRADICTING the recorded one
-   is internally inconsistent and never links exact — this closes the scheme-less
-   bypass two independent reviews found (a `reg/svc@<other>` ref, classed `local`, whose
-   embedded digest the `oci://` classifier never parses, must still face the same
-   digest-mismatch guard), including a multi-`@` ref (`reg/svc@<other>@<recorded>` or
-   `reg/svc@<other>@latest`), rejected as malformed exactly as `classifyOCIRef` rejects
-   extra `@` separators for `oci://` refs. Real evidence sources are preserved: the k8s operator emits
-   a scheme-less `registry/repo:tag@sha256:...` ref (the `oci://` scheme stripped), so
-   its embedded digest matches the recorded digest and the target links exact.
-   `pkg/fleet/matchrevision_identity_test.go` proves the identity cases
-   (canonical-ref-missing-digest, digest+matching-ref, oci digest/ref mismatch,
-   recorded-digest-no-ref, scheme-less matching digest, scheme-less/oci contradicting
-   embedded digest, malformed, mutable unique/ambiguous), and a contradicting embedded
-   digest surfaces a `SOURCE_RECORD_INVALID` limitation through `linkTargets`.
+7. Correct contextual product impact and the two-dimension identity model. DONE.
+   The model tracks TWO orthogonal dimensions, no longer conflated under a single
+   "exact identity" classifier:
+   - REVISION-MATCH CERTAINTY ("which revision is this target running, and how
+     confidently"): `matchRevision` -> a target's `LinkState` of exact / inferred /
+     ambiguous / unresolved.
+   - CONTENT RETRIEVABILITY ("can Pacto retrieve exactly this content"):
+     `fleet.ClassifyContentIdentity(resolvedRef, recordedDigest)` ->
+     `RevisionIdentity.Retrievable` + `IdentityClass` (exact / missing-digest /
+     mutable / no-ref / local / malformed / digest-mismatch), read by RevisionDetail,
+     TargetDetail AND Product Impact eligibility.
+   The two are independent: a target with a trusted content digest and no canonical
+   ref (or a scheme-less ref embedding that digest -- the k8s operator's shape) is an
+   EXACT revision match whose content is NOT resolver-retrievable, and it reports
+   `LinkState=exact` with `Retrievable=false` WITHOUT contradiction. Product Impact by
+   canonical identity requires the retrievability dimension and therefore still
+   rejects such content even when a target matches the revision exactly.
+   `matchRevision` reuses the retrievability classifier only to derive the target's
+   EFFECTIVE content digest (the classifier's canonical digest for an `oci://`
+   digest-pinned ref, or a digest embedded in a non-`oci://` ref cross-checked against
+   the recorded digest, or the recorded digest) and to reject a self-contradictory
+   identity: a ref embedding a digest CONTRADICTING the recorded one, or a malformed
+   or multi-`@` ref, is internally inconsistent, never links exact and surfaces a
+   `SOURCE_RECORD_INVALID` limitation through `linkTargets`. `ParseCanonicalOCIRef`
+   validates the repository with the same go-containerregistry name grammar the
+   production BundleStore uses (proven by a resolver-parse-compatibility test), and
+   `internal/cli/dashboard_impact_e2e_test.go` drives the complete real-provider
+   impact vertical for the dashboard-stripped, tag and digest input spellings plus the
+   mutable / local / inconsistent rejections. `pkg/fleet/ref_test.go` and
+   `pkg/fleet/matchrevision_identity_test.go` prove both dimensions and their honest
+   divergence (`TestTargetIdentity_ExactMatch_NonRetrievable`), and
+   `pkg/dashboard/fleet_product_test.go` proves Product Impact rejects non-retrievable
+   content even under an exact revision match
+   (`TestImmutableRef_ExactMatchButNonRetrievable`).
 8. Frontend/backend wire contract (generated SDK, ADR-6). DONE. Huma/OpenAPI is the
    single source of wire truth; a pinned generator (`openapi-typescript@7.13.0` +
    `openapi-fetch@0.17.0`) emits a committed TypeScript SDK
@@ -539,7 +549,9 @@ all pass.
    transport/facade, that static fixtures are request-semantic, and that no hand-written
    wire DTO mirror returned. This text scan is best-effort defense-in-depth; a dynamic
    alias or bracket-access spelling can still evade it, so a lint-level no-restricted
-   rule is the durable enforcement (a noted follow-up, not this narrow pass).
+   rule is the durable enforcement -- a deliberate follow-up, and NOT a Phase-2 blocker
+   (Phase 2 keeps consuming the generated SDK through the one transport seam, which is
+   what the guard protects).
 9. Complete U+00A7 enforcement. Gate capability DONE (the script scans authored
    files, committed generated docs, `--commits base..HEAD` messages and `--text`
    PR title/body, with fixtures per failure mode; the authored-file scan is
@@ -561,10 +573,13 @@ criteria, in the final state after the last correction pass:
   ingestion (the product query is O(fixed bound)); ProductFinding conversion touches
   only the emitted prefix; and every finite-value field is canonicalized at ingestion
   so no out-of-schema enum can escape;
-- exact-content identity is ONE consistent invariant (`ClassifyExactIdentity`) used
-  by RevisionDetail, TargetDetail, Product Impact AND target-to-revision linking, so
-  identity class and linkState never contradict; `ParseCanonicalOCIRef` validates the
-  real OCI grammar;
+- identity is modeled as TWO orthogonal dimensions, not one: revision-match
+  certainty (`matchRevision` -> `LinkState`) and content retrievability
+  (`ClassifyContentIdentity` -> `RevisionIdentity.Retrievable` + `IdentityClass`, read
+  by RevisionDetail, TargetDetail and Product Impact). They may differ honestly (an
+  exact match to non-retrievable content) but never disagree dishonestly; a digest/ref
+  disagreement is an inconsistency that is never exact. `ParseCanonicalOCIRef`
+  validates the real OCI grammar;
 - OpenAPI expresses the finite vocabularies consumers need (severities including
   `unknown`, kinds, statuses, source health, knowledge views, difference/link
   states, identity classes, directions), verified by `openapi_enum_test.go` on the
