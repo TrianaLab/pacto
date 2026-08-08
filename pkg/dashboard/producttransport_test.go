@@ -410,6 +410,33 @@ func TestRouteBuilder(t *testing.T) {
 	}
 }
 
+// TestRouteBuilder_EntityHrefShapes pins the exact per-kind detail href shapes the
+// transport emits. It is the backend half of the backend-href/frontend-router
+// contract (the frontend half is router.test.ts): if either the plural segment or
+// the key escaping changes here, the paired frontend contract test must change too,
+// so a canonical href can never drift out from under the router that resolves it.
+func TestRouteBuilder_EntityHrefShapes(t *testing.T) {
+	entities := []struct {
+		kind fleet.EntityKind
+		key  string
+		want string
+	}{
+		{fleet.KindService, "payments-domain/payments", "/fleet/services/payments-domain%2Fpayments"},
+		{fleet.KindRevision, "payments@sha256:abc", "/fleet/revisions/payments@sha256:abc"},
+		{fleet.KindTarget, "prod/k8s/payments", "/fleet/targets/prod%2Fk8s%2Fpayments"},
+		{fleet.KindOwner, "team-a", "/fleet/owners/team-a"},
+		{fleet.KindSource, "kubernetes", "/fleet/sources/kubernetes"},
+	}
+	for _, c := range entities {
+		if got := hrefForEntity(c.kind, c.key); got != c.want {
+			t.Errorf("hrefForEntity(%q,%q) = %q, want %q", c.kind, c.key, got, c.want)
+		}
+	}
+	if got := hrefForGraph(fleet.KindTarget, "prod/k8s/payments"); got != "/fleet/graph/target/prod%2Fk8s%2Fpayments" {
+		t.Errorf("hrefForGraph = %q, want /fleet/graph/target/prod%%2Fk8s%%2Fpayments", got)
+	}
+}
+
 // TestStubProvidersForSchemaExport covers the no-op providers ExportOpenAPI wires
 // for schema generation: they are registered but never invoked during export, so
 // this exercises their (unreachable-in-export) error paths directly.

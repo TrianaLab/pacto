@@ -7,6 +7,7 @@ export interface Route {
     // (now mounted at /fleet/graph); the Phase-2 product routes are separate.
     | 'fleet' | 'impact'
     | 'fleet-overview'  // /fleet            operational landing page
+    | 'fleet-services'  // /fleet/services   product service list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
     | 'fleet-attention';// /fleet/attention  attention list
   params: Record<string, string>;
@@ -143,13 +144,32 @@ function parseFleet(path: string, query: string): Route {
 
   if (rest === 'attention') {
     const params: Record<string, string> = {};
-    const cat = new URLSearchParams(query).get('category');
-    if (cat) params.category = cat;
+    const qs = new URLSearchParams(query);
+    // Category and offset (and the section-I triage filters) live in the URL so the
+    // attention list is deep-linkable and back/forward restores the exact page.
+    for (const k of ['category', 'offset', 'owner', 'source', 'severity', 'status', 'staleOnly']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
     return { view: 'fleet-attention', params };
   }
 
   const imp = rest.match(/^impact\/(.+)$/);
   if (imp) return { view: 'impact', params: { svc: decodeURIComponent(imp[1]) } };
+
+  // Bare /fleet/services is the product service LIST (the backend route builder emits
+  // this canonical href for EntryPointServices). It must be matched before the
+  // entity-detail regex, which requires a trailing key segment. Its filters and page
+  // offset live in the query so the list is deep-linkable.
+  if (rest === 'services') {
+    const params: Record<string, string> = {};
+    const qs = new URLSearchParams(query);
+    for (const k of ['text', 'owner', 'status', 'domain', 'scope', 'source', 'offset']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
+    return { view: 'fleet-services', params };
+  }
 
   const ent = rest.match(/^(services|revisions|targets|owners|sources)\/(.+)$/);
   if (ent) {
@@ -170,7 +190,11 @@ export function navigate(view: string, params: Record<string, string> = {}): voi
   else if (view === 'diff' && params.name) hash = `#/services/${encodeURIComponent(params.name)}/diff`;
   else if (view === 'graph') hash = '#/graph';
   else if (view === 'readiness') hash = '#/readiness';
-  else if (view === 'fleet') hash = '#/fleet';
+  // The route model names view 'fleet' the Operational GRAPH (mounted at
+  // /fleet/graph) and view 'fleet-overview' the Overview (/fleet). navigate() must
+  // agree with parseHash, so 'fleet' goes to the graph, not the overview.
+  else if (view === 'fleet') hash = fleetUrl();
+  else if (view === 'fleet-overview') hash = fleetOverviewUrl();
   else if (view === 'impact') hash = '#/impact';
   else if (view === 'owners') hash = '#/owners';
   else if (view === 'owner-detail' && params.owner) hash = `#/owners/${encodeURIComponent(params.owner)}`;
@@ -237,6 +261,25 @@ export function fleetOverviewUrl(): string {
   return '#/fleet';
 }
 
+// fleetServicesUrl builds the product service-list route, preserving the backend
+// filters and page offset in the URL so a filtered/paged list is deep-linkable and
+// restored by refresh/back/forward. A zero/absent offset is omitted (canonical page 1).
+export function fleetServicesUrl(opts: {
+  text?: string; owner?: string; status?: string; domain?: string; scope?: string;
+  source?: string; offset?: number;
+} = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.text) qs.set('text', opts.text);
+  if (opts.owner) qs.set('owner', opts.owner);
+  if (opts.status) qs.set('status', opts.status);
+  if (opts.domain) qs.set('domain', opts.domain);
+  if (opts.scope) qs.set('scope', opts.scope);
+  if (opts.source) qs.set('source', opts.source);
+  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  const str = qs.toString();
+  return str ? `#/fleet/services?${str}` : '#/fleet/services';
+}
+
 // ponytail: encodeURIComponent over-escapes a few sub-delims vs Go's url.PathEscape,
 // so a frontend-built key segment can differ cosmetically from the backend href for
 // the same key -- both decode identically, and components prefer hashForHref(ref.href)
@@ -250,8 +293,23 @@ export function fleetGraphFocusUrl(kind: string, key: string): string {
   return `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
 }
 
-export function fleetAttentionUrl(category?: string): string {
-  return category ? `#/fleet/attention?category=${encodeURIComponent(category)}` : '#/fleet/attention';
+// fleetAttentionUrl builds the attention route, preserving the category, page offset
+// and the section-I triage filters in the URL so a filtered page is deep-linkable and
+// restored by refresh/back/forward. A zero/absent offset is omitted (canonical page 1).
+export function fleetAttentionUrl(opts: {
+  category?: string; offset?: number; owner?: string; source?: string;
+  severity?: string; status?: string; staleOnly?: boolean;
+} = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.category) qs.set('category', opts.category);
+  if (opts.owner) qs.set('owner', opts.owner);
+  if (opts.source) qs.set('source', opts.source);
+  if (opts.severity) qs.set('severity', opts.severity);
+  if (opts.status) qs.set('status', opts.status);
+  if (opts.staleOnly) qs.set('staleOnly', '1');
+  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  const str = qs.toString();
+  return str ? `#/fleet/attention?${str}` : '#/fleet/attention';
 }
 
 export function fleetImpactUrl(serviceKey: string): string {

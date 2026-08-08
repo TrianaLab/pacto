@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  parseHash, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl,
+  parseHash, navigate, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl,
   readinessUrl, fleetUrl, impactUrl,
-  hashForHref, fleetOverviewUrl, fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetImpactUrl,
+  hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetEntityUrl, fleetGraphFocusUrl,
+  fleetAttentionUrl, fleetImpactUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -305,6 +306,34 @@ describe('parseHash — fleet product IA (Phase 2)', () => {
     expect(parseHash('#/fleet/attention?category=stale')).toEqual({ view: 'fleet-attention', params: { category: 'stale' } });
   });
 
+  it('parses the attention page offset and triage filters from the query (A2/I)', () => {
+    expect(parseHash('#/fleet/attention?offset=50')).toEqual({ view: 'fleet-attention', params: { offset: '50' } });
+    expect(parseHash('#/fleet/attention?category=stale&offset=50')).toEqual({
+      view: 'fleet-attention', params: { category: 'stale', offset: '50' },
+    });
+    expect(parseHash('#/fleet/attention?owner=team-a&severity=error&staleOnly=1')).toEqual({
+      view: 'fleet-attention', params: { owner: 'team-a', severity: 'error', staleOnly: '1' },
+    });
+  });
+
+  it('parses the bare /fleet/services list route (A3 canonical services href)', () => {
+    expect(parseHash('#/fleet/services')).toEqual({ view: 'fleet-services', params: {} });
+  });
+
+  it('parses the /fleet/services filters and offset from the query (A3/C)', () => {
+    expect(parseHash('#/fleet/services?owner=team-a&status=NonCompliant&domain=payments&offset=100')).toEqual({
+      view: 'fleet-services',
+      params: { owner: 'team-a', status: 'NonCompliant', domain: 'payments', offset: '100' },
+    });
+  });
+
+  it('a bare /fleet/services must NOT be shadowed by service detail (regression A3)', () => {
+    // /fleet/services is the LIST; /fleet/services/:key is one service. The list must
+    // never fall through to the entity route (which needs a key) or the overview.
+    expect(parseHash('#/fleet/services').view).toBe('fleet-services');
+    expect(parseHash('#/fleet/services/payments').view).toBe('fleet-entity');
+  });
+
   it('parses the service-scoped impact route', () => {
     expect(parseHash('#/fleet/impact/domain-a%2Fpayments')).toEqual({ view: 'impact', params: { svc: 'domain-a/payments' } });
   });
@@ -330,8 +359,19 @@ describe('centralized fleet navigation builders', () => {
     expect(fleetEntityUrl('target', 'prod/k8s/app')).toBe('#/fleet/targets/prod%2Fk8s%2Fapp');
     expect(fleetGraphFocusUrl('service', 'a/b')).toBe('#/fleet/graph/service/a%2Fb');
     expect(fleetAttentionUrl()).toBe('#/fleet/attention');
-    expect(fleetAttentionUrl('non-compliant')).toBe('#/fleet/attention?category=non-compliant');
+    expect(fleetAttentionUrl({ category: 'non-compliant' })).toBe('#/fleet/attention?category=non-compliant');
     expect(fleetImpactUrl('domain-a/payments')).toBe('#/fleet/impact/domain-a%2Fpayments');
+  });
+  it('fleetServicesUrl carries filters and a non-zero offset, dropping page 1', () => {
+    expect(fleetServicesUrl()).toBe('#/fleet/services');
+    expect(fleetServicesUrl({ offset: 0 })).toBe('#/fleet/services');
+    expect(fleetServicesUrl({ owner: 'team-a', status: 'NonCompliant', offset: 100 }))
+      .toBe('#/fleet/services?owner=team-a&status=NonCompliant&offset=100');
+  });
+  it('fleetAttentionUrl carries category + offset + triage filters, dropping page 1', () => {
+    expect(fleetAttentionUrl({ offset: 0 })).toBe('#/fleet/attention');
+    expect(fleetAttentionUrl({ category: 'stale', offset: 50 })).toBe('#/fleet/attention?category=stale&offset=50');
+    expect(fleetAttentionUrl({ owner: 'team-a', staleOnly: true })).toBe('#/fleet/attention?owner=team-a&staleOnly=1');
   });
   it('hashForHref then parseHash round-trips a backend entity href', () => {
     const href = '/fleet/revisions/' + encodeURIComponent('svc@sha256:abc');
@@ -355,5 +395,65 @@ describe('ownerUrl', () => {
 
   it('encodes special characters', () => {
     expect(ownerUrl('team/payments')).toBe('#/owners/team%2Fpayments');
+  });
+});
+
+describe('navigate — routing-helper semantics agree with parseHash (A5)', () => {
+  beforeEach(() => { location.hash = ''; });
+
+  // The route model names view 'fleet' the Operational GRAPH and 'fleet-overview'
+  // the Overview. The generic navigate() helper must agree, so it can never send the
+  // graph view to the overview (the semantic trap this regression guards).
+  it('navigate("fleet") goes to the Operational Graph at /fleet/graph', () => {
+    navigate('fleet');
+    expect(location.hash).toBe('#/fleet/graph');
+    // and the destination round-trips back to the graph view, not the overview.
+    expect(parseHash(location.hash).view).toBe('fleet');
+  });
+
+  it('navigate("fleet-overview") goes to the Overview at /fleet', () => {
+    navigate('fleet-overview');
+    expect(location.hash).toBe('#/fleet');
+    expect(parseHash(location.hash).view).toBe('fleet-overview');
+  });
+});
+
+describe('backend-href / frontend-router contract (A3)', () => {
+  // Every canonical fleet href CLASS the backend route builder (fleetroute.go) emits
+  // MUST resolve through the frontend router to its intended destination. A backend
+  // href that falls through to an unrelated route (e.g. the overview) is a blocking
+  // failure. The href shapes below mirror fleetroute.go verbatim: routeEntity uses
+  // url.PathEscape for keys, hrefForEntryPoint uses url.QueryEscape for the category,
+  // hrefForGraph escapes both kind and key.
+  const k = (s: string) => encodeURIComponent(s); // PathEscape-compatible for these keys
+  const svcKey = 'payments-domain/payments';
+  const revKey = 'payments@sha256:abc';
+  const tgtKey = 'prod/k8s/payments';
+  const cases: Array<{ cls: string; href: string; view: string; params?: Record<string, string> }> = [
+    { cls: 'overview', href: '/fleet', view: 'fleet-overview', params: {} },
+    { cls: 'attention', href: '/fleet/attention', view: 'fleet-attention', params: {} },
+    { cls: 'attention category', href: '/fleet/attention?category=non-compliant', view: 'fleet-attention', params: { category: 'non-compliant' } },
+    { cls: 'services list', href: '/fleet/services', view: 'fleet-services', params: {} },
+    { cls: 'service detail', href: `/fleet/services/${k(svcKey)}`, view: 'fleet-entity', params: { kind: 'service', key: svcKey } },
+    { cls: 'revision detail', href: `/fleet/revisions/${k(revKey)}`, view: 'fleet-entity', params: { kind: 'revision', key: revKey } },
+    { cls: 'target detail', href: `/fleet/targets/${k(tgtKey)}`, view: 'fleet-entity', params: { kind: 'target', key: tgtKey } },
+    { cls: 'owner detail', href: `/fleet/owners/${k('team-a')}`, view: 'fleet-entity', params: { kind: 'owner', key: 'team-a' } },
+    { cls: 'source detail', href: `/fleet/sources/${k('kubernetes')}`, view: 'fleet-entity', params: { kind: 'source', key: 'kubernetes' } },
+    { cls: 'graph focus', href: `/fleet/graph/${k('target')}/${k(tgtKey)}`, view: 'fleet', params: { kind: 'target', sel: tgtKey } },
+  ];
+
+  for (const c of cases) {
+    it(`resolves the ${c.cls} href to its intended destination`, () => {
+      const r = parseHash(hashForHref(c.href));
+      expect(r.view).toBe(c.view);
+      if (c.params) expect(r.params).toEqual(c.params);
+    });
+  }
+
+  it('no non-overview canonical href silently falls through to the overview', () => {
+    for (const c of cases) {
+      if (c.cls === 'overview') continue;
+      expect(parseHash(hashForHref(c.href)).view).not.toBe('fleet-overview');
+    }
   });
 });
