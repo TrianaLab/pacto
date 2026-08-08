@@ -478,19 +478,27 @@ all pass.
    resolver-parse-compatibility test), and `internal/cli/dashboard_impact_e2e_test.go`
    drives the complete real-provider impact vertical for the dashboard-stripped, tag
    and digest input spellings plus the mutable / local / inconsistent rejections.
-   The last correction pass closed the remaining inconsistency: target-to-revision
-   linking used an INDEPENDENT digest rule (match `TargetRecord.Digest` directly)
-   that could contradict the classifier — a target whose recorded digest contradicted
-   its digest-pinned resolved ref was reported `digest-mismatch` by the classifier yet
+   The last correction pass closed the remaining inconsistencies: target-to-revision
+   linking used an INDEPENDENT digest rule (match `TargetRecord.Digest` directly) that
+   could contradict the classifier — a target whose recorded digest contradicted its
+   digest-pinned resolved ref was reported `digest-mismatch` by the classifier yet
    could get an `exact` link, and a canonical digest ref with no separate recorded
-   digest was reported `exact` yet linked only `inferred`. `matchRevision` now uses
-   `ClassifyExactIdentity` for the exact tier: it matches by the classifier's
-   canonical digest, never a contradictory recorded digest independently, and an
-   internally inconsistent or malformed identity yields no link and a
-   `SOURCE_RECORD_INVALID` limitation. `pkg/fleet/matchrevision_identity_test.go`
-   proves the six identity cases (canonical-ref-missing-digest, digest+matching-ref,
-   digest/ref mismatch, recorded-digest-no-ref, malformed, mutable unique/ambiguous),
-   so the TargetDetail identity class and linkState never contradict.
+   digest was reported `exact` yet linked only `inferred`. `matchRevision` now links
+   exact by the target's EFFECTIVE content digest reconciled through the shared
+   classifier: the classifier's canonical digest for an `oci://` digest-pinned ref, or
+   a digest embedded in a non-`oci://` ref cross-checked against the recorded digest,
+   or the recorded digest. A ref that embeds a digest CONTRADICTING the recorded one
+   is internally inconsistent and never links exact — this also closes the scheme-less
+   bypass an independent review found (a `reg/svc@<other>` ref, classed `local`, whose
+   embedded digest the `oci://` classifier never parses, must still face the same
+   digest-mismatch guard). Real evidence sources are preserved: the k8s operator emits
+   a scheme-less `registry/repo:tag@sha256:...` ref (the `oci://` scheme stripped), so
+   its embedded digest matches the recorded digest and the target links exact.
+   `pkg/fleet/matchrevision_identity_test.go` proves the identity cases
+   (canonical-ref-missing-digest, digest+matching-ref, oci digest/ref mismatch,
+   recorded-digest-no-ref, scheme-less matching digest, scheme-less/oci contradicting
+   embedded digest, malformed, mutable unique/ambiguous), and a contradicting embedded
+   digest surfaces a `SOURCE_RECORD_INVALID` limitation through `linkTargets`.
 8. Frontend/backend wire contract (generated SDK, ADR-6). DONE. Huma/OpenAPI is the
    single source of wire truth; a pinned generator (`openapi-typescript@7.13.0` +
    `openapi-fetch@0.17.0`) emits a committed TypeScript SDK
@@ -522,8 +530,10 @@ all pass.
    request-type derivation, that no method returns `unknown`, and that entity detail
    is narrowed; `api.test.ts` proves the runtime narrowing and the request-semantic
    transport (method/query/body sensitivity, honest failure, offline route set); and
-   `architecture.test.ts` guards raw-fetch/backend-path containment, request-semantic
-   fixtures and the absence of a hand-written wire DTO mirror.
+   `architecture.test.ts` guards that raw backend access (bare `fetch(` AND the
+   `window`/`globalThis`/`self.fetch(` method-call forms) and hand-built backend paths
+   (`/api/*`, `/health`, `/metrics`) appear only in the transport/facade, that static
+   fixtures are request-semantic, and that no hand-written wire DTO mirror returned.
 9. Complete U+00A7 enforcement. Gate capability DONE (the script scans authored
    files, committed generated docs, `--commits base..HEAD` messages and `--text`
    PR title/body, with fixtures per failure mode; the authored-file scan is
