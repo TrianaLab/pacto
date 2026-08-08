@@ -56,19 +56,26 @@ describe('frontend backend-access architecture', () => {
   });
 
   it('performs a raw backend fetch only in the transport seam', () => {
+    // Catch the bare `fetch(` spelling AND the global-object method-call forms
+    // (`window.fetch(`, `globalThis.fetch(`, `self.fetch(`), so a view cannot reach
+    // the backend directly by qualifying the global fetch.
+    const rawFetch = /(?<![.\w])fetch\s*\(|\b(?:globalThis|window|self)\.fetch\s*\(/;
     const offenders = files
       .filter((f) => !FETCH_ALLOW.includes(f.rel))
-      .filter((f) => /(?<![.\w])fetch\s*\(/.test(f.body))
+      .filter((f) => rawFetch.test(f.body))
       .map((f) => f.rel);
     expect(offenders, `raw fetch() outside the transport seam: ${offenders.join(', ')}`).toEqual([]);
   });
 
-  it('references /api/ backend paths only in the facade and transport', () => {
+  it('references a backend path only in the facade and transport', () => {
+    // Any backend route literal - /api/*, plus the non-/api Huma routes /health and
+    // /metrics the facade calls - must not be hand-built outside the facade/transport.
+    const backendPath = /['"`]\/(?:api\/|health\b|metrics\b)/;
     const offenders = files
       .filter((f) => !API_PATH_ALLOW.includes(f.rel))
-      .filter((f) => /['"`]\/api\//.test(f.body))
+      .filter((f) => backendPath.test(f.body))
       .map((f) => f.rel);
-    expect(offenders, `hand-built /api/ URL outside the generated-SDK facade: ${offenders.join(', ')}`).toEqual([]);
+    expect(offenders, `hand-built backend URL outside the generated-SDK facade: ${offenders.join(', ')}`).toEqual([]);
   });
 
   it('matches static fixtures by request semantics, not by raw pathname', () => {

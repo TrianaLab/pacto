@@ -71,6 +71,13 @@ export type _ItemTwoThreeFour = [
   _AttentionDerived, _ImpactDerived, _NoUnknownReturns, _EntityDetailNarrowed,
 ];
 
+// Non-vacuousness guard: prove Expect/Equal actually REJECT a false equality, so the
+// assertions above are meaningful. The @ts-expect-error is "used" only because
+// `Expect<Equal<string, number>>` genuinely does not type-check; were the helpers ever
+// vacuous, the directive would be unused and svelte-check (threshold error) would fail.
+// @ts-expect-error string and number are not equal, so this must be a type error.
+export type _NonVacuous = Expect<Equal<string, number>>;
+
 type Entity = NonNullable<ProductEntityDetail['entity']>;
 type ServicePayload = NonNullable<ProductEntityDetail['service']>;
 type RevisionPayload = NonNullable<ProductEntityDetail['revision']>;
