@@ -113,3 +113,58 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
+  beforeEach(() => overviewFn.mockReset());
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
+  function emptyOverview(partial: boolean): any {
+    const ov = baseOverview(partial);
+    ov.summary.services = 0;
+    ov.summary.exactTargetLinks = 0; ov.summary.inferredTargetLinks = 0;
+    ov.summary.ambiguousTargetLinks = 0; ov.summary.unresolvedTargetLinks = 0;
+    ov.attention = { total: 0, count: 0, truncated: false, items: [] };
+    return ov;
+  }
+
+  it('case 1: complete knowledge + zero services renders a genuine empty-fleet state, not all-clear', async () => {
+    overviewFn.mockResolvedValue(emptyOverview(false));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
+    const text = target.textContent || '';
+    expect(text).not.toMatch(/all clear/i);
+    expect(text).not.toMatch(/every deployment is compliant/i);
+    expect(target.querySelector('.empty-fleet')).toBeTruthy();
+    expect(text).toMatch(/no services tracked/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('case 2: incomplete knowledge + zero services never claims health', async () => {
+    overviewFn.mockResolvedValue(emptyOverview(true));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
+    const text = target.textContent || '';
+    expect(text).not.toMatch(/all clear/i);
+    expect(text).not.toMatch(/every deployment is compliant/i);
+    expect(target.querySelector('.empty-fleet')).toBeFalsy(); // incomplete: not a confirmed-empty claim either
+    expect(target.querySelector('.knowledge-banner')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('case 3: a populated healthy fleet with zero attention MAY show all-clear', async () => {
+    overviewFn.mockResolvedValue(baseOverview(false)); // services: 3, targets > 0, complete
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.all-clear')).toBeTruthy());
+    expect(target.textContent).toMatch(/every deployment is compliant/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('case 4: a populated but incomplete fleet with zero attention does NOT show all-clear', async () => {
+    overviewFn.mockResolvedValue(baseOverview(true)); // services: 3, but a source is unavailable
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
+    expect(target.querySelector('.all-clear')).toBeFalsy();
+    expect(target.querySelector('.knowledge-banner')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+});

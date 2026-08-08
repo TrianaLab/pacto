@@ -49,7 +49,20 @@
   // Page-level state: loading/error gate the whole view; once loaded, the overview
   // always has a summary to render (itemCount 1).
   const pageState = $derived(decideViewState({ loading, error, itemCount: overview ? 1 : 0, knowledge }));
-  const canAllClear = $derived(!!overview && allClearAllowed(knowledge, attentionTotal));
+
+  // A1: distinguish a genuinely empty fleet from a healthy populated one, using the
+  // authoritative product summary counts (never the raw snapshot). A fleet with zero
+  // services is empty, not "all clear"; "every deployment is compliant" is claimed
+  // only when there actually ARE deployments.
+  const totalServices = $derived(overview?.summary?.services ?? 0);
+  const s = $derived(overview?.summary ?? {});
+  const totalTargets = $derived(
+    (s.exactTargetLinks || 0) + (s.inferredTargetLinks || 0) +
+    (s.ambiguousTargetLinks || 0) + (s.unresolvedTargetLinks || 0),
+  );
+  const isEmptyFleet = $derived(!!overview && totalServices === 0);
+  // All-clear needs complete knowledge, zero attention AND a populated fleet.
+  const canAllClear = $derived(!!overview && totalServices > 0 && allClearAllowed(knowledge, attentionTotal));
 </script>
 
 <div class="overview">
@@ -62,12 +75,29 @@
     {#if knowledge.incomplete}
       <div class="knowledge-banner tone-{knowledgeTone(knowledge.level)}" role="status">
         <strong>{knowledgeLabel(knowledge.level)}.</strong>
-        <span>Some sources are degraded, so the counts below may be incomplete — this is not a clean bill of health.</span>
+        <span>
+          {#if isEmptyFleet}
+            Nothing is being tracked yet, and some sources are degraded — we can neither confirm the fleet is empty nor call it healthy.
+          {:else}
+            Some sources are degraded, so the counts below may be incomplete — this is not a clean bill of health.
+          {/if}
+        </span>
+      </div>
+    {:else if isEmptyFleet}
+      <div class="empty-fleet" role="status">
+        <strong>No services tracked yet.</strong>
+        <span>This fleet is empty — nothing has reported a contract or deployment. That is not a health assessment.</span>
       </div>
     {:else if canAllClear}
       <div class="all-clear" role="status">
         <strong>All clear.</strong>
-        <span>Every deployment is compliant and every source is healthy.</span>
+        <span>
+          {#if totalTargets > 0}
+            Every deployment is compliant and every source is healthy.
+          {:else}
+            No open attention items, and every source is healthy.
+          {/if}
+        </span>
       </div>
     {/if}
 
@@ -127,13 +157,15 @@
   .ov-head h2, .ov-section h2 { margin: 0; }
   .ov-viewall, .ov-more a { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
   .ov-viewall:hover, .ov-more a:hover { text-decoration: underline; }
-  .knowledge-banner, .all-clear {
+  .knowledge-banner, .all-clear, .empty-fleet {
     display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline;
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
   }
   .knowledge-banner { background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); color: var(--c-text); }
   .knowledge-banner.tone-err { background: var(--c-err-bg); border-color: color-mix(in srgb, var(--c-err) 30%, transparent); }
   .all-clear { background: var(--c-ok-bg); border: 1px solid var(--c-ok-border); color: var(--c-text); }
+  /* An empty fleet is a neutral fact, never a green all-clear. */
+  .empty-fleet { background: var(--c-surface-inset); border: 1px solid var(--c-border); color: var(--c-text-2); }
   .attn-list, .evi-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .attn-item, .evi-item {
     display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
