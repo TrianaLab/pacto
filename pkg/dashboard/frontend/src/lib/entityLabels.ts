@@ -83,6 +83,37 @@ export function knowledgeTone(level: string | undefined): Tone {
   }
 }
 
+// ── relationship difference (a NeighborhoodEdge's declared-vs-observed state) ──
+// The product "Differences" view reads this backend fact verbatim (ADR-3): it is the
+// reconciliation of an EXPECTED (declared) dependency against OBSERVED runtime traffic.
+export function differenceLabel(d: string | undefined): string {
+  switch (d) {
+    case 'matched': return 'Matched';
+    case 'expected-not-observed': return 'Expected, not observed';
+    case 'observed-not-expected': return 'Observed, not expected';
+    case 'insufficient': return 'Insufficient evidence';
+    default: return d || 'Unknown';
+  }
+}
+export function differenceTone(d: string | undefined): Tone {
+  switch (d) {
+    case 'matched': return 'ok';
+    case 'expected-not-observed': return 'warn';
+    case 'observed-not-expected': return 'info';
+    case 'insufficient': return 'neutral';
+    default: return 'neutral';
+  }
+}
+
+// provenanceLabel names where a relationship's knowledge came from.
+export function provenanceLabel(p: string | undefined): string {
+  switch (p) {
+    case 'declared': return 'Expected';
+    case 'observed': return 'Observed';
+    default: return p || '';
+  }
+}
+
 // ── source health ────────────────────────────────────────────────────────────
 export function sourceHealthLabel(status: string | undefined): string {
   switch (status) {
