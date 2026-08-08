@@ -1347,9 +1347,7 @@ export interface components {
             };
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             name: string;
-            observedRuntime?: {
-                [key: string]: unknown;
-            };
+            observedRuntime: components["schemas"]["Fleet.RuntimePreview"];
             quarantined?: boolean;
             readiness?: components["schemas"]["Readiness.Result"];
             /** Format: date-time */
