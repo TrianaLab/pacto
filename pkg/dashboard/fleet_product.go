@@ -81,7 +81,7 @@ type fleetEntitiesInput struct {
 	Domain       string `query:"domain"`
 	Scope        string `query:"scope"`
 	Status       string `query:"status" doc:"Compliance status filter (service/revision/target)"`
-	SourceHealth string `query:"sourceHealth" doc:"Source-health filter (available, partial, stale, unavailable) for source entities"`
+	SourceHealth string `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
 	Source       string `query:"source"`
 	Limit        int    `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
 	Offset       int    `query:"offset" minimum:"0"`
@@ -127,7 +127,7 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 type fleetNeighborhoodInput struct {
 	Kind      string `query:"kind" required:"true" doc:"Focus entity kind: service, revision or target"`
 	Key       string `query:"key" required:"true"`
-	Direction string `query:"direction" doc:"dependencies, dependents or both (default both)"`
+	Direction string `query:"direction" enum:"dependencies,dependents,both" doc:"dependencies, dependents or both (default both)"`
 	Depth     int    `query:"depth" minimum:"0" doc:"Traversal depth (negatives rejected; excessive values capped)"`
 	Views     string `query:"views" doc:"Comma-separated knowledge views (expected,observed,differences)"`
 	MaxNodes  int    `query:"maxNodes" minimum:"0" doc:"Max nodes (negatives rejected; excessive values capped)"`
@@ -158,7 +158,7 @@ type fleetAttentionInput struct {
 	Service   string `query:"service"`
 	Owner     string `query:"owner"`
 	Source    string `query:"source"`
-	Severity  string `query:"severity"`
+	Severity  string `query:"severity" enum:"error,warning,info"`
 	Status    string `query:"status"`
 	StaleOnly bool   `query:"staleOnly"`
 	Limit     int    `query:"limit" minimum:"0" doc:"Max items per page (negatives rejected; excessive values capped)"`

@@ -311,10 +311,10 @@ type RevisionDetailData struct {
 type TargetDetailData struct {
 	Service         EntityRef          `json:"service"`
 	Revision        *EntityRef         `json:"revision,omitempty"`
-	LinkState       string             `json:"linkState"`
+	LinkState       string             `json:"linkState" enum:"exact,inferred,ambiguous,unresolved"`
 	Scope           string             `json:"scope,omitempty"`
 	Kind            string             `json:"kind,omitempty"`
-	Compliance      string             `json:"compliance"`
+	Compliance      string             `json:"compliance" enum:"Compliant,NonCompliant,Unknown,Warning,Invalid,Reference,NotEvaluated"`
 	Coverage        *Coverage          `json:"coverage,omitempty"`
 	Findings        FindingsPreview    `json:"findings"`
 	ObservedRuntime RuntimePreview     `json:"observedRuntime"`
@@ -343,7 +343,7 @@ type OwnerDetailData struct {
 // sanitized source error, and the source's own limitations.
 type SourceDetailData struct {
 	Kind               string             `json:"kind,omitempty"`
-	Health             string             `json:"health"`
+	Health             string             `json:"health" enum:"available,partial,stale,unavailable"`
 	LastSuccessfulSync *time.Time         `json:"lastSuccessfulSync,omitempty"`
 	ObservedAt         *time.Time         `json:"observedAt,omitempty"`
 	RevisionCount      int                `json:"revisionCount"`

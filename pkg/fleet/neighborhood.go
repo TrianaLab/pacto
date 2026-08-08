@@ -120,8 +120,8 @@ type NeighborhoodEdge struct {
 	To                 EntityRef                 `json:"to"`
 	Expected           bool                      `json:"expected"`
 	Observed           bool                      `json:"observed"`
-	Provenance         string                    `json:"provenance"`
-	Difference         string                    `json:"difference"`
+	Provenance         string                    `json:"provenance" enum:"declared,observed"`
+	Difference         string                    `json:"difference" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
 	DeclaredClaims     DeclaredClaimsPreview     `json:"declaredClaims"`
 	ObservationSources ObservationSourcesPreview `json:"observationSources"`
 	Count              int                       `json:"count,omitempty"`
@@ -178,9 +178,9 @@ type Neighborhood struct {
 	Meta                   ProductMeta                   `json:"meta"`
 	RequestedFocus         EntityRef                     `json:"requestedFocus"`
 	FocusService           EntityRef                     `json:"focusService"`
-	Direction              Direction                     `json:"direction"`
+	Direction              Direction                     `json:"direction" enum:"dependencies,dependents,both"`
 	Depth                  int                           `json:"depth"`
-	Views                  []KnowledgeView               `json:"views"`
+	Views                  []KnowledgeView               `json:"views" enum:"expected,observed,differences"`
 	Nodes                  []NeighborhoodNode            `json:"nodes"`
 	Edges                  []NeighborhoodEdge            `json:"edges"`
 	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`

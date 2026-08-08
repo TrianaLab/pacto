@@ -55,15 +55,17 @@ func validEntityKind(k EntityKind) bool {
 // product transport adds a canonical href from the canonical key (ADR-2). Human
 // labels are primary; the raw Key is secondary copyable metadata.
 type EntityRef struct {
-	Kind          EntityKind `json:"kind"`
-	Key           string     `json:"key"`
-	Label         string     `json:"label"`
-	Secondary     string     `json:"secondary,omitempty"`
-	Status        string     `json:"status,omitempty"`
-	Explanation   string     `json:"explanation,omitempty"`
-	Domain        string     `json:"domain,omitempty"`
-	Scope         string     `json:"scope,omitempty"`
-	ParentService string     `json:"parentService,omitempty"`
+	Kind      EntityKind `json:"kind" enum:"service,revision,target,owner,source"`
+	Key       string     `json:"key"`
+	Label     string     `json:"label"`
+	Secondary string     `json:"secondary,omitempty"`
+	// Status is polymorphic by kind (a compliance status for service/revision/
+	// target, a source-health value for source), so it carries no single enum.
+	Status        string `json:"status,omitempty"`
+	Explanation   string `json:"explanation,omitempty"`
+	Domain        string `json:"domain,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	ParentService string `json:"parentService,omitempty"`
 }
 
 // ProductMeta is the completeness envelope on every product answer: the product
@@ -396,16 +398,18 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 // route-neutral reference to the exact affected entity and recommends the next
 // step; the transport adds the entity's canonical href.
 type AttentionItem struct {
-	Entity   EntityRef `json:"entity"`
-	Service  string    `json:"service,omitempty"`
-	Label    string    `json:"label"`
-	Severity string    `json:"severity"`
-	Code     string    `json:"code"`
-	Category string    `json:"category"`
-	Summary  string    `json:"summary"`
-	Reason   string    `json:"reason"`
-	Source   string    `json:"source,omitempty"`
-	NextStep string    `json:"nextStep,omitempty"`
+	Entity  EntityRef `json:"entity"`
+	Service string    `json:"service,omitempty"`
+	Label   string    `json:"label"`
+	// Severity is the narrower attention domain (it never carries "unknown", unlike
+	// finding severity).
+	Severity string `json:"severity" enum:"error,warning,info"`
+	Code     string `json:"code"`
+	Category string `json:"category" enum:"non-compliant,unknown,stale,invalid,readiness,unresolved"`
+	Summary  string `json:"summary"`
+	Reason   string `json:"reason"`
+	Source   string `json:"source,omitempty"`
+	NextStep string `json:"nextStep,omitempty"`
 }
 
 // Attention categories (stable, used for filtering and for overview entry points).

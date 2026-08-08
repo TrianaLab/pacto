@@ -310,7 +310,7 @@ type SourceError struct {
 type SourceState struct {
 	ID                 string       `json:"id"`
 	Kind               string       `json:"kind"`
-	Status             SourceStatus `json:"status"`
+	Status             SourceStatus `json:"status" enum:"available,partial,stale,unavailable"`
 	LastSuccessfulSync *time.Time   `json:"lastSuccessfulSync,omitempty"`
 	ObservedAt         *time.Time   `json:"observedAt,omitempty"`
 	Error              *SourceError `json:"error,omitempty"`
