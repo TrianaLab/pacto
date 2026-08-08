@@ -411,12 +411,16 @@ all pass.
    product model. DONE. `EntityDetail` carries exactly one of
    Service/Revision/Target/Owner/Source; OpenAPI expresses concrete structures;
    every nested list is a bounded typed preview.
-4. Make every product response genuinely bounded. IN PROGRESS (re-opened by the
-   generated-SDK session; the branch-state block above records the fresh
-   counterexamples: service-relationships / owner-attention double-truncation,
-   raw Overview arrays, RuntimePreview computational unboundedness, and unbounded
-   `finding.Finding.EvidenceRefs`). The earlier close is retained below for
-   history; the new closure is recorded in section 17.
+4. Make every product response genuinely bounded. DONE (re-closed by the
+   generated-SDK session after the fixes and adversarial tests in section 17):
+   ServiceDetail relationships carry an OPTIONAL total (unknown when the
+   neighborhood truncated, never the pre-truncation scanned count); Overview
+   Attention/RecentEvidence are explicit previews with the true total; RuntimePreview
+   is computationally bounded (bounded-allocation key selection, no whole-composite
+   stringify, rune-capped keys/values, optional true total); and
+   `finding.Finding.EvidenceRefs` is superseded by a bounded `ProductFinding`
+   (`ProductEvidenceRefsPreview`) everywhere findings appear. The earlier close is
+   retained below for history.
    The top-level slices were already capped, but several nested structures were
    still unbounded when this was first marked DONE:
    - `OwnershipInfo.Conflicts` is `[]string` and `serviceOwnership` appends one
@@ -448,13 +452,16 @@ all pass.
    (and vice versa). Regression tests cover expected/observed/differences across
    incoming and outgoing directions. True revision/deployment graph projections
    remain a later phase.
-7. Correct contextual product impact (exact-content identity). IN PROGRESS
-   (re-opened by the generated-SDK session: the `immutable` boolean does not mean
-   the same thing everywhere — detail uses `IsDigestPinnedRef` while Impact also
-   requires recorded-digest consistency; and `ParseCanonicalOCIRef` does not
-   validate the repository with the real OCI grammar. See the branch-state block;
-   the new closure is in section 17). The earlier close is retained below for
-   history. Two concrete defects held when this was first marked DONE:
+7. Correct contextual product impact (exact-content identity). DONE (re-closed by
+   the generated-SDK session): a single `fleet.ClassifyExactIdentity(resolvedRef,
+   recordedDigest)` is the ONE exact-content evaluation used by RevisionDetail,
+   TargetDetail and Product Impact, so `immutable` means the same thing everywhere
+   and distinguishes exact / missing-digest / mutable / local / malformed /
+   digest-mismatch; and `ParseCanonicalOCIRef` validates the repository with the
+   same go-containerregistry name grammar the production BundleStore uses, proven by
+   a resolver-parse-compatibility test on an OCISource canonical ref. The earlier
+   close is retained below for history. Two concrete defects held when this was
+   first marked DONE:
    - Identity contract broken on the normal dashboard OCI path. `dashboard
      oci://registry/repo` has its `oci://` stripped by `parseDashboardArgs`, so a
      bare `registry/repo` reaches `OCISource`. `pinRefToDigest` preserved the
@@ -484,14 +491,18 @@ all pass.
    impactProviderForFleet -> Service.ImpactWithSnapshot -> BundleStore.Pull, no
    staticImpact) for the dashboard-stripped, tag and digest input spellings, plus
    the mutable / local / inconsistent rejections and the refresh-race 409.
-8. Frontend/backend wire contract. IN PROGRESS, ARCHITECTURE REVERSED (see
-   ADR-6). The hand-written `productTypes.ts` mirror and the in-Go structural
-   drift parser `producttypes_drift_test.go` are superseded by a deterministic
-   generated TypeScript SDK (`openapi-typescript` + `openapi-fetch`) with a CI
-   drift gate; the whole dashboard frontend consumes the generated client through
-   one transport seam shared by live HTTP and the WASM/static demo. The earlier
-   in-Go-gate closure is retained below for history; the new closure is in
-   section 17. Three concrete gaps held when this was first marked DONE:
+8. Frontend/backend wire contract. DONE, ARCHITECTURE REVERSED (see ADR-6 and the
+   generated-SDK outcome in section 17). Huma/OpenAPI is now the single source of
+   wire truth; a pinned generator (`openapi-typescript@7.13.0` +
+   `openapi-fetch@0.17.0`) emits a committed TypeScript SDK
+   (`pkg/dashboard/frontend/src/lib/generated/`); `make check-dashboard-sdk-drift`
+   regenerates and diffs it, wired into the blocking `ci-static-engine` path. The
+   whole dashboard frontend consumes the generated client through one transport
+   seam (`transport.ts`) shared by live HTTP, the WASM demo and the static export.
+   The hand-written `productTypes.ts` mirror and the in-Go structural drift parser
+   `producttypes_drift_test.go` are DELETED; the dropped `SeverityUnknown` is fixed
+   at the source. The earlier in-Go-gate closure is retained below for history.
+   Three concrete gaps held when this was first marked DONE:
    - Weak placeholders. `AttributedFinding.finding`, `RevisionDetail.readiness`,
      `RevisionDetail.validation` (`Preview<unknown>`) and `TargetDetail.findings`
      (`Preview<unknown>`) were `unknown`, not real DTO types; finite vocabularies
@@ -531,6 +542,31 @@ all pass.
    force-push the harness blocks without explicit user authorization). This is the
    one remaining, deliberately-deferred action.
 
+### Generated-SDK session outcome (phase 1 completion)
+
+Phase 1 (product API hardening) is COMPLETE. The generated-SDK session closed the
+last correctness counterexamples (items 4 and 7) and reversed the wire-contract
+architecture (item 8, ADR-6). Against the section 9 acceptance criteria:
+
+- every product response is explicitly bounded/truthful (ProductFinding evidence
+  refs, RuntimePreview, ServiceDetail relationships, Overview previews);
+- exact-content identity is one consistent invariant (`ClassifyExactIdentity`),
+  and `ParseCanonicalOCIRef` validates the real OCI grammar;
+- OpenAPI expresses the finite vocabularies consumers need (severities including
+  `unknown`, kinds, statuses, source health, knowledge views, difference/link
+  states, identity classes, directions), verified by `openapi_enum_test.go`;
+- the generated TypeScript SDK is the frontend/backend wire contract, the whole
+  dashboard frontend consumes it (one facade over the generated client, one
+  transport seam for live/WASM/static), no manual TS DTO mirror or in-Go structural
+  parser remains, and SDK regeneration is deterministic and CI-blocking;
+- `pkg/fleet`, `pkg/dashboard` and `internal/fleetsrc` hold 100% coverage; the full
+  race+coverage gate, golangci-lint, gocyclo, architecture, OCI and real-provider
+  impact vertical, plus svelte-check + 634 vitest tests, all pass.
+
+The only remaining deferred item is the U+00A7 commit-history + PR-metadata CI
+enforcement (section 8 item 9), still BLOCKED on explicit history-rewrite
+authorization; it was not performed this session.
+
 ### Product response boundedness audit (requirement, item 4)
 
 Every collection-bearing field reachable from a product response was audited from
@@ -559,15 +595,15 @@ the exported OpenAPI (the 57-schema closure of the six product roots). Result:
   - Class B (intrinsic small fixed maximum): `Neighborhood.views` and
     `EntityDetail.actions` and `Overview.entryPoints` (fixed vocabularies);
     `NeighborhoodNode.expansions` (at most the two directions).
-- One residual, documented honestly: `finding.Finding.EvidenceRefs` is a nested
-  array inside the (hard-capped) findings previews. It has no preview of its own.
-  It is class B by construction: pacto's validation emits exactly one ref per
-  finding, and the only multi-ref producer (the k8s source) is bounded by the
-  Kubernetes object-size limit. A future product finding DTO would add an explicit
-  bounded preview if untrusted custom `fleet.Source` implementations ever need
-  defending against; today no code path or real source produces a large per-finding
-  EvidenceRefs. This is the sole nested collection whose bound is external rather
-  than an explicit truncated preview.
+- The previously-residual `finding.Finding.EvidenceRefs` case is now RESOLVED
+  (generated-SDK session): the product transport no longer exposes raw
+  `finding.Finding`. Every findings-bearing product response carries a bounded
+  `ProductFinding` whose `EvidenceRefs` is an explicit `ProductEvidenceRefsPreview`
+  (cap `MaxEvidenceRefsPreview`, truncated preview), so an untrusted extension
+  source can never smuggle an unbounded per-finding evidence list. The raw
+  `finding.Finding` remains on the low-level snapshot export only. There is now no
+  nested product collection whose bound is external rather than an explicit
+  truncated preview.
 
 Deferred graph projections (recorded so a later phase implements them before the
 corresponding UI): this API version is honestly service-neighborhood oriented.
