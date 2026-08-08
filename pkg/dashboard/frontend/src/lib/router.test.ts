@@ -240,10 +240,10 @@ describe('parseHash — query strings on non-diff routes', () => {
     expect(parseHash('#/readiness?contractStatus=Warning')).toEqual({ view: 'readiness', params: {} });
   });
 
-  it('parses fleet graph state (perspective, layer, filters, selection) from the query', () => {
-    expect(parseHash('#/fleet/graph?perspective=target&layer=reconciled&domain=domain-a&owner=core&sel=domain-a%2Fpayments')).toEqual({
+  it('parses search-first graph state (perspective, views, direction, depth, filters, selection) from the query', () => {
+    expect(parseHash('#/fleet/graph?perspective=target&views=observed&direction=dependencies&depth=2&domain=domain-a&owner=core&sel=domain-a%2Fpayments')).toEqual({
       view: 'fleet',
-      params: { perspective: 'target', layer: 'reconciled', domain: 'domain-a', owner: 'core', sel: 'domain-a/payments' },
+      params: { perspective: 'target', views: 'observed', direction: 'dependencies', depth: '2', domain: 'domain-a', owner: 'core', sel: 'domain-a/payments' },
     });
   });
 

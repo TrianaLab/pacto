@@ -130,12 +130,14 @@ function parseFleet(path: string, query: string): Route {
   if (path === 'fleet') return { view: 'fleet-overview', params: {} };
   const rest = path.slice('fleet/'.length);
 
-  // Operational graph: perspective/layer/filters/selection live in the query so the
-  // graph is deep-linkable; an optional /:kind/:key path segment focuses it.
+  // Operational graph: the search-first product graph. The projection/perspective,
+  // knowledge views, direction, depth and advanced filters live in the query so a
+  // focused graph is shareable and back/forward-restorable; an optional /:kind/:key
+  // path segment focuses it (no focus -> the discovery state, never a fleet hairball).
   if (rest === 'graph' || rest.startsWith('graph/')) {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['perspective', 'layer', 'domain', 'scope', 'owner', 'status', 'source', 'freshness', 'sel', 'kind']) {
+    for (const k of ['perspective', 'views', 'direction', 'depth', 'domain', 'scope', 'owner', 'status', 'source', 'freshness', 'sel', 'kind']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -325,8 +327,54 @@ export function fleetEntityUrl(kind: string, key: string): string {
   return `#/fleet/${plural}/${encodeURIComponent(key)}`;
 }
 
-export function fleetGraphFocusUrl(kind: string, key: string): string {
-  return `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
+// fleetGraphDiscoveryUrl is the search-first graph landing (no focus). It never
+// carries a focus, so it opens the discovery state rather than a fleet hairball.
+export function fleetGraphDiscoveryUrl(): string {
+  return '#/fleet/graph';
+}
+
+// GraphState is the shareable state of the search-first Operational Graph (Q). The
+// focus (kind + key) is a path segment; the projection/perspective, knowledge views,
+// direction, depth and advanced filters are query params, so back/forward restores a
+// meaningful graph and never ephemeral canvas coordinates.
+export interface GraphState {
+  kind?: string;
+  key?: string;
+  perspective?: string;
+  views?: string[];
+  direction?: string;
+  depth?: number;
+  domain?: string;
+  scope?: string;
+  owner?: string;
+  status?: string;
+  source?: string;
+  freshness?: string;
+}
+
+// fleetGraphFocusUrl builds a focused graph URL from (kind, key) plus optional graph
+// state. With no key it returns the discovery landing.
+// isDefaultGraphViews reports whether views are exactly the focused default
+// (expected + differences), so a canonical URL omits them (kept in sync with
+// graphState.DEFAULT_VIEWS; a small deliberate duplication that keeps this low-level
+// route builder free of a graph-state import).
+function isDefaultGraphViews(v?: string[]): boolean {
+  return !!v && v.length === 2 && v.includes('expected') && v.includes('differences');
+}
+
+export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphState, 'kind' | 'key'> = {}): string {
+  if (!key) return fleetGraphDiscoveryUrl();
+  const qs = new URLSearchParams();
+  if (state.perspective && state.perspective !== 'service') qs.set('perspective', state.perspective);
+  if (state.views && state.views.length && !isDefaultGraphViews(state.views)) qs.set('views', state.views.join(','));
+  if (state.direction && state.direction !== 'both') qs.set('direction', state.direction);
+  if (state.depth && state.depth !== 1) qs.set('depth', String(state.depth));
+  for (const k of ['domain', 'scope', 'owner', 'status', 'source', 'freshness'] as const) {
+    if (state[k]) qs.set(k, state[k] as string);
+  }
+  const base = `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
+  const str = qs.toString();
+  return str ? `${base}?${str}` : base;
 }
 
 // fleetAttentionUrl builds the attention route, preserving the category, page offset

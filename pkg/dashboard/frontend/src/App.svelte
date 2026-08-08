@@ -15,7 +15,7 @@
   import OwnersView from './views/OwnersView.svelte';
   import OwnerDetailView from './views/OwnerDetailView.svelte';
   import ReadinessView from './views/ReadinessView.svelte';
-  import FleetView from './views/FleetView.svelte';
+  import GraphView from './views/GraphView.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
   import FleetOwnersView from './views/FleetOwnersView.svelte';
@@ -251,7 +251,7 @@
       {refreshTick}
     />
   {:else if route.view === 'fleet'}
-    <FleetView params={route.params} {refreshTick} />
+    <GraphView params={route.params} {refreshTick} />
   {:else if route.view === 'impact'}
     <ImpactView params={route.params} />
   {:else if route.view === 'owners'}
