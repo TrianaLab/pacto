@@ -56,6 +56,61 @@ The product-API counterexample-closing session (this ledger's re-audit of phase
   draft and its body still describes the earlier dashboard redesign; PR-body
   finalization is a later documentation task (phase 14), not this session.
 
+The generated-SDK + residual-boundedness session (this ledger's reversal of the
+in-Go structural drift gate in favor of a generated TypeScript SDK, plus closing
+the last product-response counterexamples) ran as follows:
+
+- Starting HEAD: `b9d1962c` (the reviewed HEAD of PR #291).
+- Merge-base with main and current `main` tip are both still the synchronized
+  base `eb1482ff` (main has NOT moved since the reviewed base), so no re-sync was
+  needed. Integration strategy remains merge (branch content preserved).
+- An independent review supplied fresh, concrete counterexamples showing three
+  phase-1 items were still not truthfully closed (recorded inline below), so
+  items 4, 7 and 8 were re-opened to IN PROGRESS. Item 8's architectural decision
+  is explicitly reversed: the custom in-Go OpenAPI-vs-TypeScript structural parser
+  is superseded by a deterministic generated TypeScript SDK (ADR-6). No Git
+  history was rewritten; the U+00A7 commit-history CI enforcement stays BLOCKED
+  (section 8 item 9). The PR stays draft; PR-body finalization is phase 14.
+
+Item 4 (bounded responses) re-opened counterexamples:
+- `ServiceDetail` builds its relationships `Preview` from `Neighborhood.Edges`
+  AFTER the neighborhood already truncated them, then forces `Truncated = true`.
+  With more relationships than the neighborhood edge cap this reports
+  `Total == Count` and `Truncated == true` at once — a `Total` that is only the
+  count scanned before truncation, not the real relationship count. Every product
+  Preview built from an already-bounded/paged result has the same class of bug.
+- `Overview.Attention` and `Overview.RecentEvidence` are raw bounded arrays:
+  Attention takes the first 10 of a paged result and discards the true total;
+  RecentEvidence slices to 10. Neither carries total/count/truncated, so a
+  consumer cannot tell 10-of-10 from 10-of-500.
+- `RuntimePreview` bounds its OUTPUT but not the WORK: `sortedMapKeys(m)` allocates
+  a slice proportional to `len(m)` before `maxRuntimeScan` can stop; at
+  `maxRuntimeDepth` `capRuntimeValue(composite)` calls `fmt.Sprint` on the entire
+  nested map/slice before truncating the string; and `RuntimePreview.Total` claims
+  a true total even when the walk stopped early.
+- `finding.Finding.EvidenceRefs` is an unbounded nested array inside the bounded
+  findings previews. "Built-in producers emit small lists" is not a bound for a
+  product API that accepts extension sources.
+
+Item 7 (exact-content identity) re-opened counterexample:
+- Product Impact requires a canonical OCI digest ref AND recorded-digest
+  consistency, but `RevisionDetail`/`TargetDetail` compute
+  `Immutable = IsDigestPinnedRef(ResolvedRef)` WITHOUT the consistency check. A
+  revision whose `ResolvedRef` pins digest A while its recorded `Digest` is B
+  appears immutable in detail yet is correctly rejected by Impact. The boolean
+  `immutable` therefore does not mean the same thing everywhere. Separately,
+  `ParseCanonicalOCIRef`'s repository check only proves some non-empty text exists
+  before `@`, so a syntactically invalid repository is accepted despite the
+  documented resolver-compatibility contract.
+
+Item 8 (frontend wire contract) re-opened counterexample and reversal:
+- The hand-maintained `productTypes.ts` duplicated the wire DTOs and the in-Go
+  `producttypes_drift_test.go` existed only to prove that duplicate mirrored the
+  OpenAPI. That is three sources of wire truth (Go, OpenAPI, TypeScript) kept in
+  sync by a bespoke parser. The `SeverityUnknown` value emitted by the engine was
+  silently absent from the hand-written TS severity union — exactly the drift a
+  hand-written mirror invites. Superseded by ADR-6.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
@@ -272,6 +327,37 @@ section 8.
   physically proves the manifest is rewritten on disk after loss (not only that
   `/targets` answers from memory). Storage ADR and tests updated; the overstated
   "repairs missing/corrupt per-target projection" claim is gone.
+- ADR-6 (frontend/backend wire contract): **Huma/OpenAPI is the single source of
+  truth for dashboard HTTP transport. TypeScript request/response types and
+  endpoint serialization are generated deterministically from that OpenAPI
+  contract. Handwritten frontend code may add behavior and ergonomics, but MUST
+  NOT duplicate the wire schema or reconstruct request URLs/bodies
+  independently.** This reverses the item-8 decision that kept a hand-written
+  `productTypes.ts` mirror plus an in-Go structural drift parser
+  (`producttypes_drift_test.go`). Reason: a hand-written TypeScript mirror is a
+  third source of wire truth kept in sync by bespoke machinery; it silently
+  drifted (`SeverityUnknown` missing from the severity union). Generation makes
+  the OpenAPI contract the only wire truth and the TS SDK a pure derivative.
+  Chosen generator: `openapi-typescript` (types) + `openapi-fetch` (typed
+  transport). Reason: it consumes OpenAPI 3.1, emits strongly typed request and
+  response models with typed path/query/body parameters, supports a custom fetch
+  transport (needed for the WASM/static seam), carries a tiny (~6 kB) runtime,
+  requires no code-gen server, and is deterministic when version-pinned — the
+  smallest footprint that meets every requirement, versus Orval's heavier
+  React-Query-oriented output. The generated output is COMMITTED under
+  `pkg/dashboard/frontend/src/lib/generated/` with a DO NOT EDIT notice and a
+  CI drift gate (`make check-dashboard-sdk-drift`): regenerate OpenAPI, regenerate
+  the SDK, `git diff --exit-code` the generated artifacts, so a backend schema or
+  operation change without regenerated frontend artifacts fails CI. Committed
+  output plus a drift gate (rather than generate-on-build) gives reviewers a
+  visible contract diff and keeps editor/type-check operations generation-free.
+  The generated types must be precise enough to be correct, so finite wire
+  vocabularies (severities including `unknown`, entity kinds, statuses, source
+  health, knowledge views, difference/link states, directions) are Go-owned enums
+  that surface in OpenAPI, and `ProductEntityDetail` is a discriminated `oneOf`
+  union in the contract. A small handwritten facade over the generated client adds
+  ergonomics (named functions, `ApiError` translation, schema-version validation,
+  union narrowing) but never redeclares a DTO field or builds an `/api/...` URL.
 
 ## 8. Completed and pending
 
@@ -325,8 +411,12 @@ all pass.
    product model. DONE. `EntityDetail` carries exactly one of
    Service/Revision/Target/Owner/Source; OpenAPI expresses concrete structures;
    every nested list is a bounded typed preview.
-4. Make every product response genuinely bounded. DONE (re-closed by the
-   counterexample-closing session after the fixes and adversarial tests below).
+4. Make every product response genuinely bounded. IN PROGRESS (re-opened by the
+   generated-SDK session; the branch-state block above records the fresh
+   counterexamples: service-relationships / owner-attention double-truncation,
+   raw Overview arrays, RuntimePreview computational unboundedness, and unbounded
+   `finding.Finding.EvidenceRefs`). The earlier close is retained below for
+   history; the new closure is recorded in section 17.
    The top-level slices were already capped, but several nested structures were
    still unbounded when this was first marked DONE:
    - `OwnershipInfo.Conflicts` is `[]string` and `serviceOwnership` appends one
@@ -358,9 +448,13 @@ all pass.
    (and vice versa). Regression tests cover expected/observed/differences across
    incoming and outgoing directions. True revision/deployment graph projections
    remain a later phase.
-7. Correct contextual product impact (exact-content identity). DONE (re-closed by
-   the counterexample-closing session after the fixes and tests below). Two
-   concrete defects held when this was first marked DONE:
+7. Correct contextual product impact (exact-content identity). IN PROGRESS
+   (re-opened by the generated-SDK session: the `immutable` boolean does not mean
+   the same thing everywhere — detail uses `IsDigestPinnedRef` while Impact also
+   requires recorded-digest consistency; and `ParseCanonicalOCIRef` does not
+   validate the repository with the real OCI grammar. See the branch-state block;
+   the new closure is in section 17). The earlier close is retained below for
+   history. Two concrete defects held when this was first marked DONE:
    - Identity contract broken on the normal dashboard OCI path. `dashboard
      oci://registry/repo` has its `oci://` stripped by `parseDashboardArgs`, so a
      bare `registry/repo` reaches `OCISource`. `pinRefToDigest` preserved the
@@ -390,10 +484,14 @@ all pass.
    impactProviderForFleet -> Service.ImpactWithSnapshot -> BundleStore.Pull, no
    staticImpact) for the dashboard-stripped, tag and digest input spellings, plus
    the mutable / local / inconsistent rejections and the refresh-race 409.
-8. Typed frontend product API client with schema-version validation and drift
-   protection. DONE (re-closed by the counterexample-closing session after the
-   fixes and tests below). Three concrete gaps held when this was first marked
-   DONE:
+8. Frontend/backend wire contract. IN PROGRESS, ARCHITECTURE REVERSED (see
+   ADR-6). The hand-written `productTypes.ts` mirror and the in-Go structural
+   drift parser `producttypes_drift_test.go` are superseded by a deterministic
+   generated TypeScript SDK (`openapi-typescript` + `openapi-fetch`) with a CI
+   drift gate; the whole dashboard frontend consumes the generated client through
+   one transport seam shared by live HTTP and the WASM/static demo. The earlier
+   in-Go-gate closure is retained below for history; the new closure is in
+   section 17. Three concrete gaps held when this was first marked DONE:
    - Weak placeholders. `AttributedFinding.finding`, `RevisionDetail.readiness`,
      `RevisionDetail.validation` (`Preview<unknown>`) and `TargetDetail.findings`
      (`Preview<unknown>`) were `unknown`, not real DTO types; finite vocabularies
