@@ -5,10 +5,14 @@ import (
 	"testing"
 )
 
-// These tests enforce ONE identity truth (requirement, item 6): target-to-revision
-// linking uses the same ClassifyExactIdentity invariant as RevisionDetail,
-// TargetDetail and Product Impact, so the exact tier and the identity class can
-// never contradict one another.
+// These tests pin the REVISION-MATCH CERTAINTY dimension (requirement, item 6):
+// how confidently a target is matched to a fleet revision (exact / inferred /
+// ambiguous / inconsistent). matchRevision reuses ClassifyContentIdentity only to
+// derive the effective content digest and to reject a self-contradictory identity,
+// so the two dimensions never DISAGREE dishonestly -- but they may still differ
+// honestly: an exact revision match can point at content that is not resolver-
+// retrievable (see TestTargetIdentity_ExactMatch_NonRetrievable). A digest/ref
+// disagreement, by contrast, is a real inconsistency and is never an exact match.
 
 func digestFill(fill string) string { return "sha256:" + strings.Repeat(fill, 64) }
 
@@ -193,6 +197,61 @@ func TestMatchRevision_MutableTagMultiple_Ambiguous(t *testing.T) {
 	key, kind := matchRevision(snap, &TargetRecord{ServiceKey: svc, ResolvedRef: "reg/svc:2.0"})
 	if kind != revisionMatchAmbiguous || key != "" {
 		t.Errorf("got %q/%q, want /ambiguous", key, kind)
+	}
+}
+
+// TestTargetIdentity_ExactMatch_NonRetrievable proves the two dimensions are
+// independent AT THE PRODUCT DTO: a runtime target can be an EXACT revision match
+// (LinkState=exact, revision linked) while its content is NOT resolver-retrievable
+// (Identity.Retrievable=false), with no semantic contradiction. Two real runtime
+// shapes: a trusted recorded digest with no resolved ref, and a scheme-less ref
+// embedding the same digest (the k8s operator's shape). This is the honest
+// counterpart to a digest/ref DISAGREEMENT, which is never an exact match.
+func TestTargetIdentity_ExactMatch_NonRetrievable(t *testing.T) {
+	dA := digestFill("a")
+	svc := NewServiceKey("svc")
+	cases := []struct {
+		name      string
+		target    *TargetRecord
+		wantClass IdentityClass
+	}{
+		{"recorded digest, no ref",
+			&TargetRecord{Key: NewTargetKey("prod", "k8s", "app"), ServiceKey: svc, Name: "app", Digest: dA},
+			IdentityNoRef},
+		{"scheme-less ref embedding matching digest",
+			&TargetRecord{Key: NewTargetKey("prod", "k8s", "app"), ServiceKey: svc, Name: "app", Digest: dA, ResolvedRef: "reg/svc:1.0@" + dA},
+			IdentityLocal},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			snap := &FleetSnapshot{
+				Services: map[ServiceKey]*ServiceRecord{svc: {Key: svc, Name: "svc"}},
+				Revisions: map[RevisionKey]*ContractRevision{
+					"svc@a": {Key: "svc@a", Service: "svc", ServiceKey: svc, Digest: dA, ResolvedRef: "oci://reg/svc@" + dA},
+				},
+				Targets: map[TargetKey]*TargetRecord{c.target.Key: c.target},
+			}
+			linkTargets(snap)
+			d, err := NewQuery(snap).EntityDetail(KindTarget, string(c.target.Key))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tg := d.Target
+			// Dimension 1 (revision-match certainty): EXACT, and the revision is linked.
+			if tg.LinkState != "exact" {
+				t.Errorf("LinkState = %q, want exact (the fleet knows the exact revision)", tg.LinkState)
+			}
+			if tg.Revision == nil {
+				t.Error("an exact revision match must link to a revision")
+			}
+			// Dimension 2 (content retrievability): NOT retrievable, with a specific class.
+			if tg.Identity.Retrievable {
+				t.Error("content must not be resolver-retrievable through a non-canonical identity")
+			}
+			if tg.Identity.IdentityClass != c.wantClass {
+				t.Errorf("IdentityClass = %q, want %q", tg.Identity.IdentityClass, c.wantClass)
+			}
+		})
 	}
 }
 

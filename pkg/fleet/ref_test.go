@@ -79,59 +79,65 @@ func TestParseCanonicalOCIRef(t *testing.T) {
 	}
 }
 
-// TestClassifyExactIdentity is the spec for the SINGLE exact-content-identity
-// evaluation shared by RevisionDetail, TargetDetail and Product Impact eligibility
-// (requirement, item 9). The `immutable`/Exact boolean must mean the same thing
-// everywhere, and the class must distinguish every failure mode:
-//   - canonical OCI ref + matching recorded digest => exact (accepted);
-//   - canonical OCI ref + mismatched digest => digest-mismatch (rejected);
-//   - canonical OCI ref + missing recorded digest => missing-digest (accepted:
+// TestClassifyContentIdentity is the spec for the CONTENT-RETRIEVABILITY dimension
+// that RevisionDetail, TargetDetail and Product Impact eligibility read. It answers
+// only "can Pacto retrieve exactly this content?", NEVER "which revision is this?"
+// (that is revision-match certainty; see matchrevision_identity_test.go). The
+// Retrievable boolean must mean the same thing everywhere, and the class must
+// distinguish every retrievability outcome:
+//   - canonical OCI ref + matching recorded digest => exact (retrievable);
+//   - canonical OCI ref + mismatched digest => digest-mismatch (not retrievable);
+//   - canonical OCI ref + missing recorded digest => missing-digest (retrievable:
 //     the pinned digest IS the content address; the recorded digest is only a
 //     cross-check when present);
-//   - mutable tag => mutable (rejected);
-//   - local / scheme-less ref => local (rejected);
-//   - malformed digest or repository => malformed (rejected).
-func TestClassifyExactIdentity(t *testing.T) {
+//   - mutable tag => mutable (not retrievable);
+//   - no ref at all => no-ref (not retrievable, distinct from local);
+//   - local / scheme-less ref => local (not retrievable);
+//   - malformed digest or repository => malformed (not retrievable).
+func TestClassifyContentIdentity(t *testing.T) {
 	good := validDigest("a")
 	other := validDigest("b")
 	cases := []struct {
-		name         string
-		resolvedRef  string
-		recorded     string
-		wantClass    IdentityClass
-		wantExact    bool
-		wantHasDigit bool // Repository/Digest populated (a valid canonical ref)
+		name            string
+		resolvedRef     string
+		recorded        string
+		wantClass       IdentityClass
+		wantRetrievable bool
+		wantHasDigit    bool // Repository/Digest populated (a valid canonical ref)
 	}{
 		{"exact match", "oci://ghcr.io/acme/pay@" + good, good, IdentityExact, true, true},
 		{"missing recorded digest", "oci://ghcr.io/acme/pay@" + good, "", IdentityMissingDigest, true, true},
 		{"digest mismatch", "oci://ghcr.io/acme/pay@" + good, other, IdentityDigestMismatch, false, true},
 		{"mutable tag", "oci://ghcr.io/acme/pay:1.0", good, IdentityMutable, false, false},
+		// A trusted recorded digest with no resolved ref: the content is NOT retrievable
+		// through any reference, distinct from a scheme-less local-looking path.
+		{"no-ref with recorded digest", "", good, IdentityNoRef, false, false},
+		{"no-ref empty", "", "", IdentityNoRef, false, false},
 		{"local scheme-less", "ghcr.io/acme/pay@" + good, good, IdentityLocal, false, false},
 		{"local file", "file:///abs/pay", "", IdentityLocal, false, false},
-		{"local empty", "", "", IdentityLocal, false, false},
 		{"malformed digest", "oci://ghcr.io/acme/pay@sha256:abc", "sha256:abc", IdentityMalformed, false, false},
 		{"malformed repository", "oci://UPPER/pay@" + good, good, IdentityMalformed, false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			ei := ClassifyExactIdentity(c.resolvedRef, c.recorded)
+			ei := ClassifyContentIdentity(c.resolvedRef, c.recorded)
 			if ei.Class != c.wantClass {
 				t.Errorf("class = %q, want %q", ei.Class, c.wantClass)
 			}
-			if ei.Exact() != c.wantExact {
-				t.Errorf("Exact() = %v, want %v", ei.Exact(), c.wantExact)
+			if ei.Retrievable() != c.wantRetrievable {
+				t.Errorf("Retrievable() = %v, want %v", ei.Retrievable(), c.wantRetrievable)
 			}
 			if (ei.Repository != "" && ei.Digest != "") != c.wantHasDigit {
 				t.Errorf("repository/digest populated = %v (%q/%q), want %v", ei.Repository != "" && ei.Digest != "", ei.Repository, ei.Digest, c.wantHasDigit)
 			}
-			// A non-exact identity always explains itself; an exact one never does.
-			if (ei.Reason() == "") != c.wantExact {
-				t.Errorf("Reason() = %q, want non-empty=%v", ei.Reason(), !c.wantExact)
+			// A non-retrievable identity always explains itself; a retrievable one never does.
+			if (ei.Reason() == "") != c.wantRetrievable {
+				t.Errorf("Reason() = %q, want non-empty=%v", ei.Reason(), !c.wantRetrievable)
 			}
 		})
 	}
 	// The unknown/default class Reason is defensive but must be non-empty.
-	if (ExactIdentity{Class: "bogus"}).Reason() == "" {
+	if (ContentIdentity{Class: "bogus"}).Reason() == "" {
 		t.Error("an unknown identity class must still explain itself")
 	}
 }

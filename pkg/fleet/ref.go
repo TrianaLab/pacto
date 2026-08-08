@@ -10,14 +10,26 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/graph"
 )
 
-// This file owns the single strict evaluation of whether a contract reference
-// names EXACT, immutable, resolver-retrievable content. It is the one source of
-// truth for the "exact snapshot content" invariant (requirement 2.6): a Product
-// Impact request by canonical revision key may only analyze content named by a
+// This file owns ONE of the two independent identity dimensions the fleet model
+// tracks. It answers only "can Pacto retrieve exactly the content this reference
+// names?" -- content retrievability / immutable resolver identity. It does NOT
+// answer "which fleet revision does this target correspond to, and how confidently?"
+// -- that is revision-match certainty (exact / inferred / ambiguous / unresolved),
+// computed by matchRevision in build.go and surfaced as a target's LinkState.
+//
+// The two dimensions are genuinely orthogonal. A runtime source (the k8s operator)
+// can report a trusted content digest with no canonical oci://...@digest reference,
+// or a scheme-less image ref carrying that digest: it then knows EXACTLY which
+// revision is running (an exact revision match) even though Pacto cannot resolve
+// that identity as canonical, immutable content (retrievability is false). So a
+// target may honestly report LinkState=exact together with Retrievable=false; that
+// is not a contradiction. What is NEVER honest is a digest/ref DISAGREEMENT: that is
+// an internal inconsistency and yields neither an exact link nor retrievable content.
+//
+// Product Impact by canonical identity is the one consumer that requires the
+// retrievability dimension (requirement 2.6): it may analyze only content named by a
 // canonical, immutable OCI reference whose digest matches the revision's recorded
-// content digest, and an entity detail reports the SAME judgement for a revision's
-// or target's resolved ref. There is exactly one classifier, so `immutable`/exact
-// means the same thing wherever it appears (requirement, item 9).
+// content digest. It does not depend on any target's revision-match certainty.
 //
 // Scheme detection reuses graph.ParseDependencyRef — the same parser
 // Service.ResolveBundle uses — so any ref this function accepts is guaranteed to
@@ -28,10 +40,11 @@ import (
 // short, mis-cased, wrong-length, unsupported-algorithm digest or a
 // syntactically invalid repository is rejected (requirement, item 10).
 
-// IdentityClass names how a (resolvedRef, recordedDigest) pair identifies content.
-// It carries enough information to distinguish every exact-content failure mode so
-// a caller can explain WHY a ref is not exact, while [ExactIdentity.Exact] reduces
-// it to the single boolean meaning shared everywhere.
+// IdentityClass names how a (resolvedRef, recordedDigest) pair identifies content
+// along the CONTENT-RETRIEVABILITY dimension only. It distinguishes every
+// retrievability outcome so a caller can explain WHY content is or is not
+// retrievable, while [ContentIdentity.Retrievable] reduces it to a single boolean.
+// It says nothing about revision-match certainty (see LinkState).
 type IdentityClass string
 
 const (
@@ -42,11 +55,16 @@ const (
 	// IdentityMissingDigest: a canonical, valid digest-pinned ref, but the revision
 	// records no content digest to cross-check. The pinned ref alone names exact
 	// immutable retrievable content (the digest IS the content address), so this is
-	// treated as exact; the recorded digest is only an additional consistency
-	// cross-check when present. See [ExactIdentity.Exact].
+	// retrievable; the recorded digest is only an additional consistency cross-check
+	// when present. See [ContentIdentity.Retrievable].
 	IdentityMissingDigest IdentityClass = "missing-digest"
 	// IdentityMutable: an oci:// ref with no @digest (a mutable tag or bare repo).
 	IdentityMutable IdentityClass = "mutable"
+	// IdentityNoRef: no resolved reference at all. A runtime source may know a target's
+	// content digest exactly (an exact revision match) yet carry no canonical ref, so
+	// the content is not resolver-retrievable through any reference. This is distinct
+	// from IdentityLocal (which names an actual non-canonical ref).
+	IdentityNoRef IdentityClass = "no-ref"
 	// IdentityLocal: a scheme-less or file:// ref. The resolver treats it as a local
 	// filesystem path, never retrievable immutable content.
 	IdentityLocal IdentityClass = "local"
@@ -58,10 +76,12 @@ const (
 	IdentityDigestMismatch IdentityClass = "digest-mismatch"
 )
 
-// ExactIdentity is the result of the single exact-content-identity evaluation
-// shared by RevisionDetail, TargetDetail and Product Impact eligibility. Exact
-// reduces the class to the one boolean meaning of `immutable` used everywhere.
-type ExactIdentity struct {
+// ContentIdentity is the result of the content-retrievability evaluation, the
+// dimension RevisionDetail, TargetDetail and Product Impact eligibility all read.
+// Retrievable reduces the class to a single boolean. It carries NO revision-match
+// certainty (that is LinkState), so a caller never mistakes "we can fetch this
+// content" for "we know which revision this is".
+type ContentIdentity struct {
 	// Class is the fine-grained classification (for explanations and diagnostics).
 	Class IdentityClass
 	// Repository and Digest are set only when the ref parsed as a valid canonical
@@ -70,23 +90,26 @@ type ExactIdentity struct {
 	Digest     digest.Digest
 }
 
-// Exact reports whether the identity names exact, immutable, resolver-retrievable
-// content. Exactly the exact and missing-digest classes qualify: a canonical
-// digest-pinned ref is exact retrievable content, and a recorded content digest,
-// WHEN PRESENT, must equal it (a mismatch is not exact); when absent, the pinned
-// ref alone is authoritative. This is the single definition of `immutable`.
-func (e ExactIdentity) Exact() bool {
+// Retrievable reports whether the identity names exact, immutable, resolver-
+// retrievable content. Exactly the exact and missing-digest classes qualify: a
+// canonical digest-pinned ref is exact retrievable content, and a recorded content
+// digest, WHEN PRESENT, must equal it (a mismatch is not retrievable); when absent,
+// the pinned ref alone is authoritative. This is the single definition of the
+// content-retrievability boolean; it is NOT revision-match certainty.
+func (e ContentIdentity) Retrievable() bool {
 	return e.Class == IdentityExact || e.Class == IdentityMissingDigest
 }
 
-// Reason explains a non-exact identity for an error or a UI, and is empty when the
-// identity is exact.
-func (e ExactIdentity) Reason() string {
+// Reason explains a non-retrievable identity for an error or a UI, and is empty
+// when the content is retrievable.
+func (e ContentIdentity) Reason() string {
 	switch e.Class {
 	case IdentityExact, IdentityMissingDigest:
 		return ""
 	case IdentityMutable:
 		return "the reference is a mutable OCI tag, not digest-pinned content"
+	case IdentityNoRef:
+		return "there is no canonical reference to retrieve the content through"
 	case IdentityLocal:
 		return "the reference is a local filesystem path, not retrievable immutable content"
 	case IdentityMalformed:
@@ -99,11 +122,15 @@ func (e ExactIdentity) Reason() string {
 }
 
 // classifyOCIRef parses ref and reports whether it is a valid canonical OCI digest
-// reference (returning its repository and digest) or WHY it is not (local, mutable
-// or malformed). It performs NO recorded-digest cross-check; that is
-// [ClassifyExactIdentity]'s job. The returned class is one of IdentityExact (a
-// valid canonical ref), IdentityLocal, IdentityMutable or IdentityMalformed.
+// reference (returning its repository and digest) or WHY it is not (no-ref, local,
+// mutable or malformed). It performs NO recorded-digest cross-check; that is
+// [ClassifyContentIdentity]'s job. The returned class is one of IdentityExact (a
+// valid canonical ref), IdentityNoRef, IdentityLocal, IdentityMutable or
+// IdentityMalformed.
 func classifyOCIRef(ref string) (repository string, dgst digest.Digest, class IdentityClass) {
+	if ref == "" {
+		return "", "", IdentityNoRef
+	}
 	dr := graph.ParseDependencyRef(ref)
 	if !dr.IsOCI() {
 		return "", "", IdentityLocal
@@ -135,22 +162,24 @@ func classifyOCIRef(ref string) (repository string, dgst digest.Digest, class Id
 	return repository, dgst, IdentityExact
 }
 
-// ClassifyExactIdentity is the ONE exact-content-identity evaluation. resolvedRef
-// is a revision's or target's resolved reference; recordedDigest is the revision's
+// ClassifyContentIdentity is the content-retrievability evaluation. resolvedRef is a
+// revision's or target's resolved reference; recordedDigest is the revision's
 // recorded content digest (may be empty). It reuses [classifyOCIRef] for the
-// ref-only validation and then cross-checks the recorded digest.
-func ClassifyExactIdentity(resolvedRef, recordedDigest string) ExactIdentity {
+// ref-only validation and then cross-checks the recorded digest. It answers ONLY
+// whether the content is resolver-retrievable, never how confidently the target is
+// matched to a fleet revision (that is matchRevision / LinkState).
+func ClassifyContentIdentity(resolvedRef, recordedDigest string) ContentIdentity {
 	repo, dgst, class := classifyOCIRef(resolvedRef)
 	if class != IdentityExact {
-		return ExactIdentity{Class: class}
+		return ContentIdentity{Class: class}
 	}
 	switch {
 	case recordedDigest == "":
-		return ExactIdentity{Class: IdentityMissingDigest, Repository: repo, Digest: dgst}
+		return ContentIdentity{Class: IdentityMissingDigest, Repository: repo, Digest: dgst}
 	case recordedDigest != dgst.String():
-		return ExactIdentity{Class: IdentityDigestMismatch, Repository: repo, Digest: dgst}
+		return ContentIdentity{Class: IdentityDigestMismatch, Repository: repo, Digest: dgst}
 	default:
-		return ExactIdentity{Class: IdentityExact, Repository: repo, Digest: dgst}
+		return ContentIdentity{Class: IdentityExact, Repository: repo, Digest: dgst}
 	}
 }
 
@@ -164,12 +193,14 @@ func ClassifyExactIdentity(resolvedRef, recordedDigest string) ExactIdentity {
 //
 // A mutable tag, a local path, a scheme-less ref, an empty or malformed repository
 // or any malformed digest is a typed error. It does NOT cross-check a recorded
-// content digest; use [ClassifyExactIdentity] for the full exact-content judgement.
+// content digest; use [ClassifyContentIdentity] for the full retrievability judgement.
 func ParseCanonicalOCIRef(ref string) (repository string, dgst digest.Digest, err error) {
 	repo, d, class := classifyOCIRef(ref)
 	switch class {
 	case IdentityExact:
 		return repo, d, nil
+	case IdentityNoRef:
+		return "", "", fmt.Errorf("not a canonical OCI reference: the reference is empty, so there is no content to retrieve")
 	case IdentityLocal:
 		return "", "", fmt.Errorf("not a canonical OCI reference: %q must use the oci:// scheme (a scheme-less or file:// ref resolves as a local path, never immutable content)", ref)
 	case IdentityMutable:
@@ -181,8 +212,9 @@ func ParseCanonicalOCIRef(ref string) (repository string, dgst digest.Digest, er
 
 // IsDigestPinnedRef reports whether ref is a canonical, immutable,
 // resolver-compatible OCI reference (see [ParseCanonicalOCIRef]). It does NOT
-// cross-check a recorded content digest; callers that judge exact snapshot content
-// must use [ClassifyExactIdentity] so `immutable` means the same thing everywhere.
+// cross-check a recorded content digest; callers that judge retrievable snapshot
+// content must use [ClassifyContentIdentity] so retrievability means the same thing
+// everywhere.
 func IsDigestPinnedRef(ref string) bool {
 	_, _, err := ParseCanonicalOCIRef(ref)
 	return err == nil

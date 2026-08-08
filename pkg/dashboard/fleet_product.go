@@ -331,18 +331,20 @@ func validateImpactRevisions(snap *fleet.FleetSnapshot, req impactRequest) (flee
 }
 
 // immutableRef returns the IMMUTABLE, canonical, resolver-compatible reference the
-// provider must fetch for a canonical Product Impact. A revision is exact ONLY when
-// its ResolvedRef is a canonical OCI digest reference
+// provider must fetch for a canonical Product Impact. This enforces the CONTENT-
+// RETRIEVABILITY dimension only: content is retrievable ONLY when the revision's
+// ResolvedRef is a canonical OCI digest reference
 // (oci://registry/repo@<validated digest>) AND that digest is internally
 // consistent with the revision's recorded content digest. A mutable tag, a local
 // filesystem path, a scheme-less ref (which the resolver would treat as a local
-// path) or an inconsistent/malformed digest is rejected — using the SAME strict
-// parser (fleet.ParseCanonicalOCIRef) the detail Immutable flag uses — so a
-// canonical Product Impact can never claim parity over content the real provider
-// would resolve differently or fail to fetch.
+// path), a missing ref or an inconsistent/malformed digest is rejected -- using the
+// SAME classifier (fleet.ClassifyContentIdentity) the detail Retrievable flag uses.
+// It is independent of any target's revision-match certainty: a target can match this
+// revision EXACTLY (a trusted digest with no canonical ref) yet Product Impact still
+// rejects it here, because the content is not retrievable through a canonical ref.
 func immutableRef(rev *fleet.ContractRevision) (string, error) {
-	ei := fleet.ClassifyExactIdentity(rev.ResolvedRef, rev.Digest)
-	if ei.Exact() {
+	ei := fleet.ClassifyContentIdentity(rev.ResolvedRef, rev.Digest)
+	if ei.Retrievable() {
 		return rev.ResolvedRef, nil
 	}
 	if ei.Class == fleet.IdentityDigestMismatch {

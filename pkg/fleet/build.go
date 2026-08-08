@@ -818,9 +818,14 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 	return t, recordInvalid
 }
 
-// Revision-link classes (see TargetRecord.RevisionMatch).
+// Revision-link classes (see TargetRecord.RevisionMatch). These record
+// REVISION-MATCH CERTAINTY -- how confidently a target is matched to a fleet
+// revision -- NOT whether that revision's content is resolver-retrievable (that is
+// the separate content-retrievability dimension, ClassifyContentIdentity /
+// RevisionIdentity.Retrievable). An exact match can point at content Pacto cannot
+// fetch (a trusted digest with no canonical ref).
 const (
-	revisionMatchExact     = "exact"     // immutable digest — authoritative
+	revisionMatchExact     = "exact"     // content-digest match — authoritative revision
 	revisionMatchInferred  = "inferred"  // unique mutable tag/version correlation
 	revisionMatchAmbiguous = "ambiguous" // several candidates — no link is made
 	// revisionMatchInconsistent: the target's identity is internally inconsistent
@@ -864,21 +869,25 @@ func linkTargets(snap *FleetSnapshot) {
 	}
 }
 
-// matchRevision links a target to a contract revision and classifies the link
-// using the SINGLE exact-content-identity invariant ([ClassifyExactIdentity]) that
-// RevisionDetail, TargetDetail and Product Impact also use, so the exact tier and
-// the target's identity class can never contradict one another (requirement,
-// item 6). An EXACT link is an immutable-content match by the canonical digest the
-// classifier derives (from a digest-pinned ResolvedRef, or from a recorded digest
-// that does not contradict a ref pinning none). An internally inconsistent
-// (recorded-digest-vs-pinned-ref mismatch) or malformed identity is never exact and
-// never mutably correlated — it yields no link and a limitation. A match by mutable
-// resolved-ref or version suffix is INFERRED, and only when UNIQUE; two or more
-// candidates are AMBIGUOUS and yield no link. Revisions are visited in sorted key
-// order for a deterministic result.
+// matchRevision computes a target's REVISION-MATCH CERTAINTY: which contract
+// revision it corresponds to and how confidently. This is a DIFFERENT question from
+// whether that content is resolver-retrievable ([ClassifyContentIdentity] /
+// RevisionIdentity.Retrievable). It reuses the content-identity classifier only as an
+// input -- to derive the canonical content digest and to reject a self-contradictory
+// identity -- so the two dimensions never disagree DISHONESTLY, but they may still
+// differ HONESTLY: an EXACT match to a revision Pacto cannot fetch (a trusted digest
+// with no canonical ref) is a real, valid outcome (requirement, item 6).
+//
+// An EXACT match is a content-digest match by the effective content digest (from a
+// digest-pinned ResolvedRef, or a recorded digest that does not contradict the ref).
+// An internally inconsistent (recorded-digest-vs-pinned-ref mismatch) or malformed
+// identity is never exact and never mutably correlated -- it yields no link and a
+// limitation. A match by mutable resolved-ref or version suffix is INFERRED, and only
+// when UNIQUE; two or more candidates are AMBIGUOUS and yield no link. Revisions are
+// visited in sorted key order for a deterministic result.
 func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
 	keys := sortedRevisionKeys(snap)
-	id := ClassifyExactIdentity(t.ResolvedRef, t.Digest)
+	id := ClassifyContentIdentity(t.ResolvedRef, t.Digest)
 	// A contradictory (digest-mismatch) or malformed OCI identity is never exact, and
 	// correlating a mutable link off a contradictory/unparseable ref would be
 	// dishonest.
@@ -901,7 +910,7 @@ func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
 		if key, ok := exactRevisionByDigest(snap, keys, t.ServiceKey, effective); ok {
 			return key, revisionMatchExact
 		}
-		if id.Exact() {
+		if id.Retrievable() {
 			// A digest-pinned ref names exact content the fleet does not carry; there
 			// is no honest mutable fallback.
 			return "", ""
@@ -917,8 +926,8 @@ func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
 // is inconsistent (never an exact link); agreement (or either being absent) yields
 // the known digest. This makes a scheme-less ref carrying a digest subject to the
 // same mismatch guard the oci:// path enforces.
-func effectiveContentDigest(id ExactIdentity, t *TargetRecord) (digest string, inconsistent bool) {
-	if id.Exact() {
+func effectiveContentDigest(id ContentIdentity, t *TargetRecord) (digest string, inconsistent bool) {
+	if id.Retrievable() {
 		return id.Digest.String(), false
 	}
 	// A non-oci ref with MORE than one '@' is a malformed identity, exactly as

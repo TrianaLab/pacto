@@ -276,6 +276,28 @@ func TestImmutableRef(t *testing.T) {
 	}
 }
 
+// TestImmutableRef_ExactMatchButNonRetrievable is requirement item 9: Product Impact
+// by canonical identity rejects non-retrievable content EVEN WHEN a target's revision
+// match is exact. The two dimensions are independent -- a runtime target carrying a
+// trusted content digest with no canonical ref is an EXACT revision match (see
+// fleet.TestMatchRevision_RecordedDigestNoRef_Exact and
+// fleet.TestTargetIdentity_ExactMatch_NonRetrievable), yet its content cannot be
+// retrieved through a canonical ref, so canonical Product Impact must refuse it.
+func TestImmutableRef_ExactMatchButNonRetrievable(t *testing.T) {
+	dA := validDigest("a")
+	// A revision known only by its recorded content digest (no canonical ResolvedRef):
+	// exactly the shape a k8s-observed target matches EXACTLY.
+	rev := &fleet.ContractRevision{Key: "svc@a", Service: "svc", ServiceKey: fleet.NewServiceKey("svc"), Digest: dA}
+	if _, err := immutableRef(rev); err == nil {
+		t.Error("Product Impact must reject content that is not resolver-retrievable, even when a target matches this revision exactly")
+	}
+	// The predicate immutableRef enforces (content retrievability) is false, which is
+	// independent of the exact revision-match certainty a linked target would report.
+	if fleet.ClassifyContentIdentity(rev.ResolvedRef, rev.Digest).Retrievable() {
+		t.Error("a recorded digest with no canonical ref must not be retrievable")
+	}
+}
+
 func postJSON(t *testing.T, url string, body any, wantStatus int, into any) {
 	t.Helper()
 	b, err := json.Marshal(body)

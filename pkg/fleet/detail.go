@@ -28,27 +28,31 @@ type OwnershipInfo struct {
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
-// resolved to content. Immutable is the SINGLE exact-content judgement
-// ([ExactIdentity.Exact]) also used by Product Impact eligibility, so it means the
-// same thing everywhere; IdentityClass carries the fine-grained classification
-// (exact / missing-digest / mutable / local / malformed / digest-mismatch) so a
-// consumer can explain why a ref is or is not exact retrievable content.
+// resolved to content along the CONTENT-RETRIEVABILITY dimension only. Retrievable
+// is the single content-retrievability judgement ([ContentIdentity.Retrievable])
+// that Product Impact eligibility also enforces; IdentityClass carries the
+// fine-grained classification (exact / missing-digest / mutable / no-ref / local /
+// malformed / digest-mismatch) so a consumer can explain why content is or is not
+// retrievable. This is INDEPENDENT of a target's revision-match certainty
+// (TargetDetailData.LinkState): a target may be LinkState=exact with
+// Retrievable=false when a runtime source knows the exact revision but Pacto cannot
+// retrieve that content through a canonical ref.
 type RevisionIdentity struct {
 	Digest        string        `json:"digest,omitempty"`
 	RequestedRef  string        `json:"requestedRef,omitempty"`
 	ResolvedRef   string        `json:"resolvedRef,omitempty"`
-	Immutable     bool          `json:"immutable"`
-	IdentityClass IdentityClass `json:"identityClass" enum:"exact,missing-digest,mutable,local,malformed,digest-mismatch"`
+	Retrievable   bool          `json:"retrievable"`
+	IdentityClass IdentityClass `json:"identityClass" enum:"exact,missing-digest,mutable,no-ref,local,malformed,digest-mismatch"`
 }
 
 // revisionIdentity builds the identity block for a resolved reference, using the
-// single exact-content classifier so RevisionDetail and TargetDetail report the
-// same `immutable` judgement Product Impact enforces.
+// content-retrievability classifier so RevisionDetail and TargetDetail report the
+// same Retrievable judgement Product Impact enforces.
 func revisionIdentity(recordedDigest, requestedRef, resolvedRef string) RevisionIdentity {
-	ei := ClassifyExactIdentity(resolvedRef, recordedDigest)
+	ei := ClassifyContentIdentity(resolvedRef, recordedDigest)
 	return RevisionIdentity{
 		Digest: recordedDigest, RequestedRef: requestedRef, ResolvedRef: resolvedRef,
-		Immutable: ei.Exact(), IdentityClass: ei.Class,
+		Retrievable: ei.Retrievable(), IdentityClass: ei.Class,
 	}
 }
 
@@ -603,8 +607,13 @@ func (q *Query) sourceDetail(key string) (*EntityDetail, error) {
 	}, nil
 }
 
-// targetLinkState classifies a target's revision link as exact, inferred,
-// ambiguous or unresolved. Only an exact link (immutable digest) is authoritative.
+// targetLinkState classifies a target's REVISION-MATCH CERTAINTY as exact,
+// inferred, ambiguous or unresolved -- how confidently the fleet knows which
+// revision this target is running. This is a different question from whether the
+// linked content is resolver-retrievable (RevisionIdentity.Retrievable): an exact
+// match can point at content Pacto cannot fetch (a trusted digest with no canonical
+// ref). Only exact and inferred are ever recorded on the target; ambiguous is
+// derived from the ambiguity limitation, and everything else is unresolved.
 func targetLinkState(t *TargetRecord) string {
 	switch t.RevisionMatch {
 	case revisionMatchExact:
