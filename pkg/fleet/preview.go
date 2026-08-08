@@ -19,6 +19,90 @@ import (
 // consumer an unbounded detail.
 const MaxDetailPreview = 200
 
+// MaxEvidenceRefsPreview caps the evidence references carried per product finding.
+// pacto's own validation emits one ref per finding and the k8s source is bounded by
+// the object-size limit, so a realistic finding is far below this; the cap exists so
+// an untrusted extension source cannot smuggle an unbounded evidence list inside an
+// otherwise-bounded findings preview (requirement, item 8).
+const MaxEvidenceRefsPreview = 50
+
+// ProductSeverity is the finite product finding severity. It mirrors
+// [finding.Severity] EXACTLY (error / warning / info / unknown) so Huma/OpenAPI
+// emits the closed enum a generated client can narrow on. "unknown" is a real
+// engine output (an assertion that could not be evaluated), so it MUST appear.
+type ProductSeverity string
+
+const (
+	ProductSeverityError   ProductSeverity = ProductSeverity(finding.SeverityError)
+	ProductSeverityWarning ProductSeverity = ProductSeverity(finding.SeverityWarning)
+	ProductSeverityInfo    ProductSeverity = ProductSeverity(finding.SeverityInfo)
+	ProductSeverityUnknown ProductSeverity = ProductSeverity(finding.SeverityUnknown)
+)
+
+// ProductSubjectRef is the product-shaped, camelCase subject a finding is about.
+type ProductSubjectRef struct {
+	Kind string `json:"kind,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+// ProductEvidenceRef is the product-shaped, camelCase evidence reference.
+type ProductEvidenceRef struct {
+	Source     string `json:"source,omitempty"`
+	ObservedAt string `json:"observedAt,omitempty"`
+}
+
+// ProductEvidenceRefsPreview is a bounded preview of a finding's evidence refs.
+type ProductEvidenceRefsPreview struct {
+	Total     int                  `json:"total"`
+	Count     int                  `json:"count"`
+	Truncated bool                 `json:"truncated"`
+	Items     []ProductEvidenceRef `json:"items"`
+}
+
+// ProductFinding is the bounded product-transport shape of an engine finding.
+// [finding.Finding] carries an UNBOUNDED EvidenceRefs slice and PascalCase JSON
+// (it has no tags); ProductFinding is camelCase, uses the finite [ProductSeverity]
+// enum, and bounds the evidence refs, so a product response that accepts findings
+// from extension sources can never carry an unbounded per-finding evidence list
+// (requirement, item 8). The low-level snapshot record keeps raw finding.Finding.
+type ProductFinding struct {
+	Code         string                     `json:"code,omitempty"`
+	Severity     ProductSeverity            `json:"severity" enum:"error,warning,info,unknown"`
+	Category     string                     `json:"category,omitempty"`
+	Subject      ProductSubjectRef          `json:"subject"`
+	ContractPath string                     `json:"contractPath,omitempty"`
+	Message      string                     `json:"message,omitempty"`
+	EvidenceRefs ProductEvidenceRefsPreview `json:"evidenceRefs"`
+}
+
+// productFinding maps a raw engine finding to the bounded product shape, capping
+// its evidence refs at MaxEvidenceRefsPreview with honest total/count/truncated.
+func productFinding(f finding.Finding) ProductFinding {
+	refs := make([]ProductEvidenceRef, 0, len(f.EvidenceRefs))
+	for _, r := range f.EvidenceRefs {
+		refs = append(refs, ProductEvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt})
+	}
+	it, total, trunc := boundSlice(refs, MaxEvidenceRefsPreview)
+	return ProductFinding{
+		Code:         string(f.Code),
+		Severity:     ProductSeverity(f.Severity),
+		Category:     string(f.Category),
+		Subject:      ProductSubjectRef{Kind: f.Subject.Kind, Name: f.Subject.Name},
+		ContractPath: f.ContractPath,
+		Message:      f.Message,
+		EvidenceRefs: ProductEvidenceRefsPreview{Total: total, Count: len(it), Truncated: trunc, Items: it},
+	}
+}
+
+// productFindings maps a slice of raw findings to bounded product findings.
+func productFindings(fs []finding.Finding) []ProductFinding {
+	out := make([]ProductFinding, 0, len(fs))
+	for _, f := range fs {
+		out = append(out, productFinding(f))
+	}
+	return out
+}
+
 // boundSlice caps items at max, copying so the preview never aliases its input,
 // and reports the full total and whether truncation occurred. A nil or empty
 // input yields an empty (non-nil) slice so JSON emits [] not null.
@@ -30,12 +114,13 @@ func boundSlice[T any](items []T, max int) (out []T, total int, truncated bool) 
 	return append([]T{}, items...), total, false
 }
 
-// AttributedFinding is a finding paired with the canonical reference of the
-// entity it actually affects, so a finding aggregated across multiple targets or
-// revisions never loses which entity it belongs to (requirement 2.4).
+// AttributedFinding is a bounded product finding paired with the canonical
+// reference of the entity it actually affects, so a finding aggregated across
+// multiple targets or revisions never loses which entity it belongs to
+// (requirement 2.4).
 type AttributedFinding struct {
-	Finding finding.Finding `json:"finding"`
-	Entity  EntityRef       `json:"entity"`
+	Finding ProductFinding `json:"finding"`
+	Entity  EntityRef      `json:"entity"`
 }
 
 // AttributedLimitation is a limitation paired with the canonical reference of the
@@ -60,17 +145,17 @@ func refPreview(refs []EntityRef) RefPreview {
 	return RefPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
-// FindingsPreview is a bounded preview of findings that all belong to the
-// detail's own single entity.
+// FindingsPreview is a bounded preview of bounded product findings that all
+// belong to the detail's own single entity.
 type FindingsPreview struct {
-	Total     int               `json:"total"`
-	Count     int               `json:"count"`
-	Truncated bool              `json:"truncated"`
-	Items     []finding.Finding `json:"items"`
+	Total     int              `json:"total"`
+	Count     int              `json:"count"`
+	Truncated bool             `json:"truncated"`
+	Items     []ProductFinding `json:"items"`
 }
 
 func findingsPreview(fs []finding.Finding) FindingsPreview {
-	it, total, trunc := boundSlice(fs, MaxDetailPreview)
+	it, total, trunc := boundSlice(productFindings(fs), MaxDetailPreview)
 	return FindingsPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
@@ -241,8 +326,8 @@ func readinessChecksPreview(cs []readiness.CheckResult) ReadinessChecksPreview {
 	return ReadinessChecksPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
-// RuntimeFact is one flattened observed-runtime leaf: a dotted key path and its
-// scalar value stringified and length-capped.
+// RuntimeFact is one flattened observed-runtime leaf: a dotted key path
+// (length-capped) and its scalar value (stringified and length-capped).
 type RuntimeFact struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -250,13 +335,24 @@ type RuntimeFact struct {
 
 // RuntimePreview is a bounded, flattened preview of a target's observed runtime.
 // The product API never copies the raw arbitrary runtime map verbatim (that is
-// recursively unbounded); the full value stays on the low-level /api/fleet/snapshot
-// export. This preview bounds the OUTPUT on nested size: at most MaxDetailPreview
-// leaves, each value length-capped, and the walk itself stops at maxRuntimeScan
-// leaves and maxRuntimeDepth nesting so a pathological source cannot blow it up.
+// recursively unbounded); the full value stays on the low-level
+// /api/fleet/snapshot export. Both the OUTPUT and the WORK are bounded: at most
+// MaxDetailPreview facts emitted, each key/value length-capped, the walk stops at
+// maxRuntimeScan inspected facts and maxRuntimeDepth nesting, and the flatten
+// allocates O(maxRuntimeScan) not O(map width) even for a pathologically wide map
+// (requirement, item 13).
+//
+// Total is an EXACT count of flattened facts and is present ONLY when the bounded
+// walk visited the whole structure; when the walk stopped early (scan budget or a
+// per-level key cap) the true total is unknowable, so Total is omitted and
+// Scanned reports the facts actually inspected as a lower bound. Truncated is true
+// whenever fewer facts are emitted than were inspected OR the walk stopped early.
 type RuntimePreview struct {
-	Total     int           `json:"total"`
+	// Total is the exact total flattened-fact count, present only when the walk
+	// completed within bounds (see Truncated/Scanned otherwise).
+	Total     *int          `json:"total,omitempty"`
 	Count     int           `json:"count"`
+	Scanned   int           `json:"scanned"`
 	Truncated bool          `json:"truncated"`
 	Items     []RuntimeFact `json:"items"`
 }

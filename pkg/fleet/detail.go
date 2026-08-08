@@ -54,15 +54,21 @@ func revisionIdentity(recordedDigest, requestedRef, resolvedRef string) Revision
 
 // Observed-runtime bounds. A pathological source could put an arbitrarily large,
 // arbitrarily nested map in a target's observed runtime; the product detail must
-// bound the OUTPUT on nested size, not just the number of top-level keys.
+// bound the OUTPUT, the emitted key/value lengths, the recursion depth AND the
+// work (no allocation or stringification proportional to the arbitrary input).
 const (
-	// maxRuntimeDepth caps how deep the runtime flatten descends; a value at or
-	// below this depth is emitted as a single stringified leaf.
+	// maxRuntimeDepth caps how deep the runtime flatten descends; a composite at
+	// this depth is summarized as a single short type-and-size marker (never
+	// stringified whole).
 	maxRuntimeDepth = 6
-	// maxRuntimeValueLen caps each flattened value's string length.
+	// maxRuntimeValueLen caps each flattened scalar value's string length.
 	maxRuntimeValueLen = 256
-	// maxRuntimeScan bounds the WALK itself so a pathologically large map cannot
-	// build an unbounded transient leaf slice before capping the emitted preview.
+	// maxRuntimeKeyLen caps each flattened key/path length so long keys or deep
+	// paths cannot bloat the preview.
+	maxRuntimeKeyLen = 256
+	// maxRuntimeScan bounds the number of facts the walk inspects, so a huge input
+	// cannot make the flatten do unbounded work. Beyond it the walk stops and the
+	// true total is reported as unknown.
 	maxRuntimeScan = 2 * MaxDetailPreview
 )
 
@@ -109,81 +115,147 @@ func productReadiness(r *readiness.Result) *ProductReadiness {
 	}
 }
 
-// runtimePreview flattens a target's observed-runtime map into a BOUNDED preview
-// of scalar key/value facts. Nested maps and slices are flattened with dotted /
-// indexed keys; the walk stops at maxRuntimeDepth nesting and maxRuntimeScan
-// leaves, each value is length-capped, and the emitted list is capped at
-// MaxDetailPreview, so no source can produce an unbounded product detail.
+// runtimePreview flattens a target's observed-runtime map into a computationally
+// BOUNDED preview of scalar key/value facts (requirement, item 13). Nested maps
+// and slices are flattened with dotted / indexed keys; a composite at the depth
+// limit is summarized with a short "{map: N keys}" / "[array: N items]" marker
+// (never stringified whole, so no huge transient string is built to be truncated);
+// each key and value is length-capped; the walk stops after maxRuntimeScan
+// inspected facts; and map keys are selected through a bounded buffer
+// (keysBounded), so the flatten never allocates a slice proportional to a
+// pathologically wide map. The emitted list is capped at MaxDetailPreview, and the
+// exact total is reported only when the walk visited the whole structure.
 func runtimePreview(m map[string]any) RuntimePreview {
-	var facts []RuntimeFact
-	truncated := false
+	var items []RuntimeFact
+	scanned := 0
+	walkComplete := true // false once the scan budget or a per-level key cap is hit
+	emit := func(key, val string) {
+		scanned++
+		if len(items) < MaxDetailPreview {
+			items = append(items, RuntimeFact{Key: capLen(key, maxRuntimeKeyLen), Value: val})
+		}
+		// Exceeding MaxDetailPreview does not make the total unknown: this fact was
+		// still inspected and counted in `scanned`.
+	}
+	// walk descends v; every recursive call is made from a loop that first checks
+	// the scan budget, so walk itself is only ever entered under budget.
 	var walk func(prefix string, v any, depth int)
 	walk = func(prefix string, v any, depth int) {
-		if len(facts) >= maxRuntimeScan {
-			truncated = true
-			return
-		}
 		switch t := v.(type) {
 		case map[string]any:
 			if len(t) == 0 {
-				facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(t)})
+				emit(prefix, "{}")
 				return
 			}
 			if depth >= maxRuntimeDepth {
-				facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(t)})
-				truncated = true // structure collapsed at the depth limit
+				emit(prefix, fmt.Sprintf("{map: %d keys}", len(t)))
 				return
 			}
-			for _, k := range sortedMapKeys(t) {
+			keys, all := keysBounded(t, maxRuntimeScan-scanned)
+			if !all {
+				walkComplete = false
+			}
+			for _, k := range keys {
+				if scanned >= maxRuntimeScan {
+					walkComplete = false
+					break
+				}
 				walk(prefix+"."+k, t[k], depth+1)
 			}
 		case []any:
 			if len(t) == 0 {
-				facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(t)})
+				emit(prefix, "[]")
 				return
 			}
 			if depth >= maxRuntimeDepth {
-				facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(t)})
-				truncated = true // structure collapsed at the depth limit
+				emit(prefix, fmt.Sprintf("[array: %d items]", len(t)))
 				return
 			}
 			for i, e := range t {
+				if scanned >= maxRuntimeScan {
+					walkComplete = false
+					break
+				}
 				walk(fmt.Sprintf("%s[%d]", prefix, i), e, depth+1)
 			}
 		default:
-			facts = append(facts, RuntimeFact{Key: prefix, Value: capRuntimeValue(v)})
+			emit(prefix, capRuntimeValue(v))
 		}
 	}
-	for _, k := range sortedMapKeys(m) {
+	keys, all := keysBounded(m, maxRuntimeScan)
+	if !all {
+		walkComplete = false
+	}
+	for _, k := range keys {
+		if scanned >= maxRuntimeScan {
+			walkComplete = false
+			break
+		}
 		walk(k, m[k], 1)
 	}
-	total := len(facts)
-	items := facts
-	if total > MaxDetailPreview {
-		items = facts[:MaxDetailPreview]
-		truncated = true
+	rp := RuntimePreview{Count: len(items), Scanned: scanned, Items: append([]RuntimeFact{}, items...)}
+	rp.Truncated = len(items) < scanned || !walkComplete
+	if walkComplete {
+		// The walk visited every fact, so `scanned` is the exact total.
+		total := scanned
+		rp.Total = &total
 	}
-	return RuntimePreview{Total: total, Count: len(items), Truncated: truncated, Items: append([]RuntimeFact{}, items...)}
+	return rp
 }
 
-// capRuntimeValue stringifies a runtime value and caps its length so one huge
-// scalar cannot bloat the preview.
-func capRuntimeValue(v any) string {
-	s := fmt.Sprint(v)
-	if len(s) > maxRuntimeValueLen {
-		return s[:maxRuntimeValueLen] + "…"
+// capRuntimeValue stringifies a SCALAR runtime value and caps its length so one
+// huge scalar cannot bloat the preview. Composites are summarized by the walk and
+// never reach this function, so it never stringifies a whole nested structure.
+func capRuntimeValue(v any) string { return capLen(fmt.Sprint(v), maxRuntimeValueLen) }
+
+// capLen truncates s to at most max runes, appending an ellipsis when truncated.
+func capLen(s string, max int) string {
+	if len(s) <= max { // fast path: byte length <= max implies rune count <= max
+		return s
 	}
-	return s
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
 }
 
-// sortedMapKeys returns a map's keys sorted, for deterministic flatten order.
-func sortedMapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
+// keysBounded returns up to limit lexicographically-smallest keys of m in sorted
+// order and whether ALL of m's keys fit (len(m) <= limit). It allocates O(limit),
+// never O(len(m)), so flattening a pathologically wide runtime map does not build a
+// key slice proportional to that width. It visits every key once to select the
+// smallest deterministically.
+//
+// ponytail: O(len(m)*limit) worst case if keys arrive in descending order; with
+// limit == maxRuntimeScan (400) and realistic runtime maps this is trivial, and a
+// pathological wide map pays bounded O(limit) SPACE which is the property that
+// matters. Switch to a heap if a real workload ever makes the time cost show up.
+func keysBounded(m map[string]any, limit int) (keys []string, all bool) {
+	if limit <= 0 {
+		return nil, len(m) == 0
+	}
+	if len(m) <= limit {
+		keys = make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return keys, true
+	}
+	buf := make([]string, 0, limit)
 	for k := range m {
-		keys = append(keys, k)
+		i := sort.SearchStrings(buf, k)
+		switch {
+		case len(buf) < limit:
+			buf = append(buf, "")
+			copy(buf[i+1:], buf[i:])
+			buf[i] = k
+		case i < limit: // k is smaller than the current largest kept key
+			copy(buf[i+1:], buf[i:limit-1])
+			buf[i] = k
+		}
 	}
-	sort.Strings(keys)
-	return keys
+	return buf, false
 }
 
 // ServiceDetailData is the service-kind payload: aggregate ownership, bounded
@@ -642,7 +714,7 @@ func attributedTargetFindings(targets []*TargetRecord) []AttributedFinding {
 	for _, t := range targets {
 		ref := targetEntityRef(t)
 		for _, f := range t.Findings {
-			out = append(out, AttributedFinding{Finding: f, Entity: ref})
+			out = append(out, AttributedFinding{Finding: productFinding(f), Entity: ref})
 		}
 	}
 	return out

@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
 
@@ -77,12 +78,13 @@ func TestProductReadinessBounded(t *testing.T) {
 	}
 }
 
-// A pathological observed-runtime map (wide, deep and with a huge scalar) cannot
-// produce an unbounded runtime preview: the emitted list, each value's length and
-// the nesting are all hard-bounded.
+// A pathological observed-runtime map (wide, deep, long keys and a huge scalar)
+// cannot produce an unbounded runtime preview: the emitted list, each key and
+// value length, and the nesting are all hard-bounded, and because the walk stopped
+// early the exact total is honestly reported as unknown (nil).
 func TestRuntimePreviewBounded(t *testing.T) {
 	m := map[string]any{}
-	for i := 0; i < MaxDetailPreview*3; i++ {
+	for i := 0; i < maxRuntimeScan*3; i++ {
 		m[fmt.Sprintf("k%05d", i)] = i
 	}
 	// A chain of maps far deeper than maxRuntimeDepth.
@@ -102,25 +104,223 @@ func TestRuntimePreviewBounded(t *testing.T) {
 	// Empty composites are represented as a single non-truncating leaf.
 	m["emptyMap"] = map[string]any{}
 	m["emptyArr"] = []any{}
-	// A single huge scalar value.
+	// A single huge scalar value and a huge KEY.
 	m["big"] = strings.Repeat("x", maxRuntimeValueLen*4)
+	m[strings.Repeat("K", maxRuntimeKeyLen*4)] = 1
 
 	rp := runtimePreview(m)
 	if rp.Count > MaxDetailPreview || len(rp.Items) > MaxDetailPreview {
 		t.Errorf("runtime preview count %d exceeds cap %d", rp.Count, MaxDetailPreview)
 	}
+	if rp.Scanned > maxRuntimeScan {
+		t.Errorf("runtime walk scanned %d facts, exceeds the scan bound %d", rp.Scanned, maxRuntimeScan)
+	}
 	if !rp.Truncated {
 		t.Error("a pathological runtime must be reported truncated")
+	}
+	if rp.Total != nil {
+		t.Errorf("a runtime whose walk stopped early must report an UNKNOWN total (nil), got %d", *rp.Total)
 	}
 	for _, f := range rp.Items {
 		if len([]rune(f.Value)) > maxRuntimeValueLen+1 { // +1 for the ellipsis rune
 			t.Errorf("runtime value not length-capped: %d runes (key %q)", len([]rune(f.Value)), f.Key)
 		}
+		if len([]rune(f.Key)) > maxRuntimeKeyLen+1 {
+			t.Errorf("runtime key not length-capped: %d runes", len([]rune(f.Key)))
+		}
 	}
-	// An empty/nil runtime yields an empty, non-nil, non-truncated preview.
+	// An empty/nil runtime yields an empty, non-nil, non-truncated preview with a
+	// KNOWN total of zero (the walk trivially completed).
 	e := runtimePreview(nil)
-	if e.Total != 0 || e.Count != 0 || e.Truncated || e.Items == nil {
-		t.Errorf("empty runtime preview = %+v, want empty non-nil non-truncated", e)
+	if e.Total == nil || *e.Total != 0 || e.Count != 0 || e.Scanned != 0 || e.Truncated || e.Items == nil {
+		t.Errorf("empty runtime preview = %+v (total=%v), want empty non-nil non-truncated total=0", e, e.Total)
+	}
+}
+
+// TestRuntimePreviewAlgorithm attacks the ALGORITHM, not just the output size
+// (requirement, item 13): a composite collapsed at the depth limit is summarized
+// with a SHORT marker (never stringified whole), a wide map is flattened
+// deterministically to its lexicographically-smallest keys without depending on
+// Go's random map order, a walk that visits everything reports the exact total,
+// and a walk that stops early reports the total as unknown.
+func TestRuntimePreviewAlgorithm(t *testing.T) {
+	// (1) Depth-limit collapse must NOT stringify the whole composite. Build a map
+	// nested just past the depth limit whose deepest value is a HUGE map; the
+	// emitted marker must be short and structural, never the giant stringification.
+	huge := map[string]any{}
+	for i := 0; i < 5000; i++ {
+		huge[fmt.Sprintf("h%05d", i)] = strings.Repeat("y", 100)
+	}
+	// Wrap so the HUGE map sits exactly at the depth limit and is the composite that
+	// gets collapsed (each wrapper adds one level; root is depth 1).
+	nested := any(huge)
+	for i := 0; i < maxRuntimeDepth-1; i++ {
+		nested = map[string]any{"a": nested}
+	}
+	rp := runtimePreview(map[string]any{"root": nested})
+	var marker string
+	for _, f := range rp.Items {
+		if strings.HasPrefix(f.Value, "{map:") {
+			marker = f.Value
+		}
+	}
+	if marker == "" {
+		t.Fatalf("expected a depth-collapsed map marker among %d items", len(rp.Items))
+	}
+	if len(marker) > 64 {
+		t.Errorf("depth-collapsed composite was stringified whole (%d chars): %q", len(marker), marker)
+	}
+	if !strings.Contains(marker, "5000") {
+		t.Errorf("depth-collapsed map marker should report the key count, got %q", marker)
+	}
+
+	// (2) Determinism: a wide map flattens to the same smallest-key prefix across
+	// runs regardless of Go's randomized map iteration order, and because it is
+	// wider than the scan budget the total is unknown.
+	wide := map[string]any{}
+	for i := 0; i < maxRuntimeScan*4; i++ {
+		wide[fmt.Sprintf("w%06d", i)] = i
+	}
+	a := runtimePreview(wide)
+	b := runtimePreview(wide)
+	if !reflect.DeepEqual(a.Items, b.Items) {
+		t.Error("runtime flatten of a wide map is not deterministic across runs")
+	}
+	if len(a.Items) == 0 || a.Items[0].Key != "w000000" {
+		t.Errorf("wide flatten must start at the lexicographically smallest key, got %q", firstKey(a.Items))
+	}
+	if a.Total != nil {
+		t.Error("a map wider than the scan budget must report an unknown total")
+	}
+	if a.Scanned > maxRuntimeScan {
+		t.Errorf("scanned %d exceeds budget %d", a.Scanned, maxRuntimeScan)
+	}
+
+	// (3) A small, fully-walked structure reports the EXACT total, and Truncated is
+	// false when everything emitted.
+	small := map[string]any{"a": 1, "b": map[string]any{"c": 2, "d": 3}, "e": []any{"x", "y"}}
+	sp := runtimePreview(small)
+	if sp.Total == nil {
+		t.Fatal("a fully-walked structure must report a known total")
+	}
+	// facts: a, b.c, b.d, e[0], e[1] => 5
+	if *sp.Total != 5 || sp.Count != 5 || sp.Scanned != 5 || sp.Truncated {
+		t.Errorf("small flatten = {total:%v count:%d scanned:%d trunc:%v}, want total=5 count=5 scanned=5 trunc=false", *sp.Total, sp.Count, sp.Scanned, sp.Truncated)
+	}
+
+	// (4) keysBounded selects the smallest keys with O(limit) allocation and reports
+	// completeness honestly.
+	km := map[string]any{"c": 1, "a": 1, "b": 1, "e": 1, "d": 1}
+	got, all := keysBounded(km, 3)
+	if !reflect.DeepEqual(got, []string{"a", "b", "c"}) || all {
+		t.Errorf("keysBounded(limit 3) = %v all=%v, want [a b c] all=false", got, all)
+	}
+	got, all = keysBounded(km, 10)
+	if !reflect.DeepEqual(got, []string{"a", "b", "c", "d", "e"}) || !all {
+		t.Errorf("keysBounded(limit 10) = %v all=%v, want all 5 sorted all=true", got, all)
+	}
+	if got, all := keysBounded(km, 0); got != nil || all {
+		t.Errorf("keysBounded(limit 0) = %v all=%v, want nil false", got, all)
+	}
+	if _, all := keysBounded(map[string]any{}, 0); !all {
+		t.Error("keysBounded of an empty map must report all=true even at limit 0")
+	}
+}
+
+func firstKey(items []RuntimeFact) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return items[0].Key
+}
+
+// A huge slice (wider than the scan budget) must stop the walk at the budget and
+// report an unknown total, exercising the slice-loop bound (not just the map one).
+func TestRuntimePreviewWideSliceBounded(t *testing.T) {
+	big := make([]any, maxRuntimeScan*2)
+	for i := range big {
+		big[i] = i
+	}
+	rp := runtimePreview(map[string]any{"s": big})
+	if rp.Total != nil {
+		t.Errorf("a slice wider than the scan budget must report an unknown total, got %d", *rp.Total)
+	}
+	if rp.Scanned > maxRuntimeScan || !rp.Truncated {
+		t.Errorf("wide-slice preview = {scanned:%d trunc:%v}, want scanned<=%d trunc=true", rp.Scanned, rp.Truncated, maxRuntimeScan)
+	}
+
+	// A NESTED wide map (not top-level) must also cap its keys and break its loop at
+	// the budget, so the bound applies at every level, not only the root.
+	nestedWide := map[string]any{}
+	for i := 0; i < maxRuntimeScan*3; i++ {
+		// Composite values so the walk emits several facts per key and the scan
+		// budget is crossed mid-list (exercising the nested loop's break), not just
+		// exhausted by the bounded key selection.
+		nestedWide[fmt.Sprintf("n%06d", i)] = map[string]any{"a": i, "b": i}
+	}
+	np := runtimePreview(map[string]any{"outer": nestedWide})
+	if np.Total != nil || !np.Truncated || np.Scanned > maxRuntimeScan {
+		t.Errorf("nested wide-map preview = {total:%v scanned:%d trunc:%v}, want unknown total, scanned<=%d, truncated", np.Total, np.Scanned, np.Truncated, maxRuntimeScan)
+	}
+}
+
+// capLen must count RUNES, not bytes: a multibyte string whose byte length exceeds
+// the cap but whose rune count does not is returned unchanged; only a string with
+// more RUNES than the cap is truncated with an ellipsis.
+func TestCapLen(t *testing.T) {
+	if got := capLen("abc", 8); got != "abc" {
+		t.Errorf("short ASCII: got %q", got)
+	}
+	// maxRuntimeValueLen multibyte runes: byte length is larger than the cap, rune
+	// count equals it, so the value is returned unchanged (no truncation).
+	multi := strings.Repeat("é", maxRuntimeValueLen) // 2 bytes each
+	if got := capRuntimeValue(multi); got != multi {
+		t.Errorf("multibyte at cap must be unchanged: got %d runes", len([]rune(got)))
+	}
+	// One more rune than the cap: truncated to the cap plus an ellipsis.
+	over := strings.Repeat("é", maxRuntimeValueLen+5)
+	got := capRuntimeValue(over)
+	if r := []rune(got); len(r) != maxRuntimeValueLen+1 || r[len(r)-1] != '…' {
+		t.Errorf("multibyte over cap = %d runes, want %d + ellipsis", len(r), maxRuntimeValueLen)
+	}
+}
+
+// A single finding with more than MaxEvidenceRefsPreview evidence refs (as an
+// untrusted extension source could produce) must yield a bounded product finding:
+// the true full count as Total, Count capped at the bound, Truncated=true
+// (requirement, item 8). The raw finding.Finding stays unbounded on the low-level
+// snapshot; only the product shape is bounded.
+func TestProductFindingEvidenceRefsBounded(t *testing.T) {
+	over := MaxEvidenceRefsPreview + 13
+	refs := make([]finding.EvidenceRef, over)
+	for i := range refs {
+		refs[i] = finding.EvidenceRef{Source: fmt.Sprintf("src-%d", i), ObservedAt: "2030-01-01"}
+	}
+	pf := productFinding(finding.Finding{
+		Code: finding.Code("DRIFT"), Severity: finding.SeverityUnknown,
+		Category: finding.CategoryInconclusive, Subject: finding.SubjectRef{Kind: "interface", Name: "http"},
+		ContractPath: "interfaces/http", Message: "unevaluable", EvidenceRefs: refs,
+	})
+	er := pf.EvidenceRefs
+	if er.Total != over {
+		t.Errorf("evidenceRefs.total = %d, want the true full count %d", er.Total, over)
+	}
+	if er.Count > MaxEvidenceRefsPreview || len(er.Items) > MaxEvidenceRefsPreview {
+		t.Errorf("evidenceRefs.count = %d exceeds bound %d", er.Count, MaxEvidenceRefsPreview)
+	}
+	if !er.Truncated {
+		t.Error("an over-cap evidence list must report truncated=true")
+	}
+	// Every scalar finding fact is preserved, and the finite severity enum carries
+	// through (including unknown, which the engine really emits).
+	if pf.Code != "DRIFT" || pf.Severity != ProductSeverityUnknown || pf.Category != "Inconclusive" ||
+		pf.Subject.Kind != "interface" || pf.Subject.Name != "http" || pf.ContractPath != "interfaces/http" || pf.Message != "unevaluable" {
+		t.Errorf("product finding scalar facts not preserved: %+v", pf)
+	}
+	// A finding with no evidence refs yields an empty, non-nil, non-truncated preview.
+	empty := productFinding(finding.Finding{Code: "X"}).EvidenceRefs
+	if empty.Total != 0 || empty.Count != 0 || empty.Truncated || empty.Items == nil {
+		t.Errorf("empty evidence preview = %+v, want empty non-nil non-truncated", empty)
 	}
 }
 
