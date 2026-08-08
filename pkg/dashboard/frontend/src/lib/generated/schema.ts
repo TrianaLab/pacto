@@ -1735,7 +1735,7 @@ export interface components {
             count?: number;
             declaredClaims: components["schemas"]["Fleet.DeclaredClaimsPreview"];
             /** @enum {string} */
-            difference: "matched" | "expected-not-observed" | "observed-not-expected" | "insufficient";
+            difference?: "matched" | "expected-not-observed" | "observed-not-expected" | "insufficient";
             expected: boolean;
             /** Format: date-time */
             firstSeen?: string;
@@ -1748,6 +1748,8 @@ export interface components {
             observed: boolean;
             /** @enum {string} */
             provenance: "declared" | "observed";
+            /** @enum {string} */
+            relation: "dependency" | "runs";
             stale?: boolean;
             to: components["schemas"]["ProductRef"];
         };
@@ -1846,12 +1848,15 @@ export interface components {
             direction: "dependencies" | "dependents" | "both";
             edges: components["schemas"]["ProductEdge"][] | null;
             focusService: components["schemas"]["ProductRef"];
+            limitations: components["schemas"]["Fleet.LimitationsPreview"];
             /** Format: int64 */
             maxEdges: number;
             /** Format: int64 */
             maxNodes: number;
             meta: components["schemas"]["Fleet.ProductMeta"];
             nodes: components["schemas"]["ProductNode"][] | null;
+            /** @enum {string} */
+            perspective: "service" | "revision" | "target";
             requestedFocus: components["schemas"]["ProductRef"];
             truncated: boolean;
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
@@ -2663,6 +2668,8 @@ export interface operations {
                 /** @description Focus entity kind: service, revision or target */
                 kind: string;
                 key: string;
+                /** @description Projection kind: service (default), revision or target */
+                perspective?: "service" | "revision" | "target";
                 /** @description dependencies, dependents or both (default both) */
                 direction?: "dependencies" | "dependents" | "both";
                 /** @description Traversal depth (negatives rejected; excessive values capped) */

@@ -31,6 +31,12 @@ const (
 // Difference is the backend's explicit declared-vs-observed verdict for an edge.
 // The frontend must render it verbatim and never infer a verdict (e.g.
 // observed-not-expected) from the Expected/Observed booleans.
+// Edge relations (see NeighborhoodEdge.Relation).
+const (
+	RelationDependency = "dependency"
+	RelationRuns       = "runs"
+)
+
 const (
 	// DifferenceMatched: declared AND corroborated by observation.
 	DifferenceMatched = "matched"
@@ -70,15 +76,58 @@ func validView(v KnowledgeView) bool {
 // product default, so a focused neighborhood shows the full local situation.
 const DirectionBoth Direction = "both"
 
+// Perspective selects which KIND of node the graph projects (requirement, Phase-4
+// prerequisite J). The three identities are never flattened, so each perspective is a
+// real projection with its own semantics, not a recoloring of service nodes:
+//   - service: logical-service nodes (the default; the original neighborhood).
+//   - revision: immutable ContractRevision nodes. A revision-scoped dependency points
+//     to a specific provider REVISION only when the snapshot resolved one (a lock
+//     whose digest matches a known revision); otherwise it points to the logical
+//     provider SERVICE (a mixed edge), never a fabricated "provider@latest".
+//   - target: concrete operational-target nodes. A target links to the revision it
+//     runs and to the SERVICES that revision depends on (mixed edges); it never gets a
+//     fabricated target-to-target edge, because the evidence only establishes
+//     service-to-service dependency, not which concrete provider target served it.
+type Perspective string
+
+const (
+	PerspectiveService  Perspective = "service"
+	PerspectiveRevision Perspective = "revision"
+	PerspectiveTarget   Perspective = "target"
+)
+
+// resolvePerspective defaults an empty perspective to service and rejects an unknown.
+func resolvePerspective(p Perspective) (Perspective, error) {
+	switch p {
+	case "", PerspectiveService:
+		return PerspectiveService, nil
+	case PerspectiveRevision, PerspectiveTarget:
+		return p, nil
+	default:
+		return "", &InvalidQueryError{Field: "perspective", Value: string(p), Reason: "must be service, revision or target"}
+	}
+}
+
 // NeighborhoodQuery configures a bounded neighborhood (requirement 2.3).
 type NeighborhoodQuery struct {
-	Kind      EntityKind
-	Key       string
-	Direction Direction // defaults to both
-	Depth     int       // defaults to 1
-	Views     []KnowledgeView
-	MaxNodes  int
-	MaxEdges  int
+	Kind        EntityKind
+	Key         string
+	Perspective Perspective // defaults to service
+	Direction   Direction   // defaults to both
+	Depth       int         // defaults to 1
+	Views       []KnowledgeView
+	MaxNodes    int
+	MaxEdges    int
+}
+
+// boundedParams holds the validated, defaulted-and-capped neighborhood bounds shared
+// by every projection.
+type boundedParams struct {
+	dir      Direction
+	views    []KnowledgeView
+	depth    int
+	maxNodes int
+	maxEdges int
 }
 
 // NeighborhoodNode is one node in the bounded neighborhood. Ref carries identity,
@@ -115,13 +164,18 @@ type DeclaredClaim struct {
 // an edge stays bounded no matter how many revisions declare it or how many
 // sources observe it. The edge carries no route: the transport adds an href.
 type NeighborhoodEdge struct {
-	ID                 string                    `json:"id"`
-	From               EntityRef                 `json:"from"`
-	To                 EntityRef                 `json:"to"`
+	ID   string    `json:"id"`
+	From EntityRef `json:"from"`
+	To   EntityRef `json:"to"`
+	// Relation names what the edge MEANS, so a mixed-kind projection is unambiguous:
+	// "dependency" (the source depends on the target) or "runs" (a target runs the
+	// revision it points to). A dependency edge carries a difference verdict; a runs
+	// edge does not (it is an observed link, not a declared-vs-observed dependency).
+	Relation           string                    `json:"relation" enum:"dependency,runs"`
 	Expected           bool                      `json:"expected"`
 	Observed           bool                      `json:"observed"`
 	Provenance         string                    `json:"provenance" enum:"declared,observed"`
-	Difference         string                    `json:"difference" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
+	Difference         string                    `json:"difference,omitempty" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
 	DeclaredClaims     DeclaredClaimsPreview     `json:"declaredClaims"`
 	ObservationSources ObservationSourcesPreview `json:"observationSources"`
 	Count              int                       `json:"count,omitempty"`
@@ -169,13 +223,17 @@ type UnresolvedDependenciesPreview struct {
 	Items     []UnresolvedDependency `json:"items,omitempty"`
 }
 
-// Neighborhood is the bounded, graph-ready neighborhood answer. In this API
-// version the graph is honestly a SERVICE neighborhood: RequestedFocus is the
-// entity the user selected (a service, revision or target), FocusService is the
-// logical service node used as the root, and every node in Nodes is a service
-// node. True revision-graph and deployment-graph projections are a later phase.
+// Neighborhood is the bounded, graph-ready neighborhood answer. Perspective names
+// the projection kind (service / revision / target); nodes and edges carry their own
+// kind through their EntityRef, so a revision or target projection is a genuine
+// mixed-kind graph, not recolored service nodes. RequestedFocus is the entity the
+// user selected; FocusService is the logical service the focus belongs to (a stable
+// anchor for every perspective). Limitations records honest gaps in a projection
+// (e.g. observation is service-scoped, so it is not attributed to a specific revision
+// edge in the revision perspective).
 type Neighborhood struct {
 	Meta                   ProductMeta                   `json:"meta"`
+	Perspective            Perspective                   `json:"perspective" enum:"service,revision,target"`
 	RequestedFocus         EntityRef                     `json:"requestedFocus"`
 	FocusService           EntityRef                     `json:"focusService"`
 	Direction              Direction                     `json:"direction" enum:"dependencies,dependents,both"`
@@ -184,6 +242,7 @@ type Neighborhood struct {
 	Nodes                  []NeighborhoodNode            `json:"nodes"`
 	Edges                  []NeighborhoodEdge            `json:"edges"`
 	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
+	Limitations            LimitationsPreview            `json:"limitations"`
 	Truncated              bool                          `json:"truncated"`
 	MaxNodes               int                           `json:"maxNodes"`
 	MaxEdges               int                           `json:"maxEdges"`
@@ -196,41 +255,68 @@ type Neighborhood struct {
 // versa); the difference verdict is a backend fact; and unresolved declared
 // dependencies are surfaced rather than dropped.
 func (q *Query) Neighborhood(nq NeighborhoodQuery) (*Neighborhood, error) {
-	root, requested, focusService, revState, err := q.resolveNeighborhoodFocus(nq.Kind, nq.Key)
+	perspective, err := resolvePerspective(nq.Perspective)
 	if err != nil {
 		return nil, err
 	}
-	dir, err := validateNeighborhoodDirection(nq.Direction)
+	bp, err := boundNeighborhoodParams(nq)
 	if err != nil {
 		return nil, err
+	}
+	switch perspective {
+	case PerspectiveRevision:
+		return q.revisionNeighborhood(nq.Kind, nq.Key, bp)
+	case PerspectiveTarget:
+		return q.targetNeighborhood(nq.Kind, nq.Key, bp)
+	default:
+		return q.serviceNeighborhood(nq.Kind, nq.Key, bp)
+	}
+}
+
+// boundNeighborhoodParams validates and defaults the bounds shared by every
+// projection (direction, views, depth, node/edge caps).
+func boundNeighborhoodParams(nq NeighborhoodQuery) (boundedParams, error) {
+	dir, err := validateNeighborhoodDirection(nq.Direction)
+	if err != nil {
+		return boundedParams{}, err
 	}
 	views, err := resolveViews(nq.Views)
 	if err != nil {
-		return nil, err
+		return boundedParams{}, err
 	}
 	depth, err := boundNeighborhoodParam("depth", nq.Depth, DefaultNeighborhoodDepth, MaxNeighborhoodDepth)
 	if err != nil {
-		return nil, err
+		return boundedParams{}, err
 	}
 	maxNodes, err := boundNeighborhoodParam("maxNodes", nq.MaxNodes, DefaultMaxNodes, MaxNeighborhoodNodes)
 	if err != nil {
-		return nil, err
+		return boundedParams{}, err
 	}
 	maxEdges, err := boundNeighborhoodParam("maxEdges", nq.MaxEdges, DefaultMaxEdges, MaxNeighborhoodEdges)
 	if err != nil {
+		return boundedParams{}, err
+	}
+	return boundedParams{dir: dir, views: views, depth: depth, maxNodes: maxNodes, maxEdges: maxEdges}, nil
+}
+
+// serviceNeighborhood is the logical-service projection (Perspective service): every
+// node is a service and every edge is a service-to-service declared/observed edge.
+func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParams) (*Neighborhood, error) {
+	root, requested, focusService, revState, err := q.resolveNeighborhoodFocus(kind, key)
+	if err != nil {
 		return nil, err
 	}
-
 	// The requested views decide which knowledge kinds the walk may follow, so a
 	// node reachable only through an excluded knowledge kind is never in scope.
-	wantDeclared, wantObserved := knowledgeFromViews(views)
-	nodeDepth, truncatedNodes := q.walkNeighborhood(root, dir, depth, maxNodes, wantDeclared, wantObserved)
-	edges, truncatedEdges := q.neighborhoodEdges(nodeDepth, views, maxEdges)
+	wantDeclared, wantObserved := knowledgeFromViews(bp.views)
+	nodeDepth, truncatedNodes := q.walkNeighborhood(root, bp.dir, bp.depth, bp.maxNodes, wantDeclared, wantObserved)
+	edges, truncatedEdges := q.neighborhoodEdges(nodeDepth, bp.views, bp.maxEdges)
 	res := &Neighborhood{
-		Meta: q.productMeta(), RequestedFocus: requested, FocusService: focusService,
-		Direction: dir, Depth: depth, Views: views, MaxNodes: maxNodes, MaxEdges: maxEdges,
+		Meta: q.productMeta(), Perspective: PerspectiveService, RequestedFocus: requested, FocusService: focusService,
+		Direction: bp.dir, Depth: bp.depth, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
 		Nodes: q.neighborhoodNodes(root, nodeDepth, revState, wantDeclared, wantObserved), Edges: edges,
 		UnresolvedDependencies: q.unresolvedNeighborhoodDeps(nodeDepth, wantDeclared),
+		Limitations:            limitationsPreview(nil),
 		Truncated:              truncatedNodes || truncatedEdges,
 	}
 	return res, nil
@@ -568,9 +654,10 @@ func (q *Query) unresolvedNeighborhoodDeps(depthOf map[ServiceKey]int, wantDecla
 // href.
 func (q *Query) newEdge(from, to ServiceKey) *NeighborhoodEdge {
 	return &NeighborhoodEdge{
-		ID:   string(from) + "|" + string(to),
-		From: q.serviceRef(from),
-		To:   q.serviceRef(to),
+		ID:       string(from) + "|" + string(to),
+		Relation: RelationDependency,
+		From:     q.serviceRef(from),
+		To:       q.serviceRef(to),
 	}
 }
 

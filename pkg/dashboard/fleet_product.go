@@ -126,13 +126,14 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 }
 
 type fleetNeighborhoodInput struct {
-	Kind      string `query:"kind" required:"true" doc:"Focus entity kind: service, revision or target"`
-	Key       string `query:"key" required:"true"`
-	Direction string `query:"direction" enum:"dependencies,dependents,both" doc:"dependencies, dependents or both (default both)"`
-	Depth     int    `query:"depth" minimum:"0" doc:"Traversal depth (negatives rejected; excessive values capped)"`
-	Views     string `query:"views" doc:"Comma-separated knowledge views (expected,observed,differences)"`
-	MaxNodes  int    `query:"maxNodes" minimum:"0" doc:"Max nodes (negatives rejected; excessive values capped)"`
-	MaxEdges  int    `query:"maxEdges" minimum:"0" doc:"Max edges (negatives rejected; excessive values capped)"`
+	Kind        string `query:"kind" required:"true" doc:"Focus entity kind: service, revision or target"`
+	Key         string `query:"key" required:"true"`
+	Perspective string `query:"perspective" enum:"service,revision,target" doc:"Projection kind: service (default), revision or target"`
+	Direction   string `query:"direction" enum:"dependencies,dependents,both" doc:"dependencies, dependents or both (default both)"`
+	Depth       int    `query:"depth" minimum:"0" doc:"Traversal depth (negatives rejected; excessive values capped)"`
+	Views       string `query:"views" doc:"Comma-separated knowledge views (expected,observed,differences)"`
+	MaxNodes    int    `query:"maxNodes" minimum:"0" doc:"Max nodes (negatives rejected; excessive values capped)"`
+	MaxEdges    int    `query:"maxEdges" minimum:"0" doc:"Max edges (negatives rejected; excessive values capped)"`
 }
 
 type fleetNeighborhoodOutput struct{ Body *ProductNeighborhood }
@@ -143,8 +144,9 @@ func (s *Server) fleetNeighborhood(ctx context.Context, in *fleetNeighborhoodInp
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
 	res, err := q.Neighborhood(fleet.NeighborhoodQuery{
-		Kind: fleet.EntityKind(in.Kind), Key: in.Key, Direction: fleet.Direction(in.Direction),
-		Depth: in.Depth, Views: parseViews(in.Views), MaxNodes: in.MaxNodes, MaxEdges: in.MaxEdges,
+		Kind: fleet.EntityKind(in.Kind), Key: in.Key, Perspective: fleet.Perspective(in.Perspective),
+		Direction: fleet.Direction(in.Direction),
+		Depth:     in.Depth, Views: parseViews(in.Views), MaxNodes: in.MaxNodes, MaxEdges: in.MaxEdges,
 	})
 	if err != nil {
 		return nil, productQueryError(err)

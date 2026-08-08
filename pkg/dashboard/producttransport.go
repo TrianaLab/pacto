@@ -110,7 +110,9 @@ type ProductEdge struct {
 func productEdge(e fleet.NeighborhoodEdge) ProductEdge {
 	return ProductEdge{
 		NeighborhoodEdge: e, From: productRef(e.From), To: productRef(e.To),
-		Href: hrefForGraph(fleet.KindService, e.To.Key),
+		// Focus the target endpoint in its OWN kind's graph (a mixed projection has
+		// revision and target endpoints, not only services).
+		Href: hrefForGraph(e.To.Kind, e.To.Key),
 	}
 }
 
