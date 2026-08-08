@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl, readinessUrl, fleetUrl, impactUrl } from './router.ts';
+import {
+  parseHash, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl,
+  readinessUrl, fleetUrl, impactUrl,
+  hashForHref, fleetOverviewUrl, fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetImpactUrl,
+} from './router.ts';
 
 describe('parseHash', () => {
   it('returns list view for empty hash', () => {
@@ -64,8 +68,12 @@ describe('parseHash', () => {
     expect(parseHash('#/readiness')).toEqual({ view: 'readiness', params: {} });
   });
 
-  it('parses fleet route', () => {
-    expect(parseHash('#/fleet')).toEqual({ view: 'fleet', params: {} });
+  it('parses the fleet overview landing route', () => {
+    expect(parseHash('#/fleet')).toEqual({ view: 'fleet-overview', params: {} });
+  });
+
+  it('parses the operational graph route (migrated to /fleet/graph)', () => {
+    expect(parseHash('#/fleet/graph')).toEqual({ view: 'fleet', params: {} });
   });
 
   it('parses impact route', () => {
@@ -232,7 +240,7 @@ describe('parseHash — query strings on non-diff routes', () => {
   });
 
   it('parses fleet graph state (perspective, layer, filters, selection) from the query', () => {
-    expect(parseHash('#/fleet?perspective=target&layer=reconciled&domain=domain-a&owner=core&sel=domain-a%2Fpayments')).toEqual({
+    expect(parseHash('#/fleet/graph?perspective=target&layer=reconciled&domain=domain-a&owner=core&sel=domain-a%2Fpayments')).toEqual({
       view: 'fleet',
       params: { perspective: 'target', layer: 'reconciled', domain: 'domain-a', owner: 'core', sel: 'domain-a/payments' },
     });
@@ -266,12 +274,68 @@ describe('readinessUrl', () => {
 });
 
 describe('fleetUrl', () => {
-  it('returns fleet URL', () => {
-    expect(fleetUrl()).toBe('#/fleet');
+  it('returns the operational graph URL at /fleet/graph', () => {
+    expect(fleetUrl()).toBe('#/fleet/graph');
   });
-  it('builds a fleet URL with graph state (encoding the selected key)', () => {
+  it('builds a graph URL with state (encoding the selected key)', () => {
     expect(fleetUrl({ perspective: 'service', layer: 'all', sel: 'domain-a/payments' }))
-      .toBe('#/fleet?perspective=service&layer=all&sel=domain-a%2Fpayments');
+      .toBe('#/fleet/graph?perspective=service&layer=all&sel=domain-a%2Fpayments');
+  });
+});
+
+describe('parseHash — fleet product IA (Phase 2)', () => {
+  it('parses the unified entity-detail routes (plural segment -> singular kind)', () => {
+    expect(parseHash('#/fleet/services/payments')).toEqual({ view: 'fleet-entity', params: { kind: 'service', key: 'payments' } });
+    expect(parseHash('#/fleet/revisions/svc@a')).toEqual({ view: 'fleet-entity', params: { kind: 'revision', key: 'svc@a' } });
+    expect(parseHash('#/fleet/targets/prod/k8s/app')).toEqual({ view: 'fleet-entity', params: { kind: 'target', key: 'prod/k8s/app' } });
+    expect(parseHash('#/fleet/owners/team-a')).toEqual({ view: 'fleet-entity', params: { kind: 'owner', key: 'team-a' } });
+    expect(parseHash('#/fleet/sources/k8s')).toEqual({ view: 'fleet-entity', params: { kind: 'source', key: 'k8s' } });
+  });
+
+  it('round-trips slash- and percent-bearing canonical keys through escape/decode', () => {
+    for (const key of ['domain-a/payments', 'prod/k8s/app', 'oci://ghcr.io/acme/pay@sha256:ab', 'weird%2Fkey', 'a b/c%d']) {
+      const url = fleetEntityUrl('service', key);
+      expect(url.includes(' ')).toBe(false); // fully escaped, safe in a hash
+      expect(parseHash(url)).toEqual({ view: 'fleet-entity', params: { kind: 'service', key } });
+    }
+  });
+
+  it('parses the attention route with an optional category', () => {
+    expect(parseHash('#/fleet/attention')).toEqual({ view: 'fleet-attention', params: {} });
+    expect(parseHash('#/fleet/attention?category=stale')).toEqual({ view: 'fleet-attention', params: { category: 'stale' } });
+  });
+
+  it('parses the service-scoped impact route', () => {
+    expect(parseHash('#/fleet/impact/domain-a%2Fpayments')).toEqual({ view: 'impact', params: { svc: 'domain-a/payments' } });
+  });
+
+  it('parses a focused graph route (kind/key path segment)', () => {
+    expect(parseHash('#/fleet/graph/target/prod%2Fk8s%2Fapp')).toEqual({ view: 'fleet', params: { kind: 'target', sel: 'prod/k8s/app' } });
+  });
+
+  it('falls back to the overview for an unknown /fleet/* route', () => {
+    expect(parseHash('#/fleet/bogus/x')).toEqual({ view: 'fleet-overview', params: {} });
+  });
+});
+
+describe('centralized fleet navigation builders', () => {
+  it('hashForHref adopts an authoritative backend href verbatim', () => {
+    expect(hashForHref('/fleet/targets/prod%2Fk8s%2Fapp')).toBe('#/fleet/targets/prod%2Fk8s%2Fapp');
+    expect(hashForHref('#/fleet/services/x')).toBe('#/fleet/services/x');
+    expect(hashForHref('')).toBe('#/fleet');
+    expect(hashForHref(undefined)).toBe('#/fleet');
+  });
+  it('builds product URLs from (kind, key)', () => {
+    expect(fleetOverviewUrl()).toBe('#/fleet');
+    expect(fleetEntityUrl('target', 'prod/k8s/app')).toBe('#/fleet/targets/prod%2Fk8s%2Fapp');
+    expect(fleetGraphFocusUrl('service', 'a/b')).toBe('#/fleet/graph/service/a%2Fb');
+    expect(fleetAttentionUrl()).toBe('#/fleet/attention');
+    expect(fleetAttentionUrl('non-compliant')).toBe('#/fleet/attention?category=non-compliant');
+    expect(fleetImpactUrl('domain-a/payments')).toBe('#/fleet/impact/domain-a%2Fpayments');
+  });
+  it('hashForHref then parseHash round-trips a backend entity href', () => {
+    const href = '/fleet/revisions/' + encodeURIComponent('svc@sha256:abc');
+    expect(parseHash(hashForHref(href))).toEqual({ view: 'fleet-entity', params: { kind: 'revision', key: 'svc@sha256:abc' } });
   });
 });
 

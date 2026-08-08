@@ -1,9 +1,26 @@
 /** Minimal hash router — returns a reactive route object. */
 
 export interface Route {
-  view: 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness' | 'fleet' | 'impact';
+  view:
+    | 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness'
+    // Operational-graph (fleet) product IA. 'fleet' is the legacy operational GRAPH
+    // (now mounted at /fleet/graph); the Phase-2 product routes are separate.
+    | 'fleet' | 'impact'
+    | 'fleet-overview'  // /fleet            operational landing page
+    | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
+    | 'fleet-attention';// /fleet/attention  attention list
   params: Record<string, string>;
 }
+
+// Entity kind <-> URL segment. The backend route builder (fleetroute.go) uses the
+// plural segment; the product entity-detail facade takes the singular kind. These
+// two maps are the ONE place the frontend translates between them.
+const KIND_PLURAL: Record<string, string> = {
+  service: 'services', revision: 'revisions', target: 'targets', owner: 'owners', source: 'sources',
+};
+const PLURAL_KIND: Record<string, string> = {
+  services: 'service', revisions: 'revision', targets: 'target', owners: 'owner', sources: 'source',
+};
 
 export function parseHash(hash: string | null | undefined): Route {
   const raw = (hash || '').replace(/^#\/?/, '');
@@ -65,18 +82,12 @@ export function parseHash(hash: string | null | undefined): Route {
   // #/readiness
   if (path === 'readiness') return { view: 'readiness', params: {} };
 
-  // #/fleet?perspective=&layer=&domain=&scope=&owner=&status=&source=&freshness=&sel=&kind=
-  // The Operational Graph keeps its perspective, layer, filters and selection in
-  // the URL so the view is deep-linkable, survives auto-refresh, and is testable.
-  // `sel` is a URL-encoded domain-qualified ServiceKey/RevisionKey/TargetKey.
-  if (path === 'fleet') {
-    const params: Record<string, string> = {};
-    const qs = new URLSearchParams(query);
-    for (const k of ['perspective', 'layer', 'domain', 'scope', 'owner', 'status', 'source', 'freshness', 'sel', 'kind']) {
-      const v = qs.get(k);
-      if (v) params[k] = v;
-    }
-    return { view: 'fleet', params };
+  // Operational-graph (fleet) product IA (Phase 2). The backend route builder
+  // (fleetroute.go) emits exactly these paths as authoritative hrefs; parseFleet is
+  // their frontend counterpart. Keys are percent-escaped path segments, so they
+  // round-trip slash-, percent-, OCI- and domain-qualified identities.
+  if (path === 'fleet' || path.startsWith('fleet/')) {
+    return parseFleet(path, query);
   }
 
   // #/impact?old=&new=&observed=1 — the impact deep link carries the two revisions
@@ -100,6 +111,53 @@ export function parseHash(hash: string | null | undefined): Route {
   if (path === 'owners') return { view: 'owners', params: {} };
 
   return { view: 'list', params: {} };
+}
+
+/**
+ * parseFleet routes the /fleet/* product IA:
+ *   /fleet                          -> operational overview (landing)
+ *   /fleet/graph[/:kind/:key][?...] -> operational graph (legacy FleetView)
+ *   /fleet/attention[?category=]    -> attention list
+ *   /fleet/impact/:serviceKey       -> impact, scoped to a service
+ *   /fleet/<plural>/:key            -> unified entity detail
+ * The last path segment is a single percent-escaped key (the backend escapes '/'),
+ * so decodeURIComponent recovers arbitrary canonical keys.
+ */
+function parseFleet(path: string, query: string): Route {
+  if (path === 'fleet') return { view: 'fleet-overview', params: {} };
+  const rest = path.slice('fleet/'.length);
+
+  // Operational graph: perspective/layer/filters/selection live in the query so the
+  // graph is deep-linkable; an optional /:kind/:key path segment focuses it.
+  if (rest === 'graph' || rest.startsWith('graph/')) {
+    const params: Record<string, string> = {};
+    const qs = new URLSearchParams(query);
+    for (const k of ['perspective', 'layer', 'domain', 'scope', 'owner', 'status', 'source', 'freshness', 'sel', 'kind']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
+    const focus = rest.match(/^graph\/([^/]+)\/(.+)$/);
+    if (focus) { params.kind = decodeURIComponent(focus[1]); params.sel = decodeURIComponent(focus[2]); }
+    return { view: 'fleet', params };
+  }
+
+  if (rest === 'attention') {
+    const params: Record<string, string> = {};
+    const cat = new URLSearchParams(query).get('category');
+    if (cat) params.category = cat;
+    return { view: 'fleet-attention', params };
+  }
+
+  const imp = rest.match(/^impact\/(.+)$/);
+  if (imp) return { view: 'impact', params: { svc: decodeURIComponent(imp[1]) } };
+
+  const ent = rest.match(/^(services|revisions|targets|owners|sources)\/(.+)$/);
+  if (ent) {
+    return { view: 'fleet-entity', params: { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) } };
+  }
+
+  // Unknown /fleet/* falls back to the overview, never a broken screen.
+  return { view: 'fleet-overview', params: {} };
 }
 
 export function navigate(view: string, params: Record<string, string> = {}): void {
@@ -148,6 +206,8 @@ export function readinessUrl(): string {
   return '#/readiness';
 }
 
+// fleetUrl builds the Operational GRAPH link (legacy FleetView), now mounted at
+// /fleet/graph so /fleet is the operational overview. Graph state stays in the query.
 export function fleetUrl(opts: {
   perspective?: string; layer?: string; domain?: string; scope?: string; owner?: string;
   status?: string; source?: string; freshness?: string; sel?: string; kind?: string;
@@ -157,7 +217,45 @@ export function fleetUrl(opts: {
     if (v) qs.set(k, v);
   }
   const str = qs.toString();
-  return str ? `#/fleet?${str}` : '#/fleet';
+  return str ? `#/fleet/graph?${str}` : '#/fleet/graph';
+}
+
+// ── centralized fleet product navigation (Phase 2) ───────────────────────────
+// Every /fleet/* URL is built here; components never assemble a fleet path inline.
+// Prefer hashForHref(ref.href) when a ProductRef already carries its authoritative
+// backend href; use these builders when only (kind, key) is known.
+
+/** hashForHref turns an authoritative backend product href ("/fleet/...") into a
+ *  hash-router location. This is the primary navigator: ProductRef, entry points and
+ *  edges all carry a canonical href the backend built from the exact key. */
+export function hashForHref(href: string | null | undefined): string {
+  if (!href) return '#/fleet';
+  return href.startsWith('#') ? href : `#${href}`;
+}
+
+export function fleetOverviewUrl(): string {
+  return '#/fleet';
+}
+
+// ponytail: encodeURIComponent over-escapes a few sub-delims vs Go's url.PathEscape,
+// so a frontend-built key segment can differ cosmetically from the backend href for
+// the same key -- both decode identically, and components prefer hashForHref(ref.href)
+// anyway, so this only affects URLs we build with no backend href in hand.
+export function fleetEntityUrl(kind: string, key: string): string {
+  const plural = KIND_PLURAL[kind] ?? 'services';
+  return `#/fleet/${plural}/${encodeURIComponent(key)}`;
+}
+
+export function fleetGraphFocusUrl(kind: string, key: string): string {
+  return `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
+}
+
+export function fleetAttentionUrl(category?: string): string {
+  return category ? `#/fleet/attention?category=${encodeURIComponent(category)}` : '#/fleet/attention';
+}
+
+export function fleetImpactUrl(serviceKey: string): string {
+  return `#/fleet/impact/${encodeURIComponent(serviceKey)}`;
 }
 
 export function impactUrl(opts: { svc?: string; old?: string; new?: string; observed?: boolean } = {}): string {

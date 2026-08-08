@@ -1,0 +1,138 @@
+/**
+ * Truthful knowledge-state decision (Phase 2, requirement H).
+ *
+ * The dashboard must never turn a lack of knowledge into a claim of health. A
+ * partial, stale or degraded snapshot with zero known attention items is NOT the
+ * same as "everything is healthy": we simply cannot see everything. This module is
+ * the ONE place that decision is made, so no view invents an ad-hoc "All clear"
+ * string. Views derive their empty/degraded rendering from these pure functions;
+ * ProductEmptyState renders the result.
+ *
+ * The inputs are structural (not tied to a specific DTO) so the same decision serves
+ * the overview, entity search, entity detail and any future list.
+ */
+
+import { ApiError, SchemaCompatibilityError, ApiContractError } from './api.ts';
+
+/** CompletenessLevel is the worst knowledge level a snapshot's sources imply. */
+export type CompletenessLevel = 'complete' | 'partial' | 'stale' | 'unavailable' | 'unknown';
+
+export interface SnapshotKnowledge {
+  level: CompletenessLevel;
+  degradedSources: number;
+  staleSources: number;
+  unavailableSources: number;
+  /** incomplete is true when knowledge is anything less than fully complete, so a
+   *  caller can gate "all clear" on it without re-checking every counter. */
+  incomplete: boolean;
+}
+
+/** A minimal structural view of a product meta envelope (ProductMeta). */
+interface MetaLike {
+  completeness?: string;
+  sources?: Array<{ status?: string } | null> | null;
+  sourcesTruncated?: boolean;
+}
+
+/**
+ * snapshotKnowledge derives a snapshot's knowledge quality from its product meta:
+ * the declared completeness AND the per-source health. A source that is partial,
+ * stale or unavailable makes knowledge incomplete even if `completeness` says
+ * otherwise, so the strictest signal wins. A missing meta is `unknown` (we cannot
+ * assert completeness we never received) and therefore incomplete.
+ */
+export function snapshotKnowledge(meta: MetaLike | null | undefined): SnapshotKnowledge {
+  if (!meta) {
+    return { level: 'unknown', degradedSources: 0, staleSources: 0, unavailableSources: 0, incomplete: true };
+  }
+  let degraded = 0, stale = 0, unavailable = 0;
+  for (const s of meta.sources ?? []) {
+    switch (s?.status) {
+      case 'partial': degraded++; break;
+      case 'stale': stale++; break;
+      case 'unavailable': unavailable++; break;
+    }
+  }
+  // Strictest-first: an unavailable source is the worst, then stale, then partial.
+  // Fall back to the declared completeness when no source is individually degraded.
+  let level: CompletenessLevel;
+  if (unavailable > 0) level = 'unavailable';
+  else if (stale > 0) level = 'stale';
+  else if (degraded > 0) level = 'partial';
+  else if (meta.completeness === 'partial') level = 'partial';
+  else if (meta.completeness === 'complete') level = 'complete';
+  else level = 'unknown';
+  return {
+    level, degradedSources: degraded, staleSources: stale, unavailableSources: unavailable,
+    incomplete: level !== 'complete',
+  };
+}
+
+/**
+ * classifyError maps a caught error to the honest failure kind. A 404 is a real
+ * not-found; a schema/contract violation is a distinct incompatibility the user must
+ * see (reload/upgrade); anything else transport-level is backend-unavailable.
+ */
+export type ErrorKind = 'not-found' | 'schema-error' | 'backend-error';
+export function classifyError(err: unknown): ErrorKind {
+  if (err instanceof SchemaCompatibilityError || err instanceof ApiContractError) return 'schema-error';
+  if (err instanceof ApiError && err.status === 404) return 'not-found';
+  return 'backend-error';
+}
+
+/**
+ * ViewState is the reusable UI state a list/detail view renders. Every empty screen
+ * is disambiguated: a genuinely empty fleet, a filter that matched nothing, and
+ * "nothing known under incomplete knowledge" are three different truths.
+ */
+export type ViewState =
+  | { kind: 'loading' }
+  | { kind: 'backend-error'; message: string }
+  | { kind: 'schema-error'; message: string }
+  | { kind: 'not-found'; message: string }
+  | { kind: 'empty-fleet' }        // no items, knowledge complete -> genuinely empty
+  | { kind: 'empty-unknown'; knowledge: SnapshotKnowledge } // no items, knowledge incomplete
+  | { kind: 'filtered-empty' }     // a filter/search matched nothing
+  | { kind: 'ready'; knowledge: SnapshotKnowledge }; // has data (possibly degraded)
+
+export interface ViewStateInput {
+  loading: boolean;
+  error?: unknown;
+  itemCount: number;
+  /** filtered is true when a search/filter is active, so 0 results is "no matches",
+   *  not "empty fleet". */
+  filtered?: boolean;
+  knowledge?: SnapshotKnowledge;
+}
+
+/** decideViewState is the single list/detail state machine (requirement H). */
+export function decideViewState(input: ViewStateInput): ViewState {
+  if (input.loading) return { kind: 'loading' };
+  if (input.error != null) {
+    const msg = input.error instanceof Error ? input.error.message : String(input.error);
+    switch (classifyError(input.error)) {
+      case 'not-found': return { kind: 'not-found', message: msg };
+      case 'schema-error': return { kind: 'schema-error', message: msg };
+      default: return { kind: 'backend-error', message: msg };
+    }
+  }
+  const knowledge = input.knowledge ?? snapshotKnowledge(null);
+  if (input.itemCount <= 0) {
+    if (input.filtered) return { kind: 'filtered-empty' };
+    // The non-negotiable rule: no items under INCOMPLETE knowledge is not "empty",
+    // it is "nothing known that we can see" -- never an all-clear.
+    if (knowledge.incomplete) return { kind: 'empty-unknown', knowledge };
+    return { kind: 'empty-fleet' };
+  }
+  return { kind: 'ready', knowledge };
+}
+
+/**
+ * allClearAllowed gates any blanket "all clear / everything healthy" affordance on
+ * COMPLETE knowledge with zero attention. Under partial/stale/unavailable/unknown
+ * knowledge it returns false, so the caller shows "no attention items known" with a
+ * visible incompleteness caveat instead of asserting health (requirement H).
+ */
+export function allClearAllowed(knowledge: SnapshotKnowledge, attentionCount: number): boolean {
+  return !knowledge.incomplete && attentionCount <= 0;
+}
