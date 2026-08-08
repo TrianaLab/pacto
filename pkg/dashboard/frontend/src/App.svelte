@@ -15,6 +15,9 @@
   import OwnerDetailView from './views/OwnerDetailView.svelte';
   import ReadinessView from './views/ReadinessView.svelte';
   import FleetView from './views/FleetView.svelte';
+  import FleetOverview from './views/FleetOverview.svelte';
+  import FleetEntityView from './views/FleetEntityView.svelte';
+  import FleetAttentionView from './views/FleetAttentionView.svelte';
   import ImpactView from './views/ImpactView.svelte';
 
   let route = $state(parseHash(location.hash));
@@ -181,6 +184,14 @@
     <GraphPageView {services} {sourcesInfo} />
   {:else if route.view === 'readiness'}
     <ReadinessView {services} {initialLoading} />
+  {:else if route.view === 'fleet-overview'}
+    <FleetOverview {refreshTick} />
+  {:else if route.view === 'fleet-entity'}
+    {#key route.params.kind + '@@' + route.params.key}
+      <FleetEntityView kind={route.params.kind} entityKey={route.params.key} {refreshTick} />
+    {/key}
+  {:else if route.view === 'fleet-attention'}
+    <FleetAttentionView category={route.params.category || ''} {refreshTick} />
   {:else if route.view === 'fleet'}
     <FleetView params={route.params} {refreshTick} />
   {:else if route.view === 'impact'}

@@ -1,5 +1,5 @@
 <script>
-  import { ownersUrl, readinessUrl, fleetUrl, compareDiffUrl } from './lib/router.ts';
+  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, compareDiffUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import SourceDot from './components/SourceDot.svelte';
 
@@ -16,8 +16,9 @@
   // capability to be enabled on the host — so a fleet-less host never shows a dead
   // Operational Graph tab.
   const NAV = [
+    { label: 'Overview', href: fleetOverviewUrl(), views: ['fleet-overview', 'fleet-entity', 'fleet-attention', 'impact'], cap: 'fleet' },
     { label: 'Services', href: '#/', views: ['list', 'detail'] },
-    { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph', 'impact'], cap: 'fleet' },
+    { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
     { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'] },
     { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
     { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },

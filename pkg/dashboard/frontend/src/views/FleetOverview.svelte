@@ -1,0 +1,146 @@
+<script>
+  import { onMount } from 'svelte';
+  import { api } from '../lib/api.ts';
+  import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
+  import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
+  import { fleetAttentionUrl } from '../lib/router.ts';
+  import { formatDate } from '../lib/dateFormat.ts';
+  import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import OperationalSummary from '../components/OperationalSummary.svelte';
+  import SourceHealth from '../components/SourceHealth.svelte';
+  import EntityLink from '../components/EntityLink.svelte';
+  import ProductEmptyState from '../components/ProductEmptyState.svelte';
+  import StatusBadge from '../components/StatusBadge.svelte';
+
+  // The operational landing page (requirement G). It consumes /api/fleet/overview
+  // as the single contract -- it never reconstructs the summary from the raw
+  // snapshot -- and answers "what needs attention / is my knowledge incomplete /
+  // where do I go next" without requiring graph knowledge.
+  let { refreshTick = 0 } = $props();
+
+  let overview = $state(null);
+  let loading = $state(true);
+  let error = $state(null);
+  let lastTick = refreshTick;
+
+  async function load() {
+    loading = true;
+    error = null;
+    try {
+      overview = await api.fleetOverview();
+    } catch (e) {
+      error = e;
+    } finally {
+      loading = false;
+    }
+  }
+
+  onMount(load);
+  // Re-load when the app-wide refresh tick advances (auto-reload / manual refresh).
+  $effect(() => {
+    if (refreshTick !== lastTick) {
+      lastTick = refreshTick;
+      load();
+    }
+  });
+
+  const knowledge = $derived(snapshotKnowledge(overview?.meta));
+  const attentionTotal = $derived(overview?.attention?.total ?? 0);
+  // Page-level state: loading/error gate the whole view; once loaded, the overview
+  // always has a summary to render (itemCount 1).
+  const pageState = $derived(decideViewState({ loading, error, itemCount: overview ? 1 : 0, knowledge }));
+  const canAllClear = $derived(!!overview && allClearAllowed(knowledge, attentionTotal));
+</script>
+
+<div class="overview">
+  <Breadcrumbs trail={[{ label: 'Fleet' }]} />
+  <h1>Operational overview</h1>
+
+  {#if pageState.kind !== 'ready'}
+    <ProductEmptyState state={pageState} noun="fleet data" onRetry={load} />
+  {:else}
+    {#if knowledge.incomplete}
+      <div class="knowledge-banner tone-{knowledgeTone(knowledge.level)}" role="status">
+        <strong>{knowledgeLabel(knowledge.level)}.</strong>
+        <span>Some sources are degraded, so the counts below may be incomplete — this is not a clean bill of health.</span>
+      </div>
+    {:else if canAllClear}
+      <div class="all-clear" role="status">
+        <strong>All clear.</strong>
+        <span>Every deployment is compliant and every source is healthy.</span>
+      </div>
+    {/if}
+
+    <OperationalSummary summary={overview.summary} entryPoints={overview.entryPoints} {attentionTotal} />
+
+    <section class="ov-section">
+      <h2>Sources</h2>
+      <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
+    </section>
+
+    <section class="ov-section">
+      <div class="ov-head">
+        <h2>Needs attention</h2>
+        <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({attentionTotal})</a>
+      </div>
+      {#if overview.attention.items.length === 0}
+        <ProductEmptyState state={decideViewState({ loading: false, itemCount: 0, knowledge })} noun="attention items" />
+      {:else}
+        <ul class="attn-list">
+          {#each overview.attention.items as it}
+            <li class="attn-item">
+              <StatusBadge status={it.severity} />
+              <EntityLink ref={it.entity} showStatus={false} />
+              <span class="attn-reason">{it.summary || it.reason || it.label}</span>
+            </li>
+          {/each}
+        </ul>
+        {#if overview.attention.truncated}
+          <p class="ov-more">Showing {overview.attention.count} of {attentionTotal}. <a href={fleetAttentionUrl()}>See all</a></p>
+        {/if}
+      {/if}
+    </section>
+
+    <section class="ov-section">
+      <h2>Recent evidence</h2>
+      {#if overview.recentEvidence.items.length}
+        <ul class="evi-list">
+          {#each overview.recentEvidence.items as ev}
+            <li class="evi-item">
+              <EntityLink ref={ev.target} showStatus={false} />
+              {#if ev.at}<span class="evi-at">{formatDate(ev.at)}</span>{/if}
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="ov-none">No evidence arrived recently.</p>
+      {/if}
+    </section>
+  {/if}
+</div>
+
+<style>
+  .overview { display: flex; flex-direction: column; gap: var(--sp-5); }
+  h1 { margin: 0; }
+  .ov-section { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+  .ov-head h2, .ov-section h2 { margin: 0; }
+  .ov-viewall, .ov-more a { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
+  .ov-viewall:hover, .ov-more a:hover { text-decoration: underline; }
+  .knowledge-banner, .all-clear {
+    display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline;
+    padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
+  }
+  .knowledge-banner { background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); color: var(--c-text); }
+  .knowledge-banner.tone-err { background: var(--c-err-bg); border-color: color-mix(in srgb, var(--c-err) 30%, transparent); }
+  .all-clear { background: var(--c-ok-bg); border: 1px solid var(--c-ok-border); color: var(--c-text); }
+  .attn-list, .evi-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .attn-item, .evi-item {
+    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+    background: var(--c-surface);
+  }
+  .attn-reason { color: var(--c-text-3); font-size: var(--text-sm); }
+  .evi-at { color: var(--c-text-3); font-size: var(--text-xs); margin-left: auto; }
+  .ov-none, .ov-more { color: var(--c-text-3); font-size: var(--text-sm); }
+</style>

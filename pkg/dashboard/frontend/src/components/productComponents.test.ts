@@ -80,6 +80,23 @@ describe('ProductEmptyState — honest knowledge states (requirement H)', () => 
     comp = mount(ProductEmptyState, { target, props: { state, onRetry: () => {} } });
     expect(target.textContent).toContain('Can’t reach the Pacto backend');
   });
+
+  it('scenario 14: an unknown entity (404) renders a real not-found state', async () => {
+    const { ApiError } = await import('../lib/api.ts');
+    const state = decideViewState({ loading: false, itemCount: 0, error: new ApiError(404, 'no revision with this key') });
+    comp = mount(ProductEmptyState, { target, props: { state, noun: 'revision' } });
+    expect(state.kind).toBe('not-found');
+    expect(target.textContent).toContain('Not found');
+    expect(target.textContent).toContain('no revision with this key');
+  });
+
+  it('scenario 15: a schema/contract incompatibility renders an explicit error state', async () => {
+    const { SchemaCompatibilityError } = await import('../lib/api.ts');
+    const state = decideViewState({ loading: false, itemCount: 0, error: new SchemaCompatibilityError('pacto.dev/fleet-product/v2') });
+    comp = mount(ProductEmptyState, { target, props: { state } });
+    expect(state.kind).toBe('schema-error');
+    expect(target.textContent).toContain('Dashboard is out of date');
+  });
 });
 
 describe('SourceHealth', () => {
