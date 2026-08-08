@@ -814,6 +814,74 @@ revision/deployment graph views are NO LONGER a Phase-3 follow-up: they are a Ph
 PREREQUISITE (they must exist in the backend before Phase 4 exposes revision or
 deployment graph perspectives), tracked in the Phase-4 plan below.
 
+### Phase 4 progress (this session): search-first Operational Graph
+
+Phase 4 is STARTED and substantially implemented in this session, continuing directly
+after the Phase-3 closure.
+
+Backend prerequisite (J) -- COMPLETE:
+
+- `pkg/fleet/projection.go` adds real per-kind graph projections selected by a
+  `perspective` parameter (service / revision / target), never recolored service
+  nodes. The revision projection draws a revision->revision edge ONLY when the
+  snapshot resolved a specific provider revision (a lock whose digest matches a known
+  revision), else a revision->service edge, never a fabricated `provider@latest`; a
+  revision's dependents are only the revisions that lock its exact content. The target
+  projection links (a "runs" edge) to the revision a target runs and depends on that
+  revision's SERVICES, and never draws a target-to-target edge (the evidence
+  establishes service-to-service dependency, not which concrete provider target served
+  the traffic). Both are bounded, deterministically ordered, route-neutral, immutable
+  and record an honest observation-scope limitation. `NeighborhoodEdge.Relation`
+  (dependency|runs) and the response `Perspective`/`Limitations` are new; OpenAPI + the
+  generated SDK are regenerated. `pkg/fleet`/`pkg/dashboard` stay 100% covered, with
+  counterexample tests (`projection_test.go`) asserting the no-fabricated-provider and
+  no-target-mesh invariants BEFORE the UI consumes the perspectives.
+
+Frontend search-first graph (I/K-T) -- IMPLEMENTED with deterministic acceptance:
+
+- `views/GraphView.svelte` replaces the model-first `FleetView` at `/fleet/graph`
+  (view `fleet`). With no focus it renders a DISCOVERY state (search + attention entry
+  point + an Expected/Observed/Differences explanation) and loads NO neighborhood and
+  NO FleetSnapshot -- never a whole-fleet hairball (K/R). With a focus it consumes the
+  product `GET /api/fleet/neighborhood` through the generated SDK (never FleetSnapshot)
+  for a bounded local neighborhood.
+- Default focused neighborhood (L): depth 1, direction both, views expected +
+  differences. DECISION: expected + differences is the default because a newcomer's
+  first questions are "what does this depend on / what depends on it, and where does
+  intent diverge from observed reality"; observed is one toggle away and absence of
+  observation is never treated as absence of runtime use.
+- Product controls (M): perspective (service/revision/target), knowledge views,
+  direction, depth, Expand and Reset focus, all persisted in the URL (Q) via
+  `fleetGraphFocusUrl`; the discovery landing is `fleetGraphDiscoveryUrl`. Expansion is
+  a bounded depth increase re-merged by the backend, preserving the projection, views
+  and direction (N).
+- Difference rendering (O) is backend-authoritative: the edge `difference` value is
+  rendered verbatim with a distinct text label and tone (never color-only, never
+  inferred from booleans), insufficient observation is explicitly not a failure, and
+  "runs" edges are labelled distinctly from dependency edges. Unresolved declared
+  dependencies and backend truncation stay visible; a partial snapshot shows the
+  incompleteness caveat.
+- Quick-inspection (P): selecting a node or edge opens a bounded drawer (identity,
+  status, knowledge caveat, canonical links: full detail / focus here / impact; and,
+  for an edge, the declared claims, observed provenance and difference) without
+  navigating away. The full stable entity page remains the durable destination.
+- `lib/graphState.ts` owns the pure URL<->state mapping and the difference/relation
+  vocabularies; `lib/router.ts` gains the graph URL model (`views`/`direction`/`depth`
+  replace the inert legacy `layer`).
+
+Phase-4 acceptance recorded honestly: the deterministic component acceptance (Vitest:
+`graphState.test.ts`, `GraphView.svelte.test.ts` covering the S deterministic subset --
+discovery-first/no-hairball, product-API-only, difference rendering, insufficient!=
+failure, unresolved visible, truncation visible, direction/depth/perspective URL state,
+expand-preserves-views, node/edge quick-inspect, reset-to-discovery) is COMPLETE. The
+full WASM/Playwright browser matrix over the graph (the 25-scenario S suite, including
+a synthetic large fleet and slash/percent/domain focus round-trips in a real browser)
+is DEFERRED alongside the Phase-6 richer browser acceptance -- it needs neighborhood/
+projection fixtures in the offline demo transport. Migration (T): `/fleet/graph` is now
+the search-first product graph; the legacy `FleetView` is superseded and unrouted (a
+removable follow-up; its raw-snapshot debug value is the only reason it is kept for
+now).
+
 ### Product response boundedness audit (requirement, item 4)
 
 Every collection-bearing field reachable from a product response was audited from
@@ -855,11 +923,11 @@ the exported OpenAPI (the 57-schema closure of the six product roots). Result:
   nested product collection whose bound is external rather than an explicit
   truncated preview.
 
-Deferred graph projections (recorded so a later phase implements them before the
-corresponding UI): this API version is honestly service-neighborhood oriented.
-True revision-graph and deployment-graph projections (nodes that are revisions or
-targets, not services) are NOT implemented and must be added before the revision
-and deployment graph UI views are built.
+Graph projections (Phase-4 prerequisite J) are now IMPLEMENTED: the neighborhood API
+projects real service, revision and target graphs selected by a `perspective`
+parameter (see the Phase 4 progress section above and `pkg/fleet/projection.go`). The
+earlier note that "true revision-graph and deployment-graph projections are NOT
+implemented" is superseded.
 
 Pending after phase 2 (frontend IA/routing, now complete): phases 3 through 14 of
 the complete remaining program in section 5 (Overview/Services/Attention/entity
