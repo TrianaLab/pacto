@@ -2521,6 +2521,8 @@ export interface operations {
                 /** @description Source-health filter for source entities */
                 sourceHealth?: "available" | "partial" | "stale" | "unavailable";
                 source?: string;
+                /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
+                service?: string;
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

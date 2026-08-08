@@ -51,3 +51,26 @@ func LessDesc(a, b string) bool {
 		return ea == nil // valid semver sorts before invalid
 	}
 }
+
+// Compare orders two version strings for ASCENDING (oldest-first) sorting and
+// returns -1, 0 or 1. Two valid semver versions compare by semver precedence
+// (so 1.9.0 < 1.10.0 < 2.0.0 and a prerelease sorts before its release); a valid
+// semver version sorts before (is "less than") a non-semver one; two non-semver
+// versions compare EQUAL (0), leaving any deterministic tie-break to the caller.
+// It is the ascending counterpart to LessDesc for callers that need a total order
+// with an explicit "equal" signal (e.g. a content-digest tie-break) rather than a
+// bare less-func.
+func Compare(a, b string) int {
+	va, ea := semver.NewVersion(a)
+	vb, eb := semver.NewVersion(b)
+	switch {
+	case ea == nil && eb == nil:
+		return va.Compare(vb)
+	case ea == nil:
+		return -1 // valid semver sorts before non-semver
+	case eb == nil:
+		return 1
+	default:
+		return 0 // both non-semver: equal for ordering; caller tie-breaks
+	}
+}

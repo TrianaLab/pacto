@@ -157,10 +157,57 @@ func TestEntities_ValidationErrors(t *testing.T) {
 		{Limit: -1},
 		{Status: "bogus"},
 		{Kinds: []EntityKind{"weird"}},
+		// a service scope only applies to service/revision/target kinds.
+		{Kinds: []EntityKind{KindOwner}, Service: "beta"},
+		{Kinds: []EntityKind{KindSource}, Service: "beta"},
 	}
 	for _, f := range cases {
 		if _, err := q.Entities(f); err == nil {
 			t.Errorf("filter %+v: expected an error", f)
 		}
+	}
+}
+
+// TestEntities_ServiceScope proves the canonical parent-service scope: it lists ALL
+// revisions of one service (the Product Impact selector's pageable universe), scopes
+// targets to their service, and matches the service itself -- never a sibling's.
+func TestEntities_ServiceScope(t *testing.T) {
+	q := productFleet(t)
+
+	// beta has TWO revisions (same version, distinct content); both must be returned.
+	revs, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindRevision}, Service: "beta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revs.Total != 2 || revs.Count != 2 {
+		t.Fatalf("beta revisions = total %d count %d, want 2/2", revs.Total, revs.Count)
+	}
+	for _, r := range revs.Entities {
+		if r.Kind != KindRevision || r.ParentService != "beta" {
+			t.Errorf("scoped revision %+v is not a beta revision", r)
+		}
+	}
+
+	// alpha has exactly one revision.
+	alphaRevs, _ := q.Entities(EntityFilter{Kinds: []EntityKind{KindRevision}, Service: "alpha"})
+	if alphaRevs.Total != 1 {
+		t.Errorf("alpha revisions = %d, want 1", alphaRevs.Total)
+	}
+
+	// targets scope to their parent service (alpha has two: alpha-app + alpha-ancient).
+	tgts, _ := q.Entities(EntityFilter{Kinds: []EntityKind{KindTarget}, Service: "alpha"})
+	for _, tr := range tgts.Entities {
+		if tr.ParentService != "alpha" {
+			t.Errorf("scoped target %+v is not an alpha target", tr)
+		}
+	}
+	if tgts.Total < 1 {
+		t.Errorf("alpha targets = %d, want >= 1", tgts.Total)
+	}
+
+	// the service entity itself matches its own key, never a sibling.
+	svc, _ := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}, Service: "beta"})
+	if svc.Total != 1 || svc.Entities[0].Key != "beta" {
+		t.Errorf("service scope = %+v, want exactly the beta service", svc.Entities)
 	}
 }

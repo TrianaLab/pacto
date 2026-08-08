@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
 // This file builds the strongly typed, discriminated entity-detail model. There
@@ -647,31 +648,53 @@ func (q *Query) dependencyRefs(deps []Relationship) []EntityRef {
 	return out
 }
 
-// siblingRevisions returns the previous and next known revisions of the same
-// logical service in canonical key order (nil at the ends).
+// siblingRevisions returns the PREVIOUS (older) and NEXT (newer) known revisions
+// of the same logical service in canonical revision chronology (nil at the ends).
+//
+// "Previous"/"next" mean revision chronology, NOT RevisionKey lexicography. A
+// RevisionKey is `ServiceKey@contentID` where contentID is usually a content
+// digest, so lexical key order is digest order -- semantically arbitrary. The
+// canonical order is instead: revisions with a valid semver version sort ascending
+// by semver (so 1.9.0 < 1.10.0 < 2.0.0 and a prerelease sorts before its release),
+// and revisions without a valid semver version sort AFTER all semver revisions.
+// The immutable content digest embedded in the RevisionKey is used ONLY as a
+// deterministic tie-breaker between two revisions that compare equal (the same
+// version, or both non-semver) -- never as the primary version chronology -- so
+// changing a revision's content digest never reorders two distinct versions and a
+// map/source iteration permutation never changes the result.
 func (q *Query) siblingRevisions(rev *ContractRevision) (prev, next *EntityRef) {
-	var keys []RevisionKey
-	for k, r := range q.snap.Revisions {
+	var revs []*ContractRevision
+	for _, r := range q.snap.Revisions {
 		if r.ServiceKey == rev.ServiceKey {
-			keys = append(keys, k)
+			revs = append(revs, r)
 		}
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	for i, k := range keys {
-		if k != rev.Key {
+	sort.Slice(revs, func(i, j int) bool { return lessRevisionChrono(revs[i], revs[j]) })
+	for i, r := range revs {
+		if r.Key != rev.Key {
 			continue
 		}
 		if i > 0 {
-			r := revisionEntityRef(q.snap.Revisions[keys[i-1]])
-			prev = &r
+			e := revisionEntityRef(revs[i-1])
+			prev = &e
 		}
-		if i < len(keys)-1 {
-			r := revisionEntityRef(q.snap.Revisions[keys[i+1]])
-			next = &r
+		if i < len(revs)-1 {
+			e := revisionEntityRef(revs[i+1])
+			next = &e
 		}
 		break
 	}
 	return prev, next
+}
+
+// lessRevisionChrono is the canonical ascending revision order used by
+// siblingRevisions: semver chronology first, the immutable RevisionKey as a
+// deterministic tie-breaker only (see siblingRevisions for the full rationale).
+func lessRevisionChrono(a, b *ContractRevision) bool {
+	if c := semver.Compare(a.Version, b.Version); c != 0 {
+		return c < 0
+	}
+	return a.Key < b.Key
 }
 
 // revisionEdges builds the declared, resolved dependency edges a specific revision

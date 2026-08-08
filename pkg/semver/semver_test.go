@@ -66,3 +66,30 @@ func TestLessDesc(t *testing.T) {
 		t.Error("both invalid: alpha not before zeta")
 	}
 }
+
+func TestCompare(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		want int
+	}{
+		{"ascending semver", "1.0.0", "2.0.0", -1},
+		{"double-digit minor beats single", "1.9.0", "1.10.0", -1},
+		{"major beats minor", "1.10.0", "2.0.0", -1},
+		{"reverse", "2.0.0", "1.0.0", 1},
+		{"equal", "1.2.3", "1.2.3", 0},
+		{"prerelease sorts before release", "1.0.0-alpha", "1.0.0", -1},
+		{"prerelease ordering", "1.0.0-alpha", "1.0.0-beta", -1},
+		{"valid before non-semver", "1.0.0", "latest", -1},
+		{"non-semver after valid", "latest", "1.0.0", 1},
+		{"both non-semver equal for ordering", "latest", "main", 0},
+		{"v-prefix normalizes", "v1.2.0", "1.10.0", -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Compare(tt.a, tt.b); got != tt.want {
+				t.Errorf("Compare(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}

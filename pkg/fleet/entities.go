@@ -22,8 +22,14 @@ type EntityFilter struct {
 	// never validated against one enum.
 	SourceHealth string
 	Source       string
-	Limit        int
-	Offset       int
+	// Service scopes revision and target entities (and the service itself) to a
+	// single canonical parent ServiceKey. It is how a consumer pages ALL revisions
+	// of one service (the Product Impact revision selectors) without falling back to
+	// the raw FleetSnapshot, so the service-detail revisions preview never has to be
+	// treated as the complete revision universe.
+	Service string
+	Limit   int
+	Offset  int
 }
 
 // EntityList is a bounded, deterministically ordered page of entity references.
@@ -148,6 +154,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"sourceHealth", f.SourceHealth, []EntityKind{KindSource}},
 		{"scope", f.Scope, []EntityKind{KindTarget}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
+		{"service", f.Service, []EntityKind{KindService, KindRevision, KindTarget}},
 	} {
 		if err := appliesTo(c.field, c.value, c.kinds...); err != nil {
 			return err
@@ -224,11 +231,20 @@ func (q *Query) owners() []string {
 	return out
 }
 
-// entityMatches applies the filter guards to one reference.
+// entityMatches applies the filter guards to one reference. The scalar comparisons
+// (fields read directly off the reference) live in matchScalarFields; the checks that
+// need a snapshot lookup (text, owner, source) stay here.
 func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
-	if !matchEntityText(r, f.Text) {
-		return false
-	}
+	return matchScalarFields(r, f) &&
+		matchEntityText(r, f.Text) &&
+		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
+		(f.Source == "" || q.entityFromSource(r, f.Source))
+}
+
+// matchScalarFields checks the filter fields that are a direct comparison against a
+// field already carried on the reference (no snapshot lookup): domain, scope,
+// compliance status, source health and the canonical parent-service scope.
+func matchScalarFields(r EntityRef, f EntityFilter) bool {
 	if f.Domain != "" && r.Domain != f.Domain {
 		return false
 	}
@@ -238,16 +254,28 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 	if f.Status != "" && r.Status != f.Status {
 		return false
 	}
-	if f.Owner != "" && !q.entityOwnedBy(r, f.Owner) {
-		return false
-	}
 	if f.SourceHealth != "" && (r.Kind != KindSource || r.Status != f.SourceHealth) {
 		return false
 	}
-	if f.Source != "" && !q.entityFromSource(r, f.Source) {
+	if f.Service != "" && !entityInService(r, f.Service) {
 		return false
 	}
 	return true
+}
+
+// entityInService reports whether the referenced entity belongs to the given
+// canonical parent ServiceKey: the service itself, or a revision/target whose
+// parent is that service. Owners and sources have no parent service and never match
+// (the combo validation already rejects a service filter on those kinds).
+func entityInService(r EntityRef, service string) bool {
+	switch r.Kind {
+	case KindService:
+		return r.Key == service
+	case KindRevision, KindTarget:
+		return r.ParentService == service
+	default:
+		return false
+	}
 }
 
 // matchEntityText matches text as a case-insensitive substring over the label,

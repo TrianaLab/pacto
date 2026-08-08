@@ -83,6 +83,7 @@ type fleetEntitiesInput struct {
 	Status       string `query:"status" doc:"Compliance status filter (service/revision/target)"`
 	SourceHealth string `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
 	Source       string `query:"source"`
+	Service      string `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
 	Limit        int    `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
 	Offset       int    `query:"offset" minimum:"0"`
 }
@@ -97,7 +98,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: parseKinds(in.Kinds), Owner: in.Owner, Domain: in.Domain,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
-		Limit: in.Limit, Offset: in.Offset,
+		Service: in.Service, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
 		return nil, productQueryError(err)
