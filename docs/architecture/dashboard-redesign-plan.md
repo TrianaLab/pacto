@@ -130,6 +130,21 @@ The residual counterexamples this pass closed (final state in section 8):
    emitted prefix while reporting the truthful total, proven by allocation-bounded
    adversarial tests.
 
+The Phase-3 session (product lists, rich entity pages and attention completion) ran
+as follows:
+
+- Starting HEAD: `81f76894` (the reviewed HEAD of PR #291).
+- Synchronized base: `eb1482ff` (current `main` tip). `main` had NOT moved from that
+  base (it equals the merge-base and is an ancestor of HEAD), so no re-sync was
+  needed. Integration remains merge (branch content preserved).
+- The session began with a small preflight closing six Phase-2 product
+  counterexamples (empty-fleet vs all-clear, real attention pagination, the
+  `/fleet/services` canonical route, the entity-search stale-request race, the
+  `navigate('fleet')` router-semantic trap, and the visible global-search
+  affordance), then continued directly into Phase 3. No Git history was rewritten;
+  the U+00A7 commit-history CI enforcement stays BLOCKED (section 8 item 9). The PR
+  stays draft; PR-body finalization is phase 14.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
