@@ -40,9 +40,13 @@ type Server struct {
 	ui             fs.FS
 	sourceInfo     []SourceInfo
 	diagnostics    *SourceDiagnostics
-	listenAddr     string // optional: server URL for OpenAPI spec
-	version        string // optional: Pacto version to expose via /health
-	corsOrigin     string // optional: explicit cross-origin allowed to call the API (startup-only)
+	// schemaExport forces the runtime-conditional operations (resolve/versions,
+	// debug) to register so ExportOpenAPI emits the COMPLETE contract the generated
+	// SDK consumes, without wiring their real providers. It is never set at runtime.
+	schemaExport bool
+	listenAddr   string // optional: server URL for OpenAPI spec
+	version      string // optional: Pacto version to expose via /health
+	corsOrigin   string // optional: explicit cross-origin allowed to call the API (startup-only)
 
 	// logger is injected into every request context (see corsMiddleware), so the
 	// handler and source code that log via logging.LoggerFromContext reach the
@@ -530,7 +534,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 		Tags:        []string{"Sources"},
 	}, s.refresh)
 
-	if s.resolver != nil {
+	if s.resolver != nil || s.schemaExport {
 		huma.Register(api, huma.Operation{
 			OperationID: "resolve-ref",
 			Method:      http.MethodPost,
@@ -553,7 +557,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 		}, s.listRemoteVersions)
 	}
 
-	if s.diagnostics != nil {
+	if s.diagnostics != nil || s.schemaExport {
 		huma.Register(api, huma.Operation{
 			OperationID: "debug-sources",
 			Method:      http.MethodGet,

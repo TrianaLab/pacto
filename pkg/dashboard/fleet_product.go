@@ -547,6 +547,10 @@ func parseKinds(s string) []fleet.EntityKind {
 // generation. The handlers are never invoked during export, so the stubs' errors
 // are unreachable; they exist only to satisfy the nil-provider gates.
 func (s *Server) stubProvidersForSchemaExport() {
+	// schemaExport forces the runtime-conditional operations (resolve/versions and
+	// debug) to register so the exported OpenAPI is the COMPLETE contract the
+	// generated frontend SDK consumes.
+	s.schemaExport = true
 	s.fleetQuery = func(context.Context) (*fleet.Query, error) {
 		return nil, errors.New("schema export only")
 	}
