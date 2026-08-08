@@ -675,6 +675,45 @@ contextual "open in graph" links it needs.
 Deferred as before: the ESLint no-restricted raw-network rule (defense-in-depth
 follow-up) and the U+00A7 commit-history enforcement (BLOCKED on history rewrite).
 
+Phase 3 progress (this session), all consuming the product endpoints via the
+generated SDK facade (never the FleetSnapshot):
+
+- Product Services list (`/fleet/services`) built on `/api/fleet/entities?kinds=service`
+  with owner/status/domain backend filters + search + stable pagination in the URL,
+  distinct filtered-empty / empty-fleet / incomplete-knowledge states, and the
+  canonical Navbar Services destination (C/A3). DONE.
+- Rich per-kind entity pages (D/E/F/G): service, revision (immutable contract version
+  with its own content-retrievability dimension), target (two independent identity
+  dimensions rendered honestly), owner and source, each composing the reusable
+  section components. DONE.
+- Product Owners (`/fleet/owners`) and Sources (`/fleet/sources`) list pages;
+  primary Owners nav repointed to the product path; a View-all-sources overview
+  affordance (G). DONE.
+- Entity-relationship breadcrumbs from canonical DTO refs (H). DONE.
+- Attention as a full triage workflow: severity/category primary filters, owner/
+  source/status/stale-only advanced filters, chips, URL persistence, real backend
+  pagination (A2/I). DONE.
+- Reusable product components (K): IdentityBadge, PreviewSection, EntityRefList,
+  FindingList, LimitationsList, EvidenceList, RelationshipList. DONE.
+- Phase-2 residual counterexamples A1-A6 closed as a preflight. DONE.
+- Readiness/Compare migration (J): both stay specialized and keep their existing
+  implementations, participate in the primary nav, and Compare now launches the
+  contextual Product Impact workspace for the service under comparison. Deeper
+  EntityLink migration of the legacy Readiness/Compare rows to fleet keys is left
+  for a follow-up (the legacy service-name identity does not map 1:1 to a
+  domain-qualified fleet ServiceKey).
+- Browser acceptance (L): `e2e/fleet-phase3.spec.ts` covers the product-page journey
+  in a real browser (Navbar Services + canonical href, service filter reload/back,
+  service->revision/deployment/owner, revision->service, target dual-identity honesty,
+  owner->service, source->contributed entity, entity breadcrumbs, attention filter
+  deep link). Scenarios the small offline demo cannot exercise (same-named services
+  across domains, an ambiguous target, an empty fleet, multi-page pagination, the
+  search stale-request race) are covered deterministically by the Vitest suite.
+
+Remaining Phase-3 follow-ups (not blocking Phase 4): legacy Readiness/Compare row
+navigation via fleet EntityLink; per-kind graph projections for revision/deployment
+graph views (recorded in the boundedness audit) before Phase 4 builds those views.
+
 ### Product response boundedness audit (requirement, item 4)
 
 Every collection-bearing field reachable from a product response was audited from

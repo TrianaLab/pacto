@@ -116,6 +116,15 @@
 
 <h1 style="margin-bottom:var(--sp-5)">Compare Versions</h1>
 
+<!-- J: Compare participates in the product IA by launching the contextual Product
+     Impact workspace for the service under comparison (the fleet revision-selector +
+     impact view), rather than being a dead-end diff. -->
+{#if fromName || toName}
+  <div style="margin-bottom:var(--sp-4)">
+    <a href={impactUrl({ svc: toName || fromName })} style="color:var(--c-accent);text-decoration:none;font-size:var(--text-sm)">Analyze impact of this service →</a>
+  </div>
+{/if}
+
 <div class="diff-controls">
   <div class="diff-side">
     <div class="diff-field">
