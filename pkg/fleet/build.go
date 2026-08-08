@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v3/pkg/capability"
@@ -878,40 +879,79 @@ func linkTargets(snap *FleetSnapshot) {
 func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
 	keys := sortedRevisionKeys(snap)
 	id := ClassifyExactIdentity(t.ResolvedRef, t.Digest)
-	// A contradictory (digest-mismatch) or malformed identity is never exact, and
+	// A contradictory (digest-mismatch) or malformed OCI identity is never exact, and
 	// correlating a mutable link off a contradictory/unparseable ref would be
 	// dishonest.
 	if id.Class == IdentityDigestMismatch || id.Class == IdentityMalformed {
 		return "", revisionMatchInconsistent
 	}
-	// Tier 1: exact content identity, matched by the classifier's canonical digest
-	// (never a contradictory recorded digest independently).
-	if key, ok := exactRevisionByDigest(snap, keys, t, id); ok {
-		return key, revisionMatchExact
+	// Tier 1: EXACT content identity, matched by the effective content digest and the
+	// SAME classifier invariant everywhere. The effective digest is the classifier's
+	// canonical digest when the ref is digest-pinned (already cross-checked against any
+	// recorded digest); otherwise a digest embedded in a non-oci ref, cross-checked
+	// against the recorded digest; otherwise the recorded digest. A ref that embeds a
+	// digest CONTRADICTING the recorded one is internally inconsistent -- this closes
+	// the scheme-less bypass of the oci:// digest-mismatch guard (a "reg/svc@<other>"
+	// ref, classed local, whose embedded digest the classifier never parses).
+	effective, inconsistent := effectiveContentDigest(id, t)
+	if inconsistent {
+		return "", revisionMatchInconsistent
 	}
-	if id.Exact() {
-		// A digest-pinned ResolvedRef names exact content; if no revision in the fleet
-		// carries it, there is no honest mutable fallback.
-		return "", ""
+	if effective != "" {
+		if key, ok := exactRevisionByDigest(snap, keys, t.ServiceKey, effective); ok {
+			return key, revisionMatchExact
+		}
+		if id.Exact() {
+			// A digest-pinned ref names exact content the fleet does not carry; there
+			// is no honest mutable fallback.
+			return "", ""
+		}
 	}
 	return mutableRevisionMatch(snap, keys, t)
 }
 
-// exactRevisionByDigest finds a revision of the target's service whose content
-// digest equals the target's effective content digest: the classifier's canonical
-// digest when the ResolvedRef is digest-pinned (already cross-checked against any
-// recorded digest), otherwise the recorded digest (which cannot contradict a ref
-// that pins nothing). It returns false when there is no effective digest or match.
-func exactRevisionByDigest(snap *FleetSnapshot, keys []RevisionKey, t *TargetRecord, id ExactIdentity) (RevisionKey, bool) {
-	effective := t.Digest
+// effectiveContentDigest computes the content digest a target's identity names, and
+// whether that identity is internally inconsistent. For an exact (digest-pinned) ref
+// it is the classifier's canonical digest. Otherwise it reconciles a digest embedded
+// in the ref text (scheme-agnostic) with the recorded digest: a genuine disagreement
+// is inconsistent (never an exact link); agreement (or either being absent) yields
+// the known digest. This makes a scheme-less ref carrying a digest subject to the
+// same mismatch guard the oci:// path enforces.
+func effectiveContentDigest(id ExactIdentity, t *TargetRecord) (digest string, inconsistent bool) {
 	if id.Exact() {
-		effective = id.Digest.String()
+		return id.Digest.String(), false
 	}
-	if effective == "" {
-		return "", false
+	embedded := embeddedDigest(t.ResolvedRef)
+	switch {
+	case embedded != "" && t.Digest != "" && embedded != t.Digest:
+		return "", true
+	case embedded != "":
+		return embedded, false
+	default:
+		return t.Digest, false
 	}
+}
+
+// embeddedDigest returns a syntactically valid content digest embedded after the last
+// '@' in a reference (regardless of scheme), or "" if there is none or it is not a
+// valid digest. Only a valid digest can identify content or contradict a recorded one.
+func embeddedDigest(ref string) string {
+	i := strings.LastIndex(ref, "@")
+	if i < 0 {
+		return ""
+	}
+	d := ref[i+1:]
+	if _, err := digest.Parse(d); err != nil {
+		return ""
+	}
+	return d
+}
+
+// exactRevisionByDigest finds a revision of svc whose content digest equals the
+// target's effective content digest. It returns false when no revision carries it.
+func exactRevisionByDigest(snap *FleetSnapshot, keys []RevisionKey, svc ServiceKey, digest string) (RevisionKey, bool) {
 	for _, k := range keys {
-		if rev := snap.Revisions[k]; rev.ServiceKey == t.ServiceKey && rev.Digest == effective {
+		if rev := snap.Revisions[k]; rev.ServiceKey == svc && rev.Digest == digest {
 			return rev.Key, true
 		}
 	}

@@ -58,14 +58,73 @@ func TestMatchRevision_DigestRefMismatch_NeverExact(t *testing.T) {
 	}
 }
 
-// A recorded Digest with no (or a non-pinning) ResolvedRef is exact by digest: the
-// recorded digest does not contradict a ref that pins nothing (preserves the k8s
-// case where only the running digest is observed).
+// A recorded Digest identifies known content: with no contradicting ref it links
+// exact (the k8s operator observes the running digest). Exactness is by CONTENT, so
+// a recorded digest is authoritative when nothing contradicts it.
 func TestMatchRevision_RecordedDigestNoRef_Exact(t *testing.T) {
 	snap, svc, dA, _ := identitySnap()
 	key, kind := matchRevision(snap, &TargetRecord{ServiceKey: svc, Digest: dA})
 	if key != "svc@a" || kind != revisionMatchExact {
-		t.Errorf("got %q/%q, want svc@a/exact (recorded digest, no pinned ref)", key, kind)
+		t.Errorf("got %q/%q, want svc@a/exact (a recorded digest identifies known content)", key, kind)
+	}
+}
+
+// A scheme-less ref embedding a digest that MATCHES the recorded digest links exact.
+// This is the real k8s operator shape ("registry/repo:tag@sha256:...", the oci://
+// scheme stripped by the operator): the embedded and recorded digests agree, so the
+// content is known exactly and the target links exact.
+func TestMatchRevision_SchemelessMatchingDigest_Exact(t *testing.T) {
+	snap, svc, dA, _ := identitySnap()
+	key, kind := matchRevision(snap, &TargetRecord{ServiceKey: svc, Digest: dA, ResolvedRef: "reg/svc:1.0@" + dA})
+	if key != "svc@a" || kind != revisionMatchExact {
+		t.Errorf("got %q/%q, want svc@a/exact (scheme-less ref embedding a matching digest)", key, kind)
+	}
+}
+
+// A ref (scheme-less or oci://) embedding a digest that CONTRADICTS the recorded
+// digest is internally inconsistent and must NEVER link exact -- this is the residual
+// the second review found: a scheme-less "reg/svc@<other>" ref, classed local, whose
+// embedded digest the oci:// classifier never parses, must still be subject to the
+// same digest-mismatch guard.
+func TestMatchRevision_ContradictingEmbeddedDigest_Inconsistent(t *testing.T) {
+	dA := digestFill("a")
+	dB := digestFill("b")
+	for _, ref := range []string{"reg/svc@" + dB, "reg/svc:1.0@" + dB, "oci://reg/svc@" + dB} {
+		snap, svc, _, _ := identitySnap()
+		key, kind := matchRevision(snap, &TargetRecord{ServiceKey: svc, Digest: dA, ResolvedRef: ref})
+		if kind == revisionMatchExact {
+			t.Errorf("ref %q embeds a digest contradicting the recorded one but got exact link %q", ref, key)
+		}
+		if kind != revisionMatchInconsistent {
+			t.Errorf("ref %q: got %q, want inconsistent (contradicting embedded digest)", ref, kind)
+		}
+	}
+}
+
+// linkTargets surfaces a limitation and makes no exact link for a target whose ref
+// embeds a digest contradicting its recorded digest, so the target self-describes the
+// internal inconsistency instead of presenting a false exact link.
+func TestLinkTargets_ContradictingEmbeddedDigest_Limitation(t *testing.T) {
+	dA := digestFill("a")
+	dB := digestFill("b")
+	snap := &FleetSnapshot{
+		Targets: map[TargetKey]*TargetRecord{
+			"t": {Key: "t", ServiceKey: NewServiceKey("svc"), Digest: dA, ResolvedRef: "reg/svc@" + dB},
+		},
+		Revisions: map[RevisionKey]*ContractRevision{
+			"svc@a": {Key: "svc@a", Service: "svc", ServiceKey: NewServiceKey("svc"), Digest: dA, ResolvedRef: "oci://reg/svc@" + dA},
+		},
+	}
+	linkTargets(snap)
+	tr := snap.Targets["t"]
+	if targetLinkState(tr) == "exact" {
+		t.Error("a contradicting embedded digest must not yield an exact linkState")
+	}
+	if !hasLimitation(tr.Limitations, LimitationSourceRecordInvalid) {
+		t.Errorf("target should carry a limitation for its inconsistent identity: %+v", tr.Limitations)
+	}
+	if !hasLimitation(snap.Limitations, LimitationSourceRecordInvalid) {
+		t.Errorf("snapshot should surface the inconsistent-identity limitation: %+v", snap.Limitations)
 	}
 }
 
