@@ -1230,10 +1230,10 @@ export interface components {
         "Fleet.RevisionIdentity": {
             digest?: string;
             /** @enum {string} */
-            identityClass: "exact" | "missing-digest" | "mutable" | "local" | "malformed" | "digest-mismatch";
-            immutable: boolean;
+            identityClass: "exact" | "missing-digest" | "mutable" | "no-ref" | "local" | "malformed" | "digest-mismatch";
             requestedRef?: string;
             resolvedRef?: string;
+            retrievable: boolean;
         };
         "Fleet.RuntimeFact": {
             key: string;
