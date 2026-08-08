@@ -7,6 +7,7 @@
   import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
   import CommandPalette from './CommandPalette.svelte';
+  import EntitySearch from './EntitySearch.svelte';
   import ServiceListView from './views/ServiceListView.svelte';
   import ServiceDetailView from './views/ServiceDetailView.svelte';
   import GraphPageView from './views/GraphPageView.svelte';
@@ -32,6 +33,7 @@
   let initialLoading = $state(true);
   let loadError = $state(null);
   let paletteOpen = $state(false);
+  let searchOpen = $state(false);
   // Which optional capabilities the host serves, so the navbar never exposes a
   // capability the running host has not registered. null = not yet known (show
   // everything until the first probe resolves).
@@ -108,10 +110,20 @@
 
   // toggleTheme lives in the reactive theme store so D3 charts re-render on toggle.
 
+  function isTypingTarget(e) {
+    const t = e.target;
+    return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  }
+
   function handlePaletteKeydown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
       paletteOpen = !paletteOpen;
+    } else if (e.key === '/' && !isTypingTarget(e) && !paletteOpen && !searchOpen) {
+      // Global entity search, consistent with the palette conventions (a modal with
+      // arrow/Enter/Escape); '/' is the discovery shortcut, Cmd/Ctrl-K the palette.
+      e.preventDefault();
+      searchOpen = true;
     }
   }
 
@@ -158,6 +170,8 @@
   onClose={() => (paletteOpen = false)}
   onAction={handlePaletteAction}
 />
+
+<EntitySearch open={searchOpen} onClose={() => (searchOpen = false)} />
 
 {#if loadError && services.length > 0}
   <div class="backend-banner" role="alert">
