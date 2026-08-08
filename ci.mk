@@ -31,8 +31,11 @@ ci-static: ci-static-engine
 	$(MAKE) -C integrations/kubernetes ci-static
 
 # Engine static gates (fmt, vet, cyclo, lint, U+00A7 section-sign gate, CLI docs
-# drift, UI build drift). check-section is blocking here, not only under `lint`.
-ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-drift
+# drift, UI build drift, generated dashboard SDK drift). check-section is blocking
+# here, not only under `lint`. The SDK drift gate runs after ci-ui-drift so the
+# frontend's node_modules (npm ci) are already installed for the TS generator; the
+# composite CI action provides the pinned Go for the OpenAPI export step.
+ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-drift check-dashboard-sdk-drift
 
 # Engine leg: unit tests (100% coverage gate) + engine e2e + the cluster-free
 # operational-graph acceptance (tests/e2e/fleet-graph.sh).

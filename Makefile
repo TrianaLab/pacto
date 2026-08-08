@@ -17,7 +17,8 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
         e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
-        e2e-dashboard-kind-browser e2e-all-operational-graph
+        e2e-dashboard-kind-browser e2e-all-operational-graph \
+        generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift
 
 # Local docs preview includes the in-browser WASM dashboard demo at /demo/.
 DOCS_DEMO := docs/demo
@@ -136,6 +137,33 @@ check-section:
 
 gen-cli-docs:
 	go run ./cmd/gendocs/
+
+# --- Generated dashboard TypeScript SDK (ADR-6) ---------------------------------
+# Huma/OpenAPI is the single source of truth for dashboard HTTP transport. The
+# TypeScript request/response types are generated deterministically from that
+# contract by a pinned generator (openapi-typescript), so there is no hand-written
+# wire schema to drift. The generated artifacts are committed and drift-checked.
+SDK_DIR := pkg/dashboard/frontend/src/lib/generated
+
+# generate-dashboard-openapi writes the deterministic OpenAPI contract that feeds
+# the SDK generator. Huma marshals with sorted keys, so re-running is byte-stable.
+generate-dashboard-openapi:
+	go run ./cmd/genbundle dashboard-openapi > $(SDK_DIR)/openapi.json
+
+# generate-dashboard-sdk regenerates the OpenAPI contract and the TypeScript SDK
+# from it with the pinned generator. Requires `npm ci` in the frontend first.
+generate-dashboard-sdk: generate-dashboard-openapi
+	cd pkg/dashboard/frontend && npm run gen:sdk
+
+# check-dashboard-sdk-drift proves the committed OpenAPI + SDK are current: it
+# regenerates both from the live Go/Huma definitions and fails if anything differs.
+# A backend schema or operation change without regenerated frontend artifacts fails
+# here. Run from a clean checkout after `npm ci --ignore-scripts`.
+check-dashboard-sdk-drift: generate-dashboard-sdk
+	git diff --exit-code -- $(SDK_DIR) || { \
+		echo "dashboard SDK is stale: run 'make generate-dashboard-sdk' and commit $(SDK_DIR)"; \
+		exit 1; \
+	}
 
 # Documentation (MkDocs Material). Install via `brew install mkdocs-material`
 # or `pip install -r docs/requirements.txt`. Both targets first build the

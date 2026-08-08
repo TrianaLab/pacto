@@ -51,3 +51,4 @@ release/proofs/
 .repowise/
 /demo
 /localregistry
+/genbundle
