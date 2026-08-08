@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   parseHash, navigate, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl,
   readinessUrl, fleetUrl, impactUrl,
-  hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetEntityUrl, fleetGraphFocusUrl,
-  fleetAttentionUrl, fleetImpactUrl,
+  hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
+  fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetImpactUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -332,6 +332,23 @@ describe('parseHash — fleet product IA (Phase 2)', () => {
     // never fall through to the entity route (which needs a key) or the overview.
     expect(parseHash('#/fleet/services').view).toBe('fleet-services');
     expect(parseHash('#/fleet/services/payments').view).toBe('fleet-entity');
+  });
+
+  it('parses the bare /fleet/owners and /fleet/sources product list routes (G)', () => {
+    expect(parseHash('#/fleet/owners')).toEqual({ view: 'fleet-owners', params: {} });
+    expect(parseHash('#/fleet/sources')).toEqual({ view: 'fleet-sources', params: {} });
+    expect(parseHash('#/fleet/sources?sourceHealth=unavailable&offset=25')).toEqual({
+      view: 'fleet-sources', params: { sourceHealth: 'unavailable', offset: '25' },
+    });
+    // owner/source DETAIL still needs a key and stays fleet-entity.
+    expect(parseHash('#/fleet/owners/team-a').view).toBe('fleet-entity');
+    expect(parseHash('#/fleet/sources/kubernetes').view).toBe('fleet-entity');
+  });
+
+  it('fleetOwnersUrl / fleetSourcesUrl build filtered/paged list URLs', () => {
+    expect(fleetOwnersUrl()).toBe('#/fleet/owners');
+    expect(fleetOwnersUrl({ text: 'team', offset: 25 })).toBe('#/fleet/owners?text=team&offset=25');
+    expect(fleetSourcesUrl({ sourceHealth: 'stale' })).toBe('#/fleet/sources?sourceHealth=stale');
   });
 
   it('parses the service-scoped impact route', () => {

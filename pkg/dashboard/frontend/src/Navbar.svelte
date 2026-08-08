@@ -33,7 +33,7 @@
       { label: 'Overview', href: fleetOverviewUrl(), views: ['fleet-overview', 'fleet-entity', 'fleet-attention', 'impact'], cap: 'fleet' },
       { label: 'Services', href: capabilities?.fleet ? '#/fleet/services' : '#/', views: ['list', 'detail', 'fleet-services'] },
       { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
-      { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'] },
+      { label: 'Owners', href: capabilities?.fleet ? '#/fleet/owners' : ownersUrl(), views: ['owners', 'owner-detail', 'fleet-owners'] },
       { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
       { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },
     ].filter((item) => !item.cap || capabilities === null || capabilities[item.cap]),

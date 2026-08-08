@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
-  import { fleetAttentionUrl } from '../lib/router.ts';
+  import { fleetAttentionUrl, fleetSourcesUrl } from '../lib/router.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import OperationalSummary from '../components/OperationalSummary.svelte';
@@ -104,7 +104,10 @@
     <OperationalSummary summary={overview.summary} entryPoints={overview.entryPoints} {attentionTotal} />
 
     <section class="ov-section">
-      <h2>Sources</h2>
+      <div class="ov-head">
+        <h2>Sources</h2>
+        <a class="ov-viewall" href={fleetSourcesUrl()}>View all sources</a>
+      </div>
       <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
     </section>
 

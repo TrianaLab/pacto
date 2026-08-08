@@ -18,6 +18,8 @@
   import FleetView from './views/FleetView.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
+  import FleetOwnersView from './views/FleetOwnersView.svelte';
+  import FleetSourcesView from './views/FleetSourcesView.svelte';
   import FleetEntityView from './views/FleetEntityView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import ImpactView from './views/ImpactView.svelte';
@@ -221,6 +223,15 @@
       owner={route.params.owner || ''}
       status={route.params.status || ''}
       domain={route.params.domain || ''}
+      offset={route.params.offset || ''}
+      {refreshTick}
+    />
+  {:else if route.view === 'fleet-owners'}
+    <FleetOwnersView text={route.params.text || ''} offset={route.params.offset || ''} {refreshTick} />
+  {:else if route.view === 'fleet-sources'}
+    <FleetSourcesView
+      text={route.params.text || ''}
+      sourceHealth={route.params.sourceHealth || ''}
       offset={route.params.offset || ''}
       {refreshTick}
     />

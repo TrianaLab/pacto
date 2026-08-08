@@ -8,6 +8,8 @@ export interface Route {
     | 'fleet' | 'impact'
     | 'fleet-overview'  // /fleet            operational landing page
     | 'fleet-services'  // /fleet/services   product service list
+    | 'fleet-owners'    // /fleet/owners     product owner list
+    | 'fleet-sources'   // /fleet/sources    product source list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
     | 'fleet-attention';// /fleet/attention  attention list
   params: Record<string, string>;
@@ -171,6 +173,18 @@ function parseFleet(path: string, query: string): Route {
     return { view: 'fleet-services', params };
   }
 
+  // Bare /fleet/owners and /fleet/sources are the product owner/source LISTS. They
+  // must be matched before the entity-detail regex (which needs a trailing key).
+  if (rest === 'owners' || rest === 'sources') {
+    const params: Record<string, string> = {};
+    const qs = new URLSearchParams(query);
+    for (const k of ['text', 'sourceHealth', 'offset']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
+    return { view: rest === 'owners' ? 'fleet-owners' : 'fleet-sources', params };
+  }
+
   const ent = rest.match(/^(services|revisions|targets|owners|sources)\/(.+)$/);
   if (ent) {
     return { view: 'fleet-entity', params: { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) } };
@@ -278,6 +292,25 @@ export function fleetServicesUrl(opts: {
   if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';
+}
+
+// fleetOwnersUrl / fleetSourcesUrl build the product owner/source list routes,
+// preserving the search text, the source-health filter and the page offset.
+export function fleetOwnersUrl(opts: { text?: string; offset?: number } = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.text) qs.set('text', opts.text);
+  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  const str = qs.toString();
+  return str ? `#/fleet/owners?${str}` : '#/fleet/owners';
+}
+
+export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; offset?: number } = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.text) qs.set('text', opts.text);
+  if (opts.sourceHealth) qs.set('sourceHealth', opts.sourceHealth);
+  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  const str = qs.toString();
+  return str ? `#/fleet/sources?${str}` : '#/fleet/sources';
 }
 
 // ponytail: encodeURIComponent over-escapes a few sub-delims vs Go's url.PathEscape,
