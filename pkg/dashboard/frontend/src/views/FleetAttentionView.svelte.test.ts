@@ -122,3 +122,57 @@ describe('FleetAttentionView — real backend pagination (A2)', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetAttentionView — triage filters (I)', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+
+  it('the severity filter uses the backend param, lives in the URL and resets the page', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ offset: '25' });
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    const sev = target.querySelector('select[aria-label="Filter by severity"]') as HTMLSelectElement;
+    sev.value = 'error'; sev.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/attention?severity=error'); // offset reset to page 1
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('combines category + severity in the request and shows a chip per active filter', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ category: 'stale', severity: 'warning' });
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    expect(attentionFn).toHaveBeenCalledWith(expect.objectContaining({ category: 'stale', severity: 'warning' }));
+    const chips = Array.from(target.querySelectorAll('.chip .chip-value')).map((c) => c.textContent);
+    expect(chips).toEqual(expect.arrayContaining(['stale', 'warning']));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('the stale-only toggle carries into the URL and the request', async () => {
+    serveByOffset();
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    const chk = target.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    chk.checked = true; chk.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/attention?staleOnly=1');
+    unmount(component); document.body.removeChild(target);
+
+    attentionFn.mockClear();
+    const m2 = mountView({ staleOnly: '1' });
+    await vi.waitFor(() => expect(attentionFn).toHaveBeenCalledWith(expect.objectContaining({ staleOnly: true })));
+    unmount(m2.component); document.body.removeChild(m2.target);
+  });
+
+  it('an item answers what/why/severity/source/nextStep', async () => {
+    attentionFn.mockResolvedValue({
+      meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [] },
+      total: 1, offset: 0, limit: 25, count: 1, truncated: false, nextOffset: undefined,
+      items: [{ severity: 'error', category: 'non-compliant', entity: { kind: 'target', key: 'prod/k8s/a', label: 'a', href: '/fleet/targets/prod%2Fk8s%2Fa' }, summary: 'confirmed drift', source: 'kubernetes', nextStep: 'inspect the deployment' }],
+    });
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    const text = target.textContent || '';
+    expect(text).toContain('confirmed drift');       // why
+    expect(text).toContain('via kubernetes');         // evidence source
+    expect(text).toContain('inspect the deployment'); // backend-provided nextStep
+    unmount(component); document.body.removeChild(target);
+  });
+});

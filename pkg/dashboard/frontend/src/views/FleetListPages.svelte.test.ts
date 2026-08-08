@@ -28,7 +28,8 @@ function listResp(entities: any[], opts: { total?: number; offset?: number; next
   };
 }
 
-function mountView(Comp: unknown, props: Record<string, unknown> = {}) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Svelte components have no declaration files here
+function mountView(Comp: any, props: Record<string, unknown> = {}) {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const component = mount(Comp, { target, props: { refreshTick: 0, ...props } });
