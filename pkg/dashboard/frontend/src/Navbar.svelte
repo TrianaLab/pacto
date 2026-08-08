@@ -5,8 +5,17 @@
 
   let {
     services = [], sourcesInfo = [], capabilities = null, version = '', discovering = false, view = 'list',
-    autoReload = false, refreshing = false, onRefresh, onToggleAutoReload, onToggleTheme, onOpenPalette,
+    autoReload = false, refreshing = false, fleetSearch = false,
+    onRefresh, onToggleAutoReload, onToggleTheme, onOpenSearch,
   } = $props();
+
+  // A6: the visible search affordance opens the global fleet EntitySearch on
+  // fleet-capable hosts (keyboard shortcut '/') and falls back to the command palette
+  // (Cmd/Ctrl-K) otherwise. Its label and shortcut hint communicate the actual action.
+  const isMac = typeof navigator !== 'undefined' && navigator.platform?.includes('Mac');
+  const searchLabel = $derived(fleetSearch ? 'Search the fleet' : 'Open command palette');
+  const searchPlaceholder = $derived(fleetSearch ? 'Search the fleet...' : 'Search...');
+  const searchKbd = $derived(fleetSearch ? '/' : (isMac ? '⌘K' : 'Ctrl+K'));
 
   // Persistent primary nav. `views` lists the route.view values that light the
   // item. The Operational Graph is now the single graph/topology capability (the
@@ -103,10 +112,10 @@
     {/each}
   </nav>
 
-  <button type="button" class="search-box search-trigger" onclick={onOpenPalette} aria-label="Search — open command palette">
+  <button type="button" class="search-box search-trigger" onclick={onOpenSearch} aria-label={searchLabel} data-testid="navbar-search">
     <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <span class="search-trigger-text">Search...</span>
-    <kbd class="search-kbd">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl+'}K</kbd>
+    <span class="search-trigger-text">{searchPlaceholder}</span>
+    <kbd class="search-kbd">{searchKbd}</kbd>
   </button>
 
   <!-- Desktop right section -->

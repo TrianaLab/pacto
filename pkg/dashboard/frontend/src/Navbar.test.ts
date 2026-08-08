@@ -65,6 +65,45 @@ describe('Navbar — mobile drawer accessibility', () => {
   });
 });
 
+describe('Navbar — search affordance communicates the actual action (A6)', () => {
+  function mountWithSearch(fleetSearch: boolean) {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const clicks: number[] = [];
+    const component = mount(Navbar, {
+      target,
+      props: {
+        services: [], sourcesInfo: [], capabilities: { fleet: true, impact: true }, view: 'list',
+        version: 'x', fleetSearch, onOpenSearch: () => clicks.push(1),
+      },
+    });
+    const btn = target.querySelector('[data-testid="navbar-search"]') as HTMLButtonElement;
+    return { target, component, btn, clicks };
+  }
+
+  it('labels the visible affordance as fleet search with the "/" hint when fleet-capable', () => {
+    const { target, component, btn } = mountWithSearch(true);
+    expect(btn.getAttribute('aria-label')).toBe('Search the fleet');
+    expect(btn.textContent).toContain('Search the fleet');
+    expect(btn.querySelector('.search-kbd')?.textContent).toBe('/');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('labels the visible affordance as the command palette with the Cmd/Ctrl-K hint otherwise', () => {
+    const { target, component, btn } = mountWithSearch(false);
+    expect(btn.getAttribute('aria-label')).toBe('Open command palette');
+    expect(btn.querySelector('.search-kbd')?.textContent).toMatch(/K$/);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('the visible affordance invokes onOpenSearch', () => {
+    const { target, component, btn, clicks } = mountWithSearch(true);
+    btn.click();
+    expect(clicks.length).toBe(1);
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
 describe('Navbar — capability gating', () => {
   it('shows the Operational Graph tab when capabilities are unknown (null)', () => {
     expect(navLabels(null)).toContain('Operational Graph');

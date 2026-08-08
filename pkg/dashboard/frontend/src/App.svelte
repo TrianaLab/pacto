@@ -115,15 +115,28 @@
     return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
   }
 
+  // A6: the primary search affordance (the visible Search button and '/') opens the
+  // global fleet EntitySearch on fleet-capable hosts; Cmd/Ctrl-K opens the command
+  // palette. On a host with no fleet capability there is no fleet search to open, so
+  // the visible affordance falls back to the command palette rather than opening a
+  // dead search. Capability must be explicitly true (null = not yet probed) so we
+  // never open a dead fleet search before we know the host serves it.
+  const fleetSearch = $derived(capabilities?.fleet === true);
+
+  function openSearch() {
+    if (fleetSearch) searchOpen = true;
+    else paletteOpen = true;
+  }
+
   function handlePaletteKeydown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
       paletteOpen = !paletteOpen;
     } else if (e.key === '/' && !isTypingTarget(e) && !paletteOpen && !searchOpen) {
-      // Global entity search, consistent with the palette conventions (a modal with
-      // arrow/Enter/Escape); '/' is the discovery shortcut, Cmd/Ctrl-K the palette.
+      // '/' is the discovery shortcut for the primary search affordance; Cmd/Ctrl-K
+      // stays the command palette.
       e.preventDefault();
-      searchOpen = true;
+      openSearch();
     }
   }
 
@@ -161,7 +174,8 @@
   onRefresh={() => loadGlobal(true)}
   onToggleAutoReload={toggleAutoReload}
   onToggleTheme={toggleTheme}
-  onOpenPalette={() => (paletteOpen = true)}
+  {fleetSearch}
+  onOpenSearch={openSearch}
 />
 
 <CommandPalette
