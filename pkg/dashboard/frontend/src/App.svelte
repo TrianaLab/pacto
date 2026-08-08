@@ -119,12 +119,12 @@
   }
 
   // A6: the primary search affordance (the visible Search button and '/') opens the
-  // global fleet EntitySearch on fleet-capable hosts; Cmd/Ctrl-K opens the command
-  // palette. On a host with no fleet capability there is no fleet search to open, so
-  // the visible affordance falls back to the command palette rather than opening a
-  // dead search. Capability must be explicitly true (null = not yet probed) so we
-  // never open a dead fleet search before we know the host serves it.
-  const fleetSearch = $derived(capabilities?.fleet === true);
+  // global fleet EntitySearch; Cmd/Ctrl-K opens the command palette. Only when fleet
+  // capability is EXPLICITLY false does the affordance fall back to the command
+  // palette rather than opening a dead fleet search. While capability is still
+  // unprobed (null) we open fleet search optimistically (the common case; it fails
+  // gracefully), so the shortcut is never dead-on-arrival on a fleet host.
+  const fleetSearch = $derived(capabilities?.fleet !== false);
 
   function openSearch() {
     if (fleetSearch) searchOpen = true;
