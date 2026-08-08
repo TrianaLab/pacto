@@ -341,18 +341,16 @@ func validateImpactRevisions(snap *fleet.FleetSnapshot, req impactRequest) (flee
 // canonical Product Impact can never claim parity over content the real provider
 // would resolve differently or fail to fetch.
 func immutableRef(rev *fleet.ContractRevision) (string, error) {
-	_, dgst, err := fleet.ParseCanonicalOCIRef(rev.ResolvedRef)
-	if err != nil {
-		return "", fmt.Errorf(
-			"exact snapshot content is not retrievable for revision %s: %s (%s); use the raw ref-based /api/fleet/impact endpoint for mutable-content analysis",
-			rev.Key, err, mutableRefDescription(rev))
+	ei := fleet.ClassifyExactIdentity(rev.ResolvedRef, rev.Digest)
+	if ei.Exact() {
+		return rev.ResolvedRef, nil
 	}
-	if rev.Digest != "" && rev.Digest != dgst.String() {
-		return "", fmt.Errorf(
-			"revision %s has an inconsistent immutable reference: the ref pins %s but the recorded content digest is %s",
-			rev.Key, dgst, rev.Digest)
+	if ei.Class == fleet.IdentityDigestMismatch {
+		return "", fmt.Errorf("revision %s has an inconsistent immutable reference: %s", rev.Key, ei.Reason())
 	}
-	return rev.ResolvedRef, nil
+	return "", fmt.Errorf(
+		"exact snapshot content is not retrievable for revision %s: %s (%s); use the raw ref-based /api/fleet/impact endpoint for mutable-content analysis",
+		rev.Key, ei.Reason(), mutableRefDescription(rev))
 }
 
 // mutableRefDescription names the mutable reference a revision resolved through,

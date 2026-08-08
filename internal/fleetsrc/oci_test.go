@@ -10,6 +10,8 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/google/go-containerregistry/pkg/name"
+
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
@@ -127,6 +129,35 @@ func TestPinRefToDigest(t *testing.T) {
 		// The canonical result must be accepted by the strict immutable-identity parser.
 		if !fleet.IsDigestPinnedRef(got) {
 			t.Errorf("pinRefToDigest(%q,%q) = %q is not a canonical immutable OCI ref", c.ref, c.digest, got)
+		}
+	}
+}
+
+// TestPinRefToDigest_ResolverParseCompatible proves that a canonical ref emitted by
+// OCISource is accepted by the ACTUAL OCI client's parse boundary without
+// contacting a registry (requirement, item 10). The resolve path strips the oci://
+// scheme (graph.ParseDependencyRef) and hands the "<repository>@<digest>" location
+// to the go-containerregistry name parser (pkg/oci Client.parseRef ->
+// name.ParseReference). If fleet.ParseCanonicalOCIRef accepts a ref the real name
+// parser rejects, a "canonical" Product Impact would pass the exact-content guard
+// and then fail when the provider resolves it; this test forbids that divergence.
+func TestPinRefToDigest_ResolverParseCompatible(t *testing.T) {
+	d := validDigest("a")
+	for _, ref := range []string{
+		"ghcr.io/x/a:1.0.0",
+		"oci://ghcr.io/acme/pay:1.0",
+		"localhost:5000/acme/pay:1.0",
+		"payments",
+	} {
+		canonical := pinRefToDigest(ref, d)
+		// The strip graph.ParseDependencyRef performs before the resolver sees it.
+		location := strings.TrimPrefix(canonical, "oci://")
+		if _, err := name.ParseReference(location); err != nil {
+			t.Errorf("canonical ref %q (location %q) is rejected by the production name parser: %v", canonical, location, err)
+		}
+		// And the fleet strict parser agrees it is canonical immutable content.
+		if !fleet.IsDigestPinnedRef(canonical) {
+			t.Errorf("canonical ref %q rejected by fleet.IsDigestPinnedRef", canonical)
 		}
 	}
 }

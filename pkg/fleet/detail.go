@@ -28,13 +28,28 @@ type OwnershipInfo struct {
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
-// resolved to content. Immutable reports whether ResolvedRef is digest-pinned;
-// only immutable identity may be treated as exact snapshot content.
+// resolved to content. Immutable is the SINGLE exact-content judgement
+// ([ExactIdentity.Exact]) also used by Product Impact eligibility, so it means the
+// same thing everywhere; IdentityClass carries the fine-grained classification
+// (exact / missing-digest / mutable / local / malformed / digest-mismatch) so a
+// consumer can explain why a ref is or is not exact retrievable content.
 type RevisionIdentity struct {
-	Digest       string `json:"digest,omitempty"`
-	RequestedRef string `json:"requestedRef,omitempty"`
-	ResolvedRef  string `json:"resolvedRef,omitempty"`
-	Immutable    bool   `json:"immutable"`
+	Digest        string        `json:"digest,omitempty"`
+	RequestedRef  string        `json:"requestedRef,omitempty"`
+	ResolvedRef   string        `json:"resolvedRef,omitempty"`
+	Immutable     bool          `json:"immutable"`
+	IdentityClass IdentityClass `json:"identityClass" enum:"exact,missing-digest,mutable,local,malformed,digest-mismatch"`
+}
+
+// revisionIdentity builds the identity block for a resolved reference, using the
+// single exact-content classifier so RevisionDetail and TargetDetail report the
+// same `immutable` judgement Product Impact enforces.
+func revisionIdentity(recordedDigest, requestedRef, resolvedRef string) RevisionIdentity {
+	ei := ClassifyExactIdentity(resolvedRef, recordedDigest)
+	return RevisionIdentity{
+		Digest: recordedDigest, RequestedRef: requestedRef, ResolvedRef: resolvedRef,
+		Immutable: ei.Exact(), IdentityClass: ei.Class,
+	}
 }
 
 // Observed-runtime bounds. A pathological source could put an arbitrarily large,
@@ -356,13 +371,10 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	exact, inferred := q.targetsForRevision(rev.Key)
 	prev, next := q.siblingRevisions(rev)
 	data := &RevisionDetailData{
-		Service:      q.serviceRef(rev.ServiceKey),
-		Version:      rev.Version,
-		PactoVersion: rev.PactoVersion,
-		Identity: RevisionIdentity{
-			Digest: rev.Digest, RequestedRef: rev.RequestedRef, ResolvedRef: rev.ResolvedRef,
-			Immutable: IsDigestPinnedRef(rev.ResolvedRef),
-		},
+		Service:         q.serviceRef(rev.ServiceKey),
+		Version:         rev.Version,
+		PactoVersion:    rev.PactoVersion,
+		Identity:        revisionIdentity(rev.Digest, rev.RequestedRef, rev.ResolvedRef),
 		Valid:           rev.Valid,
 		Readiness:       productReadiness(rev.Readiness),
 		Validation:      findingsPreview(rev.Validation),
@@ -393,19 +405,16 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 	}
 	t := tv.Target
 	data := &TargetDetailData{
-		Service:    q.serviceRef(t.ServiceKey),
-		LinkState:  targetLinkState(t),
-		Scope:      t.Scope,
-		Kind:       t.Kind,
-		Compliance: t.Compliance,
-		Coverage:   t.Coverage,
-		Findings:   findingsPreview(t.Findings),
-		Sources:    stringsPreview(t.Sources),
-		Source:     t.Source,
-		Identity: RevisionIdentity{
-			Digest: t.Digest, RequestedRef: t.RequestedRef, ResolvedRef: t.ResolvedRef,
-			Immutable: IsDigestPinnedRef(t.ResolvedRef),
-		},
+		Service:      q.serviceRef(t.ServiceKey),
+		LinkState:    targetLinkState(t),
+		Scope:        t.Scope,
+		Kind:         t.Kind,
+		Compliance:   t.Compliance,
+		Coverage:     t.Coverage,
+		Findings:     findingsPreview(t.Findings),
+		Sources:      stringsPreview(t.Sources),
+		Source:       t.Source,
+		Identity:     revisionIdentity(t.Digest, t.RequestedRef, t.ResolvedRef),
 		EvidenceAt:   t.EvidenceAt,
 		ReconciledAt: t.ReconciledAt,
 		Stale:        t.Stale,

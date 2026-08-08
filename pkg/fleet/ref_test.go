@@ -48,6 +48,15 @@ func TestParseCanonicalOCIRef(t *testing.T) {
 		{"file scheme", "file:///abs/path", false, "", ""},
 		{"relative path", "./relative", false, "", ""},
 		{"empty", "", false, "", ""},
+		// Malformed repository syntax under the real OCI grammar (requirement, item
+		// 10): these carry a valid digest and a non-empty repository, so the old
+		// "some non-empty text before @" check accepted them, but the
+		// go-containerregistry name parser the resolver uses rejects them.
+		{"uppercase repository", "oci://UPPER/repo@" + good, false, "", ""},
+		{"uppercase path component", "oci://ghcr.io/UP/repo@" + good, false, "", ""},
+		{"space in repository", "oci://has space/repo@" + good, false, "", ""},
+		{"invalid registry port", "oci://reg.io:notaport/repo@" + good, false, "", ""},
+		{"trailing slash repository", "oci://end.slash/@" + good, false, "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -67,5 +76,62 @@ func TestParseCanonicalOCIRef(t *testing.T) {
 				t.Errorf("IsDigestPinnedRef(%q) = %v, want %v", c.ref, got, c.ok)
 			}
 		})
+	}
+}
+
+// TestClassifyExactIdentity is the spec for the SINGLE exact-content-identity
+// evaluation shared by RevisionDetail, TargetDetail and Product Impact eligibility
+// (requirement, item 9). The `immutable`/Exact boolean must mean the same thing
+// everywhere, and the class must distinguish every failure mode:
+//   - canonical OCI ref + matching recorded digest => exact (accepted);
+//   - canonical OCI ref + mismatched digest => digest-mismatch (rejected);
+//   - canonical OCI ref + missing recorded digest => missing-digest (accepted:
+//     the pinned digest IS the content address; the recorded digest is only a
+//     cross-check when present);
+//   - mutable tag => mutable (rejected);
+//   - local / scheme-less ref => local (rejected);
+//   - malformed digest or repository => malformed (rejected).
+func TestClassifyExactIdentity(t *testing.T) {
+	good := validDigest("a")
+	other := validDigest("b")
+	cases := []struct {
+		name         string
+		resolvedRef  string
+		recorded     string
+		wantClass    IdentityClass
+		wantExact    bool
+		wantHasDigit bool // Repository/Digest populated (a valid canonical ref)
+	}{
+		{"exact match", "oci://ghcr.io/acme/pay@" + good, good, IdentityExact, true, true},
+		{"missing recorded digest", "oci://ghcr.io/acme/pay@" + good, "", IdentityMissingDigest, true, true},
+		{"digest mismatch", "oci://ghcr.io/acme/pay@" + good, other, IdentityDigestMismatch, false, true},
+		{"mutable tag", "oci://ghcr.io/acme/pay:1.0", good, IdentityMutable, false, false},
+		{"local scheme-less", "ghcr.io/acme/pay@" + good, good, IdentityLocal, false, false},
+		{"local file", "file:///abs/pay", "", IdentityLocal, false, false},
+		{"local empty", "", "", IdentityLocal, false, false},
+		{"malformed digest", "oci://ghcr.io/acme/pay@sha256:abc", "sha256:abc", IdentityMalformed, false, false},
+		{"malformed repository", "oci://UPPER/pay@" + good, good, IdentityMalformed, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ei := ClassifyExactIdentity(c.resolvedRef, c.recorded)
+			if ei.Class != c.wantClass {
+				t.Errorf("class = %q, want %q", ei.Class, c.wantClass)
+			}
+			if ei.Exact() != c.wantExact {
+				t.Errorf("Exact() = %v, want %v", ei.Exact(), c.wantExact)
+			}
+			if (ei.Repository != "" && ei.Digest != "") != c.wantHasDigit {
+				t.Errorf("repository/digest populated = %v (%q/%q), want %v", ei.Repository != "" && ei.Digest != "", ei.Repository, ei.Digest, c.wantHasDigit)
+			}
+			// A non-exact identity always explains itself; an exact one never does.
+			if (ei.Reason() == "") != c.wantExact {
+				t.Errorf("Reason() = %q, want non-empty=%v", ei.Reason(), !c.wantExact)
+			}
+		})
+	}
+	// The unknown/default class Reason is defensive but must be non-empty.
+	if (ExactIdentity{Class: "bogus"}).Reason() == "" {
+		t.Error("an unknown identity class must still explain itself")
 	}
 }
