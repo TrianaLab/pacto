@@ -86,9 +86,12 @@ describe('legacy endpoint serialization (generated client owns the URL)', () => 
     expect(await req.clone().json()).toEqual({ ref: 'ghcr.io/org/svc:1.0.0', compatibility: 'strict' });
   });
 
-  it('POSTs refresh with no body', async () => {
-    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
-    expect(await api.refresh()).toBeNull();
+  it('POSTs refresh and returns the generated status body', async () => {
+    // The Huma refresh operation returns 200 with a JSON body {"status":"ok"}, and
+    // the generated SDK types the response as { status: string }. Exercise the real
+    // server/SDK contract, not a 204/null the endpoint never emits.
+    mockFetch.mockResolvedValue(jsonResponse({ status: 'ok' }));
+    expect(await api.refresh()).toEqual({ status: 'ok' });
     expect(requestFor().method).toBe('POST');
     expect(urlFor().pathname).toBe('/api/refresh');
   });
