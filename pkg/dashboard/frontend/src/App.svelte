@@ -17,6 +17,7 @@
   import ReadinessView from './views/ReadinessView.svelte';
   import FleetView from './views/FleetView.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
+  import FleetServicesView from './views/FleetServicesView.svelte';
   import FleetEntityView from './views/FleetEntityView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import ImpactView from './views/ImpactView.svelte';
@@ -214,6 +215,15 @@
     <ReadinessView {services} {initialLoading} />
   {:else if route.view === 'fleet-overview'}
     <FleetOverview {refreshTick} />
+  {:else if route.view === 'fleet-services'}
+    <FleetServicesView
+      text={route.params.text || ''}
+      owner={route.params.owner || ''}
+      status={route.params.status || ''}
+      domain={route.params.domain || ''}
+      offset={route.params.offset || ''}
+      {refreshTick}
+    />
   {:else if route.view === 'fleet-entity'}
     {#key route.params.kind + '@@' + route.params.key}
       <FleetEntityView kind={route.params.kind} entityKey={route.params.key} {refreshTick} />

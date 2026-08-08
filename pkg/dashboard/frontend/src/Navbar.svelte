@@ -24,17 +24,20 @@
   // service/revision, not a top-level empty page. `cap`, when set, requires that
   // capability to be enabled on the host — so a fleet-less host never shows a dead
   // Operational Graph tab.
-  const NAV = [
-    { label: 'Overview', href: fleetOverviewUrl(), views: ['fleet-overview', 'fleet-entity', 'fleet-attention', 'impact'], cap: 'fleet' },
-    { label: 'Services', href: '#/', views: ['list', 'detail'] },
-    { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
-    { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'] },
-    { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
-    { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },
-  ];
-  // Until capabilities are known (null), show everything; once known, hide items
-  // whose required capability the host does not serve.
-  const nav = $derived(NAV.filter((item) => !item.cap || capabilities === null || capabilities[item.cap]));
+  // The Services primary destination is the product service list (/fleet/services) on
+  // fleet-capable hosts, falling back to the legacy list (#/) otherwise; both mark the
+  // Services tab active. Until capabilities are known (null), show everything; once
+  // known, hide items whose required capability the host does not serve.
+  const nav = $derived(
+    [
+      { label: 'Overview', href: fleetOverviewUrl(), views: ['fleet-overview', 'fleet-entity', 'fleet-attention', 'impact'], cap: 'fleet' },
+      { label: 'Services', href: capabilities?.fleet ? '#/fleet/services' : '#/', views: ['list', 'detail', 'fleet-services'] },
+      { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
+      { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'] },
+      { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
+      { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },
+    ].filter((item) => !item.cap || capabilities === null || capabilities[item.cap]),
+  );
   const isActive = (item) => item.views.includes(view);
 
   let mobileMenuOpen = $state(false);
