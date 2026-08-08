@@ -652,7 +652,8 @@ serves the product endpoints): scenario 1 (/fleet loads the overview), 4 (a summ
 tile navigates to its exact filtered view), 5 (a degraded source is navigable), 6/8-10
 (search finds and opens an entity by canonical identity, any kind), 11+13 (a
 deep-linked entity route survives a reload; the encoded key round-trips), 12 (browser
-back returns to the overview). The existing demo spec was migrated to /fleet/graph.
+back returns to the overview). The existing demo spec AND the live Kind
+operational-graph smoke were migrated to /fleet/graph (the graph's new mount).
 The WASM demo dist is rebuilt from source; the committed UI bundle is rebuilt from the
 generated-SDK frontend. No physical-device testing is claimed (headless chromium).
 
