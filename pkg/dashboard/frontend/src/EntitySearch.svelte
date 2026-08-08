@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { api } from './lib/api.ts';
   import { hashForHref, fleetEntityUrl } from './lib/router.ts';
   import EntityIdentity from './components/EntityIdentity.svelte';
@@ -22,12 +23,19 @@
   let inputEl = $state(null);
   let prevFocus = null;
   let debounceTimer = null;
-  let seq = 0; // discards out-of-order responses so the newest query always wins
+  // seq is the active-search generation. A response may touch the UI only if its
+  // generation still matches (mySeq === seq). It is advanced on EVERY transition that
+  // ends the current search -- a new/changed query, a cleared query, an open, a close
+  // and destroy -- so a response from an abandoned search can never repopulate the UI
+  // (the A4 stale-request race). seq is a plain (non-reactive) counter deliberately.
+  let seq = 0;
 
-  // Reset + focus on open; restore focus on close.
+  // Reset + focus on open; restore focus on close. Any open/close transition
+  // invalidates in-flight responses from the prior modal state.
   $effect(() => {
+    seq++;
     if (open) {
-      query = ''; results = []; total = 0; truncated = false; error = null; selectedIdx = 0;
+      query = ''; results = []; total = 0; truncated = false; loading = false; error = null; selectedIdx = 0;
       prevFocus = document.activeElement;
       queueMicrotask(() => inputEl?.focus());
     } else if (prevFocus) {
@@ -36,13 +44,14 @@
     }
   });
 
-  // Debounced backend search.
+  // Debounced backend search. The generation is advanced FIRST, so clearing the query
+  // (or any change) immediately invalidates a request already in flight.
   $effect(() => {
     const q = query.trim();
     clearTimeout(debounceTimer);
+    const mySeq = ++seq;
     if (!q) { results = []; total = 0; truncated = false; loading = false; error = null; return; }
     loading = true;
-    const mySeq = ++seq;
     debounceTimer = setTimeout(() => {
       api.fleetEntities({ text: q, limit: 25 })
         .then((res) => {
@@ -59,6 +68,9 @@
         .finally(() => { if (mySeq === seq) loading = false; });
     }, 140);
   });
+
+  // Destroy invalidates any in-flight response so it can never write to torn-down state.
+  onDestroy(() => { seq++; });
 
   // Keep the selection in range as results change.
   $effect(() => { if (selectedIdx > results.length - 1) selectedIdx = Math.max(0, results.length - 1); });

@@ -17,6 +17,7 @@ vi.mock('./lib/api.ts', async (importOriginal) => {
 
 // @ts-expect-error — Svelte component has no declaration file
 import EntitySearch from './EntitySearch.svelte';
+import { reactiveProps } from './testkit.svelte.ts';
 
 function list(entities: unknown[], total?: number) {
   return { meta: { schemaVersion: 'pacto.dev/fleet-product/v1' }, total: total ?? entities.length, count: entities.length, entities };
@@ -123,6 +124,95 @@ describe('EntitySearch — global entity discovery', () => {
     const { target, component } = mountSearch();
     type(target, 'x');
     await vi.waitFor(() => expect(target.textContent).toContain('Showing 1 of 42'));
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+// A4: a response may update the UI only if it still belongs to the active search.
+// Each case creates deferred requests so resolution order is under test control.
+describe('EntitySearch — stale-request race (A4)', () => {
+  let deferreds: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }>;
+  beforeEach(() => {
+    entitiesFn.mockReset();
+    location.hash = '';
+    deferreds = [];
+    entitiesFn.mockImplementation(
+      () => new Promise((resolve, reject) => { deferreds.push({ resolve, reject }); }),
+    );
+  });
+  const settle = async () => { await new Promise((r) => setTimeout(r, 0)); flushSync(); };
+
+  it('A resolves after B: the older response never clobbers the newer one', async () => {
+    const { target, component } = mountSearch();
+    type(target, 'a');
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(1)); // A in flight
+    type(target, 'ab');
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(2)); // B in flight
+    // B (newer) resolves first and is shown.
+    deferreds[1].resolve(list([{ kind: 'service', key: 'a/bee', label: 'bee', domain: 'a', href: '/fleet/services/a%2Fbee' }]));
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(rows(target)[0].textContent).toContain('bee');
+    // A (older) resolves later and MUST be discarded.
+    deferreds[0].resolve(list([{ kind: 'service', key: 'a/aay', label: 'aay', domain: 'a', href: '/fleet/services/a%2Faay' }]));
+    await settle();
+    expect(rows(target).length).toBe(1);
+    expect(rows(target)[0].textContent).toContain('bee');
+    expect(rows(target)[0].textContent).not.toContain('aay');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('A resolves after the query is cleared: results stay empty', async () => {
+    const { target, component } = mountSearch();
+    type(target, 'payments');
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(1)); // A in flight
+    type(target, ''); // user clears the input
+    await settle();
+    expect(rows(target).length).toBe(0);
+    // The in-flight A resolves after the clear and must not repopulate.
+    deferreds[0].resolve(list([{ kind: 'service', key: 'a/pay', label: 'pay', domain: 'a', href: '/fleet/services/a%2Fpay' }]));
+    await settle();
+    expect(rows(target).length).toBe(0);
+    expect(target.textContent).not.toContain('pay');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('A resolves after the modal closes: no results are shown', async () => {
+    const props = reactiveProps({ open: true, onClose: () => { props.open = false; } });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(EntitySearch, { target, props });
+    flushSync();
+    type(target, 'payments');
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(1)); // A in flight
+    props.open = false; // close the modal
+    flushSync();
+    deferreds[0].resolve(list([{ kind: 'service', key: 'a/pay', label: 'pay', domain: 'a', href: '/fleet/services/a%2Fpay' }]));
+    await settle();
+    expect(target.querySelector('.es-panel')).toBeFalsy(); // closed
+    props.open = true; // reopen: the prior response must not appear
+    flushSync();
+    await settle();
+    expect(rows(target).length).toBe(0);
+    expect(target.textContent).not.toContain('pay');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('close + reopen cannot receive results from the previous session', async () => {
+    const props = reactiveProps({ open: true, onClose: () => { props.open = false; } });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(EntitySearch, { target, props });
+    flushSync();
+    type(target, 'payments');
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(1)); // session-1 A in flight
+    props.open = false; flushSync(); // close
+    props.open = true; flushSync();  // reopen (session 2)
+    await settle();
+    // The session-1 request resolves during session 2 and must be ignored.
+    deferreds[0].resolve(list([{ kind: 'service', key: 'a/old', label: 'old', domain: 'a', href: '/fleet/services/a%2Fold' }]));
+    await settle();
+    expect(rows(target).length).toBe(0);
+    expect(target.textContent).not.toContain('old');
     unmount(component); document.body.removeChild(target);
   });
 });
