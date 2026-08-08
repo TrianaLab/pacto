@@ -219,7 +219,7 @@
       <FleetEntityView kind={route.params.kind} entityKey={route.params.key} {refreshTick} />
     {/key}
   {:else if route.view === 'fleet-attention'}
-    <FleetAttentionView category={route.params.category || ''} {refreshTick} />
+    <FleetAttentionView category={route.params.category || ''} offset={route.params.offset || ''} {refreshTick} />
   {:else if route.view === 'fleet'}
     <FleetView params={route.params} {refreshTick} />
   {:else if route.view === 'impact'}

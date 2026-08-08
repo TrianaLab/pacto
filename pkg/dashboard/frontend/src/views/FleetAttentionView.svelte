@@ -10,11 +10,16 @@
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
 
-  // The dedicated attention list (requirement G/K). It consumes /api/fleet/attention,
+  // The dedicated attention list (requirement G/K/I). It consumes /api/fleet/attention,
   // optionally filtered by category (the overview tiles link here), and renders every
-  // item as a navigable row. Category is kept in the URL so the filtered view is
-  // deep-linkable and back/forward-restorable.
-  let { category = '', refreshTick = 0 } = $props();
+  // item as a navigable row. Category AND the page offset are kept in the URL so the
+  // filtered, paged view is deep-linkable and back/forward-restorable (A2). Real
+  // backend pagination (limit/offset/total/nextOffset) is used -- never client-side
+  // slicing of a preloaded dataset.
+  let { category = '', offset = '', refreshTick = 0 } = $props();
+
+  const PAGE_SIZE = 25;
+  const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
 
   let list = $state(null);
   let loading = $state(true);
@@ -25,7 +30,11 @@
     loading = true;
     error = null;
     try {
-      list = await api.fleetAttention(category ? { category } : {});
+      list = await api.fleetAttention({
+        category: category || undefined,
+        offset: pageOffset || undefined,
+        limit: PAGE_SIZE,
+      });
     } catch (e) {
       error = e;
     } finally {
@@ -34,9 +43,10 @@
   }
 
   onMount(load);
-  // Reload when the category (from the URL) or the refresh tick changes.
+  // Reload when the category, the page offset (both from the URL) or the refresh tick
+  // changes, so back/forward and deep links restore the exact page.
   $effect(() => {
-    const key = `${category}@@${refreshTick}`;
+    const key = `${category}@@${pageOffset}@@${refreshTick}`;
     if (key !== lastKey) {
       lastKey = key;
       load();
@@ -48,7 +58,18 @@
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: !!category, knowledge }));
   const chips = $derived(category ? [{ key: 'category', label: 'Category', value: category }] : []);
 
+  // Paging facts come from the backend page metadata, not from the item array.
+  const total = $derived(list?.total ?? 0);
+  const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
+  const shownTo = $derived((list?.offset ?? pageOffset) + count);
+  const hasPrev = $derived((list?.offset ?? pageOffset) > 0);
+  const hasNext = $derived(list?.nextOffset != null);
+  const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
+  const prevHref = $derived(fleetAttentionUrl({ category: category || undefined, offset: prevOffset }));
+  const nextHref = $derived(fleetAttentionUrl({ category: category || undefined, offset: list?.nextOffset ?? undefined }));
+
   function clearCategory() {
+    // Clearing the category also drops the offset -- a changed filter resets to page 1.
     location.hash = fleetAttentionUrl();
   }
 </script>
@@ -82,9 +103,22 @@
         </li>
       {/each}
     </ul>
-    {#if list.truncated}
-      <p class="av-more">Showing {count} of {list.total}.</p>
-    {/if}
+
+    <nav class="av-pager" aria-label="Attention pages">
+      <span class="av-range">Showing {shownFrom}–{shownTo} of {total}</span>
+      <div class="av-pager-btns">
+        {#if hasPrev}
+          <a class="av-page" href={prevHref} data-testid="attn-prev" rel="prev">Previous</a>
+        {:else}
+          <span class="av-page disabled" aria-disabled="true">Previous</span>
+        {/if}
+        {#if hasNext}
+          <a class="av-page" href={nextHref} data-testid="attn-next" rel="next">Next</a>
+        {:else}
+          <span class="av-page disabled" aria-disabled="true">Next</span>
+        {/if}
+      </div>
+    </nav>
   {/if}
 </div>
 
@@ -110,5 +144,17 @@
   }
   .attn-summary { color: var(--c-text-2); font-size: var(--text-sm); }
   .attn-next { color: var(--c-text-3); font-size: var(--text-xs); margin-left: auto; }
-  .av-more { color: var(--c-text-3); font-size: var(--text-sm); }
+  .av-pager {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+    flex-wrap: wrap; margin-top: var(--sp-2);
+  }
+  .av-range { color: var(--c-text-3); font-size: var(--text-sm); }
+  .av-pager-btns { display: flex; gap: var(--sp-2); }
+  .av-page {
+    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+    font-size: var(--text-sm); color: var(--c-text); text-decoration: none; background: var(--c-surface);
+    min-height: var(--touch-min); display: inline-flex; align-items: center;
+  }
+  .av-page:hover { border-color: var(--c-accent); text-decoration: none; }
+  .av-page.disabled { color: var(--c-text-3); opacity: 0.5; pointer-events: none; }
 </style>
