@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PRODUCT_SCHEMA_VERSION, SchemaCompatibilityError, ApiError } from './api.ts';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  PRODUCT_SCHEMA_VERSION, SchemaCompatibilityError, ApiError, ApiContractError,
+  narrowEntityDetail, isServiceDetail, isTargetDetail,
+} from './api.ts';
+import type { ProductEntityDetail } from './api.ts';
 
 // The facade routes every call through the generated openapi-fetch client, which
 // builds a Request and hands it to the single transport seam (dashboardFetch),
@@ -169,7 +173,7 @@ describe('product endpoint serialization + schema validation', () => {
   });
 
   it('fleetEntityDetail uses the kind path param and the key query param', async () => {
-    mockFetch.mockResolvedValue(productResponse({ entity: { kind: 'target' } }));
+    mockFetch.mockResolvedValue(productResponse({ entity: { kind: 'target' }, target: {} }));
     await api.fleetEntityDetail('target', 'prod/k8s/app');
     expect(urlFor().pathname).toBe('/api/fleet/entities/target');
     expect(urlFor().searchParams.get('key')).toBe('prod/k8s/app');
@@ -217,6 +221,55 @@ describe('product endpoint serialization + schema validation', () => {
   });
 });
 
+describe('entity-detail runtime narrowing (requirement, item 4)', () => {
+  const meta = { schemaVersion: PRODUCT_SCHEMA_VERSION };
+  // A broad response as the wire allows it; narrowEntityDetail enforces the invariant.
+  const raw = (o: Record<string, unknown>): ProductEntityDetail => ({ meta, ...o } as unknown as ProductEntityDetail);
+
+  it('accepts a valid instance for each of the five kinds', () => {
+    for (const kind of ['service', 'revision', 'target', 'owner', 'source'] as const) {
+      const d = narrowEntityDetail(raw({ entity: { kind }, [kind]: {} }));
+      expect(d.entity.kind).toBe(kind);
+    }
+  });
+
+  it('rejects a service kind with a missing service payload', () => {
+    expect(() => narrowEntityDetail(raw({ entity: { kind: 'service' } }))).toThrow(ApiContractError);
+  });
+
+  it('rejects a service kind carrying a revision payload', () => {
+    expect(() => narrowEntityDetail(raw({ entity: { kind: 'service' }, revision: {} }))).toThrow(ApiContractError);
+  });
+
+  it('rejects a response carrying two payloads at once', () => {
+    expect(() => narrowEntityDetail(raw({ entity: { kind: 'service' }, service: {}, revision: {} }))).toThrow(ApiContractError);
+  });
+
+  it('rejects an unknown entity kind', () => {
+    expect(() => narrowEntityDetail(raw({ entity: { kind: 'galaxy' }, service: {} }))).toThrow(ApiContractError);
+  });
+
+  it('rejects a response with no entity', () => {
+    expect(() => narrowEntityDetail(raw({ service: {} }))).toThrow(ApiContractError);
+  });
+
+  it('narrows so the discriminated payload is directly usable', () => {
+    const d = narrowEntityDetail(raw({ entity: { kind: 'target' }, target: { linkState: 'exact' } }));
+    expect(isTargetDetail(d)).toBe(true);
+    expect(isServiceDetail(d)).toBe(false);
+    if (isTargetDetail(d)) {
+      expect(d.target.linkState).toBe('exact');
+    }
+  });
+
+  it('fleetEntityDetail rejects a contract-violating server response', async () => {
+    // kind=service but the payload is a revision: a well-formed HTTP 200 that still
+    // violates the product contract must surface as an ApiContractError.
+    mockFetch.mockResolvedValue(jsonResponse({ meta, entity: { kind: 'service' }, revision: {} }));
+    await expect(api.fleetEntityDetail('service', 'svc')).rejects.toBeInstanceOf(ApiContractError);
+  });
+});
+
 describe('error handling', () => {
   it('throws ApiError carrying the status', async () => {
     mockFetch.mockResolvedValue(new Response('not found', { status: 404 }));
@@ -240,26 +293,75 @@ describe('error handling', () => {
   });
 });
 
-describe('static / WASM transport seam', () => {
-  it('serves a fixtured route in static mode via the generated client', async () => {
-    (globalThis as any).__PACTO_STATIC__ = { routes: { '/api/services/svc': { name: 'svc' } }, service: 'svc' };
-    // The generated GET path parameter is resolved by the client; the seam matches
-    // by pathname regardless of the client's absolute base or any query ordering.
-    expect(await api.service('svc')).toEqual({ name: 'svc' });
-    // The services list degrades to an empty array so the offline app stays quiet.
-    expect(await api.services()).toEqual([]);
-    // A product endpoint is not fixtured, so it resolves to a null body which the
-    // product facade rejects honestly rather than returning a misleading value.
-    await expect(api.fleetOverview()).rejects.toBeInstanceOf(SchemaCompatibilityError);
-    // The mocked network fetch is never called in static mode.
-    expect(mockFetch).not.toHaveBeenCalled();
-    delete (globalThis as any).__PACTO_STATIC__;
+describe('static / WASM transport seam (request-semantic fixtures)', () => {
+  function setStatic(routes: unknown[]) {
+    (globalThis as unknown as { __PACTO_STATIC__: unknown }).__PACTO_STATIC__ = { routes, service: 'svc' };
+  }
+  afterEach(() => {
+    delete (globalThis as unknown as { __PACTO_STATIC__?: unknown }).__PACTO_STATIC__;
   });
 
-  it('serves a fixtured query-bearing GET by pathname in static mode', async () => {
-    (globalThis as any).__PACTO_STATIC__ = { routes: { '/api/fleet/service': { key: 'eu/pay' } }, service: 'svc' };
-    expect(await api.fleetService('eu/pay')).toEqual({ key: 'eu/pay' });
+  it('serves a fixtured GET by method + pathname, never touching the network', async () => {
+    setStatic([{ method: 'GET', path: '/api/services/svc', response: { name: 'svc' } }]);
+    expect(await api.service('svc')).toEqual({ name: 'svc' });
     expect(mockFetch).not.toHaveBeenCalled();
-    delete (globalThis as any).__PACTO_STATIC__;
+  });
+
+  it('matches a fixtured query-bearing GET regardless of query order', async () => {
+    setStatic([{ method: 'GET', path: '/api/diff', query: { from_name: 'a', from_version: '1', to_name: 'b', to_version: '2' }, response: { changes: [] } }]);
+    expect(await api.diff('a', '1', 'b', '2')).toEqual({ changes: [] });
+  });
+
+  it('does not match a fixture when the query differs', async () => {
+    setStatic([{ method: 'GET', path: '/api/diff', query: { from_name: 'a', from_version: '1', to_name: 'b', to_version: '2' }, response: { changes: [] } }]);
+    await expect(api.diff('a', '9', 'b', '2')).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('does not match a fixture when the HTTP method differs', async () => {
+    // A GET fixture must not answer the POST /api/resolve operation.
+    setStatic([{ method: 'GET', path: '/api/resolve', response: { ok: true } }]);
+    await expect(api.resolve('ref')).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('distinguishes body-sensitive fixtures by request body', async () => {
+    setStatic([
+      { method: 'POST', path: '/api/resolve', body: { ref: 'a' }, response: { picked: 'a' } },
+      { method: 'POST', path: '/api/resolve', body: { ref: 'b' }, response: { picked: 'b' } },
+    ]);
+    expect(await api.resolve('a')).toEqual({ picked: 'a' });
+    expect(await api.resolve('b')).toEqual({ picked: 'b' });
+    // A body no fixture represents fails honestly rather than matching either.
+    await expect(api.resolve('c')).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('fails honestly on an unknown product route (no misleading 200 + null)', async () => {
+    setStatic([{ method: 'GET', path: '/api/services/svc', response: { name: 'svc' } }]);
+    await expect(api.fleetOverview()).rejects.toBeInstanceOf(ApiError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('fails honestly on an unknown legacy route', async () => {
+    setStatic([{ method: 'GET', path: '/api/services/svc', response: { name: 'svc' } }]);
+    await expect(api.debugSources()).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('serves the pacto doc single-service offline route set', async () => {
+    // Exactly the routes `pacto doc` embeds; offline navigation across them works
+    // with no network and no universal null fallback.
+    setStatic([
+      { method: 'GET', path: '/api/services', response: [] },
+      { method: 'GET', path: '/api/services/svc', response: { name: 'svc' } },
+      { method: 'GET', path: '/api/graph', response: { nodes: [] } },
+      { method: 'GET', path: '/api/services/svc/versions', response: [{ version: '1.0.0', isCurrent: true }] },
+      { method: 'GET', path: '/api/services/svc/dependents', response: [] },
+      { method: 'GET', path: '/api/services/svc/refs', response: null },
+    ]);
+    expect(await api.services()).toEqual([]);
+    expect(await api.service('svc')).toEqual({ name: 'svc' });
+    expect(await api.graph()).toEqual({ nodes: [] });
+    expect(await api.versions('svc')).toEqual([{ version: '1.0.0', isCurrent: true }]);
+    expect(await api.dependents('svc')).toEqual([]);
+    expect(await api.crossRefs('svc')).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

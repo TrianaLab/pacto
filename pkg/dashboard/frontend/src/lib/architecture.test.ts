@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 /**
- * Architecture guard (ADR-6, requirement, item 15): the generated OpenAPI SDK is
+ * Architecture guard (ADR-6, requirement, item 9): the generated OpenAPI SDK is
  * the ONLY way the dashboard talks to the backend. This test fails if new code
  * bypasses it - a raw fetch of a backend route, or a hand-built `/api/...` URL -
  * outside the single transport seam and the facade. It keeps the wire contract
@@ -15,6 +15,15 @@ import { join, relative } from 'node:path';
  *                       generated client (type-checked against the contract, not
  *                       URL construction);
  *  - lib/generated/**   the generated SDK itself.
+ *
+ * The remaining item-9 invariants are enforced at COMPILE time in api.typetest.ts
+ * (svelte-check, threshold error), which is stronger than a regex and is what
+ * TypeScript can verify directly: facade request types derive from the generated
+ * operations, no facade method returns `Promise<unknown>`, and product entity detail
+ * leaves the facade as NarrowedEntityDetail. This file covers the structural
+ * invariants TypeScript cannot: where raw fetch and backend paths may appear, that
+ * the static fixtures are request-semantic, and that no hand-written wire DTO mirror
+ * has returned.
  */
 
 const SRC = join(process.cwd(), 'src'); // vitest runs from the frontend package root
@@ -60,5 +69,25 @@ describe('frontend backend-access architecture', () => {
       .filter((f) => /['"`]\/api\//.test(f.body))
       .map((f) => f.rel);
     expect(offenders, `hand-built /api/ URL outside the generated-SDK facade: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('matches static fixtures by request semantics, not by raw pathname', () => {
+    const transport = readFileSync(join(SRC, 'lib/transport.ts'), 'utf8');
+    // A request-semantic model: fixtures carry method + path + normalized query (+
+    // body), and the matcher compares those - never a raw-URL/pathname table lookup.
+    expect(transport, 'StaticRoute must carry an HTTP method').toMatch(/interface StaticRoute[\s\S]*method:/);
+    expect(transport, 'StaticRoute must carry a path').toMatch(/interface StaticRoute[\s\S]*path:/);
+    expect(transport, 'the matcher must compare the request method').toMatch(/r\.method/);
+    // The old pathname-only lookup ("pathname in data.routes") must not return.
+    expect(transport, 'static matching must not be pathname-only').not.toMatch(/\bin\s+data\.routes\b/);
+    expect(transport).not.toMatch(/data\.routes\[/);
+  });
+
+  it('keeps no hand-written wire DTO mirror (the generated schema is the only wire truth)', () => {
+    // ADR-6 reversed the hand-maintained productTypes.ts mirror + in-Go structural
+    // drift parser. Neither may return: the generated SDK is the single wire truth.
+    const files = readdirSync(join(SRC, 'lib'));
+    expect(files, 'a hand-written wire DTO mirror (productTypes.ts) must not exist').not.toContain('productTypes.ts');
+    expect(files).not.toContain('productTypes.typetest.ts');
   });
 });
