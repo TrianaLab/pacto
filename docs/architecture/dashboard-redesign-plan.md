@@ -287,10 +287,11 @@ section 8.
    API client with drift protection, and the two-dimension identity model
    (revision-match certainty vs content retrievability). COMPLETE (only the
    U+00A7 commit-history CI enforcement remains deferred; see section 8 item 9).
-2. Frontend IA and routing (CURRENT PHASE): route state, breadcrumbs, history,
-   global search, the reusable product components, consuming the typed client.
+2. Frontend IA and routing: route state, breadcrumbs, history, global search, the
+   reusable product components, consuming the typed client. COMPLETE (this is the
+   product-IA foundation; see the phase boundary in section 8).
 3. Overview, Services, Attention and entity pages (service / revision / target /
-   owner / source) built on the typed detail model.
+   owner / source) built on the typed detail model. CURRENT PHASE.
 4. Search-first Operational Graph: neighborhood-oriented topology with the
    knowledge views (expected / observed / differences) and honest focus mapping.
 5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile).
@@ -615,69 +616,64 @@ The only remaining deferred item is the U+00A7 commit-history + PR-metadata CI
 enforcement (section 8 item 9), still BLOCKED on explicit history-rewrite
 authorization; it was not performed this pass.
 
-### Phase 2 progress (frontend IA and routing)
+### Phase boundary: Phase 2 DONE, Phase 3 CURRENT
 
-Phase 2 (frontend IA, routing and the Operational Overview) is IN PROGRESS. The
-foundation is landed and unit-tested; the rich per-kind entity pages and the
-search-first graph redesign remain for Phase 3/4.
+Phase 2 (frontend IA and routing -- the product-IA foundation) is DONE. Phase 3
+(product lists, rich per-kind entity pages and the complete attention workflow) is
+CURRENT. Phase 4 (the search-first Operational Graph redesign) is not started this
+session. This heading supersedes the earlier "Phase 2 IN PROGRESS" wording.
 
-DONE this pass:
+Phase 2 -- DONE:
 
-- Route model + centralized navigation. `/fleet` is the operational overview; the
+- Product IA and the route foundation. `/fleet` is the operational overview; the
   legacy operational graph moved to `/fleet/graph` (fleetUrl repointed, so Navbar
-  and FleetView follow). New product routes: `/fleet/<plural>/:key` (unified entity
-  detail), `/fleet/attention`, `/fleet/impact/:serviceKey`, focused
-  `/fleet/graph/:kind/:key`. `parseFleet` mirrors the backend route builder
-  (fleetroute.go); keys are percent-escaped path segments that round-trip slash-,
-  percent-, OCI- and domain-qualified identities (proven in `router.test.ts`). All
-  fleet URL construction is centralized: `hashForHref` adopts the authoritative
-  backend `ProductRef.href`, and `fleetEntityUrl`/`fleetGraphFocusUrl`/
+  and FleetView follow). Product routes: `/fleet/services` (product service list),
+  `/fleet/<plural>/:key` (unified entity detail), `/fleet/attention` (paged),
+  `/fleet/impact/:serviceKey`, focused `/fleet/graph/:kind/:key`. `parseFleet`
+  mirrors the backend route builder (fleetroute.go); keys are percent-escaped path
+  segments that round-trip slash-, percent-, OCI- and domain-qualified identities.
+  All fleet URL construction is centralized (`hashForHref` adopts the authoritative
+  backend `ProductRef.href`; `fleetEntityUrl`/`fleetServicesUrl`/`fleetGraphFocusUrl`/
   `fleetAttentionUrl`/`fleetImpactUrl`/`fleetOverviewUrl` build the same paths from
-  (kind, key). No component assembles a `/fleet/...` string inline.
-- Truthful knowledge state (requirement H). `lib/knowledgeState.ts` is the single
-  reusable decision: `snapshotKnowledge` derives quality from meta completeness +
-  per-source health (strictest wins), `decideViewState` distinguishes empty-fleet /
-  filtered-empty / "nothing known under incomplete knowledge" / backend-error /
-  schema-error / not-found, and `allClearAllowed` gates any all-clear on complete
-  knowledge with zero attention. A partial/degraded snapshot can never render a
-  blanket all-clear.
-- Foundational components: EntityLink, EntityIdentity, CopyableIdentifier,
-  ProductEmptyState, SourceHealth, OperationalSummary, ActiveFilterChips (plus the
-  existing Breadcrumbs), and `lib/entityLabels.ts` (user-facing labels/tones for
-  kinds and BOTH identity dimensions -- revision-match certainty vs content
-  retrievability -- knowledge levels and source health).
+  (kind, key)); no component assembles a `/fleet/...` string inline. A
+  backend-href/frontend-router contract test (both ends) proves every canonical href
+  class fleetroute.go emits resolves to its intended destination and none silently
+  falls through to the overview.
 - Operational Overview (`/fleet`) consuming `/api/fleet/overview` as the sole
-  contract (never the snapshot); unified entity route (`FleetEntityView`) consuming
-  the entity-detail endpoint as `NarrowedEntityDetail`; attention list
-  (`FleetAttentionView`) the overview category tiles link to.
-- Global entity search (`EntitySearch`), a `/`-opened modal (command-palette
-  keyboard conventions) querying `/api/fleet/entities` -- discovery, not a preloaded
-  list -- disambiguating same-named entities and respecting backend bounds.
+  contract (never the snapshot), and honest about an empty fleet (a zero-service
+  summary is never rendered as "All clear").
+- Truthful knowledge state (requirement H). `lib/knowledgeState.ts` is the single
+  reusable decision: `snapshotKnowledge`, `decideViewState` and `allClearAllowed`.
+  A partial/degraded snapshot can never render a blanket all-clear.
+- Global entity search (`EntitySearch`) querying `/api/fleet/entities` -- discovery,
+  not a preloaded list -- disambiguating same-named entities, respecting backend
+  bounds, and immune to the stale-request race (a response updates the UI only while
+  it belongs to the active search). On fleet-capable hosts the visible Search
+  affordance and `/` open it; Cmd/Ctrl-K opens the command palette.
+- A minimal useful unified entity route (`FleetEntityView`) consuming the
+  entity-detail endpoint as `NarrowedEntityDetail`.
+- Foundational reusable components: EntityLink, EntityIdentity, CopyableIdentifier,
+  ProductEmptyState, SourceHealth, OperationalSummary, ActiveFilterChips, Breadcrumbs,
+  and `lib/entityLabels.ts`.
 
-Tested (Vitest): `router.test.ts` (route round-trip incl. slash/percent, builders),
-`knowledgeState.test.ts` (state machine + the non-negotiable all-clear rule),
-`entityLabels.test.ts`, `productComponents.test.ts` (link/identity/empty-state/
-source-health/summary + not-found/schema-error rendering), `FleetOverview.svelte.
-test.ts` (scenarios 1-5), `FleetEntityView.svelte.test.ts` (entity success +
-identity-dimension rendering + action routing), `EntitySearch.test.ts` (scenarios
-6-10, 16).
+Phase 3 -- CURRENT (this session):
 
-Tested (real-browser Playwright, `e2e/fleet-ia.spec.ts` against the WASM demo, which
-serves the product endpoints): scenario 1 (/fleet loads the overview), 4 (a summary
-tile navigates to its exact filtered view), 5 (a degraded source is navigable), 6/8-10
-(search finds and opens an entity by canonical identity, any kind), 11+13 (a
-deep-linked entity route survives a reload; the encoded key round-trips), 12 (browser
-back returns to the overview). The existing demo spec AND the live Kind
-operational-graph smoke were migrated to /fleet/graph (the graph's new mount).
-The WASM demo dist is rebuilt from source; the committed UI bundle is rebuilt from the
-generated-SDK frontend. No physical-device testing is claimed (headless chromium).
+- Product Services list (`/fleet/services`) -- DONE (this session), consuming
+  `/api/fleet/entities?kinds=service`, the canonical Navbar Services destination.
+- Complete Attention workflow -- real URL-driven pagination DONE (this session);
+  triage filters (owner/source/severity/status/stale) remain in this phase.
+- Rich per-kind entity pages (service / revision / target / owner / source).
+- Owners product list/page (and Sources) under the product IA.
+- Navigation migration of the remaining primary product views (Readiness, Compare)
+  so they participate in the new navigation, breadcrumbs and deep-link model, keeping
+  their specialized implementations where semantically appropriate.
 
-REMAINING Phase-2 work:
+Phase 4 -- remains: the search-first Operational Graph redesign. The existing
+FleetView stays mounted at `/fleet/graph` and keeps working; Phase 3 only adds the
+contextual "open in graph" links it needs.
 
-- Migrate the remaining legacy views (Services list, Owners, Readiness, Compare)
-  behind the new navigation, and expand the rich per-kind entity pages (Phase 3).
-- The ESLint no-restricted raw-network rule (defense-in-depth follow-up) and the
-  U+00A7 commit-history enforcement remain deferred as before.
+Deferred as before: the ESLint no-restricted raw-network rule (defense-in-depth
+follow-up) and the U+00A7 commit-history enforcement (BLOCKED on history rewrite).
 
 ### Product response boundedness audit (requirement, item 4)
 
@@ -726,9 +722,9 @@ True revision-graph and deployment-graph projections (nodes that are revisions o
 targets, not services) are NOT implemented and must be added before the revision
 and deployment graph UI views are built.
 
-Pending after phase 1: phases 2 through 14 of the complete remaining program in
-section 5 (frontend IA/routing; Overview/Services/Attention/entity pages;
-search-first Operational Graph; responsive + a11y; WASM browser acceptance;
+Pending after phase 2 (frontend IA/routing, now complete): phases 3 through 14 of
+the complete remaining program in section 5 (Overview/Services/Attention/entity
+pages; search-first Operational Graph; responsive + a11y; WASM browser acceptance;
 operator-managed trace source; live Kind vertical; real MkDocs browser
 acceptance; Docker Desktop/local-registry Kind support; multi-root MCP catalog
 core; MCP discovery tools + protocol E2E; normative invariants; documentation and
