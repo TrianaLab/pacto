@@ -82,33 +82,43 @@ func TestProductReadinessBounded(t *testing.T) {
 // cannot produce an unbounded runtime preview: the emitted list, each key and
 // value length, and the nesting are all hard-bounded, and because the walk stopped
 // early the exact total is honestly reported as unknown (nil).
-func TestRuntimePreviewBounded(t *testing.T) {
+// pathologicalRuntime builds a runtime map that is simultaneously very wide, very
+// deep (maps and slices), long-keyed and huge-scalar, to attack every bound.
+func pathologicalRuntime() map[string]any {
 	m := map[string]any{}
 	for i := 0; i < maxRuntimeScan*3; i++ {
 		m[fmt.Sprintf("k%05d", i)] = i
 	}
-	// A chain of maps far deeper than maxRuntimeDepth.
-	var deep any = "leaf"
+	deep, arr := any("leaf"), any("leaf")
 	for i := 0; i < 20; i++ {
 		deep = map[string]any{"n": deep}
+		arr = []any{arr}
 	}
 	m["deep"] = deep
-	// A chain of slices far deeper than maxRuntimeDepth.
-	var deepArr any = "leaf"
-	for i := 0; i < 20; i++ {
-		deepArr = []any{deepArr}
-	}
-	m["deepArr"] = deepArr
-	// A shallow non-empty slice (mixed scalar + nested map).
+	m["deepArr"] = arr
 	m["arr"] = []any{1, "two", map[string]any{"x": 1}}
-	// Empty composites are represented as a single non-truncating leaf.
 	m["emptyMap"] = map[string]any{}
 	m["emptyArr"] = []any{}
-	// A single huge scalar value and a huge KEY.
 	m["big"] = strings.Repeat("x", maxRuntimeValueLen*4)
 	m[strings.Repeat("K", maxRuntimeKeyLen*4)] = 1
+	return m
+}
 
-	rp := runtimePreview(m)
+// assertRuntimeItemsCapped fails if any fact's key or value exceeds its length cap.
+func assertRuntimeItemsCapped(t *testing.T, items []RuntimeFact) {
+	t.Helper()
+	for _, f := range items {
+		if len([]rune(f.Value)) > maxRuntimeValueLen+1 { // +1 for the ellipsis rune
+			t.Errorf("runtime value not length-capped: %d runes (key %q)", len([]rune(f.Value)), f.Key)
+		}
+		if len([]rune(f.Key)) > maxRuntimeKeyLen+1 {
+			t.Errorf("runtime key not length-capped: %d runes", len([]rune(f.Key)))
+		}
+	}
+}
+
+func TestRuntimePreviewBounded(t *testing.T) {
+	rp := runtimePreview(pathologicalRuntime())
 	if rp.Count > MaxDetailPreview || len(rp.Items) > MaxDetailPreview {
 		t.Errorf("runtime preview count %d exceeds cap %d", rp.Count, MaxDetailPreview)
 	}
@@ -121,44 +131,32 @@ func TestRuntimePreviewBounded(t *testing.T) {
 	if rp.Total != nil {
 		t.Errorf("a runtime whose walk stopped early must report an UNKNOWN total (nil), got %d", *rp.Total)
 	}
-	for _, f := range rp.Items {
-		if len([]rune(f.Value)) > maxRuntimeValueLen+1 { // +1 for the ellipsis rune
-			t.Errorf("runtime value not length-capped: %d runes (key %q)", len([]rune(f.Value)), f.Key)
-		}
-		if len([]rune(f.Key)) > maxRuntimeKeyLen+1 {
-			t.Errorf("runtime key not length-capped: %d runes", len([]rune(f.Key)))
-		}
-	}
-	// An empty/nil runtime yields an empty, non-nil, non-truncated preview with a
-	// KNOWN total of zero (the walk trivially completed).
+	assertRuntimeItemsCapped(t, rp.Items)
+}
+
+// An empty/nil runtime yields an empty, non-nil, non-truncated preview with a KNOWN
+// total of zero (the walk trivially completed).
+func TestRuntimePreviewEmpty(t *testing.T) {
 	e := runtimePreview(nil)
 	if e.Total == nil || *e.Total != 0 || e.Count != 0 || e.Scanned != 0 || e.Truncated || e.Items == nil {
 		t.Errorf("empty runtime preview = %+v (total=%v), want empty non-nil non-truncated total=0", e, e.Total)
 	}
 }
 
-// TestRuntimePreviewAlgorithm attacks the ALGORITHM, not just the output size
-// (requirement, item 13): a composite collapsed at the depth limit is summarized
-// with a SHORT marker (never stringified whole), a wide map is flattened
-// deterministically to its lexicographically-smallest keys without depending on
-// Go's random map order, a walk that visits everything reports the exact total,
-// and a walk that stops early reports the total as unknown.
-func TestRuntimePreviewAlgorithm(t *testing.T) {
-	// (1) Depth-limit collapse must NOT stringify the whole composite. Build a map
-	// nested just past the depth limit whose deepest value is a HUGE map; the
-	// emitted marker must be short and structural, never the giant stringification.
+// A composite collapsed at the depth limit is summarized with a SHORT structural
+// marker, never the whole stringified value (requirement, item 13).
+func TestRuntimePreview_DepthCollapseMarker(t *testing.T) {
 	huge := map[string]any{}
 	for i := 0; i < 5000; i++ {
 		huge[fmt.Sprintf("h%05d", i)] = strings.Repeat("y", 100)
 	}
-	// Wrap so the HUGE map sits exactly at the depth limit and is the composite that
-	// gets collapsed (each wrapper adds one level; root is depth 1).
+	// Wrap so the HUGE map sits exactly at the depth limit (root is depth 1).
 	nested := any(huge)
 	for i := 0; i < maxRuntimeDepth-1; i++ {
 		nested = map[string]any{"a": nested}
 	}
 	rp := runtimePreview(map[string]any{"root": nested})
-	var marker string
+	marker := ""
 	for _, f := range rp.Items {
 		if strings.HasPrefix(f.Value, "{map:") {
 			marker = f.Value
@@ -173,10 +171,11 @@ func TestRuntimePreviewAlgorithm(t *testing.T) {
 	if !strings.Contains(marker, "5000") {
 		t.Errorf("depth-collapsed map marker should report the key count, got %q", marker)
 	}
+}
 
-	// (2) Determinism: a wide map flattens to the same smallest-key prefix across
-	// runs regardless of Go's randomized map iteration order, and because it is
-	// wider than the scan budget the total is unknown.
+// A wide map flattens deterministically to its lexicographically-smallest keys
+// regardless of Go's random map order, and reports an unknown total.
+func TestRuntimePreview_WideMapDeterministic(t *testing.T) {
 	wide := map[string]any{}
 	for i := 0; i < maxRuntimeScan*4; i++ {
 		wide[fmt.Sprintf("w%06d", i)] = i
@@ -195,9 +194,10 @@ func TestRuntimePreviewAlgorithm(t *testing.T) {
 	if a.Scanned > maxRuntimeScan {
 		t.Errorf("scanned %d exceeds budget %d", a.Scanned, maxRuntimeScan)
 	}
+}
 
-	// (3) A small, fully-walked structure reports the EXACT total, and Truncated is
-	// false when everything emitted.
+// A small, fully-walked structure reports the EXACT total and is not truncated.
+func TestRuntimePreview_ExactTotalWhenComplete(t *testing.T) {
 	small := map[string]any{"a": 1, "b": map[string]any{"c": 2, "d": 3}, "e": []any{"x", "y"}}
 	sp := runtimePreview(small)
 	if sp.Total == nil {
@@ -205,11 +205,13 @@ func TestRuntimePreviewAlgorithm(t *testing.T) {
 	}
 	// facts: a, b.c, b.d, e[0], e[1] => 5
 	if *sp.Total != 5 || sp.Count != 5 || sp.Scanned != 5 || sp.Truncated {
-		t.Errorf("small flatten = {total:%v count:%d scanned:%d trunc:%v}, want total=5 count=5 scanned=5 trunc=false", *sp.Total, sp.Count, sp.Scanned, sp.Truncated)
+		t.Errorf("small flatten = {total:%v count:%d scanned:%d trunc:%v}, want 5/5/5/false", *sp.Total, sp.Count, sp.Scanned, sp.Truncated)
 	}
+}
 
-	// (4) keysBounded selects the smallest keys with O(limit) allocation and reports
-	// completeness honestly.
+// keysBounded selects the smallest keys with O(limit) allocation and reports
+// completeness honestly.
+func TestKeysBounded(t *testing.T) {
 	km := map[string]any{"c": 1, "a": 1, "b": 1, "e": 1, "d": 1}
 	got, all := keysBounded(km, 3)
 	if !reflect.DeepEqual(got, []string{"a", "b", "c"}) || all {
@@ -312,10 +314,17 @@ func TestProductFindingEvidenceRefsBounded(t *testing.T) {
 		t.Error("an over-cap evidence list must report truncated=true")
 	}
 	// Every scalar finding fact is preserved, and the finite severity enum carries
-	// through (including unknown, which the engine really emits).
-	if pf.Code != "DRIFT" || pf.Severity != ProductSeverityUnknown || pf.Category != "Inconclusive" ||
-		pf.Subject.Kind != "interface" || pf.Subject.Name != "http" || pf.ContractPath != "interfaces/http" || pf.Message != "unevaluable" {
-		t.Errorf("product finding scalar facts not preserved: %+v", pf)
+	// through (including unknown, which the engine really emits). Compare the whole
+	// finding with the evidence preview substituted out, so only scalars are tested.
+	got := pf
+	got.EvidenceRefs = ProductEvidenceRefsPreview{}
+	want := ProductFinding{
+		Code: "DRIFT", Severity: ProductSeverityUnknown, Category: "Inconclusive",
+		Subject:      ProductSubjectRef{Kind: "interface", Name: "http"},
+		ContractPath: "interfaces/http", Message: "unevaluable",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("product finding scalar facts not preserved:\n got %+v\nwant %+v", got, want)
 	}
 	// A finding with no evidence refs yields an empty, non-nil, non-truncated preview.
 	empty := productFinding(finding.Finding{Code: "X"}).EvidenceRefs

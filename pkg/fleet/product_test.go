@@ -133,6 +133,17 @@ func TestOverview_Counts(t *testing.T) {
 	}
 }
 
+// assertEvidenceNewestFirst fails if the evidence items are not in newest-first order.
+func assertEvidenceNewestFirst(t *testing.T, items []EvidenceItem) {
+	t.Helper()
+	for i := 1; i < len(items); i++ {
+		a, b := items[i-1].At, items[i].At
+		if a != nil && b != nil && a.Before(*b) {
+			t.Error("recent evidence not sorted newest-first")
+		}
+	}
+}
+
 func TestOverview_EntryPointsAndEvidence(t *testing.T) {
 	q := productFleet(t)
 	ov := q.Overview()
@@ -152,12 +163,7 @@ func TestOverview_EntryPointsAndEvidence(t *testing.T) {
 	if re.Total != 3 || re.Count != 3 || len(re.Items) != 3 || re.Truncated {
 		t.Fatalf("recent evidence preview = {total:%d count:%d items:%d trunc:%v}, want 3/3/3/false", re.Total, re.Count, len(re.Items), re.Truncated)
 	}
-	for i := 1; i < len(re.Items); i++ {
-		a, b := re.Items[i-1].At, re.Items[i].At
-		if a != nil && b != nil && a.Before(*b) {
-			t.Error("recent evidence not sorted newest-first")
-		}
-	}
+	assertEvidenceNewestFirst(t, re.Items)
 	if re.Items[0].Target.Key == "" {
 		t.Error("evidence target must carry a canonical key")
 	}

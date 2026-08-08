@@ -115,89 +115,109 @@ func productReadiness(r *readiness.Result) *ProductReadiness {
 	}
 }
 
-// runtimePreview flattens a target's observed-runtime map into a computationally
-// BOUNDED preview of scalar key/value facts (requirement, item 13). Nested maps
-// and slices are flattened with dotted / indexed keys; a composite at the depth
-// limit is summarized with a short "{map: N keys}" / "[array: N items]" marker
-// (never stringified whole, so no huge transient string is built to be truncated);
-// each key and value is length-capped; the walk stops after maxRuntimeScan
-// inspected facts; and map keys are selected through a bounded buffer
-// (keysBounded), so the flatten never allocates a slice proportional to a
-// pathologically wide map. The emitted list is capped at MaxDetailPreview, and the
-// exact total is reported only when the walk visited the whole structure.
-func runtimePreview(m map[string]any) RuntimePreview {
-	var items []RuntimeFact
-	scanned := 0
-	walkComplete := true // false once the scan budget or a per-level key cap is hit
-	emit := func(key, val string) {
-		scanned++
-		if len(items) < MaxDetailPreview {
-			items = append(items, RuntimeFact{Key: capLen(key, maxRuntimeKeyLen), Value: val})
-		}
-		// Exceeding MaxDetailPreview does not make the total unknown: this fact was
-		// still inspected and counted in `scanned`.
+// runtimeWalker flattens a target's observed-runtime map into a computationally
+// BOUNDED RuntimePreview (requirement, item 13). Nested maps and slices are
+// flattened with dotted / indexed keys; a composite at the depth limit is
+// summarized with a short "{map: N keys}" / "[array: N items]" marker (never
+// stringified whole); each key and value is length-capped; the walk stops after
+// maxRuntimeScan inspected facts; and map keys are selected through a bounded
+// buffer (keysBounded), so the flatten never allocates a slice proportional to a
+// pathologically wide map. `complete` stays true only if the walk visited the whole
+// structure, so the exact total is reported only when it is truthfully known.
+type runtimeWalker struct {
+	items    []RuntimeFact
+	scanned  int
+	complete bool
+}
+
+// emit records one flattened fact, length-capping its key. Exceeding
+// MaxDetailPreview does not make the total unknown: the fact was still inspected.
+func (w *runtimeWalker) emit(key, val string) {
+	w.scanned++
+	if len(w.items) < MaxDetailPreview {
+		w.items = append(w.items, RuntimeFact{Key: capLen(key, maxRuntimeKeyLen), Value: val})
 	}
-	// walk descends v; every recursive call is made from a loop that first checks
-	// the scan budget, so walk itself is only ever entered under budget.
-	var walk func(prefix string, v any, depth int)
-	walk = func(prefix string, v any, depth int) {
-		switch t := v.(type) {
-		case map[string]any:
-			if len(t) == 0 {
-				emit(prefix, "{}")
-				return
-			}
-			if depth >= maxRuntimeDepth {
-				emit(prefix, fmt.Sprintf("{map: %d keys}", len(t)))
-				return
-			}
-			keys, all := keysBounded(t, maxRuntimeScan-scanned)
-			if !all {
-				walkComplete = false
-			}
-			for _, k := range keys {
-				if scanned >= maxRuntimeScan {
-					walkComplete = false
-					break
-				}
-				walk(prefix+"."+k, t[k], depth+1)
-			}
-		case []any:
-			if len(t) == 0 {
-				emit(prefix, "[]")
-				return
-			}
-			if depth >= maxRuntimeDepth {
-				emit(prefix, fmt.Sprintf("[array: %d items]", len(t)))
-				return
-			}
-			for i, e := range t {
-				if scanned >= maxRuntimeScan {
-					walkComplete = false
-					break
-				}
-				walk(fmt.Sprintf("%s[%d]", prefix, i), e, depth+1)
-			}
-		default:
-			emit(prefix, capRuntimeValue(v))
-		}
+}
+
+// budgetExhausted reports (and records) whether the scan budget is spent.
+func (w *runtimeWalker) budgetExhausted() bool {
+	if w.scanned >= maxRuntimeScan {
+		w.complete = false
+		return true
 	}
-	keys, all := keysBounded(m, maxRuntimeScan)
+	return false
+}
+
+func (w *runtimeWalker) walk(prefix string, v any, depth int) {
+	switch t := v.(type) {
+	case map[string]any:
+		w.walkMap(prefix, t, depth)
+	case []any:
+		w.walkSlice(prefix, t, depth)
+	default:
+		w.emit(prefix, capRuntimeValue(v))
+	}
+}
+
+func (w *runtimeWalker) walkMap(prefix string, t map[string]any, depth int) {
+	if len(t) == 0 {
+		w.emit(prefix, "{}")
+		return
+	}
+	if depth >= maxRuntimeDepth {
+		w.emit(prefix, fmt.Sprintf("{map: %d keys}", len(t)))
+		return
+	}
+	keys, all := keysBounded(t, maxRuntimeScan-w.scanned)
 	if !all {
-		walkComplete = false
+		w.complete = false
 	}
 	for _, k := range keys {
-		if scanned >= maxRuntimeScan {
-			walkComplete = false
+		if w.budgetExhausted() {
+			return
+		}
+		w.walk(prefix+"."+k, t[k], depth+1)
+	}
+}
+
+func (w *runtimeWalker) walkSlice(prefix string, t []any, depth int) {
+	if len(t) == 0 {
+		w.emit(prefix, "[]")
+		return
+	}
+	if depth >= maxRuntimeDepth {
+		w.emit(prefix, fmt.Sprintf("[array: %d items]", len(t)))
+		return
+	}
+	for i, e := range t {
+		if w.budgetExhausted() {
+			return
+		}
+		w.walk(fmt.Sprintf("%s[%d]", prefix, i), e, depth+1)
+	}
+}
+
+// runtimePreview flattens m into a bounded, deterministic RuntimePreview. See
+// [runtimeWalker]. The emitted list is capped at MaxDetailPreview, and Total is set
+// only when the whole structure was visited within bounds.
+func runtimePreview(m map[string]any) RuntimePreview {
+	// The top level is driven directly (not via walkMap) so root keys are not
+	// prefixed with a leading ".".
+	w := &runtimeWalker{complete: true}
+	keys, all := keysBounded(m, maxRuntimeScan)
+	if !all {
+		w.complete = false
+	}
+	for _, k := range keys {
+		if w.budgetExhausted() {
 			break
 		}
-		walk(k, m[k], 1)
+		w.walk(k, m[k], 1)
 	}
-	rp := RuntimePreview{Count: len(items), Scanned: scanned, Items: append([]RuntimeFact{}, items...)}
-	rp.Truncated = len(items) < scanned || !walkComplete
-	if walkComplete {
-		// The walk visited every fact, so `scanned` is the exact total.
-		total := scanned
+	rp := RuntimePreview{Count: len(w.items), Scanned: w.scanned, Items: append([]RuntimeFact{}, w.items...)}
+	rp.Truncated = len(w.items) < w.scanned || !w.complete
+	if w.complete {
+		total := w.scanned
 		rp.Total = &total
 	}
 	return rp
