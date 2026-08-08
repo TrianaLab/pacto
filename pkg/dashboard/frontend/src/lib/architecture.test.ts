@@ -55,27 +55,55 @@ describe('frontend backend-access architecture', () => {
     expect(files.length).toBeGreaterThan(20);
   });
 
-  it('performs a raw backend fetch only in the transport seam', () => {
-    // Catch the bare `fetch(` spelling AND the global-object method-call forms
-    // (`window.fetch(`, `globalThis.fetch(`, `self.fetch(`), so a view cannot reach
-    // the backend directly by qualifying the global fetch.
-    const rawFetch = /(?<![.\w])fetch\s*\(|\b(?:globalThis|window|self)\.fetch\s*\(/;
+  // RAW_NETWORK flags common raw network-capability usage: bare `fetch(`, the global
+  // fetch qualified or optional-chained (`window.fetch(`, `globalThis.fetch(`,
+  // `self.fetch(`, `window?.fetch(`), and the other raw-HTTP capabilities
+  // (`new XMLHttpRequest`/`EventSource`/`WebSocket`, `.sendBeacon(`). It is a
+  // best-effort defense-in-depth text scan: a dynamic alias (`const f = fetch`) or a
+  // bracket-access spelling (`globalThis['fetch']`) can still evade a text scan, so a
+  // lint-level no-restricted rule is the durable enforcement (a noted follow-up). It
+  // deliberately does NOT match the word "fetch" in prose or a `fetch:` property.
+  const RAW_NETWORK =
+    /(?<![.\w])fetch\s*\(|\b(?:globalThis|window|self)\s*\??\.\s*fetch\s*\(|new\s+(?:XMLHttpRequest|EventSource|WebSocket)\b|\.sendBeacon\s*\(/;
+  // BACKEND_PATH flags a hand-built backend route literal. `/health` and `/metrics`
+  // are anchored to a full path segment (a trailing char that is neither a word char
+  // nor a hyphen) so a client route or asset like `/metrics-overview`, `/health-report`
+  // or `/metricsIcon` is NOT a false positive in a fleet health/metrics dashboard.
+  const BACKEND_PATH = /['"`]\/(?:api\/|(?:health|metrics)(?![\w-]))/;
+
+  it('performs raw backend network access only in the transport seam', () => {
     const offenders = files
       .filter((f) => !FETCH_ALLOW.includes(f.rel))
-      .filter((f) => rawFetch.test(f.body))
+      .filter((f) => RAW_NETWORK.test(f.body))
       .map((f) => f.rel);
-    expect(offenders, `raw fetch() outside the transport seam: ${offenders.join(', ')}`).toEqual([]);
+    expect(offenders, `raw network access outside the transport seam: ${offenders.join(', ')}`).toEqual([]);
   });
 
   it('references a backend path only in the facade and transport', () => {
-    // Any backend route literal - /api/*, plus the non-/api Huma routes /health and
-    // /metrics the facade calls - must not be hand-built outside the facade/transport.
-    const backendPath = /['"`]\/(?:api\/|health\b|metrics\b)/;
     const offenders = files
       .filter((f) => !API_PATH_ALLOW.includes(f.rel))
-      .filter((f) => backendPath.test(f.body))
+      .filter((f) => BACKEND_PATH.test(f.body))
       .map((f) => f.rel);
     expect(offenders, `hand-built backend URL outside the generated-SDK facade: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('the guard patterns catch common raw-access spellings without lookalike false positives', () => {
+    // Self-test the regexes so a future weakening (or an over-broad tweak) is caught.
+    for (const bad of [
+      'fetch("/x")', 'window.fetch(u)', 'globalThis.fetch(u)', 'self.fetch(u)',
+      'window?.fetch(u)', 'new XMLHttpRequest()', 'new WebSocket(u)', 'new EventSource(u)', 'navigator.sendBeacon(u)',
+    ]) {
+      expect(RAW_NETWORK.test(bad), `RAW_NETWORK should flag: ${bad}`).toBe(true);
+    }
+    for (const ok of ['// a failed fetch never', 'fetch: fetchAll', 'const refetch = () => {}', 'obj.prefetch(x)']) {
+      expect(RAW_NETWORK.test(ok), `RAW_NETWORK must not flag: ${ok}`).toBe(false);
+    }
+    for (const bad of ["'/api/services'", "'/health'", "`/metrics`", "'/health/x'"]) {
+      expect(BACKEND_PATH.test(bad), `BACKEND_PATH should flag: ${bad}`).toBe(true);
+    }
+    for (const ok of ["'/metrics-overview'", "'/health-report'", "'/metricsIcon.svg'", "'/apiary'"]) {
+      expect(BACKEND_PATH.test(ok), `BACKEND_PATH must not flag lookalike: ${ok}`).toBe(false);
+    }
   });
 
   it('matches static fixtures by request semantics, not by raw pathname', () => {

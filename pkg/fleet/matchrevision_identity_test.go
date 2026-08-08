@@ -101,6 +101,27 @@ func TestMatchRevision_ContradictingEmbeddedDigest_Inconsistent(t *testing.T) {
 	}
 }
 
+// A non-oci ref with more than one '@' is malformed and must never link exact,
+// mirroring the oci:// classifier's extra-'@' rejection. Two variants a second review
+// found: "reg/svc@<contradicting>@<recorded>" (last-'@' segment matches the recorded
+// digest) and "reg/svc@<contradicting>@latest" (last-'@' segment is not a digest, so
+// a naive guard falls through to the recorded digest). Both must be inconsistent, and
+// the oci:// spelling of the same ref is already IdentityMalformed -> inconsistent.
+func TestMatchRevision_MultiAtRef_Inconsistent(t *testing.T) {
+	dA := digestFill("a")
+	dB := digestFill("b")
+	for _, ref := range []string{"reg/svc@" + dB + "@" + dA, "reg/svc@" + dB + "@latest", "oci://reg/svc@" + dB + "@" + dA} {
+		snap, svc, _, _ := identitySnap()
+		key, kind := matchRevision(snap, &TargetRecord{ServiceKey: svc, Digest: dA, ResolvedRef: ref})
+		if kind == revisionMatchExact {
+			t.Errorf("multi-@ ref %q got exact link %q; a malformed multi-@ identity must never be exact", ref, key)
+		}
+		if kind != revisionMatchInconsistent {
+			t.Errorf("multi-@ ref %q: got %q, want inconsistent", ref, kind)
+		}
+	}
+}
+
 // linkTargets surfaces a limitation and makes no exact link for a target whose ref
 // embeds a digest contradicting its recorded digest, so the target self-describes the
 // internal inconsistency instead of presenting a false exact link.

@@ -921,6 +921,14 @@ func effectiveContentDigest(id ExactIdentity, t *TargetRecord) (digest string, i
 	if id.Exact() {
 		return id.Digest.String(), false
 	}
+	// A non-oci ref with MORE than one '@' is a malformed identity, exactly as
+	// classifyOCIRef rejects extra '@' separators for oci:// refs. Reject it rather
+	// than take the last '@' segment or silently fall through to the recorded digest,
+	// which would let "reg/svc@<contradicting>@<recorded>" or "reg/svc@<other>@latest"
+	// slip past the digest-mismatch guard the oci:// path enforces.
+	if strings.Count(t.ResolvedRef, "@") > 1 {
+		return "", true
+	}
 	embedded := embeddedDigest(t.ResolvedRef)
 	switch {
 	case embedded != "" && t.Digest != "" && embedded != t.Digest:
@@ -932,9 +940,11 @@ func effectiveContentDigest(id ExactIdentity, t *TargetRecord) (digest string, i
 	}
 }
 
-// embeddedDigest returns a syntactically valid content digest embedded after the last
-// '@' in a reference (regardless of scheme), or "" if there is none or it is not a
-// valid digest. Only a valid digest can identify content or contradict a recorded one.
+// embeddedDigest returns a syntactically valid content digest embedded after the
+// single '@' in a reference (regardless of scheme), or "" if there is none or it is
+// not a valid digest. Callers reject a ref with more than one '@' before calling this,
+// so the last-'@' split is unambiguous. Only a valid digest can identify content or
+// contradict a recorded one.
 func embeddedDigest(ref string) string {
 	i := strings.LastIndex(ref, "@")
 	if i < 0 {
