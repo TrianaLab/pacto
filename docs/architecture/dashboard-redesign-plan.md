@@ -145,6 +145,29 @@ as follows:
   the U+00A7 commit-history CI enforcement stays BLOCKED (section 8 item 9). The PR
   stays draft; PR-body finalization is phase 14.
 
+The Phase-3 closure + Phase-4 session (this ledger's current session) ran as follows:
+
+- Starting HEAD: `6f7cb1a3` (the reviewed HEAD of PR #291).
+- Synchronized base: `eb1482ff` (current `main` tip). `main` had NOT moved from that
+  base (it equals the merge-base and is an ancestor of HEAD), so no re-sync was
+  needed. Integration remains merge (branch content preserved).
+- An independent review of `6f7cb1a3` found five concrete correctness gaps that
+  showed Phase 3 was not truthfully closed: (A) the Impact workspace still loaded the
+  raw `FleetSnapshot` and called the legacy `GET /api/fleet/impact` instead of the
+  product `fleetImpactByIdentity` POST, and Compare launched Impact from a service
+  NAME rather than a canonical `ServiceKey`; (B) `PreviewSection` collapsed an
+  UNKNOWN exact total into `total ?? count`/`total ?? scanned`, rendering "X of X"
+  for a truncated preview whose true total is unknown; (C) `siblingRevisions` ordered
+  Previous/Next by lexical `RevisionKey` (digest order), not revision chronology; (D)
+  `snapshotKnowledge` did not model the backend `empty` completeness and
+  filtered-empty suppressed the incompleteness caveat; (E) the four product-list
+  views issued duplicate initial loads and had no stale-response protection. Phase 3
+  was REOPENED to IN PROGRESS while these were closed with adversarial tests, then
+  re-marked COMPLETE only after those tests passed. No Git history was rewritten; the
+  U+00A7 commit-history CI enforcement stays BLOCKED (section 8 item 9). The PR stays
+  draft; PR-body finalization is phase 14. The session then continued DIRECTLY into
+  Phase 4 (search-first Operational Graph) in the same pass.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
@@ -616,12 +639,83 @@ The only remaining deferred item is the U+00A7 commit-history + PR-metadata CI
 enforcement (section 8 item 9), still BLOCKED on explicit history-rewrite
 authorization; it was not performed this pass.
 
-### Phase boundary: Phase 2 DONE, Phase 3 CURRENT
+### Phase boundary: Phase 2 DONE, Phase 3 COMPLETE, Phase 4 STARTED
 
 Phase 2 (frontend IA and routing -- the product-IA foundation) is DONE. Phase 3
-(product lists, rich per-kind entity pages and the complete attention workflow) is
-CURRENT. Phase 4 (the search-first Operational Graph redesign) is not started this
-session. This heading supersedes the earlier "Phase 2 IN PROGRESS" wording.
+(product lists, rich per-kind entity pages and the complete attention workflow) is now
+COMPLETE: it was reopened after an independent review of `6f7cb1a3` found five concrete
+correctness gaps (A-E) plus smaller contract inconsistencies (F), which are all closed
+with adversarial tests (see "Phase-3 closure" below). Phase 4 (the search-first
+Operational Graph redesign) is STARTED in this same session and continues directly
+after the Phase-3 closures. This heading supersedes the earlier "Phase 2 IN PROGRESS"
+and "Phase 3 CURRENT" wording.
+
+### Phase-3 closure (this session)
+
+An independent review of `6f7cb1a3` found five correctness gaps and several smaller
+inconsistencies. Each was closed with tests that fail before the fix and pass after;
+`pkg/fleet`, `pkg/semver` and `pkg/dashboard` hold 100% coverage, svelte-check is
+error-clean and the full Vitest suite passes.
+
+- A (Product Impact workspace + Compare identity). The Impact workspace no longer
+  loads the raw `FleetSnapshot` and no longer calls the legacy `GET /api/fleet/impact`.
+  It is product-oriented end to end: canonical `ServiceKey` -> bounded product
+  service/revision data (the service `EntityDetail` revisions preview, and when that
+  preview truncates, the bounded/pageable `GET /api/fleet/entities?kinds=revision&
+  service=<key>` scope -- never the snapshot) -> canonical `RevisionKeys` ->
+  `api.fleetImpactByIdentity(POST)` -> `ProductImpact`. Snapshot-mismatch stays honest
+  (a 409 shows a "refresh and retry" affordance); consumers page through the product
+  page metadata. A new `EntityFilter.Service` scope (OpenAPI + regenerated SDK) is the
+  pageable revision mechanism. Compare's "Analyze impact" CTA no longer passes a
+  display NAME as if it were a `ServiceKey`: it resolves the name through the product
+  Entities API and offers a canonical `/fleet/impact/:serviceKey` route only for a
+  unique match, requires explicit disambiguation for same-named services across
+  domains, and never fabricates a route when nothing matches (and offers nothing on a
+  non-fleet host). The earlier claim that "Compare now launches the contextual Product
+  Impact workspace" was OVERSTATED before this correction and is retracted.
+- B (bounded-preview unknown totals). `PreviewSection` now distinguishes an EXACT
+  KNOWN total from an UNKNOWN one and never synthesizes a total from count, scanned,
+  page size or neighborhood bounds. A truncated service-relationships preview whose
+  total is absent no longer renders "X of X" (it says "Showing N. More exist; total
+  unknown"); a `RuntimePreview` with an absent total and a present `scanned` never
+  presents `scanned` as the total. Every caller was audited; the three synthesizing
+  callers (service relationships, revision dependencies, target observed runtime) now
+  pass the raw backend total.
+- C (canonical revision Previous/Next). `siblingRevisions` no longer orders by
+  lexical `RevisionKey` (content-digest order). It orders by semver chronology (via
+  the reused `pkg/semver` primitive, extended with an ascending `Compare`), with
+  non-semver/missing versions sorted deterministically after semver and the immutable
+  content digest used ONLY as a tie-breaker -- so 1.9.0 < 1.10.0 < 2.0.0, prereleases
+  order correctly, and changing a content digest never reorders distinct versions.
+- D (empty + filtered-incomplete knowledge). `snapshotKnowledge` models the backend
+  `empty` completeness as its own level that is NOT incomplete (a fully-understood
+  empty fleet is not "knowledge unavailable"), and `filtered-empty` now carries the
+  snapshot knowledge so Services / Attention / Owners / Sources still surface the
+  incompleteness caveat while showing "no matching records". The Overview no longer
+  says "some sources are degraded" merely because completeness is `empty`.
+- E (product-list request races). The four product-list views (Services, Attention,
+  Owners, Sources) share one reusable `createProductLoader`: a single logical initial
+  request (no `onMount` + reactive-effect double fire) and a monotonic generation
+  token so an older in-flight response can never overwrite a newer route/filter/refresh
+  and destroy invalidates any pending response. Deterministic race tests prove each
+  guarantee.
+- F1 (services route params). The inert `scope`/`source` params (scope is
+  target-only in the Entities API; source was never wired into the Services list) are
+  removed from the product Services route state and its URL builder.
+- F2 (rich revision payload). The revision page renders the already-available bounded
+  ownership, readiness checks, tools, skills and docs as honest previews instead of
+  bare count badges.
+- F3 (owner canonical identity). The owner attention filter/action is built from the
+  canonical owner key, not the display label.
+
+Phase-3 acceptance is recorded honestly (requirement G): the component/deterministic
+acceptance (Vitest + svelte-check) is COMPLETE; the richer multi-entity WASM/browser
+acceptance (same-named services across domains, ambiguous targets, multi-page
+pagination, the full Product Impact vertical in a real browser) is DEFERRED to Phase 6
+(WASM browser acceptance). This is not a Phase-4 blocker. The current GitHub Code
+Quality review threads are against generated/minified Mermaid vendor assets under
+`pkg/dashboard/ui/assets/` and are NOT source-level Phase-3 blockers; they are recorded
+for final review-thread cleanup and generated vendor assets are never hand-edited.
 
 Phase 2 -- DONE:
 
@@ -697,11 +791,14 @@ generated SDK facade (never the FleetSnapshot):
   FindingList, LimitationsList, EvidenceList, RelationshipList. DONE.
 - Phase-2 residual counterexamples A1-A6 closed as a preflight. DONE.
 - Readiness/Compare migration (J): both stay specialized and keep their existing
-  implementations, participate in the primary nav, and Compare now launches the
-  contextual Product Impact workspace for the service under comparison. Deeper
-  EntityLink migration of the legacy Readiness/Compare rows to fleet keys is left
-  for a follow-up (the legacy service-name identity does not map 1:1 to a
-  domain-qualified fleet ServiceKey).
+  implementations and participate in the primary nav. Compare's "Analyze impact" CTA
+  resolves the service NAME through the product Entities API to a canonical
+  `ServiceKey` before offering the Product Impact route (unique match -> canonical
+  route; same-named services across domains -> explicit disambiguation; no match ->
+  no route), corrected in the Phase-3 closure above. Deeper EntityLink migration of
+  the legacy Readiness rows to fleet keys is left as a NON-BLOCKING compatibility
+  follow-up (it still needs a legacy-name-to-ServiceKey bridge, the same
+  name-is-not-a-key problem the Compare CTA now resolves at the point of use).
 - Browser acceptance (L): `e2e/fleet-phase3.spec.ts` covers the product-page journey
   in a real browser (Navbar Services + canonical href, service filter reload/back,
   service->revision/deployment/owner, revision->service, target dual-identity honesty,
@@ -710,9 +807,12 @@ generated SDK facade (never the FleetSnapshot):
   across domains, an ambiguous target, an empty fleet, multi-page pagination, the
   search stale-request race) are covered deterministically by the Vitest suite.
 
-Remaining Phase-3 follow-ups (not blocking Phase 4): legacy Readiness/Compare row
-navigation via fleet EntityLink; per-kind graph projections for revision/deployment
-graph views (recorded in the boundedness audit) before Phase 4 builds those views.
+Remaining Phase-3 follow-up (not blocking Phase 4): legacy Readiness row navigation
+via fleet EntityLink (a non-blocking compatibility follow-up that still needs a
+legacy-name-to-ServiceKey bridge). The per-kind graph projections for
+revision/deployment graph views are NO LONGER a Phase-3 follow-up: they are a Phase-4
+PREREQUISITE (they must exist in the backend before Phase 4 exposes revision or
+deployment graph perspectives), tracked in the Phase-4 plan below.
 
 ### Product response boundedness audit (requirement, item 4)
 
