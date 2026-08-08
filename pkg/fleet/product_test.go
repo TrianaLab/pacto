@@ -146,22 +146,24 @@ func TestOverview_EntryPointsAndEvidence(t *testing.T) {
 			t.Errorf("entry point %q: view=%q count=%d", ep.Label, ep.View, ep.Count)
 		}
 	}
-	// Recent evidence is newest-first and bounded; each item is navigable.
-	if len(ov.RecentEvidence) != 3 {
-		t.Fatalf("recent evidence = %d, want 3", len(ov.RecentEvidence))
+	// Recent evidence is an explicit preview: newest-first, bounded, each item
+	// navigable, with a true total and count.
+	re := ov.RecentEvidence
+	if re.Total != 3 || re.Count != 3 || len(re.Items) != 3 || re.Truncated {
+		t.Fatalf("recent evidence preview = {total:%d count:%d items:%d trunc:%v}, want 3/3/3/false", re.Total, re.Count, len(re.Items), re.Truncated)
 	}
-	for i := 1; i < len(ov.RecentEvidence); i++ {
-		a, b := ov.RecentEvidence[i-1].At, ov.RecentEvidence[i].At
+	for i := 1; i < len(re.Items); i++ {
+		a, b := re.Items[i-1].At, re.Items[i].At
 		if a != nil && b != nil && a.Before(*b) {
 			t.Error("recent evidence not sorted newest-first")
 		}
 	}
-	if ov.RecentEvidence[0].Target.Key == "" {
+	if re.Items[0].Target.Key == "" {
 		t.Error("evidence target must carry a canonical key")
 	}
-	// Attention on the overview is bounded to the top items.
-	if len(ov.Attention) > overviewAttentionLimit {
-		t.Errorf("overview attention not bounded: %d", len(ov.Attention))
+	// Attention on the overview is an explicit preview bounded to the top items.
+	if ov.Attention.Count > overviewAttentionLimit || len(ov.Attention.Items) > overviewAttentionLimit {
+		t.Errorf("overview attention not bounded: %d", ov.Attention.Count)
 	}
 }
 
@@ -273,8 +275,12 @@ func TestOverview_EvidenceTruncation(t *testing.T) {
 	if ov.Summary.RecentEvidence != 12 {
 		t.Errorf("recent-evidence count = %d, want 12 (count is not truncated)", ov.Summary.RecentEvidence)
 	}
-	if len(ov.RecentEvidence) != overviewEvidenceLimit {
-		t.Errorf("recent-evidence list = %d, want %d (list is bounded)", len(ov.RecentEvidence), overviewEvidenceLimit)
+	// The recent-evidence preview reports the TRUE total (12) while carrying only the
+	// bounded top items and reporting truncation, so a consumer can tell 10-of-12
+	// from 10-of-10 (requirement, item 12).
+	re := ov.RecentEvidence
+	if re.Total != 12 || re.Count != overviewEvidenceLimit || len(re.Items) != overviewEvidenceLimit || !re.Truncated {
+		t.Errorf("recent-evidence preview = {total:%d count:%d items:%d trunc:%v}, want total=12 count=%d truncated", re.Total, re.Count, len(re.Items), re.Truncated, overviewEvidenceLimit)
 	}
 }
 

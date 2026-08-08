@@ -60,14 +60,14 @@ func TestOverview_Immutable(t *testing.T) {
 
 	mutateSources(r1.Meta.Sources)
 	mutateLimitations(r1.Meta.Limitations)
-	for i := range r1.Attention {
-		mutateEntityRef(&r1.Attention[i].Entity)
-		r1.Attention[i].Label = "hacked"
+	for i := range r1.Attention.Items {
+		mutateEntityRef(&r1.Attention.Items[i].Entity)
+		r1.Attention.Items[i].Label = "hacked"
 	}
-	for i := range r1.RecentEvidence {
-		mutateEntityRef(&r1.RecentEvidence[i].Target)
-		if r1.RecentEvidence[i].At != nil {
-			*r1.RecentEvidence[i].At = time.Unix(0, 0)
+	for i := range r1.RecentEvidence.Items {
+		mutateEntityRef(&r1.RecentEvidence.Items[i].Target)
+		if r1.RecentEvidence.Items[i].At != nil {
+			*r1.RecentEvidence.Items[i].At = time.Unix(0, 0)
 		}
 	}
 	for i := range r1.EntryPoints {

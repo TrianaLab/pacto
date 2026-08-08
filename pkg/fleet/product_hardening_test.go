@@ -166,7 +166,10 @@ func TestPreviews_BoundAboveEveryMaximum(t *testing.T) {
 	ep := evidencePreview(evs)
 	checkDetail("evidencePreview", ep.Total, ep.Count, ep.Truncated)
 	rlp := relationshipsPreview(edges)
-	checkDetail("relationshipsPreview", rlp.Total, rlp.Count, rlp.Truncated)
+	if rlp.Total == nil {
+		t.Fatal("relationshipsPreview from a full slice must report a known total")
+	}
+	checkDetail("relationshipsPreview", *rlp.Total, rlp.Count, rlp.Truncated)
 	tp := toolsPreview(tools)
 	checkDetail("toolsPreview", tp.Total, tp.Count, tp.Truncated)
 	dp := docsPreview(docs)

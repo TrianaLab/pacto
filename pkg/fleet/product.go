@@ -214,25 +214,26 @@ type EvidenceItem struct {
 // incomplete", "what evidence arrived recently" and "where to go next". Source
 // health is carried once, bounded, in Meta.Sources (with Meta.SourcesTruncated);
 // there is no separate unbounded source list, so no product answer ever copies
-// every source without a hard bound.
+// every source without a hard bound. Attention and RecentEvidence are explicit
+// bounded previews carrying the TRUE total, count and truncation, so a consumer can
+// tell "10 of 10" from "10 of 500" (requirement, item 12); neither is a raw bounded
+// array that silently discards its total.
 type Overview struct {
-	Meta           ProductMeta     `json:"meta"`
-	Summary        OverviewSummary `json:"summary"`
-	Attention      []AttentionItem `json:"attention"`
-	RecentEvidence []EvidenceItem  `json:"recentEvidence"`
-	EntryPoints    []EntryPoint    `json:"entryPoints"`
+	Meta           ProductMeta      `json:"meta"`
+	Summary        OverviewSummary  `json:"summary"`
+	Attention      AttentionPreview `json:"attention"`
+	RecentEvidence EvidencePreview  `json:"recentEvidence"`
+	EntryPoints    []EntryPoint     `json:"entryPoints"`
 }
 
 // Overview computes the product landing summary in a single pass over the
 // immutable snapshot.
 func (q *Query) Overview() *Overview {
-	ov := &Overview{
-		Meta:      q.productMeta(),
-		Attention: []AttentionItem{}, RecentEvidence: []EvidenceItem{}, EntryPoints: []EntryPoint{},
-	}
+	ov := &Overview{Meta: q.productMeta(), EntryPoints: []EntryPoint{}}
 	sum := &ov.Summary
 	sum.Services = len(q.snap.Services)
 
+	var recent []EvidenceItem
 	for _, r := range q.snap.Revisions {
 		if r.validated && !r.Valid {
 			sum.InvalidRevisions++
@@ -242,20 +243,22 @@ func (q *Query) Overview() *Overview {
 		q.tallyTargetLink(sum, t)
 		if ei, ok := q.recentEvidence(t); ok {
 			sum.RecentEvidence++
-			ov.RecentEvidence = append(ov.RecentEvidence, ei)
+			recent = append(recent, ei)
 		}
 	}
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
 
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
-	// A constant, valid filter never errors; ignore it deliberately.
+	// A constant, valid filter never errors; ignore it deliberately. The attention
+	// preview carries the TRUE matched total (al.Total), not the 10-item page size.
 	al, _ := q.Attention(AttentionFilter{Limit: overviewAttentionLimit})
-	ov.Attention = al.Items
-	sortEvidenceDesc(ov.RecentEvidence)
-	if len(ov.RecentEvidence) > overviewEvidenceLimit {
-		ov.RecentEvidence = ov.RecentEvidence[:overviewEvidenceLimit]
-	}
+	ov.Attention = attentionPreviewFromList(al)
+	// The recent-evidence preview carries the TRUE recent count (== sum.RecentEvidence),
+	// not merely the first overviewEvidenceLimit sliced off it.
+	sortEvidenceDesc(recent)
+	it, total, trunc := boundSlice(recent, overviewEvidenceLimit)
+	ov.RecentEvidence = EvidencePreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 	ov.EntryPoints = entryPoints(sum)
 	return ov
 }

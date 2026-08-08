@@ -214,17 +214,45 @@ func evidencePreview(es []EvidenceItem) EvidencePreview {
 	return EvidencePreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
-// RelationshipsPreview is a bounded preview of neighborhood edges.
+// RelationshipsPreview is a bounded preview of neighborhood edges. Total is the
+// EXACT full relationship count and is present ONLY when it is truthfully known:
+// when the preview is built from a complete edge slice, or from a neighborhood
+// that did NOT truncate. When it is built from an ALREADY-truncated neighborhood
+// the true total was bounded (nodes and edges) before it could be counted, so
+// Total is omitted rather than reported as the pre-truncation scanned count
+// (requirement, item 11). Count is always the number of edges carried; Truncated
+// reports that more relationships exist than are carried.
 type RelationshipsPreview struct {
-	Total     int                `json:"total"`
+	Total     *int               `json:"total,omitempty"`
 	Count     int                `json:"count"`
 	Truncated bool               `json:"truncated"`
 	Items     []NeighborhoodEdge `json:"items"`
 }
 
+// relationshipsPreview builds a preview from a COMPLETE edge slice, so the total is
+// always truthfully known (the full pre-cap count).
 func relationshipsPreview(es []NeighborhoodEdge) RelationshipsPreview {
 	it, total, trunc := boundSlice(es, MaxDetailPreview)
-	return RelationshipsPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+	t := total
+	return RelationshipsPreview{Total: &t, Count: len(it), Truncated: trunc, Items: it}
+}
+
+// relationshipsPreviewFromNeighborhood builds the service-relationships preview
+// from an ALREADY-bounded neighborhood. If the neighborhood did not truncate, its
+// edges are the complete set and the total is known; if it truncated, the true
+// total was bounded before it could be counted, so the total is left UNKNOWN (nil)
+// and the preview is reported truncated. It never claims the pre-truncation edge
+// count as the total.
+func relationshipsPreviewFromNeighborhood(nb *Neighborhood) RelationshipsPreview {
+	it, total, capTrunc := boundSlice(nb.Edges, MaxDetailPreview)
+	rp := RelationshipsPreview{Count: len(it), Truncated: capTrunc || nb.Truncated, Items: it}
+	if !nb.Truncated {
+		// The neighborhood carried every edge, so `total` is the exact relationship
+		// count (possibly further capped into Items, but the total is still known).
+		t := total
+		rp.Total = &t
+	}
+	return rp
 }
 
 // ToolsPreview is a bounded preview of tool summaries.

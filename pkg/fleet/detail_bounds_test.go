@@ -389,7 +389,42 @@ func TestServiceDetailRelationshipsTruncationHonest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !d.Service.Relationships.Truncated {
+	rel := d.Service.Relationships
+	if !rel.Truncated {
 		t.Error("a service whose neighborhood truncated must report relationships.Truncated=true")
+	}
+	// The double-truncation regression: the preview must NOT claim a Total that is
+	// only the count scanned before the neighborhood truncated. Since the true total
+	// was bounded before it could be counted, Total must be UNKNOWN (nil), never
+	// Total == Count with Truncated == true.
+	if rel.Total != nil {
+		t.Errorf("a truncated neighborhood must report an UNKNOWN relationship total, got %d (count=%d) - the scanned-before-truncation count is not the total", *rel.Total, rel.Count)
+	}
+}
+
+// A service whose neighborhood is NOT truncated must report a KNOWN relationship
+// total equal to the edges carried, proving the honest-total path (not only the
+// unknown-total path) is exercised.
+func TestServiceDetailRelationshipsKnownTotal(t *testing.T) {
+	var revs []RawRevision
+	dep := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "dep", Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}
+	revs = append(revs, RawRevision{Bundle: &contract.Bundle{Contract: dep, FS: fstest.MapFS{}}, Digest: "sha256:dep"})
+	hub := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "hub", Version: "1.0.0", Owner: contract.Owner{Team: "t"}},
+		Dependencies: []contract.Dependency{{Name: "dep", Ref: "oci://x/dep", Required: true, Compatibility: "^1.0.0"}}}
+	revs = append(revs, RawRevision{Bundle: &contract.Bundle{Contract: hub, FS: fstest.MapFS{}}, Digest: "sha256:hub"})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: revs}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := NewQuery(snap).EntityDetail(KindService, string(NewServiceKey("hub")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := d.Service.Relationships
+	if rel.Truncated {
+		t.Fatal("a small neighborhood must not truncate")
+	}
+	if rel.Total == nil || *rel.Total != rel.Count {
+		t.Errorf("an untruncated neighborhood must report a known total == count, got total=%v count=%d", rel.Total, rel.Count)
 	}
 }

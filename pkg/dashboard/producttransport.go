@@ -189,24 +189,19 @@ type ProductEntryPoint struct {
 	Href string `json:"href"`
 }
 
-// ProductOverview is the navigable overview answer.
+// ProductOverview is the navigable overview answer. Attention and RecentEvidence
+// are explicit bounded previews (true total / count / truncated), not raw arrays.
 type ProductOverview struct {
 	fleet.Overview
-	Attention      []ProductAttentionItem `json:"attention"`
-	RecentEvidence []ProductEvidenceItem  `json:"recentEvidence"`
-	EntryPoints    []ProductEntryPoint    `json:"entryPoints"`
+	Attention      ProductAttentionPreview `json:"attention"`
+	RecentEvidence ProductEvidencePreview  `json:"recentEvidence"`
+	EntryPoints    []ProductEntryPoint     `json:"entryPoints"`
 }
 
 func toProductOverview(ov *fleet.Overview) *ProductOverview {
 	out := &ProductOverview{Overview: *ov}
-	out.Attention = make([]ProductAttentionItem, len(ov.Attention))
-	for i, it := range ov.Attention {
-		out.Attention[i] = productAttentionItem(it)
-	}
-	out.RecentEvidence = make([]ProductEvidenceItem, len(ov.RecentEvidence))
-	for i, e := range ov.RecentEvidence {
-		out.RecentEvidence[i] = ProductEvidenceItem{EvidenceItem: e, Target: productRef(e.Target)}
-	}
+	out.Attention = productAttentionPreview(ov.Attention)
+	out.RecentEvidence = productEvidencePreview(ov.RecentEvidence)
 	out.EntryPoints = make([]ProductEntryPoint, len(ov.EntryPoints))
 	for i, ep := range ov.EntryPoints {
 		out.EntryPoints[i] = ProductEntryPoint{EntryPoint: ep, Href: hrefForEntryPoint(ep.View, ep.Category)}

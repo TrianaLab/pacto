@@ -420,14 +420,10 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Limitations:  attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
 	}
 	if nb, e := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()}); e == nil {
-		// The neighborhood is ALREADY bounded (its edges are capped at DefaultMaxEdges,
-		// below MaxDetailPreview). Carry its truncation into the relationships preview
-		// so a service with a truncated neighborhood is not falsely reported complete.
-		rel := relationshipsPreview(nb.Edges)
-		if nb.Truncated {
-			rel.Truncated = true
-		}
-		data.Relationships = rel
+		// The neighborhood is ALREADY bounded (nodes and edges). Build the relationships
+		// preview from it so a truncated neighborhood reports Truncated=true AND an
+		// UNKNOWN total (never the pre-truncation scanned edge count as the total).
+		data.Relationships = relationshipsPreviewFromNeighborhood(nb)
 	}
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: serviceEntityRef(s), Status: s.Status,
