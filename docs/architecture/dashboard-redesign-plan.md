@@ -488,10 +488,12 @@ all pass.
    classifier: the classifier's canonical digest for an `oci://` digest-pinned ref, or
    a digest embedded in a non-`oci://` ref cross-checked against the recorded digest,
    or the recorded digest. A ref that embeds a digest CONTRADICTING the recorded one
-   is internally inconsistent and never links exact — this also closes the scheme-less
-   bypass an independent review found (a `reg/svc@<other>` ref, classed `local`, whose
+   is internally inconsistent and never links exact — this closes the scheme-less
+   bypass two independent reviews found (a `reg/svc@<other>` ref, classed `local`, whose
    embedded digest the `oci://` classifier never parses, must still face the same
-   digest-mismatch guard). Real evidence sources are preserved: the k8s operator emits
+   digest-mismatch guard), including a multi-`@` ref (`reg/svc@<other>@<recorded>` or
+   `reg/svc@<other>@latest`), rejected as malformed exactly as `classifyOCIRef` rejects
+   extra `@` separators for `oci://` refs. Real evidence sources are preserved: the k8s operator emits
    a scheme-less `registry/repo:tag@sha256:...` ref (the `oci://` scheme stripped), so
    its embedded digest matches the recorded digest and the target links exact.
    `pkg/fleet/matchrevision_identity_test.go` proves the identity cases
@@ -530,10 +532,14 @@ all pass.
    request-type derivation, that no method returns `unknown`, and that entity detail
    is narrowed; `api.test.ts` proves the runtime narrowing and the request-semantic
    transport (method/query/body sensitivity, honest failure, offline route set); and
-   `architecture.test.ts` guards that raw backend access (bare `fetch(` AND the
-   `window`/`globalThis`/`self.fetch(` method-call forms) and hand-built backend paths
-   (`/api/*`, `/health`, `/metrics`) appear only in the transport/facade, that static
-   fixtures are request-semantic, and that no hand-written wire DTO mirror returned.
+   `architecture.test.ts` guards that raw network access (bare/qualified/optional-
+   chained `fetch`, plus `new XMLHttpRequest`/`EventSource`/`WebSocket` and
+   `.sendBeacon`) and hand-built backend paths (`/api/*`, `/health`, `/metrics`,
+   segment-anchored so `/metrics-overview` is not a false positive) appear only in the
+   transport/facade, that static fixtures are request-semantic, and that no hand-written
+   wire DTO mirror returned. This text scan is best-effort defense-in-depth; a dynamic
+   alias or bracket-access spelling can still evade it, so a lint-level no-restricted
+   rule is the durable enforcement (a noted follow-up, not this narrow pass).
 9. Complete U+00A7 enforcement. Gate capability DONE (the script scans authored
    files, committed generated docs, `--commits base..HEAD` messages and `--text`
    PR title/body, with fixtures per failure mode; the authored-file scan is
