@@ -146,3 +146,53 @@ func TestOpenAPI_FiniteEnums(t *testing.T) {
 		t.Error("the knowledge-view vocabulary is not emitted as an enum")
 	}
 }
+
+// TestOpenAPI_EnumsOnSpecificFields asserts each important finite vocabulary is the
+// enum on the SPECIFIC schema field that carries it (requirement, item 6), not
+// merely present somewhere in the document. A global search would pass even if a
+// field lost its enum as long as some OTHER field happened to carry the same value
+// set; pinning the field makes the drift gate real.
+func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
+	raw, err := ExportOpenAPI()
+	if err != nil {
+		t.Fatalf("ExportOpenAPI: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal OpenAPI: %v", err)
+	}
+
+	cases := []struct {
+		schema, field string
+		want          []string
+	}{
+		{"Fleet.ProductFinding", "severity", sortedSet(
+			string(finding.SeverityError), string(finding.SeverityWarning),
+			string(finding.SeverityInfo), string(finding.SeverityUnknown))},
+		{"ProductAttentionItem", "severity", sortedSet("error", "warning", "info")},
+		{"ProductTargetDetail", "compliance", sortedSet("Compliant", "NonCompliant", "Unknown", "Warning", "Invalid", "Reference", "NotEvaluated")},
+		{"ProductTargetDetail", "linkState", sortedSet("exact", "inferred", "ambiguous", "unresolved")},
+		{"Fleet.SourceState", "status", sortedSet("available", "partial", "stale", "unavailable")},
+		{"ProductSourceDetail", "health", sortedSet("available", "partial", "stale", "unavailable")},
+		{"ProductRef", "kind", sortedSet("service", "revision", "target", "owner", "source")},
+		{"ProductEdge", "difference", sortedSet("matched", "expected-not-observed", "observed-not-expected", "insufficient")},
+		{"ProductNeighborhood", "direction", sortedSet("dependencies", "dependents", "both")},
+		{"ProductNeighborhood", "views", sortedSet("expected", "observed", "differences")},
+	}
+	for _, c := range cases {
+		got := schemaFieldEnum(t, doc, c.schema, c.field)
+		if !equalStrs(sortedKeys(got), c.want) {
+			t.Errorf("%s.%s enum = %v, want %v", c.schema, c.field, sortedKeys(got), c.want)
+		}
+	}
+}
+
+// sortedKeys returns the sorted keys of a string set.
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
