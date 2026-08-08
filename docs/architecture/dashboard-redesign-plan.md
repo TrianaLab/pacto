@@ -639,24 +639,27 @@ DONE this pass:
   keyboard conventions) querying `/api/fleet/entities` -- discovery, not a preloaded
   list -- disambiguating same-named entities and respecting backend bounds.
 
-Tested: `router.test.ts` (route round-trip incl. slash/percent, builders),
+Tested (Vitest): `router.test.ts` (route round-trip incl. slash/percent, builders),
 `knowledgeState.test.ts` (state machine + the non-negotiable all-clear rule),
 `entityLabels.test.ts`, `productComponents.test.ts` (link/identity/empty-state/
 source-health/summary + not-found/schema-error rendering), `FleetOverview.svelte.
 test.ts` (scenarios 1-5), `FleetEntityView.svelte.test.ts` (entity success +
 identity-dimension rendering + action routing), `EntitySearch.test.ts` (scenarios
-6-10, 16). The UI bundle is rebuilt from the generated-SDK frontend.
+6-10, 16).
+
+Tested (real-browser Playwright, `e2e/fleet-ia.spec.ts` against the WASM demo, which
+serves the product endpoints): scenario 1 (/fleet loads the overview), 4 (a summary
+tile navigates to its exact filtered view), 5 (a degraded source is navigable), 6/8-10
+(search finds and opens an entity by canonical identity, any kind), 11+13 (a
+deep-linked entity route survives a reload; the encoded key round-trips), 12 (browser
+back returns to the overview). The existing demo spec was migrated to /fleet/graph.
+The WASM demo dist is rebuilt from source; the committed UI bundle is rebuilt from the
+generated-SDK frontend. No physical-device testing is claimed (headless chromium).
 
 REMAINING Phase-2 work:
 
-- Real-browser Playwright for the fleet product routes (scenarios 11 deep-link
-  reload, 12 browser back, 13 slash/percent round-trip in a live browser). These are
-  covered at the router/unit level today; true end-to-end needs a fleet-backed
-  browser harness (the current Playwright targets the offline single-service WASM
-  demo, and the live-kind path needs a Docker cluster). NOT run this pass; no
-  physical-device testing is claimed.
 - Migrate the remaining legacy views (Services list, Owners, Readiness, Compare)
-  behind the new navigation, and expand the entity pages (Phase 3).
+  behind the new navigation, and expand the rich per-kind entity pages (Phase 3).
 - The ESLint no-restricted raw-network rule (defense-in-depth follow-up) and the
   U+00A7 commit-history enforcement remain deferred as before.
 
