@@ -600,6 +600,66 @@ The only remaining deferred item is the U+00A7 commit-history + PR-metadata CI
 enforcement (section 8 item 9), still BLOCKED on explicit history-rewrite
 authorization; it was not performed this pass.
 
+### Phase 2 progress (frontend IA and routing)
+
+Phase 2 (frontend IA, routing and the Operational Overview) is IN PROGRESS. The
+foundation is landed and unit-tested; the rich per-kind entity pages and the
+search-first graph redesign remain for Phase 3/4.
+
+DONE this pass:
+
+- Route model + centralized navigation. `/fleet` is the operational overview; the
+  legacy operational graph moved to `/fleet/graph` (fleetUrl repointed, so Navbar
+  and FleetView follow). New product routes: `/fleet/<plural>/:key` (unified entity
+  detail), `/fleet/attention`, `/fleet/impact/:serviceKey`, focused
+  `/fleet/graph/:kind/:key`. `parseFleet` mirrors the backend route builder
+  (fleetroute.go); keys are percent-escaped path segments that round-trip slash-,
+  percent-, OCI- and domain-qualified identities (proven in `router.test.ts`). All
+  fleet URL construction is centralized: `hashForHref` adopts the authoritative
+  backend `ProductRef.href`, and `fleetEntityUrl`/`fleetGraphFocusUrl`/
+  `fleetAttentionUrl`/`fleetImpactUrl`/`fleetOverviewUrl` build the same paths from
+  (kind, key). No component assembles a `/fleet/...` string inline.
+- Truthful knowledge state (requirement H). `lib/knowledgeState.ts` is the single
+  reusable decision: `snapshotKnowledge` derives quality from meta completeness +
+  per-source health (strictest wins), `decideViewState` distinguishes empty-fleet /
+  filtered-empty / "nothing known under incomplete knowledge" / backend-error /
+  schema-error / not-found, and `allClearAllowed` gates any all-clear on complete
+  knowledge with zero attention. A partial/degraded snapshot can never render a
+  blanket all-clear.
+- Foundational components: EntityLink, EntityIdentity, CopyableIdentifier,
+  ProductEmptyState, SourceHealth, OperationalSummary, ActiveFilterChips (plus the
+  existing Breadcrumbs), and `lib/entityLabels.ts` (user-facing labels/tones for
+  kinds and BOTH identity dimensions -- revision-match certainty vs content
+  retrievability -- knowledge levels and source health).
+- Operational Overview (`/fleet`) consuming `/api/fleet/overview` as the sole
+  contract (never the snapshot); unified entity route (`FleetEntityView`) consuming
+  the entity-detail endpoint as `NarrowedEntityDetail`; attention list
+  (`FleetAttentionView`) the overview category tiles link to.
+- Global entity search (`EntitySearch`), a `/`-opened modal (command-palette
+  keyboard conventions) querying `/api/fleet/entities` -- discovery, not a preloaded
+  list -- disambiguating same-named entities and respecting backend bounds.
+
+Tested: `router.test.ts` (route round-trip incl. slash/percent, builders),
+`knowledgeState.test.ts` (state machine + the non-negotiable all-clear rule),
+`entityLabels.test.ts`, `productComponents.test.ts` (link/identity/empty-state/
+source-health/summary + not-found/schema-error rendering), `FleetOverview.svelte.
+test.ts` (scenarios 1-5), `FleetEntityView.svelte.test.ts` (entity success +
+identity-dimension rendering + action routing), `EntitySearch.test.ts` (scenarios
+6-10, 16). The UI bundle is rebuilt from the generated-SDK frontend.
+
+REMAINING Phase-2 work:
+
+- Real-browser Playwright for the fleet product routes (scenarios 11 deep-link
+  reload, 12 browser back, 13 slash/percent round-trip in a live browser). These are
+  covered at the router/unit level today; true end-to-end needs a fleet-backed
+  browser harness (the current Playwright targets the offline single-service WASM
+  demo, and the live-kind path needs a Docker cluster). NOT run this pass; no
+  physical-device testing is claimed.
+- Migrate the remaining legacy views (Services list, Owners, Readiness, Compare)
+  behind the new navigation, and expand the entity pages (Phase 3).
+- The ESLint no-restricted raw-network rule (defense-in-depth follow-up) and the
+  U+00A7 commit-history enforcement remain deferred as before.
+
 ### Product response boundedness audit (requirement, item 4)
 
 Every collection-bearing field reachable from a product response was audited from
