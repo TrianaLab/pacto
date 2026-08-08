@@ -16,7 +16,9 @@ async function waitReady(page: Page) {
 }
 
 async function gotoFleet(page: Page, query = '') {
-  await page.goto(`/#/fleet${query}`);
+  // The operational graph moved to /fleet/graph in the Phase-2 IA (/fleet is now the
+  // operational overview). Graph state still lives in the query string.
+  await page.goto(`/#/fleet/graph${query}`);
   await expect(page.getByRole('heading', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
 }
 
