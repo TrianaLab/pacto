@@ -246,10 +246,15 @@ func capLen(s string, max int) string {
 // key slice proportional to that width. It visits every key once to select the
 // smallest deterministically.
 //
-// ponytail: O(len(m)*limit) worst case if keys arrive in descending order; with
-// limit == maxRuntimeScan (400) and realistic runtime maps this is trivial, and a
-// pathological wide map pays bounded O(limit) SPACE which is the property that
-// matters. Switch to a heap if a real workload ever makes the time cost show up.
+// This runs ONLY at Build time (the single documented unbounded-source pass over an
+// untrusted source map), never at query time: the product query reads the
+// precomputed bounded RuntimePreview, so no request ever pays this cost. Selecting
+// the globally-smallest keys of an unordered map inherently inspects every key; the
+// bound belongs at the source boundary, not in a clever query-time selection.
+//
+// ponytail: O(len(m)*limit) time worst case (keys arriving in descending order) and
+// O(limit) space, both paid once at Build. Switch to a heap if a real Build-time
+// workload ever makes the time cost show up.
 func keysBounded(m map[string]any, limit int) (keys []string, all bool) {
 	if limit <= 0 {
 		return nil, len(m) == 0
@@ -435,7 +440,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Deployments:  refPreview(targetRefs(view.Targets)),
 		Dependencies: refPreview(q.dependencyRefs(view.Dependencies)),
 		Dependents:   refPreview(q.serviceKeyRefs(view.Dependents)),
-		Findings:     attributedFindingsPreview(attributedTargetFindings(view.Targets)),
+		Findings:     attributedTargetFindingsPreview(view.Targets),
 		Evidence:     evidencePreview(evidenceForTargets(view.Targets)),
 		Limitations:  attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
 	}
@@ -508,10 +513,10 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		Stale:        t.Stale,
 		Quarantined:  t.Quarantined,
 		Limitations:  limitationsPreview(t.Limitations),
-		// The raw observed-runtime map is recursively unbounded; the product detail
-		// carries only a bounded, flattened preview. The full value stays on the
-		// low-level /api/fleet/snapshot export.
-		ObservedRuntime: runtimePreview(t.ObservedRuntime),
+		// The observed-runtime preview was bounded ONCE at Build time (see
+		// TargetRecord.ObservedRuntime); the product query reads that precomputed
+		// projection in O(bound), never re-flattening an arbitrarily wide raw map.
+		ObservedRuntime: t.ObservedRuntime,
 	}
 	if t.ContractRevision != "" {
 		if rev := q.snap.Revisions[t.ContractRevision]; rev != nil {
@@ -723,17 +728,31 @@ func targetRefs(targets []*TargetRecord) []EntityRef {
 	return out
 }
 
-// attributedTargetFindings aggregates every target's findings, attributing each
-// to the target it affects so a service-level finding is never orphaned.
-func attributedTargetFindings(targets []*TargetRecord) []AttributedFinding {
-	var out []AttributedFinding
+// attributedTargetFindingsPreview aggregates every target's findings into a
+// BOUNDED preview, attributing each to the target it affects so a service-level
+// finding is never orphaned. Total is the truthful full count summed across
+// targets, but only the emitted prefix (MaxDetailPreview) is converted, so a
+// pathological target set can never force unbounded ProductFinding conversion just
+// to build a bounded answer (requirement, item 8).
+func attributedTargetFindingsPreview(targets []*TargetRecord) AttributedFindingsPreview {
+	total := 0
 	for _, t := range targets {
+		total += len(t.Findings)
+	}
+	items := make([]AttributedFinding, 0, min(total, MaxDetailPreview))
+	for _, t := range targets {
+		if len(items) >= MaxDetailPreview {
+			break
+		}
 		ref := targetEntityRef(t)
 		for _, f := range t.Findings {
-			out = append(out, AttributedFinding{Finding: productFinding(f), Entity: ref})
+			if len(items) >= MaxDetailPreview {
+				break
+			}
+			items = append(items, AttributedFinding{Finding: productFinding(f), Entity: ref})
 		}
 	}
-	return out
+	return AttributedFindingsPreview{Total: total, Count: len(items), Truncated: total > MaxDetailPreview, Items: items}
 }
 
 // attributedTargetLimitations aggregates every target's limitations, attributing

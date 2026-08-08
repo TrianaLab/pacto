@@ -76,15 +76,6 @@ func cloneReadiness(r *readiness.Result) *readiness.Result {
 	return jsonClone(r)
 }
 
-// cloneAnyMap deep-copies an arbitrary observed-runtime map via a JSON round-trip
-// (its values may be nested maps/slices).
-func cloneAnyMap(m map[string]any) map[string]any {
-	if m == nil {
-		return nil
-	}
-	return jsonClone(m)
-}
-
 // cloneSources deep-copies a slice of source states so a returned answer never
 // aliases the snapshot's Sources. Their SourceError and *time.Time pointers are
 // copied too, so mutating a returned source (or its error/timestamps) cannot

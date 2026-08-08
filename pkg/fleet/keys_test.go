@@ -199,7 +199,7 @@ func TestCloneHelpers_NilSafe(t *testing.T) {
 		t.Error("clone helpers must return nil for nil input")
 	}
 	if cloneStringMap(nil) != nil || cloneCoverage(nil) != nil ||
-		cloneReadiness(nil) != nil || cloneAnyMap(nil) != nil {
+		cloneReadiness(nil) != nil {
 		t.Error("map/coverage/readiness clone helpers must return nil for nil input")
 	}
 	if copyTime(nil) != nil {

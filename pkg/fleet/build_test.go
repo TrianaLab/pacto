@@ -63,7 +63,7 @@ func TestSanitizeError_AuthKeywords(t *testing.T) {
 
 func TestSourceStateFor_DerivedAvailable(t *testing.T) {
 	src := NewMemorySource("oci", "registry", nil)
-	st := sourceStateFor(src, &Collection{}, fixedNow(), 3, 4)
+	st, _ := sourceStateFor(src, &Collection{}, fixedNow(), 3, 4, false)
 	if st.Status != SourceAvailable || st.ID != "oci" || st.Kind != "registry" {
 		t.Fatalf("unexpected derived state: %+v", st)
 	}
@@ -78,7 +78,7 @@ func TestSourceStateFor_DerivedAvailable(t *testing.T) {
 func TestSourceStateFor_SuppliedState_Backfilled(t *testing.T) {
 	src := NewMemorySource("k8s", "kubernetes", nil)
 	col := &Collection{State: &SourceState{Status: SourcePartial}} // blank ID/Kind
-	st := sourceStateFor(src, col, fixedNow(), 1, 2)
+	st, _ := sourceStateFor(src, col, fixedNow(), 1, 2, false)
 	if st.ID != "k8s" || st.Kind != "kubernetes" {
 		t.Errorf("ID/Kind not backfilled: %+v", st)
 	}
@@ -90,7 +90,7 @@ func TestSourceStateFor_SuppliedState_Backfilled(t *testing.T) {
 func TestSourceStateFor_SuppliedState_Preserved(t *testing.T) {
 	src := NewMemorySource("k8s", "kubernetes", nil)
 	col := &Collection{State: &SourceState{ID: "explicit", Kind: "custom", Status: SourceStale}}
-	st := sourceStateFor(src, col, fixedNow(), 0, 0)
+	st, _ := sourceStateFor(src, col, fixedNow(), 0, 0, false)
 	if st.ID != "explicit" || st.Kind != "custom" {
 		t.Errorf("explicit ID/Kind must be preserved: %+v", st)
 	}
@@ -407,7 +407,7 @@ func TestLockFrom_ValidLockFile(t *testing.T) {
 // -------------------- targetFrom --------------------
 
 func TestTargetFrom_DefaultComplianceUnknown_MissingEvidence(t *testing.T) {
-	tgt := targetFrom(RawTarget{Scope: "prod", Kind: "k8s", Name: "web", Service: "web-svc"}, "k8s", fixedNow(), time.Hour)
+	tgt, _ := targetFrom(RawTarget{Scope: "prod", Kind: "k8s", Name: "web", Service: "web-svc"}, "k8s", fixedNow(), time.Hour)
 	if tgt.Compliance != StatusUnknown {
 		t.Errorf("empty compliance → Unknown, got %q", tgt.Compliance)
 	}
@@ -421,7 +421,7 @@ func TestTargetFrom_DefaultComplianceUnknown_MissingEvidence(t *testing.T) {
 
 func TestTargetFrom_Stale(t *testing.T) {
 	old := fixedNow().Add(-2 * time.Hour)
-	tgt := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old,
+	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old,
 		Limitations: []Limitation{{Code: "PRE", Message: "supplied"}}}, "k8s", fixedNow(), time.Hour)
 	if !tgt.Stale {
 		t.Error("evidence older than window → stale")
@@ -436,7 +436,7 @@ func TestTargetFrom_Stale(t *testing.T) {
 
 func TestTargetFrom_FreshCompliant(t *testing.T) {
 	recent := fixedNow().Add(-1 * time.Minute)
-	tgt := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &recent}, "k8s", fixedNow(), time.Hour)
+	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &recent}, "k8s", fixedNow(), time.Hour)
 	if tgt.Stale {
 		t.Error("fresh evidence → not stale")
 	}
@@ -447,7 +447,7 @@ func TestTargetFrom_FreshCompliant(t *testing.T) {
 
 func TestTargetFrom_WindowDisabled(t *testing.T) {
 	old := fixedNow().Add(-1000 * time.Hour)
-	tgt := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old}, "k8s", fixedNow(), 0)
+	tgt, _ := targetFrom(RawTarget{Name: "w", Service: "s", Compliance: StatusCompliant, EvidenceAt: &old}, "k8s", fixedNow(), 0)
 	if tgt.Stale {
 		t.Error("window=0 disables staleness")
 	}
@@ -885,11 +885,13 @@ func TestBuild_SnapshotIDDeterministic(t *testing.T) {
 }
 
 func TestComputeSnapshotID_MarshalFailure(t *testing.T) {
-	// An un-marshalable value (a channel in a target's observed runtime) forces the
-	// defensive marshal-error path to a stable marker rather than a partial hash.
+	// An un-marshalable value (a channel in a revision contract's metadata map) forces
+	// the defensive marshal-error path to a stable marker rather than a partial hash.
 	snap := &FleetSnapshot{
-		Targets: map[TargetKey]*TargetRecord{
-			"prod/k8s/x": {Key: "prod/k8s/x", Name: "x", ObservedRuntime: map[string]any{"bad": make(chan int)}},
+		Revisions: map[RevisionKey]*ContractRevision{
+			"svc@x": {Key: "svc@x", Service: "svc", Contract: &contract.Contract{
+				Metadata: map[string]any{"bad": make(chan int)},
+			}},
 		},
 	}
 	if got := computeSnapshotID(snap); got != "sha256:unavailable" {

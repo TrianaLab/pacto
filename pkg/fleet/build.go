@@ -224,8 +224,10 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		}
 		revCount++
 	}
+	var recordInvalid []Limitation
 	for _, raw := range col.Targets {
-		tgt := targetFrom(raw, src.ID(), now, window)
+		tgt, invalid := targetFrom(raw, src.ID(), now, window)
+		recordInvalid = append(recordInvalid, invalid...)
 		if existing := snap.Targets[tgt.Key]; existing != nil {
 			// Same target contributed by another source (e.g. platform inventory
 			// + operator evaluation): merge by field ownership and freshness.
@@ -236,9 +238,14 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		targetCount++
 	}
 	// A source that reported record-level problems is partial: keep its usable
-	// records AND surface the problems.
+	// records AND surface the problems. Canonicalization limitations (invalid finite
+	// values normalized at ingestion) are recorded on the target AND at the snapshot
+	// level, and mark the source partial.
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
-	snap.Sources = append(snap.Sources, sourceStateFor(src, col, now, revCount, targetCount))
+	snap.Limitations = append(snap.Limitations, recordInvalid...)
+	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordInvalid) > 0)
+	snap.Limitations = append(snap.Limitations, stateLims...)
+	snap.Sources = append(snap.Sources, st)
 }
 
 // mergeRevision folds a later contribution of the same immutable revision into
@@ -407,8 +414,24 @@ func applyEvaluation(dst, src *TargetRecord) {
 	dst.Source = src.Source
 }
 
-// sourceStateFor derives (or honors a source-supplied) state for a collection.
-func sourceStateFor(src Source, col *Collection, now time.Time, revCount, targetCount int) SourceState {
+// canonicalSourceStatus normalizes a source-declared status to the finite
+// source-health vocabulary. A malformed status is normalized to a valid DEGRADED
+// state (partial) rather than emitted out-of-schema or silently upgraded to
+// available (requirement, item 5).
+func canonicalSourceStatus(s SourceStatus) (canonical SourceStatus, invalid bool) {
+	if validSourceHealth(string(s)) {
+		return s, false
+	}
+	return SourcePartial, true
+}
+
+// sourceStateFor derives (or honors a source-supplied) state for a collection. It
+// canonicalizes a source-declared status to the finite source-health vocabulary,
+// and downgrades an otherwise-available source to partial when the collection had
+// record-level problems, so a source that emitted invalid records is never
+// presented as healthy. It returns any SOURCE_RECORD_INVALID limitations the
+// normalization produced.
+func sourceStateFor(src Source, col *Collection, now time.Time, revCount, targetCount int, recordProblems bool) (SourceState, []Limitation) {
 	if col.State != nil {
 		st := *col.State
 		if st.ID == "" {
@@ -419,18 +442,32 @@ func sourceStateFor(src Source, col *Collection, now time.Time, revCount, target
 		}
 		st.RevisionCount = revCount
 		st.TargetCount = targetCount
-		return st
+		status, invalid := canonicalSourceStatus(st.Status)
+		// A source that emitted invalid records is not healthy; downgrade an
+		// available/valid declared status to partial (never upgrade a worse one).
+		if recordProblems && status == SourceAvailable {
+			status = SourcePartial
+		}
+		st.Status = status
+		var lims []Limitation
+		if invalid {
+			lims = append(lims, Limitation{
+				Code: LimitationSourceRecordInvalid, Source: st.ID,
+				Message: "source " + st.ID + " reported a non-canonical health status; it was normalized to " + string(SourcePartial),
+			})
+		}
+		return st, lims
 	}
 	t := now
 	status := SourceAvailable
-	if len(col.Limitations) > 0 {
+	if len(col.Limitations) > 0 || recordProblems {
 		status = SourcePartial
 	}
 	return SourceState{
 		ID: src.ID(), Kind: src.Kind(), Status: status,
 		LastSuccessfulSync: &t, ObservedAt: &t,
 		RevisionCount: revCount, TargetCount: targetCount,
-	}
+	}, nil
 }
 
 // unavailableState builds a sanitized unavailable state for a failed source.
@@ -667,38 +704,103 @@ func lockFrom(raw RawRevision) *lock.Lock {
 	return l
 }
 
-// targetFrom projects a raw target into a TargetRecord, classifying evidence
-// freshness and preserving source-supplied limitations plus computed ones.
-func targetFrom(raw RawTarget, source string, now time.Time, window time.Duration) *TargetRecord {
-	compliance := raw.Compliance
-	if compliance == "" {
-		compliance = StatusUnknown
+// validSeverity reports whether s is a canonical finding severity. A [Source] is
+// an extension seam, so a raw finding may carry any string; only these four values
+// may reach the finite ProductFinding.severity OpenAPI enum (requirement, item 5).
+func validSeverity(s finding.Severity) bool {
+	switch s {
+	case finding.SeverityError, finding.SeverityWarning, finding.SeverityInfo, finding.SeverityUnknown:
+		return true
+	default:
+		return false
 	}
+}
+
+// canonicalCompliance normalizes a source-supplied compliance value to the
+// canonical vocabulary. An empty value defaults to Unknown (not an error); a
+// non-empty out-of-vocabulary value is normalized conservatively to Unknown and
+// reported invalid so the runtime never emits a value the compliance OpenAPI enum
+// forbids and a bad value is never silently reinterpreted as healthy.
+func canonicalCompliance(s string) (canonical string, invalid bool) {
+	switch {
+	case s == "":
+		return StatusUnknown, false
+	case ValidStatus(s):
+		return s, false
+	default:
+		return StatusUnknown, true
+	}
+}
+
+// canonicalFindings copies raw findings and normalizes any non-canonical severity
+// to Unknown, so an extension source cannot smuggle an out-of-schema severity into
+// the finite ProductFinding.severity enum. The copy keeps each finding usable; only
+// the affected severity is degraded. invalid counts how many were normalized.
+func canonicalFindings(fs []finding.Finding) (out []finding.Finding, invalid int) {
+	if len(fs) == 0 {
+		return nil, 0
+	}
+	out = make([]finding.Finding, len(fs))
+	for i, f := range fs {
+		if !validSeverity(f.Severity) {
+			f.Severity = finding.SeverityUnknown
+			invalid++
+		}
+		out[i] = f
+	}
+	return out, invalid
+}
+
+// targetFrom projects a raw target into a TargetRecord, classifying evidence
+// freshness and preserving source-supplied limitations plus computed ones. It
+// canonicalizes the finite compliance and finding-severity values a Source (an
+// extension seam) may set to any string, keeping the usable record and returning a
+// SOURCE_RECORD_INVALID limitation for each normalized field (requirement, item 5).
+// The returned limitations are also recorded on the target so it self-describes.
+func targetFrom(raw RawTarget, source string, now time.Time, window time.Duration) (*TargetRecord, []Limitation) {
+	compliance, complianceInvalid := canonicalCompliance(raw.Compliance)
+	findings, invalidSeverities := canonicalFindings(raw.Findings)
 	// Every mutable field is deep-copied so a source mutating its own records
 	// after Build cannot mutate the snapshot.
 	t := &TargetRecord{
-		Key:             NewTargetKey(raw.Scope, raw.Kind, raw.Name),
-		Scope:           raw.Scope,
-		Kind:            raw.Kind,
-		Name:            raw.Name,
-		Labels:          cloneStringMap(raw.Labels),
-		Service:         raw.Service,
-		Domain:          raw.Domain,
-		ServiceKey:      NewServiceKeyDomain(raw.Domain, raw.Service),
-		RequestedRef:    raw.RequestedRef,
-		ResolvedRef:     raw.ResolvedRef,
-		Digest:          raw.Digest,
-		Compliance:      compliance,
-		Findings:        append([]finding.Finding(nil), raw.Findings...),
-		Coverage:        cloneCoverage(raw.Coverage),
-		Readiness:       cloneReadiness(raw.Readiness),
-		ObservedRuntime: cloneAnyMap(raw.ObservedRuntime),
+		Key:          NewTargetKey(raw.Scope, raw.Kind, raw.Name),
+		Scope:        raw.Scope,
+		Kind:         raw.Kind,
+		Name:         raw.Name,
+		Labels:       cloneStringMap(raw.Labels),
+		Service:      raw.Service,
+		Domain:       raw.Domain,
+		ServiceKey:   NewServiceKeyDomain(raw.Domain, raw.Service),
+		RequestedRef: raw.RequestedRef,
+		ResolvedRef:  raw.ResolvedRef,
+		Digest:       raw.Digest,
+		Compliance:   compliance,
+		Findings:     findings,
+		Coverage:     cloneCoverage(raw.Coverage),
+		Readiness:    cloneReadiness(raw.Readiness),
+		// Bound the untrusted, arbitrarily wide/deep source runtime map ONCE here (the
+		// single unbounded-source pass); the raw map is never retained on the snapshot.
+		ObservedRuntime: runtimePreview(raw.ObservedRuntime),
 		EvidenceAt:      copyTime(raw.EvidenceAt),
 		ReconciledAt:    copyTime(raw.ReconciledAt),
 		Source:          source,
 		Sources:         []string{source},
 		Limitations:     append([]Limitation(nil), raw.Limitations...),
 	}
+	var recordInvalid []Limitation
+	if complianceInvalid {
+		recordInvalid = append(recordInvalid, Limitation{
+			Code: LimitationSourceRecordInvalid, Source: source,
+			Message: "target " + string(t.Key) + " reported a non-canonical compliance value; the record was kept and its compliance normalized to " + StatusUnknown,
+		})
+	}
+	if invalidSeverities > 0 {
+		recordInvalid = append(recordInvalid, Limitation{
+			Code: LimitationSourceRecordInvalid, Source: source,
+			Message: "target " + string(t.Key) + " reported a non-canonical finding severity; the record was kept and each normalized to " + string(finding.SeverityUnknown),
+		})
+	}
+	t.Limitations = append(t.Limitations, recordInvalid...)
 	if window > 0 && raw.EvidenceAt != nil && now.Sub(*raw.EvidenceAt) > window {
 		t.Stale = true
 		t.Limitations = append(t.Limitations, Limitation{
@@ -712,7 +814,7 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 			Message: "no evidence has been observed for this target",
 		})
 	}
-	return t
+	return t, recordInvalid
 }
 
 // Revision-link classes (see TargetRecord.RevisionMatch).
@@ -720,6 +822,10 @@ const (
 	revisionMatchExact     = "exact"     // immutable digest — authoritative
 	revisionMatchInferred  = "inferred"  // unique mutable tag/version correlation
 	revisionMatchAmbiguous = "ambiguous" // several candidates — no link is made
+	// revisionMatchInconsistent: the target's identity is internally inconsistent
+	// (a recorded digest that contradicts its digest-pinned ResolvedRef) or malformed.
+	// No link is made and a limitation is surfaced; it is never an exact link.
+	revisionMatchInconsistent = "inconsistent"
 )
 
 // linkTargets associates each target with a revision and records how the link
@@ -742,26 +848,80 @@ func linkTargets(snap *FleetSnapshot) {
 			// from the target alone, without parsing snapshot-level messages.
 			t.Limitations = append(t.Limitations, lim)
 			snap.Limitations = append(snap.Limitations, lim)
+		case revisionMatchInconsistent:
+			// The target's identity is internally inconsistent (a recorded digest that
+			// contradicts its digest-pinned ResolvedRef) or malformed. No link is made
+			// and the record self-describes the problem, so a consumer never sees a
+			// TargetDetail whose identity class and linkState claim different authority.
+			lim := Limitation{
+				Code: LimitationSourceRecordInvalid, Source: t.Source,
+				Message: "target " + string(t.Key) + " has an internally inconsistent or malformed identity (a recorded digest that contradicts its resolved reference, or a malformed reference); no authoritative revision link was made",
+			}
+			t.Limitations = append(t.Limitations, lim)
+			snap.Limitations = append(snap.Limitations, lim)
 		}
 	}
 }
 
-// matchRevision links a target to a contract revision and classifies the link.
-// An immutable-digest match is EXACT (the revision known to be running). A match
-// by mutable resolved-ref or version suffix is INFERRED, and only when it is
-// UNIQUE — two or more revisions a mutable reference could name are AMBIGUOUS and
-// yield no link, so source order or a coin-flip never selects a "running"
-// revision. Revisions are visited in sorted key order for a deterministic result.
+// matchRevision links a target to a contract revision and classifies the link
+// using the SINGLE exact-content-identity invariant ([ClassifyExactIdentity]) that
+// RevisionDetail, TargetDetail and Product Impact also use, so the exact tier and
+// the target's identity class can never contradict one another (requirement,
+// item 6). An EXACT link is an immutable-content match by the canonical digest the
+// classifier derives (from a digest-pinned ResolvedRef, or from a recorded digest
+// that does not contradict a ref pinning none). An internally inconsistent
+// (recorded-digest-vs-pinned-ref mismatch) or malformed identity is never exact and
+// never mutably correlated — it yields no link and a limitation. A match by mutable
+// resolved-ref or version suffix is INFERRED, and only when UNIQUE; two or more
+// candidates are AMBIGUOUS and yield no link. Revisions are visited in sorted key
+// order for a deterministic result.
 func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
 	keys := sortedRevisionKeys(snap)
-	// Tier 1: immutable digest — exact and unique (the digest is part of the key).
-	if t.Digest != "" {
-		for _, k := range keys {
-			if rev := snap.Revisions[k]; rev.ServiceKey == t.ServiceKey && rev.Digest == t.Digest {
-				return rev.Key, revisionMatchExact
-			}
+	id := ClassifyExactIdentity(t.ResolvedRef, t.Digest)
+	// A contradictory (digest-mismatch) or malformed identity is never exact, and
+	// correlating a mutable link off a contradictory/unparseable ref would be
+	// dishonest.
+	if id.Class == IdentityDigestMismatch || id.Class == IdentityMalformed {
+		return "", revisionMatchInconsistent
+	}
+	// Tier 1: exact content identity, matched by the classifier's canonical digest
+	// (never a contradictory recorded digest independently).
+	if key, ok := exactRevisionByDigest(snap, keys, t, id); ok {
+		return key, revisionMatchExact
+	}
+	if id.Exact() {
+		// A digest-pinned ResolvedRef names exact content; if no revision in the fleet
+		// carries it, there is no honest mutable fallback.
+		return "", ""
+	}
+	return mutableRevisionMatch(snap, keys, t)
+}
+
+// exactRevisionByDigest finds a revision of the target's service whose content
+// digest equals the target's effective content digest: the classifier's canonical
+// digest when the ResolvedRef is digest-pinned (already cross-checked against any
+// recorded digest), otherwise the recorded digest (which cannot contradict a ref
+// that pins nothing). It returns false when there is no effective digest or match.
+func exactRevisionByDigest(snap *FleetSnapshot, keys []RevisionKey, t *TargetRecord, id ExactIdentity) (RevisionKey, bool) {
+	effective := t.Digest
+	if id.Exact() {
+		effective = id.Digest.String()
+	}
+	if effective == "" {
+		return "", false
+	}
+	for _, k := range keys {
+		if rev := snap.Revisions[k]; rev.ServiceKey == t.ServiceKey && rev.Digest == effective {
+			return rev.Key, true
 		}
 	}
+	return "", false
+}
+
+// mutableRevisionMatch correlates a target to a revision by mutable reference: exact
+// resolved-ref equality, then a version-suffix pin. A unique candidate is inferred;
+// several are ambiguous (no link).
+func mutableRevisionMatch(snap *FleetSnapshot, keys []RevisionKey, t *TargetRecord) (RevisionKey, string) {
 	if t.ResolvedRef == "" {
 		return "", ""
 	}

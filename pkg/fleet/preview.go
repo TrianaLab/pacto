@@ -77,12 +77,16 @@ type ProductFinding struct {
 
 // productFinding maps a raw engine finding to the bounded product shape, capping
 // its evidence refs at MaxEvidenceRefsPreview with honest total/count/truncated.
+// It converts only the emitted prefix: an untrusted extension source can attach an
+// arbitrarily large EvidenceRefs slice, and building a bounded answer must never do
+// work (allocation/copy) proportional to that width (requirement, item 8).
 func productFinding(f finding.Finding) ProductFinding {
-	refs := make([]ProductEvidenceRef, 0, len(f.EvidenceRefs))
-	for _, r := range f.EvidenceRefs {
-		refs = append(refs, ProductEvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt})
+	total := len(f.EvidenceRefs)
+	n := min(total, MaxEvidenceRefsPreview)
+	items := make([]ProductEvidenceRef, 0, n)
+	for _, r := range f.EvidenceRefs[:n] {
+		items = append(items, ProductEvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt})
 	}
-	it, total, trunc := boundSlice(refs, MaxEvidenceRefsPreview)
 	return ProductFinding{
 		Code:         string(f.Code),
 		Severity:     ProductSeverity(f.Severity),
@@ -90,17 +94,8 @@ func productFinding(f finding.Finding) ProductFinding {
 		Subject:      ProductSubjectRef{Kind: f.Subject.Kind, Name: f.Subject.Name},
 		ContractPath: f.ContractPath,
 		Message:      f.Message,
-		EvidenceRefs: ProductEvidenceRefsPreview{Total: total, Count: len(it), Truncated: trunc, Items: it},
+		EvidenceRefs: ProductEvidenceRefsPreview{Total: total, Count: len(items), Truncated: total > n, Items: items},
 	}
-}
-
-// productFindings maps a slice of raw findings to bounded product findings.
-func productFindings(fs []finding.Finding) []ProductFinding {
-	out := make([]ProductFinding, 0, len(fs))
-	for _, f := range fs {
-		out = append(out, productFinding(f))
-	}
-	return out
 }
 
 // boundSlice caps items at max, copying so the preview never aliases its input,
@@ -155,8 +150,13 @@ type FindingsPreview struct {
 }
 
 func findingsPreview(fs []finding.Finding) FindingsPreview {
-	it, total, trunc := boundSlice(productFindings(fs), MaxDetailPreview)
-	return FindingsPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+	total := len(fs)
+	n := min(total, MaxDetailPreview)
+	items := make([]ProductFinding, 0, n)
+	for _, f := range fs[:n] {
+		items = append(items, productFinding(f))
+	}
+	return FindingsPreview{Total: total, Count: len(items), Truncated: total > n, Items: items}
 }
 
 // AttributedFindingsPreview is a bounded preview of findings aggregated across
@@ -362,13 +362,14 @@ type RuntimeFact struct {
 }
 
 // RuntimePreview is a bounded, flattened preview of a target's observed runtime.
-// The product API never copies the raw arbitrary runtime map verbatim (that is
-// recursively unbounded); the full value stays on the low-level
-// /api/fleet/snapshot export. Both the OUTPUT and the WORK are bounded: at most
+// It is computed ONCE at Build time from the untrusted raw source map and is the
+// ONLY form the snapshot retains — the raw arbitrary map (recursively unbounded) is
+// never kept, so no query, clone or snapshot export ever does work proportional to
+// its width. Both the OUTPUT and the ingestion WORK are bounded: at most
 // MaxDetailPreview facts emitted, each key/value length-capped, the walk stops at
-// maxRuntimeScan inspected facts and maxRuntimeDepth nesting, and the flatten
-// allocates O(maxRuntimeScan) not O(map width) even for a pathologically wide map
-// (requirement, item 13).
+// maxRuntimeScan inspected facts and maxRuntimeDepth nesting. The single pass over
+// the raw source map at Build is the one documented unbounded-source boundary
+// (requirement, item 7); the product query then reads this projection in O(bound).
 //
 // Total is an EXACT count of flattened facts and is present ONLY when the bounded
 // walk visited the whole structure; when the walk stopped early (scan budget or a

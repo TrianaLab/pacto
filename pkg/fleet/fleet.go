@@ -418,20 +418,27 @@ type TargetRecord struct {
 	// MUTABLE tag/version correlation, not proof). Empty when there is no link;
 	// an ambiguous mutable match yields no link and a REVISION_LINK_AMBIGUOUS
 	// limitation instead. Only an exact link may be presented as authoritative.
-	RevisionMatch   string            `json:"revisionMatch,omitempty"`
-	RequestedRef    string            `json:"requestedRef,omitempty"`
-	ResolvedRef     string            `json:"resolvedRef,omitempty"`
-	Digest          string            `json:"digest,omitempty"`
-	Compliance      string            `json:"compliance"`
-	Findings        []finding.Finding `json:"findings,omitempty"`
-	Coverage        *Coverage         `json:"coverage,omitempty"`
-	Readiness       *readiness.Result `json:"readiness,omitempty"`
-	ObservedRuntime map[string]any    `json:"observedRuntime,omitempty"`
-	EvidenceAt      *time.Time        `json:"evidenceAt,omitempty"`
-	ReconciledAt    *time.Time        `json:"reconciledAt,omitempty"`
-	Source          string            `json:"source"`
-	Sources         []string          `json:"sources,omitempty"`
-	Stale           bool              `json:"stale"`
+	RevisionMatch string            `json:"revisionMatch,omitempty"`
+	RequestedRef  string            `json:"requestedRef,omitempty"`
+	ResolvedRef   string            `json:"resolvedRef,omitempty"`
+	Digest        string            `json:"digest,omitempty"`
+	Compliance    string            `json:"compliance"`
+	Findings      []finding.Finding `json:"findings,omitempty"`
+	Coverage      *Coverage         `json:"coverage,omitempty"`
+	Readiness     *readiness.Result `json:"readiness,omitempty"`
+	// ObservedRuntime is the BOUNDED, deterministic projection of the source's raw
+	// observed-runtime map, computed ONCE at Build time (the single unbounded-source
+	// pass) from the untrusted, arbitrarily wide/deep source data. The raw map is not
+	// retained on the snapshot: an untrusted source cannot make a query, a clone or
+	// the snapshot export do work proportional to its width, because every consumer
+	// (product detail, snapshot export, SnapshotID) sees only this bounded projection
+	// (requirement, item 7).
+	ObservedRuntime RuntimePreview `json:"observedRuntime"`
+	EvidenceAt      *time.Time     `json:"evidenceAt,omitempty"`
+	ReconciledAt    *time.Time     `json:"reconciledAt,omitempty"`
+	Source          string         `json:"source"`
+	Sources         []string       `json:"sources,omitempty"`
+	Stale           bool           `json:"stale"`
 	// Quarantined is set when two sources contributed this target key with
 	// conflicting identity-bearing fields (service, domain, revision, digest, ref).
 	// The record is kept visible with its conflict limitations but is NOT treated
