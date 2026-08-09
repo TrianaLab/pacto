@@ -1749,7 +1749,7 @@ export interface components {
             observationSources: components["schemas"]["Fleet.ObservationSourcesPreview"];
             observed: boolean;
             /** @enum {string} */
-            provenance: "declared" | "observed";
+            provenance: "declared" | "observed" | "declared+observed";
             /** @enum {string} */
             relation: "dependency" | "runs";
             /** @enum {string} */
@@ -1909,6 +1909,7 @@ export interface components {
             scope?: string;
             secondary?: string;
             status?: string;
+            version?: string;
         };
         ProductRefPreview: {
             /** Format: int64 */

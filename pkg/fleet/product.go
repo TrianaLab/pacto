@@ -66,6 +66,11 @@ type EntityRef struct {
 	Domain        string `json:"domain,omitempty"`
 	Scope         string `json:"scope,omitempty"`
 	ParentService string `json:"parentService,omitempty"`
+	// Version is the declared contract version a REVISION reference carries, set only for
+	// revision refs. It is surfaced explicitly (not folded into the display label) so a
+	// consumer can match a requested version to a canonical RevisionKey without parsing a
+	// label -- e.g. the legacy version-bookmark migration (reopen section 8).
+	Version string `json:"version,omitempty"`
 }
 
 // ProductMeta is the completeness envelope on every product answer: the product
@@ -132,7 +137,7 @@ func revisionEntityRef(r *ContractRevision) EntityRef {
 	}
 	return EntityRef{
 		Kind: KindRevision, Key: string(r.Key), Label: label, Secondary: r.Digest,
-		Status: status, Domain: r.Domain, ParentService: string(r.ServiceKey),
+		Status: status, Domain: r.Domain, ParentService: string(r.ServiceKey), Version: r.Version,
 	}
 }
 

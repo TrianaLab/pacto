@@ -214,6 +214,11 @@ const (
 	ProvenanceDeclared = "declared"
 	ProvenanceObserved = "observed"
 	ProvenanceInferred = "inferred"
+	// ProvenanceDeclaredObserved is the combined provenance a MERGED edge carries when
+	// it is backed by BOTH a declaration and an observation (see edgeProvenance). It is a
+	// distinct finite value the neighborhood projection emits on the wire, so every
+	// provenance enum must declare it or the generated SDK declares a value impossible.
+	ProvenanceDeclaredObserved = ProvenanceDeclared + "+" + ProvenanceObserved
 )
 
 // Reconciliation classifies a DECLARED dependency edge against the snapshot's

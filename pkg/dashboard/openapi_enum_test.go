@@ -176,6 +176,11 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"ProductSourceDetail", "health", sortedSet("available", "partial", "stale", "unavailable")},
 		{"ProductRef", "kind", sortedSet("service", "revision", "target", "owner", "source")},
 		{"ProductEdge", "difference", sortedSet("matched", "expected-not-observed", "observed-not-expected", "insufficient")},
+		// provenance is a merged-edge value: edgeProvenance can emit the combined
+		// "declared+observed" when an edge is both declared and observed, so the OpenAPI
+		// enum (and thus the generated SDK) must declare that value, never just the two
+		// singletons (requirement, reopen section 5).
+		{"ProductEdge", "provenance", sortedSet("declared", "observed", "declared+observed")},
 		{"ProductEdge", "observationScope", sortedSet("service", "target")},
 		{"ProductEdge", "serviceCorroboration", sortedSet("matched", "expected-not-observed", "insufficient")},
 		{"ProductNeighborhood", "direction", sortedSet("dependencies", "dependents", "both")},

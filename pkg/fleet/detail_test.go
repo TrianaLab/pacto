@@ -50,6 +50,28 @@ func TestEntityDetail_Service(t *testing.T) {
 	}
 }
 
+// TestRevisionRef_CarriesVersion proves a revision reference carries its declared version
+// EXPLICITLY, so a consumer (the legacy version-bookmark migration, reopen section 8) can
+// match a requested version to a canonical RevisionKey without parsing it out of a display
+// label.
+func TestRevisionRef_CarriesVersion(t *testing.T) {
+	q := productFleet(t)
+	d, err := q.EntityDetail(KindService, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Service == nil || len(d.Service.Revisions.Items) == 0 {
+		t.Fatalf("service must carry revisions: %+v", d.Service)
+	}
+	rev := d.Service.Revisions.Items[0]
+	if rev.Kind != KindRevision {
+		t.Fatalf("revisions[0] kind = %q, want revision", rev.Kind)
+	}
+	if rev.Version != "1.0.0" {
+		t.Errorf("revision ref version = %q, want 1.0.0 (explicit, not parsed from the label)", rev.Version)
+	}
+}
+
 func TestEntityDetail_ServiceFindingsAttributed(t *testing.T) {
 	q := productFleet(t)
 	beta, err := q.EntityDetail(KindService, "beta")

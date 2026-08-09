@@ -95,6 +95,33 @@ func TestProductEndpoints_Serve(t *testing.T) {
 	expectStatus(t, base+"/api/fleet/attention?kind=bogus", http.StatusUnprocessableEntity)
 }
 
+// TestProductNeighborhood_CombinedProvenanceOverWire proves the combined
+// "declared+observed" provenance survives the actual Product Neighborhood HTTP
+// transport (not just the in-process projection): the richFleet app->lib edge is both
+// declared and observed, so under an expected+observed view the wire response must carry
+// provenance "declared+observed" -- the value the OpenAPI enum now declares
+// (requirement, reopen section 5).
+func TestProductNeighborhood_CombinedProvenanceOverWire(t *testing.T) {
+	q := richFleetQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+	var nb fleet.Neighborhood
+	getJSON(t, base+"/api/fleet/neighborhood?kind=service&key=app&direction=dependencies&views=expected,observed", http.StatusOK, &nb)
+	var edge *fleet.NeighborhoodEdge
+	for i := range nb.Edges {
+		if nb.Edges[i].From.Key == "app" && nb.Edges[i].To.Key == "lib" {
+			edge = &nb.Edges[i]
+		}
+	}
+	if edge == nil {
+		t.Fatalf("app->lib edge missing from wire response (edges %+v)", nb.Edges)
+	}
+	want := fleet.ProvenanceDeclared + "+" + fleet.ProvenanceObserved
+	if edge.Provenance != want {
+		t.Errorf("wire app->lib provenance = %q, want %q", edge.Provenance, want)
+	}
+}
+
 func TestProductEntityDetail_Ambiguous(t *testing.T) {
 	q := twoDomainDashboardQuery(t)
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)

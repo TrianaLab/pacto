@@ -217,8 +217,11 @@ type NeighborhoodEdge struct {
 	// fine-grained (revision/target) dependency edge is never Observed from
 	// service-scoped telemetry (see ObservationScope/ServiceCorroboration); only a
 	// genuine service-to-service edge or the target "runs" link is ever Observed.
-	Observed   bool   `json:"observed"`
-	Provenance string `json:"provenance" enum:"declared,observed"`
+	Observed bool `json:"observed"`
+	// Provenance is the combined provenance of the merged edge. edgeProvenance emits
+	// "declared+observed" when an edge is both, so the finite enum declares all three
+	// values (never just the two singletons), matching what the runtime can emit.
+	Provenance string `json:"provenance" enum:"declared,observed,declared+observed"`
 	Difference string `json:"difference,omitempty" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
 	// ObservationScope names the granularity at which this edge's observation or
 	// corroboration applies (service or target); empty when there is no observation.
@@ -365,9 +368,10 @@ func projectEdgesForViews(edges []NeighborhoodEdge, views []KnowledgeView) {
 //   - observed facts (Observed, ObservationSources, Count, first/last seen, Stale)
 //     survive only when an observed view is requested (observed or differences);
 //   - comparison facts survive only when the differences view is requested: the edge
-//     Difference verdict AND the fine-grained ServiceCorroboration / ObservationScope
-//     context (a service-scoped declared-vs-observed verdict is itself a comparison, so
-//     expected-only and expected+observed carry neither).
+//     Difference verdict, the fine-grained ServiceCorroboration / ObservationScope
+//     context, AND each nested DeclaredClaim's Reconciliation (a service-scoped
+//     declared-vs-observed verdict is itself a comparison, so expected-only and
+//     expected+observed carry none of them, not even inside the surviving claims).
 //
 // A "runs" edge is the target's structural identity link, not a declared/observed
 // dependency claim, so it is shown intact regardless of the requested views.
@@ -393,6 +397,14 @@ func projectEdgeForViews(e *NeighborhoodEdge, views []KnowledgeView) {
 		e.Difference = ""
 		e.ServiceCorroboration = ""
 		e.ObservationScope = ""
+		// A DeclaredClaim's Reconciliation is observation-derived comparison knowledge
+		// (matched / declared-not-observed / insufficient), not pure contract intent, so it
+		// must not survive when no differences view is requested -- even though the claim
+		// itself (declared intent, its ref/lock/compat) does. Clearing it at this single
+		// projection boundary keeps the frontend from ever having to strip it ad hoc.
+		for i := range e.DeclaredClaims.Items {
+			e.DeclaredClaims.Items[i].Reconciliation = ""
+		}
 	}
 	// Re-derive provenance so the edge never advertises a knowledge kind the payload
 	// no longer carries (e.g. an expected-only edge is provenance "declared", not
@@ -843,7 +855,7 @@ func cloneObservedStats(ss []ObservedSourceStat) []ObservedSourceStat {
 func edgeProvenance(e NeighborhoodEdge) string {
 	switch {
 	case e.Expected && e.Observed:
-		return ProvenanceDeclared + "+" + ProvenanceObserved
+		return ProvenanceDeclaredObserved
 	case e.Observed:
 		return ProvenanceObserved
 	default:

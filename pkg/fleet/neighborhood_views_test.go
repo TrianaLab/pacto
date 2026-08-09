@@ -84,6 +84,58 @@ func TestNeighborhood_ViewPayloadMatrix(t *testing.T) {
 	}
 }
 
+// TestNeighborhood_ExpectedViewOmitsClaimReconciliation proves the view projection
+// strips the NESTED comparison knowledge, not only the top-level verdict: a
+// DeclaredClaim's Reconciliation is observation-derived (matched / declared-not-observed
+// / insufficient), so it is comparison knowledge, not pure contract intent. It must be
+// present ONLY when the differences view is requested; expected-only and
+// expected+observed (without differences) must carry the declared claim WITHOUT any
+// reconciliation. This inspects the nested items, not just DeclaredClaims.Count.
+func TestNeighborhood_ExpectedViewOmitsClaimReconciliation(t *testing.T) {
+	q := productFleet(t)
+	// The alpha->leaf-svc edge is declared AND observed (matched), so its declared claim
+	// carries a reconciliation verdict in the raw edge; the projection must decide whether
+	// it survives per view.
+	claimReconciliations := func(views ...KnowledgeView) []string {
+		nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", Direction: DirectionDependencies, Views: views})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := edgeBetween(nb, string(NewServiceKey("alpha")), string(NewServiceKey("leaf-svc")))
+		if e == nil {
+			t.Fatalf("views %v: alpha->leaf-svc edge missing", views)
+		}
+		out := make([]string, 0, len(e.DeclaredClaims.Items))
+		for _, c := range e.DeclaredClaims.Items {
+			out = append(out, c.Reconciliation)
+		}
+		return out
+	}
+	anyNonEmpty := func(ss []string) bool {
+		for _, s := range ss {
+			if s != "" {
+				return true
+			}
+		}
+		return false
+	}
+	// Expected-only and expected+observed (no differences) keep the declared claim but must
+	// not leak its reconciliation verdict (comparison knowledge).
+	for _, views := range [][]KnowledgeView{{ViewExpected}, {ViewExpected, ViewObserved}} {
+		got := claimReconciliations(views...)
+		if len(got) == 0 {
+			t.Fatalf("views %v: expected a declared claim to be present", views)
+		}
+		if anyNonEmpty(got) {
+			t.Errorf("views %v: declared claim leaked reconciliation %v (comparison knowledge)", views, got)
+		}
+	}
+	// The differences view DOES carry the reconciliation verdict on the claim.
+	if !anyNonEmpty(claimReconciliations(ViewDifferences)) {
+		t.Error("differences view must carry the declared claim reconciliation verdict")
+	}
+}
+
 // TestNeighborhood_DifferencesCarriesVerdict proves the complement of the expected-only
 // payload: the differences view DOES carry the expected-not-observed verdict for a
 // declared-but-unwitnessed edge (a->b), which the expected-only view withholds.
