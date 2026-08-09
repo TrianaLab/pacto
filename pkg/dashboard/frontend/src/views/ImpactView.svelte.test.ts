@@ -199,17 +199,44 @@ describe('ImpactView — Product Impact workspace (requirement A1)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  it('with no service in the route, offers a product service picker that routes to the canonical workspace', async () => {
-    entitiesFn.mockResolvedValue({ meta, total: 1, count: 1, limit: 100, offset: 0, truncated: false, entities: [ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' })] });
+  it('with no service in the route, offers a SEARCH-FIRST service picker that routes to the canonical workspace (L2)', async () => {
+    entitiesFn.mockResolvedValue({ meta, total: 1, count: 1, limit: 20, offset: 0, entities: [ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' })] });
     const { target, component } = mountView({}); // no svc
-    // wait until the product service options have rendered into the picker
-    await vi.waitFor(() => expect(Array.from(target.querySelectorAll('#impact-pick option')).some((o) => (o as HTMLOptionElement).value === 'domain-a/payments')).toBe(true));
-    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'] }));
-    const sel = target.querySelector('#impact-pick') as HTMLSelectElement;
-    sel.value = 'domain-a/payments';
-    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const input = target.querySelector('#impact-pick') as HTMLInputElement;
+    input.value = 'pay';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-picker-results"]')).toBeTruthy());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], text: 'pay' }));
+    (target.querySelector('[data-testid="impact-picker-results"] button') as HTMLButtonElement).click();
     flushSync();
     expect(location.hash).toBe('#/fleet/impact/domain-a%2Fpayments');
+    expect(snapshotFn).not.toHaveBeenCalled();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('the service picker surfaces a search failure as an error, not "no matches" (L2/K)', async () => {
+    entitiesFn.mockRejectedValue(new ApiError(503, 'unavailable'));
+    const { target, component } = mountView({});
+    const input = target.querySelector('#impact-pick') as HTMLInputElement;
+    input.value = 'pay';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-picker-error"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="impact-picker-empty"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('surfaces an incomplete revision universe instead of claiming completeness (L1)', async () => {
+    // The service-detail revisions preview truncates; paging stops at the selector
+    // bound with a remaining nextOffset, so the selector is honestly incomplete.
+    detailFn.mockResolvedValue({
+      meta, entity: ref('service', 'domain-a/big', 'big'),
+      service: { revisions: { total: 9999, count: 1, truncated: true, items: [ref('revision', 'domain-a/big@sha256:1', '1.0.0')] } },
+    });
+    // Every revision page reports a further page (nextOffset), so paging is bounded by
+    // MAX_SELECTOR_REVISIONS and reports incomplete.
+    entitiesFn.mockResolvedValue({ meta, total: 9999, count: 200, nextOffset: 200, entities: Array.from({ length: 200 }, (_, i) => ref('revision', `domain-a/big@sha256:${i}`, `1.${i}.0`)) });
+    const { target, component } = mountView({ svc: 'domain-a/big' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-revisions-incomplete"]')).toBeTruthy());
     expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });

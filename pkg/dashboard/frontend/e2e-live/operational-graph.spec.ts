@@ -13,7 +13,7 @@ test('the live operational graph opens search-first (discovery, no fleet hairbal
   // no topology is rendered until an entity is focused.
   await page.goto('/#/fleet/graph');
   await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('graph-canvas')).toHaveCount(0); // zero topology nodes
+  await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0); // zero topology nodes
   await expect(page.getByRole('searchbox')).toBeVisible();
 });
 
@@ -26,7 +26,12 @@ test('a seeded service is searchable and focuses a live bounded neighborhood', a
   const result = page.getByTestId('graph-focus-link').first();
   await expect(result).toBeVisible({ timeout: 20_000 });
   await result.click();
-  await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: 20_000 });
-  // The focus identity is the seeded service, live from the operator.
-  await expect(page.getByTestId('graph-focus-node')).toContainText('checkout');
+  // The bounded neighborhood renders as an actual visual topology over live HTTP.
+  await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('graph-legend')).toBeVisible();
+  // The focus identity is the seeded service, live from the operator (shown in the
+  // header identity and in the accessible relationship list).
+  await expect(page.getByRole('heading', { name: 'Operational graph' })).toBeVisible();
+  await page.getByTestId('graph-textalt').locator('summary').click();
+  await expect(page.getByTestId('graph-node-item').first()).toContainText('checkout');
 });

@@ -19,10 +19,32 @@ async function gotoGraphDiscovery(page: Page) {
   await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
 }
 
-// A direct focus deep link (kind/key), which loads the bounded neighborhood.
+// A direct focus deep link (kind/key), which loads the bounded VISUAL neighborhood.
 async function gotoGraphFocus(page: Page, kind: string, key: string) {
   await page.goto(`/#/fleet/graph/${kind}/${encodeURIComponent(key)}`);
-  await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
+}
+
+// Search the discovery state and follow the focus link for a given default perspective
+// (service links carry no perspective; revision/target links carry theirs), proving the
+// entity kind chooses the projection (requirement E).
+async function searchAndFocus(page: Page, text: string, perspective: 'service' | 'revision' | 'target') {
+  await gotoGraphDiscovery(page);
+  await page.getByRole('searchbox').fill(text);
+  const sel = perspective === 'service'
+    ? 'a[data-testid="graph-focus-link"]:not([href*="perspective="])'
+    : `a[data-testid="graph-focus-link"][href*="perspective=${perspective}"]`;
+  const link = page.locator(sel).first();
+  await expect(link).toBeVisible({ timeout: 20_000 });
+  await link.click();
+  await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
+}
+
+// Open the accessible text alternative so its node/edge buttons can be selected (a
+// canvas node is drawn to <canvas> and not directly clickable in Playwright; selecting
+// via the accessible list drives the SAME quick-inspection drawer).
+async function openTextAlt(page: Page) {
+  await page.getByTestId('graph-textalt').locator('summary').click();
 }
 
 test.describe('WASM dashboard demo — workflows', () => {
@@ -39,46 +61,108 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(nav.getByRole('link', { name: 'Owners' })).toBeVisible();
   });
 
-  test('graph opens SEARCH-FIRST: a discovery state, never a whole-fleet hairball', async ({ page }) => {
+  test('O1: graph opens SEARCH-FIRST with zero Cytoscape topology nodes', async ({ page }) => {
     await gotoGraphDiscovery(page);
-    // No topology is rendered without a focus (requirement R: zero topology nodes).
-    await expect(page.getByTestId('graph-canvas')).toHaveCount(0);
+    await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0);
     await expect(page.getByRole('search')).toBeVisible();
   });
 
-  test('graph: searching focuses a bounded local neighborhood via the product API', async ({ page }) => {
-    await gotoGraphDiscovery(page);
-    await page.getByRole('searchbox').fill('payments');
-    // A result links into the graph focus route; following it loads the neighborhood.
-    const result = page.getByTestId('graph-focus-link').first();
-    await expect(result).toBeVisible({ timeout: 20_000 });
-    await result.click();
-    await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByTestId('graph-focus-node')).toBeVisible();
+  test('O2: search a service, focus it, and see an actual visual graph with nodes and edges', async ({ page }) => {
+    await searchAndFocus(page, 'payments', 'service');
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
+    await expect(page.getByTestId('graph-legend')).toBeVisible();
+    // The same nodes/edges are listed in the accessible text alternative (proving the
+    // topology has real nodes and edges, not an empty canvas).
+    await openTextAlt(page);
+    await expect(page.getByTestId('graph-node-item').first()).toBeVisible();
+    await expect(page.getByTestId('graph-edge').first()).toBeVisible();
   });
 
-  test('graph controls: perspective and direction drive the neighborhood via the URL', async ({ page }) => {
+  test('O3/O4: Fit and Zoom in/out operate on the canvas without navigating', async ({ page }) => {
     await gotoGraphFocus(page, 'service', 'payments-service');
-    // perspective service is the default; switching updates the URL (shareable state).
-    await page.getByTestId('perspective-revision').click();
-    await expect(page).toHaveURL(/perspective=revision/);
+    const url = page.url();
+    await page.getByTestId('graph-fit').click();
+    await page.getByTestId('graph-zoom-in').click();
+    await page.getByTestId('graph-zoom-out').click();
+    await expect(page).toHaveURL(url); // fit/zoom are ephemeral: no URL change
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
+  });
+
+  test('O5: selecting a node opens the node quick-inspect drawer (no navigation)', async ({ page }) => {
+    await gotoGraphFocus(page, 'service', 'payments-service');
+    const url = page.url();
+    await openTextAlt(page);
+    await page.getByTestId('graph-node-item').first().click();
+    const drawer = page.getByTestId('graph-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('link', { name: /full detail/i })).toBeVisible();
+    await expect(page).toHaveURL(url); // selecting does not navigate away
+  });
+
+  test('O6: selecting an edge opens the relationship drawer', async ({ page }) => {
+    await gotoGraphFocus(page, 'service', 'payments-service');
+    await openTextAlt(page);
+    await page.getByTestId('graph-edge').first().click();
+    await expect(page.getByTestId('graph-drawer')).toBeVisible();
+  });
+
+  test('O7: a direct focus deep link survives a reload', async ({ page }) => {
+    await gotoGraphFocus(page, 'service', 'payments-service');
+    await page.reload();
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
+    await expect(page).toHaveURL(/\/fleet\/graph\/service\//);
+  });
+
+  test('O8: browser back restores the prior focus/state', async ({ page }) => {
+    await gotoGraphFocus(page, 'service', 'payments-service');
     await page.getByTestId('dir-dependencies').click();
     await expect(page).toHaveURL(/direction=dependencies/);
+    await page.goBack();
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
+    await expect(page).not.toHaveURL(/direction=dependencies/); // back to the default direction
+  });
+
+  test('O9: switching the knowledge view changes the requested/result topology', async ({ page }) => {
+    await gotoGraphFocus(page, 'service', 'payments-service');
+    await page.getByTestId('view-observed').click();
+    await expect(page).toHaveURL(/views=/);
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
+  });
+
+  test('O10: a revision search result opens a real revision projection', async ({ page }) => {
+    await searchAndFocus(page, 'payments', 'revision');
+    await expect(page).toHaveURL(/perspective=revision/);
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
+    await openTextAlt(page);
+    await expect(page.getByTestId('graph-node-item').first()).toBeVisible(); // real revision graph node
+  });
+
+  test('O11: a target search result renders a target + runs relation, no fabricated mesh', async ({ page }) => {
+    await searchAndFocus(page, 'payments', 'target');
+    await expect(page).toHaveURL(/perspective=target/);
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible();
+    await openTextAlt(page);
+    // The payments target runs payments-service 2.1.0 (an inferred, authoritative link),
+    // so a "Runs" relation is drawn; the target depends on services, never on another
+    // target (no target-to-target mesh).
+    await expect(page.getByTestId('graph-edge').filter({ hasText: 'Runs' }).first()).toBeVisible({ timeout: 20_000 });
+    // The one-hop target projection disables the inert depth/expand controls (D).
+    await expect(page.getByTestId('graph-depth')).toHaveCount(0);
+    await expect(page.getByTestId('graph-expand')).toHaveCount(0);
   });
 
   test('graph honesty: a partial snapshot surfaces the incompleteness caveat', async ({ page }) => {
     await gotoGraphFocus(page, 'service', 'payments-service');
-    // The demo snapshot is partial (an unavailable source), so the neighborhood says so.
     await expect(page.getByTestId('graph-knowledge-caveat')).toBeVisible();
   });
 
-  test('graph inspect: selecting the focus node opens a bounded quick-inspect drawer', async ({ page }) => {
+  test('graph controls: direction drives the neighborhood via the URL; service focus offers only the service perspective', async ({ page }) => {
     await gotoGraphFocus(page, 'service', 'payments-service');
-    await page.getByTestId('graph-focus-node').click();
-    const drawer = page.getByTestId('graph-drawer');
-    await expect(drawer).toBeVisible();
-    // The drawer links to the durable full entity page (never duplicates it).
-    await expect(drawer.getByRole('link', { name: /full detail/i })).toBeVisible();
+    await page.getByTestId('dir-dependencies').click();
+    await expect(page).toHaveURL(/direction=dependencies/);
+    // A service cannot be projected as one revision/target, so those buttons are absent (E).
+    await expect(page.getByTestId('perspective-revision')).toHaveCount(0);
+    await expect(page.getByTestId('perspective-target')).toHaveCount(0);
   });
 
   test('graph scale: discovery and a focused neighborhood render without a page error', async ({ page }) => {

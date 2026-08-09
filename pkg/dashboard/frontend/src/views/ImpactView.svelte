@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { api, ApiError } from '../lib/api.ts';
   import { classificationClass, completenessClass, completenessLabel } from '../lib/format.ts';
   import { formatDate } from '../lib/dateFormat.ts';
@@ -23,6 +23,11 @@
   const serviceKey = $derived(params.svc || '');
 
   const CONSUMER_PAGE = 100;
+  // The revision selectors are populated for a two-way (old -> new) comparison, so they
+  // are bounded to the most recent revisions rather than materializing an arbitrarily
+  // large revision universe in the browser (requirement L1). When more exist, the
+  // selector self-describes as incomplete instead of silently claiming completeness.
+  const MAX_SELECTOR_REVISIONS = 500;
   const CONFIDENCE_EXPLAIN = {
     contractual: 'Declared dependency with a usable compatibility range.',
     declared: 'Declared dependency, but no usable compatibility range.',
@@ -39,6 +44,9 @@
   let loadError = $state(null);
   let snapshotId = $state('');
   let revGen = 0;
+  // revisionsComplete is false when the revision universe is larger than the selector's
+  // bound (more revisions exist than are listed), so the UI can say so honestly.
+  let revisionsComplete = $state(true);
 
   // Selection.
   let fromRevKey = $state('');
@@ -54,8 +62,14 @@
   let consumerOffset = $state(0);
   let analyzeGen = 0;
 
-  // Service picker (only when the route carries no service key).
-  let serviceOptions = $state([]);
+  // Service picker (only when the route carries no service key): search-first, so a
+  // service beyond the first page of results is still discoverable (requirement L2).
+  let serviceQuery = $state('');
+  let serviceResults = $state([]);
+  let serviceTotal = $state(0);
+  let serviceSearching = $state(false);
+  let serviceSearchError = $state(null);
+  let serviceSearchSeq = 0;
 
   function verdictClass(v) {
     if (v === 'compatible') return 'badge-ok';
@@ -63,20 +77,24 @@
     return 'badge-neutral';
   }
 
-  // pageAllRevisions pages the COMPLETE revision universe for a service through the
-  // bounded product entities API, scoped by canonical ServiceKey -- the mechanism the
-  // task requires instead of falling back to the FleetSnapshot when the service-detail
-  // preview truncates.
-  async function pageAllRevisions(key) {
+  // pageRecentRevisions pages the service's revisions through the bounded product
+  // entities API (scoped by canonical ServiceKey -- never the FleetSnapshot), stopping
+  // at MAX_SELECTOR_REVISIONS so the browser never materializes an arbitrarily large
+  // universe just to populate two <select>s. It reports `complete` truthfully: true
+  // only when the API's own paging reached the end, false when the selector bound (or
+  // the hard page bound) was hit while more remained (requirement L1).
+  async function pageRecentRevisions(key) {
     const all = [];
     let offset = 0;
+    let complete = false;
     for (let i = 0; i < 100; i++) { // hard page bound; the API is itself bounded per page
       const page = await api.fleetEntities({ kinds: ['revision'], service: key, limit: 200, offset });
       all.push(...(page.entities ?? []));
-      if (page.nextOffset == null) break;
+      if (page.nextOffset == null) { complete = true; break; }
       offset = page.nextOffset;
+      if (all.length >= MAX_SELECTOR_REVISIONS) break; // more exist; stay honestly incomplete
     }
-    return all;
+    return { items: all, complete };
   }
 
   async function loadRevisions(key) {
@@ -87,10 +105,14 @@
     try {
       const detail = await api.fleetEntityDetail('service', key);
       let refs = (detail.service?.revisions?.items ?? []).slice();
+      let complete = !detail.service?.revisions?.truncated; // the preview was the full set
       if (detail.service?.revisions?.truncated) {
-        refs = await pageAllRevisions(key); // complete, canonical, bounded per page
+        const paged = await pageRecentRevisions(key); // canonical, bounded per page + overall
+        refs = paged.items;
+        complete = paged.complete;
       }
       if (gen !== revGen) return; // a newer service superseded this load
+      revisionsComplete = complete;
       // ponytail: the selector shows revisions newest-first via numeric-aware label
       // collation (1.9.0 < 1.10.0) with the immutable key as a tie-break. This is a
       // display nicety only -- the canonical RevisionKey is what is analyzed, so
@@ -114,19 +136,30 @@
     }
   }
 
-  async function loadServiceOptions() {
+  async function runServiceSearch() {
+    const q = serviceQuery.trim();
+    const my = ++serviceSearchSeq;
+    if (!q) { serviceResults = []; serviceTotal = 0; serviceSearching = false; serviceSearchError = null; return; }
+    serviceSearching = true;
+    serviceSearchError = null;
     try {
-      const l = await api.fleetEntities({ kinds: ['service'], limit: 100 });
-      serviceOptions = l.entities ?? [];
-    } catch { serviceOptions = []; }
-    loadingRevs = false;
+      const l = await api.fleetEntities({ kinds: ['service'], text: q, limit: 20 });
+      if (my !== serviceSearchSeq) return; // a newer query supersedes this response
+      serviceResults = l.entities ?? [];
+      serviceTotal = l.total ?? serviceResults.length;
+    } catch (e) {
+      if (my !== serviceSearchSeq) return;
+      serviceResults = []; serviceTotal = 0; serviceSearchError = e; // never rendered as "no matches"
+    } finally {
+      if (my === serviceSearchSeq) serviceSearching = false;
+    }
   }
 
   $effect(() => {
     const key = serviceKey;
     if (key) loadRevisions(key);
-    else loadServiceOptions();
   });
+  onDestroy(() => { serviceSearchSeq++; });
 
   onMount(async () => {
     // The include-observed control is a placebo unless an observation source exists;
@@ -191,14 +224,27 @@
 </div>
 
 {#if !serviceKey}
-  <!-- No service in the route: pick one (from the product entities API), which
-       navigates to the canonical /fleet/impact/:serviceKey workspace. -->
+  <!-- No service in the route: search for one (product entities API, search-first so
+       any service is discoverable), then navigate to /fleet/impact/:serviceKey. -->
   <div class="picker" data-testid="impact-service-picker">
-    <label for="impact-pick">Choose a service to analyze</label>
-    <select id="impact-pick" onchange={(e) => pickServiceOption(e.currentTarget.value)} disabled={serviceOptions.length === 0}>
-      <option value="">{serviceOptions.length ? 'Select a service…' : 'No services'}</option>
-      {#each serviceOptions as s}<option value={s.key}>{s.label}{s.domain ? ` (${s.domain})` : ''}</option>{/each}
-    </select>
+    <label for="impact-pick">Search for a service to analyze</label>
+    <form role="search" onsubmit={(e) => { e.preventDefault(); runServiceSearch(); }}>
+      <input id="impact-pick" type="search" bind:value={serviceQuery} oninput={runServiceSearch} placeholder="Search services by name…" />
+    </form>
+    {#if serviceSearching}
+      <p class="text-dim" role="status">Searching…</p>
+    {:else if serviceSearchError}
+      <div class="partial-banner" role="alert" data-testid="impact-picker-error">Search failed: {serviceSearchError instanceof ApiError ? serviceSearchError.message : 'service search is unavailable'}</div>
+    {:else if serviceResults.length}
+      <ul class="picker-results" data-testid="impact-picker-results">
+        {#each serviceResults as s (s.key)}
+          <li><button type="button" onclick={() => pickServiceOption(s.key)}>{s.label}{s.domain ? ` (${s.domain})` : ''}</button></li>
+        {/each}
+      </ul>
+      {#if serviceTotal > serviceResults.length}<p class="text-dim" data-testid="impact-picker-truncated">Showing {serviceResults.length} of {serviceTotal}. Refine your search to narrow it.</p>{/if}
+    {:else if serviceQuery.trim()}
+      <p class="text-dim" data-testid="impact-picker-empty">No services match "{serviceQuery}".</p>
+    {/if}
   </div>
 {:else if loadingRevs}
   <EmptyState loading message="Loading service revisions…" />
@@ -228,6 +274,9 @@
     </div>
     {#if revisions.length < 2}
       <p class="text-dim">This service has fewer than two known revisions, so there is no old → new change to analyze yet.</p>
+    {/if}
+    {#if !revisionsComplete}
+      <p class="text-dim" data-testid="impact-revisions-incomplete">This service has many revisions; only the most recent are listed here. To analyze an older revision, open it from its revision page.</p>
     {/if}
     <div class="form-actions">
       <label class="check-field" title={observedAvailable ? 'Let observed (runtime) relationships raise consumer confidence' : 'No observed relationship source is configured for this dashboard'}>
@@ -336,8 +385,12 @@
   .page-header { display: flex; align-items: baseline; gap: var(--sp-3); margin-bottom: var(--sp-4); flex-wrap: wrap; }
   .subtitle { color: var(--c-text-3); font-size: var(--text-sm); }
 
-  .picker { display: flex; flex-direction: column; gap: var(--sp-2); max-width: 420px; padding: var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
+  .picker { display: flex; flex-direction: column; gap: var(--sp-2); max-width: 480px; padding: var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
   .picker label { font-size: var(--text-sm); color: var(--c-text-2); }
+  .picker input[type="search"] { width: 100%; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
+  .picker-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .picker-results button { width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; cursor: pointer; }
+  .picker-results button:hover { border-color: var(--c-accent); }
 
   .impact-form { display: flex; flex-direction: column; gap: var(--sp-3); margin-bottom: var(--sp-5); padding: var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
   .svc-line { display: flex; align-items: center; gap: var(--sp-2); }
