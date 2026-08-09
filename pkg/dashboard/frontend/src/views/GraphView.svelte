@@ -95,7 +95,11 @@
     const o = drawerOpener; drawerOpener = null;
     if (o) queueMicrotask(() => o.focus?.());
   }
-  function onDrawerKeydown(e) { if (e.key === 'Escape') { e.preventDefault(); closeDrawer(); } }
+  // Escape closes the non-modal drawer from anywhere it is open. Handling it at the window
+  // (rather than a keydown on the <aside>) keeps the complementary landmark free of a
+  // keyboard listener a non-interactive element should not carry, and still works when
+  // focus has moved off the drawer.
+  function onDrawerKeydown(e) { if (e.key === 'Escape' && selected.kind) { e.preventDefault(); closeDrawer(); } }
   // Move focus into the drawer when it opens so it is announced and Escape-operable.
   $effect(() => {
     if (selected.kind && drawerEl) queueMicrotask(() => drawerEl?.focus());
@@ -184,6 +188,8 @@
     return 'Search is unavailable right now. Check your connection and try again.';
   }
 </script>
+
+<svelte:window onkeydown={onDrawerKeydown} />
 
 <div class="graph-view">
   <Breadcrumbs trail={focused
@@ -408,7 +414,7 @@
 
         <!-- Quick-inspection drawer (requirement H). -->
         {#if selected.kind === 'node' && selected.node}
-          <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Node details" tabindex="-1" bind:this={drawerEl} onkeydown={onDrawerKeydown}>
+          <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Node details" tabindex="-1" bind:this={drawerEl}>
             <div class="gv-drawer-head"><h2>Entity</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
             <EntityIdentity ref={selected.node.ref} />
             {#if selected.node.status}<p class="gv-drow"><span class="gv-k">Status</span> {selected.node.status}</p>{/if}
@@ -422,7 +428,7 @@
             </div>
           </aside>
         {:else if selected.kind === 'edge' && selected.edge}
-          <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Relationship details" tabindex="-1" bind:this={drawerEl} onkeydown={onDrawerKeydown}>
+          <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Relationship details" tabindex="-1" bind:this={drawerEl}>
             <div class="gv-drawer-head"><h2>Relationship</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
             <p class="gv-drow"><EntityLink ref={selected.edge.from} showStatus={false} /> <strong>{relationLabel(selected.edge.relation)}</strong> <EntityLink ref={selected.edge.to} showStatus={false} /></p>
             {#if selected.edge.relation === 'runs'}
@@ -466,7 +472,7 @@
   .disco-results a { display: block; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); text-decoration: none; }
   .disco-results a:hover { border-color: var(--c-accent); }
   .disco-hint { color: var(--c-text-3); font-size: var(--text-sm); }
-  .gv-btn-primary { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+  .gv-btn-primary { background: var(--c-accent); color: var(--c-on-accent); border-color: var(--c-accent); }
   .gv-btn-primary:hover { filter: brightness(1.08); border-color: var(--c-accent); }
   .disco-placeholder {
     display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
@@ -494,7 +500,7 @@
   .gv-ctl-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
   .gv-seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
   .gv-seg button { padding: 6px 10px; border: none; background: var(--c-bg); color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; text-transform: capitalize; }
-  .gv-seg button.active { background: var(--c-accent); color: #fff; }
+  .gv-seg button.active { background: var(--c-accent); color: var(--c-on-accent); }
   .gv-seg button:disabled { opacity: 0.5; cursor: not-allowed; }
   .gv-depth { align-items: center; }
   .gv-depth span { padding: 0 var(--sp-3); }

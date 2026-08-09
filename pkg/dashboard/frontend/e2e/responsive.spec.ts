@@ -42,5 +42,57 @@ for (const w of WIDTHS) {
       await expect(page.getByTestId('dir-both')).toBeVisible();
       expect(await bodyHasNoHorizontalOverflow(page)).toBe(true);
     });
+
+    // ── Deeper INTERACTIVE states (reopen section 11.4): the states most likely to
+    // overflow are not the resting routes but expanded filters, open drawers and populated
+    // results. Body-level horizontal overflow must never appear in any of them (internal
+    // scrollers are allowed). ──
+
+    test('focused graph: legend, semantic navigator, node drawer and edge drawer stay within the body', async ({ page }) => {
+      await page.goto('/#/fleet/graph/service/payments-service');
+      await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('graph-legend')).toBeVisible();
+      expect(await bodyHasNoHorizontalOverflow(page), 'focused graph + legend').toBe(true);
+      // Expand the semantic Relationships navigator (long endpoint labels are a wrap risk).
+      await page.getByTestId('graph-textalt').locator('summary').click();
+      await expect(page.getByTestId('graph-node-item').first()).toBeVisible();
+      expect(await bodyHasNoHorizontalOverflow(page), 'graph navigator expanded').toBe(true);
+      // Node drawer.
+      await page.getByTestId('graph-node-item').first().click();
+      await expect(page.getByTestId('graph-drawer')).toBeVisible();
+      expect(await bodyHasNoHorizontalOverflow(page), 'graph node drawer').toBe(true);
+      // Edge drawer (a long "from rel to" row is a wrap risk).
+      await page.getByTestId('graph-edge').first().click();
+      await expect(page.getByTestId('graph-drawer')).toBeVisible();
+      expect(await bodyHasNoHorizontalOverflow(page), 'graph edge drawer').toBe(true);
+    });
+
+    test('attention advanced filters expanded stay within the body', async ({ page }) => {
+      await page.goto('/#/fleet/attention');
+      await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
+      await page.locator('.av-advanced summary').click();
+      await expect(page.locator('.av-advanced[open]')).toBeVisible();
+      expect(await bodyHasNoHorizontalOverflow(page), 'attention advanced filters').toBe(true);
+    });
+
+    test('the mobile navigation menu opens within the body', async ({ page }) => {
+      await page.goto('/#/fleet');
+      await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+      const hamburger = page.getByRole('button', { name: 'Menu' });
+      if (await hamburger.isVisible()) {
+        await hamburger.click();
+        expect(await bodyHasNoHorizontalOverflow(page), 'mobile nav open').toBe(true);
+      }
+    });
+
+    test('Product Impact with populated selectors and results stays within the body', async ({ page }) => {
+      await page.goto('/#/fleet/impact/payments-service');
+      await expect(page.getByRole('heading', { level: 1, name: 'Impact' })).toBeVisible({ timeout: 20_000 });
+      await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
+      await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.0' });
+      await page.getByRole('button', { name: /Analyze impact/ }).click();
+      await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+      expect(await bodyHasNoHorizontalOverflow(page), 'impact populated results (long paths)').toBe(true);
+    });
   });
 }

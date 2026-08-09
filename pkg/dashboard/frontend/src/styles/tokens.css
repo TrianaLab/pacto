@@ -36,6 +36,10 @@
   --c-accent: #818cf8;
   --c-accent-bg: rgba(129, 140, 248, 0.08);
   --c-accent-hover: #a5b4fc;
+  /* Text/icon color to place ON a solid --c-accent fill (buttons, active segments).
+     White on the light-indigo dark-mode accent is only 2.98:1; a dark ink is 6.47:1, so
+     on-accent controls read at AA. (Light theme flips this to white; see below.) */
+  --c-on-accent: #0a0e17;
 
   /* Typography — scaled up for readability at 100% zoom */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -87,15 +91,17 @@
   --c-text-3: #5f6d80; /* clears AA 4.5:1 on light surfaces, still dimmer than text-2 */
   --c-border: #e2e8f0;
   --c-border-subtle: rgba(0, 0, 0, 0.04);
-  --c-ok: #059669;
-  --c-ok-bg: rgba(5, 150, 105, 0.06);
-  --c-ok-border: rgba(5, 150, 105, 0.15);
-  --c-warn: #d97706;
-  --c-warn-bg: rgba(217, 119, 6, 0.06);
-  --c-warn-border: rgba(217, 119, 6, 0.15);
-  /* red-700: deepened from #dc2626 so warn(amber)↔err(red) clears the normal-vision
-     ΔE≥15 floor in light mode (was 14.4, now 18.8) — full-color readers can tell an
-     amber "partial" segment from a red "not-done" segment. warn stays amber. */
+  /* emerald-700: deepened from #059669 so ok-as-text (badges, scores, diff-added) clears
+     AA 4.5:1 on the white light surface (was 3.77, now 5.48). */
+  --c-ok: #047857;
+  --c-ok-bg: rgba(4, 120, 87, 0.06);
+  --c-ok-border: rgba(4, 120, 87, 0.15);
+  /* amber-700: deepened from #d97706 so warn-as-text clears AA 4.5:1 on white (was 3.19,
+     now 5.02) while staying amber — warn(amber)↔err(red) is ΔE 27 (well over the ΔE≥15
+     normal-vision floor), so a "partial" segment still reads distinct from "not done". */
+  --c-warn: #b45309;
+  --c-warn-bg: rgba(180, 83, 9, 0.06);
+  --c-warn-border: rgba(180, 83, 9, 0.15);
   --c-err: #b91c1c;
   --c-err-bg: rgba(185, 28, 28, 0.06);
   --c-err-border: rgba(185, 28, 28, 0.15);
@@ -104,9 +110,13 @@
   --c-info-border: rgba(37, 99, 235, 0.15);
   --c-neutral: #64748b;
   --c-neutral-bg: rgba(100, 116, 139, 0.06);
-  --c-accent: #6366f1;
-  --c-accent-bg: rgba(99, 102, 241, 0.06);
-  --c-accent-hover: #4f46e5;
+  /* indigo-600: deepened from #6366f1 so accent-as-text (links, badges) AND white-on-accent
+     controls both clear AA 4.5:1 on the light surface (was 4.47/4.27, now 6.29/6.01). */
+  --c-accent: #4f46e5;
+  --c-accent-bg: rgba(79, 70, 229, 0.06);
+  --c-accent-hover: #4338ca;
+  /* On the darker light-mode accent, white now clears AA (6.29:1). */
+  --c-on-accent: #ffffff;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
 }

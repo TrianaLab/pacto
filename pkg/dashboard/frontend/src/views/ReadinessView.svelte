@@ -359,7 +359,7 @@
 
   .seg-btn.active {
     background: var(--c-accent);
-    color: #fff;
+    color: var(--c-on-accent);
   }
   .cat-name {
     display: inline-flex; align-items: center; gap: 5px;

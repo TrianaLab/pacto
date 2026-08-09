@@ -42,7 +42,9 @@
     text-align: center;
     color: var(--c-text-3);
     gap: var(--sp-3);
-    animation: fadeIn 0.3s ease-out;
+    /* No opacity fade-in: an in-flight opacity animation transiently dips the muted
+       title/message text below the AA contrast ratio (axe samples it mid-fade), and the
+       fade added no real value on a resting empty/error state. */
   }
   .state-box h3 {
     color: var(--c-text-2);
