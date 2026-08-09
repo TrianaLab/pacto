@@ -167,15 +167,24 @@ func sourceEntityRef(st SourceState) EntityRef {
 // clickable entry point in [Overview.EntryPoints] (requirement 4): a count is
 // never a passive number.
 type OverviewSummary struct {
-	Services                  int `json:"services"`
-	ServicesNeedingAttention  int `json:"servicesNeedingAttention"`
+	Services                 int `json:"services"`
+	ServicesNeedingAttention int `json:"servicesNeedingAttention"`
+	// Revisions and Targets are the population denominators. Without them a
+	// consumer can only show "3 non-compliant" and never "3 of 40": a distribution
+	// needs its whole, and deriving the whole client-side from a truncated list
+	// would be a fleet-wide claim made from a preview.
+	Revisions                 int `json:"revisions"`
+	Targets                   int `json:"targets"`
 	InvalidRevisions          int `json:"invalidRevisions"`
 	ExactTargetLinks          int `json:"exactTargetLinks"`
 	InferredTargetLinks       int `json:"inferredTargetLinks"`
 	AmbiguousTargetLinks      int `json:"ambiguousTargetLinks"`
 	UnresolvedTargetLinks     int `json:"unresolvedTargetLinks"`
+	CompliantTargets          int `json:"compliantTargets"`
 	NonCompliantTargets       int `json:"nonCompliantTargets"`
 	UnknownTargets            int `json:"unknownTargets"`
+	InvalidTargets            int `json:"invalidTargets"`
+	OtherComplianceTargets    int `json:"otherComplianceTargets"`
 	StaleTargets              int `json:"staleTargets"`
 	UnresolvedRelationships   int `json:"unresolvedRelationships"`
 	ObservedOnlyRelationships int `json:"observedOnlyRelationships"`
@@ -247,18 +256,33 @@ func (q *Query) Overview() *Overview {
 	sum.Services = len(q.snap.Services)
 
 	var recent []EvidenceItem
+	sum.Revisions = len(q.snap.Revisions)
 	for _, r := range q.snap.Revisions {
 		if r.validated && !r.Valid {
 			sum.InvalidRevisions++
 		}
 	}
+	sum.Targets = len(q.snap.Targets)
+	var link LinkTally
+	var comp ComplianceTally
 	for _, t := range q.snap.Targets {
-		q.tallyTargetLink(sum, t)
+		link.add(t)
+		comp.add(t.Compliance)
+		if t.Stale {
+			sum.StaleTargets++
+		}
 		if ei, ok := q.recentEvidence(t); ok {
 			sum.RecentEvidence++
 			recent = append(recent, ei)
 		}
 	}
+	// Copied out of the shared tallies so the fleet distribution, a service
+	// distribution and a per-target badge all classify by ONE rule.
+	sum.ExactTargetLinks, sum.InferredTargetLinks = link.Exact, link.Inferred
+	sum.AmbiguousTargetLinks, sum.UnresolvedTargetLinks = link.Ambiguous, link.Unresolved
+	sum.CompliantTargets, sum.NonCompliantTargets = comp.Compliant, comp.NonCompliant
+	sum.UnknownTargets, sum.InvalidTargets = comp.Unknown, comp.Invalid
+	sum.OtherComplianceTargets = comp.Other
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
 
@@ -274,31 +298,6 @@ func (q *Query) Overview() *Overview {
 	ov.RecentEvidence = EvidencePreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 	ov.EntryPoints = entryPoints(sum)
 	return ov
-}
-
-// tallyTargetLink buckets a target by its revision-link class and compliance.
-func (q *Query) tallyTargetLink(sum *OverviewSummary, t *TargetRecord) {
-	switch t.RevisionMatch {
-	case revisionMatchExact:
-		sum.ExactTargetLinks++
-	case revisionMatchInferred:
-		sum.InferredTargetLinks++
-	default:
-		if hasLimitation(t.Limitations, LimitationRevisionAmbiguous) {
-			sum.AmbiguousTargetLinks++
-		} else {
-			sum.UnresolvedTargetLinks++
-		}
-	}
-	switch t.Compliance {
-	case StatusNonCompliant:
-		sum.NonCompliantTargets++
-	case StatusUnknown:
-		sum.UnknownTargets++
-	}
-	if t.Stale {
-		sum.StaleTargets++
-	}
 }
 
 // tallyRelationships counts unresolved declared dependencies and observed-only

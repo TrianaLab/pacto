@@ -485,3 +485,13 @@ func TestProductImpact_RejectsNegativePaging(t *testing.T) {
 	defer cancel()
 	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: q.SnapshotID(), FromRevisionKey: from, ToRevisionKey: from, Limit: -1}, http.StatusUnprocessableEntity, nil)
 }
+
+// TestProductOwnership_AbsentStaysAbsent covers the absent-ownership branch: a
+// target whose logical service record is missing carries no owner block, and the
+// transport must pass that absence through rather than emit an empty owner, which
+// would read as "nobody owns this" instead of "we do not know".
+func TestProductOwnership_AbsentStaysAbsent(t *testing.T) {
+	if got := productOwnership(nil); got != nil {
+		t.Errorf("productOwnership(nil) = %+v, want nil", got)
+	}
+}

@@ -300,15 +300,16 @@ func toProductNeighborhood(nb *fleet.Neighborhood) *ProductNeighborhood {
 // ProductServiceDetail is the navigable service-kind detail payload.
 type ProductServiceDetail struct {
 	fleet.ServiceDetailData
-	Ownership     *ProductOwnership                   `json:"ownership,omitempty"`
-	Revisions     ProductRefPreview                   `json:"revisions"`
-	Deployments   ProductRefPreview                   `json:"deployments"`
-	Dependencies  ProductRefPreview                   `json:"dependencies"`
-	Dependents    ProductRefPreview                   `json:"dependents"`
-	Relationships ProductRelationshipsPreview         `json:"relationships"`
-	Findings      ProductAttributedFindingsPreview    `json:"findings"`
-	Evidence      ProductEvidencePreview              `json:"evidence"`
-	Limitations   ProductAttributedLimitationsPreview `json:"limitations"`
+	Ownership       *ProductOwnership                   `json:"ownership,omitempty"`
+	Revisions       ProductRefPreview                   `json:"revisions"`
+	ActiveRevisions ProductRefPreview                   `json:"activeRevisions"`
+	Deployments     ProductRefPreview                   `json:"deployments"`
+	Dependencies    ProductRefPreview                   `json:"dependencies"`
+	Dependents      ProductRefPreview                   `json:"dependents"`
+	Relationships   ProductRelationshipsPreview         `json:"relationships"`
+	Findings        ProductAttributedFindingsPreview    `json:"findings"`
+	Evidence        ProductEvidencePreview              `json:"evidence"`
+	Limitations     ProductAttributedLimitationsPreview `json:"limitations"`
 }
 
 func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
@@ -316,6 +317,7 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		ServiceDetailData: *d,
 		Ownership:         productOwnership(d.Ownership),
 		Revisions:         productRefPreview(d.Revisions),
+		ActiveRevisions:   productRefPreview(d.ActiveRevisions),
 		Deployments:       productRefPreview(d.Deployments),
 		Dependencies:      productRefPreview(d.Dependencies),
 		Dependents:        productRefPreview(d.Dependents),
@@ -354,17 +356,19 @@ func toProductRevisionDetail(d *fleet.RevisionDetailData) *ProductRevisionDetail
 // ProductTargetDetail is the navigable target-kind detail payload.
 type ProductTargetDetail struct {
 	fleet.TargetDetailData
-	Service   ProductRef        `json:"service"`
-	Revision  *ProductRef       `json:"revision,omitempty"`
-	Ownership *ProductOwnership `json:"ownership,omitempty"`
+	Service              ProductRef                  `json:"service"`
+	Revision             *ProductRef                 `json:"revision,omitempty"`
+	ServiceRelationships ProductRelationshipsPreview `json:"serviceRelationships"`
+	Ownership            *ProductOwnership           `json:"ownership,omitempty"`
 }
 
 func toProductTargetDetail(d *fleet.TargetDetailData) *ProductTargetDetail {
 	return &ProductTargetDetail{
-		TargetDetailData: *d,
-		Service:          productRef(d.Service),
-		Revision:         productRefPtr(d.Revision),
-		Ownership:        productOwnership(d.Ownership),
+		TargetDetailData:     *d,
+		Service:              productRef(d.Service),
+		Revision:             productRefPtr(d.Revision),
+		ServiceRelationships: productRelationshipsPreview(d.ServiceRelationships),
+		Ownership:            productOwnership(d.Ownership),
 	}
 }
 

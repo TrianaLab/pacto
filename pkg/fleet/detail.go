@@ -260,7 +260,7 @@ func capLen(s string, max int) string {
 // ponytail: O(len(m)*limit) time worst case (keys arriving in descending order) and
 // O(limit) space, both paid once at Build. Switch to a heap if a real Build-time
 // workload ever makes the time cost show up.
-func keysBounded(m map[string]any, limit int) (keys []string, all bool) {
+func keysBounded[V any](m map[string]V, limit int) (keys []string, all bool) {
 	if limit <= 0 {
 		return nil, len(m) == 0
 	}
@@ -293,44 +293,56 @@ func keysBounded(m map[string]any, limit int) (keys []string, all bool) {
 // relationships, and findings, evidence and limitations aggregated across the
 // service's targets (each attributed to the affected target).
 type ServiceDetailData struct {
-	Domain        string                       `json:"domain,omitempty"`
-	Ownership     *OwnershipInfo               `json:"ownership,omitempty"`
-	Revisions     RefPreview                   `json:"revisions"`
-	Deployments   RefPreview                   `json:"deployments"`
-	Dependencies  RefPreview                   `json:"dependencies"`
-	Dependents    RefPreview                   `json:"dependents"`
-	Relationships RelationshipsPreview         `json:"relationships"`
-	Findings      AttributedFindingsPreview    `json:"findings"`
-	Evidence      EvidencePreview              `json:"evidence"`
-	Limitations   AttributedLimitationsPreview `json:"limitations"`
+	Domain    string         `json:"domain,omitempty"`
+	Ownership *OwnershipInfo `json:"ownership,omitempty"`
+	// Summary aggregates the COMPLETE target/revision/edge populations. The
+	// previews below are bounded, so a consumer that needs a proportion or a total
+	// must read it here and never count preview Items.
+	Summary   ServiceSummary `json:"summary"`
+	Revisions RefPreview     `json:"revisions"`
+	// ActiveRevisions is the subset of Revisions at least one target is linked to
+	// (exact or inferred): the revisions actually in use, as opposed to every
+	// revision the fleet has ever seen.
+	ActiveRevisions RefPreview                   `json:"activeRevisions"`
+	Deployments     RefPreview                   `json:"deployments"`
+	Dependencies    RefPreview                   `json:"dependencies"`
+	Dependents      RefPreview                   `json:"dependents"`
+	Relationships   RelationshipsPreview         `json:"relationships"`
+	Findings        AttributedFindingsPreview    `json:"findings"`
+	Evidence        EvidencePreview              `json:"evidence"`
+	Limitations     AttributedLimitationsPreview `json:"limitations"`
 }
 
 // RevisionDetailData is the revision-kind payload: parent service, immutable
-// identity/content, validation, readiness, declared-interface/config/policy/
-// capability counts, bounded tools/skills/docs, exact/inferred targets, and the
-// previous/next known revisions of the same logical service.
+// identity/content and provenance, validation, readiness, the DECLARED
+// interfaces/configurations/policies/capabilities/state/workload themselves
+// (bounded, not merely counted), bounded tools/skills/docs, exact/inferred
+// targets, and the previous/next known revisions of the same logical service.
 type RevisionDetailData struct {
-	Service         EntityRef            `json:"service"`
-	Version         string               `json:"version,omitempty"`
-	PactoVersion    string               `json:"pactoVersion,omitempty"`
-	Identity        RevisionIdentity     `json:"identity"`
-	Valid           bool                 `json:"valid"`
-	Readiness       *ProductReadiness    `json:"readiness,omitempty"`
-	Validation      FindingsPreview      `json:"validation"`
-	Interfaces      int                  `json:"interfaces"`
-	Configurations  int                  `json:"configurations"`
-	Policies        int                  `json:"policies"`
-	Capabilities    int                  `json:"capabilities"`
-	Dependencies    RelationshipsPreview `json:"dependencies"`
-	Tools           ToolsPreview         `json:"tools"`
-	Skills          StringsPreview       `json:"skills"`
-	Docs            DocsPreview          `json:"docs"`
-	ExactTargets    RefPreview           `json:"exactTargets"`
-	InferredTargets RefPreview           `json:"inferredTargets"`
-	Previous        *EntityRef           `json:"previous,omitempty"`
-	Next            *EntityRef           `json:"next,omitempty"`
-	Ownership       *OwnershipInfo       `json:"ownership,omitempty"`
-	Limitations     LimitationsPreview   `json:"limitations"`
+	Service         EntityRef             `json:"service"`
+	Version         string                `json:"version,omitempty"`
+	PactoVersion    string                `json:"pactoVersion,omitempty"`
+	Identity        RevisionIdentity      `json:"identity"`
+	Provenance      RevisionProvenance    `json:"provenance"`
+	Valid           bool                  `json:"valid"`
+	Readiness       *ProductReadiness     `json:"readiness,omitempty"`
+	Validation      FindingsPreview       `json:"validation"`
+	Interfaces      InterfacesPreview     `json:"interfaces"`
+	Configurations  ConfigurationsPreview `json:"configurations"`
+	Policies        PoliciesPreview       `json:"policies"`
+	Capabilities    CapabilitiesPreview   `json:"capabilities"`
+	Workload        string                `json:"workload,omitempty"`
+	State           *StateSummary         `json:"state,omitempty"`
+	Dependencies    RelationshipsPreview  `json:"dependencies"`
+	Tools           ToolsPreview          `json:"tools"`
+	Skills          StringsPreview        `json:"skills"`
+	Docs            DocsPreview           `json:"docs"`
+	ExactTargets    RefPreview            `json:"exactTargets"`
+	InferredTargets RefPreview            `json:"inferredTargets"`
+	Previous        *EntityRef            `json:"previous,omitempty"`
+	Next            *EntityRef            `json:"next,omitempty"`
+	Ownership       *OwnershipInfo        `json:"ownership,omitempty"`
+	Limitations     LimitationsPreview    `json:"limitations"`
 }
 
 // TargetDetailData is the target-kind payload: the logical service and linked
@@ -339,24 +351,40 @@ type RevisionDetailData struct {
 // contract identity, evidence/reconciliation timestamps, and stale/quarantined
 // state.
 type TargetDetailData struct {
-	Service         EntityRef          `json:"service"`
-	Revision        *EntityRef         `json:"revision,omitempty"`
-	LinkState       string             `json:"linkState" enum:"exact,inferred,ambiguous,unresolved"`
-	Scope           string             `json:"scope,omitempty"`
-	Kind            string             `json:"kind,omitempty"`
-	Compliance      string             `json:"compliance" enum:"Compliant,NonCompliant,Unknown,Warning,Invalid,Reference,NotEvaluated"`
-	Coverage        *Coverage          `json:"coverage,omitempty"`
-	Findings        FindingsPreview    `json:"findings"`
-	ObservedRuntime RuntimePreview     `json:"observedRuntime"`
-	Sources         StringsPreview     `json:"sources"`
-	Source          string             `json:"source,omitempty"`
-	Identity        RevisionIdentity   `json:"identity"`
-	EvidenceAt      *time.Time         `json:"evidenceAt,omitempty"`
-	ReconciledAt    *time.Time         `json:"reconciledAt,omitempty"`
-	Stale           bool               `json:"stale"`
-	Quarantined     bool               `json:"quarantined,omitempty"`
-	Ownership       *OwnershipInfo     `json:"ownership,omitempty"`
-	Limitations     LimitationsPreview `json:"limitations"`
+	Service         EntityRef       `json:"service"`
+	Revision        *EntityRef      `json:"revision,omitempty"`
+	LinkState       string          `json:"linkState" enum:"exact,inferred,ambiguous,unresolved"`
+	Scope           string          `json:"scope,omitempty"`
+	Kind            string          `json:"kind,omitempty"`
+	Compliance      string          `json:"compliance" enum:"Compliant,NonCompliant,Unknown,Warning,Invalid,Reference,NotEvaluated"`
+	Coverage        *Coverage       `json:"coverage,omitempty"`
+	Findings        FindingsPreview `json:"findings"`
+	ObservedRuntime RuntimePreview  `json:"observedRuntime"`
+	// Labels is the observed workload metadata the runtime source reported for THIS
+	// target (namespace labels, selectors, annotations a source chose to surface).
+	// It is target-scoped observation, unlike ServiceRelationships below.
+	Labels RuntimePreview `json:"labels"`
+	// Readiness is the readiness result a runtime source reported for this target,
+	// present only when a source actually supplies one. A declared readiness gate
+	// lives on the Revision; this is the observed counterpart and is absent — not
+	// zero — when unobserved.
+	Readiness *ProductReadiness `json:"readiness,omitempty"`
+	// ServiceRelationships is the dependency neighbourhood of this target's LOGICAL
+	// SERVICE. The snapshot attributes declared and observed edges to a service,
+	// never to an individual target, so this is service-scoped context shown in the
+	// target's frame: it is NOT evidence that this particular target made those
+	// calls. It is named for its real scope so a consumer cannot present it as
+	// target-scoped observation.
+	ServiceRelationships RelationshipsPreview `json:"serviceRelationships"`
+	Sources              StringsPreview       `json:"sources"`
+	Source               string               `json:"source,omitempty"`
+	Identity             RevisionIdentity     `json:"identity"`
+	EvidenceAt           *time.Time           `json:"evidenceAt,omitempty"`
+	ReconciledAt         *time.Time           `json:"reconciledAt,omitempty"`
+	Stale                bool                 `json:"stale"`
+	Quarantined          bool                 `json:"quarantined,omitempty"`
+	Ownership            *OwnershipInfo       `json:"ownership,omitempty"`
+	Limitations          LimitationsPreview   `json:"limitations"`
 }
 
 // OwnerDetailData is the owner-kind payload: bounded previews of the owner's
@@ -438,16 +466,27 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		return nil, err
 	}
 	s := view.Service
+	summary, inUse := q.serviceSummary(view)
+	var active []*ContractRevision
+	for _, r := range view.Revisions {
+		if inUse[r.Key] {
+			active = append(active, r)
+		}
+	}
 	data := &ServiceDetailData{
-		Domain:       s.Domain,
-		Ownership:    serviceOwnership(s, view.Revisions),
-		Revisions:    refPreview(revisionRefs(view.Revisions)),
-		Deployments:  refPreview(targetRefs(view.Targets)),
-		Dependencies: refPreview(q.dependencyRefs(view.Dependencies)),
-		Dependents:   refPreview(q.serviceKeyRefs(view.Dependents)),
-		Findings:     attributedTargetFindingsPreview(view.Targets),
-		Evidence:     evidencePreview(evidenceForTargets(view.Targets)),
-		Limitations:  attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
+		Domain:    s.Domain,
+		Ownership: serviceOwnership(s, view.Revisions),
+		Summary:   summary,
+		// Newest first, in revision chronology: a version list ordered by content
+		// digest is unreadable as history.
+		Revisions:       refPreview(chronologicalRevisionRefs(view.Revisions)),
+		ActiveRevisions: refPreview(chronologicalRevisionRefs(active)),
+		Deployments:     refPreview(targetRefs(view.Targets)),
+		Dependencies:    refPreview(q.dependencyRefs(view.Dependencies)),
+		Dependents:      refPreview(q.serviceKeyRefs(view.Dependents)),
+		Findings:        attributedTargetFindingsPreview(view.Targets),
+		Evidence:        evidencePreview(evidenceForTargets(view.Targets)),
+		Limitations:     attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
 	}
 	if nb, e := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(s.Key), Direction: DirectionBoth, Views: allViews()}); e == nil {
 		// The neighborhood is ALREADY bounded (nodes and edges). Build the relationships
@@ -473,13 +512,16 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Version:         rev.Version,
 		PactoVersion:    rev.PactoVersion,
 		Identity:        revisionIdentity(rev.Digest, rev.RequestedRef, rev.ResolvedRef),
+		Provenance:      revisionProvenance(rev),
 		Valid:           rev.Valid,
 		Readiness:       productReadiness(rev.Readiness),
 		Validation:      findingsPreview(rev.Validation),
-		Capabilities:    len(rev.Contract.Capabilities),
-		Interfaces:      len(rev.Contract.Interfaces),
-		Configurations:  len(rev.Contract.Configurations),
-		Policies:        len(rev.Contract.Policies),
+		Capabilities:    capabilitiesPreview(rev.Contract.Capabilities),
+		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead),
+		Configurations:  configurationsPreview(rev.Contract.Configurations),
+		Policies:        policiesPreview(rev.Contract.Policies),
+		Workload:        rev.Contract.Workload,
+		State:           stateSummary(rev.Contract.State),
 		Dependencies:    relationshipsPreview(q.revisionEdges(rev.Key)),
 		Tools:           toolsPreview(rev.Tools),
 		Skills:          stringsPreview(rev.Skills),
@@ -510,6 +552,8 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		Compliance:   t.Compliance,
 		Coverage:     t.Coverage,
 		Findings:     findingsPreview(t.Findings),
+		Labels:       labelsPreview(t.Labels),
+		Readiness:    productReadiness(t.Readiness),
 		Sources:      stringsPreview(t.Sources),
 		Source:       t.Source,
 		Identity:     revisionIdentity(t.Digest, t.RequestedRef, t.ResolvedRef),
@@ -517,6 +561,7 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		ReconciledAt: t.ReconciledAt,
 		Stale:        t.Stale,
 		Quarantined:  t.Quarantined,
+		Ownership:    targetOwnership(q.snap.Services[t.ServiceKey]),
 		Limitations:  limitationsPreview(t.Limitations),
 		// The observed-runtime preview was bounded ONCE at Build time (see
 		// TargetRecord.ObservedRuntime); the product query reads that precomputed
@@ -528,6 +573,9 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 			ref := revisionEntityRef(rev)
 			data.Revision = &ref
 		}
+	}
+	if nb, e := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: string(t.ServiceKey), Direction: DirectionBoth, Views: allViews()}); e == nil {
+		data.ServiceRelationships = relationshipsPreviewFromNeighborhood(nb)
 	}
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: targetEntityRef(t), Status: t.Compliance,
@@ -859,7 +907,23 @@ func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo
 // this team owns" simply stopped there. Per-revision conflicts are a SERVICE-level fact
 // (one revision cannot disagree with itself), so this carries no Conflicts preview.
 func revisionOwnership(rev *ContractRevision) *OwnershipInfo {
-	owner := rev.Owner.DisplayString()
+	return ownerInfo(rev.Owner.DisplayString())
+}
+
+// targetOwnership reports the owner of the target's LOGICAL SERVICE. A target has
+// no owner of its own, and leaving the block off entirely made an operator who
+// landed on a target from the graph unable to answer "who do I page" without
+// navigating back up. Conflicts stay a service-level fact.
+func targetOwnership(s *ServiceRecord) *OwnershipInfo {
+	if s == nil {
+		return nil
+	}
+	return ownerInfo(s.Owner.DisplayString())
+}
+
+// ownerInfo builds the owner block with the owner ref, so the trail out to
+// "everything this team owns" is available from every entity that has an owner.
+func ownerInfo(owner string) *OwnershipInfo {
 	info := &OwnershipInfo{Owner: owner}
 	if owner != "" {
 		ref := ownerEntityRef(owner)

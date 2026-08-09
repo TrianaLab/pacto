@@ -567,7 +567,7 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		rev.validated = true
 	}
 	rev.Readiness = readiness.Evaluate(c.Readiness, now)
-	rev.Tools = toolsFrom(c, b.FS)
+	rev.Tools, rev.SpecsRead = toolsFrom(c, b.FS)
 	if b.FS != nil {
 		// skills.List calls fs.ReadDir, which panics on a nil FS interface; a
 		// runtime-only or rawless bundle can legitimately carry no FS.
@@ -610,9 +610,13 @@ func contentDigest(b *contract.Bundle) (string, error) {
 
 // toolsFrom derives bounded tool summaries from a contract's OpenAPI interfaces,
 // mirroring the MCP/dashboard naming (interface prefix when >1 openapi iface).
-func toolsFrom(c *contract.Contract, fsys fs.FS) []ToolSummary {
+// It also returns the names of the interfaces whose referenced document was
+// actually read, so a consumer can tell "this interface declares no operations"
+// apart from "this interface's document was never available" — an empty tool
+// list is otherwise indistinguishable between the two.
+func toolsFrom(c *contract.Contract, fsys fs.FS) (tools []ToolSummary, specsRead []string) {
 	if fsys == nil {
-		return nil
+		return nil, nil
 	}
 	openapiIfaces := 0
 	for _, iface := range c.Interfaces {
@@ -629,25 +633,27 @@ func toolsFrom(c *contract.Contract, fsys fs.FS) []ToolSummary {
 		if err != nil {
 			continue
 		}
+		specsRead = append(specsRead, iface.Name)
 		prefix := ""
 		if openapiIfaces > 1 {
 			prefix = iface.Name + "_"
 		}
 		for _, tool := range capability.BuildTools(doc, true) {
 			if len(out) >= maxToolsPerRevision {
-				return out
+				return out, specsRead
 			}
 			summary := tool.Summary
 			if summary == "" {
 				summary = tool.Description
 			}
 			out = append(out, ToolSummary{
-				Name: prefix + tool.Name, Method: tool.Method, Path: tool.Path,
+				Name: prefix + tool.Name, Interface: iface.Name,
+				Method: tool.Method, Path: tool.Path,
 				Summary: summary, Mutating: tool.Mutating,
 			})
 		}
 	}
-	return out
+	return out, specsRead
 }
 
 // docsFrom collects bounded doc references (path + humanized title) without

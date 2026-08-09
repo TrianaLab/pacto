@@ -219,8 +219,8 @@ func TestRevisionFrom_NilFS(t *testing.T) {
 // -------------------- toolsFrom --------------------
 
 func TestToolsFrom_NilFS(t *testing.T) {
-	if toolsFrom(&contract.Contract{}, nil) != nil {
-		t.Error("nil fs → nil tools")
+	if tools, specs := toolsFrom(&contract.Contract{}, nil); tools != nil || specs != nil {
+		t.Error("nil fs → nil tools and no specs read")
 	}
 }
 
@@ -229,7 +229,10 @@ func TestToolsFrom_SingleInterface_SummaryFallback(t *testing.T) {
 		{Name: "http", Type: contract.InterfaceTypeOpenAPI, Ref: "interfaces/openapi.json"},
 	}}
 	fsys := fstest.MapFS{"interfaces/openapi.json": {Data: []byte(smallOpenAPI)}}
-	tools := toolsFrom(c, fsys)
+	tools, specsRead := toolsFrom(c, fsys)
+	if len(specsRead) != 1 || specsRead[0] != "http" {
+		t.Errorf("readable openapi spec should be recorded, got %v", specsRead)
+	}
 	if len(tools) != 2 {
 		t.Fatalf("want 2 tools, got %d: %+v", len(tools), tools)
 	}
@@ -258,7 +261,10 @@ func TestToolsFrom_MultiInterface_Prefixed(t *testing.T) {
 		"interfaces/a.json": {Data: []byte(smallOpenAPI)},
 		"interfaces/b.json": {Data: []byte(smallOpenAPI)},
 	}
-	tools := toolsFrom(c, fsys)
+	tools, specsRead := toolsFrom(c, fsys)
+	if len(specsRead) != 2 {
+		t.Errorf("only the two readable openapi specs should be recorded, got %v", specsRead)
+	}
 	if len(tools) != 4 {
 		t.Fatalf("want 4 tools across 2 openapi ifaces, got %d", len(tools))
 	}
@@ -274,8 +280,12 @@ func TestToolsFrom_ReadDocError_Skipped(t *testing.T) {
 		{Name: "http", Type: contract.InterfaceTypeOpenAPI, Ref: "interfaces/bad.json"},
 	}}
 	fsys := fstest.MapFS{"interfaces/bad.json": {Data: []byte("{ this is not json")}}
-	if tools := toolsFrom(c, fsys); tools != nil {
+	tools, specsRead := toolsFrom(c, fsys)
+	if tools != nil {
 		t.Errorf("unreadable openapi should yield no tools, got %+v", tools)
+	}
+	if specsRead != nil {
+		t.Errorf("unreadable openapi must NOT be recorded as read, got %v", specsRead)
 	}
 }
 
@@ -284,7 +294,7 @@ func TestToolsFrom_CapAtMax(t *testing.T) {
 		{Name: "http", Type: contract.InterfaceTypeOpenAPI, Ref: "interfaces/openapi.json"},
 	}}
 	fsys := fstest.MapFS{"interfaces/openapi.json": {Data: []byte(bigOpenAPI(maxToolsPerRevision + 5))}}
-	tools := toolsFrom(c, fsys)
+	tools, _ := toolsFrom(c, fsys)
 	if len(tools) != maxToolsPerRevision {
 		t.Fatalf("tools should be capped at %d, got %d", maxToolsPerRevision, len(tools))
 	}

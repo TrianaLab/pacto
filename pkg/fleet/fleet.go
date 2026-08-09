@@ -327,11 +327,15 @@ type SourceState struct {
 // revision's OpenAPI interface. It omits the full input schema and operation
 // body so search/get answers stay small; callers fetch bodies lazily.
 type ToolSummary struct {
-	Name     string `json:"name"`
-	Method   string `json:"method"`
-	Path     string `json:"path"`
-	Summary  string `json:"summary,omitempty"`
-	Mutating bool   `json:"mutating"`
+	Name string `json:"name"`
+	// Interface is the declared interface the operation was derived from. It is
+	// recorded at derivation time so a consumer can group operations under their
+	// interface without re-deriving the (conditional) tool-name prefix.
+	Interface string `json:"interface,omitempty"`
+	Method    string `json:"method"`
+	Path      string `json:"path"`
+	Summary   string `json:"summary,omitempty"`
+	Mutating  bool   `json:"mutating"`
 }
 
 // DocRef is a pointer to an in-bundle document. It carries no body — bodies are
@@ -383,12 +387,17 @@ type ContractRevision struct {
 	Validation   []finding.Finding  `json:"validation,omitempty"`
 	Valid        bool               `json:"valid"`
 	Tools        []ToolSummary      `json:"tools,omitempty"`
-	Skills       []string           `json:"skills,omitempty"`
-	Docs         []DocRef           `json:"docs,omitempty"`
-	Lock         *lock.Lock         `json:"lock,omitempty"`
-	Source       string             `json:"source"`
-	Sources      []string           `json:"sources,omitempty"`
-	FetchedAt    *time.Time         `json:"fetchedAt,omitempty"`
+	// SpecsRead names the declared interfaces whose referenced document was
+	// successfully read at Build time. It exists so a consumer can distinguish an
+	// interface that declares no operations from one whose document was never
+	// available (absence of evidence is not evidence of absence).
+	SpecsRead []string   `json:"specsRead,omitempty"`
+	Skills    []string   `json:"skills,omitempty"`
+	Docs      []DocRef   `json:"docs,omitempty"`
+	Lock      *lock.Lock `json:"lock,omitempty"`
+	Source    string     `json:"source"`
+	Sources   []string   `json:"sources,omitempty"`
+	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
 
 	// bundle carries the parsed bundle used only DURING Build (to derive tools,
 	// skills, docs and validation). It is never serialized and is never exposed
