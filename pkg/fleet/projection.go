@@ -113,37 +113,47 @@ func (q *Query) revisionDepIndex() (bySource, byProvider map[RevisionKey][]Relat
 // ── Revision projection ──────────────────────────────────────────────────────
 
 // revisionNeighborhood projects a bounded revision graph around a focus revision.
+// The requested views drive the projection exactly as the service projection does:
+// the revision graph's only knowledge is DECLARED dependencies (a revision->revision
+// or revision->service edge), because runtime observation is recorded per SERVICE and
+// so has no revision-scoped edge to draw. The declared traversal, the emitted edges
+// AND the focus node's expansion affordances are therefore all gated on the declared
+// view, so an observed-only revision query returns just the focus and never traverses
+// a declared-only relationship.
 func (q *Query) revisionNeighborhood(kind EntityKind, key string, bp boundedParams) (*Neighborhood, error) {
 	focus, err := q.resolveRevisionFocus(kind, key)
 	if err != nil {
 		return nil, err
 	}
+	wantDeclared, _ := knowledgeFromViews(bp.views)
 	bySource, byProvider := q.revisionDepIndex()
 	b := newProjectionBuilder(bp.maxNodes, bp.maxEdges)
-	b.addNode(q.revisionNode(focus, 0, true, bySource, byProvider))
+	b.addNode(q.revisionNode(focus, 0, true, wantDeclared, bySource, byProvider))
 
 	var unresolved []UnresolvedDependency
-	seen := map[RevisionKey]bool{focus.Key: true}
-	frontier := []*ContractRevision{focus}
-	for d := 0; d < bp.depth && len(frontier) > 0; d++ {
-		var next []*ContractRevision
-		for _, rev := range frontier {
-			if bp.dir == DirectionDependencies || bp.dir == DirectionBoth {
-				next = append(next, q.expandRevisionDeps(rev, d, b, bySource, byProvider, seen, &unresolved)...)
+	if wantDeclared {
+		seen := map[RevisionKey]bool{focus.Key: true}
+		frontier := []*ContractRevision{focus}
+		for d := 0; d < bp.depth && len(frontier) > 0; d++ {
+			var next []*ContractRevision
+			for _, rev := range frontier {
+				if bp.dir == DirectionDependencies || bp.dir == DirectionBoth {
+					next = append(next, q.expandRevisionDeps(rev, d, b, wantDeclared, bySource, byProvider, seen, &unresolved)...)
+				}
+				if bp.dir == DirectionDependents || bp.dir == DirectionBoth {
+					next = append(next, q.expandRevisionDependents(rev, d, b, wantDeclared, bySource, byProvider, seen)...)
+				}
 			}
-			if bp.dir == DirectionDependents || bp.dir == DirectionBoth {
-				next = append(next, q.expandRevisionDependents(rev, d, b, bySource, byProvider, seen)...)
-			}
+			frontier = next
 		}
-		frontier = next
 	}
 	return &Neighborhood{
 		Meta: q.productMeta(), Perspective: PerspectiveRevision,
 		RequestedFocus: revisionEntityRef(focus), FocusService: q.serviceRef(focus.ServiceKey),
-		Direction: bp.dir, Depth: bp.depth, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
+		Direction: bp.dir, Depth: bp.depth, EffectiveDepth: bp.depth, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
 		Nodes: b.sortedNodes(), Edges: b.sortedEdges(),
 		UnresolvedDependencies: boundedUnresolved(unresolved),
-		Limitations:            projectionLimitations(bp.views, PerspectiveRevision),
+		Limitations:            revisionObservedLimitation(bp.views),
 		Truncated:              b.truncated,
 	}, nil
 }
@@ -178,7 +188,7 @@ func (q *Query) resolveRevisionFocus(kind EntityKind, key string) (*ContractRevi
 // provider revision when one was resolved (a lock matching a known revision), else the
 // logical provider service (a terminal mixed node), else an unresolved dependency.
 // Only resolved provider revisions are traversed further.
-func (q *Query) expandRevisionDeps(rev *ContractRevision, d int, b *projectionBuilder, bySource, byProvider map[RevisionKey][]Relationship, seen map[RevisionKey]bool, unresolved *[]UnresolvedDependency) []*ContractRevision {
+func (q *Query) expandRevisionDeps(rev *ContractRevision, d int, b *projectionBuilder, wantDeclared bool, bySource, byProvider map[RevisionKey][]Relationship, seen map[RevisionKey]bool, unresolved *[]UnresolvedDependency) []*ContractRevision {
 	var next []*ContractRevision
 	for _, rel := range bySource[rev.Key] {
 		if rel.ToService == "" {
@@ -189,7 +199,7 @@ func (q *Query) expandRevisionDeps(rev *ContractRevision, d int, b *projectionBu
 			// ResolvedRevision was derived by resolveDepRevision from snap.Revisions, so
 			// the provider revision always exists.
 			prov := q.snap.Revisions[rel.ResolvedRevision]
-			if b.addNode(q.revisionNode(prov, d+1, false, bySource, byProvider)) {
+			if b.addNode(q.revisionNode(prov, d+1, false, wantDeclared, bySource, byProvider)) {
 				b.addEdge(dependencyEdge(revisionEntityRef(rev), revisionEntityRef(prov), rel))
 				if !seen[prov.Key] {
 					seen[prov.Key] = true
@@ -211,12 +221,12 @@ func (q *Query) expandRevisionDeps(rev *ContractRevision, d int, b *projectionBu
 // provider (they establish this revision's content), edge consumer->rev. A consumer
 // that depends only on this revision's logical service is NOT attributed to this
 // revision (that belongs to the service projection).
-func (q *Query) expandRevisionDependents(rev *ContractRevision, d int, b *projectionBuilder, bySource, byProvider map[RevisionKey][]Relationship, seen map[RevisionKey]bool) []*ContractRevision {
+func (q *Query) expandRevisionDependents(rev *ContractRevision, d int, b *projectionBuilder, wantDeclared bool, bySource, byProvider map[RevisionKey][]Relationship, seen map[RevisionKey]bool) []*ContractRevision {
 	var next []*ContractRevision
 	for _, rel := range byProvider[rev.Key] {
 		// FromRevision is the revision that declared the dependency, so it always exists.
 		consumer := q.snap.Revisions[rel.FromRevision]
-		if b.addNode(q.revisionNode(consumer, d+1, false, bySource, byProvider)) {
+		if b.addNode(q.revisionNode(consumer, d+1, false, wantDeclared, bySource, byProvider)) {
 			b.addEdge(dependencyEdge(revisionEntityRef(consumer), revisionEntityRef(rev), rel))
 			if !seen[consumer.Key] {
 				seen[consumer.Key] = true
@@ -227,17 +237,22 @@ func (q *Query) expandRevisionDependents(rev *ContractRevision, d int, b *projec
 	return next
 }
 
-// revisionNode builds a revision graph node with view-agnostic expansion affordances
-// derived from whether the revision has any resolved dependency (outgoing) or any
-// revision locking it (incoming).
-func (q *Query) revisionNode(rev *ContractRevision, depth int, focus bool, bySource, byProvider map[RevisionKey][]Relationship) NeighborhoodNode {
+// revisionNode builds a revision graph node whose expansion affordances are computed
+// from the SAME knowledge set as the traversal: the revision graph is declared-only,
+// so a node advertises a dependency/dependent expansion only when declared knowledge
+// is in view (wantDeclared) and there is a resolved dependency (outgoing) or a
+// revision locking it (incoming). An observed-only revision query therefore advertises
+// no expansion that exists solely through excluded (declared) knowledge.
+func (q *Query) revisionNode(rev *ContractRevision, depth int, focus, wantDeclared bool, bySource, byProvider map[RevisionKey][]Relationship) NeighborhoodNode {
 	ref := revisionEntityRef(rev)
 	n := NeighborhoodNode{Ref: ref, Depth: depth, Focus: focus, Status: ref.Status, Owner: rev.Owner.DisplayString()}
-	if hasResolvedDep(bySource[rev.Key]) {
-		n.Expansions = append(n.Expansions, DirectionDependencies)
-	}
-	if len(byProvider[rev.Key]) > 0 {
-		n.Expansions = append(n.Expansions, DirectionDependents)
+	if wantDeclared {
+		if hasResolvedDep(bySource[rev.Key]) {
+			n.Expansions = append(n.Expansions, DirectionDependencies)
+		}
+		if len(byProvider[rev.Key]) > 0 {
+			n.Expansions = append(n.Expansions, DirectionDependents)
+		}
 	}
 	return n
 }
@@ -264,39 +279,58 @@ func (q *Query) serviceLeafNode(svc ServiceKey, depth int) NeighborhoodNode {
 	return NeighborhoodNode{Ref: ref, Depth: depth, Status: ref.Status, Owner: s.Owner.DisplayString()}
 }
 
-// dependencyEdge builds a declared-dependency edge (revision->revision,
-// revision->service or target->service). The single declared claim is preserved, and
-// the difference verdict is the backend's own reconciliation for that declared
-// dependency (a per-relationship fact), surfaced through finalizeEdge -- never
-// inferred by the frontend. Observation is service-scoped, so the edge is marked
-// observed only when the backend reconciled the dependency as matched.
+// dependencyEdge builds a declared-dependency edge in a FINE-GRAINED (revision- or
+// target-anchored) projection: revision->revision, revision->service, target->service
+// or the target projection's consumer->service dependent edge. The single declared
+// claim is preserved. Runtime observation is recorded per SERVICE (build.go reconciles
+// by the from/to SERVICE pair), so this edge is NEVER marked Observed from it: doing so
+// would promote service-scoped telemetry into a false revision- or target-scoped claim.
+// Instead the service-to-service reconciliation is surfaced as CONTEXT
+// (ObservationScope=service + ServiceCorroboration), so the frontend can say whether
+// the LOGICAL service relationship was corroborated without ever claiming this specific
+// fine-grained edge was observed. There is no edge-scope difference verdict at this
+// scope, so Difference stays empty.
 func dependencyEdge(from, to EntityRef, rel Relationship) NeighborhoodEdge {
 	e := NeighborhoodEdge{
 		ID: from.Key + "|" + to.Key, Relation: RelationDependency, From: from, To: to, Expected: true,
+		Observed: false, Provenance: ProvenanceDeclared,
+		ObservationScope:     ObservationScopeService,
+		ServiceCorroboration: serviceCorroboration(rel.Reconciliation),
 	}
-	e.DeclaredClaims.Items = []DeclaredClaim{{
+	e.DeclaredClaims = declaredClaimsPreview([]DeclaredClaim{{
 		SourceRevision: rel.FromRevision, Required: rel.Required, Compatibility: rel.Compatibility,
 		Reconciliation: rel.Reconciliation, RequestedRef: rel.RequestedRef,
 		LockedVersion: rel.LockedVersion, LockedDigest: rel.LockedDigest,
-	}}
-	e.Observed = rel.Reconciliation == ReconciliationMatched
-	e.Provenance = edgeProvenance(e)
-	finalizeEdge(&e)
+	}})
 	return e
 }
 
 // ── Target projection ────────────────────────────────────────────────────────
 
-// targetNeighborhood projects a bounded deployment graph around a focus target: a
-// "runs" edge to the revision the target runs, dependency edges to the SERVICES that
-// revision requires, and (for the dependents direction) the services that depend on
-// the target's service. It never fabricates a target-to-target edge.
+// targetNeighborhood projects a bounded, one-hop deployment graph around a focus
+// target. The three identities are never flattened and the target's specificity is
+// never overstated:
+//   - "runs" edge: the immutable revision this deployment runs, drawn ONLY when the
+//     revision link is authoritative (exact or inferred). It is the target's structural
+//     identity link, not a declared-vs-observed dependency.
+//   - dependency edges: target -> service B for the LINKED revision's declared
+//     dependencies, and ONLY when that link is authoritative. An ambiguous or
+//     unresolved target draws NO dependency edges (inheriting one arbitrary revision's
+//     dependencies would be a false claim); it surfaces a limitation instead.
+//   - dependents: services that depend on the target's LOGICAL SERVICE, drawn as
+//     consumer -> service edges (never consumer -> concrete target), so the target is
+//     never rendered as the specific routing endpoint the evidence cannot attribute.
+//
+// It never fabricates a target-to-target edge. The projection is intentionally one hop
+// (deeper exploration is the revision perspective's job), so EffectiveDepth is 1 and
+// the requested views gate the DECLARED edges exactly as the other projections do.
 func (q *Query) targetNeighborhood(kind EntityKind, key string, bp boundedParams) (*Neighborhood, error) {
 	tv, err := q.resolveTargetFocus(kind, key)
 	if err != nil {
 		return nil, err
 	}
 	t := tv.Target
+	wantDeclared, _ := knowledgeFromViews(bp.views)
 	b := newProjectionBuilder(bp.maxNodes, bp.maxEdges)
 	tRef := targetEntityRef(t)
 	focus := NeighborhoodNode{Ref: tRef, Depth: 0, Focus: true, Status: tRef.Status, Owner: q.serviceOwnerDisplay(t.ServiceKey), RevisionState: t.RevisionMatch}
@@ -304,30 +338,39 @@ func (q *Query) targetNeighborhood(kind EntityKind, key string, bp boundedParams
 
 	bySource, _ := q.revisionDepIndex()
 	var unresolved []UnresolvedDependency
+	var extraLimits []Limitation
 
-	// T runs revision A (only when the link is exact or inferred).
+	// T runs revision A: a structural identity link, drawn only when authoritative.
 	linked := tv.Revision
 	linkedKnown := linked != nil && (t.RevisionMatch == revisionMatchExact || t.RevisionMatch == revisionMatchInferred)
 	if linkedKnown {
-		if b.addNode(q.revisionNode(linked, 1, false, bySource, map[RevisionKey][]Relationship{})) {
+		if b.addNode(q.revisionNode(linked, 1, false, false, bySource, map[RevisionKey][]Relationship{})) {
 			b.addEdge(runsEdge(tRef, revisionEntityRef(linked)))
 		}
+	} else {
+		// The running revision is ambiguous or unresolved: Pacto cannot attribute a
+		// specific revision's declared dependencies to this concrete target, so no
+		// dependency edges are drawn from the target. The limitation says why.
+		extraLimits = append(extraLimits, Limitation{
+			Code:    "TARGET_REVISION_UNRESOLVED",
+			Message: "The revision this deployment runs is not authoritatively known, so its declared dependencies are not attributed to this target. Open the logical service to see revision-level dependencies.",
+		})
 	}
 
-	if bp.dir == DirectionDependencies || bp.dir == DirectionBoth {
-		q.addTargetDependencies(tRef, t, linked, linkedKnown, bySource, b, &unresolved)
+	if wantDeclared && linkedKnown && (bp.dir == DirectionDependencies || bp.dir == DirectionBoth) {
+		q.addTargetRevisionDeps(tRef, linked, bySource, b, &unresolved)
 	}
-	if bp.dir == DirectionDependents || bp.dir == DirectionBoth {
-		q.addTargetDependents(tRef, t, b)
+	if wantDeclared && (bp.dir == DirectionDependents || bp.dir == DirectionBoth) {
+		q.addTargetLogicalDependents(t, b)
 	}
 
 	return &Neighborhood{
 		Meta: q.productMeta(), Perspective: PerspectiveTarget,
 		RequestedFocus: tRef, FocusService: q.serviceRef(t.ServiceKey),
-		Direction: bp.dir, Depth: bp.depth, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
+		Direction: bp.dir, Depth: bp.depth, EffectiveDepth: 1, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
 		Nodes: b.sortedNodes(), Edges: b.sortedEdges(),
 		UnresolvedDependencies: boundedUnresolved(unresolved),
-		Limitations:            projectionLimitations(bp.views, PerspectiveTarget),
+		Limitations:            targetLimitations(bp.views, extraLimits),
 		Truncated:              b.truncated,
 	}, nil
 }
@@ -341,18 +384,13 @@ func (q *Query) resolveTargetFocus(kind EntityKind, key string) (*TargetView, er
 	return q.GetTarget(key)
 }
 
-// addTargetDependencies adds T -> service B for each service the target's revision
-// (or, when the revision is not linked, its logical service) declares a dependency on.
-// The edge is anchored at the target but the dependency itself is the revision's/
-// service's declared dependency; an unresolvable dependency is surfaced, not dropped.
-func (q *Query) addTargetDependencies(tRef EntityRef, t *TargetRecord, linked *ContractRevision, linkedKnown bool, bySource map[RevisionKey][]Relationship, b *projectionBuilder, unresolved *[]UnresolvedDependency) {
-	var rels []Relationship
-	if linkedKnown {
-		rels = bySource[linked.Key]
-	} else {
-		rels = q.serviceDeclaredDeps(t.ServiceKey)
-	}
-	for _, rel := range rels {
+// addTargetRevisionDeps adds T -> service B for each service the target's LINKED
+// revision declares a dependency on. It is called only for an authoritative
+// (exact/inferred) link, so it never inherits an arbitrary revision's dependencies;
+// the caller handles an unresolved link with a limitation. An unresolvable dependency
+// is surfaced, not dropped. Observation stays service-scoped (dependencyEdge).
+func (q *Query) addTargetRevisionDeps(tRef EntityRef, linked *ContractRevision, bySource map[RevisionKey][]Relationship, b *projectionBuilder, unresolved *[]UnresolvedDependency) {
+	for _, rel := range bySource[linked.Key] {
 		if rel.ToService == "" {
 			*unresolved = append(*unresolved, UnresolvedDependency{From: tRef, Ref: rel.To, SourceRevision: rel.FromRevision, RequestedRef: rel.RequestedRef, Reason: rel.Reason})
 			continue
@@ -363,42 +401,28 @@ func (q *Query) addTargetDependencies(tRef EntityRef, t *TargetRecord, linked *C
 	}
 }
 
-// addTargetDependents adds the SERVICES that depend on the target's service, edge
-// service->target. They are honest logical dependents ("this service depends on the
-// service this deployment runs"); they are NEVER target-to-target edges, because the
-// evidence does not establish which concrete provider target served the traffic.
-func (q *Query) addTargetDependents(tRef EntityRef, t *TargetRecord, b *projectionBuilder) {
-	for _, rel := range q.serviceReverseDeps(t.ServiceKey) {
+// addTargetLogicalDependents adds the SERVICES that depend on the target's LOGICAL
+// service, drawn as consumer -> logical-service edges (never consumer -> concrete
+// target): the evidence establishes a dependency on the service, not on this specific
+// deployment. The logical-service node is the shared dependents anchor; the target
+// stays separately linked to its revision via the runs edge.
+func (q *Query) addTargetLogicalDependents(t *TargetRecord, b *projectionBuilder) {
+	reverse := q.serviceReverseDeps(t.ServiceKey)
+	if len(reverse) == 0 {
+		return
+	}
+	svcRef := q.serviceRef(t.ServiceKey)
+	if !b.addNode(NeighborhoodNode{Ref: svcRef, Depth: 1, Status: svcRef.Status, Owner: q.serviceOwnerDisplay(t.ServiceKey)}) {
+		return
+	}
+	for _, rel := range reverse {
 		// FromService declared the dependency, so its service record always exists.
 		c := q.snap.Services[rel.FromService]
 		cRef := serviceEntityRef(c)
-		if b.addNode(NeighborhoodNode{Ref: cRef, Depth: 1, Status: cRef.Status, Owner: c.Owner.DisplayString()}) {
-			b.addEdge(dependencyEdge(cRef, tRef, rel))
+		if b.addNode(NeighborhoodNode{Ref: cRef, Depth: 2, Status: cRef.Status, Owner: c.Owner.DisplayString()}) {
+			b.addEdge(dependencyEdge(cRef, svcRef, rel))
 		}
 	}
-}
-
-// serviceDeclaredDeps aggregates the declared dependency relationships of ALL
-// revisions of a service (deduped by provider service), so a target with no exact
-// revision link still shows its logical service's dependencies. Deterministic order.
-func (q *Query) serviceDeclaredDeps(svc ServiceKey) []Relationship {
-	seen := map[ServiceKey]bool{}
-	var out []Relationship
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.FromService != svc {
-			continue
-		}
-		if rel.ToService != "" && seen[rel.ToService] {
-			continue
-		}
-		if rel.ToService != "" {
-			seen[rel.ToService] = true
-		}
-		out = append(out, rel)
-	}
-	sort.Slice(out, func(i, j int) bool { return relKeyLess(out[i], out[j]) })
-	return out
 }
 
 // serviceReverseDeps returns one declared dependency relationship per service that
@@ -417,16 +441,10 @@ func (q *Query) serviceReverseDeps(svc ServiceKey) []Relationship {
 		seen[rel.FromService] = true
 		out = append(out, rel)
 	}
-	sort.Slice(out, func(i, j int) bool { return relKeyLess(out[i], out[j]) })
+	// Every reverse dependency has the same ToService (svc), so ordering by the
+	// consumer's FromService alone is deterministic and complete.
+	sort.Slice(out, func(i, j int) bool { return out[i].FromService < out[j].FromService })
 	return out
-}
-
-// relKeyLess orders relationships deterministically by (from, to) service key.
-func relKeyLess(a, b Relationship) bool {
-	if a.FromService != b.FromService {
-		return a.FromService < b.FromService
-	}
-	return a.ToService < b.ToService
 }
 
 // serviceOwnerDisplay returns the display owner of a service. Every target's service
@@ -436,12 +454,14 @@ func (q *Query) serviceOwnerDisplay(svc ServiceKey) string {
 }
 
 // runsEdge is the observed "target runs revision" link. It is not a declared
-// dependency, so it carries no difference verdict; it is an observed fact reported by
-// the target.
+// dependency, so it carries no difference verdict; it is a genuine TARGET-scoped
+// observed fact (which immutable revision this deployment reports running), so its
+// ObservationScope is target -- unlike a fine-grained dependency edge, whose only
+// corroboration is service-scoped.
 func runsEdge(from, to EntityRef) NeighborhoodEdge {
 	return NeighborhoodEdge{
 		ID: from.Key + "|" + to.Key, Relation: RelationRuns, From: from, To: to,
-		Observed: true, Provenance: ProvenanceObserved,
+		Observed: true, Provenance: ProvenanceObserved, ObservationScope: ObservationScopeTarget,
 	}
 }
 
@@ -459,25 +479,32 @@ func boundedUnresolved(u []UnresolvedDependency) UnresolvedDependenciesPreview {
 	return UnresolvedDependenciesPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
-// projectionLimitations records the honest gaps of a projection when a view that
-// needs runtime observation is requested: observation is recorded per service, so it
-// is neither revision-scoped nor target-scoped.
-// projectionLimitations is only ever called for the revision and target
-// perspectives (the service perspective records no such limitation).
-func projectionLimitations(views []KnowledgeView, p Perspective) LimitationsPreview {
+// revisionObservedLimitation records the honest gap of the revision projection when a
+// view that needs runtime observation is requested: observation is recorded per
+// SERVICE, so it is never attributed to a specific revision edge. Each fine-grained
+// edge instead carries the service-scoped corroboration (ServiceCorroboration).
+func revisionObservedLimitation(views []KnowledgeView) LimitationsPreview {
 	if !viewsInclude(views, ViewObserved) && !viewsInclude(views, ViewDifferences) {
 		return limitationsPreview(nil)
 	}
-	if p == PerspectiveTarget {
-		return limitationsPreview([]Limitation{{
-			Code:    "OBSERVED_NOT_TARGET_SCOPED",
-			Message: "Runtime observation establishes service-to-service traffic, not which concrete provider target served it, so no target-to-target dependency edge is drawn.",
-		}})
-	}
 	return limitationsPreview([]Limitation{{
 		Code:    "OBSERVED_NOT_REVISION_SCOPED",
-		Message: "Runtime observation is recorded per service, not per revision, so observed traffic is not attributed to a specific revision edge; each edge's difference reflects the backend reconciliation of that declared dependency.",
+		Message: "Runtime observation is recorded per service, not per revision, so observed traffic is not attributed to a specific revision edge; each edge reports the service-scoped corroboration instead.",
 	}})
+}
+
+// targetLimitations merges the always-on limitations of a target projection (e.g. an
+// unresolved revision link) with the view-dependent observation-scope limitation, so
+// the honest gaps are stated regardless of which view produced the answer.
+func targetLimitations(views []KnowledgeView, extra []Limitation) LimitationsPreview {
+	out := append([]Limitation{}, extra...)
+	if viewsInclude(views, ViewObserved) || viewsInclude(views, ViewDifferences) {
+		out = append(out, Limitation{
+			Code:    "OBSERVED_NOT_TARGET_SCOPED",
+			Message: "Runtime observation establishes service-to-service traffic, not which concrete provider target served it, so no target-to-target dependency edge is drawn and no edge is attributed to this specific deployment.",
+		})
+	}
+	return limitationsPreview(out)
 }
 
 func viewsInclude(views []KnowledgeView, v KnowledgeView) bool {

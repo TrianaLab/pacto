@@ -176,6 +176,8 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"ProductSourceDetail", "health", sortedSet("available", "partial", "stale", "unavailable")},
 		{"ProductRef", "kind", sortedSet("service", "revision", "target", "owner", "source")},
 		{"ProductEdge", "difference", sortedSet("matched", "expected-not-observed", "observed-not-expected", "insufficient")},
+		{"ProductEdge", "observationScope", sortedSet("service", "target")},
+		{"ProductEdge", "serviceCorroboration", sortedSet("matched", "expected-not-observed", "insufficient")},
 		{"ProductNeighborhood", "direction", sortedSet("dependencies", "dependents", "both")},
 		{"ProductNeighborhood", "views", sortedSet("expected", "observed", "differences")},
 	}

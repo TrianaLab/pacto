@@ -50,6 +50,46 @@ const (
 	DifferenceInsufficient = "insufficient"
 )
 
+// ObservationScope names the granularity at which an edge's observation or
+// corroboration applies. Runtime observation is recorded per SERVICE, so a
+// fine-grained (revision/target) projection never promotes it to the edge's own
+// scope: a revision- or target-scoped dependency edge carries service-scoped
+// corroboration as CONTEXT (ObservationScopeService) and is never marked Observed,
+// while the target "runs" link is a genuine target-scoped observed fact
+// (ObservationScopeTarget).
+const (
+	ObservationScopeService = "service"
+	ObservationScopeTarget  = "target"
+)
+
+// Service corroboration is the SERVICE-scoped declared-vs-observed verdict surfaced
+// as CONTEXT on a fine-grained (revision/target) dependency edge. It mirrors the
+// difference vocabulary and is never an edge-scope claim: it answers "was the logical
+// service relationship corroborated by observation", not "was this specific
+// revision/target edge observed".
+const (
+	CorroborationMatched             = "matched"
+	CorroborationExpectedNotObserved = "expected-not-observed"
+	CorroborationInsufficient        = "insufficient"
+)
+
+// serviceCorroboration maps a declared dependency's service-scoped reconciliation
+// (see build.go, keyed by the FROM/TO SERVICE pair) into the corroboration
+// vocabulary surfaced on a fine-grained edge. A declared dependency always carries
+// one of the three reconciliation values; the default maps the remaining
+// ReconciliationInsufficient (and defends against any unexpected value) conservatively
+// to insufficient, so the edge never over-claims corroboration.
+func serviceCorroboration(reconciliation string) string {
+	switch reconciliation {
+	case ReconciliationMatched:
+		return CorroborationMatched
+	case ReconciliationDeclaredNotObserved:
+		return CorroborationExpectedNotObserved
+	default:
+		return CorroborationInsufficient
+	}
+}
+
 // KnowledgeView is a product-facing relationship lens (requirement 6). It maps to
 // engine provenance/reconciliation but never leaks those internal terms.
 type KnowledgeView string
@@ -171,17 +211,29 @@ type NeighborhoodEdge struct {
 	// "dependency" (the source depends on the target) or "runs" (a target runs the
 	// revision it points to). A dependency edge carries a difference verdict; a runs
 	// edge does not (it is an observed link, not a declared-vs-observed dependency).
-	Relation           string                    `json:"relation" enum:"dependency,runs"`
-	Expected           bool                      `json:"expected"`
-	Observed           bool                      `json:"observed"`
-	Provenance         string                    `json:"provenance" enum:"declared,observed"`
-	Difference         string                    `json:"difference,omitempty" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
-	DeclaredClaims     DeclaredClaimsPreview     `json:"declaredClaims"`
-	ObservationSources ObservationSourcesPreview `json:"observationSources"`
-	Count              int                       `json:"count,omitempty"`
-	FirstSeen          *time.Time                `json:"firstSeen,omitempty"`
-	LastSeen           *time.Time                `json:"lastSeen,omitempty"`
-	Stale              bool                      `json:"stale,omitempty"`
+	Relation string `json:"relation" enum:"dependency,runs"`
+	Expected bool   `json:"expected"`
+	// Observed reports whether THIS edge, at its own scope, was observed. A
+	// fine-grained (revision/target) dependency edge is never Observed from
+	// service-scoped telemetry (see ObservationScope/ServiceCorroboration); only a
+	// genuine service-to-service edge or the target "runs" link is ever Observed.
+	Observed   bool   `json:"observed"`
+	Provenance string `json:"provenance" enum:"declared,observed"`
+	Difference string `json:"difference,omitempty" enum:"matched,expected-not-observed,observed-not-expected,insufficient"`
+	// ObservationScope names the granularity at which this edge's observation or
+	// corroboration applies (service or target); empty when there is no observation.
+	ObservationScope string `json:"observationScope,omitempty" enum:"service,target"`
+	// ServiceCorroboration is the SERVICE-scoped declared-vs-observed verdict for the
+	// (fromService,toService) pair, surfaced as CONTEXT on a fine-grained
+	// (revision/target) dependency edge. It never claims the fine-grained edge itself
+	// was observed; it says whether the LOGICAL service relationship was corroborated.
+	ServiceCorroboration string                    `json:"serviceCorroboration,omitempty" enum:"matched,expected-not-observed,insufficient"`
+	DeclaredClaims       DeclaredClaimsPreview     `json:"declaredClaims"`
+	ObservationSources   ObservationSourcesPreview `json:"observationSources"`
+	Count                int                       `json:"count,omitempty"`
+	FirstSeen            *time.Time                `json:"firstSeen,omitempty"`
+	LastSeen             *time.Time                `json:"lastSeen,omitempty"`
+	Stale                bool                      `json:"stale,omitempty"`
 }
 
 // DeclaredClaimsPreview is a bounded preview of an edge's per-revision declared
@@ -232,12 +284,20 @@ type UnresolvedDependenciesPreview struct {
 // (e.g. observation is service-scoped, so it is not attributed to a specific revision
 // edge in the revision perspective).
 type Neighborhood struct {
-	Meta                   ProductMeta                   `json:"meta"`
-	Perspective            Perspective                   `json:"perspective" enum:"service,revision,target"`
-	RequestedFocus         EntityRef                     `json:"requestedFocus"`
-	FocusService           EntityRef                     `json:"focusService"`
-	Direction              Direction                     `json:"direction" enum:"dependencies,dependents,both"`
-	Depth                  int                           `json:"depth"`
+	Meta           ProductMeta `json:"meta"`
+	Perspective    Perspective `json:"perspective" enum:"service,revision,target"`
+	RequestedFocus EntityRef   `json:"requestedFocus"`
+	FocusService   EntityRef   `json:"focusService"`
+	Direction      Direction   `json:"direction" enum:"dependencies,dependents,both"`
+	Depth          int         `json:"depth"`
+	// EffectiveDepth is the depth the projection actually evaluated, which may be
+	// smaller than the requested Depth. The target projection is intentionally one
+	// hop (a deployment runs a revision and requires services; deeper exploration is
+	// the revision perspective's job), so a target neighborhood always reports
+	// EffectiveDepth 1 and the UI disables depth/expand for it; service and revision
+	// projections evaluate the full requested depth. This makes a hand-crafted
+	// "target depth 6" URL honestly report that only one hop was evaluated.
+	EffectiveDepth         int                           `json:"effectiveDepth"`
 	Views                  []KnowledgeView               `json:"views" enum:"expected,observed,differences"`
 	Nodes                  []NeighborhoodNode            `json:"nodes"`
 	Edges                  []NeighborhoodEdge            `json:"edges"`
@@ -313,7 +373,7 @@ func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParam
 	edges, truncatedEdges := q.neighborhoodEdges(nodeDepth, bp.views, bp.maxEdges)
 	res := &Neighborhood{
 		Meta: q.productMeta(), Perspective: PerspectiveService, RequestedFocus: requested, FocusService: focusService,
-		Direction: bp.dir, Depth: bp.depth, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
+		Direction: bp.dir, Depth: bp.depth, EffectiveDepth: bp.depth, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
 		Nodes: q.neighborhoodNodes(root, nodeDepth, revState, wantDeclared, wantObserved), Edges: edges,
 		UnresolvedDependencies: q.unresolvedNeighborhoodDeps(nodeDepth, wantDeclared),
 		Limitations:            limitationsPreview(nil),

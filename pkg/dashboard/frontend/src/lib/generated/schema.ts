@@ -1744,12 +1744,16 @@ export interface components {
             id: string;
             /** Format: date-time */
             lastSeen?: string;
+            /** @enum {string} */
+            observationScope?: "service" | "target";
             observationSources: components["schemas"]["Fleet.ObservationSourcesPreview"];
             observed: boolean;
             /** @enum {string} */
             provenance: "declared" | "observed";
             /** @enum {string} */
             relation: "dependency" | "runs";
+            /** @enum {string} */
+            serviceCorroboration?: "matched" | "expected-not-observed" | "insufficient";
             stale?: boolean;
             to: components["schemas"]["ProductRef"];
         };
@@ -1847,6 +1851,8 @@ export interface components {
             /** @enum {string} */
             direction: "dependencies" | "dependents" | "both";
             edges: components["schemas"]["ProductEdge"][] | null;
+            /** Format: int64 */
+            effectiveDepth: number;
             focusService: components["schemas"]["ProductRef"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             /** Format: int64 */

@@ -264,9 +264,19 @@ func TestTargetProjection_RunsOnlyWhenAuthoritative(t *testing.T) {
 			t.Errorf("drew a runs edge for an unresolved target link: %+v", e)
 		}
 	}
-	// it still shows the target's logical-service dependencies (target->db).
-	if findEdge(nb, string(tk), "db") == nil {
-		t.Errorf("target->db dependency edge missing for a target with an unresolved revision link")
+	// C1: an unresolved-link target must NOT inherit a revision's declared
+	// dependencies, so there is NO target->db dependency edge; the honest gap is a
+	// TARGET_REVISION_UNRESOLVED limitation instead.
+	if findEdge(nb, string(tk), "db") != nil {
+		t.Errorf("unresolved-link target must NOT attribute a revision's declared dependency to the concrete target")
+	}
+	for _, e := range nb.Edges {
+		if e.Relation == RelationDependency && e.From.Key == string(tk) {
+			t.Errorf("unresolved-link target must draw no dependency edges from the target: %+v", e)
+		}
+	}
+	if !hasLimitation(nb.Limitations.Items, "TARGET_REVISION_UNRESOLVED") {
+		t.Errorf("unresolved-link target must surface the TARGET_REVISION_UNRESOLVED limitation: %+v", nb.Limitations)
 	}
 }
 
@@ -431,7 +441,10 @@ func TestTargetProjection_Dependents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// web and app both depend on api's service; app appears ONCE despite two revisions.
+	// C2: web and app depend on api's LOGICAL SERVICE. They are drawn as
+	// consumer->service edges (never consumer->concrete-target), so the target is
+	// never rendered as the specific routing endpoint. app appears ONCE despite two
+	// revisions.
 	apps := 0
 	for _, n := range nb.Nodes {
 		if n.Ref.Key == "app" {
@@ -444,35 +457,47 @@ func TestTargetProjection_Dependents(t *testing.T) {
 	if nodeByKey(nb, "web") == nil {
 		t.Errorf("web must appear as a dependent of api's service")
 	}
+	// The dependent edges point to the LOGICAL SERVICE "api", not to the concrete
+	// target api-prod, and no edge targets the concrete target as a dependency
+	// provider endpoint.
+	if findEdge(nb, "web", "api") == nil {
+		t.Errorf("dependent edge must be consumer->logical-service (web->api), not consumer->target")
+	}
+	for _, e := range nb.Edges {
+		if e.Relation == RelationDependency && e.To.Key == apiProd {
+			t.Errorf("no dependency edge may point AT the concrete target as its provider endpoint: %+v", e)
+		}
+	}
 
-	// An unresolved-link target falls back to its logical service's declared deps.
+	// C1: an unresolved-link target must NOT inherit its logical service's declared
+	// deps. mystery (digest matches no revision) draws NO dependency edges from the
+	// target and surfaces the TARGET_REVISION_UNRESOLVED limitation.
 	mystery := string(targetKeyFor(t, q, "mystery"))
 	mnb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindTarget, Key: mystery, Perspective: PerspectiveTarget, Direction: DirectionDependencies})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if findEdge(mnb, mystery, "db") == nil || findEdge(mnb, mystery, "cache") == nil {
-		t.Errorf("unresolved-link target must show its service's declared dependency edges")
+	for _, e := range mnb.Edges {
+		if e.Relation == RelationDependency && e.From.Key == mystery {
+			t.Errorf("unresolved-link target must inherit no revision's declared deps: %+v", e)
+		}
 	}
-	if mnb.UnresolvedDependencies.Total == 0 {
-		t.Errorf("unresolved-link target must surface the service's unresolved dependency (missing1)")
+	if !hasLimitation(mnb.Limitations.Items, "TARGET_REVISION_UNRESOLVED") {
+		t.Errorf("unresolved-link target must surface the TARGET_REVISION_UNRESOLVED limitation: %+v", mnb.Limitations)
 	}
 
-	// app has two revisions both depending on api; an unresolved-link target for app
-	// must aggregate a SINGLE app->api dependency edge (the two revisions are deduped).
+	// C1 (ambiguity by aggregation): a second unresolved target for a service with two
+	// revisions must NOT aggregate any revision's declared api dependency onto the
+	// concrete target.
 	appMystery := string(targetKeyFor(t, q, "app-mystery"))
 	anb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindTarget, Key: appMystery, Perspective: PerspectiveTarget, Direction: DirectionDependencies})
 	if err != nil {
 		t.Fatal(err)
 	}
-	apiDeps := 0
 	for _, e := range anb.Edges {
-		if e.From.Key == appMystery && e.To.Key == "api" {
-			apiDeps++
+		if e.From.Key == appMystery && e.Relation == RelationDependency {
+			t.Errorf("unresolved-link target must not attribute any revision's dependency to the target, got %+v", e)
 		}
-	}
-	if apiDeps != 1 {
-		t.Errorf("app's two revisions depending on api must dedupe to a single target->api edge, got %d", apiDeps)
 	}
 }
 
