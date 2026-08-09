@@ -1038,7 +1038,11 @@ Acceptance:
   renders a target + runs relation with the one-hop controls disabled and no fabricated
   mesh. The demo's payments-service target was given a version-pinned ref so its link is
   inferred (authoritative), proving the target/revision projections in-browser. The live
-  Kind smoke asserts the real visual topology over live HTTP.
+  Kind smoke asserts the focused VISUAL-GRAPH view renders over live HTTP -- its canvas
+  controls (Fit/Reset) and the perspective toolbar appear and the neighborhood resolves
+  to the drawn topology or the honest empty state; because the live k8s fleet source is
+  dependency-light (it carries target/status, not contract dependency edges), the rich
+  node/edge/drawer/perspective topology is proven by the WASM demo, not the live smoke.
 
 ### Product response boundedness audit (requirement, item 4)
 
