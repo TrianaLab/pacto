@@ -166,6 +166,25 @@ export interface GraphControls {
   applyFilter: (fn: ((n: GraphNode) => boolean) | null) => void;
   /** Read-only readiness snapshot of the rendered graph (see GraphDiagnostics). */
   diagnostics: () => GraphDiagnostics;
+  /** Reconcile a CHANGED topology in place: surviving node ids keep their exact
+   *  positions, vanished elements are removed, and only genuinely new nodes are laid
+   *  out (near their neighbors). The viewport is left alone. */
+  applyTopology: (graphData: GraphData) => void;
+  /** Discard the current arrangement: run a fresh layout from scratch and fit. This is
+   *  NOT the same operation as fit(), which only re-frames what is already arranged. */
+  resetLayout: () => void;
+  /** The current spatial state: every node's model position plus pan/zoom. This is what
+   *  a caller persists; it contains presentation coordinates only, no semantics. */
+  spatialState: () => SpatialState;
+}
+
+/** SpatialState is the graph's presentation geometry: where the user put things and how
+ *  they are looking at it. It carries no semantic data — a stale or foreign one can only
+ *  ever misplace a node, never misreport a status. */
+export interface SpatialState {
+  positions: Record<string, { x: number; y: number }>;
+  pan: { x: number; y: number };
+  zoom: number;
 }
 
 interface RenderOptions {
@@ -199,6 +218,17 @@ interface RenderOptions {
    *  bounded neighborhood shows all its edges at rest, dependency vs runs distinct,
    *  instead of dimming to the focus's cone). Default true (whole-fleet behavior). */
   autoSpotlightFocus?: boolean;
+  /** Previously-saved node positions (node id -> model position) to restore instead of
+   *  laying out. Ids that are not in the current graph are ignored, and nodes with no
+   *  saved position are laid out around the restored ones — so a stale saved state can
+   *  never make the graph unusable, only partially pre-arranged. */
+  savedPositions?: Record<string, { x: number; y: number }>;
+  /** Previously-saved pan/zoom, restored after the graph is ready. Restoring a viewport
+   *  is only meaningful together with savedPositions; on its own it is ignored. */
+  savedViewport?: { pan: { x: number; y: number }; zoom: number } | null;
+  /** Fired (debounced) whenever the user changes the spatial state: dragging a node,
+   *  panning, or zooming. The caller decides whether and where to persist it. */
+  onSpatialChange?: (s: SpatialState) => void;
   // Accepted for API compatibility; the "+N" expand chip is superseded by
   // click-to-focus, so these are ignored.
   hidden?: Map<string, number>;
@@ -308,6 +338,11 @@ export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
     nodeRepulsion: 6500,
     packComponents: true,
     nodeDimensionsIncludeLabels: true,
+    // fCoSE seeds from random positions by default, so the SAME graph laid out twice
+    // lands somewhere different each time. That turns every refresh into a visible
+    // reshuffle and makes "the layout was preserved" unprovable. Seeded from the
+    // existing positions instead, the same input produces the same arrangement.
+    randomize: false,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 }
@@ -526,7 +561,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, onSelectNode, onSelectEdge, onReady, tapToOpen, edgeStyle = 'faint', autoSpotlightFocus = true }: RenderOptions = {},
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, onSelectNode, onSelectEdge, onReady, tapToOpen, edgeStyle = 'faint', autoSpotlightFocus = true, savedPositions, savedViewport, onSpatialChange }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const hasGroups = !!(groups && groups.size);
@@ -665,6 +700,8 @@ export function renderGraph(
     onSelect?.(clickFocusId ? n.data('serviceName') : null);
     onSelectNode?.(clickFocusId ? id : null);
     if (clickFocusId) {
+      // Our own centering, not a pan the user asked for.
+      suppressViewport(400);
       if (prefersReducedMotion()) cy.center(n);
       else cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
     }
@@ -726,14 +763,113 @@ export function renderGraph(
     return { ...base, nodesWithBox, edgesRendered };
   }
 
+  // ── Spatial state ────────────────────────────────────────────────────────
+  // Where the user put things, and how they are looking at it. It is presentation
+  // geometry and nothing else, so a stale or foreign one can only misplace a node --
+  // never misreport a status. It is deliberately kept OUT of the semantic refresh path:
+  // a background poll that changes a compliance verdict must not move the canvas.
+
+  // Ids we restored a position for. Non-empty means the user has already arranged this
+  // exact graph query, so the initial layout is skipped entirely.
+  const restored = new Set<string>();
+  // True once the arrangement or the viewport belongs to the user (a drag, a pan, a
+  // zoom, or a restored state). While it is false the container-resize handler is free
+  // to re-fit; once true, re-fitting would throw away a deliberate choice.
+  let userAdjusted = false;
+  // Viewport events fire for our OWN fits and centering animations too. Programmatic
+  // changes announce themselves here so they are not mistaken for user intent.
+  let suppressViewportUntil = 0;
+  let spatialTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function suppressViewport(ms: number): void { suppressViewportUntil = Date.now() + ms; }
+
+  function snapshotSpatial(): SpatialState {
+    const positions: Record<string, { x: number; y: number }> = {};
+    cy.nodes().forEach((n) => {
+      if (n.isParent()) return; // a compound box is positioned BY its children
+      positions[n.id()] = { x: n.position('x'), y: n.position('y') };
+    });
+    return { positions, pan: { ...cy.pan() }, zoom: cy.zoom() };
+  }
+
+  // Debounced: a drag or a pinch-zoom emits a continuous stream of events, and the
+  // caller writes this to storage.
+  function emitSpatial(): void {
+    if (!onSpatialChange) return;
+    clearTimeout(spatialTimer);
+    spatialTimer = setTimeout(() => onSpatialChange(snapshotSpatial()), 250);
+  }
+
+  function restoreSavedPositions(): void {
+    if (!savedPositions) return;
+    cy.batch(() => {
+      cy.nodes().forEach((n) => {
+        const p = savedPositions[n.id()];
+        // Ids not in the saved state are ignored rather than defaulted, so a saved
+        // state from a smaller graph pre-arranges what it knows and leaves the rest
+        // to be placed.
+        if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+        n.position({ x: p.x, y: p.y });
+        restored.add(n.id());
+      });
+    });
+  }
+  restoreSavedPositions();
+
+  // How far a brand-new node sits from the neighbor it attaches to.
+  const NEW_NODE_OFFSET = 150;
+
+  // placeNewNodes gives nodes that have no position yet a deterministic spot beside the
+  // neighbors they connect to, WITHOUT touching anything already placed. Running a full
+  // layout instead would be less code and would also move every surviving node -- which
+  // is the exact regression this exists to prevent.
+  function placeNewNodes(fresh: Set<string>): void {
+    if (!fresh.size) return;
+    const settled = cy.nodes().filter((n) => !fresh.has(n.id()) && !n.isParent());
+    const bb = settled.nonempty() ? settled.boundingBox() : null;
+    const center = bb ? { x: bb.x1 + bb.w / 2, y: bb.y1 + bb.h / 2 } : { x: 0, y: 0 };
+    const radius = bb ? Math.max(200, bb.w / 2 + 140) : 200;
+    const ids = [...fresh].sort(); // stable: the same new set always lands the same way
+    cy.batch(() => {
+      ids.forEach((id, i) => {
+        const n = cy.getElementById(id);
+        if (n.empty()) return;
+        const angle = (i * 2 * Math.PI) / ids.length;
+        const anchors = n.neighborhood('node').filter((m) => !fresh.has(m.id()) && !(m as NodeSingular).isParent());
+        if (anchors.nonempty()) {
+          let sx = 0;
+          let sy = 0;
+          anchors.forEach((m) => { sx += m.position('x'); sy += m.position('y'); });
+          const ax = sx / anchors.size();
+          const ay = sy / anchors.size();
+          n.position({ x: ax + Math.cos(angle) * NEW_NODE_OFFSET, y: ay + Math.sin(angle) * NEW_NODE_OFFSET });
+        } else {
+          // Nothing to attach to: park it on a ring outside the settled graph, where it
+          // is visible as an arrival rather than buried under the existing arrangement.
+          n.position({ x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius });
+        }
+      });
+    });
+  }
+
   // fitView fits the whole graph in view, honoring prefers-reduced-motion (an instant
   // fit rather than an animated pan/zoom).
   function fitView(duration: number): void {
+    suppressViewport(duration + 150);
     if (prefersReducedMotion()) cy.fit(cy.elements(), 30);
     else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration, easing: 'ease-out' });
   }
 
-  function layoutAndFit(): void {
+  function settle(): void {
+    if (filterFn) applyFilter(filterFn);
+    else applyDimming();
+    // The graph has laid out and painted: publish the readiness snapshot for the
+    // visual-graph browser acceptance (a real non-headless canvas with rendered nodes
+    // and edges), and never before positions exist.
+    onReady?.(computeDiagnostics());
+  }
+
+  function runLayout(): void {
     const l = cy.layout(cyLayout(layout));
     l.one('layoutstop', () => {
       // Layered tree: fold any over-wide level into sub-rows sized to the CURRENT
@@ -745,15 +881,37 @@ export function renderGraph(
         cy.batch(() => cy.nodes().forEach((n) => { const p = pos.get(n.id()); if (p) n.position(p); }));
       }
       fitView(250);
-      if (filterFn) applyFilter(filterFn);
-      else applyDimming();
-      // The graph has laid out and painted: publish the readiness snapshot for the
-      // visual-graph browser acceptance (a real non-headless canvas with rendered nodes
-      // and edges), and never before positions exist.
-      onReady?.(computeDiagnostics());
+      settle();
+      emitSpatial();
     });
     l.run();
   }
+
+  function layoutAndFit(): void {
+    if (restored.size === 0) { runLayout(); return; }
+    // The user already arranged this exact graph query. Laying it out again would
+    // discard that, so only the nodes the saved state did not know about are placed,
+    // and the saved viewport (if any) is restored rather than re-fitted.
+    const fresh = new Set<string>();
+    cy.nodes().forEach((n) => { if (!n.isParent() && !restored.has(n.id())) fresh.add(n.id()); });
+    placeNewNodes(fresh);
+    if (savedViewport && Number.isFinite(savedViewport.zoom) && savedViewport.zoom > 0) {
+      suppressViewport(150);
+      cy.zoom(savedViewport.zoom);
+      cy.pan({ ...savedViewport.pan });
+      userAdjusted = true;
+    } else {
+      fitView(0);
+    }
+    settle();
+  }
+
+  cy.on('dragfree', 'node', () => { userAdjusted = true; emitSpatial(); });
+  cy.on('viewport', () => {
+    if (Date.now() < suppressViewportUntil) return;
+    userAdjusted = true;
+    emitSpatial();
+  });
 
   // Lay out only once the container has a real size — cy often initialises before
   // the container is measured, which produced the "renders wrong until you click"
@@ -770,7 +928,10 @@ export function renderGraph(
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         if (clickFocusId) return; // don't disrupt a pinned focus
-        if (layout === 'layered') layoutAndFit();
+        // A panel opening must not undo a pan the user just made. Re-fitting is only
+        // ever a courtesy for a viewport nobody has touched.
+        if (userAdjusted) return;
+        if (layout === 'layered') runLayout();
         else fitView(200);
       }, 150);
     });
@@ -821,14 +982,66 @@ export function renderGraph(
     });
   }
 
+  // applyTopology reconciles a CHANGED topology in place. Everything that survives keeps
+  // the exact position it had; only elements that genuinely appeared are added (and
+  // placed near their neighbors), and only elements that genuinely vanished are removed.
+  // The viewport is untouched. Rebuilding the instance instead would be far less code and
+  // would relayout the whole graph, which is what made a background refresh feel like a
+  // different screen.
+  function applyTopology(next: GraphData): void {
+    const els = buildElements(next, focusId, groups);
+    const keep = new Set(els.map((e) => String(e.data.id)));
+    const before = new Set<string>();
+    cy.nodes().forEach((n) => { if (!n.isParent()) before.add(n.id()); });
+    cy.batch(() => {
+      cy.elements().filter((e) => !keep.has(e.id())).remove();
+      const existing = new Set<string>();
+      cy.elements().forEach((e) => { existing.add(e.id()); });
+      const added = els.filter((e) => !existing.has(String(e.data.id)));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (added.length) cy.add(added as any);
+    });
+    // Semantic fields of the survivors still need updating: a topology change and a
+    // status change routinely arrive in the same refresh.
+    patchData(next);
+    const fresh = new Set<string>();
+    cy.nodes().forEach((n) => { if (!n.isParent() && !before.has(n.id())) fresh.add(n.id()); });
+    placeNewNodes(fresh);
+    fresh.forEach((id) => restored.add(id)); // now arranged; a later refresh must keep it
+    if (filterFn) applyFilter(filterFn);
+    else applyDimming();
+    emitSpatial();
+  }
+
+  // resetLayout is the explicit escape hatch: discard the current arrangement and lay the
+  // graph out again from scratch. It is NOT fit() -- fit re-frames what is already
+  // arranged, this rearranges. The grid seed matters: fCoSE is seeded from the current
+  // positions (randomize: false), so without it "reset" would start from the very
+  // arrangement it is meant to discard.
+  function resetLayout(): void {
+    restored.clear();
+    userAdjusted = false;
+    const ids: string[] = [];
+    cy.nodes().forEach((n) => { if (!n.isParent()) ids.push(n.id()); });
+    ids.sort();
+    const cols = Math.max(1, Math.ceil(Math.sqrt(ids.length)));
+    cy.batch(() => ids.forEach((id, i) => {
+      cy.getElementById(id).position({ x: (i % cols) * 180, y: Math.floor(i / cols) * 140 });
+    }));
+    runLayout();
+  }
+
   return {
     nodes,
-    destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); cy.destroy(); },
+    destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); clearTimeout(spatialTimer); cy.destroy(); },
     zoomIn: () => zoomBy(1.4),
     zoomOut: () => zoomBy(0.7),
     resetView: () => { clickFocusId = null; applyDimming(); fitView(300); },
     fit: () => fitView(250),
     patchData,
+    applyTopology,
+    resetLayout,
+    spatialState: snapshotSpatial,
     applyFilter,
     diagnostics: computeDiagnostics,
   };

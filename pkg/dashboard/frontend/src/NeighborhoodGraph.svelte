@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { renderGraph, GraphRenderError } from './lib/graph.ts';
   import { neighborhoodToGraph, topoSignature, presentationSignature } from './lib/neighborhoodGraph.ts';
+  import { loadSpatial, saveSpatial, clearSpatial } from './lib/graphSpatial.ts';
 
   // A thin mount wrapper around the shared Cytoscape engine (lib/graph.ts) for a
   // bounded product ProductNeighborhood. It reuses renderGraph/buildElements/cyLayout/
@@ -9,8 +10,13 @@
   // never loads the whole fleet and invents no relationships. The focus node is
   // highlighted but not auto-spotlighted, so every returned edge (dependency solid,
   // runs dashed) reads at rest.
+  //
+  // `queryKey` is the canonical graph-QUERY identity (see lib/graphSpatial.ts). It, not
+  // the data, decides when the instance is rebuilt: the same question refreshing is
+  // reconciled in place so the arrangement survives, and a DIFFERENT question gets a new
+  // instance and its own saved arrangement -- spatial state never leaks between queries.
   let {
-    neighborhood = null, focusKey = '', height = 460,
+    neighborhood = null, focusKey = '', queryKey = '', height = 460,
     onSelectNode, onSelectEdge, oncontrols,
   } = $props();
 
@@ -21,12 +27,13 @@
   // empty canvas; the parent (GraphView) keeps the Relationships text list available.
   let renderError = $state(false);
   // Two signatures so a refresh does the RIGHT thing (requirement, Part 5): the topology
-  // signature (node ids + edge endpoints/type + focus) decides rebuild-vs-reuse; the
+  // signature (node ids + edge endpoints/type + focus) decides reconcile-vs-restyle; the
   // presentation signature (node status/label/kind + edge state) decides whether an
   // in-place restyle is needed. Keying only on topology left the canvas stale when a
   // node flipped Compliant -> NonCompliant or an edge difference changed.
   let lastTopo = '';
   let lastPres = '';
+  let lastQuery = null;
 
   function init() {
     if (!containerEl) return;
@@ -34,17 +41,32 @@
     const topo = `${topoSignature(gd)}||${focusKey}`;
     const pres = presentationSignature(gd);
 
-    if (instance && topo === lastTopo) {
-      // Same topology: only restyle in place if the presentation actually changed. An
-      // identical semantic answer recreates nothing (and never relayouts).
+    if (instance && queryKey === lastQuery && gd.nodes.length) {
+      if (topo !== lastTopo) {
+        // Same question, changed answer: reconcile in place. Surviving nodes keep the
+        // exact position the user gave them, arrivals are placed beside their neighbors
+        // and departures are removed. Rebuilding here is what used to make an ordinary
+        // background refresh feel like landing on a different screen.
+        lastTopo = topo;
+        lastPres = pres;
+        instance.applyTopology(gd);
+        publishDiagnostics(instance.diagnostics());
+        return;
+      }
+      // Identical topology: only restyle if the semantics actually changed. Positions,
+      // pan, zoom and selection are untouched either way.
       if (pres !== lastPres) { instance.patchData(gd); lastPres = pres; }
       return;
     }
 
     lastTopo = topo;
     lastPres = pres;
+    lastQuery = queryKey;
     if (instance) { instance.destroy(); instance = null; }
     if (!gd.nodes.length) { containerEl.innerHTML = ''; oncontrols?.(null); return; }
+    // A previously-saved arrangement for THIS question, if the user made one. Anything
+    // it cannot vouch for reads as absent, so a stale entry just means a fresh layout.
+    const saved = queryKey ? loadSpatial(queryKey) : null;
     try {
       instance = renderGraph(containerEl, gd, {
         layout: 'force',
@@ -54,6 +76,9 @@
         onSelectNode,
         onSelectEdge,
         onReady: publishDiagnostics,
+        savedPositions: saved?.positions,
+        savedViewport: saved ? { pan: saved.pan, zoom: saved.zoom } : null,
+        onSpatialChange: queryKey ? (s) => saveSpatial(queryKey, s) : undefined,
       });
     } catch (e) {
       // A visual-renderer failure is surfaced honestly; a non-render error is a real bug
@@ -67,11 +92,19 @@
       throw e;
     }
     renderError = false;
+    publishSpatialSeam();
     oncontrols?.({
       fit: () => instance?.fit(),
       zoomIn: () => instance?.zoomIn(),
       zoomOut: () => instance?.zoomOut(),
       reset: () => instance?.resetView(),
+      // Reset layout is NOT Fit. Fit re-frames the arrangement you have; this discards
+      // it -- including the saved one, immediately, so a reload cannot resurrect it --
+      // and lays the graph out again from scratch.
+      resetLayout: () => {
+        if (queryKey) clearSpatial(queryKey);
+        instance?.resetLayout();
+      },
     });
   }
 
@@ -88,10 +121,19 @@
     containerEl.setAttribute('data-graph-ready', d.headless ? 'headless' : 'painted');
   }
 
+  // publishSpatialSeam exposes the LIVE Cytoscape geometry to the browser acceptance, the
+  // same way publishDiagnostics exposes the paint state. Spatial stability has to be
+  // asserted on real positions and a real viewport -- a screenshot cannot tell "the
+  // layout was preserved" from "the layout was recomputed and happened to look similar".
+  function publishSpatialSeam() {
+    if (!containerEl) return;
+    containerEl.pactoGraphSpatial = () => (instance ? instance.spatialState() : null);
+  }
+
   onMount(() => () => { if (instance) instance.destroy(); });
 
   $effect(() => {
-    const _ = [neighborhood, focusKey, containerEl]; // track re-render inputs
+    const _ = [neighborhood, focusKey, queryKey, containerEl]; // track re-render inputs
     if (containerEl) init();
   });
 </script>

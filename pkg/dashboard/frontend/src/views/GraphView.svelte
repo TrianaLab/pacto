@@ -10,6 +10,7 @@
     canonicalFocusForPerspective, projectionFocusMismatch,
   } from '../lib/graphState.ts';
   import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
+  import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityStatusBadge from '../components/EntityStatusBadge.svelte';
@@ -41,12 +42,26 @@
   }));
   $effect(() => {
     if (focused) {
-      loader.sync(`${gs.kind}@@${gs.key}@@${gs.perspective}@@${gs.direction}@@${gs.depth}@@${gs.views.join(',')}@@${refreshTick}`);
+      loader.sync(`${gs.kind}@@${gs.key}@@${gs.perspective}@@${gs.direction}@@${gs.depth}@@${gs.views.join(',')}@@${refreshTick}`, queryKey);
     }
   });
   onDestroy(() => loader.destroy());
 
   const nb = $derived(focused ? loader.data : null);
+
+  // ── graph query identity (requirement 13) ────────────────────────────────────
+  // The canonical identity of the QUESTION being asked, independent of the refresh tick.
+  // A refresh keeps it, so the canvas is reconciled in place and the user's arrangement
+  // survives; a different focus/perspective/view/direction/depth changes it, so the new
+  // question gets its own instance and its own saved arrangement.
+  const queryKey = $derived(graphQueryKey(gs));
+  // `shown` is the neighborhood that actually answers the CURRENT question. The loader
+  // keeps the previous data while the next request is in flight (so a background refresh
+  // does not blank the screen), which is exactly right for a refresh -- but showing it
+  // under a different query would render one graph while the page claims another, and
+  // would file its node positions under the new query's key. The loader tags its data
+  // with the query it answers, so this is a fact, not a guess.
+  const shown = $derived(nb && loader.dataTag === queryKey ? nb : null);
 
   // Canonicalize an old deep link whose focus the backend REPLACED (a bookmarked target
   // URL under the revision perspective resolves to the linked revision). RequestedFocus
@@ -54,8 +69,8 @@
   // (not push) the URL to it so a reload stays on the canonical Product URL and the
   // active perspective never contradicts the visible graph (requirement, Part 4).
   $effect(() => {
-    if (!nb) return;
-    const canon = projectionFocusMismatch(nb, gs.kind, gs.key);
+    if (!shown) return;
+    const canon = projectionFocusMismatch(shown, gs.kind, gs.key);
     if (canon) {
       replaceHash(fleetGraphFocusUrl(canon.kind, canon.key, {
         perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth,
@@ -64,9 +79,9 @@
   });
   const loading = $derived(focused && loader.loading);
   const error = $derived(focused ? loader.error : null);
-  const knowledge = $derived(snapshotKnowledge(nb?.meta));
-  const focusRef = $derived(nb?.requestedFocus ?? null);
-  const focusNode = $derived((nb?.nodes || []).find((n) => n.focus) || null);
+  const knowledge = $derived(snapshotKnowledge(shown?.meta));
+  const focusRef = $derived(shown?.requestedFocus ?? null);
+  const focusNode = $derived((shown?.nodes || []).find((n) => n.focus) || null);
 
   // Perspective options valid for THIS focus (requirement E): a service can only be a
   // service projection; a target is a revision projection only when its link is
@@ -75,7 +90,7 @@
     targetRevisionAuthoritative: revisionLinkAuthoritative(focusNode?.revisionState),
   }));
   const depthSupported = $derived(perspectiveSupportsDepth(gs.perspective));
-  const oneHopNote = $derived(nb && nb.effectiveDepth < gs.depth);
+  const oneHopNote = $derived(shown && shown.effectiveDepth < gs.depth);
 
   // ── quick-inspection drawer (node or edge) ───────────────────────────────────
   // The drawer is a NON-modal side panel (requirement 8.3): it is not focus-trapped;
@@ -107,9 +122,9 @@
   });
   // Canvas selection reports the Cytoscape element id; map it back to the backend node
   // (by canonical key) or edge (by the reproduced Cytoscape edge id).
-  function selectNodeById(id) { selectNode((nb?.nodes || []).find((n) => n.ref.key === id)); }
+  function selectNodeById(id) { selectNode((shown?.nodes || []).find((n) => n.ref.key === id)); }
   function selectEdgeByCyId(cyId) {
-    selectEdge((nb?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
+    selectEdge((shown?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
   }
 
   // ── graph controls (ephemeral fit/zoom, wired from the canvas) ───────────────
@@ -129,7 +144,7 @@
     // URL and the visible graph never disagree (requirement, Part 4). Keys come from the
     // backend neighborhood data (focusService / the runs edge), never inferred. A push
     // (not replace) so Back returns to the previous canonical route.
-    const canon = canonicalFocusForPerspective(nb, gs.kind, p);
+    const canon = canonicalFocusForPerspective(shown, gs.kind, p);
     if (canon && (canon.kind !== gs.kind || canon.key !== gs.key)) {
       location.hash = fleetGraphFocusUrl(canon.kind, canon.key, { perspective: p, views: gs.views, direction: gs.direction, depth });
       closeDrawer();
@@ -306,20 +321,34 @@
       <div class="gv-ctl gv-viewctl">
         <span class="gv-ctl-k">View</span>
         <div class="gv-seg">
+          <!-- Fit re-frames the arrangement you have. Reset layout throws it away and
+               lays the graph out again -- two different operations, so two buttons. -->
           <button type="button" onclick={() => controls?.fit()} data-testid="graph-fit" aria-label="Fit graph to view">Fit</button>
           <button type="button" onclick={() => controls?.zoomIn()} data-testid="graph-zoom-in" aria-label="Zoom in">+</button>
           <button type="button" onclick={() => controls?.zoomOut()} data-testid="graph-zoom-out" aria-label="Zoom out">-</button>
+          <button type="button" onclick={() => controls?.resetLayout()} data-testid="graph-reset-layout" aria-label="Reset the graph layout, discarding your arrangement">Reset layout</button>
         </div>
       </div>
     </div>
 
-    {#if loading}
+    <!-- A refresh keeps the rendered graph MOUNTED. Swapping it for a loading line every
+         poll destroyed the canvas and rebuilt it from scratch, which is what made a
+         background refresh throw away the arrangement -- and it made the whole
+         reconcile-in-place path unreachable. The refresh says so in a status line
+         instead, and a refresh that fails leaves the last good answer on screen with the
+         failure stated rather than blanking it. -->
+    {#if !shown && loading}
       <p class="gv-status" role="status">Loading the neighborhood...</p>
-    {:else if error}
+    {:else if !shown && error}
       <div class="gv-error" role="alert">Couldn't load the neighborhood: {error instanceof Error ? error.message : String(error)}</div>
-    {:else if nb}
+    {:else if shown}
+      {#if loading}
+        <p class="gv-status" role="status" data-testid="graph-refreshing">Refreshing the neighborhood...</p>
+      {:else if error}
+        <div class="gv-error" role="alert" data-testid="graph-refresh-error">Couldn't refresh the neighborhood, so this is the last answer we got: {error instanceof Error ? error.message : String(error)}</div>
+      {/if}
       <KnowledgeBanner {knowledge} noun="neighborhood" testid="graph-knowledge-caveat" />
-      {#if nb.truncated}
+      {#if shown.truncated}
         <div class="gv-caveat tone-warn" role="status" data-testid="graph-truncated">
           This neighborhood is bounded and was truncated. Narrow the direction or depth, or open an entity to continue.
         </div>
@@ -336,11 +365,11 @@
            thing the page exists to show -- into the remainder. -->
       <div class="gv-body" class:gv-body-drawer={selected.kind === 'node' || selected.kind === 'edge'}>
         <div class="gv-main">
-          {#if neighborhoodIsEmpty(nb)}
+          {#if neighborhoodIsEmpty(shown)}
             <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} are known for this focus under the selected views.</p>
           {:else}
             <!-- Primary: the visual Cytoscape topology (requirement F). -->
-            <NeighborhoodGraph neighborhood={nb} focusKey={focusRef?.key || ''} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
+            <NeighborhoodGraph neighborhood={shown} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
 
             <!-- Legend (requirement G/Part 6): every item is a REAL canvas distinction.
                  Node kinds are shapes/borders; edge relation and reconciliation state are
@@ -367,7 +396,7 @@
             <details class="gv-textalt disclosure" data-testid="graph-textalt">
               <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Relationships (text)</summary>
               <ul class="gv-nodes" aria-label="Graph nodes">
-                {#each nb.nodes as n (n.ref.key)}
+                {#each shown.nodes as n (n.ref.key)}
                   <li>
                     <button type="button" class="gv-textbtn" class:is-focus={n.focus} onclick={() => selectNode(n)} data-testid="graph-node-item">
                       <EntityIdentity ref={n.ref} />
@@ -376,7 +405,7 @@
                 {/each}
               </ul>
               <ul class="gv-edges" aria-label="Graph relationships" data-testid="graph-edges">
-                {#each nb.edges as e (e.id)}
+                {#each shown.edges as e (e.id)}
                   <li>
                     <button type="button" class="gv-edge" onclick={() => selectEdge(e)} data-testid="graph-edge">
                       <span class="gv-endpoint">{e.from.label || e.from.key}</span>
@@ -394,21 +423,21 @@
             </details>
           {/if}
 
-          {#if (nb.unresolvedDependencies?.count ?? 0) > 0}
+          {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
             <section class="gv-unresolved" data-testid="graph-unresolved">
-              <h3>Unresolved dependencies ({nb.unresolvedDependencies.total})</h3>
+              <h3>Unresolved dependencies ({shown.unresolvedDependencies.total})</h3>
               <ul>
-                {#each nb.unresolvedDependencies.items as u (u.from.key + '::' + u.ref)}
+                {#each shown.unresolvedDependencies.items as u (u.from.key + '::' + u.ref)}
                   <li><EntityLink ref={u.from} showStatus={false} /> declares <code>{u.requestedRef || u.ref}</code> - no provider resolves it{#if u.reason}: {u.reason}{/if}</li>
                 {/each}
               </ul>
             </section>
           {/if}
 
-          {#if (nb.limitations?.count ?? 0) > 0}
+          {#if (shown.limitations?.count ?? 0) > 0}
             <section class="gv-limitations" data-testid="graph-limitations">
               <h3>Limitations</h3>
-              <LimitationsList items={nb.limitations.items} />
+              <LimitationsList items={shown.limitations.items} />
             </section>
           {/if}
         </div>
