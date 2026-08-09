@@ -8,7 +8,7 @@
  * vocabularies the UI renders verbatim (requirement O: never infer a difference from
  * booleans, never color-only).
  */
-import type { KnowledgeView, Direction } from './api.ts';
+import type { KnowledgeView, Direction, ProductNeighborhood } from './api.ts';
 
 export const GRAPH_PERSPECTIVES = ['service', 'revision', 'target'] as const;
 export type GraphPerspective = (typeof GRAPH_PERSPECTIVES)[number];
@@ -162,12 +162,17 @@ export function revisionLinkAuthoritative(revisionState: string | undefined): bo
   return revisionState === 'exact' || revisionState === 'inferred';
 }
 
-// A minimal structural view of the ProductNeighborhood the canonicalizer reads.
-interface FocusRef { kind?: string; key?: string }
-interface CanonNeighborhood {
-  focusService?: FocusRef | null;
-  projectionFocus?: FocusRef | null;
-  edges?: Array<{ relation?: string; to?: FocusRef }> | null;
+// The canonicalizer reads only these fields of the neighborhood; their TYPES are DERIVED
+// from the generated ProductNeighborhood via indexed access + Pick (reopen section 7), never
+// a hand-mirrored wire shape with primitive fields that could drift from the SDK. CanonRef
+// narrows a generated ProductRef to the two fields the canonicalizer uses, keeping its
+// `kind` the generated enum (not a bare string).
+export type CanonRef = Pick<NonNullable<ProductNeighborhood['projectionFocus']>, 'kind' | 'key'>;
+type CanonEdge = { relation?: NonNullable<ProductNeighborhood['edges']>[number]['relation']; to?: CanonRef };
+export interface CanonNeighborhood {
+  focusService?: CanonRef | null;
+  projectionFocus?: CanonRef | null;
+  edges?: readonly CanonEdge[] | null;
 }
 
 /** canonicalFocusForPerspective returns the canonical {kind, key} the graph should focus

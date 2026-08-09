@@ -6,6 +6,7 @@ import {
   perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
   canonicalFocusForPerspective, projectionFocusMismatch,
 } from './graphState.ts';
+import type { CanonNeighborhood } from './graphState.ts';
 
 describe('hasFocus', () => {
   it('is false without a kind or key (the discovery state)', () => {
@@ -141,7 +142,7 @@ describe('service-scoped corroboration (requirement B)', () => {
 });
 
 describe('canonicalFocusForPerspective (Part 4: perspective changes canonicalize identity)', () => {
-  const nb = {
+  const nb: CanonNeighborhood = {
     focusService: { kind: 'service', key: 'domain-a/web' },
     edges: [
       { relation: 'runs', to: { kind: 'revision', key: 'domain-a/web@sha256:1' } },
@@ -171,11 +172,11 @@ describe('canonicalFocusForPerspective (Part 4: perspective changes canonicalize
 
 describe('projectionFocusMismatch (Part 4: canonicalize a bookmarked reinterpreted focus)', () => {
   it('returns the projection focus when the backend projected a different entity', () => {
-    const nb = { projectionFocus: { kind: 'revision', key: 'domain-a/web@sha256:1' } };
+    const nb: CanonNeighborhood = { projectionFocus: { kind: 'revision', key: 'domain-a/web@sha256:1' } };
     expect(projectionFocusMismatch(nb, 'target', 'prod/k8s/web')).toEqual({ kind: 'revision', key: 'domain-a/web@sha256:1' });
   });
   it('returns null when the projection focused exactly the requested entity', () => {
-    const nb = { projectionFocus: { kind: 'revision', key: 'r1' } };
+    const nb: CanonNeighborhood = { projectionFocus: { kind: 'revision', key: 'r1' } };
     expect(projectionFocusMismatch(nb, 'revision', 'r1')).toBeNull();
   });
   it('returns null when there is no projection focus', () => {

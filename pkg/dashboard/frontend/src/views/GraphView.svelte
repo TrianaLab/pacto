@@ -194,11 +194,11 @@
     <!-- Discovery state (requirement K): search-first, no fleet hairball, no request. -->
     <section class="discovery" data-testid="graph-discovery">
       <h1>Operational graph</h1>
-      <p class="disco-lead">Search for a service, revision or deployment to see its local operational neighborhood as a graph. The graph never opens the whole fleet at once.</p>
+      <p class="disco-lead">The operational graph is search-first: pick one entity and see <strong>its</strong> local neighborhood render below. It never opens the whole fleet at once.</p>
 
       <form class="disco-search" role="search" onsubmit={submitSearch}>
         <input type="search" bind:value={queryText} oninput={runSearch} placeholder="Search services, revisions, deployments..." aria-label="Search the fleet to focus the graph" />
-        <button type="submit" class="gv-btn">Search</button>
+        <button type="submit" class="gv-btn gv-btn-primary">Search</button>
       </form>
 
       {#if searching}
@@ -220,12 +220,25 @@
         {/if}
       {:else if queryText.trim()}
         <p class="disco-hint" data-testid="graph-search-empty">No entities match "{queryText}".</p>
+      {:else}
+        <!-- Resting discovery state (requirement, reopen section 4): an unmistakable
+             affordance that a graph renders HERE once a focus is chosen -- so the tab reads
+             as a graph discovery experience, not an empty page -- without auto-rendering the
+             whole fleet. -->
+        <div class="disco-placeholder" data-testid="graph-discovery-placeholder" aria-hidden="true">
+          <svg viewBox="0 0 120 64" class="disco-ph-glyph" role="presentation" focusable="false">
+            <line x1="30" y1="32" x2="66" y2="18" /><line x1="30" y1="32" x2="66" y2="46" /><line x1="66" y1="18" x2="96" y2="32" />
+            <circle cx="30" cy="32" r="9" /><circle cx="66" cy="18" r="7" /><circle cx="66" cy="46" r="7" /><circle cx="96" cy="32" r="7" />
+          </svg>
+          <p class="disco-ph-title">Select a service, revision or deployment to render its local graph</p>
+          <p class="disco-ph-sub">Search above, or start from an entity that needs attention. The graph appears right here once you pick a focus.</p>
+        </div>
       {/if}
 
       <div class="disco-panels">
         <div class="disco-panel">
           <h2>Start from what needs attention</h2>
-          <p>Jump into the graph from an operational problem.</p>
+          <p>Jump straight into the graph focused on an operational problem.</p>
           <a class="gv-link" href={fleetAttentionUrl()}>Open attention triage &rarr;</a>
         </div>
         <div class="disco-panel">
@@ -453,6 +466,19 @@
   .disco-results a { display: block; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); text-decoration: none; }
   .disco-results a:hover { border-color: var(--c-accent); }
   .disco-hint { color: var(--c-text-3); font-size: var(--text-sm); }
+  .gv-btn-primary { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+  .gv-btn-primary:hover { filter: brightness(1.08); border-color: var(--c-accent); }
+  .disco-placeholder {
+    display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+    text-align: center; padding: var(--sp-6) var(--sp-4);
+    border: 2px dashed var(--c-border); border-radius: var(--radius-md);
+    background: var(--c-surface-inset);
+  }
+  .disco-ph-glyph { width: 120px; height: 64px; }
+  .disco-ph-glyph line { stroke: var(--c-text-3); stroke-width: 2; }
+  .disco-ph-glyph circle { fill: var(--c-surface); stroke: var(--c-accent); stroke-width: 2; }
+  .disco-ph-title { margin: var(--sp-2) 0 0; font-size: var(--text-md); font-weight: 600; color: var(--c-text); }
+  .disco-ph-sub { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); max-width: 44ch; }
   .disco-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-3); margin-top: var(--sp-2); }
   .disco-panel { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   .disco-panel h2 { margin: 0 0 var(--sp-2); font-size: var(--text-md); }

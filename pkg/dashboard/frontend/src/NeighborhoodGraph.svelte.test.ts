@@ -18,14 +18,17 @@ vi.mock('./lib/graph.ts', async (importOriginal) => {
     ...actual,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     renderGraph: (...args: any[]) => {
-      renderSpy(...args);
-      return { nodes: [], destroy: destroySpy, zoomIn: vi.fn(), zoomOut: vi.fn(), resetView: vi.fn(), fit: vi.fn(), patchData: patchDataSpy, applyFilter: vi.fn() };
+      // renderSpy can throw (to exercise the render-error path) or return custom controls;
+      // otherwise the default controls stand in for the real Cytoscape engine.
+      const injected = renderSpy(...args);
+      return injected ?? { nodes: [], destroy: destroySpy, zoomIn: vi.fn(), zoomOut: vi.fn(), resetView: vi.fn(), fit: vi.fn(), patchData: patchDataSpy, applyFilter: vi.fn(), diagnostics: vi.fn() };
     },
   };
 });
 
 // @ts-expect-error — Svelte component has no declaration file
 import NeighborhoodGraph from './NeighborhoodGraph.svelte';
+import { GraphRenderError } from './lib/graph.ts';
 import { reactiveProps } from './testkit.svelte.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,6 +91,22 @@ describe('NeighborhoodGraph — refresh strategy (Part 5)', () => {
     flushSync();
     expect(renderSpy).toHaveBeenCalledTimes(1);
     expect(patchDataSpy).not.toHaveBeenCalled();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows an explicit render-error state (never a silent empty canvas) when the visual renderer fails', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    // The visual renderer fails in a real browser: renderGraph throws a typed
+    // GraphRenderError. The component must surface it, not swallow it into an empty canvas.
+    renderSpy.mockImplementationOnce(() => { throw new GraphRenderError('no 2d context'); });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const props: any = reactiveProps({ neighborhood: nb('Compliant'), focusKey: 'a' });
+    const component = mount(NeighborhoodGraph, { target, props });
+    flushSync();
+    expect(target.querySelector('[data-testid="graph-render-error"]')).toBeTruthy();
+    // The empty canvas is hidden rather than pretending to exist.
+    expect(target.querySelector('[data-testid="neighborhood-canvas"]')?.hasAttribute('hidden')).toBe(true);
     unmount(component); document.body.removeChild(target);
   });
 

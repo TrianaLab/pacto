@@ -247,7 +247,7 @@
       {/key}
     {:else if fleetHost}
       {#key route.params.name + '@@' + (route.params.version || '')}
-        <LegacyEntityRedirect kind="service" name={route.params.name} />
+        <LegacyEntityRedirect kind="service" name={route.params.name} version={route.params.version || ''} />
       {/key}
     {:else}
       {@render migrating()}

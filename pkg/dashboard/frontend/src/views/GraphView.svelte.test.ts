@@ -123,6 +123,9 @@ describe('GraphView — product Operational Graph (Phase 4)', () => {
     await Promise.resolve();
     expect(q(target, '[data-testid="graph-discovery"]')).toBeTruthy();
     expect(q(target, '[data-testid="neighborhood-canvas"]')).toBeNull();
+    // The resting discovery state shows an unmistakable "graph renders after you focus"
+    // affordance (reopen section 4), not an empty page and never the whole fleet.
+    expect(q(target, '[data-testid="graph-discovery-placeholder"]')).toBeTruthy();
     expect(neighborhoodFn).not.toHaveBeenCalled();
     expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);

@@ -110,6 +110,18 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL(/#\/fleet\/services\//, { timeout: 20_000 });
   });
 
+  test('M5b: a legacy service-VERSION bookmark migrates to the canonical Product Revision (keeps the version)', async ({ page }) => {
+    // The old #/services/:name/versions/:version bookmark must resolve to a Product Revision
+    // (reopen section 8), never drop the version to the service page.
+    await page.goto('/#/services/payments-service/versions/2.0.0');
+    await expect(page).toHaveURL(/#\/fleet\/revisions\//, { timeout: 20_000 });
+    // The canonical revision detail shows the requested version.
+    await expect(page.getByText('2.0.0').first()).toBeVisible({ timeout: 20_000 });
+    // Reload preserves the canonical Product Revision URL (a replace, not a bounce).
+    await page.reload();
+    await expect(page).toHaveURL(/#\/fleet\/revisions\//, { timeout: 20_000 });
+  });
+
   test('M6: canonicalized product URLs survive a reload', async ({ page }) => {
     await page.goto('/#/services');
     await expect(page).toHaveURL(/#\/fleet\/services$/, { timeout: 20_000 });
@@ -140,6 +152,9 @@ test.describe('WASM dashboard demo — workflows', () => {
     await gotoGraphDiscovery(page);
     await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0);
     await expect(page.getByRole('search')).toBeVisible();
+    // The discovery affordance makes it unmistakable a graph renders after a focus is
+    // chosen (reopen section 4), so the tab is never an empty page.
+    await expect(page.getByTestId('graph-discovery-placeholder')).toBeVisible();
   });
 
   test('O2: search a service, focus it, and see an actual visual graph with nodes and edges', async ({ page }) => {

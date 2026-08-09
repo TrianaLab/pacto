@@ -126,6 +126,32 @@ export function buildVersionSubgraph(detail: VersionDetail, services: FleetEntry
   return { nodes };
 }
 
+/** GraphRenderError is thrown when the VISUAL Cytoscape renderer fails to initialize in
+ *  an environment that CAN paint (a real browser). It is never thrown in a non-painting
+ *  environment (unit tests build the model headless on purpose, see canPaint2D). The view
+ *  catches it to show an explicit render-error state and keep the text alternative, rather
+ *  than a silently-empty canvas that would still pass tests. */
+export class GraphRenderError extends Error {
+  constructor(cause?: unknown) {
+    super('The visual graph renderer failed to initialize.');
+    this.name = 'GraphRenderError';
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
+  }
+}
+
+/** GraphDiagnostics is a narrowly-scoped, read-only readiness snapshot of a rendered
+ *  graph: whether it is headless, its node/edge counts, and how many nodes/edges have real
+ *  rendered geometry. It exposes only what is already visible on the canvas (never internal
+ *  Cytoscape state), so the browser acceptance can prove a non-headless renderer actually
+ *  painted a topology rather than just mounting an empty container. */
+export interface GraphDiagnostics {
+  headless: boolean;
+  nodeCount: number;
+  edgeCount: number;
+  nodesWithBox: number;
+  edgesRendered: number;
+}
+
 export interface GraphControls {
   nodes: GraphNode[];
   destroy: () => void;
@@ -138,6 +164,8 @@ export interface GraphControls {
    *  a relayout, for a same-topology refresh. */
   patchData: (graphData: GraphData) => void;
   applyFilter: (fn: ((n: GraphNode) => boolean) | null) => void;
+  /** Read-only readiness snapshot of the rendered graph (see GraphDiagnostics). */
+  diagnostics: () => GraphDiagnostics;
 }
 
 interface RenderOptions {
@@ -159,6 +187,9 @@ interface RenderOptions {
   onSelectNode?: (id: string | null) => void;
   /** Fired when an edge is tapped, with the edge's stable id (null on background). */
   onSelectEdge?: (id: string | null) => void;
+  /** Fired once the first layout settles, with a read-only GraphDiagnostics snapshot. The
+   *  view publishes it as a stable readiness seam for the visual-graph browser acceptance. */
+  onReady?: (d: GraphDiagnostics) => void;
   /** When true, single-tap opens the service (embedded graphs). Default: false = spotlight. */
   tapToOpen?: boolean;
   /** 'visible' shows a bounded neighborhood's edges at rest with arrowheads; 'faint'
@@ -284,6 +315,19 @@ export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
 interface Palette {
   surface: string; text: string; textDim: string; border: string;
   ok: string; warn: string; err: string; info: string; neutral: string; accent: string;
+}
+
+/** canPaint2D feature-detects a real 2D canvas in the container's document. A browser has
+ *  one; jsdom (unit tests, no `canvas` package) does not. This selects the headless model
+ *  ONLY for a genuine non-painting environment, WITHOUT a broad try/catch around the
+ *  Cytoscape init that would also swallow a real visual-renderer failure and leave an empty
+ *  container behind (the silent-fallback bug this replaces). */
+function canPaint2D(doc: Document): boolean {
+  try {
+    return !!doc.createElement('canvas').getContext('2d');
+  } catch {
+    return false;
+  }
 }
 
 function resolvePalette(container: HTMLElement): Palette {
@@ -482,7 +526,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, onSelectNode, onSelectEdge, tapToOpen, edgeStyle = 'faint', autoSpotlightFocus = true }: RenderOptions = {},
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, onSelectNode, onSelectEdge, onReady, tapToOpen, edgeStyle = 'faint', autoSpotlightFocus = true }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const hasGroups = !!(groups && groups.size);
@@ -504,13 +548,22 @@ export function renderGraph(
     maxZoom: 3,
     boxSelectionEnabled: false,
   };
+  const headlessMode = !canPaint2D(container.ownerDocument);
   let cy: Core;
-  try {
-    cy = cytoscape({ container, ...baseOpts });
-  } catch {
-    // No 2D canvas (e.g. the jsdom test env) — build the model headless so the
-    // controls API still works and can be unit-tested; the browser always has canvas.
+  if (headlessMode) {
+    // Non-painting environment (jsdom unit tests, very old browsers): build the model
+    // headless so the controls API is still unit-testable. This is an explicit
+    // environment decision, never a fallback that hides a real browser render failure.
     cy = cytoscape({ headless: true, styleEnabled: true, ...baseOpts });
+  } else {
+    // A painting environment (a real browser): the VISUAL renderer MUST succeed. If it
+    // throws, surface it as a typed GraphRenderError so the view shows an honest
+    // render-error state plus the text alternative, never a silently-empty canvas.
+    try {
+      cy = cytoscape({ container, ...baseOpts });
+    } catch (e) {
+      throw new GraphRenderError(e);
+    }
   }
 
   // Collapsible owner boxes (native compound nodes + the expand-collapse extension).
@@ -650,6 +703,29 @@ export function renderGraph(
     if (fn.nonempty()) clickFocusId = fn.first().id();
   }
 
+  // computeDiagnostics reports the read-only readiness of the rendered graph: headless
+  // flag, node/edge counts, and how many nodes/edges have real rendered geometry (a nonzero
+  // rendered bounding box). It reads only what the canvas already shows, so it is a safe
+  // acceptance seam (see GraphDiagnostics), not a leak of internal state.
+  function computeDiagnostics(): GraphDiagnostics {
+    const base: GraphDiagnostics = { headless: headlessMode, nodeCount: cy.nodes().size(), edgeCount: cy.edges().size(), nodesWithBox: 0, edgesRendered: 0 };
+    // A headless instance has no renderer, so rendered geometry is undefined; report zeros
+    // rather than calling renderedBoundingBox (which needs a renderer). The browser
+    // acceptance requires headless=false anyway.
+    if (headlessMode) return base;
+    let nodesWithBox = 0;
+    cy.nodes().forEach((n) => {
+      const bb = n.renderedBoundingBox();
+      if ((bb.w ?? 0) > 0 && (bb.h ?? 0) > 0) nodesWithBox++;
+    });
+    let edgesRendered = 0;
+    cy.edges().forEach((e) => {
+      const bb = e.renderedBoundingBox();
+      if ((bb.w ?? 0) > 0 || (bb.h ?? 0) > 0) edgesRendered++;
+    });
+    return { ...base, nodesWithBox, edgesRendered };
+  }
+
   // fitView fits the whole graph in view, honoring prefers-reduced-motion (an instant
   // fit rather than an animated pan/zoom).
   function fitView(duration: number): void {
@@ -671,6 +747,10 @@ export function renderGraph(
       fitView(250);
       if (filterFn) applyFilter(filterFn);
       else applyDimming();
+      // The graph has laid out and painted: publish the readiness snapshot for the
+      // visual-graph browser acceptance (a real non-headless canvas with rendered nodes
+      // and edges), and never before positions exist.
+      onReady?.(computeDiagnostics());
     });
     l.run();
   }
@@ -750,6 +830,7 @@ export function renderGraph(
     fit: () => fitView(250),
     patchData,
     applyFilter,
+    diagnostics: computeDiagnostics,
   };
 }
 

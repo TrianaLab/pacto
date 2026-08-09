@@ -6,31 +6,16 @@
  * nodes) and never re-infers relationships in the frontend (requirement I).
  */
 import type { GraphData, GraphNode, GraphEdge } from './graph.ts';
+import type { ProductNeighborhood } from './api.ts';
 
-// Structural sub-shapes of the generated ProductNeighborhood (the generated SDK types
-// are the source of truth; these read only the fields the adapter needs).
-interface NRef {
-  kind: string;
-  key: string;
-  label?: string;
-  status?: string;
-}
-interface NNode {
-  ref: NRef;
-  status?: string;
-  focus?: boolean;
-}
-interface NEdge {
-  from: NRef;
-  to: NRef;
-  relation: string;
-  difference?: string;
-  serviceCorroboration?: string;
-}
-interface NHood {
-  nodes?: NNode[] | null;
-  edges?: NEdge[] | null;
-}
+// The adapter's INPUT is DERIVED from the generated ProductNeighborhood (the single wire
+// truth), never a hand-mirrored partial: it reads only a neighborhood's nodes + edges, so
+// its input is the Pick of those two, with the node/edge element types coming straight from
+// the generated SDK via indexed access. An OpenAPI change flows in automatically and a
+// re-introduced hand mirror cannot silently drift (reopen section 7; guarded in
+// api.typetest.ts). The renderer-owned GraphData/GraphNode/GraphEdge (in graph.ts) stay an
+// explicit internal presentation model -- they are NOT wire DTOs.
+type NeighborhoodLike = Partial<Pick<ProductNeighborhood, 'nodes' | 'edges'>>;
 
 // EdgeState is the restrained visual vocabulary the canvas renders (see cyStylesheet):
 // one state per legend item, so every legend item is a real visual distinction. It is
@@ -80,7 +65,7 @@ function nodeKind(kind: string): 'service' | 'revision' | 'target' {
  *  returned node (keyed by its canonical (kind,key) so the id is unique across mixed
  *  kinds), each edge attached to its source node, and only edges whose BOTH endpoints
  *  are returned nodes (the backend already bounds the set). */
-export function neighborhoodToGraph(nb: NHood | null | undefined): GraphData {
+export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): GraphData {
   const nodes: GraphNode[] = [];
   const byKey = new Map<string, GraphNode>();
   for (const n of nb?.nodes ?? []) {
