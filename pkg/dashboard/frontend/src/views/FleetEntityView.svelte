@@ -86,6 +86,10 @@
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={kindLabel(kind).toLowerCase()} onRetry={load} />
   {:else}
+    <!-- One useful page-level heading for the entity page (requirement 8.1). The rich
+         EntityIdentity remains the visual header; the h1 gives the accessibility tree a
+         meaningful page title without visual duplication. -->
+    <h1 class="visually-hidden">{kindLabel(kind)}: {detail.entity.label || detail.entity.key}</h1>
     <header class="ev-head">
       <EntityIdentity ref={detail.entity} showStatus={false} />
       {#if detail.status}<StatusBadge status={detail.status} />{/if}

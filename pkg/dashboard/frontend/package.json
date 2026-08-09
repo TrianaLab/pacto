@@ -15,6 +15,7 @@
     "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
     "@mermaid-js/mermaid-cli": "^11.16.0",
     "@playwright/test": "^1.62.0",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",

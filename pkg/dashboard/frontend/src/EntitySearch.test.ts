@@ -59,6 +59,29 @@ describe('EntitySearch — global entity discovery', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('traps Tab within the modal dialog and closes on Escape from a result (Part 5, 8.3)', async () => {
+    entitiesFn.mockResolvedValue(list([{ kind: 'service', key: 'a/pay', label: 'pay', domain: 'a', href: '/fleet/services/a%2Fpay' }]));
+    let closed = 0;
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(EntitySearch, { target, props: { open: true, onClose: () => { closed++; } } });
+    flushSync();
+    type(target, 'pay');
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const panel = target.querySelector('.es-panel') as HTMLElement;
+    const result = rows(target)[0] as HTMLButtonElement;
+    // Tab from the last focusable (the result) wraps back into the panel, never escaping.
+    result.focus();
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    flushSync();
+    expect(panel.contains(document.activeElement)).toBe(true);
+    // Escape from a focused result (not the input) still closes the dialog.
+    result.focus();
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(closed).toBeGreaterThan(0);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('scenario 7: two same-named services in different domains stay distinguishable', async () => {
     entitiesFn.mockResolvedValue(list([
       { kind: 'service', key: 'domain-a/payments', label: 'payments', domain: 'domain-a', href: '/fleet/services/domain-a%2Fpayments' },

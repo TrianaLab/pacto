@@ -168,3 +168,24 @@ tbody tr:hover { background: var(--c-surface-hover); }
   code { word-break: break-all; }
   pre { max-width: 100%; }
 }
+
+/* Visually-hidden but present in the accessibility tree: a page-level heading or a
+   status label a screen reader must announce while the visual design uses a richer
+   custom component. Standard clip technique. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Inline links within prose are underlined so they are distinguishable from the
+   surrounding text without relying on color alone (WCAG 1.4.1 / link-in-text-block,
+   requirement 8.8). Block/card/nav links (tiles, chips, buttons) style themselves and
+   are not inline prose, so this only affects genuine in-sentence links. */
+p a { text-decoration: underline; }

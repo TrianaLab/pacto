@@ -77,10 +77,29 @@
   const oneHopNote = $derived(nb && nb.effectiveDepth < gs.depth);
 
   // ── quick-inspection drawer (node or edge) ───────────────────────────────────
+  // The drawer is a NON-modal side panel (requirement 8.3): it is not focus-trapped;
+  // Escape and the Close button close it and return focus to the control that opened it
+  // (a Relationships-list button in the keyboard path), and opening it moves focus into
+  // the drawer so a screen reader announces it.
   const selected = $state({ kind: '', node: null, edge: null });
-  function selectNode(node) { if (node) { selected.kind = 'node'; selected.node = node; selected.edge = null; } }
-  function selectEdge(edge) { if (edge) { selected.kind = 'edge'; selected.edge = edge; selected.node = null; } }
-  function closeDrawer() { selected.kind = ''; selected.node = null; selected.edge = null; }
+  let drawerEl = $state(null);
+  let drawerOpener = null;
+  function rememberOpener() {
+    const a = document.activeElement;
+    drawerOpener = a && a !== document.body ? a : null;
+  }
+  function selectNode(node) { if (node) { rememberOpener(); selected.kind = 'node'; selected.node = node; selected.edge = null; } }
+  function selectEdge(edge) { if (edge) { rememberOpener(); selected.kind = 'edge'; selected.edge = edge; selected.node = null; } }
+  function closeDrawer() {
+    selected.kind = ''; selected.node = null; selected.edge = null;
+    const o = drawerOpener; drawerOpener = null;
+    if (o) queueMicrotask(() => o.focus?.());
+  }
+  function onDrawerKeydown(e) { if (e.key === 'Escape') { e.preventDefault(); closeDrawer(); } }
+  // Move focus into the drawer when it opens so it is announced and Escape-operable.
+  $effect(() => {
+    if (selected.kind && drawerEl) queueMicrotask(() => drawerEl?.focus());
+  });
   // Canvas selection reports the Cytoscape element id; map it back to the backend node
   // (by canonical key) or edge (by the reproduced Cytoscape edge id).
   function selectNodeById(id) { selectNode((nb?.nodes || []).find((n) => n.ref.key === id)); }
@@ -376,7 +395,7 @@
 
         <!-- Quick-inspection drawer (requirement H). -->
         {#if selected.kind === 'node' && selected.node}
-          <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Node details">
+          <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Node details" tabindex="-1" bind:this={drawerEl} onkeydown={onDrawerKeydown}>
             <div class="gv-drawer-head"><h2>Entity</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
             <EntityIdentity ref={selected.node.ref} />
             {#if selected.node.status}<p class="gv-drow"><span class="gv-k">Status</span> {selected.node.status}</p>{/if}
@@ -390,7 +409,7 @@
             </div>
           </aside>
         {:else if selected.kind === 'edge' && selected.edge}
-          <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Relationship details">
+          <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Relationship details" tabindex="-1" bind:this={drawerEl} onkeydown={onDrawerKeydown}>
             <div class="gv-drawer-head"><h2>Relationship</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
             <p class="gv-drow"><EntityLink ref={selected.edge.from} showStatus={false} /> <strong>{relationLabel(selected.edge.relation)}</strong> <EntityLink ref={selected.edge.to} showStatus={false} /></p>
             {#if selected.edge.relation === 'runs'}

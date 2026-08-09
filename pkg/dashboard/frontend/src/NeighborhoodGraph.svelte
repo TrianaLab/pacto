@@ -65,13 +65,17 @@
   });
 </script>
 
+<!-- The canvas is a VISUAL representation (mouse/touch); it is not a complete keyboard
+     application, so it is described as an image rather than declaring role="application"
+     (requirement 8.2). The keyboard/screen-reader model is the first-class semantic graph
+     navigator rendered as text alongside it (GraphView's Relationships list). -->
 <div
   bind:this={containerEl}
   class="nb-graph"
   style="height:{height}px"
   data-testid="neighborhood-canvas"
-  role="application"
-  aria-label="Operational graph topology. The same relationships are listed as text below the graph."
+  role="img"
+  aria-label="Operational graph topology (visual). Use the Relationships list below to explore the same nodes and connections by keyboard."
 ></div>
 
 <style>

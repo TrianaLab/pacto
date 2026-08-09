@@ -267,9 +267,11 @@ describe('renderGraph (Cytoscape)', () => {
     expect(typeof ctrl.zoomOut).toBe('function');
     expect(typeof ctrl.resetView).toBe('function');
     expect(typeof ctrl.applyFilter).toBe('function');
+    expect(typeof ctrl.patchData).toBe('function');
     expect(ctrl.nodes).toHaveLength(2);
-    // presentational region for a11y; connections table is the text fallback
-    expect(el.getAttribute('role')).toBe('application');
+    // The canvas is described as an image (not an incomplete role="application", Part 5
+    // requirement 8.2); the connections table / relationships list is the keyboard model.
+    expect(el.getAttribute('role')).toBe('img');
     ctrl.destroy();
   });
 

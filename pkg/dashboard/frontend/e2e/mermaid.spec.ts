@@ -11,7 +11,16 @@ async function waitReady(page: Page) {
   await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
 }
 
-test('a bundle doc with a mermaid diagram renders to SVG', async ({ page }) => {
+// DEFERRED (Part 1.4 option C): this validated Mermaid RENDERING via the legacy
+// ServiceDetailView. The Phase-4 dual-UI cleanup correctly makes the legacy service
+// detail unreachable on a Fleet host (a Fleet demo canonicalizes #/services/:name to the
+// product entity page), and the product entity pages currently expose bounded doc
+// PREVIEWS (title/path), not rendered content -- the product API does not carry full doc
+// content. Rich-doc/Mermaid rendering in the product IA (product API doc content + a
+// product doc viewer) is a later-phase migration; the capability still works on the
+// non-Fleet `pacto doc` export via ServiceDetailView. Re-enable this against the product
+// doc viewer once that migration lands.
+test.fixme('a bundle doc with a mermaid diagram renders to SVG', async ({ page }) => {
   await waitReady(page);
   await page.goto('/#/services/payments-service');
 

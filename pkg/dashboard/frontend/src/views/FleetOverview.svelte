@@ -158,8 +158,11 @@
   .ov-section { display: flex; flex-direction: column; gap: var(--sp-3); }
   .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .ov-head h2, .ov-section h2 { margin: 0; }
-  .ov-viewall, .ov-more a { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
-  .ov-viewall:hover, .ov-more a:hover { text-decoration: underline; }
+  .ov-viewall { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
+  /* .ov-more's "See all" is an INLINE link within a sentence, so it stays underlined to
+     be distinguishable from the surrounding text without color alone (WCAG 1.4.1). */
+  .ov-more a { color: var(--c-accent); text-decoration: underline; font-size: var(--text-sm); }
+  .ov-viewall:hover { text-decoration: underline; }
   .knowledge-banner, .all-clear, .empty-fleet {
     display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline;
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);

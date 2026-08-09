@@ -345,6 +345,21 @@ describe('GraphView — product Operational Graph (Phase 4)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('closes the quick-inspect drawer on Escape and returns focus to the opener (Part 5, 8.3)', async () => {
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-node-item"]')).toBeTruthy());
+    const nodeBtn = qa(target, '[data-testid="graph-node-item"]')[0] as HTMLButtonElement;
+    nodeBtn.focus();
+    nodeBtn.click();
+    flushSync();
+    const drawer = q(target, '[data-testid="graph-drawer"]');
+    expect(drawer).toBeTruthy();
+    (drawer as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-drawer"]')).toBeNull());
+    await vi.waitFor(() => expect(document.activeElement).toBe(nodeBtn)); // focus returned to the opener
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('selecting a node opens a bounded quick-inspect drawer with a full-detail link (no navigation)', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-node-item"]')).toBeTruthy());

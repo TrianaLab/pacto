@@ -93,4 +93,32 @@ describe('App — primary search affordance (A6)', () => {
 
     unmount(component); document.body.removeChild(target);
   });
+
+  // Phase 5 (requirement 8.5): global shortcuts must not steal from an open overlay or
+  // from a native composite control.
+  it('does not open the command palette on Cmd/Ctrl-K while the Search overlay is open', async () => {
+    caps.value = { fleet: true, impact: true };
+    const { target, component } = mountApp();
+    await vi.waitFor(() => expect((target.querySelector('.search-kbd') as HTMLElement)?.textContent).toBe('/'));
+    slash();
+    await vi.waitFor(() => expect(esOpen(target)).toBe(true));
+    cmdK(); // must NOT stack the palette over the open search
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cpOpen(target)).toBe(false);
+    expect(esOpen(target)).toBe(true);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('does not hijack "/" typed inside a SELECT (native type-ahead)', async () => {
+    caps.value = { fleet: true, impact: true };
+    const { target, component } = mountApp();
+    await vi.waitFor(() => expect((target.querySelector('.search-kbd') as HTMLElement)?.textContent).toBe('/'));
+    const sel = document.createElement('select');
+    document.body.appendChild(sel);
+    sel.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(esOpen(target)).toBe(false); // '/' inside a select is text, not a shortcut
+    document.body.removeChild(sel);
+    unmount(component); document.body.removeChild(target);
+  });
 });

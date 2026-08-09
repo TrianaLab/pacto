@@ -487,10 +487,14 @@ export function renderGraph(
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const hasGroups = !!(groups && groups.size);
   container.innerHTML = '';
-  // Accessible fallback lives in the connections table; mark the canvas as a
-  // presentational application region.
-  container.setAttribute('role', 'application');
-  container.setAttribute('aria-label', 'Dependency graph (see the connections table for a text version)');
+  // The canvas is a VISUAL representation; the keyboard/screen-reader model is the text
+  // alternative (the connections table / relationships list). Describe it as an image
+  // rather than declaring an incomplete role="application" (requirement 8.2). A caller
+  // that pre-set a more specific aria-label (the neighborhood graph) keeps it.
+  container.setAttribute('role', 'img');
+  if (!container.getAttribute('aria-label')) {
+    container.setAttribute('aria-label', 'Dependency graph (visual). See the connections table for a text version.');
+  }
 
   const pal = resolvePalette(container);
   const baseOpts = {

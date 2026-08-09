@@ -78,17 +78,35 @@
   function hrefFor(r) { return r.href ? hashForHref(r.href) : fleetEntityUrl(r.kind, r.key); }
   function openResult(r) { if (!r) return; onClose?.(); location.hash = hrefFor(r); }
 
+  let panelEl = $state(null);
+
   function onKeydown(e) {
     if (e.key === 'ArrowDown') { e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, results.length - 1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, 0); }
     else if (e.key === 'Enter') { e.preventDefault(); openResult(results[selectedIdx]); }
     else if (e.key === 'Escape') { e.preventDefault(); onClose?.(); }
   }
+
+  // Focus trap for the modal dialog (requirement 8.3): Tab cycles within the panel's
+  // focusable elements (the input + result buttons) so focus never escapes an open modal
+  // search; Escape closes from any focus position (a result button, not only the input).
+  function onPanelKeydown(e) {
+    if (e.key === 'Escape') { e.preventDefault(); onClose?.(); return; }
+    if (e.key !== 'Tab') return;
+    const focusable = Array.from(panelEl?.querySelectorAll('input, a[href], button:not([disabled])') || []);
+    if (focusable.length === 0) return;
+    const idx = focusable.indexOf(document.activeElement);
+    const next = e.shiftKey
+      ? (idx <= 0 ? focusable.length - 1 : idx - 1)
+      : (idx >= focusable.length - 1 ? 0 : idx + 1);
+    e.preventDefault();
+    focusable[next]?.focus();
+  }
 </script>
 
 {#if open}
   <div class="es-backdrop" onclick={onClose} role="presentation">
-    <div class="es-panel" role="dialog" aria-modal="true" aria-label="Search the fleet" onclick={(e) => e.stopPropagation()}>
+    <div class="es-panel" role="dialog" aria-modal="true" aria-label="Search the fleet" tabindex="-1" bind:this={panelEl} onkeydown={onPanelKeydown} onclick={(e) => e.stopPropagation()}>
       <div class="es-input-row">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input

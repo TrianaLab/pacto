@@ -328,6 +328,75 @@ and made unreachable on a Fleet host. Dead code removed: `addTargetLogicalDepend
 `serviceReverseDeps` (`pkg/fleet/projection.go`) and the unused `edgeColor`
 (`lib/graph.ts`).
 
+Deferred product capability surfaced by the dual-UI cleanup (Part 1.4 option C):
+rich-doc / Mermaid RENDERING lived only in the legacy ServiceDetailView (it fetched full
+doc content over the legacy `/api/services/:name` plane and rendered it with mermaid). The
+product entity pages expose bounded doc PREVIEWS (title/path) by design; the product API
+does not carry full doc content. So making the legacy service detail unreachable on a
+Fleet host removed rendered-doc viewing from the Fleet product. Migrating it (product API
+doc content + a product doc viewer) is a Phase-6 follow-up; the capability still works on
+the non-Fleet `pacto doc` export. The `mermaid.spec.ts` section-K acceptance, which
+validated rendering via that legacy path, is marked `test.fixme` with this reason (it is
+NOT silently dropped).
+
+### Phase 5 progress (this session)
+
+Phase 5 (responsive + accessible interaction) was carried substantially forward this
+session, directly after the Phase-4 completion. Delivered and verified (svelte-check
+clean, full Vitest green, and the built-WASM-demo Playwright suite green on both the
+desktop and mobile projects):
+
+- Semantic accessibility: `FleetEntityView` gains a page-level h1 (via a reusable
+  `.visually-hidden` utility), so every product page has one useful h1. Global shortcuts
+  no longer steal interaction (requirement 8.5): `isTypingTarget` now includes SELECT
+  (native type-ahead), and Cmd/Ctrl-K no longer stacks the palette over an open Search
+  overlay.
+- Graph accessibility model (8.2): the Cytoscape canvas is described as an image
+  (role="img" with a meaningful label) instead of declaring an incomplete
+  role="application"; the accessible keyboard/screen-reader model is the first-class
+  Relationships navigator (the text alternative), whose node/edge controls open the same
+  quick-inspection drawer.
+- Drawer focus model (8.3): the graph quick-inspection drawer is a non-modal panel
+  (no focus trap); Escape and Close close it and return focus to the control that opened
+  it, and opening it moves focus into the drawer.
+- Modal dialogs: EntitySearch gains a real Tab focus trap and both EntitySearch and the
+  command palette are focusable dialogs (tabindex).
+- Reduced motion (8.6): the graph layout, fit, center and expand/collapse animations
+  honor prefers-reduced-motion (they become instant), joining the already-safe logo spin,
+  D3 charts and global CSS transitions.
+- Color and semantic state (8.8): inline prose links are underlined (WCAG 1.4.1 /
+  link-in-text-block), so a link is distinguishable from surrounding text without color.
+- Automated axe gate (8.9): `@axe-core/playwright` (pinned) runs WCAG 2.0/2.1 A+AA checks
+  over Overview, Services, Service detail, Attention, Product Impact, graph discovery, the
+  focused visual graph, the graph drawer open and the mobile navigation open. It is wired
+  into the existing blocking dashboard browser CI (the desktop + mobile Playwright
+  projects). The only disabled rule is color-contrast, narrowly and by design: requirement
+  8.8 says not to claim formal contrast conformance without measurement, so contrast is
+  handled by design tokens rather than asserted by the automated gate.
+- Keyboard acceptance (8.10): a keyboard-only spec proves "/" and Cmd/Ctrl-K behavior
+  (including not hijacking a typed input), full graph node/edge selection + inspection +
+  Escape-restores-focus, keyboard-operable knowledge/direction controls, and that the
+  one-hop target projection exposes no depth/expand control even for a hand-crafted
+  depth=6 URL.
+- Responsive acceptance (8.11): a spec asserts no body-level horizontal scrolling at 320
+  and 375 px across Overview, Services, Attention, Owners, Sources, Impact, service
+  detail (the shared entity-page layout), graph discovery and the focused graph, plus a
+  wrapping graph toolbar.
+- Deterministic unit coverage for the above (shortcut guards, drawer Escape/focus return,
+  the EntitySearch trap, the graph signatures and the img-role) is in the Vitest suite.
+
+Remaining Phase-5 acceptance NOT yet done (Phase 5 stays IN PROGRESS):
+
+- Formal color-contrast MEASUREMENT in light and dark themes (8.8) -- the axe gate
+  excludes color-contrast by design; a measured audit is still owed.
+- A broader semantic-heading / landmark audit across every rich entity sub-page and the
+  retained Compare/Readiness views (8.1) beyond the h1 and named-region basics verified.
+- The accessible graph navigator is the text alternative behind a disclosure; a richer
+  navigator (arrow-key traversal between nodes, edge-by-edge stepping) is not built (8.2
+  is met at the "every node/edge operable + inspectable by keyboard" level, not full
+  spatial traversal).
+- No physical-device testing (only emulated widths), as the task requires.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
