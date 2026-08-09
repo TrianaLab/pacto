@@ -11,9 +11,18 @@ implementation; it exists so the work can continue across fresh sessions without
 losing decisions or repeating discovery.
 
 Authored content in this repository must never contain Unicode code point
-U+00A7. Use ordinary wording ("requirement 3", "review item 3"). This rule is
-enforced by a blocking gate that scans authored files, committed generated docs,
-the commit messages in base..HEAD, and the PR title and body (requirement 24).
+U+00A7. Use ordinary wording ("requirement 3", "review item 3"). This rule has
+two enforcement tiers (requirement 24), and the distinction is load-bearing:
+
+- ACTIVE / BLOCKING: a CI gate scans the authored source and content files and the
+  committed generated docs, and fails the build on any U+00A7. This is the tier
+  that runs on this PR.
+- BLOCKED: the same gate can also scan the commit messages in base..HEAD and the PR
+  title and body (its `--commits` mode), but wiring that into blocking CI would fail
+  on pre-existing history that already contains the character. Cleaning that history
+  would require an explicitly-authorized destructive Git history rewrite, which does
+  not exist, so historical commit-message and PR-metadata enforcement stays deferred
+  (see section 8 item 9). No prompt in any session has authorized a history rewrite.
 
 ## 0. Branch state and synchronized base
 
@@ -176,45 +185,70 @@ historical narrative; where it conflicts with this section, this section wins.
 - Phase 1 (product API hardening): COMPLETE.
 - Phase 2 (frontend IA and routing): COMPLETE.
 - Phase 3 (Overview, Services, Attention, rich entity pages): COMPLETE.
-- Phase 4 (search-first Operational Graph + full dashboard migration): COMPLETE. An
-  independent review of `973daa14` found six further correctness gaps (recorded and
-  closed in "Phase 4 dual-UI closure + completion" below): the dual-UI product surface,
-  the knowledge-view edge-payload leak, target dependents contradicting the one-hop
-  projection, silent focus reinterpretation on a perspective change, stale Cytoscape
-  presentation, and a legend advertising states the canvas did not draw. All six are now
-  closed with adversarial tests; the final gate is final-SHA CI. The earlier
-  `540cf692` review's blockers (below) remain closed:
-  - the revision and target projections now honor the knowledge-view invariant (views
-    drive traversal, edges AND expansion affordances);
-  - service-scoped observation is never promoted into a revision/target edge claim: a
-    fine-grained edge is never `Observed`, and carries `observationScope` +
-    `serviceCorroboration` as explicit, OpenAPI-generated context;
-  - target identity is honest: an ambiguous/unresolved target inherits no revision's
-    dependencies (it surfaces a limitation), a logical consumer depends on the logical
-    service (never the concrete target), and the runs edge is drawn only for an
-    authoritative link;
-  - the target projection is one hop by construction and reports `effectiveDepth=1`; the
-    UI disables its depth/expand controls rather than leaving them inert;
-  - only backend-acceptable perspective transitions are exposed, so ordinary navigation
-    cannot produce a 422;
-  - `GraphView.svelte` is now an actual Cytoscape visual topology (the shared engine,
-    reused) with Fit/zoom/legend and node/edge quick-inspection drawers, plus an
-    accessible text alternative;
-  - the inert `domain/scope/owner/status/source/freshness` graph-route filters are
-    removed and the dead legacy FleetView/fleetGraph stack is deleted;
-  - graph discovery search distinguishes transport/schema failures from "no matches"
-    and is stale-safe;
-  - the Product Impact revision universe / service picker are bounded and truthfully
-    incomplete/search-first.
+- Phase 4 (search-first Operational Graph + full dashboard migration): REOPENED /
+  CURRENT. An independent review of HEAD `8a2f7910` found concrete gaps that
+  invalidate the earlier "Phase 4 COMPLETE" claim, the most important of which is
+  user-visible: the dashboard user reports seeing NO GRAPH. The reopened gaps are:
+  1. `renderGraph()` silently falls back to a HEADLESS Cytoscape on any visual init
+     error, so a real renderer failure becomes an empty container plus a working
+     text alternative plus green tests, with no signal reaching the user or the test.
+  2. the browser acceptance ("O2") proves only the wrapper, legend and text-alt list,
+     never that a NON-HEADLESS renderer actually painted a canvas.
+  3. `NeighborhoodEdge.Provenance` declares `enum:"declared,observed"` while
+     `edgeProvenance()` can emit `declared+observed`, so the generated SDK declares
+     a runtime value impossible.
+  4. `projectEdgeForViews` leaves `DeclaredClaim.Reconciliation` (observation-derived
+     comparison knowledge) in the Expected-only and Expected+Observed-without-
+     Differences payloads.
+  5. `neighborhoodGraph.ts` and `graphState.ts` reintroduce handwritten
+     ProductNeighborhood wire mirrors that can drift from the generated SDK.
+  6. the legacy `#/services/:name/versions/:version` bookmark migration drops
+     `:version` on a Fleet host instead of resolving a Product Revision.
+
+  The earlier `540cf692` / `973daa14` review blockers remain closed (views drive
+  traversal AND edges/expansions; fine-grained edges carry service-scoped
+  corroboration, never a promoted Observed; honest target identity; one-hop target
+  projection reporting `effectiveDepth=1`; only backend-acceptable perspective
+  transitions; the shared Cytoscape engine reused with fit/zoom/legend/drawers and a
+  text alternative; dead legacy FleetView/fleetGraph stack deleted; stale-safe
+  discovery search; bounded Product Impact pickers). Phase 4 re-closes only when
+  sections 1-8 of the reopen review are proven, gated by a real non-headless canvas
+  acceptance.
+- Phase 5 (responsive + accessible interaction: keyboard graph navigation, mobile
+  layout, formal WCAG): IN PROGRESS, but PAUSED behind the Phase-4 visual-acceptance
+  blocker. The accepted-so-far Phase-5 work (semantic graph navigator, role=img visual
+  canvas, drawer focus behavior, shortcut hardening, reduced-motion baseline,
+  narrow-width baseline, axe integration) is NOT re-done; the remaining acceptance
+  (real WCAG contrast gate, heading/landmark audit, keyboard graph interaction,
+  deeper responsive states) resumes only after Phase 4 genuinely re-closes.
+
+Reproduction of record (this session, built WASM demo in real Chromium): the
+DISCOVERY route `#/fleet/graph` correctly renders ZERO Cytoscape topology
+(search-first by design). The FOCUSED route
+`#/fleet/graph/service/payments-service` DID paint a visible topology on the
+reviewed build: three non-headless Cytoscape canvas layers at 742x458 (CSS and
+backing store), the node layer non-blank, seven nodes and eight edges, no console
+or page errors. A blank FOCUSED canvas was therefore NOT reproduced on this build.
+The user's "no graph" is best explained by (a) the search-first DISCOVERY route,
+whose affordance is too weak, so the graph tab reads as an empty page (section 4),
+and (b) the latent silent-headless fallback (gap 1), which would hide any real
+renderer failure. Both are being fixed; Phase 4 re-closes only when a real
+non-headless canvas gate proves the focused topology paints.
 
 The projection / materialized-storage work from the earlier evidence-store review
-(ADR-5) is resolved and is NOT reopened. The U+00A7 commit-history CI enforcement
-remains BLOCKED on explicit history-rewrite authorization (section 8 item 9); no
-such authorization exists this session.
+(ADR-5) is resolved and is NOT reopened. The U+00A7 enforcement tiers are as stated
+in the header: the authored source/content gate is ACTIVE and blocking; historical
+commit-message and PR-metadata enforcement is BLOCKED on explicit history-rewrite
+authorization, which does not exist this session. No Git history is rewritten,
+rebased or force-pushed this session.
 
-Phase 5 (responsive + accessible interaction: keyboard graph navigation, mobile
-layout, formal WCAG) is IN PROGRESS this session (it continues directly after the
-Phase 4 completion; see "Phase 5 progress" below).
+### Phase 4 reopen: visual-renderer truth and contract closure (this session)
+
+- Starting HEAD: `8a2f7910` (the reviewed HEAD of PR #291).
+- Synchronized base: `eb1482ff` (current `main` tip). `main` had NOT moved from that
+  base (it equals the merge-base and is an ancestor of HEAD), so no re-sync was
+  needed. Integration remains merge (branch content preserved).
+- The PR stays draft. No Git history was rewritten, rebased or force-pushed.
 
 ### Phase 4 dual-UI closure + completion (this session)
 
