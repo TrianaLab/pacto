@@ -23,15 +23,18 @@ test('a seeded service is searchable and focuses a live bounded neighborhood', a
   // operational-graph.sh already asserts checkout/orders/payments in the snapshot.
   await page.goto('/#/fleet/graph');
   await page.getByRole('searchbox').fill('checkout');
-  const result = page.getByTestId('graph-focus-link').first();
+  // Follow the SERVICE result (a service focus link carries no perspective param, unlike
+  // the revision/target results): orders declares a dependency on checkout, so the
+  // checkout service neighborhood is non-empty and renders an actual visual topology.
+  const result = page.locator('a[data-testid="graph-focus-link"]:not([href*="perspective="])').first();
   await expect(result).toBeVisible({ timeout: 20_000 });
   await result.click();
   // The bounded neighborhood renders as an actual visual topology over live HTTP.
   await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId('graph-legend')).toBeVisible();
   // The focus identity is the seeded service, live from the operator (shown in the
-  // header identity and in the accessible relationship list).
+  // accessible relationship list alongside the visual graph).
   await expect(page.getByRole('heading', { name: 'Operational graph' })).toBeVisible();
   await page.getByTestId('graph-textalt').locator('summary').click();
-  await expect(page.getByTestId('graph-node-item').first()).toContainText('checkout');
+  await expect(page.getByTestId('graph-node-item').filter({ hasText: 'checkout' }).first()).toBeVisible();
 });
