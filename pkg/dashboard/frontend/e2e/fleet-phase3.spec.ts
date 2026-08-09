@@ -105,10 +105,11 @@ test.describe('WASM demo — Phase-3 product pages', () => {
     await openPaymentsService(page);
     await page.locator('a.entity-link[href*="/fleet/targets/"]').first().click();
     await expect(page).toHaveURL(/#\/fleet\/targets\//);
-    // Both identity dimensions are labelled and independent. The demo's targets use a
-    // mutable tag ref, so content is not retrievable even when the revision matches —
-    // and that pairing must render without being flagged as a contradiction.
-    await expect(page.getByText('Revision match')).toBeVisible({ timeout: T });
+    // Both identity dimensions are labelled and independent. The payments target uses a
+    // mutable version-tag ref that uniquely matches a revision (an INFERRED match), so
+    // the revision matches while its content is NOT retrievable — and that pairing must
+    // render without being flagged as a contradiction.
+    await expect(page.getByText('Revision match', { exact: true })).toBeVisible({ timeout: T });
     await expect(page.getByText('Content', { exact: true })).toBeVisible({ timeout: T });
     await expect(page.locator('.te-identity')).toBeVisible();
   });

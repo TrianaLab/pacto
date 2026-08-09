@@ -469,36 +469,9 @@ func TestTargetProjection_Dependents(t *testing.T) {
 		}
 	}
 
-	// C1: an unresolved-link target must NOT inherit its logical service's declared
-	// deps. mystery (digest matches no revision) draws NO dependency edges from the
-	// target and surfaces the TARGET_REVISION_UNRESOLVED limitation.
-	mystery := string(targetKeyFor(t, q, "mystery"))
-	mnb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindTarget, Key: mystery, Perspective: PerspectiveTarget, Direction: DirectionDependencies})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range mnb.Edges {
-		if e.Relation == RelationDependency && e.From.Key == mystery {
-			t.Errorf("unresolved-link target must inherit no revision's declared deps: %+v", e)
-		}
-	}
-	if !hasLimitation(mnb.Limitations.Items, "TARGET_REVISION_UNRESOLVED") {
-		t.Errorf("unresolved-link target must surface the TARGET_REVISION_UNRESOLVED limitation: %+v", mnb.Limitations)
-	}
-
-	// C1 (ambiguity by aggregation): a second unresolved target for a service with two
-	// revisions must NOT aggregate any revision's declared api dependency onto the
-	// concrete target.
-	appMystery := string(targetKeyFor(t, q, "app-mystery"))
-	anb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindTarget, Key: appMystery, Perspective: PerspectiveTarget, Direction: DirectionDependencies})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range anb.Edges {
-		if e.From.Key == appMystery && e.Relation == RelationDependency {
-			t.Errorf("unresolved-link target must not attribute any revision's dependency to the target, got %+v", e)
-		}
-	}
+	// The C1 no-inheritance counterexamples (unresolved and ambiguous targets) are
+	// covered by TestTargetProjection_UnresolvedNoDependencyInheritance and
+	// TestTargetProjection_AmbiguousNoDependencyInheritance in projection_views_test.go.
 }
 
 // TestTargetProjection_ObservedLimitation covers the target-perspective observation

@@ -304,9 +304,9 @@
                 {#each nb.edges as e (e.id)}
                   <li>
                     <button type="button" class="gv-edge" onclick={() => selectEdge(e)} data-testid="graph-edge">
-                      <span class="gv-endpoint"><EntityLink ref={e.from} showStatus={false} /></span>
+                      <span class="gv-endpoint">{e.from.label || e.from.key}</span>
                       <span class="gv-rel" data-testid="edge-relation">{relationLabel(e.relation)}</span>
-                      <span class="gv-endpoint"><EntityLink ref={e.to} showStatus={false} /></span>
+                      <span class="gv-endpoint">{e.to.label || e.to.key}</span>
                       {#if e.relation !== 'runs' && e.difference}
                         <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={differenceLabel(e.difference)} tone={differenceTone(e.difference)} title={differenceDescription(e.difference)} /></span>
                       {:else if e.relation !== 'runs' && e.serviceCorroboration}

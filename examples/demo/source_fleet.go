@@ -96,7 +96,11 @@ func demoTargets() []fleet.RawTarget {
 	cov := func(e, r int) *fleet.Coverage { return &fleet.Coverage{Evaluated: e, Required: r} }
 	at := func(t time.Time) *time.Time { return &t }
 	return []fleet.RawTarget{
-		{Scope: "prod", Kind: "k8s", Name: "payments-service", Service: "payments-service", Compliance: fleet.StatusCompliant, Coverage: cov(5, 5), EvidenceAt: at(fresh), ReconciledAt: at(fresh)},
+		// The payments-service target pins a version-tagged ref that uniquely matches the
+		// payments-service 2.1.0 revision, so its revision link is INFERRED (authoritative)
+		// -- the deployment graph draws a real "runs" edge to that revision. The other
+		// targets carry no ref, so their links stay honestly unresolved (no runs edge).
+		{Scope: "prod", Kind: "k8s", Name: "payments-service", Service: "payments-service", ResolvedRef: demoRegistry + "payments-service:2.1.0", Compliance: fleet.StatusCompliant, Coverage: cov(5, 5), EvidenceAt: at(fresh), ReconciledAt: at(fresh)},
 		{Scope: "prod", Kind: "k8s", Name: "orders-service", Service: "orders-service", Compliance: fleet.StatusNonCompliant, Coverage: cov(4, 5), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Findings: []finding.Finding{{Code: "CONTRACT_VIOLATION", Severity: finding.SeverityError, Message: "response schema drifted from the declared contract"}}},
 		{Scope: "prod", Kind: "k8s", Name: "auth-service", Service: "auth-service", Compliance: fleet.StatusUnknown, Coverage: cov(1, 5), EvidenceAt: at(fresh), ReconciledAt: at(fresh)},
