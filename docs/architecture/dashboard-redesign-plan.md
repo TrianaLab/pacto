@@ -176,11 +176,14 @@ historical narrative; where it conflicts with this section, this section wins.
 - Phase 1 (product API hardening): COMPLETE.
 - Phase 2 (frontend IA and routing): COMPLETE.
 - Phase 3 (Overview, Services, Attention, rich entity pages): COMPLETE.
-- Phase 4 (search-first Operational Graph): implementation COMPLETE this session and
-  locally verified; the final gate is final-SHA CI (this ledger commit's SHA). The
-  independent review of `540cf692` accepted Phases 1-3 and reopened Phase 4 as only a
-  search-first relationship-browser prototype; every blocker it raised is now closed
-  (details in "Phase 4 completion" below):
+- Phase 4 (search-first Operational Graph + full dashboard migration): COMPLETE. An
+  independent review of `973daa14` found six further correctness gaps (recorded and
+  closed in "Phase 4 dual-UI closure + completion" below): the dual-UI product surface,
+  the knowledge-view edge-payload leak, target dependents contradicting the one-hop
+  projection, silent focus reinterpretation on a perspective change, stale Cytoscape
+  presentation, and a legend advertising states the canvas did not draw. All six are now
+  closed with adversarial tests; the final gate is final-SHA CI. The earlier
+  `540cf692` review's blockers (below) remain closed:
   - the revision and target projections now honor the knowledge-view invariant (views
     drive traversal, edges AND expansion affordances);
   - service-scoped observation is never promoted into a revision/target edge claim: a
@@ -210,7 +213,120 @@ remains BLOCKED on explicit history-rewrite authorization (section 8 item 9); no
 such authorization exists this session.
 
 Phase 5 (responsive + accessible interaction: keyboard graph navigation, mobile
-layout, formal WCAG) has NOT been started and is the next phase.
+layout, formal WCAG) is IN PROGRESS this session (it continues directly after the
+Phase 4 completion; see "Phase 5 progress" below).
+
+### Phase 4 dual-UI closure + completion (this session)
+
+- Starting HEAD: `973daa14` (the reviewed HEAD of PR #291).
+- Synchronized base: `eb1482ff` (current `main` tip). `main` had NOT moved from that base
+  (it equals the merge-base and is an ancestor of HEAD), so no re-sync was needed.
+  Integration remains merge (branch content preserved). No Git history was rewritten; the
+  U+00A7 commit-history CI enforcement stays BLOCKED (section 8 item 9). The PR stays
+  draft.
+
+An independent review of `973daa14` found six concrete gaps; each is now closed with
+tests that fail before the fix and pass after, holding 100% Go coverage on the touched
+packages and an error-clean svelte-check + full Vitest suite:
+
+1. Dual-UI product surface. The SPA still served BOTH the legacy views (ServiceListView,
+   ServiceDetailView, GraphPageView, OwnersView, OwnerDetailView) and the product IA on
+   the same Fleet-capable host, so a legacy deep link reached a second, competing UI.
+   Now, on a Fleet-capable host (`capabilities.fleet === true`), every legacy route that
+   has a product equivalent canonicalizes to the product IA and the legacy view never
+   mounts. The static 1:1 roots redirect through `legacyRedirectTarget` + a `replaceHash`
+   (a history REPLACE, so Back never bounces and a reload stays on the product URL); the
+   catch-all legacy list (and any unknown hash) redirects to the operational overview.
+   Name-bearing legacy detail URLs are migrated by `LegacyEntityRedirect`, which resolves
+   the display NAME through the Product Entities API and NEVER fabricates a canonical key:
+   one exact match canonicalizes, several domain-qualified same-named entities show an
+   explicit disambiguation, none shows an honest not-found, and a transport failure shows
+   a Product error (never a fall back to the legacy screen). The command palette offers
+   the product destinations on a Fleet host (and drops the legacy service/owner search,
+   which the visible EntitySearch covers). The retained legacy views are the NON-Fleet
+   compatibility surface ONLY (the offline `pacto doc` single-service export, now
+   declared `fleet:false` so it resolves its host class definitively and never shows a
+   dead Fleet tab); they are unreachable on a Fleet host. Global `api.services()` no
+   longer fires for a product route -- only for the retained Compare/Readiness
+   capabilities, and for the legacy views on a non-Fleet host. A dual-UI architecture
+   guard (`dualui.test.ts`) proves one Services/Owners/Graph/entity destination on a
+   Fleet host and legacy retention on a non-Fleet host; the WASM demo Playwright suite
+   proves the canonicalization, reload persistence and Back non-bounce end to end.
+2. Knowledge-view edge-payload leak. The views selector drove traversal and edge
+   membership but the edge PAYLOAD still merged all knowledge, so an expected-only query
+   returned observed evidence + a difference verdict, an observed-only query returned
+   declared claims, and a fine-grained edge exposed service corroboration under
+   expected-only. A single finalization step (`projectEdgeForViews`, applied once in the
+   `Neighborhood` dispatcher) now clears the knowledge the requested views exclude:
+   expected-only keeps the declared claim and nothing observed and no comparison;
+   observed-only keeps the observed fact and no declared claim; expected+observed keeps
+   both facts but no Difference; only a differences view carries the Difference and the
+   fine-grained `serviceCorroboration`/`observationScope`. The `runs` edge (the target's
+   identity link) is shown intact regardless of views. Counterexample tests per
+   perspective.
+3. Target dependents / effective depth. The target projection emitted inbound logical
+   consumers as dependency edges, hanging a depth-2 logical component off the one-hop
+   target focus and contradicting `effectiveDepth=1`. Inbound dependency knowledge is
+   only available at logical-service scope (Pacto does not observe which logical
+   consumers routed to a specific deployment), so the target projection now draws NO
+   inbound dependents and surfaces a `DEPENDENTS_LOGICAL_SERVICE_SCOPED` limitation
+   pointing to the service perspective. A `node.Depth <= effectiveDepth` invariant test
+   covers every projection; the dead `addTargetLogicalDependents`/`serviceReverseDeps`
+   were removed.
+4. Silent focus reinterpretation. Changing the graph perspective kept the URL kind/key
+   while the backend resolved (e.g.) a target to its linked revision, so the URL and the
+   drawn graph disagreed and `requestedFocus` was silently replaced. `requestedFocus` now
+   stays exactly what the request asked for; a new explicit `projectionFocus` ProductRef
+   carries the resolved entity when it differs. The UI canonicalizes the URL on a
+   perspective change (target->service via `focusService`, target->revision via the runs
+   edge, revision->service), read from backend product data and never inferred from
+   labels; a bookmarked reinterpreted URL canonicalizes on load via `projectionFocus`
+   (a replace, so the active perspective never contradicts the graph). OpenAPI + the TS
+   SDK were regenerated for the new field.
+5. Stale Cytoscape presentation. `NeighborhoodGraph` keyed its refresh on topology alone,
+   so a refresh that changed a node status or an edge difference (without changing the
+   graph shape) left the canvas stale while the text alternative updated. It now keys on
+   two signatures: a topology change rebuilds; a presentation-only change (node
+   status/label/kind, edge reconciliation state) restyles the canvas in place via a new
+   `patchData` control (no relayout); an identical answer recreates nothing.
+6. Legend vs canvas. The legend advertised reconciliation states the canvas did not draw
+   (the adapter forwarded a single dead drift bit). The adapter now carries one
+   backend-derived edge visual state (from difference or service corroboration, never
+   re-inferred), and the Cytoscape stylesheet renders matched / expected-not-observed /
+   drift / insufficient as real line distinctions (tone + width + style) plus a dashed
+   revision-node border. The legend is rewritten so every item maps to a real canvas
+   distinction; the drawer and text list keep the full precise wording.
+
+Canonical post-migration route map (the ONE destination per concept on a Fleet host):
+
+| Concept | Canonical product route | Legacy route (redirected on a Fleet host) |
+|---------|-------------------------|-------------------------------------------|
+| Home / Operational Overview | `#/fleet` | `#/` (and any unknown hash) |
+| Services (list) | `#/fleet/services` | `#/services` |
+| Service detail | `#/fleet/services/:serviceKey` | `#/services/:name` (resolved via Product API) |
+| Revision detail | `#/fleet/revisions/:revisionKey` | (none) |
+| Target detail | `#/fleet/targets/:targetKey` | (none) |
+| Owners (list) | `#/fleet/owners` | `#/owners` |
+| Owner detail | `#/fleet/owners/:ownerKey` | `#/owners/:id` (resolved via Product API) |
+| Sources | `#/fleet/sources` | (none) |
+| Attention | `#/fleet/attention` | (none) |
+| Operational Graph | `#/fleet/graph` | `#/graph` |
+| Product Impact | `#/fleet/impact/:serviceKey` | `#/impact` (advanced raw-ref form, retained) |
+
+Intentionally retained specialized capabilities (option A/C of requirement 1.4): Readiness
+(`#/readiness`) and Compare (`#/diff`) have NO product equivalent (no product readiness or
+contract-diff route), so they are kept on every host and participate in the primary nav;
+they consume the legacy services plane as the documented retained boundary. Deeper
+migration of their internals to the Product API is a Phase 6+ follow-up, not a Phase-4
+blocker. The Impact workspace is a supported product capability reached from Compare, a
+service/revision, the graph and deep links (requirement 1.4 option A). No legacy view is a
+hidden second UI on a Fleet host: each renders only when `capabilities.fleet === false`.
+
+Removed / rewired: no legacy view is deleted (the non-Fleet `pacto doc` export is their
+only host and still needs them); instead they are gated behind the non-Fleet host class
+and made unreachable on a Fleet host. Dead code removed: `addTargetLogicalDependents` and
+`serviceReverseDeps` (`pkg/fleet/projection.go`) and the unused `edgeColor`
+(`lib/graph.ts`).
 
 ## 1. Target product model
 
