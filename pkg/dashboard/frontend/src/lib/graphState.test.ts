@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone,
   differenceDescription, relationLabel, neighborhoodIsEmpty, DEFAULT_VIEWS, MAX_DEPTH,
+  defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
+  perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
 } from './graphState.ts';
 
 describe('hasFocus', () => {
@@ -84,5 +86,55 @@ describe('neighborhoodIsEmpty', () => {
   it('is false when there are edges or unresolved deps', () => {
     expect(neighborhoodIsEmpty({ edges: [{}], unresolvedDependencies: { count: 0 } })).toBe(false);
     expect(neighborhoodIsEmpty({ edges: [], unresolvedDependencies: { count: 2 } })).toBe(false);
+  });
+});
+
+describe('focus/perspective validity (requirement E)', () => {
+  it('defaults the perspective from the entity kind', () => {
+    expect(defaultPerspectiveForKind('service')).toBe('service');
+    expect(defaultPerspectiveForKind('revision')).toBe('revision');
+    expect(defaultPerspectiveForKind('target')).toBe('target');
+    expect(defaultPerspectiveForKind('owner')).toBe('service');
+  });
+
+  it('offers only perspectives the backend will accept for a focus kind', () => {
+    expect(availablePerspectives('service')).toEqual(['service']);
+    expect(availablePerspectives('revision')).toEqual(['service', 'revision']);
+    // a target is a revision projection only when its link is authoritative
+    expect(availablePerspectives('target', { targetRevisionAuthoritative: false })).toEqual(['service', 'target']);
+    expect(availablePerspectives('target', { targetRevisionAuthoritative: true })).toEqual(['service', 'revision', 'target']);
+  });
+
+  it('classifies an authoritative revision link', () => {
+    expect(revisionLinkAuthoritative('exact')).toBe(true);
+    expect(revisionLinkAuthoritative('inferred')).toBe(true);
+    expect(revisionLinkAuthoritative('ambiguous')).toBe(false);
+    expect(revisionLinkAuthoritative('unresolved')).toBe(false);
+    expect(revisionLinkAuthoritative(undefined)).toBe(false);
+  });
+
+  it('marks the target perspective as one-hop (no real depth model)', () => {
+    expect(perspectiveSupportsDepth('service')).toBe(true);
+    expect(perspectiveSupportsDepth('revision')).toBe(true);
+    expect(perspectiveSupportsDepth('target')).toBe(false);
+  });
+});
+
+describe('service-scoped corroboration (requirement B)', () => {
+  it('labels each corroboration verdict', () => {
+    expect(corroborationLabel('matched')).toMatch(/corroborates/i);
+    expect(corroborationLabel('expected-not-observed')).toMatch(/did not witness/i);
+    expect(corroborationLabel('insufficient')).toMatch(/no service observation/i);
+    expect(corroborationLabel(undefined)).toBe('');
+  });
+  it('tones the verdicts distinctly (never color alone, but a distinct tone helps)', () => {
+    expect(corroborationTone('matched')).toBe('ok');
+    expect(corroborationTone('expected-not-observed')).toBe('info');
+    expect(corroborationTone('insufficient')).toBe('neutral');
+  });
+  it('caveats a fine-grained edge as service-scoped, not an edge-scope observation', () => {
+    expect(serviceScopedCaveat('revision')).toMatch(/service-scoped corroboration/i);
+    expect(serviceScopedCaveat('target')).toMatch(/service-scoped corroboration/i);
+    expect(serviceScopedCaveat('service')).toBe('');
   });
 });

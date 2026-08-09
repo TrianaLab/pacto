@@ -1,11 +1,14 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { api } from '../lib/api.ts';
+  import { api, ApiError, SchemaCompatibilityError } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import {
     graphStateFromParams, hasFocus, toggleView, differenceLabel, differenceTone,
-    differenceDescription, relationLabel, neighborhoodIsEmpty, GRAPH_PERSPECTIVES, MAX_DEPTH,
+    differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
+    defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
+    perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
   } from '../lib/graphState.ts';
+  import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
   import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetImpactUrl } from '../lib/router.ts';
@@ -14,15 +17,16 @@
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
+  import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
 
-  // The search-first product Operational Graph (Phase 4). With no focus it shows a
-  // DISCOVERY state (search + attention entry points + an explanation) -- never a
-  // whole-fleet hairball. With a focus it consumes the PRODUCT neighborhood API (never
-  // the FleetSnapshot) for a bounded local neighborhood: expected / observed /
-  // differences views, a projection perspective (service / revision / target), a
-  // direction and a depth, all shareable in the URL. Selecting a node or edge opens a
-  // bounded quick-inspection drawer; the full stable entity page stays the durable
-  // destination.
+  // The product Operational Graph (Phase 4). With no focus it shows a DISCOVERY state
+  // (search only) and loads NO neighborhood and NO FleetSnapshot -- never a whole-fleet
+  // hairball. With a focus it consumes the bounded PRODUCT neighborhood API and renders
+  // an ACTUAL visual topology on the shared Cytoscape engine: mixed service/revision/
+  // target nodes, dependency and runs edges, backend-authoritative difference and
+  // service-scoped corroboration (never re-inferred, never color alone). An accessible
+  // text list of the same relationships accompanies the canvas; selecting a node or
+  // edge opens a bounded quick-inspection drawer without navigating away.
   let { params = {}, refreshTick = 0 } = $props();
 
   const gs = $derived(graphStateFromParams(params));
@@ -44,25 +48,45 @@
   const loading = $derived(focused && loader.loading);
   const error = $derived(focused ? loader.error : null);
   const knowledge = $derived(snapshotKnowledge(nb?.meta));
-  const selected = $state({ kind: '', data: null }); // { kind: 'node'|'edge', data }
+  const focusRef = $derived(nb?.requestedFocus ?? null);
+  const focusNode = $derived((nb?.nodes || []).find((n) => n.focus) || null);
 
-  function selectNode(node) { if (node) { selected.kind = 'node'; selected.data = node; } }
-  function selectEdge(edge) { selected.kind = 'edge'; selected.data = edge; }
-  function closeDrawer() { selected.kind = ''; selected.data = null; }
-  // nodeFor finds the neighborhood node for a key (used to open the focus node drawer).
-  function nodeFor(key) { return (nb?.nodes || []).find((n) => n.ref.key === key) || null; }
+  // Perspective options valid for THIS focus (requirement E): a service can only be a
+  // service projection; a target is a revision projection only when its link is
+  // authoritative. Ordinary navigation therefore never produces a backend 422.
+  const perspectives = $derived(availablePerspectives(gs.kind, {
+    targetRevisionAuthoritative: revisionLinkAuthoritative(focusNode?.revisionState),
+  }));
+  const depthSupported = $derived(perspectiveSupportsDepth(gs.perspective));
+  const oneHopNote = $derived(nb && nb.effectiveDepth < gs.depth);
 
-  // ── control -> URL (shareable graph state) ───────────────────────────────────
+  // ── quick-inspection drawer (node or edge) ───────────────────────────────────
+  const selected = $state({ kind: '', node: null, edge: null });
+  function selectNode(node) { if (node) { selected.kind = 'node'; selected.node = node; selected.edge = null; } }
+  function selectEdge(edge) { if (edge) { selected.kind = 'edge'; selected.edge = edge; selected.node = null; } }
+  function closeDrawer() { selected.kind = ''; selected.node = null; selected.edge = null; }
+  // Canvas selection reports the Cytoscape element id; map it back to the backend node
+  // (by canonical key) or edge (by the reproduced Cytoscape edge id).
+  function selectNodeById(id) { selectNode((nb?.nodes || []).find((n) => n.ref.key === id)); }
+  function selectEdgeByCyId(cyId) {
+    selectEdge((nb?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
+  }
+
+  // ── graph controls (ephemeral fit/zoom, wired from the canvas) ───────────────
+  let controls = $state(null);
+  function onControls(c) { controls = c; }
+
+  // ── control -> URL (shareable graph state; never canvas coordinates) ─────────
   function go(patch) {
     const next = { perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth, ...patch };
     location.hash = fleetGraphFocusUrl(gs.kind, gs.key, next);
     closeDrawer();
   }
-  function setPerspective(p) { go({ perspective: p }); }
+  function setPerspective(p) { go({ perspective: p, depth: perspectiveSupportsDepth(p) ? gs.depth : 1 }); }
   function setDirection(d) { go({ direction: d }); }
-  function setDepth(d) { go({ depth: Math.max(1, Math.min(MAX_DEPTH, d)) }); }
+  function setDepth(d) { if (depthSupported) go({ depth: Math.max(1, Math.min(MAX_DEPTH, d)) }); }
   function flipView(v) { go({ views: toggleView(gs.views, v) }); }
-  function expand() { go({ depth: Math.min(MAX_DEPTH, gs.depth + 1) }); } // backend re-merges the larger bounded neighborhood
+  function expand() { if (depthSupported && gs.depth < MAX_DEPTH) go({ depth: gs.depth + 1 }); } // backend re-merges a larger bounded neighborhood
   function resetFocus() { location.hash = fleetGraphDiscoveryUrl(); }
 
   const VIEW_DEFS = [
@@ -71,27 +95,45 @@
     { v: 'differences', label: 'Differences', help: 'Where declared intent and observed reality diverge.' },
   ];
 
-  // ── discovery search (search-first entry) ────────────────────────────────────
+  // ── discovery search (search-first entry, product-honest) ────────────────────
   let queryText = $state('');
   let results = $state([]);
+  let searchTotal = $state(0);
   let searching = $state(false);
+  let searchError = $state(null);
   let searchSeq = 0;
   function runSearch() {
     const q = queryText.trim();
     const mySeq = ++searchSeq;
-    if (!q) { results = []; searching = false; return; }
+    if (!q) { results = []; searchTotal = 0; searching = false; searchError = null; return; }
     searching = true;
+    searchError = null;
     // Only graph-focusable kinds: the graph projects services, revisions and targets.
-    // Owners and sources are discovered from their own lists, not focused in the graph.
     api.fleetEntities({ text: q, kinds: ['service', 'revision', 'target'], limit: 20 })
-      .then((r) => { if (mySeq === searchSeq) results = r.entities || []; })
-      .catch(() => { if (mySeq === searchSeq) results = []; })
+      .then((r) => {
+        if (mySeq !== searchSeq) return; // a newer query supersedes this response
+        results = r.entities || [];
+        searchTotal = r.total ?? results.length;
+        searchError = null;
+      })
+      .catch((e) => {
+        if (mySeq !== searchSeq) return;
+        // Product-honest: a transport/schema failure is NOT "no matches". Keep the
+        // error distinct so the UI never renders an empty state after a failed request.
+        results = [];
+        searchTotal = 0;
+        searchError = e;
+      })
       .finally(() => { if (mySeq === searchSeq) searching = false; });
   }
   function submitSearch(e) { e.preventDefault(); runSearch(); }
   onDestroy(() => { searchSeq++; });
 
-  const focusRef = $derived(nb?.requestedFocus ?? null);
+  function searchErrorMessage(e) {
+    if (e instanceof SchemaCompatibilityError) return 'The dashboard and backend API versions differ; reload to update.';
+    if (e instanceof ApiError) return `Search failed (HTTP ${e.status}). ${e.message}`;
+    return 'Search is unavailable right now. Check your connection and try again.';
+  }
 </script>
 
 <div class="graph-view">
@@ -100,10 +142,10 @@
     : [{ label: 'Fleet', href: fleetOverviewUrl() }, { label: 'Operational graph' }]} />
 
   {#if !focused}
-    <!-- Discovery state (requirement K): search-first, no fleet hairball. -->
+    <!-- Discovery state (requirement K): search-first, no fleet hairball, no request. -->
     <section class="discovery" data-testid="graph-discovery">
       <h1>Operational graph</h1>
-      <p class="disco-lead">Search for a service, revision or deployment to see its local operational neighborhood. The graph never opens the whole fleet at once.</p>
+      <p class="disco-lead">Search for a service, revision or deployment to see its local operational neighborhood as a graph. The graph never opens the whole fleet at once.</p>
 
       <form class="disco-search" role="search" onsubmit={submitSearch}>
         <input type="search" bind:value={queryText} oninput={runSearch} placeholder="Search services, revisions, deployments..." aria-label="Search the fleet to focus the graph" />
@@ -111,19 +153,24 @@
       </form>
 
       {#if searching}
-        <p class="disco-hint">Searching...</p>
+        <p class="disco-hint" role="status">Searching...</p>
+      {:else if searchError}
+        <div class="gv-error" role="alert" data-testid="graph-search-error">{searchErrorMessage(searchError)}</div>
       {:else if results.length > 0}
         <ul class="disco-results" data-testid="graph-search-results">
           {#each results as r (r.kind + '::' + r.key)}
             <li>
-              <a href={fleetGraphFocusUrl(r.kind, r.key)} data-testid="graph-focus-link">
+              <a href={fleetGraphFocusUrl(r.kind, r.key, { perspective: defaultPerspectiveForKind(r.kind) })} data-testid="graph-focus-link">
                 <EntityIdentity ref={r} />
               </a>
             </li>
           {/each}
         </ul>
+        {#if searchTotal > results.length}
+          <p class="disco-hint" data-testid="graph-search-truncated">Showing {results.length} of {searchTotal}. Refine your search to narrow the results.</p>
+        {/if}
       {:else if queryText.trim()}
-        <p class="disco-hint">No entities match "{queryText}".</p>
+        <p class="disco-hint" data-testid="graph-search-empty">No entities match "{queryText}".</p>
       {/if}
 
       <div class="disco-panels">
@@ -144,7 +191,7 @@
       </div>
     </section>
   {:else}
-    <!-- Focused neighborhood (requirements L/M/O). -->
+    <!-- Focused neighborhood: an actual visual topology (requirements F/G/H). -->
     <div class="gv-head">
       <h1>Operational graph</h1>
       {#if focusRef}<EntityIdentity ref={focusRef} />{/if}
@@ -155,7 +202,7 @@
       <div class="gv-ctl">
         <span class="gv-ctl-k">Perspective</span>
         <div class="gv-seg">
-          {#each GRAPH_PERSPECTIVES as p}
+          {#each perspectives as p}
             <button type="button" class:active={gs.perspective === p} onclick={() => setPerspective(p)} data-testid="perspective-{p}">{p}</button>
           {/each}
         </div>
@@ -176,15 +223,25 @@
           <button type="button" class:active={gs.direction === 'both'} onclick={() => setDirection('both')} data-testid="dir-both">Both</button>
         </div>
       </div>
-      <div class="gv-ctl">
-        <span class="gv-ctl-k">Depth</span>
-        <div class="gv-seg gv-depth">
-          <button type="button" onclick={() => setDepth(gs.depth - 1)} disabled={gs.depth <= 1} aria-label="Decrease depth">-</button>
-          <span data-testid="graph-depth">{gs.depth}</span>
-          <button type="button" onclick={() => setDepth(gs.depth + 1)} disabled={gs.depth >= MAX_DEPTH} aria-label="Increase depth">+</button>
+      {#if depthSupported}
+        <div class="gv-ctl">
+          <span class="gv-ctl-k">Depth</span>
+          <div class="gv-seg gv-depth">
+            <button type="button" onclick={() => setDepth(gs.depth - 1)} disabled={gs.depth <= 1} aria-label="Decrease depth">-</button>
+            <span data-testid="graph-depth">{gs.depth}</span>
+            <button type="button" onclick={() => setDepth(gs.depth + 1)} disabled={gs.depth >= MAX_DEPTH} aria-label="Increase depth">+</button>
+          </div>
+        </div>
+        <button type="button" class="gv-btn" onclick={expand} disabled={gs.depth >= MAX_DEPTH} data-testid="graph-expand">Expand</button>
+      {/if}
+      <div class="gv-ctl gv-viewctl">
+        <span class="gv-ctl-k">View</span>
+        <div class="gv-seg">
+          <button type="button" onclick={() => controls?.fit()} data-testid="graph-fit" aria-label="Fit graph to view">Fit</button>
+          <button type="button" onclick={() => controls?.zoomIn()} data-testid="graph-zoom-in" aria-label="Zoom in">+</button>
+          <button type="button" onclick={() => controls?.zoomOut()} data-testid="graph-zoom-out" aria-label="Zoom out">-</button>
         </div>
       </div>
-      <button type="button" class="gv-btn" onclick={expand} disabled={gs.depth >= MAX_DEPTH} data-testid="graph-expand">Expand</button>
     </div>
 
     {#if loading}
@@ -202,34 +259,64 @@
           This neighborhood is bounded and was truncated. Narrow the direction or depth, or open an entity to continue.
         </div>
       {/if}
+      {#if oneHopNote}
+        <div class="gv-caveat tone-info" role="status" data-testid="graph-effective-depth">
+          The {gs.perspective} projection is evaluated one hop deep; deeper exploration lives in the revision projection.
+        </div>
+      {/if}
 
       <div class="gv-body">
-        <div class="gv-canvas" data-testid="graph-canvas">
-          <!-- Focus node -->
-          <div class="gv-focus">
-            <button type="button" class="gv-node is-focus" onclick={() => selectNode(nodeFor(focusRef?.key))} data-testid="graph-focus-node">
-              <EntityIdentity ref={focusRef} />
-            </button>
-          </div>
-
+        <div class="gv-main">
           {#if neighborhoodIsEmpty(nb)}
-            <p class="gv-status">No {gs.direction === 'both' ? 'related entities' : gs.direction} are known for this focus under the selected views.</p>
+            <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} are known for this focus under the selected views.</p>
           {:else}
-            <!-- Edges (backend-authoritative difference rendered verbatim) -->
-            <ul class="gv-edges" data-testid="graph-edges">
-              {#each nb.edges as e (e.id)}
-                <li>
-                  <button type="button" class="gv-edge" onclick={() => selectEdge(e)} data-testid="graph-edge">
-                    <span class="gv-endpoint"><EntityLink ref={e.from} showStatus={false} /></span>
-                    <span class="gv-rel" data-testid="edge-relation">{relationLabel(e.relation)}</span>
-                    <span class="gv-endpoint"><EntityLink ref={e.to} showStatus={false} /></span>
-                    {#if e.relation !== 'runs' && e.difference}
-                      <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={differenceLabel(e.difference)} tone={differenceTone(e.difference)} title={differenceDescription(e.difference)} /></span>
-                    {/if}
-                  </button>
-                </li>
-              {/each}
-            </ul>
+            <!-- Primary: the visual Cytoscape topology (requirement F). -->
+            <NeighborhoodGraph neighborhood={nb} focusKey={focusRef?.key || ''} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
+
+            <!-- Legend (requirement G): node kinds, dependency vs runs, difference/
+                 corroboration states. Never color alone (shape + dash + label). -->
+            <div class="gv-legend" data-testid="graph-legend" aria-label="Graph legend">
+              <span class="lg-item"><span class="lg-node lg-service"></span> Service</span>
+              <span class="lg-item"><span class="lg-node lg-revision"></span> Revision</span>
+              <span class="lg-item"><span class="lg-node lg-target"></span> Deployment</span>
+              <span class="lg-item"><span class="lg-edge lg-dep"></span> Depends on</span>
+              <span class="lg-item"><span class="lg-edge lg-runs"></span> Runs</span>
+              <span class="lg-item"><IdentityBadge label="Expected" tone="ok" /></span>
+              <span class="lg-item"><IdentityBadge label="Observed / corroboration" tone="info" /></span>
+              <span class="lg-item"><IdentityBadge label="Difference" tone="warn" /></span>
+              <span class="lg-item"><IdentityBadge label="Insufficient" tone="neutral" /></span>
+            </div>
+
+            <!-- Accessible text alternative (requirement P): the same nodes and edges as
+                 a semantic list, keyboard-focusable, driving the same drawer. -->
+            <details class="gv-textalt" data-testid="graph-textalt">
+              <summary>Relationships (text)</summary>
+              <ul class="gv-nodes" aria-label="Graph nodes">
+                {#each nb.nodes as n (n.ref.key)}
+                  <li>
+                    <button type="button" class="gv-textbtn" class:is-focus={n.focus} onclick={() => selectNode(n)} data-testid="graph-node-item">
+                      <EntityIdentity ref={n.ref} />
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+              <ul class="gv-edges" aria-label="Graph relationships" data-testid="graph-edges">
+                {#each nb.edges as e (e.id)}
+                  <li>
+                    <button type="button" class="gv-edge" onclick={() => selectEdge(e)} data-testid="graph-edge">
+                      <span class="gv-endpoint"><EntityLink ref={e.from} showStatus={false} /></span>
+                      <span class="gv-rel" data-testid="edge-relation">{relationLabel(e.relation)}</span>
+                      <span class="gv-endpoint"><EntityLink ref={e.to} showStatus={false} /></span>
+                      {#if e.relation !== 'runs' && e.difference}
+                        <span class="gv-diff" data-testid="edge-difference"><IdentityBadge label={differenceLabel(e.difference)} tone={differenceTone(e.difference)} title={differenceDescription(e.difference)} /></span>
+                      {:else if e.relation !== 'runs' && e.serviceCorroboration}
+                        <span class="gv-diff" data-testid="edge-corroboration"><IdentityBadge label={corroborationLabel(e.serviceCorroboration)} tone={corroborationTone(e.serviceCorroboration)} /></span>
+                      {/if}
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            </details>
           {/if}
 
           {#if (nb.unresolvedDependencies?.count ?? 0) > 0}
@@ -251,42 +338,48 @@
           {/if}
         </div>
 
-        <!-- Quick-inspection drawer (requirement P) -->
-        {#if selected.kind === 'node' && selected.data}
+        <!-- Quick-inspection drawer (requirement H). -->
+        {#if selected.kind === 'node' && selected.node}
           <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Node details">
             <div class="gv-drawer-head"><h2>Entity</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
-            <EntityIdentity ref={selected.data.ref} />
-            {#if selected.data.status}<p class="gv-drow"><span class="gv-k">Status</span> {selected.data.status}</p>{/if}
-            {#if selected.data.owner}<p class="gv-drow"><span class="gv-k">Owner</span> {selected.data.owner}</p>{/if}
+            <EntityIdentity ref={selected.node.ref} />
+            {#if selected.node.status}<p class="gv-drow"><span class="gv-k">Status</span> {selected.node.status}</p>{/if}
+            {#if selected.node.owner}<p class="gv-drow"><span class="gv-k">Owner</span> {selected.node.owner}</p>{/if}
+            {#if selected.node.revisionState}<p class="gv-drow"><span class="gv-k">Revision link</span> {selected.node.revisionState}</p>{/if}
             {#if knowledge.incomplete}<p class="gv-caveat-inline">{knowledgeLabel(knowledge.level)}: this view may be incomplete.</p>{/if}
             <div class="gv-drawer-actions">
-              <a class="gv-link" href={hashForHref(selected.data.ref.href)}>Open full detail &rarr;</a>
-              <a class="gv-link" href={fleetGraphFocusUrl(selected.data.ref.kind, selected.data.ref.key, { perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth })} data-testid="drawer-focus-here">Focus here</a>
-              {#if selected.data.ref.kind === 'service'}<a class="gv-link" href={fleetImpactUrl(selected.data.ref.key)}>Analyze impact &rarr;</a>{/if}
+              <a class="gv-link" href={hashForHref(selected.node.ref.href)}>Open full detail &rarr;</a>
+              <a class="gv-link" href={fleetGraphFocusUrl(selected.node.ref.kind, selected.node.ref.key, { perspective: defaultPerspectiveForKind(selected.node.ref.kind), views: gs.views, direction: gs.direction })} data-testid="drawer-focus-here">Focus here</a>
+              {#if selected.node.ref.kind === 'service'}<a class="gv-link" href={fleetImpactUrl(selected.node.ref.key)}>Analyze impact &rarr;</a>{/if}
             </div>
           </aside>
-        {:else if selected.kind === 'edge' && selected.data}
+        {:else if selected.kind === 'edge' && selected.edge}
           <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Relationship details">
             <div class="gv-drawer-head"><h2>Relationship</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
-            <p class="gv-drow"><EntityLink ref={selected.data.from} showStatus={false} /> <strong>{relationLabel(selected.data.relation)}</strong> <EntityLink ref={selected.data.to} showStatus={false} /></p>
-            {#if selected.data.relation !== 'runs'}
-              <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(selected.data.difference)} tone={differenceTone(selected.data.difference)} /></p>
-              <p class="gv-ddesc">{differenceDescription(selected.data.difference)}</p>
-              {#if (selected.data.declaredClaims?.count ?? 0) > 0}
+            <p class="gv-drow"><EntityLink ref={selected.edge.from} showStatus={false} /> <strong>{relationLabel(selected.edge.relation)}</strong> <EntityLink ref={selected.edge.to} showStatus={false} /></p>
+            {#if selected.edge.relation === 'runs'}
+              <p class="gv-ddesc">This deployment runs the linked revision. It is an observed link at deployment scope, not a declared dependency.</p>
+            {:else}
+              {#if selected.edge.difference}
+                <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(selected.edge.difference)} tone={differenceTone(selected.edge.difference)} /></p>
+                <p class="gv-ddesc">{differenceDescription(selected.edge.difference)}</p>
+              {:else if selected.edge.serviceCorroboration}
+                <p class="gv-drow"><span class="gv-k">Corroboration</span> <IdentityBadge label={corroborationLabel(selected.edge.serviceCorroboration)} tone={corroborationTone(selected.edge.serviceCorroboration)} /></p>
+                <p class="gv-ddesc" data-testid="edge-scope-caveat">{serviceScopedCaveat(gs.perspective)}</p>
+              {/if}
+              {#if (selected.edge.declaredClaims?.count ?? 0) > 0}
                 <div class="gv-claims">
                   <span class="gv-k">Declared by</span>
                   <ul>
-                    {#each selected.data.declaredClaims.items as c, i (i)}
+                    {#each selected.edge.declaredClaims.items as c, i (i)}
                       <li>{c.sourceRevision || 'a revision'}{#if c.compatibility} &middot; <code>{c.compatibility}</code>{/if}{#if c.reconciliation} &middot; {c.reconciliation}{/if}</li>
                     {/each}
                   </ul>
                 </div>
               {/if}
-              {#if selected.data.observed}
-                <p class="gv-drow"><span class="gv-k">Observed</span> {selected.data.count || 0} calls{#if selected.data.observationSources?.total} across {selected.data.observationSources.total} source(s){/if}{#if selected.data.stale} &middot; stale window{/if}</p>
+              {#if selected.edge.observed}
+                <p class="gv-drow"><span class="gv-k">Observed</span> {selected.edge.count || 0} calls{#if selected.edge.observationSources?.total} across {selected.edge.observationSources.total} source(s){/if}{#if selected.edge.stale} &middot; stale window{/if}</p>
               {/if}
-            {:else}
-              <p class="gv-ddesc">This deployment runs the linked revision. It is an observed link, not a declared dependency.</p>
             {/if}
           </aside>
         {/if}
@@ -316,6 +409,7 @@
   .gv-reset { margin-left: auto; }
   .gv-toolbar { display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: flex-end; padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-md); background: var(--c-surface); }
   .gv-ctl { display: flex; flex-direction: column; gap: 4px; }
+  .gv-viewctl { margin-left: auto; }
   .gv-ctl-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
   .gv-seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
   .gv-seg button { padding: 6px 10px; border: none; background: var(--c-bg); color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; text-transform: capitalize; }
@@ -332,12 +426,26 @@
   .gv-error { padding: var(--sp-3); border-radius: var(--radius-sm); background: var(--c-err-bg); border: 1px solid var(--c-err); color: var(--c-text); }
 
   .gv-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); }
-  .gv-canvas { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .gv-focus { display: flex; }
-  .gv-node { border: 2px solid var(--c-accent); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); cursor: pointer; text-align: left; }
-  .gv-edges { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .gv-edge { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); cursor: pointer; }
-  .gv-edge:hover { border-color: var(--c-accent); }
+  .gv-main { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+  .gv-legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); font-size: var(--text-sm); color: var(--c-text-2); }
+  .lg-item { display: inline-flex; align-items: center; gap: 6px; }
+  .lg-node { width: 16px; height: 12px; border: 1.5px solid var(--c-text-3); background: var(--c-surface); }
+  .lg-service { border-radius: 3px; }
+  .lg-revision { border-radius: 3px; border-style: dashed; }
+  .lg-target { border-radius: 50%; }
+  .lg-edge { width: 20px; height: 0; border-top: 2px solid var(--c-text-3); }
+  .lg-dep { border-top-style: solid; }
+  .lg-runs { border-top-style: dashed; border-top-color: var(--c-info); }
+
+  .gv-textalt { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3); background: var(--c-surface); }
+  .gv-textalt summary { cursor: pointer; font-size: var(--text-sm); color: var(--c-text-2); }
+  .gv-nodes, .gv-edges { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .gv-nodes { flex-flow: row wrap; }
+  .gv-textbtn { display: inline-flex; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); cursor: pointer; text-align: left; }
+  .gv-textbtn.is-focus { border-color: var(--c-accent); border-width: 2px; }
+  .gv-edge { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); cursor: pointer; }
+  .gv-edge:hover, .gv-textbtn:hover { border-color: var(--c-accent); }
   .gv-rel { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em; color: var(--c-text-3); }
   .gv-diff { margin-left: auto; }
   .gv-unresolved, .gv-limitations { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); }

@@ -5,7 +5,8 @@
   // Attention tiles are driven by the backend entry points (each carries an
   // authoritative href built from the exact category), so we never re-derive a
   // filter URL. The revision-match breakdown is informational (no backend entry
-  // point), and observed-only relationships link to the graph's observed layer.
+  // point), and observed-only relationships link to the search-first graph (which is
+  // never a whole-fleet render, so the tile opens the graph's discovery landing).
   let { summary = {}, entryPoints = [], attentionTotal = 0 } = $props();
 
   function tone(count) { return count > 0 ? 'warn' : 'ok'; }
@@ -34,7 +35,7 @@
         </a>
       {/if}
     {/each}
-    <a class="tile tone-{tone(summary.observedOnlyRelationships)}" href={fleetUrl({ layer: 'observed' })}>
+    <a class="tile tone-{tone(summary.observedOnlyRelationships)}" href={fleetUrl()}>
       <span class="tile-count">{summary.observedOnlyRelationships || 0}</span>
       <span class="tile-label">observed-only relationships</span>
     </a>

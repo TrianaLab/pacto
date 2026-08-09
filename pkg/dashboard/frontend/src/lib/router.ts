@@ -137,7 +137,11 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'graph' || rest.startsWith('graph/')) {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['perspective', 'views', 'direction', 'depth', 'domain', 'scope', 'owner', 'status', 'source', 'freshness', 'sel', 'kind']) {
+    // Only the graph state the Product Neighborhood actually consumes lives in the
+    // route (requirement J): perspective, knowledge views, direction, depth and the
+    // focus (kind/sel). The former domain/scope/owner/status/source/freshness params
+    // were placebo URL state no view or backend consumed, so they are not parsed.
+    for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -249,18 +253,11 @@ export function readinessUrl(): string {
   return '#/readiness';
 }
 
-// fleetUrl builds the Operational GRAPH link (legacy FleetView), now mounted at
-// /fleet/graph so /fleet is the operational overview. Graph state stays in the query.
-export function fleetUrl(opts: {
-  perspective?: string; layer?: string; domain?: string; scope?: string; owner?: string;
-  status?: string; source?: string; freshness?: string; sel?: string; kind?: string;
-} = {}): string {
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(opts)) {
-    if (v) qs.set(k, v);
-  }
-  const str = qs.toString();
-  return str ? `#/fleet/graph?${str}` : '#/fleet/graph';
+// fleetUrl is the Operational GRAPH nav link (the search-first product graph at
+// /fleet/graph, so /fleet is the operational overview). The bare nav link carries no
+// state; a focused, shareable graph URL is built by fleetGraphFocusUrl.
+export function fleetUrl(): string {
+  return '#/fleet/graph';
 }
 
 // ── centralized fleet product navigation (Phase 2) ───────────────────────────
@@ -335,8 +332,9 @@ export function fleetGraphDiscoveryUrl(): string {
 
 // GraphState is the shareable state of the search-first Operational Graph (Q). The
 // focus (kind + key) is a path segment; the projection/perspective, knowledge views,
-// direction, depth and advanced filters are query params, so back/forward restores a
-// meaningful graph and never ephemeral canvas coordinates.
+// direction and depth are query params, so back/forward restores a meaningful graph and
+// never ephemeral canvas coordinates. There are no advanced-filter params: the graph
+// only carries state the Product Neighborhood actually consumes (requirement J).
 export interface GraphState {
   kind?: string;
   key?: string;
@@ -344,12 +342,6 @@ export interface GraphState {
   views?: string[];
   direction?: string;
   depth?: number;
-  domain?: string;
-  scope?: string;
-  owner?: string;
-  status?: string;
-  source?: string;
-  freshness?: string;
 }
 
 // fleetGraphFocusUrl builds a focused graph URL from (kind, key) plus optional graph
@@ -369,9 +361,6 @@ export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphS
   if (state.views && state.views.length && !isDefaultGraphViews(state.views)) qs.set('views', state.views.join(','));
   if (state.direction && state.direction !== 'both') qs.set('direction', state.direction);
   if (state.depth && state.depth !== 1) qs.set('depth', String(state.depth));
-  for (const k of ['domain', 'scope', 'owner', 'status', 'source', 'freshness'] as const) {
-    if (state[k]) qs.set(k, state[k] as string);
-  }
   const base = `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
   const str = qs.toString();
   return str ? `${base}?${str}` : base;

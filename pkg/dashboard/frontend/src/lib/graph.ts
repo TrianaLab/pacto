@@ -126,6 +126,8 @@ export interface GraphControls {
   zoomIn: () => void;
   zoomOut: () => void;
   resetView: () => void;
+  /** Fit the whole graph in view without clearing the pinned focus (ephemeral). */
+  fit: () => void;
   applyFilter: (fn: ((n: GraphNode) => boolean) | null) => void;
 }
 
@@ -142,8 +144,21 @@ interface RenderOptions {
   groups?: Map<string, string>;
   /** Fired on single-tap pin (serviceName) and unpin / background tap (null). */
   onSelect?: (serviceName: string | null) => void;
+  /** Fired on single-tap with the node's stable id (null on unpin/background). The
+   *  product Operational Graph uses this (not onSelect) so a node is identified by its
+   *  canonical (kind,key) id, which is unique across mixed node kinds. */
+  onSelectNode?: (id: string | null) => void;
+  /** Fired when an edge is tapped, with the edge's stable id (null on background). */
+  onSelectEdge?: (id: string | null) => void;
   /** When true, single-tap opens the service (embedded graphs). Default: false = spotlight. */
   tapToOpen?: boolean;
+  /** 'visible' shows a bounded neighborhood's edges at rest with arrowheads; 'faint'
+   *  (default) keeps the whole-fleet map's calm faint-until-focus edges. */
+  edgeStyle?: 'faint' | 'visible';
+  /** When false, the initial focus node is highlighted but NOT auto-spotlighted (so a
+   *  bounded neighborhood shows all its edges at rest, dependency vs runs distinct,
+   *  instead of dimming to the focus's cone). Default true (whole-fleet behavior). */
+  autoSpotlightFocus?: boolean;
   // Accepted for API compatibility; the "+N" expand chip is superseded by
   // click-to-focus, so these are ignored.
   hidden?: Map<string, number>;
@@ -197,7 +212,7 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
         reason: n.reason || '',
         kind: n.kind || 'service',
         external: n.status === 'external' ? 1 : 0,
-        isFocus: n.serviceName === focusId ? 1 : 0,
+        isFocus: n.serviceName === focusId || n.id === focusId ? 1 : 0,
         parent: label ? groupId(label) : undefined,
       },
     });
@@ -287,7 +302,13 @@ function edgeColor(pal: Palette, drift: boolean, reference: boolean): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
+export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyle: 'faint' | 'visible' = 'faint'): any[] {
+  // A bounded focused neighborhood (edgeStyle 'visible') shows its edges at rest with
+  // arrowheads, because there are only a handful and the whole point is to read them.
+  // The whole-fleet map ('faint') keeps edges near-invisible until a node is focused so
+  // it reads as a calm scatter, not an edge cloud.
+  const restOpacity = layout === 'layered' ? 0.35 : edgeStyle === 'visible' ? 0.55 : EDGE_REST;
+  const restArrow = layout === 'layered' || edgeStyle === 'visible' ? 'triangle' : 'none';
   return [
     {
       selector: 'node',
@@ -338,15 +359,23 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'control-point-step-size': 24,
         width: 1,
         'line-color': pal.textDim,
-        'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' ? 'dashed' : 'solid'),
-        'target-arrow-shape': layout === 'layered' ? 'triangle' : 'none',
+        'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' || ele.data('etype') === 'runs' ? 'dashed' : 'solid'),
+        'target-arrow-shape': restArrow,
         'target-arrow-color': pal.textDim,
         'arrow-scale': 0.85,
-        opacity: layout === 'layered' ? 0.35 : EDGE_REST,
+        opacity: restOpacity,
         'transition-property': 'opacity, width, line-color',
         'transition-duration': '0.12s',
         'transition-timing-function': 'ease-out',
       },
+    },
+    {
+      // A "runs" edge (a deployment runs a revision) is a structural identity link,
+      // not a declared-vs-observed dependency: render it dashed in the info tone so it
+      // reads distinctly from a solid dependency edge (never color alone -- the dash
+      // and the legend carry the distinction too).
+      selector: "edge[etype='runs']",
+      style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed' },
     },
     // Compound group boxes (owner clusters): a labelled, team-tinted region.
     {
@@ -408,7 +437,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, tapToOpen }: RenderOptions = {},
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, onSelectNode, onSelectEdge, tapToOpen, edgeStyle = 'faint', autoSpotlightFocus = true }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const hasGroups = !!(groups && groups.size);
@@ -421,7 +450,7 @@ export function renderGraph(
   const pal = resolvePalette(container);
   const baseOpts = {
     elements: buildElements(graphData, focusId, groups),
-    style: cyStylesheet(pal, layout),
+    style: cyStylesheet(pal, layout, edgeStyle),
     minZoom: 0.2,
     maxZoom: 3,
     boxSelectionEnabled: false,
@@ -531,10 +560,19 @@ export function renderGraph(
     clickFocusId = clickFocusId === id ? null : id;
     applyDimming();
     onSelect?.(clickFocusId ? n.data('serviceName') : null);
+    onSelectNode?.(clickFocusId ? id : null);
     if (clickFocusId) cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
   });
+  // Edge tap: open the relationship's quick-inspection drawer (the product graph
+  // reads the backend-authoritative edge; it never navigates away automatically).
+  cy.on('tap', 'edge', (evt) => {
+    const e = evt.target as EdgeSingular;
+    onSelectEdge?.(e.id());
+  });
   cy.on('tap', (evt) => {
-    if (evt.target === cy && clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); }
+    if (evt.target !== cy) return;
+    onSelectEdge?.(null);
+    if (clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); onSelectNode?.(null); }
   });
 
   // Hover previews the spotlight (click pins it). A pinned focus takes precedence.
@@ -551,8 +589,10 @@ export function renderGraph(
     applyDimming(); // restore the resting owner/filter emphasis (batched, clears HL)
   });
 
-  // Pin the initial focus (service-detail page) before the first layout.
-  if (focusId) {
+  // Pin the initial focus (service-detail page) before the first layout, unless the
+  // caller wants the focus highlighted without dimming to its cone (bounded
+  // neighborhood: show every edge at rest, dependency vs runs distinct).
+  if (focusId && autoSpotlightFocus) {
     const fn = cy.nodes().filter((n) => n.data('serviceName') === focusId || n.id() === focusId);
     if (fn.nonempty()) clickFocusId = fn.first().id();
   }
@@ -615,6 +655,7 @@ export function renderGraph(
     zoomIn: () => zoomBy(1.4),
     zoomOut: () => zoomBy(0.7),
     resetView: () => { clickFocusId = null; applyDimming(); cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 300 }); },
+    fit: () => cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 250 }),
     applyFilter,
   };
 }

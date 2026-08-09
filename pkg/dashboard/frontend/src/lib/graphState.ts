@@ -123,6 +123,88 @@ export function relationLabel(rel: string | undefined): string {
   return rel === 'runs' ? 'Runs' : 'Depends on';
 }
 
+// ── focus/perspective validity (requirement E) ────────────────────────────────
+// Backend validation is stricter than "show every button": a service cannot be
+// projected as one revision or one target, and a revision perspective needs an
+// authoritatively-linked revision. These helpers make ordinary navigation unable to
+// produce a backend 422 -- the UI only offers transitions the backend will accept.
+
+/** defaultPerspectiveForKind chooses the projection a search result opens in, from its
+ *  entity kind: a revision result opens the revision projection, a target result the
+ *  target projection, everything else the service projection. */
+export function defaultPerspectiveForKind(kind: string): GraphPerspective {
+  switch (kind) {
+    case 'revision': return 'revision';
+    case 'target': return 'target';
+    default: return 'service';
+  }
+}
+
+/** availablePerspectives lists the perspectives valid for a focus of the given kind.
+ *  A target can be projected as a revision only when its revision link is
+ *  authoritative (exact/inferred), so that button is offered only then -- never
+ *  producing a 422 through the primary control. */
+export function availablePerspectives(
+  kind: string,
+  opts: { targetRevisionAuthoritative?: boolean } = {},
+): GraphPerspective[] {
+  switch (kind) {
+    case 'revision': return ['service', 'revision'];
+    case 'target': return opts.targetRevisionAuthoritative ? ['service', 'revision', 'target'] : ['service', 'target'];
+    case 'service': return ['service'];
+    default: return ['service'];
+  }
+}
+
+/** revisionLinkAuthoritative reports whether a target's revision-link state permits a
+ *  revision projection (an exact or inferred link). */
+export function revisionLinkAuthoritative(revisionState: string | undefined): boolean {
+  return revisionState === 'exact' || revisionState === 'inferred';
+}
+
+/** perspectiveSupportsDepth reports whether a perspective has a real bounded depth
+ *  model. The target projection is intentionally one hop (a deployment runs a revision
+ *  and requires services; deeper exploration is the revision perspective's job), so
+ *  its depth/expand controls are disabled rather than left inert (requirement D). */
+export function perspectiveSupportsDepth(perspective: string): boolean {
+  return perspective !== 'target';
+}
+
+// ── service-scoped corroboration (requirement B, rendered, never re-inferred) ──
+// A fine-grained (revision/target) dependency edge is never marked observed; the
+// backend surfaces the SERVICE-scoped reconciliation as context. These render that
+// verbatim and clearly scoped, so the UI never claims the fine-grained edge itself was
+// observed.
+
+export function corroborationLabel(c: string | undefined): string {
+  switch (c) {
+    case 'matched': return 'Service traffic corroborates it';
+    case 'expected-not-observed': return 'Declared, service traffic did not witness it';
+    case 'insufficient': return 'No service observation to corroborate';
+    default: return '';
+  }
+}
+
+export function corroborationTone(c: string | undefined): 'ok' | 'warn' | 'info' | 'neutral' {
+  switch (c) {
+    case 'matched': return 'ok';
+    case 'expected-not-observed': return 'info';
+    default: return 'neutral';
+  }
+}
+
+/** serviceScopedCaveat explains, for a fine-grained projection, that any corroboration
+ *  is service-scoped and not an edge-scope observation claim. */
+export function serviceScopedCaveat(perspective: string): string {
+  if (perspective === 'revision') {
+    return 'Observation is recorded per service, so this is service-scoped corroboration, not proof this specific revision edge was observed.';
+  }
+  if (perspective === 'target') {
+    return 'Observation is recorded per service, so this is service-scoped corroboration, not proof this specific deployment edge was observed.';
+  }
+  return '';
+}
+
 /** neighborhoodIsEmpty reports a focused neighborhood that resolved to just the focus
  *  node (no neighbors), so the UI can say so honestly rather than showing a bare dot.
  *  It reads only the two structural fields it needs, so any neighborhood-shaped value

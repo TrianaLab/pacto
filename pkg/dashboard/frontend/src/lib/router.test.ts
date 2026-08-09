@@ -240,10 +240,19 @@ describe('parseHash — query strings on non-diff routes', () => {
     expect(parseHash('#/readiness?contractStatus=Warning')).toEqual({ view: 'readiness', params: {} });
   });
 
-  it('parses search-first graph state (perspective, views, direction, depth, filters, selection) from the query', () => {
-    expect(parseHash('#/fleet/graph?perspective=target&views=observed&direction=dependencies&depth=2&domain=domain-a&owner=core&sel=domain-a%2Fpayments')).toEqual({
+  it('parses search-first graph state (perspective, views, direction, depth, selection) from the query', () => {
+    expect(parseHash('#/fleet/graph?perspective=target&views=observed&direction=dependencies&depth=2&sel=domain-a%2Fpayments')).toEqual({
       view: 'fleet',
-      params: { perspective: 'target', views: 'observed', direction: 'dependencies', depth: '2', domain: 'domain-a', owner: 'core', sel: 'domain-a/payments' },
+      params: { perspective: 'target', views: 'observed', direction: 'dependencies', depth: '2', sel: 'domain-a/payments' },
+    });
+  });
+
+  it('drops the inert graph filters no view or backend consumes (requirement J)', () => {
+    // domain/scope/owner/status/source/freshness were placebo URL state; they are not
+    // parsed into the graph route model any more.
+    expect(parseHash('#/fleet/graph?perspective=service&domain=domain-a&scope=prod&owner=core&status=NonCompliant&source=k8s&freshness=stale')).toEqual({
+      view: 'fleet',
+      params: { perspective: 'service' },
     });
   });
 
@@ -275,12 +284,8 @@ describe('readinessUrl', () => {
 });
 
 describe('fleetUrl', () => {
-  it('returns the operational graph URL at /fleet/graph', () => {
+  it('returns the operational graph nav URL at /fleet/graph (no inert state)', () => {
     expect(fleetUrl()).toBe('#/fleet/graph');
-  });
-  it('builds a graph URL with state (encoding the selected key)', () => {
-    expect(fleetUrl({ perspective: 'service', layer: 'all', sel: 'domain-a/payments' }))
-      .toBe('#/fleet/graph?perspective=service&layer=all&sel=domain-a%2Fpayments');
   });
 });
 
