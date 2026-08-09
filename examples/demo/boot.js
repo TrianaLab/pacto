@@ -7,6 +7,22 @@
 (function () {
   "use strict";
 
+  // Canonical demo entry: the public WASM Live Demo is deliberately Fleet-capable, so
+  // its HOME is the product Operational Overview (#/fleet), not the superseded legacy
+  // landing. When the demo is reached with NO meaningful hash route (bare /demo/, "#",
+  // or the legacy "#/"), canonicalize to #/fleet HERE -- in the demo bootstrap, before
+  // the Svelte app's ES module runs and reads the hash -- so the user never sees a
+  // legacy-landing flash. An explicit deep link (any other non-empty hash, e.g.
+  // "#/fleet/graph", "#/fleet/services/<key>", "#/readiness") is preserved untouched.
+  // This lives in the DEMO bootstrap ONLY (boot.js ships solely with the demo), so a
+  // generic non-Fleet dashboard is never forced to assume Fleet exists.
+  (function canonicalizeDemoEntry() {
+    var h = window.location.hash;
+    if (h === "" || h === "#" || h === "#/") {
+      window.location.hash = "#/fleet";
+    }
+  })();
+
   // Capture the real fetch before we shadow window.fetch below.
   var realFetch = window.fetch.bind(window);
 

@@ -1044,9 +1044,26 @@ Acceptance:
   dependency-light (it carries target/status, not contract dependency edges), the rich
   node/edge/drawer/perspective topology is proven by the WASM demo, not the live smoke.
 
-### Phase-2 IA residual: canonical home affordance (this session)
+### Phase-2 IA residual: canonical home + demo entry (this session)
 
-A small product-IA correction (NOT a new phase and NOT a reopening of Phase 2): the
+Two small product-IA entry-point corrections (NOT a new phase and NOT a reopening of
+Phase 2).
+
+Demo entry point (the Fleet-capable WASM Live Demo must enter through the product
+Operational Overview, not the legacy landing): the demo bootstrap
+(`examples/demo/boot.js`, a classic script that runs BEFORE the Svelte app module)
+canonicalizes a no-meaningful-hash entry (bare `/demo/`, `#`, or the legacy `#/`) to
+`#/fleet` before the first render, so the demo never flashes the legacy landing. It is
+DEMO-SPECIFIC (boot.js ships only with the demo) and capability-safe -- a generic
+non-Fleet dashboard is never forced to assume Fleet -- and it preserves any explicit
+deep link (`#/fleet/graph`, `#/fleet/services/<key>`, `#/readiness`, ...). The public
+"Live Demo" CTAs (README, `docs/examples/dashboard-demo.md`) now link the canonical
+`/demo/#/fleet`. The primary Live Demo entry acceptance starts Playwright at the REAL
+no-hash demo URL and asserts it lands on `#/fleet` with the Operational Overview
+visible; deep-link preservation and the canonical docs links are covered too. The
+legacy `#/` root is retained as the non-Fleet compatibility surface.
+
+Home affordance: the
 Pacto brand/logo in `Navbar.svelte` hardcoded `href="#/"`, sending a fleet-capable user
 back to the legacy landing instead of the canonical Operational Overview. The brand is
 the application HOME affordance, so it now uses the centralized route builder

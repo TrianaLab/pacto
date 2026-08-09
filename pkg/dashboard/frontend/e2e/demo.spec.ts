@@ -48,8 +48,30 @@ async function openTextAlt(page: Page) {
 }
 
 test.describe('WASM dashboard demo — workflows', () => {
-  test('landing: the service list loads from the embedded fleet', async ({ page }) => {
-    await waitReady(page);
+  // The PRIMARY Live Demo entry acceptance (Product IA entry-point cleanup): opening the
+  // Fleet-capable demo at the REAL no-hash URL must land on the product Operational
+  // Overview, never the superseded legacy landing -- so a future routing change cannot
+  // silently re-expose the legacy homepage.
+  test('Live Demo entry: the no-hash demo URL lands on the Operational Overview', async ({ page }) => {
+    await page.goto('/'); // the real no-hash demo entry, NOT a manually appended hash
+    await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 }); // canonicalized to the fleet home
+    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 }); // Operational Overview is the first product screen
+  });
+
+  test('Live Demo entry: an explicit deep link is preserved (not canonicalized)', async ({ page }) => {
+    await page.goto('/#/fleet/graph');
+    await expect(page).toHaveURL(/#\/fleet\/graph$/, { timeout: 20_000 });
+    await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
+    // an entity deep link is preserved too
+    await page.goto('/#/fleet/services');
+    await expect(page).toHaveURL(/#\/fleet\/services$/, { timeout: 20_000 });
+    // a legacy but explicit route is preserved (only the ABSENT/default entry canonicalizes)
+    await page.goto('/#/readiness');
+    await expect(page).toHaveURL(/#\/readiness$/, { timeout: 20_000 });
+  });
+
+  test('the embedded fleet loads (product service list)', async ({ page }) => {
+    await page.goto('/#/fleet/services');
     await expect(page.getByText('payments-service').first()).toBeVisible({ timeout: 20_000 });
   });
 
