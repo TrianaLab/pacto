@@ -174,6 +174,21 @@ test.describe('WASM dashboard demo — workflows', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the Pacto logo is HOME: from inside the fleet product it lands on the Operational Overview', async ({ page }) => {
+    await waitReady(page); // fleet-capable host
+    await page.goto('/#/fleet/services');
+    await expect(page).toHaveURL(/\/fleet\/services/);
+    // Wait until the fleet capability has RESOLVED to true (not merely unresolved): the
+    // Services nav destination switches to the product list only when fleet is confirmed
+    // (it is the legacy landing while capabilities are null), so it is the signal that
+    // the brand has adopted the canonical fleet home rather than the transient legacy
+    // fallback the documented capability policy uses while capabilities are unresolved.
+    await expect(page.getByRole('link', { name: 'Services' }).first()).toHaveAttribute('href', '#/fleet/services', { timeout: 20_000 });
+    await page.locator('.navbar-brand').first().click();
+    await expect(page).toHaveURL(/#\/fleet$/); // the canonical fleet home, not the legacy #/
+    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+  });
+
   test('honesty: a healthy status report is never a blanket "all clear" when items exist', async ({ page }) => {
     await page.goto('/#/fleet');
     await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });

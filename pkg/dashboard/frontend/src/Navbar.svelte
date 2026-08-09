@@ -40,6 +40,14 @@
   );
   const isActive = (item) => item.views.includes(view);
 
+  // The Pacto brand/logo is the application HOME affordance. On a Fleet-capable host it
+  // goes to the canonical Operational Overview (fleetOverviewUrl, never a hardcoded
+  // second copy of the route); otherwise it keeps the legacy landing. It follows the
+  // SAME capability policy as the Services destination (line above): the fleet Overview
+  // only once fleet is confirmed available, and the legacy landing while capabilities
+  // are still unresolved (capabilities === null) -- so the logo is never a dead route.
+  const homeHref = $derived(capabilities?.fleet ? fleetOverviewUrl() : '#/');
+
   let mobileMenuOpen = $state(false);
   let hamburgerEl = $state(null);
   let drawerEl = $state(null);
@@ -102,7 +110,7 @@
 
 <nav class="navbar">
   <div class="navbar-left">
-    <a href="#/" class="navbar-brand" onclick={spinLogo}>
+    <a href={homeHref} class="navbar-brand" onclick={spinLogo}>
       <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M10 6 5 12 10 18"/><path d="M14 6 19 12 14 18"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
       Pacto
       {#if version}<span class="version-tag">{version}</span>{/if}

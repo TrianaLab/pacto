@@ -104,6 +104,43 @@ describe('Navbar — search affordance communicates the actual action (A6)', () 
   });
 });
 
+describe('Navbar — the Pacto brand is the HOME affordance (Phase-2 IA residual)', () => {
+  function hrefs(cap: { fleet: boolean; impact: boolean } | null): { brand: string; overview: string | null } {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(Navbar, {
+      target, props: { services: [], sourcesInfo: [], capabilities: cap, view: 'list', version: 'x' },
+    });
+    const brand = (target.querySelector('.navbar-brand') as HTMLAnchorElement).getAttribute('href') || '';
+    const overview = Array.from(target.querySelectorAll('.navbar-nav-desktop .nav-link'))
+      .find((a) => a.textContent?.trim() === 'Overview')?.getAttribute('href') ?? null;
+    unmount(component); document.body.removeChild(target);
+    return { brand, overview };
+  }
+
+  it('points the brand to the canonical fleet Overview when fleet-capable', () => {
+    expect(hrefs({ fleet: true, impact: true }).brand).toBe('#/fleet');
+  });
+
+  it('points the brand to the legacy landing when fleet is explicitly unavailable', () => {
+    expect(hrefs({ fleet: false, impact: false }).brand).toBe('#/');
+  });
+
+  it('keeps the brand on the legacy landing (never a dead route) while capabilities are unresolved', () => {
+    expect(hrefs(null).brand).toBe('#/');
+  });
+
+  it('brand and the Overview nav item agree on the canonical home for a fleet-capable host', () => {
+    const { brand, overview } = hrefs({ fleet: true, impact: true });
+    expect(overview).toBe('#/fleet');
+    expect(brand).toBe(overview);
+  });
+
+  it('never returns a fleet-capable user to the legacy landing via the logo', () => {
+    expect(hrefs({ fleet: true, impact: true }).brand).not.toBe('#/');
+  });
+});
+
 describe('Navbar — capability gating', () => {
   it('shows the Operational Graph tab when capabilities are unknown (null)', () => {
     expect(navLabels(null)).toContain('Operational Graph');

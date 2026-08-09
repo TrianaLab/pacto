@@ -1044,6 +1044,24 @@ Acceptance:
   dependency-light (it carries target/status, not contract dependency edges), the rich
   node/edge/drawer/perspective topology is proven by the WASM demo, not the live smoke.
 
+### Phase-2 IA residual: canonical home affordance (this session)
+
+A small product-IA correction (NOT a new phase and NOT a reopening of Phase 2): the
+Pacto brand/logo in `Navbar.svelte` hardcoded `href="#/"`, sending a fleet-capable user
+back to the legacy landing instead of the canonical Operational Overview. The brand is
+the application HOME affordance, so it now uses the centralized route builder
+`fleetOverviewUrl()` under the SAME capability policy as the Services destination: the
+fleet Overview (`#/fleet`) once the fleet capability is confirmed, and the legacy `#/`
+landing when fleet is explicitly unavailable OR while capabilities are still unresolved
+(so the logo is never a dead route). It does not construct a second copy of the fleet
+route. An audit of the other `#/` references found only deliberately-retained legacy
+back-links inside legacy views (ServiceDetailView/Readiness/Owners/Diff), which are not
+the product HOME/logo affordance and are left intact; `#/` remains the intentional
+non-fleet compatibility surface. Deterministic Navbar tests prove the brand points to
+`#/fleet` when fleet-capable, `#/` when not (and while unresolved), and that the brand
+agrees with the Overview nav item; a WASM Playwright assertion proves clicking the logo
+from inside the fleet product lands on the Operational Overview.
+
 ### Product response boundedness audit (requirement, item 4)
 
 Every collection-bearing field reachable from a product response was audited from
