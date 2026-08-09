@@ -869,18 +869,32 @@ Frontend search-first graph (I/K-T) -- IMPLEMENTED with deterministic acceptance
   vocabularies; `lib/router.ts` gains the graph URL model (`views`/`direction`/`depth`
   replace the inert legacy `layer`).
 
-Phase-4 acceptance recorded honestly: the deterministic component acceptance (Vitest:
-`graphState.test.ts`, `GraphView.svelte.test.ts` covering the S deterministic subset --
-discovery-first/no-hairball, product-API-only, difference rendering, insufficient!=
-failure, unresolved visible, truncation visible, direction/depth/perspective URL state,
-expand-preserves-views, node/edge quick-inspect, reset-to-discovery) is COMPLETE. The
-full WASM/Playwright browser matrix over the graph (the 25-scenario S suite, including
-a synthetic large fleet and slash/percent/domain focus round-trips in a real browser)
-is DEFERRED alongside the Phase-6 richer browser acceptance -- it needs neighborhood/
-projection fixtures in the offline demo transport. Migration (T): `/fleet/graph` is now
-the search-first product graph; the legacy `FleetView` is superseded and unrouted (a
-removable follow-up; its raw-snapshot debug value is the only reason it is kept for
-now).
+Phase-4 acceptance recorded honestly (requirement S):
+
+- Deterministic component acceptance (Vitest: `graphState.test.ts`,
+  `GraphView.svelte.test.ts`) is COMPLETE -- discovery-first/no-hairball,
+  product-API-only, difference rendering, insufficient!=failure, unresolved visible,
+  truncation visible, direction/depth/perspective URL state, expand-preserves-views,
+  node/edge quick-inspect, reset-to-discovery. The backend projection counterexamples
+  (`projection_test.go`) are COMPLETE.
+- Real browser (Playwright) acceptance is DELIVERED for the critical graph journey:
+  the WASM demo suite (`e2e/demo.spec.ts`) now drives the search-first graph
+  (discovery -> search -> focus a bounded neighborhood; perspective/direction persisted
+  in the URL; partial-knowledge caveat; node quick-inspect drawer with a full-detail
+  link; the product Impact workspace analyzing by canonical identity + include-observed),
+  and the LIVE Kind smoke (`e2e-live/operational-graph.spec.ts`) drives the same
+  search-first journey against the operator-managed dashboard over real HTTP. Fixing
+  these surfaced (and fixed) a real demo-transport bug: the in-browser fetch shim did
+  not forward POST bodies, so the product Impact POST reached the server empty.
+- Still DEFERRED to Phase 6 (the richer browser matrix): the full 25-scenario sweep in
+  a real browser -- notably the revision/target PERSPECTIVE browser journeys and a
+  synthetic large-fleet browser render. The projection semantics behind them are
+  already proven by the backend counterexample tests; only their in-browser exercise is
+  deferred.
+
+Migration (T): `/fleet/graph` is now the search-first product graph; the legacy
+`FleetView` is superseded and unrouted (a removable follow-up; its raw-snapshot debug
+value is the only reason it is kept for now).
 
 ### Product response boundedness audit (requirement, item 4)
 
