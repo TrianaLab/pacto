@@ -176,36 +176,41 @@ historical narrative; where it conflicts with this section, this section wins.
 - Phase 1 (product API hardening): COMPLETE.
 - Phase 2 (frontend IA and routing): COMPLETE.
 - Phase 3 (Overview, Services, Attention, rich entity pages): COMPLETE.
-- Phase 4 (search-first Operational Graph): REOPENED / CURRENT. An independent
-  review of `540cf692` accepted Phases 1-3 but found that Phase 4 is only a
-  search-first relationship-browser prototype, not a finished operational graph.
-  The concrete blockers being closed this session:
-  - the revision and target projections violate the knowledge-view invariant the
-    service projection already honors (they build declared edges and expansion
-    affordances irrespective of the requested views);
-  - service-scoped runtime observation is promoted into revision-scoped and
-    target-scoped edge assertions (`Observed = reconciliation==matched` on a
-    fine-grained edge that the evidence never attributes to that revision/target);
-  - the target projection overclaims identity: an unresolved/ambiguous target
-    inherits dependencies from arbitrary revisions, and a logical consumer is
-    rendered as depending on one concrete target;
-  - target perspective returns `depth: bp.depth` but only ever emits depth-0/1
-    facts, so depth>1 and Expand are inert;
-  - the frontend exposes every perspective button regardless of focus, so ordinary
-    navigation can produce a backend 422;
-  - `GraphView.svelte` is not a visual topology: it renders a focus button plus a
-    textual `<ul>` of relationship rows and does not use the repository's existing
-    Cytoscape stack;
-  - the graph route still parses inert `domain/scope/owner/status/source/freshness`
-    filters that nothing consumes;
-  - graph discovery search swallows transport/schema failures as "no matches";
-  - the Product Impact revision universe / service picker still claim completeness
-    while paging is bounded.
+- Phase 4 (search-first Operational Graph): implementation COMPLETE this session and
+  locally verified; the final gate is final-SHA CI (this ledger commit's SHA). The
+  independent review of `540cf692` accepted Phases 1-3 and reopened Phase 4 as only a
+  search-first relationship-browser prototype; every blocker it raised is now closed
+  (details in "Phase 4 completion" below):
+  - the revision and target projections now honor the knowledge-view invariant (views
+    drive traversal, edges AND expansion affordances);
+  - service-scoped observation is never promoted into a revision/target edge claim: a
+    fine-grained edge is never `Observed`, and carries `observationScope` +
+    `serviceCorroboration` as explicit, OpenAPI-generated context;
+  - target identity is honest: an ambiguous/unresolved target inherits no revision's
+    dependencies (it surfaces a limitation), a logical consumer depends on the logical
+    service (never the concrete target), and the runs edge is drawn only for an
+    authoritative link;
+  - the target projection is one hop by construction and reports `effectiveDepth=1`; the
+    UI disables its depth/expand controls rather than leaving them inert;
+  - only backend-acceptable perspective transitions are exposed, so ordinary navigation
+    cannot produce a 422;
+  - `GraphView.svelte` is now an actual Cytoscape visual topology (the shared engine,
+    reused) with Fit/zoom/legend and node/edge quick-inspection drawers, plus an
+    accessible text alternative;
+  - the inert `domain/scope/owner/status/source/freshness` graph-route filters are
+    removed and the dead legacy FleetView/fleetGraph stack is deleted;
+  - graph discovery search distinguishes transport/schema failures from "no matches"
+    and is stale-safe;
+  - the Product Impact revision universe / service picker are bounded and truthfully
+    incomplete/search-first.
 
 The projection / materialized-storage work from the earlier evidence-store review
 (ADR-5) is resolved and is NOT reopened. The U+00A7 commit-history CI enforcement
 remains BLOCKED on explicit history-rewrite authorization (section 8 item 9); no
 such authorization exists this session.
+
+Phase 5 (responsive + accessible interaction: keyboard graph navigation, mobile
+layout, formal WCAG) has NOT been started and is the next phase.
 
 ## 1. Target product model
 
@@ -356,7 +361,8 @@ section 8.
    owner / source) built on the typed detail model. COMPLETE.
 4. Search-first Operational Graph: neighborhood-oriented topology with the
    knowledge views (expected / observed / differences) and honest focus mapping.
-   REOPENED / CURRENT PHASE (see the authoritative current-status section 0a).
+   COMPLETE this session (an actual Cytoscape visual topology; final gate is
+   final-SHA CI). See the authoritative current-status section 0a.
 5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile).
 6. WASM browser acceptance (Playwright over the in-browser demo).
 7. Operator-managed trace source: an operator-owned observed/trace source so the
@@ -679,17 +685,17 @@ The only remaining deferred item is the U+00A7 commit-history + PR-metadata CI
 enforcement (section 8 item 9), still BLOCKED on explicit history-rewrite
 authorization; it was not performed this pass.
 
-### Phase boundary: Phase 2 DONE, Phase 3 COMPLETE, Phase 4 REOPENED / CURRENT
+### Phase boundary: Phase 2 DONE, Phase 3 COMPLETE, Phase 4 COMPLETE
 
 Phase 2 (frontend IA and routing -- the product-IA foundation) is DONE. Phase 3
 (product lists, rich per-kind entity pages and the complete attention workflow) is
 COMPLETE (closed with adversarial tests; see "Phase-3 closure" below). Phase 4 (the
-search-first Operational Graph redesign) is REOPENED / CURRENT: the first Phase-4 pass
-shipped a search-first relationship-browser prototype, but the independent review of
-`540cf692` found the semantic and visual-graph blockers enumerated in the authoritative
-current-status section (0a), which this session closes. For the single current truth,
-read section 0a; the paragraphs below are historical narrative of the earlier Phase-4
-pass.
+search-first Operational Graph redesign) is COMPLETE: the first pass shipped a
+relationship-browser prototype; the independent review of `540cf692` reopened it, and
+this session closed every projection-semantic and visual-graph blocker and made the
+graph an actual Cytoscape topology (see "Phase 4 completion" below and the authoritative
+current-status section 0a). For the single current truth, read section 0a; the
+paragraphs below are historical narrative of the earlier Phase-4 pass.
 
 ### Phase-3 closure (this session)
 
@@ -803,10 +809,10 @@ Phase 3 -- COMPLETE (delivered this program; see the Phase-3 closure above):
   so they participate in the new navigation, breadcrumbs and deep-link model, keeping
   their specialized implementations where semantically appropriate.
 
-Phase 4 -- REOPENED / CURRENT: the search-first Operational Graph redesign. The
-first pass shipped a prototype; the independent review of `540cf692` found the
-projection-semantic and visual-graph blockers listed in section 0a, which this
-session closes.
+Phase 4 -- COMPLETE: the search-first Operational Graph redesign. The first pass
+shipped a prototype; the independent review of `540cf692` reopened it, and this session
+closed the projection-semantic and visual-graph blockers listed in section 0a and made
+the graph an actual Cytoscape topology (see "Phase 4 completion").
 
 Deferred as before: the ESLint no-restricted raw-network rule (defense-in-depth
 follow-up) and the U+00A7 commit-history enforcement (BLOCKED on history rewrite).
@@ -940,8 +946,99 @@ Phase-4 acceptance recorded honestly (requirement S):
   deferred.
 
 Migration (T): `/fleet/graph` is now the search-first product graph; the legacy
-`FleetView` is superseded and unrouted (a removable follow-up; its raw-snapshot debug
-value is the only reason it is kept for now).
+`FleetView` whole-fleet view and its `fleetGraph.ts` adapter have been DELETED (they
+were unrouted and unimported), removing the last source of the inert graph-route
+filters.
+
+### Phase 4 completion (this session)
+
+This session closed every blocker the independent review of `540cf692` raised (see the
+authoritative current-status section 0a) and made the graph an actual visual topology.
+
+Backend projection semantics (`pkg/fleet/projection.go`, `neighborhood.go`), all with
+adversarial counterexample tests in `pkg/fleet/projection_views_test.go` and 100%
+coverage held:
+
+- Knowledge-view invariant (A): the revision and target projections now derive
+  `wantDeclared`/`wantObserved` from the requested views exactly as the service
+  projection does. The revision graph is declared-only (observation is service-scoped),
+  so an observed-only revision query returns just the focus and traverses no declared
+  edge; a node's expansion affordances are gated on the same view set. The target
+  projection gates its declared dependency edges on the declared view; the structural
+  runs edge is the target's identity link, shown independently.
+- Honest observation scope (B): `dependencyEdge` no longer sets `Observed` from
+  `rel.Reconciliation` (which is keyed by the from/to SERVICE pair, so it is
+  service-scoped). A fine-grained (revision/target) dependency edge is `Observed=false`
+  and carries the service reconciliation as CONTEXT via two new OpenAPI-generated edge
+  fields, `ObservationScope` (service|target) and `ServiceCorroboration`
+  (matched|expected-not-observed|insufficient); it has no edge-scope `Difference`. The
+  target runs edge is a genuine target-scoped observed fact
+  (`ObservationScope=target`). Counterexample: service A has revisions v1 (declares B)
+  and v2; telemetry observes A->B; the revision projection on v1 reports service
+  corroboration matched WITHOUT claiming `v1->B observed`, and v2 gets no B edge.
+- Target identity (C): an ambiguous or unresolved target inherits NO revision's declared
+  dependencies (it surfaces a `TARGET_REVISION_UNRESOLVED` limitation instead of
+  aggregating every revision's deps); a logical dependent is drawn as
+  consumer->logical-service, never consumer->concrete-target; the runs edge appears only
+  for an authoritative exact/inferred link. The tests that locked in the old fallback
+  were replaced.
+- Target depth (D): the target projection is one hop by construction and reports
+  `EffectiveDepth=1` (a new response field); the frontend disables depth/expand for it
+  and shows an effective-depth note, so no URL can pretend target depth 6 was evaluated.
+
+Frontend (E-K, N, P):
+
+- Actual visual topology (F/G/H): `views/GraphView.svelte` renders the bounded
+  neighborhood as a real Cytoscape graph via the shared engine (`lib/graph.ts`
+  `renderGraph`/`buildElements`/`cyLayout`/`cyStylesheet`), a pure adapter
+  (`lib/neighborhoodGraph.ts`, a graph node for every returned node, mixed
+  service/revision/target kinds, dependency vs runs edges) and a thin wrapper
+  (`NeighborhoodGraph.svelte`). Additive, non-breaking engine hooks were added:
+  id-based `onSelectNode`/`onSelectEdge`, a `fit()` control, an `edgeStyle:'visible'`
+  mode and `autoSpotlightFocus:false` for a bounded neighborhood; the whole-fleet
+  consumers are unchanged. The toolbar has perspective/knowledge/direction/depth/expand
+  plus Fit/zoom-in/zoom-out/reset; a legend explains node kinds + dependency/runs +
+  difference/corroboration/insufficient (shape + dash + label, never color alone);
+  node/edge selection opens a quick-inspection drawer without navigating; an accessible
+  text alternative lists the same relationships.
+- Focus/perspective valid by construction (E): a search result opens its kind's default
+  projection; only backend-acceptable perspective transitions are offered (a target
+  offers the revision perspective only when its link is authoritative), so ordinary
+  navigation cannot produce a 422.
+- Inert filters removed (J): the graph route no longer parses/serializes
+  domain/scope/owner/status/source/freshness; the dead legacy FleetView/fleetGraph stack
+  is deleted.
+- Product-honest search (K): a transport/schema failure is shown as an error, never as
+  "no matches"; stale responses cannot overwrite a newer query; truncation is surfaced;
+  results are graph-focusable kinds only.
+- Product Impact selectors (L): the revision selectors page the most recent revisions
+  (bounded, stopping at a selector bound) and report an honest incomplete state instead
+  of claiming a complete universe (L1); the no-service picker is search-first and
+  truncation-aware so a service beyond the first page is discoverable (L2).
+- Accessibility boundary (P): the Cytoscape canvas has an accessible label, controls are
+  labelled buttons, the text alternative is a meaningful semantic representation, and the
+  drawer close/focus basics are preserved. Detailed keyboard graph navigation and mobile
+  layout remain Phase 5.
+
+Acceptance:
+
+- Deterministic: `pkg/fleet` and `pkg/dashboard` hold 100% coverage; the projection
+  counterexample suite (`projection_views_test.go`, requirement M) passes; svelte-check
+  is error-clean; the full Vitest suite passes, including the new
+  `lib/neighborhoodGraph.test.ts` (adapter), the rewritten `GraphView.svelte.test.ts`
+  (requirement N) and the new `graphState`/`ImpactView` cases; OpenAPI + the TypeScript
+  SDK are regenerated deterministically and the new enum fields are pinned in the OpenAPI
+  contract test.
+- Real browser (Playwright, requirement O): the WASM demo suite proves the CORE visual
+  graph journey -- discovery has zero topology nodes; search->focus renders an actual
+  Cytoscape topology with nodes/edges/legend; Fit/zoom operate on the canvas without
+  navigating; node and edge selection open the drawer; a deep link survives reload;
+  browser back restores prior state; a knowledge-view switch changes the requested
+  topology; a revision result opens a real revision projection; and a target result
+  renders a target + runs relation with the one-hop controls disabled and no fabricated
+  mesh. The demo's payments-service target was given a version-pinned ref so its link is
+  inferred (authoritative), proving the target/revision projections in-browser. The live
+  Kind smoke asserts the real visual topology over live HTTP.
 
 ### Product response boundedness audit (requirement, item 4)
 
