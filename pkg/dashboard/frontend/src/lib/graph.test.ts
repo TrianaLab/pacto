@@ -215,6 +215,30 @@ describe('buildElements', () => {
     expect(els.some((e) => e.data.isGroup)).toBe(false);
     expect(els.find((e) => e.data.id === 'root')!.data.parent).toBeUndefined();
   });
+
+  it('emits the reconciliation state on edge data so the canvas can render it (Part 6)', () => {
+    const gd: GraphData = { nodes: [
+      { id: 'a', serviceName: 'a', status: 'Compliant', edges: [
+        { targetId: 'b', edgeState: 'matched' },
+        { targetId: 'c', edgeState: 'drift' },
+        { targetId: 'd', driftStatus: 'drift' }, // legacy driftStatus folds into state
+        { targetId: 'e' }, // no state
+      ] },
+      { id: 'b', serviceName: 'b', status: 'Compliant', edges: [] },
+      { id: 'c', serviceName: 'c', status: 'Compliant', edges: [] },
+      { id: 'd', serviceName: 'd', status: 'Compliant', edges: [] },
+      { id: 'e', serviceName: 'e', status: 'Compliant', edges: [] },
+    ] };
+    const edges = buildElements(gd).filter((el) => el.data.source);
+    const stateOf = (t: string) => edges.find((el) => el.data.target === t)!.data.state;
+    expect(stateOf('b')).toBe('matched');
+    expect(stateOf('c')).toBe('drift');
+    expect(stateOf('d')).toBe('drift'); // legacy driftStatus -> state 'drift'
+    expect(stateOf('e')).toBe('');
+    // drift flag stays consistent with the unified state.
+    expect(edges.find((el) => el.data.target === 'd')!.data.drift).toBe(1);
+    expect(edges.find((el) => el.data.target === 'b')!.data.drift).toBe(0);
+  });
 });
 
 describe('cyLayout', () => {

@@ -162,6 +162,58 @@ export function revisionLinkAuthoritative(revisionState: string | undefined): bo
   return revisionState === 'exact' || revisionState === 'inferred';
 }
 
+// A minimal structural view of the ProductNeighborhood the canonicalizer reads.
+interface FocusRef { kind?: string; key?: string }
+interface CanonNeighborhood {
+  focusService?: FocusRef | null;
+  projectionFocus?: FocusRef | null;
+  edges?: Array<{ relation?: string; to?: FocusRef }> | null;
+}
+
+/** canonicalFocusForPerspective returns the canonical {kind, key} the graph should focus
+ *  when switching to `perspective`, or null to keep the current focus. A perspective that
+ *  reinterprets identity (target->service, target->revision, revision->service) MUST
+ *  canonicalize the URL to the entity actually projected, so the URL never disagrees with
+ *  the visible graph and RequestedFocus is never silently reinterpreted (requirement,
+ *  Part 4). The canonical identity is read from the CURRENT neighborhood's backend data
+ *  (its focusService, or the runs edge's linked revision), never inferred from labels. */
+export function canonicalFocusForPerspective(
+  nb: CanonNeighborhood | null | undefined,
+  currentKind: string,
+  perspective: GraphPerspective,
+): { kind: string; key: string } | null {
+  if (!nb) return null;
+  if (perspective === 'service') {
+    const svc = nb.focusService;
+    return svc?.kind && svc.key ? { kind: svc.kind, key: svc.key } : null;
+  }
+  if (perspective === 'revision' && currentKind === 'target') {
+    // The linked revision is the "runs" edge's target (a backend ProductRef).
+    const runs = (nb.edges ?? []).find((e) => e?.relation === 'runs');
+    const rev = runs?.to;
+    return rev?.kind && rev.key ? { kind: rev.kind, key: rev.key } : null;
+  }
+  // revision->revision, target->target, service->service keep the current identity.
+  return null;
+}
+
+/** projectionFocusMismatch reports the canonical {kind, key} the URL should adopt when
+ *  the backend projected a DIFFERENT entity than the URL focus (e.g. a bookmarked
+ *  target URL under the revision perspective, which the backend resolves to the linked
+ *  revision). It reads the explicit ProjectionFocus the backend supplies, so an old deep
+ *  link canonicalizes on load rather than showing a URL that disagrees with the graph.
+ *  Returns null when the projection focused exactly the requested entity. */
+export function projectionFocusMismatch(
+  nb: CanonNeighborhood | null | undefined,
+  currentKind: string,
+  currentKey: string,
+): { kind: string; key: string } | null {
+  const pf = nb?.projectionFocus;
+  if (!pf?.kind || !pf.key) return null;
+  if (pf.kind === currentKind && pf.key === currentKey) return null;
+  return { kind: pf.kind, key: pf.key };
+}
+
 /** perspectiveSupportsDepth reports whether a perspective has a real bounded depth
  *  model. The target projection is intentionally one hop (a deployment runs a revision
  *  and requires services; deeper exploration is the revision perspective's job), so

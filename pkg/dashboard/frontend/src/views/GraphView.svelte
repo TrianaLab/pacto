@@ -7,11 +7,12 @@
     differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
     defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
+    canonicalFocusForPerspective, projectionFocusMismatch,
   } from '../lib/graphState.ts';
   import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
-  import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetImpactUrl } from '../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetImpactUrl, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
@@ -45,6 +46,21 @@
   onDestroy(() => loader.destroy());
 
   const nb = $derived(focused ? loader.data : null);
+
+  // Canonicalize an old deep link whose focus the backend REPLACED (a bookmarked target
+  // URL under the revision perspective resolves to the linked revision). RequestedFocus
+  // stays truthful; the backend supplies an explicit projectionFocus, and we replace
+  // (not push) the URL to it so a reload stays on the canonical Product URL and the
+  // active perspective never contradicts the visible graph (requirement, Part 4).
+  $effect(() => {
+    if (!nb) return;
+    const canon = projectionFocusMismatch(nb, gs.kind, gs.key);
+    if (canon) {
+      replaceHash(fleetGraphFocusUrl(canon.kind, canon.key, {
+        perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth,
+      }));
+    }
+  });
   const loading = $derived(focused && loader.loading);
   const error = $derived(focused ? loader.error : null);
   const knowledge = $derived(snapshotKnowledge(nb?.meta));
@@ -82,7 +98,21 @@
     location.hash = fleetGraphFocusUrl(gs.kind, gs.key, next);
     closeDrawer();
   }
-  function setPerspective(p) { go({ perspective: p, depth: perspectiveSupportsDepth(p) ? gs.depth : 1 }); }
+  function setPerspective(p) {
+    const depth = perspectiveSupportsDepth(p) ? gs.depth : 1;
+    // A perspective that reinterprets identity (target->service, target->revision,
+    // revision->service) canonicalizes the URL to the entity actually projected, so the
+    // URL and the visible graph never disagree (requirement, Part 4). Keys come from the
+    // backend neighborhood data (focusService / the runs edge), never inferred. A push
+    // (not replace) so Back returns to the previous canonical route.
+    const canon = canonicalFocusForPerspective(nb, gs.kind, p);
+    if (canon && (canon.kind !== gs.kind || canon.key !== gs.key)) {
+      location.hash = fleetGraphFocusUrl(canon.kind, canon.key, { perspective: p, views: gs.views, direction: gs.direction, depth });
+      closeDrawer();
+      return;
+    }
+    go({ perspective: p, depth });
+  }
   function setDirection(d) { go({ direction: d }); }
   function setDepth(d) { if (depthSupported) go({ depth: Math.max(1, Math.min(MAX_DEPTH, d)) }); }
   function flipView(v) { go({ views: toggleView(gs.views, v) }); }
@@ -273,18 +303,24 @@
             <!-- Primary: the visual Cytoscape topology (requirement F). -->
             <NeighborhoodGraph neighborhood={nb} focusKey={focusRef?.key || ''} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
 
-            <!-- Legend (requirement G): node kinds, dependency vs runs, difference/
-                 corroboration states. Never color alone (shape + dash + label). -->
+            <!-- Legend (requirement G/Part 6): every item is a REAL canvas distinction.
+                 Node kinds are shapes/borders; edge relation and reconciliation state are
+                 line-swatches that mirror exactly what the canvas draws (line style +
+                 width + tone), never a decorative badge for a state the canvas can't show.
+                 The drawer/text list keeps the precise, scoped wording. -->
             <div class="gv-legend" data-testid="graph-legend" aria-label="Graph legend">
+              <span class="lg-group">Nodes</span>
               <span class="lg-item"><span class="lg-node lg-service"></span> Service</span>
               <span class="lg-item"><span class="lg-node lg-revision"></span> Revision</span>
               <span class="lg-item"><span class="lg-node lg-target"></span> Deployment</span>
+              <span class="lg-group">Relationship</span>
               <span class="lg-item"><span class="lg-edge lg-dep"></span> Depends on</span>
               <span class="lg-item"><span class="lg-edge lg-runs"></span> Runs</span>
-              <span class="lg-item"><IdentityBadge label="Expected" tone="ok" /></span>
-              <span class="lg-item"><IdentityBadge label="Observed / corroboration" tone="info" /></span>
-              <span class="lg-item"><IdentityBadge label="Difference" tone="warn" /></span>
-              <span class="lg-item"><IdentityBadge label="Insufficient" tone="neutral" /></span>
+              <span class="lg-group">Reconciliation</span>
+              <span class="lg-item"><span class="lg-edge lg-matched"></span> Matched / corroborated</span>
+              <span class="lg-item"><span class="lg-edge lg-eno"></span> Expected, not observed</span>
+              <span class="lg-item"><span class="lg-edge lg-drift"></span> Observed, not expected</span>
+              <span class="lg-item"><span class="lg-edge lg-insufficient"></span> Insufficient evidence</span>
             </div>
 
             <!-- Accessible text alternative (requirement P): the same nodes and edges as
@@ -434,9 +470,18 @@
   .lg-service { border-radius: 3px; }
   .lg-revision { border-radius: 3px; border-style: dashed; }
   .lg-target { border-radius: 50%; }
-  .lg-edge { width: 20px; height: 0; border-top: 2px solid var(--c-text-3); }
+  .lg-group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); font-weight: 600; margin-left: var(--sp-2); }
+  .lg-group:first-child { margin-left: 0; }
+  .lg-edge { width: 22px; height: 0; border-top: 2px solid var(--c-text-3); }
+  /* Line-swatches mirror the exact canvas edge styles (lib/graph.ts cyStylesheet):
+     relation by line-style, reconciliation state by tone + width, so each legend
+     entry corresponds to something the canvas actually renders. */
   .lg-dep { border-top-style: solid; }
   .lg-runs { border-top-style: dashed; border-top-color: var(--c-info); }
+  .lg-matched { border-top-color: var(--c-ok); }
+  .lg-eno { border-top-color: var(--c-info); }
+  .lg-drift { border-top-width: 3px; border-top-color: var(--c-warn); }
+  .lg-insufficient { border-top-style: dotted; border-top-color: var(--c-neutral); }
 
   .gv-textalt { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-2) var(--sp-3); background: var(--c-surface); }
   .gv-textalt summary { cursor: pointer; font-size: var(--text-sm); color: var(--c-text-2); }

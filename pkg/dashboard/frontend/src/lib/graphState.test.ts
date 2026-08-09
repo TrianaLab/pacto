@@ -4,6 +4,7 @@ import {
   differenceDescription, relationLabel, neighborhoodIsEmpty, DEFAULT_VIEWS, MAX_DEPTH,
   defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
   perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
+  canonicalFocusForPerspective, projectionFocusMismatch,
 } from './graphState.ts';
 
 describe('hasFocus', () => {
@@ -136,5 +137,49 @@ describe('service-scoped corroboration (requirement B)', () => {
     expect(serviceScopedCaveat('revision')).toMatch(/service-scoped corroboration/i);
     expect(serviceScopedCaveat('target')).toMatch(/service-scoped corroboration/i);
     expect(serviceScopedCaveat('service')).toBe('');
+  });
+});
+
+describe('canonicalFocusForPerspective (Part 4: perspective changes canonicalize identity)', () => {
+  const nb = {
+    focusService: { kind: 'service', key: 'domain-a/web' },
+    edges: [
+      { relation: 'runs', to: { kind: 'revision', key: 'domain-a/web@sha256:1' } },
+      { relation: 'dependency', to: { kind: 'service', key: 'domain-a/api' } },
+    ],
+  };
+
+  it('target -> service returns the canonical service identity (from focusService)', () => {
+    expect(canonicalFocusForPerspective(nb, 'target', 'service')).toEqual({ kind: 'service', key: 'domain-a/web' });
+  });
+  it('target -> revision returns the linked revision (from the runs edge), never inferred', () => {
+    expect(canonicalFocusForPerspective(nb, 'target', 'revision')).toEqual({ kind: 'revision', key: 'domain-a/web@sha256:1' });
+  });
+  it('revision -> service returns the canonical service identity', () => {
+    expect(canonicalFocusForPerspective(nb, 'revision', 'service')).toEqual({ kind: 'service', key: 'domain-a/web' });
+  });
+  it('keeps the current focus for same-identity transitions (revision->revision, target->target)', () => {
+    expect(canonicalFocusForPerspective(nb, 'revision', 'revision')).toBeNull();
+    expect(canonicalFocusForPerspective(nb, 'target', 'target')).toBeNull();
+  });
+  it('returns null when the needed backend ref is absent (no runs edge, no focusService)', () => {
+    expect(canonicalFocusForPerspective({ edges: [] }, 'target', 'revision')).toBeNull();
+    expect(canonicalFocusForPerspective({ edges: [] }, 'target', 'service')).toBeNull();
+    expect(canonicalFocusForPerspective(null, 'target', 'service')).toBeNull();
+  });
+});
+
+describe('projectionFocusMismatch (Part 4: canonicalize a bookmarked reinterpreted focus)', () => {
+  it('returns the projection focus when the backend projected a different entity', () => {
+    const nb = { projectionFocus: { kind: 'revision', key: 'domain-a/web@sha256:1' } };
+    expect(projectionFocusMismatch(nb, 'target', 'prod/k8s/web')).toEqual({ kind: 'revision', key: 'domain-a/web@sha256:1' });
+  });
+  it('returns null when the projection focused exactly the requested entity', () => {
+    const nb = { projectionFocus: { kind: 'revision', key: 'r1' } };
+    expect(projectionFocusMismatch(nb, 'revision', 'r1')).toBeNull();
+  });
+  it('returns null when there is no projection focus', () => {
+    expect(projectionFocusMismatch({}, 'target', 'x')).toBeNull();
+    expect(projectionFocusMismatch(null, 'target', 'x')).toBeNull();
   });
 });

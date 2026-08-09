@@ -6,7 +6,8 @@
  * node the backend did not return.
  */
 import { describe, it, expect } from 'vitest';
-import { neighborhoodToGraph, cyEdgeId } from './neighborhoodGraph.ts';
+import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature } from './neighborhoodGraph.ts';
+import type { GraphData } from './graph.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ref = (kind: string, key: string, label?: string, status?: string): any => ({ kind, key, label: label ?? key, status });
@@ -83,5 +84,73 @@ describe('neighborhoodToGraph', () => {
   it('cyEdgeId reproduces the Cytoscape edge id format the engine assigns', () => {
     expect(cyEdgeId('prod/k8s/web', 'domain-a/api', 'dependency')).toBe('prod/k8s/web→domain-a/api:dependency');
     expect(cyEdgeId('prod/k8s/web', 'domain-a/web@sha256:1', 'runs')).toBe('prod/k8s/web→domain-a/web@sha256:1:runs');
+  });
+
+  it('carries a single visual edge state from difference OR service corroboration (Part 6)', () => {
+    const gd = neighborhoodToGraph(mixed);
+    const target = gd.nodes.find((n) => n.id === 'prod/k8s/web')!;
+    // The target->api edge has serviceCorroboration matched -> visual state matched.
+    expect(target.edges!.find((e) => e.targetId === 'domain-a/api')!.edgeState).toBe('matched');
+    // The runs edge has neither difference nor corroboration -> no reconciliation state.
+    expect(target.edges!.find((e) => e.targetId === 'domain-a/web@sha256:1')!.edgeState).toBeUndefined();
+  });
+});
+
+describe('edgeState (backend verdict -> visual vocabulary, never re-inferred)', () => {
+  it('maps a service-projection difference to the visual state', () => {
+    expect(edgeState({ difference: 'matched' })).toBe('matched');
+    expect(edgeState({ difference: 'observed-not-expected' })).toBe('drift');
+    expect(edgeState({ difference: 'expected-not-observed' })).toBe('expected-not-observed');
+    expect(edgeState({ difference: 'insufficient' })).toBe('insufficient');
+  });
+  it('maps a fine-grained service corroboration to the same visual states', () => {
+    expect(edgeState({ serviceCorroboration: 'matched' })).toBe('matched');
+    expect(edgeState({ serviceCorroboration: 'expected-not-observed' })).toBe('expected-not-observed');
+    expect(edgeState({ serviceCorroboration: 'insufficient' })).toBe('insufficient');
+  });
+  it('prefers an edge-scope difference over service corroboration and defaults to none', () => {
+    expect(edgeState({ difference: 'matched', serviceCorroboration: 'insufficient' })).toBe('matched');
+    expect(edgeState({})).toBe('');
+  });
+});
+
+describe('graph signatures (Part 5: topology vs presentation)', () => {
+  const base = (): GraphData => ({
+    nodes: [
+      { id: 'a', serviceName: 'a', status: 'Compliant', kind: 'service', edges: [{ targetId: 'b', type: 'dependency', edgeState: 'matched' }] },
+      { id: 'b', serviceName: 'b', status: 'Compliant', kind: 'service', edges: [] },
+    ],
+  });
+
+  it('an identical graph has identical signatures', () => {
+    expect(topoSignature(base())).toBe(topoSignature(base()));
+    expect(presentationSignature(base())).toBe(presentationSignature(base()));
+  });
+
+  it('a status change alters the presentation signature but NOT the topology signature', () => {
+    const changed = base();
+    changed.nodes[0].status = 'NonCompliant';
+    expect(topoSignature(changed)).toBe(topoSignature(base()));
+    expect(presentationSignature(changed)).not.toBe(presentationSignature(base()));
+  });
+
+  it('a label change alters the presentation signature but NOT the topology signature', () => {
+    const changed = base();
+    changed.nodes[0].serviceName = 'a-renamed';
+    expect(topoSignature(changed)).toBe(topoSignature(base()));
+    expect(presentationSignature(changed)).not.toBe(presentationSignature(base()));
+  });
+
+  it('an edge reconciliation-state change alters presentation but NOT topology', () => {
+    const changed = base();
+    changed.nodes[0].edges![0].edgeState = 'drift';
+    expect(topoSignature(changed)).toBe(topoSignature(base()));
+    expect(presentationSignature(changed)).not.toBe(presentationSignature(base()));
+  });
+
+  it('adding a node/edge alters the topology signature', () => {
+    const changed = base();
+    changed.nodes.push({ id: 'c', serviceName: 'c', status: 'Compliant', kind: 'service', edges: [] });
+    expect(topoSignature(changed)).not.toBe(topoSignature(base()));
   });
 });

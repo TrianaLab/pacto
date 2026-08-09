@@ -20,8 +20,8 @@ import { mount, unmount, flushSync } from 'svelte';
 const { neighborhoodFn, entitiesFn, snapshotFn } = vi.hoisted(() => ({
   neighborhoodFn: vi.fn(), entitiesFn: vi.fn(), snapshotFn: vi.fn(),
 }));
-const { renderSpy, fitSpy, zoomInSpy, zoomOutSpy } = vi.hoisted(() => ({
-  renderSpy: vi.fn(), fitSpy: vi.fn(), zoomInSpy: vi.fn(), zoomOutSpy: vi.fn(),
+const { renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy } = vi.hoisted(() => ({
+  renderSpy: vi.fn(), fitSpy: vi.fn(), zoomInSpy: vi.fn(), zoomOutSpy: vi.fn(), patchDataSpy: vi.fn(),
 }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
@@ -43,7 +43,7 @@ vi.mock('../lib/graph.ts', async (importOriginal) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     renderGraph: (...args: any[]) => {
       renderSpy(...args);
-      return { nodes: [], destroy: vi.fn(), zoomIn: zoomInSpy, zoomOut: zoomOutSpy, resetView: vi.fn(), fit: fitSpy, applyFilter: vi.fn() };
+      return { nodes: [], destroy: vi.fn(), zoomIn: zoomInSpy, zoomOut: zoomOutSpy, resetView: vi.fn(), fit: fitSpy, patchData: patchDataSpy, applyFilter: vi.fn() };
     },
   };
 });
@@ -112,7 +112,7 @@ const qa = (t: HTMLElement, sel: string) => Array.from(t.querySelectorAll(sel)) 
 
 describe('GraphView — product Operational Graph (Phase 4)', () => {
   beforeEach(() => {
-    for (const f of [neighborhoodFn, entitiesFn, snapshotFn, renderSpy, fitSpy, zoomInSpy, zoomOutSpy]) f.mockReset();
+    for (const f of [neighborhoodFn, entitiesFn, snapshotFn, renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy]) f.mockReset();
     neighborhoodFn.mockResolvedValue(neighborhood());
     entitiesFn.mockResolvedValue({ meta: {}, total: 1, count: 1, entities: [ref('service', 'domain-a/web', 'web', { domain: 'domain-a' })] });
     location.hash = '';
@@ -290,11 +290,58 @@ describe('GraphView — product Operational Graph (Phase 4)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  it('the perspective control switches projection via the URL', async () => {
+  it('canonicalizes the URL to the service identity when switching a revision focus to the service perspective', async () => {
+    // Part 4: switching perspective must not silently reinterpret identity. A revision
+    // focus switching to the service perspective canonicalizes the URL to the service
+    // (from the backend focusService), so the URL and the visible graph agree.
     const { target, component } = mountView({ kind: 'revision', sel: 'domain-a/web@sha256:1', perspective: 'revision' });
     await vi.waitFor(() => expect(q(target, '[data-testid="perspective-service"]')).toBeTruthy());
     (q(target, '[data-testid="perspective-service"]') as HTMLButtonElement).click();
+    expect(location.hash).toContain('/fleet/graph/service/');
+    expect(location.hash).not.toContain('/fleet/graph/revision/');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('canonicalizes a target->revision switch to the linked revision identity (Part 4)', async () => {
+    neighborhoodFn.mockResolvedValue(targetNeighborhood());
+    const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/web', perspective: 'target' });
+    // The target link is authoritative (revisionState exact), so the revision perspective
+    // is offered; clicking it canonicalizes the URL to the LINKED revision (from the runs
+    // edge), never keeping the target key with a revision perspective.
+    await vi.waitFor(() => expect(q(target, '[data-testid="perspective-revision"]')).toBeTruthy());
+    (q(target, '[data-testid="perspective-revision"]') as HTMLButtonElement).click();
     expect(location.hash).toContain('/fleet/graph/revision/');
+    expect(location.hash).toContain(encodeURIComponent('domain-a/web@sha256:1'));
+    expect(location.hash).not.toContain('/fleet/graph/target/');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('canonicalizes a target->service switch to the service identity (Part 4)', async () => {
+    neighborhoodFn.mockResolvedValue(targetNeighborhood());
+    const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/web', perspective: 'target' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="perspective-service"]')).toBeTruthy());
+    (q(target, '[data-testid="perspective-service"]') as HTMLButtonElement).click();
+    expect(location.hash).toContain('/fleet/graph/service/');
+    expect(location.hash).toContain(encodeURIComponent('domain-a/web'));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('canonicalizes a bookmarked reinterpreted URL to the projection focus on load (Part 4)', async () => {
+    // A stale deep link: kind=target but perspective=revision. The backend keeps
+    // requestedFocus the target and supplies projectionFocus (the resolved revision); the
+    // URL must canonicalize (replace, not push) to the revision identity so a reload
+    // stays on the Product URL and the active perspective never contradicts the graph.
+    neighborhoodFn.mockResolvedValue(neighborhood({
+      perspective: 'revision',
+      requestedFocus: ref('target', 'prod/k8s/web', 'web'),
+      projectionFocus: ref('revision', 'domain-a/web@sha256:1', 'web@1'),
+      focusService: ref('service', 'domain-a/web', 'web'),
+      nodes: [{ ref: ref('revision', 'domain-a/web@sha256:1', 'web@1'), depth: 0, focus: true, status: 'Compliant' }],
+      edges: [],
+    }));
+    const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/web', perspective: 'revision' });
+    await vi.waitFor(() => expect(location.hash).toContain('/fleet/graph/revision/'));
+    expect(location.hash).toContain(encodeURIComponent('domain-a/web@sha256:1'));
     unmount(component); document.body.removeChild(target);
   });
 

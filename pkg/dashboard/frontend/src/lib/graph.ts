@@ -13,6 +13,7 @@ import fcose from 'cytoscape-fcose';
 import expandCollapse from 'cytoscape-expand-collapse';
 import { reasonTooltip } from './format.ts';
 import { wrapWideRanks } from './layout.ts';
+import { prefersReducedMotion } from './chartkit.ts';
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -42,6 +43,11 @@ export interface GraphEdge {
   lockedDigest?: string;
   lockedVersion?: string;
   driftStatus?: string;
+  // edgeState is the backend-provided reconciliation state the canvas renders as a
+  // real visual distinction (matched / expected-not-observed / drift / insufficient),
+  // never re-inferred. Empty = a plain declared edge (no comparison in view). See
+  // lib/neighborhoodGraph.ts, which derives it from difference/serviceCorroboration.
+  edgeState?: string;
 }
 
 export interface GraphNode {
@@ -128,6 +134,9 @@ export interface GraphControls {
   resetView: () => void;
   /** Fit the whole graph in view without clearing the pinned focus (ephemeral). */
   fit: () => void;
+  /** Update presentation fields (node status/label/kind, edge state) in place without
+   *  a relayout, for a same-topology refresh. */
+  patchData: (graphData: GraphData) => void;
   applyFilter: (fn: ((n: GraphNode) => boolean) | null) => void;
 }
 
@@ -221,6 +230,10 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
     for (const e of n.edges || []) {
       if (!ids.has(e.targetId)) continue;
       const etype = e.type || 'dependency';
+      // The reconciliation state drives a real edge visual (see cyStylesheet). A
+      // legacy driftStatus folds into the same state vocabulary so both the whole-fleet
+      // graph and the product neighborhood share one grammar.
+      const state = e.edgeState || (e.driftStatus === 'drift' ? 'drift' : '');
       els.push({
         data: {
           id: `${n.id}→${e.targetId}:${etype}`,
@@ -228,7 +241,8 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
           target: e.targetId,
           etype,
           required: e.required ? 1 : 0,
-          drift: e.driftStatus === 'drift' ? 1 : 0,
+          drift: state === 'drift' ? 1 : 0,
+          state,
         },
       });
     }
@@ -252,7 +266,8 @@ export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
   }
   return {
     name: 'fcose',
-    animate: 'end',
+    // Honor prefers-reduced-motion: settle instantly rather than animating the layout.
+    animate: prefersReducedMotion() ? false : 'end',
     animationDuration: 600,
     animationEasing: 'ease-out',
     fit: true,
@@ -292,13 +307,6 @@ function resolvePalette(container: HTMLElement): Palette {
 function nodeColor(pal: Palette, status: string, reason: string): string {
   if (status === 'external') return (pal as any)[REASON_TO_PAL[reason]] || pal.neutral;
   return (pal as any)[STATUS_TO_PAL[status]] || pal.neutral;
-}
-
-/** Edge/arrow color by kind. */
-function edgeColor(pal: Palette, drift: boolean, reference: boolean): string {
-  if (drift) return pal.warn;
-  if (reference) return pal.accent;
-  return pal.textDim;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -347,6 +355,13 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       style: { shape: 'ellipse' },
     },
     {
+      // An immutable revision node reads as a dashed-border round-rectangle, matching
+      // the legend swatch, so it is distinguishable from a logical service (solid
+      // border) without relying on color.
+      selector: "node[kind='revision']",
+      style: { 'border-style': 'dashed' },
+    },
+    {
       selector: 'edge',
       style: {
         // Layered = the dependency TREE: orthogonal taxi edges flowing top→down with
@@ -369,11 +384,41 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         'transition-timing-function': 'ease-out',
       },
     },
+    // Reconciliation state on a dependency edge, rendered as a REAL visual distinction
+    // so every legend item maps to something the canvas actually draws (requirement,
+    // Part 6). The backend state is rendered verbatim, never re-inferred: color carries
+    // tone and line width/style carry confidence, so the states are distinguishable
+    // without relying on color alone.
+    {
+      // matched / corroborated: declared intent backed by observation. Confident solid
+      // line in the ok tone.
+      selector: "edge[state='matched']",
+      style: { 'line-color': pal.ok, 'target-arrow-color': pal.ok, width: 2 },
+    },
+    {
+      // expected-not-observed: declared but not witnessed in the window (not proof it
+      // is unused). Info tone, kept solid.
+      selector: "edge[state='expected-not-observed']",
+      style: { 'line-color': pal.info, 'target-arrow-color': pal.info },
+    },
+    {
+      // drift (observed-not-expected): observed at runtime but never declared. The
+      // attention state: warn tone and a thicker line.
+      selector: "edge[state='drift']",
+      style: { 'line-color': pal.warn, 'target-arrow-color': pal.warn, width: 2.5 },
+    },
+    {
+      // insufficient: declared with no observation to reconcile against. A dotted line
+      // in the neutral tone reads as "unverified" without color alone.
+      selector: "edge[state='insufficient']",
+      style: { 'line-color': pal.neutral, 'target-arrow-color': pal.neutral, 'line-style': 'dotted' },
+    },
     {
       // A "runs" edge (a deployment runs a revision) is a structural identity link,
       // not a declared-vs-observed dependency: render it dashed in the info tone so it
       // reads distinctly from a solid dependency edge (never color alone -- the dash
-      // and the legend carry the distinction too).
+      // and the legend carry the distinction too). Declared last so it wins for runs
+      // edges (which never carry a reconciliation state).
       selector: "edge[etype='runs']",
       style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed' },
     },
@@ -470,9 +515,10 @@ export function renderGraph(
   if (hasGroups) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const reduce = prefersReducedMotion();
       ecApi = (cy as any).expandCollapse({
-        layoutBy: { name: 'fcose', animate: 'end', animationDuration: 500, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
-        fisheye: false, animate: true, animationDuration: 400, undoable: false, cueEnabled: true,
+        layoutBy: { name: 'fcose', animate: reduce ? false : 'end', animationDuration: 500, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
+        fisheye: false, animate: !reduce, animationDuration: 400, undoable: false, cueEnabled: true,
       });
     } catch { ecApi = null; }
   }
@@ -561,7 +607,10 @@ export function renderGraph(
     applyDimming();
     onSelect?.(clickFocusId ? n.data('serviceName') : null);
     onSelectNode?.(clickFocusId ? id : null);
-    if (clickFocusId) cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
+    if (clickFocusId) {
+      if (prefersReducedMotion()) cy.center(n);
+      else cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
+    }
   });
   // Edge tap: open the relationship's quick-inspection drawer (the product graph
   // reads the backend-authoritative edge; it never navigates away automatically).
@@ -597,6 +646,13 @@ export function renderGraph(
     if (fn.nonempty()) clickFocusId = fn.first().id();
   }
 
+  // fitView fits the whole graph in view, honoring prefers-reduced-motion (an instant
+  // fit rather than an animated pan/zoom).
+  function fitView(duration: number): void {
+    if (prefersReducedMotion()) cy.fit(cy.elements(), 30);
+    else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration, easing: 'ease-out' });
+  }
+
   function layoutAndFit(): void {
     const l = cy.layout(cyLayout(layout));
     l.one('layoutstop', () => {
@@ -608,7 +664,7 @@ export function renderGraph(
         wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 24, ranksep: 80, maxWidth: (cy.width() || 1000) - 60 });
         cy.batch(() => cy.nodes().forEach((n) => { const p = pos.get(n.id()); if (p) n.position(p); }));
       }
-      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 250, easing: 'ease-out' });
+      fitView(250);
       if (filterFn) applyFilter(filterFn);
       else applyDimming();
     });
@@ -631,7 +687,7 @@ export function renderGraph(
       resizeTimer = setTimeout(() => {
         if (clickFocusId) return; // don't disrupt a pinned focus
         if (layout === 'layered') layoutAndFit();
-        else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 200 });
+        else fitView(200);
       }, 150);
     });
     ro.observe(container);
@@ -649,13 +705,46 @@ export function renderGraph(
     cy.zoom({ level: cy.zoom() * factor, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
   }
 
+  // patchData updates the mutable PRESENTATION fields of the existing elements in place
+  // (node status/label/kind, edge reconciliation state), WITHOUT a relayout, so a
+  // background refresh that changes only semantics (e.g. Compliant -> NonCompliant, or a
+  // difference verdict) restyles the canvas immediately instead of leaving it stale. It
+  // assumes the topology is unchanged (same node ids and edge ids); the caller rebuilds
+  // when the topology changes. Cytoscape restyles an element when its data changes, so
+  // the status/kind/state selectors re-apply.
+  function patchData(next: GraphData): void {
+    const byId = new Map((next.nodes || []).map((n) => [n.id, n]));
+    cy.batch(() => {
+      for (const cn of cy.nodes()) {
+        const n = byId.get(cn.id());
+        if (!n) continue;
+        const { name, version } = nodeLabel(n);
+        cn.data('status', n.status);
+        cn.data('label', version ? `${name}\n${version}` : name);
+        cn.data('serviceName', n.serviceName);
+        cn.data('kind', n.kind || 'service');
+      }
+      for (const n of next.nodes || []) {
+        for (const e of n.edges || []) {
+          const etype = e.type || 'dependency';
+          const ce = cy.getElementById(`${n.id}→${e.targetId}:${etype}`);
+          if (ce.empty()) continue;
+          const state = e.edgeState || (e.driftStatus === 'drift' ? 'drift' : '');
+          ce.data('state', state);
+          ce.data('drift', state === 'drift' ? 1 : 0);
+        }
+      }
+    });
+  }
+
   return {
     nodes,
     destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); cy.destroy(); },
     zoomIn: () => zoomBy(1.4),
     zoomOut: () => zoomBy(0.7),
-    resetView: () => { clickFocusId = null; applyDimming(); cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 300 }); },
-    fit: () => cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 250 }),
+    resetView: () => { clickFocusId = null; applyDimming(); fitView(300); },
+    fit: () => fitView(250),
+    patchData,
     applyFilter,
   };
 }

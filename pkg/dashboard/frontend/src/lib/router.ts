@@ -203,6 +203,17 @@ function parseFleet(path: string, query: string): Route {
   return { view: 'fleet-overview', params: {} };
 }
 
+// replaceHash canonicalizes the current URL to `hash` WITHOUT pushing a history entry,
+// so a canonicalization (a legacy->product redirect, or a graph focus/perspective
+// canonicalization) does not leave the pre-canonical URL in history to bounce back to.
+// It notifies the app's hashchange listener, which history.replaceState does not fire.
+export function replaceHash(hash: string): void {
+  const h = hash.startsWith('#') ? hash : `#${hash}`;
+  if (h === location.hash) return;
+  history.replaceState(null, '', h);
+  window.dispatchEvent(new Event('hashchange'));
+}
+
 export function navigate(view: string, params: Record<string, string> = {}): void {
   let hash = '#/';
   if (view === 'detail' && params.name) {

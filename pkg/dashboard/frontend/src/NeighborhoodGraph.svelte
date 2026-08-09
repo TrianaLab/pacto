@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { renderGraph } from './lib/graph.ts';
-  import { neighborhoodToGraph } from './lib/neighborhoodGraph.ts';
+  import { neighborhoodToGraph, topoSignature, presentationSignature } from './lib/neighborhoodGraph.ts';
 
   // A thin mount wrapper around the shared Cytoscape engine (lib/graph.ts) for a
   // bounded product ProductNeighborhood. It reuses renderGraph/buildElements/cyLayout/
@@ -16,22 +16,29 @@
 
   let containerEl = $state(null);
   let instance = null;
-  let lastSig = '';
-
-  function sig(gd) {
-    const ns = gd.nodes.map((n) => n.id).sort().join(',');
-    const es = gd.nodes
-      .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type}`))
-      .sort().join(',');
-    return [ns, es, focusKey].join('||');
-  }
+  // Two signatures so a refresh does the RIGHT thing (requirement, Part 5): the topology
+  // signature (node ids + edge endpoints/type + focus) decides rebuild-vs-reuse; the
+  // presentation signature (node status/label/kind + edge state) decides whether an
+  // in-place restyle is needed. Keying only on topology left the canvas stale when a
+  // node flipped Compliant -> NonCompliant or an edge difference changed.
+  let lastTopo = '';
+  let lastPres = '';
 
   function init() {
     if (!containerEl) return;
     const gd = neighborhoodToGraph(neighborhood);
-    const s = sig(gd);
-    if (s === lastSig && instance) return; // background refresh with identical shape
-    lastSig = s;
+    const topo = `${topoSignature(gd)}||${focusKey}`;
+    const pres = presentationSignature(gd);
+
+    if (instance && topo === lastTopo) {
+      // Same topology: only restyle in place if the presentation actually changed. An
+      // identical semantic answer recreates nothing (and never relayouts).
+      if (pres !== lastPres) { instance.patchData(gd); lastPres = pres; }
+      return;
+    }
+
+    lastTopo = topo;
+    lastPres = pres;
     if (instance) { instance.destroy(); instance = null; }
     if (!gd.nodes.length) { containerEl.innerHTML = ''; oncontrols?.(null); return; }
     instance = renderGraph(containerEl, gd, {

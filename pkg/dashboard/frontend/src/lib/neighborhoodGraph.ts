@@ -25,10 +25,37 @@ interface NEdge {
   to: NRef;
   relation: string;
   difference?: string;
+  serviceCorroboration?: string;
 }
 interface NHood {
   nodes?: NNode[] | null;
   edges?: NEdge[] | null;
+}
+
+// EdgeState is the restrained visual vocabulary the canvas renders (see cyStylesheet):
+// one state per legend item, so every legend item is a real visual distinction. It is
+// DERIVED from the backend-authoritative difference (service projection) or
+// serviceCorroboration (fine-grained projection), never re-inferred from booleans.
+export type EdgeVisualState = '' | 'matched' | 'expected-not-observed' | 'drift' | 'insufficient';
+
+/** edgeState collapses the backend edge verdict into the canvas visual vocabulary. A
+ *  service-projection edge carries `difference`; a fine-grained (revision/target) edge
+ *  carries `serviceCorroboration`. Both map to the SAME visual states (the drawer keeps
+ *  the precise wording). An edge with neither (an expected-only view) has no state and
+ *  renders as a plain declared edge. */
+export function edgeState(e: { difference?: string; serviceCorroboration?: string }): EdgeVisualState {
+  switch (e.difference) {
+    case 'matched': return 'matched';
+    case 'observed-not-expected': return 'drift';
+    case 'expected-not-observed': return 'expected-not-observed';
+    case 'insufficient': return 'insufficient';
+  }
+  switch (e.serviceCorroboration) {
+    case 'matched': return 'matched';
+    case 'expected-not-observed': return 'expected-not-observed';
+    case 'insufficient': return 'insufficient';
+  }
+  return '';
 }
 
 /** cyEdgeId reproduces the Cytoscape edge id that buildElements assigns, so a canvas
@@ -70,16 +97,43 @@ export function neighborhoodToGraph(nb: NHood | null | undefined): GraphData {
   for (const e of nb?.edges ?? []) {
     const src = byKey.get(e.from.key);
     if (!src || !byKey.has(e.to.key)) continue;
+    // Carry the backend reconciliation state (difference for a service edge, service
+    // corroboration for a fine-grained one) into a single visual state the canvas
+    // renders as a real distinction. The drawer keeps the precise, scoped wording.
+    const state = edgeState(e);
     const edge: GraphEdge = {
       targetId: e.to.key,
       type: edgeType(e.relation),
-      // Only a service-projection edge carries an edge-scope difference; observed-not-
-      // expected reads as drift so the stylesheet tints it. Fine-grained edges carry no
-      // difference (their service-scoped corroboration is shown in the drawer/legend,
-      // never as edge color) so they are not tinted here.
-      driftStatus: e.difference === 'observed-not-expected' ? 'drift' : undefined,
+      edgeState: state || undefined,
+      driftStatus: state === 'drift' ? 'drift' : undefined,
     };
     src.edges!.push(edge);
   }
   return { nodes };
+}
+
+/** topoSignature captures ONLY a neighborhood graph's shape: node ids and each edge's
+ *  endpoints and type. Two graphs with the same topology signature can be updated in
+ *  place (no relayout); a change requires a rebuild. Deterministic (sorted). */
+export function topoSignature(gd: GraphData): string {
+  const ns = gd.nodes.map((n) => n.id).sort().join(',');
+  const es = gd.nodes
+    .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}`))
+    .sort().join(',');
+  return `${ns}||${es}`;
+}
+
+/** presentationSignature captures the MUTABLE visual fields that Cytoscape styles read
+ *  (node status/label/kind, edge state) but that do NOT change the topology. When it
+ *  changes with an unchanged topoSignature, the canvas is patched in place so a
+ *  semantic-only refresh (e.g. Compliant -> NonCompliant, or a difference verdict) is
+ *  never left stale. Deterministic (sorted). */
+export function presentationSignature(gd: GraphData): string {
+  const ns = gd.nodes
+    .map((n) => `${n.id}:${n.status}:${n.kind || 'service'}:${n.serviceName}`)
+    .sort().join(',');
+  const es = gd.nodes
+    .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}:${e.edgeState || ''}`))
+    .sort().join(',');
+  return `${ns}||${es}`;
 }
