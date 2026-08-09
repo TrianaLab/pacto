@@ -1,5 +1,8 @@
 /** Pure command-list builder for the ⌘K palette. No runes — unit-testable. */
-import { serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl } from './router';
+import {
+  serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl,
+  fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl, fleetAttentionUrl,
+} from './router';
 import { ownerKey, ownerMatchesFilter } from './format';
 
 export type CommandKind = 'view' | 'service' | 'owner' | 'action';
@@ -17,7 +20,21 @@ export interface CommandGroup {
   items: Command[];
 }
 
-const VIEWS: Command[] = [
+// On a Fleet-capable host the palette offers the PRODUCT destinations (never the legacy
+// routes), so the command palette can't be a back door to a superseded UI (Part 1); a
+// non-Fleet host keeps the legacy destinations, which are its only UI. Readiness and
+// Compare are retained specialized capabilities on both.
+const FLEET_VIEWS: Command[] = [
+  { kind: 'view', label: 'Overview', href: fleetOverviewUrl() },
+  { kind: 'view', label: 'Services', href: fleetServicesUrl() },
+  { kind: 'view', label: 'Operational Graph', href: fleetUrl() },
+  { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
+  { kind: 'view', label: 'Sources', href: fleetSourcesUrl() },
+  { kind: 'view', label: 'Attention', href: fleetAttentionUrl() },
+  { kind: 'view', label: 'Readiness', href: readinessUrl() },
+  { kind: 'view', label: 'Compare', href: compareDiffUrl() },
+];
+const LEGACY_VIEWS: Command[] = [
   { kind: 'view', label: 'Services', href: '#/' },
   { kind: 'view', label: 'Graph', href: graphUrl() },
   { kind: 'view', label: 'Owners', href: ownersUrl() },
@@ -36,15 +53,19 @@ const ACTIONS: Command[] = [
  * (a useful default). Non-empty query → every group filtered; empty groups drop.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function buildCommands(query: string, services: any[]): CommandGroup[] {
+export function buildCommands(query: string, services: any[], fleet = false): CommandGroup[] {
   const q = query.trim().toLowerCase();
   const match = (s: string) => !q || s.toLowerCase().includes(q);
   const groups: CommandGroup[] = [];
 
-  const views = VIEWS.filter((v) => match(v.label));
+  const views = (fleet ? FLEET_VIEWS : LEGACY_VIEWS).filter((v) => match(v.label));
   if (views.length) groups.push({ label: 'Views', items: views });
 
-  if (q) {
+  // The legacy service/owner search links to legacy detail routes, which are superseded
+  // on a Fleet host (the visible EntitySearch / '/' discovers entities through the
+  // product API there). Offer it only on a non-Fleet host, so the palette never links to
+  // a superseded service/owner screen.
+  if (q && !fleet) {
     const svc: Command[] = (services || [])
       .filter((s) => s.name.toLowerCase().includes(q) || ownerMatchesFilter(s.owner, q))
       .slice(0, 6)

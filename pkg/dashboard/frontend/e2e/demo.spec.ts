@@ -75,6 +75,59 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByText('payments-service').first()).toBeVisible({ timeout: 20_000 });
   });
 
+  // Part 1 dual-UI elimination: on the Fleet-capable demo, every legacy route that has a
+  // product equivalent canonicalizes to the product IA rather than mounting a second,
+  // competing legacy screen. A legacy name-bearing URL is migrated through the Product
+  // API. Reload stays on the product URL; Back does not bounce between old/new.
+  test('M1: /demo/#/ canonicalizes to the operational overview', async ({ page }) => {
+    await page.goto('/#/');
+    await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
+    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('M2: the legacy Services list canonicalizes to the product Services list (no legacy view)', async ({ page }) => {
+    await page.goto('/#/services');
+    await expect(page).toHaveURL(/#\/fleet\/services$/, { timeout: 20_000 });
+    // The product Services page renders (its h1), never the legacy ServiceListView.
+    await expect(page.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('M3: the legacy standalone Graph canonicalizes to the Operational Graph', async ({ page }) => {
+    await page.goto('/#/graph');
+    await expect(page).toHaveURL(/#\/fleet\/graph$/, { timeout: 20_000 });
+    await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('M4: the legacy Owners list canonicalizes to the product Owners', async ({ page }) => {
+    await page.goto('/#/owners');
+    await expect(page).toHaveURL(/#\/fleet\/owners$/, { timeout: 20_000 });
+  });
+
+  test('M5: an old service-detail URL canonicalizes to the product entity (never the legacy detail view)', async ({ page }) => {
+    await page.goto('/#/services/payments-service');
+    // Resolved through the Product API to the canonical service entity; a same-named set
+    // would instead show the explicit disambiguation (data-testid legacy-migration).
+    await expect(page).toHaveURL(/#\/fleet\/services\//, { timeout: 20_000 });
+  });
+
+  test('M6: canonicalized product URLs survive a reload', async ({ page }) => {
+    await page.goto('/#/services');
+    await expect(page).toHaveURL(/#\/fleet\/services$/, { timeout: 20_000 });
+    await page.reload();
+    await expect(page).toHaveURL(/#\/fleet\/services$/, { timeout: 20_000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('M7: Back does not bounce between a legacy URL and its product canonical', async ({ page }) => {
+    await page.goto('/#/fleet'); // start on a product route
+    await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
+    await page.goto('/#/graph'); // a legacy route -> canonicalizes to #/fleet/graph
+    await expect(page).toHaveURL(/#\/fleet\/graph$/, { timeout: 20_000 });
+    await page.goBack();
+    // Back lands on the prior product route, NOT the legacy #/graph that would re-redirect.
+    await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
+  });
+
   test('navigation exposes only registered capabilities (no dead tabs)', async ({ page }) => {
     await waitReady(page);
     const nav = page.getByRole('navigation', { name: 'Primary' });

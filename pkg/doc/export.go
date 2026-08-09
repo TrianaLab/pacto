@@ -50,6 +50,12 @@ func buildStaticExport(uiFS fs.FS, d *dashboard.ServiceDetails, g *dashboard.Glo
 	// graph, its versions, its dependents, and its cross-references (a deliberate,
 	// EXPLICIT null - not a universal fallback).
 	routes := []map[string]any{
+		// The offline export is a NON-Fleet host: it serves the single-service legacy UI
+		// and none of the /api/fleet/* product endpoints. Declaring capabilities
+		// explicitly (fleet:false) lets the SPA resolve its host class definitively -- so
+		// it renders the legacy service view (its only UI here) instead of waiting on an
+		// unanswerable capabilities probe, and never offers a dead Fleet nav item.
+		{"method": "GET", "path": "/api/capabilities", "response": map[string]any{"fleet": false, "impact": false, "observed": false}},
 		{"method": "GET", "path": "/api/services", "response": []any{}},
 		{"method": "GET", "path": "/api/services/" + d.Name, "response": d},
 		{"method": "GET", "path": "/api/graph", "response": g},

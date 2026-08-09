@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { parseHash } from './lib/router.ts';
+  import { parseHash, legacyRedirectTarget, replaceHash, fleetOverviewUrl } from './lib/router.ts';
   import { syncFromHash } from './lib/filters.svelte.ts';
   import { toggleTheme } from './lib/theme.svelte.ts';
   import { initTooltipPlacement } from './lib/tooltips.ts';
@@ -23,6 +23,7 @@
   import FleetEntityView from './views/FleetEntityView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import ImpactView from './views/ImpactView.svelte';
+  import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -60,7 +61,14 @@
         await api.refresh().catch(() => {});
       }
 
-      const needsServices = route.view === 'list' || route.view === 'graph' || route.view === 'diff' || route.view === 'owners' || route.view === 'owner-detail' || route.view === 'readiness';
+      // Retained specialized capabilities (Compare, Readiness) consume the legacy
+      // services plane on every host. The other legacy views only render on a NON-Fleet
+      // host (a Fleet host redirects them to the product IA), so they need the legacy
+      // list only there -- a product route never triggers api.services() (Part 1.5).
+      const retainedNeedsServices = route.view === 'diff' || route.view === 'readiness';
+      const legacyNeedsServices = capabilities?.fleet !== true &&
+        (route.view === 'list' || route.view === 'graph' || route.view === 'owners' || route.view === 'owner-detail');
+      const needsServices = retainedNeedsServices || legacyNeedsServices;
 
       let servicesFailed = false;
       const [svcList, srcData, health, caps] = await Promise.all([
@@ -126,6 +134,27 @@
   // gracefully), so the shortcut is never dead-on-arrival on a fleet host.
   const fleetSearch = $derived(capabilities?.fleet !== false);
 
+  // Host class for the dual-UI boundary (Part 1). A Fleet-capable host serves the
+  // product IA and redirects legacy routes to it; a non-Fleet host (the offline `pacto
+  // doc` export) serves the legacy UI as its ONLY UI. `null` = capabilities not yet
+  // known: render a neutral loading state for legacy-equivalent routes rather than
+  // committing to either UI (so a Fleet host never flashes the superseded screen).
+  const fleetHost = $derived(capabilities?.fleet === true);
+  const legacyHost = $derived(capabilities?.fleet === false);
+
+  // On a Fleet-capable host, canonicalize a legacy URL that has a product equivalent to
+  // its canonical product route -- a replace (no history push), so Back never bounces
+  // and a reload stays on the product URL. Static 1:1 routes and the catch-all legacy
+  // list (incl. unknown hashes) redirect here; name-bearing legacy detail URLs are
+  // migrated by LegacyEntityRedirect, which resolves the name through the Product API.
+  $effect(() => {
+    const _ = route; // re-run on every navigation
+    if (capabilities?.fleet !== true) return;
+    const target = legacyRedirectTarget(location.hash);
+    if (target) { replaceHash(target); return; }
+    if (route.view === 'list') replaceHash(fleetOverviewUrl());
+  });
+
   function openSearch() {
     if (fleetSearch) searchOpen = true;
     else paletteOpen = true;
@@ -184,6 +213,7 @@
 <CommandPalette
   open={paletteOpen}
   {services}
+  fleet={fleetHost}
   onClose={() => (paletteOpen = false)}
   onAction={handlePaletteAction}
 />
@@ -197,11 +227,25 @@
   </div>
 {/if}
 
+{#snippet migrating()}
+  <p class="app-loading" role="status">Loading…</p>
+{/snippet}
+
 <main class="container">
   {#if route.view === 'detail'}
-    {#key route.params.name + '@@' + (route.params.version || '')}
-      <ServiceDetailView name={route.params.name} version={route.params.version || null} {services} {refreshTick} onServiceResolved={loadGlobal} />
-    {/key}
+    <!-- Service detail: the product entity page on a Fleet host (resolved via the
+         Product API); the legacy view only on a non-Fleet host, where it is the only UI. -->
+    {#if legacyHost}
+      {#key route.params.name + '@@' + (route.params.version || '')}
+        <ServiceDetailView name={route.params.name} version={route.params.version || null} {services} {refreshTick} onServiceResolved={loadGlobal} />
+      {/key}
+    {:else if fleetHost}
+      {#key route.params.name + '@@' + (route.params.version || '')}
+        <LegacyEntityRedirect kind="service" name={route.params.name} />
+      {/key}
+    {:else}
+      {@render migrating()}
+    {/if}
   {:else if route.view === 'diff'}
     <DiffView
       name={route.params.name || ''}
@@ -212,7 +256,13 @@
       {services}
     />
   {:else if route.view === 'graph'}
-    <GraphPageView {services} {sourcesInfo} />
+    <!-- Legacy standalone graph: superseded by the Operational Graph on a Fleet host
+         (redirected via the effect); retained for the non-Fleet doc export deep link. -->
+    {#if legacyHost}
+      <GraphPageView {services} {sourcesInfo} />
+    {:else}
+      {@render migrating()}
+    {/if}
   {:else if route.view === 'readiness'}
     <ReadinessView {services} {initialLoading} />
   {:else if route.view === 'fleet-overview'}
@@ -255,13 +305,33 @@
   {:else if route.view === 'impact'}
     <ImpactView params={route.params} />
   {:else if route.view === 'owners'}
-    <OwnersView {services} {initialLoading} />
+    <!-- Owners: product owners on a Fleet host (redirected via the effect); legacy list
+         only on a non-Fleet host. -->
+    {#if legacyHost}
+      <OwnersView {services} {initialLoading} />
+    {:else}
+      {@render migrating()}
+    {/if}
   {:else if route.view === 'owner-detail'}
-    {#key route.params.owner}
-      <OwnerDetailView owner={route.params.owner} {services} {initialLoading} />
-    {/key}
+    {#if legacyHost}
+      {#key route.params.owner}
+        <OwnerDetailView owner={route.params.owner} {services} {initialLoading} />
+      {/key}
+    {:else if fleetHost}
+      {#key route.params.owner}
+        <LegacyEntityRedirect kind="owner" name={route.params.owner} />
+      {/key}
+    {:else}
+      {@render migrating()}
+    {/if}
   {:else}
-    <ServiceListView {services} {sourcesInfo} {discovering} {initialLoading} {loadError} onRetry={() => loadGlobal(true)} />
+    <!-- Catch-all legacy list: the only UI on a non-Fleet host; a Fleet host redirects
+         it (and any unknown hash) to the operational overview via the effect. -->
+    {#if legacyHost}
+      <ServiceListView {services} {sourcesInfo} {discovering} {initialLoading} {loadError} onRetry={() => loadGlobal(true)} />
+    {:else}
+      {@render migrating()}
+    {/if}
   {/if}
 </main>
 
@@ -279,4 +349,5 @@
     color: inherit; font: inherit; padding: 3px 10px; cursor: pointer;
   }
   .banner-retry:hover { background: color-mix(in srgb, var(--c-err) 12%, transparent); }
+  .app-loading { color: var(--c-text-3); padding: var(--sp-4) 0; }
 </style>

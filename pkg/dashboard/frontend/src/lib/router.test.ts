@@ -4,6 +4,7 @@ import {
   readinessUrl, fleetUrl, impactUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetImpactUrl,
+  legacyRedirectTarget, replaceHash,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -488,5 +489,46 @@ describe('backend-href / frontend-router contract (A3)', () => {
       if (c.cls === 'overview') continue;
       expect(parseHash(hashForHref(c.href)).view).not.toBe('fleet-overview');
     }
+  });
+});
+
+describe('legacyRedirectTarget (Part 1: legacy -> product canonicalization)', () => {
+  it('maps static 1:1 legacy roots to their canonical product routes', () => {
+    expect(legacyRedirectTarget('#/')).toBe('#/fleet');
+    expect(legacyRedirectTarget('')).toBe('#/fleet');
+    expect(legacyRedirectTarget('#/services')).toBe('#/fleet/services');
+    expect(legacyRedirectTarget('#/graph')).toBe('#/fleet/graph');
+    expect(legacyRedirectTarget('#/owners')).toBe('#/fleet/owners');
+  });
+  it('ignores a query string on the legacy root', () => {
+    expect(legacyRedirectTarget('#/services?owner=x')).toBe('#/fleet/services');
+  });
+  it('returns null for name-bearing legacy detail URLs (migrated via the Product API)', () => {
+    expect(legacyRedirectTarget('#/services/payments')).toBeNull();
+    expect(legacyRedirectTarget('#/services/payments/versions/1.0.0')).toBeNull();
+    expect(legacyRedirectTarget('#/owners/team-a')).toBeNull();
+  });
+  it('returns null for retained and product routes (no redirect)', () => {
+    expect(legacyRedirectTarget('#/readiness')).toBeNull();
+    expect(legacyRedirectTarget('#/diff')).toBeNull();
+    expect(legacyRedirectTarget('#/impact')).toBeNull();
+    expect(legacyRedirectTarget('#/fleet')).toBeNull();
+    expect(legacyRedirectTarget('#/fleet/services')).toBeNull();
+  });
+});
+
+describe('replaceHash', () => {
+  beforeEach(() => { location.hash = '#/start'; });
+  it('replaces the hash and notifies listeners without a no-op re-dispatch', () => {
+    let fired = 0;
+    const h = () => { fired++; };
+    window.addEventListener('hashchange', h);
+    replaceHash('#/fleet/services');
+    expect(location.hash).toBe('#/fleet/services');
+    expect(fired).toBe(1);
+    // A replace to the current hash is a no-op (no event, no history churn).
+    replaceHash('#/fleet/services');
+    expect(fired).toBe(1);
+    window.removeEventListener('hashchange', h);
   });
 });

@@ -235,6 +235,31 @@ export function navigate(view: string, params: Record<string, string> = {}): voi
   location.hash = hash;
 }
 
+// legacyRedirectTarget maps a legacy hash that has a DIRECT product equivalent to its
+// canonical product hash, so a Fleet-capable host canonicalizes an old bookmark rather
+// than mounting a second, competing UI for a concept already migrated (Part 1). It
+// covers only the STATIC 1:1 redirects (the fleet landing, and the service/owner/graph
+// LIST roots); name-bearing legacy detail URLs (#/services/:name, #/owners/:id) need a
+// Product-API lookup and are handled by the migration view, so they return null here.
+// It returns null for a URL with no product equivalent (readiness, compare, impact) or a
+// URL already under the product IA (#/fleet/...), so those are never redirected.
+export function legacyRedirectTarget(hash: string | null | undefined): string | null {
+  const raw = (hash || '').replace(/^#\/?/, '').split('?')[0];
+  switch (raw) {
+    case '':
+    case '/':
+      return fleetOverviewUrl();
+    case 'services':
+      return fleetServicesUrl();
+    case 'graph':
+      return fleetGraphDiscoveryUrl();
+    case 'owners':
+      return fleetOwnersUrl();
+    default:
+      return null;
+  }
+}
+
 export function serviceUrl(name: string): string {
   return `#/services/${encodeURIComponent(name)}`;
 }

@@ -18,8 +18,26 @@
   // generic non-Fleet dashboard is never forced to assume Fleet exists.
   (function canonicalizeDemoEntry() {
     var h = window.location.hash;
+    // Canonicalize with history.replaceState (not a hash assignment): a REPLACE leaves no
+    // legacy URL in history, so Back never bounces off a route that immediately
+    // re-canonicalizes, and it does not reload the document. The app's ES module runs
+    // AFTER this and reads the already-canonical location.hash.
+    function canon(hash) { window.history.replaceState(null, "", hash); }
     if (h === "" || h === "#" || h === "#/") {
-      window.location.hash = "#/fleet";
+      canon("#/fleet");
+      return;
+    }
+    // The superseded legacy LIST roots map to their product equivalents (the demo is
+    // Fleet-capable, so these concepts live in the product IA). Doing it here, before the
+    // Svelte app runs, means the demo never even briefly mounts a legacy screen. The app
+    // itself performs the same capability-gated redirect for live Fleet hosts; this is
+    // the demo's flash-free fast path. Name-bearing legacy detail URLs (#/services/<name>,
+    // #/owners/<id>) are left for the app to resolve through the Product API; any product
+    // or other deep link is preserved untouched.
+    var LEGACY = { "#/services": "#/fleet/services", "#/graph": "#/fleet/graph", "#/owners": "#/fleet/owners" };
+    var path = h.split("?")[0];
+    if (LEGACY[path]) {
+      canon(LEGACY[path]);
     }
   })();
 

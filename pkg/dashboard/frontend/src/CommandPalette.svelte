@@ -1,14 +1,14 @@
 <script>
   import { buildCommands, flattenCommands } from './lib/commands.ts';
 
-  let { open = false, services = [], onClose, onAction } = $props();
+  let { open = false, services = [], fleet = false, onClose, onAction } = $props();
 
   let query = $state('');
   let selectedIdx = $state(0);
   let inputEl = $state(null);
   let prevFocus = null;
 
-  let groups = $derived(buildCommands(query, services));
+  let groups = $derived(buildCommands(query, services, fleet));
   let flat = $derived(flattenCommands(groups));
 
   // Reset + focus each time the palette opens; restore focus on close.

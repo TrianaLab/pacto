@@ -35,7 +35,9 @@ describe('App — auto-reload cadence', () => {
     servicesFn.mockResolvedValue([]);
     sourcesFn.mockResolvedValue({ sources: [], discovering: false });
     healthFn.mockResolvedValue({ version: 'x' });
-    capabilitiesFn.mockResolvedValue({ fleet: true, impact: true });
+    // A non-Fleet host: the legacy list renders and polls the legacy services plane, so
+    // the poll cadence is measured host-independently without the product IA redirect.
+    capabilitiesFn.mockResolvedValue({ fleet: false, impact: false });
     vi.useFakeTimers();
     target = document.createElement('div');
     document.body.appendChild(target);
