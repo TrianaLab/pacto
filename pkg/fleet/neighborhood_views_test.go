@@ -25,6 +25,49 @@ func edgeBetween(nb *Neighborhood, from, to string) *NeighborhoodEdge {
 	return nil
 }
 
+// TestNeighborhood_ViewPayloadMatrix proves the knowledge-view selector holds in the
+// edge PAYLOAD, not only in membership (requirement 2.1). The alpha->leaf-svc service
+// edge is BOTH declared and observed, so each view must project exactly its knowledge
+// into the payload: expected-only carries the declared claim and nothing observed and
+// no comparison; observed-only carries the observed fact and no declared claim and no
+// comparison; expected+observed (without differences) carries both facts but still no
+// comparison verdict; only a differences view carries the Difference.
+func TestNeighborhood_ViewPayloadMatrix(t *testing.T) {
+	q := productFleet(t)
+	get := func(views ...KnowledgeView) *NeighborhoodEdge {
+		nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", Direction: DirectionDependencies, Views: views})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := edgeBetween(nb, "alpha", "leaf-svc")
+		if e == nil {
+			t.Fatalf("views %v: alpha->leaf-svc edge missing (edges %+v)", views, nb.Edges)
+		}
+		return e
+	}
+	// Expected only: declared claim present, nothing observed, no comparison verdict.
+	if e := get(ViewExpected); !e.Expected || e.Observed || e.DeclaredClaims.Count == 0 ||
+		e.Count != 0 || e.ObservationSources.Count != 0 || e.Difference != "" ||
+		e.ServiceCorroboration != "" || e.Provenance != ProvenanceDeclared {
+		t.Errorf("expected-only payload leaked excluded knowledge: %+v", e)
+	}
+	// Observed only: observed fact present, no declared claim, no comparison verdict.
+	if e := get(ViewObserved); e.Expected || !e.Observed || e.DeclaredClaims.Count != 0 ||
+		e.Difference != "" || e.Provenance != ProvenanceObserved {
+		t.Errorf("observed-only payload leaked excluded knowledge: %+v", e)
+	}
+	// Expected + observed WITHOUT differences: both fact sets, but NO comparison verdict
+	// just because both facts happen to be present.
+	if e := get(ViewExpected, ViewObserved); !e.Expected || !e.Observed ||
+		e.DeclaredClaims.Count == 0 || e.Difference != "" {
+		t.Errorf("expected+observed payload wrong (want both facts, no difference): %+v", e)
+	}
+	// A set including differences carries the comparison verdict verbatim.
+	if e := get(ViewDifferences); !e.Expected || !e.Observed || e.Difference != DifferenceMatched {
+		t.Errorf("differences payload wrong (want matched verdict): %+v", e)
+	}
+}
+
 // Counterexample 1: expected-only must not include a node reachable ONLY through
 // an observed edge (beta -> alpha is observed-only).
 func TestNeighborhood_ExpectedExcludesObservedOnlyNeighbor(t *testing.T) {
@@ -226,12 +269,23 @@ func TestNeighborhood_ExpectedNotObservedAndShadowWithheld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The a->b edge is present as a declared claim, but the expected-only view carries
+	// NO comparison verdict in the payload (the expected-not-observed difference belongs
+	// to the differences view, proven in the differences-view case below).
 	ab := edgeBetween(exp, string(NewServiceKey("a")), string(NewServiceKey("b")))
-	if ab == nil || ab.Difference != DifferenceExpectedNotObserved {
-		t.Errorf("a->b difference = %v, want expected-not-observed", ab)
+	if ab == nil || !ab.Expected || ab.Difference != "" {
+		t.Errorf("a->b (expected view) = %v, want declared with no difference verdict", ab)
 	}
 	if edgeBetween(exp, string(NewServiceKey("a")), string(NewServiceKey("c"))) != nil {
 		t.Error("the observed-only a->c shadow must be withheld from the expected view")
+	}
+	// The differences view DOES carry the expected-not-observed verdict for a->b.
+	diff, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "a", Direction: DirectionDependencies, Depth: 2, Views: []KnowledgeView{ViewDifferences}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if abd := edgeBetween(diff, string(NewServiceKey("a")), string(NewServiceKey("b"))); abd == nil || abd.Difference != DifferenceExpectedNotObserved {
+		t.Errorf("a->b (differences view) difference = %v, want expected-not-observed", abd)
 	}
 	// Unresolved declared deps are surfaced and deterministically ordered.
 	if exp.UnresolvedDependencies.Count != 3 || exp.UnresolvedDependencies.Total != 3 {

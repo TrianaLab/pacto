@@ -263,6 +263,7 @@ type ProductUnresolvedDependenciesPreview struct {
 type ProductNeighborhood struct {
 	fleet.Neighborhood
 	RequestedFocus         ProductRef                           `json:"requestedFocus"`
+	ProjectionFocus        *ProductRef                          `json:"projectionFocus,omitempty"`
 	FocusService           ProductRef                           `json:"focusService"`
 	Nodes                  []ProductNode                        `json:"nodes"`
 	Edges                  []ProductEdge                        `json:"edges"`
@@ -271,9 +272,10 @@ type ProductNeighborhood struct {
 
 func toProductNeighborhood(nb *fleet.Neighborhood) *ProductNeighborhood {
 	out := &ProductNeighborhood{
-		Neighborhood:   *nb,
-		RequestedFocus: productRef(nb.RequestedFocus),
-		FocusService:   productRef(nb.FocusService),
+		Neighborhood:    *nb,
+		RequestedFocus:  productRef(nb.RequestedFocus),
+		ProjectionFocus: productRefPtr(nb.ProjectionFocus),
+		FocusService:    productRef(nb.FocusService),
 	}
 	out.Nodes = make([]ProductNode, len(nb.Nodes))
 	for i, n := range nb.Nodes {

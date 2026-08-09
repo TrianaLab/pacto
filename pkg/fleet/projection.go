@@ -121,7 +121,7 @@ func (q *Query) revisionDepIndex() (bySource, byProvider map[RevisionKey][]Relat
 // view, so an observed-only revision query returns just the focus and never traverses
 // a declared-only relationship.
 func (q *Query) revisionNeighborhood(kind EntityKind, key string, bp boundedParams) (*Neighborhood, error) {
-	focus, err := q.resolveRevisionFocus(kind, key)
+	focus, requested, err := q.resolveRevisionFocus(kind, key)
 	if err != nil {
 		return nil, err
 	}
@@ -147,40 +147,52 @@ func (q *Query) revisionNeighborhood(kind EntityKind, key string, bp boundedPara
 			frontier = next
 		}
 	}
-	return &Neighborhood{
+	projectionFocus := revisionEntityRef(focus)
+	nb := &Neighborhood{
 		Meta: q.productMeta(), Perspective: PerspectiveRevision,
-		RequestedFocus: revisionEntityRef(focus), FocusService: q.serviceRef(focus.ServiceKey),
+		RequestedFocus: requested, FocusService: q.serviceRef(focus.ServiceKey),
 		Direction: bp.dir, Depth: bp.depth, EffectiveDepth: bp.depth, Views: bp.views, MaxNodes: bp.maxNodes, MaxEdges: bp.maxEdges,
 		Nodes: b.sortedNodes(), Edges: b.sortedEdges(),
 		UnresolvedDependencies: boundedUnresolved(unresolved),
 		Limitations:            revisionObservedLimitation(bp.views),
 		Truncated:              b.truncated,
-	}, nil
+	}
+	// When the request focused a DIFFERENT entity (a target) than the revision the
+	// projection resolved, surface the resolved revision as an explicit projection
+	// focus. RequestedFocus stays exactly what the request asked for (the target);
+	// ProjectionFocus lets the client canonicalize the URL to the revision identity so
+	// the URL and the drawn graph never disagree.
+	if requested.Kind != projectionFocus.Kind || requested.Key != projectionFocus.Key {
+		nb.ProjectionFocus = &projectionFocus
+	}
+	return nb, nil
 }
 
-// resolveRevisionFocus maps the requested focus to a revision. A target focus maps to
-// its linked revision ONLY when that link is exact or inferred; an ambiguous or
-// unresolved target, or a service/owner/source focus, is rejected with a reason (the
-// revision perspective needs a specific revision).
-func (q *Query) resolveRevisionFocus(kind EntityKind, key string) (*ContractRevision, error) {
+// resolveRevisionFocus maps the requested focus to a revision, returning both the
+// resolved revision and the REQUESTED entity reference (which stays truthful: a target
+// focus resolves to its linked revision but the requested reference remains the
+// target). A target focus maps to its linked revision ONLY when that link is exact or
+// inferred; an ambiguous or unresolved target, or a service/owner/source focus, is
+// rejected with a reason (the revision perspective needs a specific revision).
+func (q *Query) resolveRevisionFocus(kind EntityKind, key string) (*ContractRevision, EntityRef, error) {
 	switch kind {
 	case KindRevision:
 		rev := q.snap.Revisions[RevisionKey(key)]
 		if rev == nil {
-			return nil, &NotFoundError{Kind: "revision", ID: key}
+			return nil, EntityRef{}, &NotFoundError{Kind: "revision", ID: key}
 		}
-		return rev, nil
+		return rev, revisionEntityRef(rev), nil
 	case KindTarget:
 		tv, err := q.GetTarget(key)
 		if err != nil {
-			return nil, err
+			return nil, EntityRef{}, err
 		}
 		if tv.Revision == nil || (tv.Target.RevisionMatch != revisionMatchExact && tv.Target.RevisionMatch != revisionMatchInferred) {
-			return nil, &InvalidQueryError{Field: "key", Value: key, Reason: "target is not linked to a specific revision; use the target perspective"}
+			return nil, EntityRef{}, &InvalidQueryError{Field: "key", Value: key, Reason: "target is not linked to a specific revision; use the target perspective"}
 		}
-		return tv.Revision, nil
+		return tv.Revision, targetEntityRef(tv.Target), nil
 	default:
-		return nil, &InvalidQueryError{Field: "kind", Value: string(kind), Reason: "revision perspective requires a revision or a target with a linked revision"}
+		return nil, EntityRef{}, &InvalidQueryError{Field: "kind", Value: string(kind), Reason: "revision perspective requires a revision or a target with a linked revision"}
 	}
 }
 
@@ -317,9 +329,11 @@ func dependencyEdge(from, to EntityRef, rel Relationship) NeighborhoodEdge {
 //     dependencies, and ONLY when that link is authoritative. An ambiguous or
 //     unresolved target draws NO dependency edges (inheriting one arbitrary revision's
 //     dependencies would be a false claim); it surfaces a limitation instead.
-//   - dependents: services that depend on the target's LOGICAL SERVICE, drawn as
-//     consumer -> service edges (never consumer -> concrete target), so the target is
-//     never rendered as the specific routing endpoint the evidence cannot attribute.
+//   - dependents: NONE. Inbound dependency knowledge is only available at logical-
+//     service scope (Pacto does not observe which logical consumers routed to this
+//     specific deployment), so drawing them would create a depth-2 logical component
+//     disconnected from the one-hop target focus. The projection surfaces a limitation
+//     pointing to the service perspective instead.
 //
 // It never fabricates a target-to-target edge. The projection is intentionally one hop
 // (deeper exploration is the revision perspective's job), so EffectiveDepth is 1 and
@@ -360,8 +374,18 @@ func (q *Query) targetNeighborhood(kind EntityKind, key string, bp boundedParams
 	if wantDeclared && linkedKnown && (bp.dir == DirectionDependencies || bp.dir == DirectionBoth) {
 		q.addTargetRevisionDeps(tRef, linked, bySource, b, &unresolved)
 	}
-	if wantDeclared && (bp.dir == DirectionDependents || bp.dir == DirectionBoth) {
-		q.addTargetLogicalDependents(t, b)
+	// Inbound dependents are known only at LOGICAL-SERVICE scope: Pacto does not
+	// observe which logical consumers routed to this specific deployment, so the target
+	// neighborhood draws NO inbound dependent edges. Emitting them (as the earlier pass
+	// did) hangs a logical-service node and its depth-2 consumers off the one-hop target
+	// focus with no structural link to it, contradicting EffectiveDepth=1 and producing
+	// a disconnected component. The limitation points to the service perspective, the
+	// correct place to inspect logical dependents.
+	if bp.dir == DirectionDependents || bp.dir == DirectionBoth {
+		extraLimits = append(extraLimits, Limitation{
+			Code:    "DEPENDENTS_LOGICAL_SERVICE_SCOPED",
+			Message: "Inbound dependencies are known only at logical-service scope: Pacto does not observe which logical consumers route to this specific deployment. Switch to the service perspective to inspect this service's dependents.",
+		})
 	}
 
 	return &Neighborhood{
@@ -399,52 +423,6 @@ func (q *Query) addTargetRevisionDeps(tRef EntityRef, linked *ContractRevision, 
 			b.addEdge(dependencyEdge(tRef, q.serviceRef(rel.ToService), rel))
 		}
 	}
-}
-
-// addTargetLogicalDependents adds the SERVICES that depend on the target's LOGICAL
-// service, drawn as consumer -> logical-service edges (never consumer -> concrete
-// target): the evidence establishes a dependency on the service, not on this specific
-// deployment. The logical-service node is the shared dependents anchor; the target
-// stays separately linked to its revision via the runs edge.
-func (q *Query) addTargetLogicalDependents(t *TargetRecord, b *projectionBuilder) {
-	reverse := q.serviceReverseDeps(t.ServiceKey)
-	if len(reverse) == 0 {
-		return
-	}
-	svcRef := q.serviceRef(t.ServiceKey)
-	if !b.addNode(NeighborhoodNode{Ref: svcRef, Depth: 1, Status: svcRef.Status, Owner: q.serviceOwnerDisplay(t.ServiceKey)}) {
-		return
-	}
-	for _, rel := range reverse {
-		// FromService declared the dependency, so its service record always exists.
-		c := q.snap.Services[rel.FromService]
-		cRef := serviceEntityRef(c)
-		if b.addNode(NeighborhoodNode{Ref: cRef, Depth: 2, Status: cRef.Status, Owner: c.Owner.DisplayString()}) {
-			b.addEdge(dependencyEdge(cRef, svcRef, rel))
-		}
-	}
-}
-
-// serviceReverseDeps returns one declared dependency relationship per service that
-// depends on svc (deduped by consumer service), deterministically ordered.
-func (q *Query) serviceReverseDeps(svc ServiceKey) []Relationship {
-	seen := map[ServiceKey]bool{}
-	var out []Relationship
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.ToService != svc {
-			continue
-		}
-		if seen[rel.FromService] {
-			continue
-		}
-		seen[rel.FromService] = true
-		out = append(out, rel)
-	}
-	// Every reverse dependency has the same ToService (svc), so ordering by the
-	// consumer's FromService alone is deterministic and complete.
-	sort.Slice(out, func(i, j int) bool { return out[i].FromService < out[j].FromService })
-	return out
 }
 
 // serviceOwnerDisplay returns the display owner of a service. Every target's service

@@ -1863,6 +1863,7 @@ export interface components {
             nodes: components["schemas"]["ProductNode"][] | null;
             /** @enum {string} */
             perspective: "service" | "revision" | "target";
+            projectionFocus?: components["schemas"]["ProductRef"];
             requestedFocus: components["schemas"]["ProductRef"];
             truncated: boolean;
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];

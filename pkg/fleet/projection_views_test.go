@@ -352,7 +352,8 @@ func TestServiceCorroboration_Verdicts(t *testing.T) {
 }
 
 // TestTargetProjection_DependentsCapHit covers the node-cap branch in the target
-// dependents path (the logical-service anchor cannot be added within the cap).
+// projection: with the focus consuming the only node slot, the runs-revision node
+// cannot be added and the projection reports truncated.
 func TestTargetProjection_DependentsCapHit(t *testing.T) {
 	q := projectionFleet(t)
 	apiProd := string(targetKeyFor(t, q, "api-prod"))
@@ -429,5 +430,107 @@ func TestProjection_ImmutableAcrossQueries(t *testing.T) {
 		if e.ServiceCorroboration == "MUTATED" {
 			t.Errorf("mutating a returned edge leaked into a later query: %+v", e)
 		}
+	}
+}
+
+// TestRevisionProjection_ExpectedOnlyNoCorroboration is Part-2 counterexample 5 for the
+// revision projection: an expected-only fine-grained edge carries its declared claim but
+// NO service corroboration, observation scope, difference or observed flag. The
+// service-scoped corroboration is a comparison fact, so it belongs to the differences
+// view only (proven present there by TestRevisionProjection_DifferencesComparisonOnly).
+func TestRevisionProjection_ExpectedOnlyNoCorroboration(t *testing.T) {
+	q := obsScopeFleet(t)
+	a1 := string(revKeyForVersion(t, q, "a", "1.0.0"))
+	exp, err := q.Neighborhood(NeighborhoodQuery{Kind: KindRevision, Key: a1, Perspective: PerspectiveRevision, Direction: DirectionDependencies, Views: []KnowledgeView{ViewExpected}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := findEdge(exp, a1, "b")
+	if e == nil {
+		t.Fatalf("expected the declared a1->b edge; edges: %+v", exp.Edges)
+	}
+	if !e.Expected || e.DeclaredClaims.Count == 0 {
+		t.Errorf("expected-only revision edge must keep its declared claim: %+v", e)
+	}
+	if e.ServiceCorroboration != "" || e.ObservationScope != "" || e.Difference != "" || e.Observed {
+		t.Errorf("expected-only fine-grained edge leaked observed/comparison context: %+v", e)
+	}
+}
+
+// TestTargetProjection_ExpectedOnlyNoCorroboration is Part-2 counterexample 5 for the
+// target projection: an expected-only target dependency edge carries no service
+// corroboration/observation-scope, while the structural runs edge (the target's
+// identity link) is shown intact regardless of the requested views.
+func TestTargetProjection_ExpectedOnlyNoCorroboration(t *testing.T) {
+	q := obsScopeFleet(t)
+	tk := string(targetKeyFor(t, q, "a-prod"))
+	a1 := string(revKeyForVersion(t, q, "a", "1.0.0"))
+	exp, err := q.Neighborhood(NeighborhoodQuery{Kind: KindTarget, Key: tk, Perspective: PerspectiveTarget, Direction: DirectionDependencies, Views: []KnowledgeView{ViewExpected}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := findEdge(exp, tk, "b")
+	if e == nil {
+		t.Fatalf("expected the declared target->b edge; edges: %+v", exp.Edges)
+	}
+	if e.ServiceCorroboration != "" || e.ObservationScope != "" || e.Difference != "" || e.Observed {
+		t.Errorf("expected-only target dependency edge leaked observed/comparison context: %+v", e)
+	}
+	if r := findEdge(exp, tk, a1); r == nil || !r.Observed || r.ObservationScope != ObservationScopeTarget {
+		t.Errorf("runs edge (identity link) must be shown intact under expected-only: %+v", r)
+	}
+}
+
+// TestProjection_NodeDepthWithinEffectiveDepth is the Part-3 invariant across every
+// projection: no node's depth may exceed the response's EffectiveDepth. It proves the
+// target one-hop is honest by construction (no disconnected depth-2 component) and that
+// the service/revision projections never emit a node deeper than they evaluated.
+func TestProjection_NodeDepthWithinEffectiveDepth(t *testing.T) {
+	q := projectionFleet(t)
+	web := string(revKeyFor(t, q, "web"))
+	apiProd := string(targetKeyFor(t, q, "api-prod"))
+	cases := []NeighborhoodQuery{
+		{Kind: KindService, Key: "web", Perspective: PerspectiveService, Direction: DirectionBoth, Depth: 3, Views: []KnowledgeView{ViewExpected, ViewObserved, ViewDifferences}},
+		{Kind: KindRevision, Key: web, Perspective: PerspectiveRevision, Direction: DirectionBoth, Depth: 3, Views: []KnowledgeView{ViewExpected}},
+		{Kind: KindTarget, Key: apiProd, Perspective: PerspectiveTarget, Direction: DirectionBoth, Depth: 6, Views: []KnowledgeView{ViewExpected, ViewObserved}},
+	}
+	for _, nq := range cases {
+		nb, err := q.Neighborhood(nq)
+		if err != nil {
+			t.Fatalf("%s projection: %v", nq.Perspective, err)
+		}
+		for _, n := range nb.Nodes {
+			if n.Depth > nb.EffectiveDepth {
+				t.Errorf("%s projection: node %q depth %d exceeds effectiveDepth %d", nq.Perspective, n.Ref.Key, n.Depth, nb.EffectiveDepth)
+			}
+		}
+	}
+}
+
+// TestRevisionProjection_TargetFocus_ProjectionFocus is the Part-4 backend contract: a
+// target focus under the revision perspective keeps RequestedFocus truthful (the target
+// the request asked for) and surfaces the resolved revision as an explicit
+// ProjectionFocus, so a client can canonicalize the URL to the revision identity without
+// RequestedFocus ever lying. A direct revision focus sets no ProjectionFocus.
+func TestRevisionProjection_TargetFocus_ProjectionFocus(t *testing.T) {
+	q := obsScopeFleet(t)
+	tk := string(targetKeyFor(t, q, "a-prod"))
+	a1 := revKeyForVersion(t, q, "a", "1.0.0")
+	nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindTarget, Key: tk, Perspective: PerspectiveRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nb.RequestedFocus.Kind != KindTarget || nb.RequestedFocus.Key != tk {
+		t.Errorf("requestedFocus must remain the requested target, got %+v", nb.RequestedFocus)
+	}
+	if nb.ProjectionFocus == nil || nb.ProjectionFocus.Kind != KindRevision || nb.ProjectionFocus.Key != string(a1) {
+		t.Errorf("projectionFocus must be the resolved revision %q, got %+v", a1, nb.ProjectionFocus)
+	}
+	direct, err := q.Neighborhood(NeighborhoodQuery{Kind: KindRevision, Key: string(a1), Perspective: PerspectiveRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.RequestedFocus.Kind != KindRevision || direct.ProjectionFocus != nil {
+		t.Errorf("direct revision focus: want requestedFocus=revision and no projectionFocus, got req=%+v proj=%+v", direct.RequestedFocus, direct.ProjectionFocus)
 	}
 }

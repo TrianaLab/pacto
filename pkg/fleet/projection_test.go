@@ -431,42 +431,48 @@ func TestRevisionProjection_LeafHasNoResolvedDepExpansion(t *testing.T) {
 	}
 }
 
-// TestTargetProjection_Dependents covers the dependents direction (services depending
-// on the target's service, deduped across a consumer's multiple revisions) and the
-// service-level dependency fallback for an unresolved target link.
-func TestTargetProjection_Dependents(t *testing.T) {
+// TestTargetProjection_NoInboundDependents proves the Part-3 correction: a target
+// neighborhood NEVER draws inbound dependents. Inbound dependency knowledge is only
+// available at logical-service scope (Pacto does not observe which logical consumers
+// routed to this specific deployment), so emitting them would hang a depth-2 logical
+// component off the one-hop target focus. The projection instead surfaces the
+// DEPENDENTS_LOGICAL_SERVICE_SCOPED limitation pointing to the service perspective.
+func TestTargetProjection_NoInboundDependents(t *testing.T) {
 	q := projectionFleet(t)
 	apiProd := string(targetKeyFor(t, q, "api-prod"))
 	nb, err := q.Neighborhood(NeighborhoodQuery{Kind: KindTarget, Key: apiProd, Perspective: PerspectiveTarget, Direction: DirectionBoth})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// C2: web and app depend on api's LOGICAL SERVICE. They are drawn as
-	// consumer->service edges (never consumer->concrete-target), so the target is
-	// never rendered as the specific routing endpoint. app appears ONCE despite two
-	// revisions.
-	apps := 0
+	// The logical consumers of api's service (web, app) must NOT appear: they depend on
+	// the logical service, not on this concrete deployment, and Pacto cannot attribute
+	// their traffic to it.
+	if nodeByKey(nb, "web") != nil || nodeByKey(nb, "app") != nil {
+		t.Errorf("target neighborhood must not draw logical consumers as dependents: %v", nodeKeys(nb))
+	}
+	if findEdge(nb, "web", "api") != nil || findEdge(nb, "app", "api") != nil {
+		t.Error("target neighborhood must not draw any inbound consumer->service dependent edge")
+	}
+	// Every node depth honors the one-hop effective depth: no disconnected depth-2
+	// logical component can exist.
 	for _, n := range nb.Nodes {
-		if n.Ref.Key == "app" {
-			apps++
+		if n.Depth > nb.EffectiveDepth {
+			t.Errorf("node %q depth %d exceeds effectiveDepth %d", n.Ref.Key, n.Depth, nb.EffectiveDepth)
 		}
 	}
-	if apps != 1 {
-		t.Errorf("app (two revisions depending on api) must appear once as a dependent, got %d", apps)
+	// The honest limitation explains the missing inbound knowledge and points to the
+	// service perspective as the next action.
+	if !hasLimitation(nb.Limitations.Items, "DEPENDENTS_LOGICAL_SERVICE_SCOPED") {
+		t.Errorf("dependents direction must surface DEPENDENTS_LOGICAL_SERVICE_SCOPED, got %+v", nb.Limitations.Items)
 	}
-	if nodeByKey(nb, "web") == nil {
-		t.Errorf("web must appear as a dependent of api's service")
+	// The service perspective remains available as the correct way to inspect logical
+	// dependents.
+	svc, err := q.Neighborhood(NeighborhoodQuery{Kind: KindTarget, Key: apiProd, Perspective: PerspectiveService, Direction: DirectionDependents})
+	if err != nil {
+		t.Fatalf("service perspective for the target's service must resolve: %v", err)
 	}
-	// The dependent edges point to the LOGICAL SERVICE "api", not to the concrete
-	// target api-prod, and no edge targets the concrete target as a dependency
-	// provider endpoint.
-	if findEdge(nb, "web", "api") == nil {
-		t.Errorf("dependent edge must be consumer->logical-service (web->api), not consumer->target")
-	}
-	for _, e := range nb.Edges {
-		if e.Relation == RelationDependency && e.To.Key == apiProd {
-			t.Errorf("no dependency edge may point AT the concrete target as its provider endpoint: %+v", e)
-		}
+	if nodeByKey(svc, "web") == nil {
+		t.Error("the service perspective must surface the logical dependents (web) the target perspective cannot")
 	}
 
 	// The C1 no-inheritance counterexamples (unresolved and ambiguous targets) are

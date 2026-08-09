@@ -177,6 +177,30 @@ func TestProductOverviewAndNeighborhoodHrefs(t *testing.T) {
 	assertNoEmptyHrefs(t, "neighborhood", pnb)
 }
 
+// TestProductNeighborhood_ProjectionFocusHref proves the Part-4 wire contract: a target
+// focus under the revision perspective keeps RequestedFocus the target the request asked
+// for and carries an explicit, navigable ProjectionFocus (the resolved revision) with an
+// href, so the client can canonicalize the URL to the revision identity. A projection
+// focused on exactly the requested entity carries no ProjectionFocus.
+func TestProductNeighborhood_ProjectionFocusHref(t *testing.T) {
+	// The query-path semantics (RequestedFocus stays the target, ProjectionFocus is the
+	// resolved revision) are proven in pkg/fleet; this proves the TRANSPORT wraps a
+	// present ProjectionFocus into a navigable ProductRef with an href and leaves an
+	// absent one absent.
+	rev := fleet.EntityRef{Kind: fleet.KindRevision, Key: "domain-a/app@sha256:app", Label: "app"}
+	tgt := fleet.EntityRef{Kind: fleet.KindTarget, Key: "prod/k8s/app-1", Label: "app-1"}
+	withProj := toProductNeighborhood(&fleet.Neighborhood{RequestedFocus: tgt, ProjectionFocus: &rev})
+	if withProj.RequestedFocus.Kind != fleet.KindTarget {
+		t.Errorf("requestedFocus must remain the target, got %q", withProj.RequestedFocus.Kind)
+	}
+	if withProj.ProjectionFocus == nil || withProj.ProjectionFocus.Kind != fleet.KindRevision || withProj.ProjectionFocus.Href == "" {
+		t.Errorf("projectionFocus must be a navigable revision ref, got %+v", withProj.ProjectionFocus)
+	}
+	if noProj := toProductNeighborhood(&fleet.Neighborhood{RequestedFocus: tgt}); noProj.ProjectionFocus != nil {
+		t.Errorf("absent projection focus must stay absent, got %+v", noProj.ProjectionFocus)
+	}
+}
+
 // TestProductRef_DeepLinkHrefs proves an href is generated from the EXACT
 // canonical key (never a label) and round-trips through URL escaping for keys
 // containing domain separators, escaped slashes, percent characters and

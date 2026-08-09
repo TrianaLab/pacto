@@ -287,9 +287,15 @@ type Neighborhood struct {
 	Meta           ProductMeta `json:"meta"`
 	Perspective    Perspective `json:"perspective" enum:"service,revision,target"`
 	RequestedFocus EntityRef   `json:"requestedFocus"`
-	FocusService   EntityRef   `json:"focusService"`
-	Direction      Direction   `json:"direction" enum:"dependencies,dependents,both"`
-	Depth          int         `json:"depth"`
+	// ProjectionFocus is the entity a perspective actually projected around when it
+	// differs from RequestedFocus (a target focus under the revision perspective
+	// resolves to the linked revision). It lets a client canonicalize the URL to the
+	// projected identity without RequestedFocus ever lying about what the request
+	// asked for. Nil when the projection focused exactly the requested entity.
+	ProjectionFocus *EntityRef `json:"projectionFocus,omitempty"`
+	FocusService    EntityRef  `json:"focusService"`
+	Direction       Direction  `json:"direction" enum:"dependencies,dependents,both"`
+	Depth           int        `json:"depth"`
 	// EffectiveDepth is the depth the projection actually evaluated, which may be
 	// smaller than the requested Depth. The target projection is intentionally one
 	// hop (a deployment runs a revision and requires services; deeper exploration is
@@ -323,14 +329,75 @@ func (q *Query) Neighborhood(nq NeighborhoodQuery) (*Neighborhood, error) {
 	if err != nil {
 		return nil, err
 	}
+	var res *Neighborhood
 	switch perspective {
 	case PerspectiveRevision:
-		return q.revisionNeighborhood(nq.Kind, nq.Key, bp)
+		res, err = q.revisionNeighborhood(nq.Kind, nq.Key, bp)
 	case PerspectiveTarget:
-		return q.targetNeighborhood(nq.Kind, nq.Key, bp)
+		res, err = q.targetNeighborhood(nq.Kind, nq.Key, bp)
 	default:
-		return q.serviceNeighborhood(nq.Kind, nq.Key, bp)
+		res, err = q.serviceNeighborhood(nq.Kind, nq.Key, bp)
 	}
+	if err != nil {
+		return nil, err
+	}
+	// Single knowledge-view finalization step: a view selector must hold in the edge
+	// PAYLOAD, not only in edge membership, so clear the declared/observed/comparison
+	// facts an edge carries that the requested views exclude (requirement 2.1). This is
+	// one clear projection over every emitted edge, not ad-hoc clearing scattered
+	// through the three projections.
+	projectEdgesForViews(res.Edges, res.Views)
+	return res, nil
+}
+
+// projectEdgesForViews applies projectEdgeForViews to every emitted edge in place.
+func projectEdgesForViews(edges []NeighborhoodEdge, views []KnowledgeView) {
+	for i := range edges {
+		projectEdgeForViews(&edges[i], views)
+	}
+}
+
+// projectEdgeForViews clears the knowledge an edge carries that the requested views
+// exclude, so a knowledge-view selector's meaning holds in the edge PAYLOAD, not only
+// in edge membership. The matrix:
+//   - declared facts (Expected, DeclaredClaims) survive only when a declared view is
+//     requested (expected or differences);
+//   - observed facts (Observed, ObservationSources, Count, first/last seen, Stale)
+//     survive only when an observed view is requested (observed or differences);
+//   - comparison facts survive only when the differences view is requested: the edge
+//     Difference verdict AND the fine-grained ServiceCorroboration / ObservationScope
+//     context (a service-scoped declared-vs-observed verdict is itself a comparison, so
+//     expected-only and expected+observed carry neither).
+//
+// A "runs" edge is the target's structural identity link, not a declared/observed
+// dependency claim, so it is shown intact regardless of the requested views.
+func projectEdgeForViews(e *NeighborhoodEdge, views []KnowledgeView) {
+	if e.Relation == RelationRuns {
+		return
+	}
+	wantDeclared, wantObserved := knowledgeFromViews(views)
+	wantDifferences := viewsInclude(views, ViewDifferences)
+	if !wantDeclared {
+		e.Expected = false
+		e.DeclaredClaims = DeclaredClaimsPreview{}
+	}
+	if !wantObserved {
+		e.Observed = false
+		e.ObservationSources = ObservationSourcesPreview{}
+		e.Count = 0
+		e.FirstSeen = nil
+		e.LastSeen = nil
+		e.Stale = false
+	}
+	if !wantDifferences {
+		e.Difference = ""
+		e.ServiceCorroboration = ""
+		e.ObservationScope = ""
+	}
+	// Re-derive provenance so the edge never advertises a knowledge kind the payload
+	// no longer carries (e.g. an expected-only edge is provenance "declared", not
+	// "declared+observed").
+	e.Provenance = edgeProvenance(*e)
 }
 
 // boundNeighborhoodParams validates and defaults the bounds shared by every

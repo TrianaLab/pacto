@@ -62,8 +62,14 @@ func TestNeighborhood_DefaultExpectedView(t *testing.T) {
 	if len(nb.Edges) != 1 {
 		t.Fatalf("expected 1 declared edge, got %d", len(nb.Edges))
 	}
-	if e := nb.Edges[0]; !e.Expected || !e.Observed || e.Difference != DifferenceMatched {
-		t.Errorf("alpha->leaf edge = %+v, want expected+observed+matched", e)
+	// Expected-only: the payload carries the declared claim and NOTHING observed. Even
+	// though alpha->leaf-svc is also observed in the fixture, the expected view must not
+	// leak the observed fact or the comparison verdict into the edge payload.
+	if e := nb.Edges[0]; !e.Expected || e.Observed || e.Difference != "" || e.Provenance != ProvenanceDeclared {
+		t.Errorf("alpha->leaf edge = %+v, want expected-only (declared, no observed/difference)", e)
+	}
+	if e := nb.Edges[0]; e.DeclaredClaims.Count == 0 || e.ObservationSources.Count != 0 || e.ServiceCorroboration != "" {
+		t.Errorf("alpha->leaf edge payload leaked excluded knowledge: %+v", e)
 	}
 }
 
