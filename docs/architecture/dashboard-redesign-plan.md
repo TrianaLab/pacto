@@ -185,42 +185,48 @@ historical narrative; where it conflicts with this section, this section wins.
 - Phase 1 (product API hardening): COMPLETE.
 - Phase 2 (frontend IA and routing): COMPLETE.
 - Phase 3 (Overview, Services, Attention, rich entity pages): COMPLETE.
-- Phase 4 (search-first Operational Graph + full dashboard migration): REOPENED /
-  CURRENT. An independent review of HEAD `8a2f7910` found concrete gaps that
-  invalidate the earlier "Phase 4 COMPLETE" claim, the most important of which is
-  user-visible: the dashboard user reports seeing NO GRAPH. The reopened gaps are:
-  1. `renderGraph()` silently falls back to a HEADLESS Cytoscape on any visual init
-     error, so a real renderer failure becomes an empty container plus a working
-     text alternative plus green tests, with no signal reaching the user or the test.
-  2. the browser acceptance ("O2") proves only the wrapper, legend and text-alt list,
-     never that a NON-HEADLESS renderer actually painted a canvas.
-  3. `NeighborhoodEdge.Provenance` declares `enum:"declared,observed"` while
-     `edgeProvenance()` can emit `declared+observed`, so the generated SDK declares
-     a runtime value impossible.
-  4. `projectEdgeForViews` leaves `DeclaredClaim.Reconciliation` (observation-derived
-     comparison knowledge) in the Expected-only and Expected+Observed-without-
-     Differences payloads.
-  5. `neighborhoodGraph.ts` and `graphState.ts` reintroduce handwritten
-     ProductNeighborhood wire mirrors that can drift from the generated SDK.
-  6. the legacy `#/services/:name/versions/:version` bookmark migration drops
-     `:version` on a Fleet host instead of resolving a Product Revision.
-
-  The earlier `540cf692` / `973daa14` review blockers remain closed (views drive
-  traversal AND edges/expansions; fine-grained edges carry service-scoped
-  corroboration, never a promoted Observed; honest target identity; one-hop target
-  projection reporting `effectiveDepth=1`; only backend-acceptable perspective
-  transitions; the shared Cytoscape engine reused with fit/zoom/legend/drawers and a
-  text alternative; dead legacy FleetView/fleetGraph stack deleted; stale-safe
-  discovery search; bounded Product Impact pickers). Phase 4 re-closes only when
-  sections 1-8 of the reopen review are proven, gated by a real non-headless canvas
-  acceptance.
+- Phase 4 (search-first Operational Graph + full dashboard migration): COMPLETE
+  (re-closed). An independent review of HEAD `8a2f7910` reopened Phase 4 over six concrete
+  gaps (the most important user-visible: the graph tab read as NO GRAPH). All six are now
+  closed with tests that fail before the fix and pass after; the final gate is final-SHA CI:
+  1. the silent HEADLESS `renderGraph()` fallback is gone. It feature-detects a real 2D
+     canvas (jsdom -> headless on purpose; a real browser MUST paint) and a visual failure
+     is a typed GraphRenderError the view surfaces as an explicit render-error state, never
+     a silently empty canvas.
+  2. a real visual-canvas browser gate (graph-visual.spec.ts) proves a NON-HEADLESS
+     renderer painted the focused payments-service topology: real canvas, nonzero CSS +
+     backing store, expected node/edge counts, >=2 rendered node boxes, >=1 rendered edge,
+     non-blank pixels, no console/page errors -- while discovery stays zero-topology.
+  3. `NeighborhoodEdge.Provenance` now declares the finite enum `declared,observed,
+     declared+observed` (canonical `ProvenanceDeclaredObserved`), matching what
+     `edgeProvenance` emits; a field-specific OpenAPI enum test + a combined-case transport
+     test + a regenerated deterministic SDK enforce it.
+  4. `projectEdgeForViews` now clears the nested `DeclaredClaim.Reconciliation` under
+     Expected-only and Expected+Observed-without-Differences, proven by a nested-items test.
+  5. the graph adapter + canonicalizers derive their wire types from the generated
+     ProductNeighborhood (indexed access + Pick); a compile-time typetest guards against a
+     hand-mirror creeping back.
+  6. the legacy `#/services/:name/versions/:version` bookmark migrates to a canonical
+     Product Revision (resolve service -> revisions scoped -> matching RevisionKey via an
+     explicit, backend-authoritative revision version), disambiguating / not-found honestly.
+  The discovery affordance was also strengthened (an unmistakable "graph renders after you
+  focus" placeholder, no whole-fleet auto-render). The earlier `540cf692` / `973daa14`
+  blockers remain closed. The visual-acceptance blocker is cleared.
 - Phase 5 (responsive + accessible interaction: keyboard graph navigation, mobile
-  layout, formal WCAG): IN PROGRESS, but PAUSED behind the Phase-4 visual-acceptance
-  blocker. The accepted-so-far Phase-5 work (semantic graph navigator, role=img visual
-  canvas, drawer focus behavior, shortcut hardening, reduced-motion baseline,
-  narrow-width baseline, axe integration) is NOT re-done; the remaining acceptance
-  (real WCAG contrast gate, heading/landmark audit, keyboard graph interaction,
-  deeper responsive states) resumes only after Phase 4 genuinely re-closes.
+  layout, formal WCAG): IN PROGRESS (unpaused, advanced this session). DONE: the real
+  WCAG contrast gate -- axe no longer blanket-disables color-contrast; the design tokens
+  were measured in both themes and deepened so every rendered text pair clears AA 4.5:1
+  (new --c-on-accent, deepened light accent/ok/warn, removed the empty-state opacity fade
+  that dipped muted text mid-animation), with light-theme audits added and the default
+  audits now genuinely testing dark (headless prefers light); the graph drawer's Escape
+  moved off the complementary landmark; deeper 320/375px interactive-state responsive
+  acceptance (graph drawers + navigator, attention advanced filters, mobile nav, populated
+  impact). The keyboard graph model (semantic Relationships navigator: discover/focus,
+  traverse nodes + edges, inspect, Escape restores focus, open full detail, change
+  perspective/views/direction) is covered by keyboard.spec.ts. REMAINING: a full explicit
+  heading/landmark audit sweep across every canonical route and the retained specialized
+  Readiness/Compare (currently covered by the axe heading-order/landmark rules plus the
+  drawer fix, not yet an exhaustive per-route manual pass).
 
 Reproduction of record (this session, built WASM demo in real Chromium): the
 DISCOVERY route `#/fleet/graph` correctly renders ZERO Cytoscape topology
@@ -232,8 +238,9 @@ or page errors. A blank FOCUSED canvas was therefore NOT reproduced on this buil
 The user's "no graph" is best explained by (a) the search-first DISCOVERY route,
 whose affordance is too weak, so the graph tab reads as an empty page (section 4),
 and (b) the latent silent-headless fallback (gap 1), which would hide any real
-renderer failure. Both are being fixed; Phase 4 re-closes only when a real
-non-headless canvas gate proves the focused topology paints.
+renderer failure. Both are now fixed: the discovery affordance is explicit and the
+silent fallback is replaced by a typed render error, and a real non-headless canvas
+gate (graph-visual.spec.ts) now proves the focused topology actually paints.
 
 The projection / materialized-storage work from the earlier evidence-store review
 (ADR-5) is resolved and is NOT reopened. The U+00A7 enforcement tiers are as stated
