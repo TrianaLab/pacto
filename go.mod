@@ -7,7 +7,7 @@ require (
 	github.com/danielgtaylor/huma/v2 v2.39.0
 	github.com/google/go-containerregistry v0.21.7
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	golang.org/x/sync v0.22.0

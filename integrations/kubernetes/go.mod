@@ -6,7 +6,7 @@ require (
 	github.com/google/go-containerregistry v0.21.7
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	go.opentelemetry.io/otel/exporters/prometheus v0.66.0
 	go.opentelemetry.io/otel/sdk/metric v1.45.0
 	k8s.io/apimachinery v0.36.3
