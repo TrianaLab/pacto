@@ -56,10 +56,10 @@
   // only when there actually ARE deployments.
   const totalServices = $derived(overview?.summary?.services ?? 0);
   const s = $derived(overview?.summary ?? {});
-  const totalTargets = $derived(
-    (s.exactTargetLinks || 0) + (s.inferredTargetLinks || 0) +
-    (s.ambiguousTargetLinks || 0) + (s.unresolvedTargetLinks || 0),
-  );
+  // The backend's own target count. It used to be summed from the four link buckets,
+  // which is the same number only for as long as those buckets stay exhaustive -- an
+  // avoidable coupling now that the population is reported directly.
+  const totalTargets = $derived(s.targets || 0);
   const isEmptyFleet = $derived(!!overview && totalServices === 0);
   // All-clear needs complete knowledge, zero attention AND a populated fleet.
   const canAllClear = $derived(!!overview && totalServices > 0 && allClearAllowed(knowledge, attentionTotal));

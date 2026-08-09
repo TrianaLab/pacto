@@ -11,8 +11,15 @@
   //
   // total: a number is the EXACT known total; null/undefined means the exact total is
   // UNKNOWN (callers must pass the raw backend value, never a `?? count` fallback).
+  //
+  // `level` is the heading LEVEL this section's title occupies in the page outline.
+  // It exists because a preview nested inside another titled block is a subsection of
+  // it, and hard-coding h2 everywhere produced pages where an h2 sat inside an h2 and
+  // a screen-reader outline claimed siblings that were parent and child. Font size is
+  // set by CSS, never by the level, so the level is chosen for structure only.
   let {
     title = '',
+    level = 2,
     total = null,
     count = 0,
     truncated = false,
@@ -27,7 +34,7 @@
 
 <section class="ps" data-testid="preview-section">
   <div class="ps-head">
-    <h2>{title}</h2>
+    <svelte:element this={`h${level}`}>{title}</svelte:element>
     {#if count > 0}
       <span class="ps-count" data-testid="preview-count">{#if totalKnown}{count} of {total}{:else}{count}{/if}</span>
     {/if}
@@ -48,7 +55,11 @@
 <style>
   .ps { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   .ps-head { display: flex; align-items: baseline; gap: var(--sp-3); justify-content: space-between; flex-wrap: wrap; margin-bottom: var(--sp-3); }
-  .ps-head h2 { margin: 0; font-size: var(--text-md); }
+  /* One visual size for the section title whatever outline level it occupies: the
+     level is structure, not typography. */
+  .ps-head :global(h2), .ps-head :global(h3), .ps-head :global(h4), .ps-head :global(h5) {
+    margin: 0; font-size: var(--text-md); font-weight: 600;
+  }
   .ps-count { font-size: var(--text-xs); color: var(--c-text-3); }
   .ps-empty { color: var(--c-text-3); font-size: var(--text-sm); margin: 0; }
   .ps-more { color: var(--c-text-3); font-size: var(--text-sm); margin: var(--sp-2) 0 0; }

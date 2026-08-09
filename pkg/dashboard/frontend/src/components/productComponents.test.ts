@@ -171,7 +171,12 @@ describe('SourceHealth', () => {
 
 describe('OperationalSummary', () => {
   const summaryProps = (over = {}) => ({
-    summary: { servicesNeedingAttention: 2, exactTargetLinks: 5, inferredTargetLinks: 1, ambiguousTargetLinks: 1, unresolvedTargetLinks: 0, observedOnlyRelationships: 3, ...over },
+    summary: {
+      servicesNeedingAttention: 2, services: 4, revisions: 9, targets: 7,
+      exactTargetLinks: 5, inferredTargetLinks: 1, ambiguousTargetLinks: 1, unresolvedTargetLinks: 0,
+      compliantTargets: 4, nonCompliantTargets: 2, unknownTargets: 1, invalidTargets: 0, otherComplianceTargets: 0,
+      observedOnlyRelationships: 3, ...over,
+    },
     entryPoints: [
       // The backend's first attention entry point is the UNCATEGORISED one: the same
       // "all attention" count the lead tile already shows.
@@ -189,13 +194,29 @@ describe('OperationalSummary', () => {
     comp = mount(OperationalSummary, { target, props: summaryProps() });
     const nonCompliant = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('not compliant')) as HTMLAnchorElement;
     expect(nonCompliant.getAttribute('href')).toBe('#/fleet/attention?category=non-compliant');
-    // Revision-match breakdown surfaces all four certainty buckets.
-    const rm = target.querySelector('.rev-match')?.textContent || '';
-    expect(rm).toContain('Exact');
-    expect(rm).toContain('Ambiguous');
+    // Fleet posture draws both distributions over the backend's OWN target population,
+    // and prints every exact count as text beside the bar (nothing is colour-only).
+    const posture = target.querySelector('.ov-posture')?.textContent || '';
+    expect(posture).toContain('Exact');
+    expect(posture).toContain('Ambiguous');
+    expect(posture).toContain('Compliant');
+    expect(posture).toContain('7 operational targets');
+    // A proportion is a way in, not a picture: the triageable buckets are links.
+    const ambiguous = Array.from(target.querySelectorAll('.ov-posture a')).find((a) => a.textContent?.includes('Ambiguous')) as HTMLAnchorElement;
+    expect(ambiguous.getAttribute('href')).toBe('#/fleet/attention?category=unresolved');
     // The lead tile links to the full attention list.
     const lead = target.querySelector('a.tile-lead') as HTMLAnchorElement;
     expect(lead.getAttribute('href')).toBe('#/fleet/attention');
+  });
+
+  // The denominator is the backend's Targets count, never the sum of the buckets it
+  // was handed: if a bucket is missing, the gap must show as an explicit unclassified
+  // slice rather than silently rescaling the proportion to whatever added up.
+  it('shows the gap when the compliance buckets do not account for the whole population', () => {
+    comp = mount(OperationalSummary, { target, props: summaryProps({ compliantTargets: 1, nonCompliantTargets: 1, unknownTargets: 0 }) });
+    const posture = target.querySelector('.ov-posture')?.textContent || '';
+    expect(posture).toContain('Unclassified');
+    expect(posture).toContain('5');
   });
 
   // Every tile prints the backend's label verbatim, and only entry points that lead

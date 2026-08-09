@@ -1,6 +1,8 @@
 <script>
   import { fleetGraphFocusUrl } from '../../lib/router.ts';
   import { abbreviateDigests } from '../../lib/format.ts';
+  import { complianceSegments, linkSegments, severitySegments, evidenceSegments } from '../../lib/distributions.ts';
+  import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
@@ -8,6 +10,7 @@
   import FindingList from '../../components/FindingList.svelte';
   import EvidenceList from '../../components/EvidenceList.svelte';
   import LimitationsList from '../../components/LimitationsList.svelte';
+  import DistributionBar from '../../components/viz/DistributionBar.svelte';
 
   // The principal operational service page (requirement D). It renders ONLY the
   // product entity-detail payload (never the snapshot): owner + ownership conflicts,
@@ -15,12 +18,30 @@
   // observed/differences relationship summary, findings attributed to exact entities,
   // recent evidence, and limitations. Every related entity uses EntityLink; every
   // preview is truncation-honest via PreviewSection.
+  //
+  // The operational summary below is drawn from `summary`, the backend aggregate over
+  // the service's COMPLETE target / revision / edge populations. It is deliberately not
+  // computed from the previews beside it: those are capped at 200 items, so counting
+  // them would quietly turn "the first 200 targets" into "this service".
   let { detail } = $props();
   const d = $derived(detail.service ?? {});
   const key = $derived(detail.entity?.key ?? '');
   // The graph focus is a meaningful continuation for the neighborhood previews
   // (dependencies/dependents/differences), whose exact contents live in the graph.
   const graphHref = $derived(fleetGraphFocusUrl('service', key));
+
+  const sum = $derived(d.summary ?? {});
+  const ev = $derived(sum.evidence ?? {});
+  const targets = $derived(sum.targets ?? 0);
+  // Drift rows are only worth a line each when they are non-zero; a service with no
+  // declared dependencies should not be told about four kinds of zero.
+  const drift = $derived([
+    { k: 'Declared dependencies', v: sum.declaredDependencies ?? 0, tone: '' },
+    { k: 'Declared and observed', v: sum.reconciledMatched ?? 0, tone: 'ok' },
+    { k: 'Declared, not observed', v: sum.declaredNotObserved ?? 0, tone: 'warn' },
+    { k: 'Observed, not declared', v: sum.observedNotDeclared ?? 0, tone: 'warn' },
+    { k: 'Unresolved declarations', v: sum.unresolvedDeclared ?? 0, tone: 'warn' },
+  ].filter((x) => x.v > 0));
 </script>
 
 <div class="svc-entity">
@@ -51,14 +72,82 @@
     </div>
   {/if}
 
+  <!-- ── operational summary ─────────────────────────────────────────────────
+       Three orthogonal questions a service owner opens this page to answer, in the
+       order they are usually asked: does the running system obey the contract, do we
+       know WHICH contract each instance is running, and how recently did we look.
+       Keeping them as three bars rather than one health score is the point: a target
+       can be compliant against a revision we only guessed at, and a fleet of "unknown"
+       is not a fleet of failures. -->
+  <section class="se-summary" aria-labelledby="se-summary-h">
+    <h2 id="se-summary-h">Operational summary</h2>
+    <p class="se-lead">
+      {targets} operational {targets === 1 ? 'target' : 'targets'} ·
+      {sum.revisionsInUse ?? 0} of {sum.revisions ?? 0} known {(sum.revisions ?? 0) === 1 ? 'revision' : 'revisions'} in use{(sum.invalidRevisions ?? 0) > 0 ? ` · ${sum.invalidRevisions} invalid` : ''}
+    </p>
+
+    {#if targets > 0}
+      <div class="se-dists">
+        <DistributionBar
+          title="Compliance"
+          description="Whether each running target is observed to obey its contract."
+          segments={complianceSegments(sum.compliance)}
+          total={targets}
+        />
+        <DistributionBar
+          title="Revision-match certainty"
+          description="How confidently each target is matched to the exact revision it runs."
+          segments={linkSegments(sum.links)}
+          total={targets}
+        />
+        <DistributionBar
+          title="Evidence freshness"
+          description="How recently each target was observed. No evidence is its own state, not stale."
+          segments={evidenceSegments(ev)}
+          total={targets}
+        />
+        {#if (sum.findings?.errors ?? 0) + (sum.findings?.warnings ?? 0) + (sum.findings?.infos ?? 0) + (sum.findings?.unknown ?? 0) > 0}
+          <DistributionBar
+            title="Findings by severity"
+            description="Every finding attributed to this service's targets."
+            segments={severitySegments(sum.findings)}
+          />
+        {/if}
+      </div>
+      {#if ev.oldest || ev.newest}
+        <p class="se-hint">
+          Evidence spans {ev.oldest ? formatDate(ev.oldest) : 'unknown'} to {ev.newest ? formatDate(ev.newest) : 'unknown'}{(ev.quarantined ?? 0) > 0 ? ` · ${ev.quarantined} quarantined` : ''}.
+        </p>
+      {/if}
+    {:else}
+      <!-- No targets is a real, common state (a contract published before anything runs
+           it) and it is NOT a compliance failure. Saying so beats three empty bars. -->
+      <p class="se-hint">Nothing running has been observed for this service, so there is no compliance, identity or freshness picture yet.</p>
+    {/if}
+
+    {#if drift.length > 0}
+      <h3 class="se-subh">Dependency drift</h3>
+      <ul class="se-drift">
+        {#each drift as x (x.k)}
+          <li class={x.tone ? `tone-${x.tone}` : ''}><b>{x.v}</b> {x.k}</li>
+        {/each}
+      </ul>
+    {/if}
+  </section>
+
   <div class="se-grid">
-    <PreviewSection title="Revisions" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} empty="No known revisions.">
+    <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} empty="No revision is currently matched to a running target.">
+      <EntityRefList items={d.activeRevisions?.items ?? []} showStatus={false} />
+      <p class="se-hint">Newest first. These are the revisions at least one target is matched to.</p>
+    </PreviewSection>
+
+    <PreviewSection title="All revisions" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} empty="No known revisions.">
       <EntityRefList items={d.revisions?.items ?? []} showStatus={false} />
       <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
            declared per revision and gated per revision. Rolling it up here would invent
            a third definition of readiness, so the service page points at the one that
            already exists instead. -->
-      <p class="se-hint">Readiness is declared per revision — open one to see its gate.</p>
+      <p class="se-hint">Newest first. Readiness is declared per revision — open one to see its gate.</p>
     </PreviewSection>
 
     <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} empty="No running target observed.">
@@ -115,4 +204,16 @@
   .se-conflict-more { color: var(--c-text-3); }
   .se-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .se-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-3); }
+  .se-summary { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }
+  .se-summary h2 { margin: 0; font-size: var(--text-md); }
+  .se-subh { margin: 0; font-size: var(--text-sm); font-weight: 600; color: var(--c-text-2); }
+  .se-lead { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); }
+  /* Two columns where there is room; one on a phone. auto-fit keeps a lone bar from
+     stretching to an unreadable width. */
+  .se-dists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
+  .se-drift { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+  .se-drift li { font-size: var(--text-sm); color: var(--c-text-2); background: var(--c-surface-inset); border: 1px solid var(--c-border); border-left: 3px solid var(--tone-c, var(--c-neutral)); padding: 2px 10px; border-radius: var(--radius-xs); }
+  .se-drift li b { color: var(--c-text); font-variant-numeric: tabular-nums; }
+  .tone-ok { --tone-c: var(--c-ok); }
+  .tone-warn { --tone-c: var(--c-warn); }
 </style>

@@ -17,14 +17,25 @@ async function openSearch(page: Page) {
   await expect(page.getByRole('textbox', { name: 'Search services, revisions and targets' })).toBeVisible({ timeout: 10_000 });
 }
 
+// The hash changes on click, but the overview stays mounted for the instant before the
+// entity view renders (and the entity view has no h1 while its detail is loading), so
+// sampling "the h1" straight after a click can still read the overview's. Wait for the
+// entity's own heading instead of whatever happens to be on screen.
+async function entityHeading(page: Page): Promise<string> {
+  const h1 = page.getByRole('heading', { level: 1 });
+  await expect(h1).not.toHaveText('Operational overview', { timeout: 20_000 });
+  return (await h1.textContent()) || '';
+}
+
 test.describe('WASM demo — fleet product IA', () => {
   test('scenario 1: /fleet loads the operational overview from the product endpoint', async ({ page }) => {
     await waitReady(page);
     await page.goto('/#/fleet');
     await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
-    // The overview summary (revision-match breakdown, behind its disclosure) proves it
-    // consumed the product overview, not a graph.
-    await expect(page.getByText('Revision match detail')).toBeVisible();
+    // The fleet-posture distributions prove it consumed the product overview, not a
+    // graph: revision-match certainty is a whole-population aggregate that only the
+    // overview endpoint reports.
+    await expect(page.getByRole('heading', { name: 'Revision-match certainty' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible();
   });
 
@@ -58,7 +69,7 @@ test.describe('WASM demo — fleet product IA', () => {
     // Opened an exact entity route (any kind). The canonical key is still there, one
     // disclosure away; the page-ready signal is the entity's own heading.
     await expect(page).toHaveURL(/#\/fleet\/(services|revisions|targets|owners|sources)\//);
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20_000 });
+    expect(await entityHeading(page)).not.toBe('');
   });
 
   test('scenario 11 + 13: a deep-linked entity route survives a reload (encoded key round-trips)', async ({ page }) => {
@@ -66,14 +77,13 @@ test.describe('WASM demo — fleet product IA', () => {
     await openSearch(page);
     await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20_000 });
+    const heading = await entityHeading(page);
     const url = page.url();
     expect(url).toMatch(/#\/fleet\//);
-    const heading = await page.getByRole('heading', { level: 1 }).textContent();
     await page.reload();
     // The same entity resolves after a reload from the deep link alone.
     await expect(page).toHaveURL(url);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading || '', { timeout: 20_000 });
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading, { timeout: 20_000 });
   });
 
   test('scenario 12: browser back returns from an entity to the overview', async ({ page }) => {
@@ -82,7 +92,7 @@ test.describe('WASM demo — fleet product IA', () => {
     await openSearch(page);
     await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20_000 });
+    await entityHeading(page);
     await page.goBack();
     await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
   });

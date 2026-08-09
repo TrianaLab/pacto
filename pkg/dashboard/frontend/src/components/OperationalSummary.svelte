@@ -1,6 +1,8 @@
 <script>
   import { hashForHref, fleetAttentionUrl } from '../lib/router.ts';
   import { severityTone } from '../lib/entityLabels.ts';
+  import { complianceSegments, linkSegments } from '../lib/distributions.ts';
+  import DistributionBar from './viz/DistributionBar.svelte';
 
   // The overview summary tiles. Every tile is a backend entry point, rendered with the
   // backend's own label, grade and href -- nothing is re-worded or re-derived here. The
@@ -25,18 +27,44 @@
   const severityOf = (view, category) =>
     entryPoints.find((ep) => ep.view === view && (ep.category || '') === category)?.severity;
 
-  const revisionMatch = $derived([
-    { label: 'Exact', count: summary.exactTargetLinks || 0, tone: 'ok' },
-    { label: 'Inferred', count: summary.inferredTargetLinks || 0, tone: 'info' },
-    { label: 'Ambiguous', count: summary.ambiguousTargetLinks || 0, tone: (summary.ambiguousTargetLinks || 0) > 0 ? 'warn' : 'neutral' },
-    { label: 'Unresolved', count: summary.unresolvedTargetLinks || 0, tone: (summary.unresolvedTargetLinks || 0) > 0 ? 'warn' : 'neutral' },
-  ]);
   // Exact/Inferred/Ambiguous/Unresolved is precise and load-bearing, but it is also the
   // first taxonomy a novice hits on the landing page. The precision is kept; only its
   // cost is reduced -- the headline is the one sentence anyone can read, and the
   // four-way breakdown is one disclosure away.
   const exactLinks = $derived(summary.exactTargetLinks || 0);
-  const totalLinks = $derived(revisionMatch.reduce((n, rm) => n + rm.count, 0));
+  // Targets is the backend's own population count, not a sum of the buckets: if the two
+  // ever disagree, DistributionBar shows the gap as "Unclassified" instead of silently
+  // rescaling a proportion to whatever happened to add up.
+  const targets = $derived(summary.targets || 0);
+
+  // Every bucket that has a triage destination gets one, so a proportion is a way IN
+  // rather than a picture. Compliant and Exact have no destination by design: there is
+  // no "list of things that are fine" workspace, and inventing one would be a dead link.
+  const compliance = $derived(complianceSegments(
+    {
+      compliant: summary.compliantTargets,
+      nonCompliant: summary.nonCompliantTargets,
+      unknown: summary.unknownTargets,
+      invalid: summary.invalidTargets,
+      other: summary.otherComplianceTargets,
+    },
+    {
+      nonCompliant: fleetAttentionUrl({ category: 'non-compliant' }),
+      unknown: fleetAttentionUrl({ category: 'unknown' }),
+      invalid: fleetAttentionUrl({ category: 'invalid' }),
+    },
+  ));
+  const links = $derived(linkSegments({
+    exact: summary.exactTargetLinks,
+    inferred: summary.inferredTargetLinks,
+    ambiguous: summary.ambiguousTargetLinks,
+    unresolved: summary.unresolvedTargetLinks,
+  }).map((s) => (
+    s.label === 'Ambiguous' || s.label === 'Unresolved'
+      ? { ...s, href: fleetAttentionUrl({ category: 'unresolved' }) }
+      : s
+  )));
+  const totalLinks = $derived(links.reduce((n, s) => n + s.value, 0));
 </script>
 
 <div class="op-summary">
@@ -61,23 +89,36 @@
     {/each}
   </div>
 
-  <details class="rev-match disclosure">
-    <summary>
-      <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
-      {#if totalLinks === 0}
-        <span class="rm-lead">Nothing running has been matched to a revision yet.</span>
-      {:else}
-        <span class="rm-lead">We know exactly which revision is running on <b>{exactLinks} of {totalLinks}</b> operational targets.</span>
+  {#if targets > 0}
+    <!-- Fleet posture: the two orthogonal questions, at fleet scale, over the COMPLETE
+         target population the backend counted. They are kept apart on purpose -- a
+         target can be compliant against a revision we only guessed at. -->
+    <section class="ov-posture" aria-labelledby="ov-posture-h">
+      <h2 id="ov-posture-h" class="ov-posture-h">Fleet posture</h2>
+      <p class="ov-posture-sub">
+        {summary.services || 0} {(summary.services || 0) === 1 ? 'service' : 'services'} ·
+        {summary.revisions || 0} {(summary.revisions || 0) === 1 ? 'revision' : 'revisions'} ·
+        {targets} operational {targets === 1 ? 'target' : 'targets'}
+      </p>
+      <div class="ov-dists">
+        <DistributionBar
+          title="Compliance"
+          description="Whether each running target is observed to obey its contract."
+          segments={compliance}
+          total={targets}
+        />
+        <DistributionBar
+          title="Revision-match certainty"
+          description="How confidently each running target was tied to one revision. Anything short of an exact match still means something is running — only that we are less sure which revision."
+          segments={links}
+          total={targets}
+        />
+      </div>
+      {#if totalLinks > 0}
+        <p class="ov-posture-note">We know exactly which revision is running on {exactLinks} of {totalLinks} operational targets{(summary.staleTargets || 0) > 0 ? `, and ${summary.staleTargets} of them were last observed too long ago to trust` : ''}.</p>
       {/if}
-      <span class="rm-toggle">Revision match detail</span>
-    </summary>
-    <p class="rm-help">How confidently each running target was tied to one revision. Anything short of an exact match still means something is running — only that we are less sure which revision it is.</p>
-    <div class="rm-chips">
-      {#each revisionMatch as rm}
-        <span class="rm-chip tone-{rm.tone}"><b>{rm.count}</b> {rm.label}</span>
-      {/each}
-    </div>
-  </details>
+    </section>
+  {/if}
 </div>
 
 <style>
@@ -95,21 +136,10 @@
   .tile-count { font-size: var(--text-lg); font-weight: 700; color: var(--tone-c, var(--c-text)); }
   .tile-label { font-size: var(--text-sm); color: var(--c-text-2); }
   .tile-sub { font-size: var(--text-xs); color: var(--c-text-3); }
-  .rev-match { display: flex; flex-direction: column; gap: var(--sp-2); }
-  /* Layout only -- everything about how a disclosure looks and opens is the shared
-     .disclosure class. This summary carries a sentence AND a toggle label, so it needs
-     the wider gap; nothing else here is specific to it. */
-  .rev-match summary { gap: var(--sp-2); }
-  .rm-lead b { color: var(--c-text); }
-  .rm-toggle { color: var(--c-text-3); }
-  .rm-help { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .rm-chips { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .rm-chip {
-    font-size: var(--text-xs); padding: 2px 8px; border-radius: var(--radius-xs);
-    background: var(--c-surface-inset); color: var(--c-text-2);
-    border: 1px solid var(--c-border); border-color: var(--tone-c, var(--c-border));
-  }
-  .rm-chip b { color: var(--tone-c, var(--c-text)); }
+  .ov-posture { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .ov-posture-h { margin: 0; font-size: var(--text-md); }
+  .ov-posture-sub, .ov-posture-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .ov-dists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }
   .tone-err { --tone-c: var(--c-err); }

@@ -8,6 +8,8 @@
   import PreviewSection from '../../components/PreviewSection.svelte';
   import FindingList from '../../components/FindingList.svelte';
   import LimitationsList from '../../components/LimitationsList.svelte';
+  import RelationshipList from '../../components/RelationshipList.svelte';
+  import { fleetGraphFocusUrl } from '../../lib/router.ts';
 
   // The deployment/target page (requirement F). It makes the TWO identity dimensions
   // immediately understandable and independent:
@@ -31,6 +33,12 @@
   const extraSources = $derived(
     (d.sources?.count ?? 0) > 0 && !(d.sources.count === 1 && !d.sources.truncated && d.sources.items[0] === d.source),
   );
+  const r = $derived(d.readiness ?? null);
+  // The relationships below are attributed to the SERVICE, not to this target: nothing
+  // in the snapshot observes traffic per instance. The heading and the note say so,
+  // because presenting service-scoped observation under a target heading would quietly
+  // upgrade "somewhere in this service" into "here".
+  const serviceGraphHref = $derived(d.service?.key ? fleetGraphFocusUrl('service', d.service.key) : '');
 </script>
 
 <div class="tgt-entity">
@@ -99,6 +107,47 @@
     </PreviewSection>
   {/if}
 
+  {#if (d.labels?.count ?? 0) > 0}
+    <!-- Workload metadata as the platform reported it: the namespace/team/version
+         labels an operator recognises the deployment by, and the fastest way to tell
+         two same-named targets apart. -->
+    <PreviewSection title="Workload labels" total={d.labels?.total ?? null} count={d.labels?.count ?? 0} truncated={d.labels?.truncated}>
+      <ul class="te-runtime">
+        {#each d.labels.items as f, i (i)}
+          <li><span class="rt-key">{f.key}</span><span class="rt-val">{f.value}</span></li>
+        {/each}
+      </ul>
+    </PreviewSection>
+  {/if}
+
+  {#if r}
+    <!-- Readiness reported BY the runtime source for this target, which is a different
+         statement from the readiness the revision's authors declared. When both exist
+         they can legitimately disagree, so they are never merged. -->
+    <section class="te-readiness">
+      <div class="te-rr-head">
+        <h2>Reported readiness</h2>
+        <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
+      </div>
+      <p class="te-note">Reported by the source observing this target — not the revision's declared gate.</p>
+      <p class="te-rr-line">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.expired ? ' · expired' : ''}</p>
+    </section>
+  {/if}
+
+  {#if (d.serviceRelationships?.count ?? 0) > 0}
+    <PreviewSection
+      title="Service traffic and differences"
+      total={d.serviceRelationships?.total ?? null}
+      count={d.serviceRelationships?.count ?? 0}
+      truncated={d.serviceRelationships?.truncated}
+      viewAllHref={serviceGraphHref}
+      viewAllLabel="Explore in graph"
+    >
+      <p class="te-note">Observed for the whole service. Nothing we collect attributes traffic to one target, so these edges are not evidence about this instance specifically.</p>
+      <RelationshipList items={d.serviceRelationships?.items ?? []} selfKey={d.service?.key ?? ''} />
+    </PreviewSection>
+  {/if}
+
   {#if d.ownership}
     <section class="te-facts">
       <div class="te-fact">
@@ -128,4 +177,9 @@
   .te-runtime li { display: flex; gap: var(--sp-3); font-size: var(--text-sm); }
   .rt-key { color: var(--c-text-3); font-family: var(--font-mono, monospace); min-width: 40%; overflow-wrap: anywhere; }
   .rt-val { color: var(--c-text); overflow-wrap: anywhere; }
+  .te-readiness { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-2); }
+  .te-rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
+  .te-rr-head h2 { margin: 0; font-size: var(--text-md); }
+  .te-rr-line { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); }
+  .te-note { margin: 0; }
 </style>

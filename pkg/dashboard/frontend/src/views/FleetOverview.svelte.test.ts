@@ -31,8 +31,10 @@ function baseOverview(partial = false): any {
         : [{ id: 'oci', kind: 'oci', status: 'available' }],
     },
     summary: {
-      services: 3, servicesNeedingAttention: 0, exactTargetLinks: 4, inferredTargetLinks: 1,
-      ambiguousTargetLinks: 0, unresolvedTargetLinks: 0, nonCompliantTargets: 0, unknownTargets: 0,
+      services: 3, servicesNeedingAttention: 0, revisions: 6, targets: 5,
+      exactTargetLinks: 4, inferredTargetLinks: 1,
+      ambiguousTargetLinks: 0, unresolvedTargetLinks: 0,
+      compliantTargets: 5, nonCompliantTargets: 0, unknownTargets: 0, invalidTargets: 0, otherComplianceTargets: 0,
       staleTargets: 0, unresolvedRelationships: 0, observedOnlyRelationships: 0, recentEvidence: 0,
     },
     attention: { total: 0, count: 0, truncated: false, items: [] },
@@ -58,7 +60,7 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     const { target, component } = mountView();
     await vi.waitFor(() => {
       expect(target.textContent).toContain('Operational overview');
-      expect(target.textContent).toContain('Revision match');
+      expect(target.textContent).toContain('Revision-match certainty');
     });
     expect(overviewFn).toHaveBeenCalledTimes(1); // consumes /api/fleet/overview, not the snapshot
     unmount(component); document.body.removeChild(target);
