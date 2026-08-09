@@ -168,6 +168,45 @@ The Phase-3 closure + Phase-4 session (this ledger's current session) ran as fol
   draft; PR-body finalization is phase 14. The session then continued DIRECTLY into
   Phase 4 (search-first Operational Graph) in the same pass.
 
+## 0a. Current status (authoritative)
+
+This is the single authoritative status. Any older phase heading below is
+historical narrative; where it conflicts with this section, this section wins.
+
+- Phase 1 (product API hardening): COMPLETE.
+- Phase 2 (frontend IA and routing): COMPLETE.
+- Phase 3 (Overview, Services, Attention, rich entity pages): COMPLETE.
+- Phase 4 (search-first Operational Graph): REOPENED / CURRENT. An independent
+  review of `540cf692` accepted Phases 1-3 but found that Phase 4 is only a
+  search-first relationship-browser prototype, not a finished operational graph.
+  The concrete blockers being closed this session:
+  - the revision and target projections violate the knowledge-view invariant the
+    service projection already honors (they build declared edges and expansion
+    affordances irrespective of the requested views);
+  - service-scoped runtime observation is promoted into revision-scoped and
+    target-scoped edge assertions (`Observed = reconciliation==matched` on a
+    fine-grained edge that the evidence never attributes to that revision/target);
+  - the target projection overclaims identity: an unresolved/ambiguous target
+    inherits dependencies from arbitrary revisions, and a logical consumer is
+    rendered as depending on one concrete target;
+  - target perspective returns `depth: bp.depth` but only ever emits depth-0/1
+    facts, so depth>1 and Expand are inert;
+  - the frontend exposes every perspective button regardless of focus, so ordinary
+    navigation can produce a backend 422;
+  - `GraphView.svelte` is not a visual topology: it renders a focus button plus a
+    textual `<ul>` of relationship rows and does not use the repository's existing
+    Cytoscape stack;
+  - the graph route still parses inert `domain/scope/owner/status/source/freshness`
+    filters that nothing consumes;
+  - graph discovery search swallows transport/schema failures as "no matches";
+  - the Product Impact revision universe / service picker still claim completeness
+    while paging is bounded.
+
+The projection / materialized-storage work from the earlier evidence-store review
+(ADR-5) is resolved and is NOT reopened. The U+00A7 commit-history CI enforcement
+remains BLOCKED on explicit history-rewrite authorization (section 8 item 9); no
+such authorization exists this session.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
@@ -314,9 +353,10 @@ section 8.
    reusable product components, consuming the typed client. COMPLETE (this is the
    product-IA foundation; see the phase boundary in section 8).
 3. Overview, Services, Attention and entity pages (service / revision / target /
-   owner / source) built on the typed detail model. CURRENT PHASE.
+   owner / source) built on the typed detail model. COMPLETE.
 4. Search-first Operational Graph: neighborhood-oriented topology with the
    knowledge views (expected / observed / differences) and honest focus mapping.
+   REOPENED / CURRENT PHASE (see the authoritative current-status section 0a).
 5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile).
 6. WASM browser acceptance (Playwright over the in-browser demo).
 7. Operator-managed trace source: an operator-owned observed/trace source so the
@@ -639,16 +679,17 @@ The only remaining deferred item is the U+00A7 commit-history + PR-metadata CI
 enforcement (section 8 item 9), still BLOCKED on explicit history-rewrite
 authorization; it was not performed this pass.
 
-### Phase boundary: Phase 2 DONE, Phase 3 COMPLETE, Phase 4 STARTED
+### Phase boundary: Phase 2 DONE, Phase 3 COMPLETE, Phase 4 REOPENED / CURRENT
 
 Phase 2 (frontend IA and routing -- the product-IA foundation) is DONE. Phase 3
-(product lists, rich per-kind entity pages and the complete attention workflow) is now
-COMPLETE: it was reopened after an independent review of `6f7cb1a3` found five concrete
-correctness gaps (A-E) plus smaller contract inconsistencies (F), which are all closed
-with adversarial tests (see "Phase-3 closure" below). Phase 4 (the search-first
-Operational Graph redesign) is STARTED in this same session and continues directly
-after the Phase-3 closures. This heading supersedes the earlier "Phase 2 IN PROGRESS"
-and "Phase 3 CURRENT" wording.
+(product lists, rich per-kind entity pages and the complete attention workflow) is
+COMPLETE (closed with adversarial tests; see "Phase-3 closure" below). Phase 4 (the
+search-first Operational Graph redesign) is REOPENED / CURRENT: the first Phase-4 pass
+shipped a search-first relationship-browser prototype, but the independent review of
+`540cf692` found the semantic and visual-graph blockers enumerated in the authoritative
+current-status section (0a), which this session closes. For the single current truth,
+read section 0a; the paragraphs below are historical narrative of the earlier Phase-4
+pass.
 
 ### Phase-3 closure (this session)
 
@@ -750,21 +791,22 @@ Phase 2 -- DONE:
   ProductEmptyState, SourceHealth, OperationalSummary, ActiveFilterChips, Breadcrumbs,
   and `lib/entityLabels.ts`.
 
-Phase 3 -- CURRENT (this session):
+Phase 3 -- COMPLETE (delivered this program; see the Phase-3 closure above):
 
-- Product Services list (`/fleet/services`) -- DONE (this session), consuming
+- Product Services list (`/fleet/services`) consuming
   `/api/fleet/entities?kinds=service`, the canonical Navbar Services destination.
-- Complete Attention workflow -- real URL-driven pagination DONE (this session);
-  triage filters (owner/source/severity/status/stale) remain in this phase.
+- Complete Attention workflow -- real URL-driven pagination plus triage filters
+  (owner/source/severity/status/stale).
 - Rich per-kind entity pages (service / revision / target / owner / source).
 - Owners product list/page (and Sources) under the product IA.
 - Navigation migration of the remaining primary product views (Readiness, Compare)
   so they participate in the new navigation, breadcrumbs and deep-link model, keeping
   their specialized implementations where semantically appropriate.
 
-Phase 4 -- remains: the search-first Operational Graph redesign. The existing
-FleetView stays mounted at `/fleet/graph` and keeps working; Phase 3 only adds the
-contextual "open in graph" links it needs.
+Phase 4 -- REOPENED / CURRENT: the search-first Operational Graph redesign. The
+first pass shipped a prototype; the independent review of `540cf692` found the
+projection-semantic and visual-graph blockers listed in section 0a, which this
+session closes.
 
 Deferred as before: the ESLint no-restricted raw-network rule (defense-in-depth
 follow-up) and the U+00A7 commit-history enforcement (BLOCKED on history rewrite).
@@ -814,10 +856,15 @@ revision/deployment graph views are NO LONGER a Phase-3 follow-up: they are a Ph
 PREREQUISITE (they must exist in the backend before Phase 4 exposes revision or
 deployment graph perspectives), tracked in the Phase-4 plan below.
 
-### Phase 4 progress (this session): search-first Operational Graph
+### Phase 4 first pass (historical): search-first prototype
 
-Phase 4 is STARTED and substantially implemented in this session, continuing directly
-after the Phase-3 closure.
+This records the FIRST Phase-4 pass, which shipped a search-first
+relationship-browser prototype. It is superseded by the authoritative
+current-status section 0a: the independent review of `540cf692` reopened Phase 4
+because the projections violate the knowledge-view invariant, overclaim
+observation/target identity, and the frontend is not yet a visual Cytoscape
+topology. The completion of those blockers is recorded in "Phase 4 completion"
+below once closed. What the first pass delivered:
 
 Backend prerequisite (J) -- COMPLETE:
 
