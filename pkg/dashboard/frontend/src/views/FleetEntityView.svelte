@@ -1,13 +1,14 @@
 <script>
   import { api } from '../lib/api.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { kindLabel, knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
+  import { kindLabel } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, hashForHref } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
-  import StatusBadge from '../components/StatusBadge.svelte';
+  import EntityStatusBadge from '../components/EntityStatusBadge.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import ServiceEntity from './entity/ServiceEntity.svelte';
   import RevisionEntity from './entity/RevisionEntity.svelte';
@@ -97,15 +98,15 @@
     <h1 class="visually-hidden">{kindLabel(kind)}: {detail.entity.label || detail.entity.key}</h1>
     <header class="ev-head">
       <EntityIdentity ref={detail.entity} showStatus={false} />
-      {#if detail.status}<StatusBadge status={detail.status} />{/if}
+      <EntityStatusBadge kind={detail.entity.kind} status={detail.status} />
     </header>
 
     <!-- The canonical key is Pacto's precise identity for this entity and stays available
          in full -- but it is ontology a first-time user has no use for, so it is one
          disclosure away instead of the second thing on the page (requirement 9). Nothing
          is lost: the value is unchanged and still copyable. -->
-    <details class="ev-ident">
-      <summary>Identifier</summary>
+    <details class="ev-ident disclosure">
+      <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Identifier</summary>
       <div class="ev-key">
         <span class="ev-key-label">Canonical key</span>
         <CopyableIdentifier value={detail.entity.key} />
@@ -113,11 +114,7 @@
       <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere — in the API, the CLI and shared links.</p>
     </details>
 
-    {#if knowledge.incomplete}
-      <div class="ev-knowledge tone-{knowledgeTone(knowledge.level)}" role="status">
-        {knowledgeLabel(knowledge.level)} — some sources are degraded, so this view may be incomplete.
-      </div>
-    {/if}
+    <KnowledgeBanner {knowledge} noun="page" />
 
     {#if actions.length}
       <div class="ev-actions">
@@ -142,19 +139,10 @@
 <style>
   .entity-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   .ev-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
-  .ev-ident > summary {
-    font-size: var(--text-sm); color: var(--c-text-3); cursor: pointer;
-    min-height: var(--touch-min); display: flex; align-items: center;
-  }
-  .ev-ident > summary:hover { color: var(--c-text-2); }
+  /* Look and behaviour come from the shared .disclosure class in styles/components.css. */
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-key-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
   .ev-key-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .ev-knowledge {
-    padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm);
-    background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
-  }
-  .ev-knowledge.tone-err { background: var(--c-err-bg); border-color: color-mix(in srgb, var(--c-err) 30%, transparent); }
   .ev-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-action {
     text-decoration: none; font-size: var(--text-sm); color: var(--c-accent);

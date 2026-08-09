@@ -488,7 +488,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		InferredTargets: refPreview(inferred),
 		Previous:        prev,
 		Next:            next,
-		Ownership:       &OwnershipInfo{Owner: rev.Owner.DisplayString()},
+		Ownership:       revisionOwnership(rev),
 	}
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: revisionEntityRef(rev), Status: revisionStatus(rev),
@@ -850,6 +850,21 @@ func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo
 		}
 	}
 	info.Conflicts = stringsPreview(conflicts)
+	return info
+}
+
+// revisionOwnership reports the owner declared by THIS revision, with the owner ref the
+// service page already emits. Without the ref the same owner was a link on the service
+// page and dead text on the revision page, so the trail out of a revision to "everything
+// this team owns" simply stopped there. Per-revision conflicts are a SERVICE-level fact
+// (one revision cannot disagree with itself), so this carries no Conflicts preview.
+func revisionOwnership(rev *ContractRevision) *OwnershipInfo {
+	owner := rev.Owner.DisplayString()
+	info := &OwnershipInfo{Owner: owner}
+	if owner != "" {
+		ref := ownerEntityRef(owner)
+		info.Ref = &ref
+	}
 	return info
 }
 

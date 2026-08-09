@@ -1,7 +1,7 @@
 <script>
   import { fleetAttentionUrl } from '../../lib/router.ts';
   import EntityLink from '../../components/EntityLink.svelte';
-  import StatusBadge from '../../components/StatusBadge.svelte';
+  import SeverityBadge from '../../components/SeverityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
 
@@ -34,7 +34,7 @@
     <ul class="oe-attn">
       {#each d.attention?.items ?? [] as it, i (i)}
         <li class="oe-attn-row">
-          <StatusBadge status={it.severity} />
+          <SeverityBadge severity={it.severity} />
           <span class="oe-cat">{it.category}</span>
           <EntityLink ref={it.entity} showStatus={false} />
           <span class="oe-sum">{it.summary || it.reason || it.label}</span>

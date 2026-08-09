@@ -1,6 +1,6 @@
 /**
  * Navbar capability gating (section 12): the navbar must not expose a capability the
- * running host has not registered. The Operational Graph tab requires the fleet
+ * running host has not registered. The Operational graph tab requires the fleet
  * capability; it shows when unknown (null) or enabled, and hides when disabled.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -149,7 +149,7 @@ describe('Navbar — four primary workflows (product IA)', () => {
   // entity pages and the command palette, so they are deliberately not primary tabs.
   it('a fleet host has exactly the four primary destinations, in order', () => {
     expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Services', 'Operational Graph', 'Change analysis']);
+      .toEqual(['Overview', 'Services', 'Operational graph', 'Change analysis']);
   });
 
   it('does not promote a dimension to a primary destination', () => {
@@ -171,18 +171,58 @@ describe('Navbar — four primary workflows (product IA)', () => {
 });
 
 describe('Navbar — capability gating', () => {
-  it('shows the Operational Graph tab when capabilities are unknown (null)', () => {
-    expect(navLabels(null)).toContain('Operational Graph');
+  it('shows the Operational graph tab when capabilities are unknown (null)', () => {
+    expect(navLabels(null)).toContain('Operational graph');
   });
 
-  it('shows the Operational Graph tab when the fleet capability is enabled', () => {
-    expect(navLabels({ fleet: true, impact: true })).toContain('Operational Graph');
+  it('shows the Operational graph tab when the fleet capability is enabled', () => {
+    expect(navLabels({ fleet: true, impact: true })).toContain('Operational graph');
   });
 
-  it('hides the Operational Graph tab when the host has no fleet capability', () => {
+  it('hides the Operational graph tab when the host has no fleet capability', () => {
     const labels = navLabels({ fleet: false, impact: false });
-    expect(labels).not.toContain('Operational Graph');
+    expect(labels).not.toContain('Operational graph');
     // Capability-free tabs remain.
     expect(labels).toEqual(expect.arrayContaining(['Services', 'Owners', 'Readiness', 'Compare']));
+  });
+});
+
+describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
+  // Every entity page shares one view id, so without the kind the nav lit "Services"
+  // while the trail underneath read "Overview > Data sources > edge-cluster".
+  function activeLabel(view: string, entityKind = ''): string | null {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(Navbar, {
+      target,
+      props: { services: [], sourcesInfo: [], capabilities: { fleet: true, impact: true }, view, entityKind, version: 'x' },
+    });
+    const active = Array.from(target.querySelectorAll('.navbar-nav-desktop .nav-link'))
+      .filter((a) => a.getAttribute('aria-current') === 'page')
+      .map((a) => a.textContent?.trim() || '');
+    unmount(component); document.body.removeChild(target);
+    expect(active.length).toBeLessThanOrEqual(1); // never two tabs claiming the page
+    return active[0] ?? null;
+  }
+
+  it.each([
+    ['service', 'Services'],
+    ['revision', 'Services'],
+    ['target', 'Services'],
+    ['owner', 'Overview'],
+    ['source', 'Overview'],
+  ])('lights %s entity pages under %s', (kind, label) => {
+    expect(activeLabel('fleet-entity', kind)).toBe(label);
+  });
+
+  it.each([
+    ['fleet-services', 'Services'],
+    ['fleet-owners', 'Overview'],
+    ['fleet-sources', 'Overview'],
+    ['fleet-attention', 'Overview'],
+    ['fleet', 'Operational graph'],
+    ['changes', 'Change analysis'],
+  ])('lights the %s list view under %s', (view, label) => {
+    expect(activeLabel(view)).toBe(label);
   });
 });

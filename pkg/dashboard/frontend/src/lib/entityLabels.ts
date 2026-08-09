@@ -122,13 +122,31 @@ export function differenceTone(d: string | undefined): Tone {
   }
 }
 
-// provenanceLabel names where a relationship's knowledge came from.
+// provenanceLabel names where a relationship's knowledge came from. The wire enum
+// (pkg/fleet/neighborhood.go) has THREE values: a merged edge carries the combined
+// "declared+observed", which had no case here and so printed as the raw wire token.
 export function provenanceLabel(p: string | undefined): string {
   switch (p) {
     case 'declared': return 'Expected';
     case 'observed': return 'Observed';
+    case 'declared+observed': return 'Expected and observed';
     default: return p || '';
   }
+}
+
+// In the ordinary cases a relationship's provenance and its reconciliation are two names
+// for one fact: an edge that is "Expected, not observed" was declared BY DEFINITION, and
+// a "Matched" edge is both declared and observed. Printing both put a second word beside
+// a badge that already said it. This is the provenance each difference already implies,
+// so a caller can drop the redundant chip and keep it where it still carries news --
+// insufficient evidence, or a pairing we did not anticipate.
+const IMPLIED_PROVENANCE: Record<string, string> = {
+  matched: 'declared+observed',
+  'expected-not-observed': 'declared',
+  'observed-not-expected': 'observed',
+};
+export function provenanceIsImplied(difference: string | undefined, provenance: string | undefined): boolean {
+  return !!provenance && IMPLIED_PROVENANCE[difference || ''] === provenance;
 }
 
 // ── attention categories ─────────────────────────────────────────────────────
@@ -149,6 +167,32 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'readiness': return 'Readiness gate';
     case 'unresolved': return 'Unresolved revision';
     default: return c || 'Other';
+  }
+}
+
+// ── attention severity ───────────────────────────────────────────────────────
+// Severity is a THIRD vocabulary, orthogonal to compliance and to source health:
+// it grades how much a triage item matters, not what state an entity is in. Routed
+// through the compliance badge it had no case and no tone, so the highest-severity
+// row on the triage screen printed a grey lowercase "error" — the one signal the
+// screen exists to convey, rendered as the most ignorable thing on it.
+// A finding severity carries one extra value the attention enum does not: "unknown"
+// (pkg/fleet/preview.go), which is a severity we could not grade — not a fourth grade.
+export function severityLabel(s: string | undefined): string {
+  switch (s) {
+    case 'error': return 'Error';
+    case 'warning': return 'Warning';
+    case 'info': return 'Info';
+    case 'unknown': return 'Unknown';
+    default: return s || 'Unknown';
+  }
+}
+export function severityTone(s: string | undefined): Tone {
+  switch (s) {
+    case 'error': return 'err';
+    case 'warning': return 'warn';
+    case 'info': return 'info';
+    default: return 'neutral';
   }
 }
 

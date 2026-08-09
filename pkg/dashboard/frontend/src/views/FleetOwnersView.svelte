@@ -3,9 +3,9 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetOwnersUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
@@ -56,12 +56,12 @@
 
   <form class="lv-search" onsubmit={submitSearch} role="search">
     <input type="search" bind:value={textDraft} placeholder="Search owners..." aria-label="Search owners" />
-    <button type="submit" class="lv-btn">Search</button>
+    <button type="submit" class="btn">Search</button>
   </form>
   <ActiveFilterChips {chips} onRemove={clearAll} onClear={clearAll} />
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
-    <div class="lv-knowledge tone-{knowledgeTone(knowledge.level)}" role="status">{knowledgeLabel(knowledge.level)} — this list may be incomplete.</div>
+    <KnowledgeBanner {knowledge} noun="list" />
   {/if}
 
   {#if state.kind !== 'ready'}
@@ -89,10 +89,9 @@
   .lv-total { color: var(--c-text-3); }
   .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
-  .lv-btn { padding: var(--sp-2) var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); cursor: pointer; min-height: var(--touch-min); }
-  .lv-btn:hover { border-color: var(--c-accent); }
-  .lv-knowledge { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); }
-  .lv-knowledge.tone-err { background: var(--c-err-bg); border-color: color-mix(in srgb, var(--c-err) 30%, transparent); }
+  /* The Search control is the shared .btn from styles/components.css. Each list view
+     used to carry its own byte-identical copy, which is how one product ends up with
+     four Search buttons in three flavours. */
   .lv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .lv-item { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
   .lv-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }

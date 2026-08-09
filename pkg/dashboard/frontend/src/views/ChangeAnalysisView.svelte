@@ -6,6 +6,7 @@
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityLink from '../components/EntityLink.svelte';
+  import IdentityBadge from '../components/IdentityBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import PreviewSection from '../components/PreviewSection.svelte';
   import EntityRefList from '../components/EntityRefList.svelte';
@@ -305,33 +306,65 @@
 
 <div class="ca-head">
   <h1>Change analysis</h1>
-  <p class="ca-lead">Compare two revisions of a service, then see what that change affects in the operational graph.</p>
+  <p class="disco-lead">Compare two revisions of a service, then see what that change affects in the operational graph.</p>
 </div>
 
 {#if !serviceKey}
   <!-- No service in the route: search for one (product entities API, search-first so
-       any service is discoverable), then navigate to /fleet/changes/:serviceKey. -->
-  <div class="picker" data-testid="impact-service-picker">
-    <label for="impact-pick">Search for a service to analyze</label>
-    <form role="search" onsubmit={(e) => { e.preventDefault(); runServiceSearch(); }}>
-      <input id="impact-pick" type="search" bind:value={serviceQuery} oninput={runServiceSearch} placeholder="Search services by name…" />
+       any service is discoverable), then navigate to /fleet/changes/:serviceKey. It
+       wears the SHARED .disco-* discovery language (styles/components.css), the same
+       one the Operational graph tab lands on: both are search-first entry screens for
+       the same shape of question, and rendering one as a taught discovery page and the
+       other as a small bare box in the corner of an empty page is precisely how one
+       product starts reading as two. -->
+  <section class="discovery" data-testid="impact-service-picker">
+    <form class="disco-search" role="search" onsubmit={(e) => { e.preventDefault(); runServiceSearch(); }}>
+      <input id="impact-pick" type="search" bind:value={serviceQuery} oninput={runServiceSearch}
+        placeholder="Search services by name…" aria-label="Search for a service to analyze" />
+      <button type="submit" class="btn btn-primary">Search</button>
     </form>
     {#if migrateNote}<p class="migrate-note" role="status" data-testid="changes-migrate-note">{migrateNote}</p>{/if}
     {#if serviceSearching}
-      <p class="text-dim" role="status">Searching…</p>
+      <p class="disco-hint" role="status">Searching…</p>
     {:else if serviceSearchError}
       <div class="partial-banner" role="alert" data-testid="impact-picker-error">Search failed: {serviceSearchError instanceof ApiError ? serviceSearchError.message : 'service search is unavailable'}</div>
     {:else if serviceResults.length}
-      <ul class="picker-results" data-testid="impact-picker-results">
+      <ul class="disco-results" data-testid="impact-picker-results">
         {#each serviceResults as s (s.key)}
           <li><button type="button" onclick={() => pickServiceOption(s.key)}>{s.label}{s.domain ? ` (${s.domain})` : ''}</button></li>
         {/each}
       </ul>
-      {#if serviceTotal > serviceResults.length}<p class="text-dim" data-testid="impact-picker-truncated">Showing {serviceResults.length} of {serviceTotal}. Refine your search to narrow it.</p>{/if}
+      {#if serviceTotal > serviceResults.length}<p class="disco-hint" data-testid="impact-picker-truncated">Showing {serviceResults.length} of {serviceTotal}. Refine your search to narrow it.</p>{/if}
     {:else if serviceQuery.trim()}
-      <p class="text-dim" data-testid="impact-picker-empty">No services match "{serviceQuery}".</p>
+      <p class="disco-hint" data-testid="impact-picker-empty">No services match "{serviceQuery}".</p>
+    {:else}
+      <div class="disco-placeholder" data-testid="changes-discovery-placeholder" aria-hidden="true">
+        <svg viewBox="0 0 120 64" class="disco-ph-glyph" role="presentation" focusable="false">
+          <rect x="10" y="16" width="34" height="32" rx="6" /><rect x="76" y="16" width="34" height="32" rx="6" />
+          <line x1="48" y1="32" x2="72" y2="32" /><line x1="64" y1="26" x2="72" y2="32" /><line x1="64" y1="38" x2="72" y2="32" />
+        </svg>
+        <p class="disco-ph-title">Select a service to compare two of its revisions</p>
+        <p class="disco-ph-sub">Search above, or open a service and choose Compare revisions. The analysis appears right here once you pick one.</p>
+      </div>
     {/if}
-  </div>
+
+    <div class="disco-panels">
+      <div class="disco-panel">
+        <h2>Start from the inventory</h2>
+        <p>Every service page carries a Compare revisions action for its own history.</p>
+        <a href={fleetServicesUrl()}>Browse services &rarr;</a>
+      </div>
+      <div class="disco-panel">
+        <h2>What this answers</h2>
+        <dl class="disco-legend">
+          <dt><IdentityBadge label="What changed" tone="info" /></dt>
+          <dd>Field-level differences between the two contract revisions.</dd>
+          <dt><IdentityBadge label="What it affects" tone="warn" /></dt>
+          <dd>Where that change reaches in the current operational graph.</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
 {:else if loadingRevs}
   <EmptyState loading message="Loading service revisions…" />
 {:else if loadError}
@@ -484,8 +517,8 @@
             <button type="button" class="pg" disabled={!cHasNext} onclick={() => analyze(consumers.nextOffset)}>Next</button>
           </div>
         </nav>
-        <details class="confidence-legend">
-          <summary>What do the confidence levels mean?</summary>
+        <details class="confidence-legend disclosure">
+          <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>What do the confidence levels mean?</summary>
           <dl>{#each Object.entries(CONFIDENCE_EXPLAIN) as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}</dl>
         </details>
       {/if}
@@ -501,7 +534,15 @@
     </div>
     </section>
   {:else}
-    <EmptyState title="Pick two revisions" message="Choose an earlier and a later revision to see what changed and what that change affects." />
+    <!-- The selectors default to a sensible pair, so telling the user to "choose an
+         earlier and a later revision" asked for something already done and left the
+         actual next step (press the button) unsaid. Only ask for a selection when one
+         is genuinely missing. -->
+    {#if fromRevKey && toRevKey}
+      <EmptyState title="Ready to compare" message="Choose Compare revisions to see what changed between these two and what that change affects." />
+    {:else}
+      <EmptyState title="Pick two revisions" message="Choose an earlier and a later revision to see what changed and what that change affects." />
+    {/if}
   {/if}
 {/if}
 
@@ -511,14 +552,9 @@
      .page-header stays uniquely theirs. */
   .ca-head { display: flex; flex-direction: column; gap: var(--sp-1, 4px); margin-bottom: var(--sp-4); }
   .ca-head h1 { margin: 0; }
-  .ca-lead { margin: 0; color: var(--c-text-3); font-size: var(--text-sm); }
 
-  .picker { display: flex; flex-direction: column; gap: var(--sp-2); max-width: 480px; padding: var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
-  .picker label { font-size: var(--text-sm); color: var(--c-text-2); }
-  .picker input[type="search"] { width: 100%; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
-  .picker-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .picker-results button { width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; cursor: pointer; }
-  .picker-results button:hover { border-color: var(--c-accent); }
+  /* The discovery state is entirely the shared .disco-* language in
+     styles/components.css -- nothing about it is specific to this view. */
   .migrate-note { color: var(--c-text-2); font-size: var(--text-sm); margin: 0; }
 
   /* The two stages of one question, visually separated so "the contract changed" is
@@ -554,6 +590,7 @@
   .pager-btns { display: flex; gap: var(--sp-2); }
   .pg { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); cursor: pointer; min-height: var(--touch-min); }
   .pg:disabled { color: var(--c-text-3); opacity: 0.5; cursor: not-allowed; }
+  /* Look and behaviour of the summary come from the shared .disclosure class. */
   .confidence-legend { margin-top: var(--sp-3); font-size: var(--text-sm); }
   .confidence-legend dl { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--sp-3); margin-top: var(--sp-2); }
   .confidence-legend dt { font-weight: 600; color: var(--c-text-2); }

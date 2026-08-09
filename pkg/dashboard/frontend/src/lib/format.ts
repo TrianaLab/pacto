@@ -14,17 +14,35 @@ export function statusClass(status: string | undefined): string {
 const STATUS_LABELS: Record<string, string> = {
   Compliant: 'Compliant',
   Warning: 'Warning',
-  NonCompliant: 'Non-Compliant',
+  // Sentence case, matching the attention vocabulary these badges sit beside. The
+  // Title-Case-With-Hyphens forms were transliterations of the wire enum, so one screen
+  // could show "Not compliant" as a triage category and "Non-Compliant" as the badge on
+  // the very service it was describing.
+  NonCompliant: 'Not compliant',
   Invalid: 'Invalid',
   Unknown: 'Unknown',
   Reference: 'Reference',
-  NotEvaluated: 'Not Evaluated',
+  NotEvaluated: 'Not evaluated',
 };
 
 export function statusLabel(status: string | undefined): string {
   if (!status) return 'Unknown';
   return STATUS_LABELS[status] || status;
 }
+
+/**
+ * Every compliance status a filter may offer, worst-first so the pickers order the way
+ * the triage lists do. Derived from STATUS_LABELS, so a status the product can badge is
+ * never a status the product cannot filter for: two views each hand-listed four of the
+ * seven, and both omitted NotEvaluated -- the value most rows in the services list
+ * actually carry.
+ *
+ * Reference is excluded deliberately: it marks a bundle that exists only to be
+ * referenced by others, not an assessment outcome, so it is not a state to triage by.
+ */
+export const STATUS_FILTER_OPTIONS: string[] =
+  ['NonCompliant', 'Invalid', 'Warning', 'Unknown', 'NotEvaluated', 'Compliant']
+    .filter((s) => s in STATUS_LABELS);
 
 export function complianceClass(score: number): string {
   if (score >= 80) return 'score-ok';
@@ -212,6 +230,20 @@ export function shortDigest(digest: string | null | undefined, n: number = 8): s
   if (!digest) return '';
   const hex = digest.replace(/^sha256:/, '');
   return hex.slice(0, n);
+}
+
+/**
+ * Shorten every content digest embedded in a piece of display text.
+ *
+ * A canonical revision key carries a 64-hex digest, so any sentence built around one
+ * ("these revisions declare different owners: ...") turns into a wall of hex that
+ * hides the words that matter. This keeps a recognizable prefix -- still enough to
+ * tell two revisions apart at a glance -- and leaves the exact value to the copyable
+ * identifier and the tooltip. Text with no digest in it comes back untouched.
+ */
+export function abbreviateDigests(text: string | null | undefined, n: number = 12): string {
+  if (!text) return '';
+  return text.replace(/[a-z0-9]+:([0-9a-f]{32,})/g, (_m, hex: string) => `${hex.slice(0, n)}…`);
 }
 
 /** Badge class for drift status (locked, drift, unlocked, unknown). */

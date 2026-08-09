@@ -43,7 +43,7 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Operational overview' })).toBeVisible({ timeout: T });
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational Graph', 'Change analysis']);
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational graph', 'Change analysis']);
     await expectNoLegacyScreen(page);
   });
 

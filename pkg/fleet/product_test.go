@@ -173,6 +173,36 @@ func TestOverview_EntryPointsAndEvidence(t *testing.T) {
 	}
 }
 
+// An entry point is a doorway into a filtered attention list, so it must be graded the
+// same way the items behind that door are graded. When the tile carried no severity the
+// UI painted every one of them the same, so the overview said a confirmed drift and a
+// missing readiness gate were equally urgent and the list one click later disagreed.
+func TestOverview_EntryPointSeverityMatchesItsItems(t *testing.T) {
+	q := productFleet(t)
+	for _, ep := range q.Overview().EntryPoints {
+		if ep.Severity == "" {
+			t.Errorf("entry point %q carries no severity", ep.Label)
+			continue
+		}
+		if ep.Category == "" {
+			continue // uncategorised doorways span every grade
+		}
+		page, err := q.Attention(AttentionFilter{Category: ep.Category, Limit: 1000})
+		if err != nil {
+			t.Fatalf("attention for category %q: %v", ep.Category, err)
+		}
+		if len(page.Items) == 0 {
+			t.Errorf("entry point %q has count %d but its category is empty", ep.Label, ep.Count)
+			continue
+		}
+		for _, it := range page.Items {
+			if it.Severity != ep.Severity {
+				t.Errorf("category %q: tile graded %q, item %q graded %q", ep.Category, ep.Severity, it.Code, it.Severity)
+			}
+		}
+	}
+}
+
 func TestOverview_EmptyFleetHasNoEntryPoints(t *testing.T) {
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow})
 	if err != nil {

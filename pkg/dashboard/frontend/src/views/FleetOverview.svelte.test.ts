@@ -38,7 +38,7 @@ function baseOverview(partial = false): any {
     attention: { total: 0, count: 0, truncated: false, items: [] },
     recentEvidence: { total: 0, count: 0, truncated: false, items: [] },
     entryPoints: [
-      { label: 'Non-compliant operational targets', count: 0, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' },
+      { label: 'Operational targets not compliant', count: 0, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' },
     ],
   };
 }
@@ -89,7 +89,7 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
       total: 1, count: 1, truncated: false,
       items: [{ entity: { kind: 'target', key: 'prod/k8s/app', label: 'app', href: '/fleet/targets/prod%2Fk8s%2Fapp', status: 'NonCompliant' }, severity: 'error', category: 'non-compliant', summary: 'contract violation', label: 'app' }],
     };
-    ov.entryPoints = [{ label: 'Non-compliant operational targets', count: 1, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' }];
+    ov.entryPoints = [{ label: 'Operational targets not compliant', count: 1, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' }];
     overviewFn.mockResolvedValue(ov);
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
@@ -97,7 +97,7 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
     const entityLink = target.querySelector('.attn-item a.entity-link') as HTMLAnchorElement;
     expect(entityLink.getAttribute('href')).toBe('#/fleet/targets/prod%2Fk8s%2Fapp');
     // category tile -> exact filtered attention view
-    const tile = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('Non-compliant')) as HTMLAnchorElement;
+    const tile = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('not compliant')) as HTMLAnchorElement;
     expect(tile.getAttribute('href')).toBe('#/fleet/attention?category=non-compliant');
     unmount(component); document.body.removeChild(target);
   });

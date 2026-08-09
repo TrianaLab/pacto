@@ -11,9 +11,10 @@ export type CommandKind = 'view' | 'service' | 'owner' | 'action';
 export interface Command {
   kind: CommandKind;
   label: string;
-  hint?: string;    // right-aligned meta (version, service count)
-  href?: string;    // router hash for view/service/owner
-  action?: string;  // action id for action commands
+  hint?: string;       // right-aligned meta (version, service count)
+  href?: string;       // router hash for view/service/owner
+  action?: string;     // action id for action commands
+  keywords?: string[]; // searchable synonyms; never rendered
 }
 
 export interface CommandGroup {
@@ -33,13 +34,15 @@ export interface CommandGroup {
 const FLEET_VIEWS: Command[] = [
   { kind: 'view', label: 'Overview', href: fleetOverviewUrl() },
   { kind: 'view', label: 'Services', href: fleetServicesUrl() },
-  { kind: 'view', label: 'Operational Graph', href: fleetUrl() },
-  { kind: 'view', label: 'Change analysis', href: fleetChangesUrl() },
+  { kind: 'view', label: 'Operational graph', href: fleetUrl() },
+  // "Compare revisions" is the ACTION this workspace performs, not a second place to go:
+  // as its own row it listed the identical href twice, which is the same "two buttons,
+  // one screen" confusion the entity pages had. It stays fully searchable as a synonym.
+  { kind: 'view', label: 'Change analysis', href: fleetChangesUrl(), keywords: ['compare', 'compare revisions', 'diff'] },
   { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
   { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
   { kind: 'view', label: 'Data sources', href: fleetSourcesUrl() },
   { kind: 'view', label: 'Readiness', href: fleetAttentionUrl({ category: 'readiness' }) },
-  { kind: 'view', label: 'Compare revisions', href: fleetChangesUrl() },
 ];
 const LEGACY_VIEWS: Command[] = [
   { kind: 'view', label: 'Services', href: '#/' },
@@ -65,7 +68,8 @@ export function buildCommands(query: string, services: any[], fleet = false): Co
   const match = (s: string) => !q || s.toLowerCase().includes(q);
   const groups: CommandGroup[] = [];
 
-  const views = (fleet ? FLEET_VIEWS : LEGACY_VIEWS).filter((v) => match(v.label));
+  const views = (fleet ? FLEET_VIEWS : LEGACY_VIEWS)
+    .filter((v) => match(v.label) || (v.keywords || []).some(match));
   if (views.length) groups.push({ label: 'Views', items: views });
 
   // The legacy service/owner search links to legacy detail routes, which are superseded

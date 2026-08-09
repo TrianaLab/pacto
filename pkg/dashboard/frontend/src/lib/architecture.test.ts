@@ -126,3 +126,42 @@ describe('frontend backend-access architecture', () => {
     expect(files).not.toContain('productTypes.typetest.ts');
   });
 });
+
+/**
+ * Product visual-coherence guard. The complaint that started this work was that the
+ * app "feels like several generations of Pacto UI stitched together", and the most
+ * literal instance of that was one control -- a `<details>` disclosure -- carrying five
+ * unrelated designs across five product screens: an accent-coloured link, quiet grey,
+ * an inherited default, a hand-rolled caret, and one whose `display: flex` summary had
+ * silently lost its native marker and so read as a dead label.
+ *
+ * Legacy `pacto doc` surfaces (src/sections/**) are deliberately out of scope: that host
+ * is not Fleet-capable and keeps its own presentation.
+ */
+describe('product visual coherence', () => {
+  const PRODUCT_DISCLOSURE = files.filter(
+    (f) => /\.svelte$/.test(f.rel) && !f.rel.startsWith('sections/') && f.body.includes('<details'),
+  );
+
+  it('scans the product disclosures', () => {
+    expect(PRODUCT_DISCLOSURE.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('opens every product disclosure with the one shared control', () => {
+    const offenders = PRODUCT_DISCLOSURE.filter(
+      (f) => !/<details[^>]*class="[^"]*\bdisclosure\b/.test(f.body)
+        || !f.body.includes('class="disclosure-caret"'),
+    ).map((f) => f.rel);
+    expect(
+      offenders,
+      `product <details> must use the shared .disclosure class and .disclosure-caret: ${offenders.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('defines the shared disclosure exactly once, in the shared stylesheet', () => {
+    const css = readFileSync(join(SRC, 'styles/components.css'), 'utf8');
+    expect(css).toMatch(/\.disclosure\s*>\s*summary\s*\{/);
+    // A summary laid out with flex loses ::marker, which is how the caret earns its keep.
+    expect(css).toMatch(/\.disclosure-caret\b/);
+  });
+});

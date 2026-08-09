@@ -4,7 +4,6 @@
   } from '../../lib/entityLabels.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
-  import StatusBadge from '../../components/StatusBadge.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import FindingList from '../../components/FindingList.svelte';
@@ -26,6 +25,12 @@
     (d.linkState === 'exact' || d.linkState === 'inferred') ? d.revision : null,
   );
   const unresolvedMatch = $derived(d.linkState === 'ambiguous' || d.linkState === 'unresolved');
+  // "Contributing data sources" only earns a row when it says something the primary
+  // "Data source" row did not. On the common single-source target the two rows print
+  // the identical value under two headings, which reads as two different facts.
+  const extraSources = $derived(
+    (d.sources?.count ?? 0) > 0 && !(d.sources.count === 1 && !d.sources.truncated && d.sources.items[0] === d.source),
+  );
 </script>
 
 <div class="tgt-entity">
@@ -44,23 +49,34 @@
   {#if authoritativeRevision}
     <div class="te-rev">
       <span class="te-k">{d.linkState === 'exact' ? 'Running revision' : 'Inferred revision'}</span>
-      <EntityLink ref={authoritativeRevision} showStatus={false} />
+      <EntityLink ref={authoritativeRevision} showStatus={false} showKind={false} />
       {#if d.linkState === 'inferred'}<span class="te-note">match inferred, not certain</span>{/if}
     </div>
   {:else if unresolvedMatch}
+    <!-- The badge above already says WHICH state this is. Restating it here, then
+         restating it again in different words, said one fact three times and never got
+         to the part a first-time user actually needs: why we cannot name the revision,
+         and what that stops us concluding. Each state explains its own reason. -->
     <div class="te-rev te-rev-unresolved" role="status">
-      No single revision is authoritative for this target ({linkStateLabel(d.linkState).toLowerCase()}); it is not attributed to a specific revision.
+      {#if d.linkState === 'ambiguous'}
+        More than one known revision matches what we observed here, so we cannot say which one is running.
+      {:else}
+        Nothing we observed here ties back to a known revision, so we cannot say which one is running.
+      {/if}
+      Something IS running — this is a gap in what we can see, not an empty target.
     </div>
   {/if}
 
   <section class="te-facts">
-    <div class="te-fact"><span class="te-k">Service</span><EntityLink ref={d.service} showStatus={false} /></div>
+    <div class="te-fact"><span class="te-k">Service</span><EntityLink ref={d.service} showStatus={false} showKind={false} /></div>
     {#if d.scope}<div class="te-fact"><span class="te-k">Scope</span><span>{d.scope}</span></div>{/if}
     {#if d.kind}<div class="te-fact"><span class="te-k">Kind</span><span>{d.kind}</span></div>{/if}
-    <div class="te-fact"><span class="te-k">Compliance</span><StatusBadge status={d.compliance} /></div>
+    <!-- No Compliance row: the page header already badges this exact state in the same
+         words. Evaluation coverage below is the fact this section adds -- how much of the
+         contract was actually checked to reach it. -->
     {#if d.coverage}<div class="te-fact"><span class="te-k">Evaluation coverage</span><span>{d.coverage.evaluated} of {d.coverage.required} evaluated</span></div>{/if}
     {#if d.source}<div class="te-fact"><span class="te-k">Data source</span><span>{d.source}</span></div>{/if}
-    {#if (d.sources?.count ?? 0) > 0}<div class="te-fact"><span class="te-k">Contributing data sources</span><span>{d.sources.items.join(', ')}{d.sources.truncated ? ` (+${d.sources.total - d.sources.count})` : ''}</span></div>{/if}
+    {#if extraSources}<div class="te-fact"><span class="te-k">Contributing data sources</span><span>{d.sources.items.join(', ')}{d.sources.truncated ? ` (+${d.sources.total - d.sources.count})` : ''}</span></div>{/if}
     {#if d.evidenceAt}<div class="te-fact"><span class="te-k">Evidence at</span><span>{formatDate(d.evidenceAt)}</span></div>{/if}
     {#if d.reconciledAt}<div class="te-fact"><span class="te-k">Reconciled at</span><span>{formatDate(d.reconciledAt)}</span></div>{/if}
     {#if d.stale}<div class="te-fact"><IdentityBadge label="Evidence stale" tone="warn" /></div>{/if}
@@ -87,7 +103,7 @@
     <section class="te-facts">
       <div class="te-fact">
         <span class="te-k">Owner</span>
-        {#if d.ownership.ref}<EntityLink ref={d.ownership.ref} showStatus={false} />{:else}<span>{d.ownership.owner || 'Unowned'}</span>{/if}
+        {#if d.ownership.ref}<EntityLink ref={d.ownership.ref} showStatus={false} showKind={false} />{:else}<span>{d.ownership.owner || 'Unowned'}</span>{/if}
       </div>
     </section>
   {/if}

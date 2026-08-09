@@ -3,9 +3,10 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
   import { fleetOverviewUrl, fleetServicesUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
@@ -19,7 +20,6 @@
   let { text = '', owner = '', status = '', domain = '', offset = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
-  const STATUS_OPTIONS = ['Compliant', 'NonCompliant', 'Unknown', 'Invalid'];
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
   const anyFilter = $derived(!!(text || owner || status || domain));
 
@@ -80,7 +80,7 @@
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
     owner ? { key: 'owner', label: 'Owner', value: owner } : null,
-    status ? { key: 'status', label: 'Status', value: status } : null,
+    status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     domain ? { key: 'domain', label: 'Domain', value: domain } : null,
   ].filter(Boolean));
   function removeChip(key) { apply({ [key]: '' }); }
@@ -101,7 +101,7 @@
         placeholder="Search services..."
         aria-label="Search services by name, key or domain"
       />
-      <button type="submit" class="sv-btn">Search</button>
+      <button type="submit" class="btn">Search</button>
     </form>
     <label class="sv-field">
       <span>Owner</span>
@@ -112,7 +112,10 @@
       <span>Status</span>
       <select value={status} aria-label="Filter by compliance status" onchange={(e) => apply({ status: e.currentTarget.value })}>
         <option value="">Any status</option>
-        {#each STATUS_OPTIONS as s}<option value={s}>{s}</option>{/each}
+        <!-- The wire enum is the option VALUE; the option TEXT is the word the badges in
+             the list below use. A picker offering "NonCompliant" above rows badged "Not
+             compliant" asks the user to believe those are two different states. -->
+        {#each STATUS_FILTER_OPTIONS as s}<option value={s}>{statusLabel(s)}</option>{/each}
       </select>
     </label>
     <label class="sv-field">
@@ -125,9 +128,7 @@
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
-    <div class="sv-knowledge tone-{knowledgeTone(knowledge.level)}" role="status">
-      {knowledgeLabel(knowledge.level)} — this list may be incomplete.
-    </div>
+    <KnowledgeBanner {knowledge} noun="list" />
   {/if}
 
   {#if state.kind !== 'ready'}
@@ -172,17 +173,9 @@
     padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min);
   }
-  .sv-btn {
-    padding: var(--sp-2) var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm);
-    cursor: pointer; min-height: var(--touch-min);
-  }
-  .sv-btn:hover { border-color: var(--c-accent); }
-  .sv-knowledge {
-    padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm);
-    background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
-  }
-  .sv-knowledge.tone-err { background: var(--c-err-bg); border-color: color-mix(in srgb, var(--c-err) 30%, transparent); }
+  /* The Search control is the shared .btn from styles/components.css. Each list view
+     used to carry its own byte-identical copy, which is how one product ends up with
+     four Search buttons in three flavours. */
   .sv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .sv-item {
     display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;

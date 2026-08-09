@@ -118,7 +118,9 @@ describe('FleetAttentionView — real backend pagination (A2)', () => {
     serveByOffset(true);
     const { target, component } = mountView({ category: '', offset: '25' });
     await vi.waitFor(() => expect(range(target)).toBe('Showing 26–50 of 60'));
-    expect(target.querySelector('.av-knowledge')).toBeTruthy(); // caveat shown on page 2
+    // The shared KnowledgeBanner, not a per-view copy: one sentence, one style, one
+    // class, so a caveat cannot read differently here than on any other product screen.
+    expect(target.querySelector('.knowledge')?.textContent).toMatch(/this attention list may be incomplete/i);
     unmount(component); document.body.removeChild(target);
   });
 });
@@ -142,7 +144,41 @@ describe('FleetAttentionView — triage filters (I)', () => {
     await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
     expect(attentionFn).toHaveBeenCalledWith(expect.objectContaining({ category: 'stale', severity: 'warning' }));
     const chips = Array.from(target.querySelectorAll('.chip .chip-value')).map((c) => c.textContent);
-    expect(chips).toEqual(expect.arrayContaining(['Stale evidence', 'warning']));
+    // The chip reads the severity word, not the wire token: the URL carries `warning`,
+    // the user reads "Warning" — the same word the row badge next to it uses.
+    expect(chips).toEqual(expect.arrayContaining(['Stale evidence', 'Warning']));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('grades severity in its own vocabulary, not the compliance one', async () => {
+    // Severity went through the compliance badge, which had no case for it: an `error`
+    // row printed a grey lowercase "error" — the loudest fact on the triage screen
+    // rendered as the quietest thing on it.
+    attentionFn.mockImplementation(() => Promise.resolve({
+      ...page(0), total: 1, count: 1, truncated: false, nextOffset: undefined,
+      items: [{
+        entity: { kind: 'target', key: 't0', label: 't0', href: '/fleet/targets/t0', status: 'NonCompliant' },
+        severity: 'error', category: 'non-compliant', summary: 'confirmed drift',
+      }],
+    }));
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    const sev = target.querySelector('.attn-item .tag') as HTMLElement;
+    expect(sev.textContent).toBe('Error');
+    expect(sev.className).toContain('tone-err'); // red, not neutral grey
+    expect(target.textContent).not.toContain('error'); // never the raw wire token
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('names a compliance status in the picker the same way the badges do', async () => {
+    serveByOffset();
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    const opts = Array.from(target.querySelectorAll('select[aria-label="Filter by compliance status"] option'));
+    const texts = opts.map((o) => o.textContent);
+    expect(texts).toContain('Not compliant');
+    expect(texts).not.toContain('NonCompliant'); // wire enum stays the VALUE
+    expect((opts.find((o) => o.textContent === 'Not compliant') as HTMLOptionElement).value).toBe('NonCompliant');
     unmount(component); document.body.removeChild(target);
   });
 

@@ -259,6 +259,11 @@ historical narrative; where it conflicts with this section, this section wins.
      behind a plain-language headline ("We know exactly which revision is running on N of
      M operational targets"), the snapshot id behind a "Current data / Older snapshot"
      chip's tooltip.
+  7. ONE visual language. The AFTER screens exposed the literal form of "several
+     generations of UI": one control (`<details>`) carried five unrelated designs across
+     five screens, `.btn` had been re-implemented four times under four private names, and
+     two status pickers each hand-listed four of the seven wire statuses. All three are now
+     single shared idioms -- see "Phase 6 second pass" below.
   Two REAL bugs were found by walking the product rather than reading it: the primary-nav
   "Services" link was a silent no-op while capabilities were still unprobed (its `'#/'`
   fallback canonicalized straight back to the Overview on a Fleet host), and a shared
@@ -554,6 +559,56 @@ Remaining Phase-5 acceptance NOT yet done (Phase 5 stays IN PROGRESS):
   is met at the "every node/edge operable + inspectable by keyboard" level, not full
   spatial traversal).
 - No physical-device testing (only emulated widths), as the task requires.
+
+### Phase 6 second pass: visual coherence (this session)
+
+The first Phase-6 pass fixed the CONCEPTUAL incoherence (vocabulary, IA, dead legacy
+screens). Re-capturing the 30 screens afterwards and reading them side by side exposed the
+remaining PRESENTATIONAL incoherence -- the same control drawn several ways, which is what
+"several generations of UI stitched together" looks like at the pixel level. Each item
+below is one shared idiom replacing N private copies, and each was found in a screenshot,
+not in a file:
+
+- **One disclosure.** "One disclosure away" is load-bearing in five places (canonical
+  identifier, advanced filters, revision-match breakdown, confidence legend, graph text
+  alternative). Each had grown its own styling: an accent-coloured link, quiet grey, an
+  inherited default, a hand-rolled caret -- and the one whose summary was `display: flex`
+  had silently lost its native marker, so it read as a dead label rather than something
+  openable. Now one `.disclosure` class in `styles/components.css`, one caret, one
+  rotate-on-open, one reduced-motion opt-out. Guarded by a coherence test in
+  `architecture.test.ts` that fails if a product `<details>` skips the shared class.
+- **One button.** `GraphView` had re-implemented `.btn` as `.gv-btn`, and the copy was
+  broken: `.gv-btn` was declared AFTER `.gv-btn-primary` at equal specificity, so the
+  graph's primary Search button rendered as a plain surface button while the identical
+  control one nav tab away rendered accent. Three list views carried byte-identical
+  `.lv-btn` / `.sv-btn` clones. All four now use the shared `.btn` / `.btn-primary`.
+- **One status vocabulary.** The services and attention filters each hand-listed four of
+  the seven wire statuses, and both omitted `NotEvaluated` -- the value most rows in the
+  services list actually carry, so the list could show a state the filter could not select.
+  `STATUS_FILTER_OPTIONS` in `format.ts` is now derived from `STATUS_LABELS`, worst-first,
+  excluding only `Reference` (a bundle role, not an assessment outcome).
+- **One tile source.** The Overview's observed-only tile was hand-written beside its own
+  backend entry point, so the same count reached the screen twice under two labels, two
+  cases and a locally guessed tone. Every tile is now rendered from an `EntryPoint` with
+  the backend's own label, count, severity and href -- filtered to the ones that lead
+  somewhere the user is not (the uncategorised attention entry point is the lead tile's own
+  number, and the overview entry point links back to the page it sits on, where the source
+  health strip already shows what it counts).
+- **One micro-label shade.** `.attn-next-k` carried `opacity: 0.75` on `--c-text-3`,
+  landing at 3.58:1 -- below WCAG AA, and a real axe failure in the light-theme audit. It
+  was also the only uppercase micro-label in the product with its own shade. Removed.
+
+The nav label is **"Operational graph"**, sentence case, matching every other nav item and
+breadcrumb. Section 0b's decision record types it Title-case ("Operational Graph"); the
+rendered string is sentence case deliberately, and the two e2e specs that asserted the
+exact nav text were updated with it.
+
+Not changed, deliberately: `EmptyState` and `.disco-placeholder` are two shared components
+for two genuinely different states (nothing exists / nothing selected yet), not a
+duplication; the ServiceEntity "Expected dependencies" cards above "Observed traffic and
+differences" are summary-then-detail; `src/sections/**` keeps its own presentation because
+that is the non-Fleet `pacto doc` host. Only `.disclosure` has an automated coherence
+guard -- the shared `.btn` does not, so a fifth private button clone would not fail CI.
 
 ## 1. Target product model
 

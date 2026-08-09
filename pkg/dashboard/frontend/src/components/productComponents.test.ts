@@ -46,6 +46,60 @@ describe('EntityIdentity disambiguation (requirement F item 7)', () => {
     expect(target.textContent).toContain('domain domain-a');
     expect(target.textContent).toContain('Service');
   });
+
+  it('abbreviates a content digest instead of overflowing the row, keeping the exact value', () => {
+    const digest = `sha256:${'a1b2c3d4'.repeat(8)}`;
+    comp = mount(EntityIdentity, {
+      target,
+      props: { ref: { kind: 'revision', key: `svc@${digest}`, label: 'svc 1.0.0', secondary: digest } },
+    });
+    const bit = Array.from(target.querySelectorAll('.ei-context span')).at(-1) as HTMLElement;
+    expect(bit.textContent).toBe('a1b2c3d4a1b2…');
+    expect(bit.getAttribute('title')).toBe(digest); // precision preserved, not discarded
+  });
+
+  it('renders a data source status as health, matching its own detail page', () => {
+    comp = mount(EntityIdentity, { target, props: { ref: { kind: 'source', key: 'edge-cluster', label: 'edge-cluster', status: 'unavailable' } } });
+    const badge = target.querySelector('.tag') as HTMLElement;
+    expect(badge.textContent).toBe('Unavailable');       // not the raw lowercase enum
+    expect(badge.className).toContain('tone-err');       // not neutral grey
+    expect(target.querySelector('.status-badge')).toBeNull();
+  });
+
+  // Every list row carried its context bits unconditionally, so the commonest rows in
+  // the product read the same word twice in 40 pixels and wrapped onto a second line
+  // for it: "payments-service 1.2.0 · payments-service" and
+  // "prod/k8s/orders-service · orders-service · prod".
+  it('drops a context bit the label already spells out', () => {
+    comp = mount(EntityIdentity, {
+      target,
+      props: { ref: { kind: 'revision', key: 'payments-service@sha256:ab', label: 'payments-service 1.2.0', parentService: 'payments-service' } },
+    });
+    expect(target.querySelector('.ei-context')).toBeNull();
+    unmount(comp); comp = null;
+    comp = mount(EntityIdentity, {
+      target,
+      props: { ref: { kind: 'target', key: 'prod/k8s/orders-service', label: 'prod/k8s/orders-service', parentService: 'orders-service', scope: 'prod' } },
+    });
+    expect(target.querySelector('.ei-context')).toBeNull();
+  });
+
+  it('keeps a context bit the label only partly resembles', () => {
+    // "orders" is not a whole segment of "prod/k8s/orders-service", and a target whose
+    // own name differs from its service still has to say which service it belongs to.
+    comp = mount(EntityIdentity, {
+      target,
+      props: { ref: { kind: 'target', key: 'prod/k8s/gw', label: 'prod/k8s/gw', parentService: 'api-gateway', scope: 'prod' } },
+    });
+    expect(target.querySelector('.ei-context')?.textContent).toContain('api-gateway');
+  });
+
+  it('leaves short human context alone (no tooltip, no ellipsis)', () => {
+    comp = mount(EntityIdentity, { target, props: { ref: { kind: 'target', key: 'prod/k8s/app', label: 'app', scope: 'prod' } } });
+    const bit = target.querySelector('.ei-context span') as HTMLElement;
+    expect(bit.textContent).toBe('prod');
+    expect(bit.getAttribute('title')).toBeNull();
+  });
 });
 
 describe('ProductEmptyState — honest knowledge states (requirement H)', () => {
@@ -121,16 +175,19 @@ describe('OperationalSummary', () => {
     entryPoints: [
       // The backend's first attention entry point is the UNCATEGORISED one: the same
       // "all attention" count the lead tile already shows.
-      { label: 'Services needing attention', count: 2, view: 'attention', href: '/fleet/attention' },
-      { label: 'Non-compliant operational targets', count: 2, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' },
-      { label: 'Operational targets with stale evidence', count: 4, view: 'attention', category: 'stale', href: '/fleet/attention?category=stale' },
+      { label: 'Services needing attention', count: 2, view: 'attention', severity: 'warning', href: '/fleet/attention' },
+      { label: 'Operational targets not compliant', count: 2, view: 'attention', category: 'non-compliant', severity: 'error', href: '/fleet/attention?category=non-compliant' },
+      { label: 'Operational targets with stale evidence', count: 4, view: 'attention', category: 'stale', severity: 'warning', href: '/fleet/attention?category=stale' },
+      { label: 'Undeclared runtime dependencies observed', count: 3, view: 'services', severity: 'info', href: '/fleet/services' },
+      // View "overview" means "this very page" -- its href is /fleet.
+      { label: 'Incomplete sources', count: 1, view: 'overview', severity: 'warning', href: '/fleet' },
     ],
     attentionTotal: 6,
   });
 
   it('renders attention entry-point tiles with their backend hrefs and a revision-match breakdown', () => {
     comp = mount(OperationalSummary, { target, props: summaryProps() });
-    const nonCompliant = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('Non-compliant')) as HTMLAnchorElement;
+    const nonCompliant = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('not compliant')) as HTMLAnchorElement;
     expect(nonCompliant.getAttribute('href')).toBe('#/fleet/attention?category=non-compliant');
     // Revision-match breakdown surfaces all four certainty buckets.
     const rm = target.querySelector('.rev-match')?.textContent || '';
@@ -141,22 +198,40 @@ describe('OperationalSummary', () => {
     expect(lead.getAttribute('href')).toBe('#/fleet/attention');
   });
 
-  // The lead tile and the uncategorised entry point are the same measurement. Showing
-  // both put "2" on screen twice with two different wordings, which reads as two facts.
-  it('never repeats the lead attention count as a second tile', () => {
+  // Every tile prints the backend's label verbatim, and only entry points that lead
+  // somewhere else become tiles. The lead tile and the uncategorised entry point are the
+  // same measurement (two wordings, one number); the overview entry point links back to
+  // the page it is on, where the source health strip already shows what it counts.
+  it('renders exactly the entry points that lead somewhere else, worded as the backend worded them', () => {
     comp = mount(OperationalSummary, { target, props: summaryProps() });
     const labels = Array.from(target.querySelectorAll('.tile-grid .tile-label')).map((n) => n.textContent);
-    expect(labels).not.toContain('Services needing attention');
-    expect(labels).toContain('Non-compliant operational targets');
+    expect(labels).toEqual([
+      'Operational targets not compliant',
+      'Operational targets with stale evidence',
+      'Undeclared runtime dependencies observed',
+    ]);
   });
 
-  it('agrees with itself on singular and plural observed-only counts', () => {
-    const label = () => Array.from(target.querySelectorAll('.tile-label')).map((n) => n.textContent).find((t) => t?.includes('undeclared'));
-    comp = mount(OperationalSummary, { target, props: summaryProps({ observedOnlyRelationships: 1 }) });
-    expect(label()).toBe('undeclared runtime call observed');
-    unmount(comp); comp = null;
-    comp = mount(OperationalSummary, { target, props: summaryProps({ observedOnlyRelationships: 2 }) });
-    expect(label()).toBe('undeclared runtime calls observed');
+  // Every non-zero tile used to be amber, so the overview graded a confirmed drift and
+  // an undeclared runtime call the same, and the attention list directly below it then
+  // badged them Error and Info. The tile now carries the backend's grade for the
+  // category, which is the grade its own items carry.
+  it('grades a tile the same way the items behind it are graded', () => {
+    comp = mount(OperationalSummary, { target, props: summaryProps() });
+    const toneOf = (text: string) => (Array.from(target.querySelectorAll('a.tile'))
+      .find((t) => t.textContent?.includes(text)) as HTMLElement).className;
+    expect(toneOf('not compliant')).toContain('tone-err');
+    expect(toneOf('stale evidence')).toContain('tone-warn');
+    expect(toneOf('Undeclared runtime dependencies')).toContain('tone-info');
+    expect(toneOf('Services need attention')).toContain('tone-warn');
+  });
+
+  it('reads a clean count as clean whatever the category grade', () => {
+    const props = summaryProps();
+    props.entryPoints = props.entryPoints.map((ep) => ({ ...ep, count: 0 }));
+    comp = mount(OperationalSummary, { target, props });
+    const tile = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('Undeclared')) as HTMLElement;
+    expect(tile.className).toContain('tone-ok');
   });
 });
 

@@ -1815,6 +1815,8 @@ export interface components {
             description?: string;
             href: string;
             label: string;
+            /** @enum {string} */
+            severity?: "error" | "warning" | "info";
             view: string;
         };
         ProductEvidenceItem: {

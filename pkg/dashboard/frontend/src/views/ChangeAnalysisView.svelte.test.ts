@@ -338,6 +338,17 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('does not ask for a selection the defaults already made', async () => {
+    // Both selectors arrive prefilled, so "choose an earlier and a later revision" was
+    // an instruction the user had already followed; the real next step is the button.
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    expect(target.textContent).toContain('Ready to compare');
+    expect(target.textContent).toContain('Compare revisions');
+    expect(target.textContent).not.toContain('Pick two revisions');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('ignores a revision key this service does not have rather than asking the backend about it', async () => {
     const { target, component } = mountView({ svc: 'domain-a/payments', old: 'domain-a/payments@sha256:deleted' });
     await vi.waitFor(() => expect(target.querySelector('#impact-old-rev')).toBeTruthy());

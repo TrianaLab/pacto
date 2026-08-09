@@ -1,5 +1,6 @@
 <script>
   import { fleetGraphFocusUrl } from '../../lib/router.ts';
+  import { abbreviateDigests } from '../../lib/format.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
@@ -28,15 +29,25 @@
     {#if d.ownership}
       <div class="se-fact">
         <span class="se-k">Owner</span>
-        {#if d.ownership.ref}<EntityLink ref={d.ownership.ref} showStatus={false} />{:else}<span>{d.ownership.owner || 'Unowned'}</span>{/if}
+        {#if d.ownership.ref}<EntityLink ref={d.ownership.ref} showStatus={false} showKind={false} />{:else}<span>{d.ownership.owner || 'Unowned'}</span>{/if}
       </div>
     {/if}
   </section>
 
   {#if d.ownership?.conflicts?.count}
+    <!-- Each conflict carries a canonical revision key, so joining them into one prose
+         sentence buried the owner names -- the actual point -- inside 71 characters of
+         hex apiece. One conflict per line, digests abbreviated, exact key in the
+         tooltip: the same facts, read as a list of revisions instead of a paragraph. -->
     <div class="se-conflicts" role="status">
-      <strong>Ownership conflict.</strong>
-      <span>Revisions of this service declare different owners: {d.ownership.conflicts.items.join(', ')}{d.ownership.conflicts.truncated ? ` (+${d.ownership.conflicts.total - d.ownership.conflicts.count} more)` : ''}.</span>
+      <div class="se-conflicts-head">
+        <strong>Ownership conflict.</strong>
+        <span>These revisions declare an owner other than {d.ownership.owner || 'the service owner'}:</span>
+      </div>
+      <ul class="se-conflict-list">
+        {#each d.ownership.conflicts.items as c}<li title={c}>{abbreviateDigests(c)}</li>{/each}
+        {#if d.ownership.conflicts.truncated}<li class="se-conflict-more">+{d.ownership.conflicts.total - d.ownership.conflicts.count} more</li>{/if}
+      </ul>
     </div>
   {/if}
 
@@ -65,7 +76,7 @@
 
   {#if (d.relationships?.count ?? 0) > 0}
     <PreviewSection title="Observed traffic and differences" total={d.relationships?.total ?? null} count={d.relationships?.count ?? 0} truncated={d.relationships?.truncated} viewAllHref={graphHref} viewAllLabel="Open differences view">
-      <RelationshipList items={d.relationships?.items ?? []} />
+      <RelationshipList items={d.relationships?.items ?? []} selfKey={key} />
     </PreviewSection>
   {/if}
 
@@ -94,10 +105,14 @@
   .se-fact { display: flex; align-items: center; gap: var(--sp-2); }
   .se-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
   .se-conflicts {
-    display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline;
+    display: flex; flex-direction: column; gap: var(--sp-2);
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
     background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
   }
+  .se-conflicts-head { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline; }
+  .se-conflict-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+  .se-conflict-list li { overflow-wrap: anywhere; }
+  .se-conflict-more { color: var(--c-text-3); }
   .se-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .se-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-3); }
 </style>

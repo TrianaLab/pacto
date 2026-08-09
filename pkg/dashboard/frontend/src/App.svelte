@@ -204,6 +204,7 @@
   {sourcesInfo}
   {capabilities}
   view={route.view}
+  entityKind={route.params.kind || ''}
   version={appVersion}
   {discovering}
   {autoReload}

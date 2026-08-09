@@ -208,6 +208,12 @@ type EntryPoint struct {
 	View        EntryPointView `json:"view"`
 	Category    string         `json:"category,omitempty"`
 	Count       int            `json:"count,omitempty"`
+	// Severity grades the category the same way the attention items inside it are
+	// graded. Without it every entry point rendered in one tone, so the overview
+	// presented a confirmed drift and a missing readiness gate as equally urgent and
+	// then the attention list directly below it badged them Error and Info. The
+	// backend already decides this per item; saying it here keeps ONE decision.
+	Severity string `json:"severity,omitempty" enum:"error,warning,info"`
 }
 
 // EvidenceItem links a recently-evidenced target to the moment it was evidenced.
@@ -381,14 +387,20 @@ func (q *Query) servicesNeedingAttention() int {
 // summary category, each with a canonical route.
 func entryPoints(sum *OverviewSummary) []EntryPoint {
 	candidates := []EntryPoint{
-		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, View: EntryPointAttention},
-		{Label: "Non-compliant operational targets", Count: sum.NonCompliantTargets, View: EntryPointAttention, Category: categoryNonCompliant},
-		{Label: "Operational targets with stale evidence", Count: sum.StaleTargets, View: EntryPointAttention, Category: categoryStale},
-		{Label: "Operational targets with unknown compliance", Count: sum.UnknownTargets, View: EntryPointAttention, Category: categoryUnknown},
-		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid},
-		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved},
-		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices},
-		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview},
+		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, View: EntryPointAttention, Severity: severityWarning},
+		// "Not compliant", not "Non-compliant": the Overview shows this tile directly
+		// above the triage chips and status badges that name the very same state, and a
+		// hyphenated spelling beside the two-word one reads as two different states
+		// rather than one. Leading noun matches the sibling target labels below.
+		// Each Severity below is the SAME grade the attention items in that category
+		// carry (see attentionItems), so a tile and the rows it opens agree.
+		{Label: "Operational targets not compliant", Count: sum.NonCompliantTargets, View: EntryPointAttention, Category: categoryNonCompliant, Severity: severityError},
+		{Label: "Operational targets with stale evidence", Count: sum.StaleTargets, View: EntryPointAttention, Category: categoryStale, Severity: severityWarning},
+		{Label: "Operational targets with unknown compliance", Count: sum.UnknownTargets, View: EntryPointAttention, Category: categoryUnknown, Severity: severityWarning},
+		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid, Severity: severityError},
+		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved, Severity: severityWarning},
+		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices, Severity: severityInfo},
+		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
 	}
 	out := []EntryPoint{}
 	for _, ep := range candidates {

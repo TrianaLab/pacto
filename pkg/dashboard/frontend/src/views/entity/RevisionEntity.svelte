@@ -34,25 +34,21 @@
 
 <div class="rev-entity">
   <section class="re-facts">
-    <div class="re-fact"><span class="re-k">Service</span><EntityLink ref={d.service} showStatus={false} /></div>
+    <div class="re-fact"><span class="re-k">Service</span><EntityLink ref={d.service} showStatus={false} showKind={false} /></div>
     {#if d.version}<div class="re-fact"><span class="re-k">Version</span><span>{d.version}</span></div>{/if}
-    {#if d.pactoVersion}<div class="re-fact"><span class="re-k">pactoVersion</span><span>{d.pactoVersion}</span></div>{/if}
+    <!-- The wire field is `pactoVersion`; uppercased as a label it read as PACTOVERSION,
+         a field name sitting in a row of English words. The API already documents it as
+         "Pacto version". -->
+    {#if d.pactoVersion}<div class="re-fact"><span class="re-k">Pacto version</span><span>{d.pactoVersion}</span></div>{/if}
     <div class="re-fact"><span class="re-k">Valid</span><span>{d.valid ? 'Yes' : 'No'}</span></div>
     <div class="re-fact"><span class="re-k">Content</span><IdentityBadge label={retrievabilityLabel(id.identityClass, id.retrievable)} tone={retrievabilityTone(id.identityClass, id.retrievable)} /></div>
     {#if o}
       <div class="re-fact">
         <span class="re-k">Owner</span>
-        {#if o.ref}<EntityLink ref={o.ref} showStatus={false} />{:else}<span>{o.owner || 'Unowned'}</span>{/if}
+        {#if o.ref}<EntityLink ref={o.ref} showStatus={false} showKind={false} />{:else}<span>{o.owner || 'Unowned'}</span>{/if}
       </div>
     {/if}
   </section>
-
-  {#if o?.conflicts?.count}
-    <div class="re-conflicts" role="status">
-      <strong>Ownership conflict.</strong>
-      <span>Revisions of this service declare different owners: {o.conflicts.items.join(', ')}{o.conflicts.truncated ? ` (+${o.conflicts.total - o.conflicts.count} more)` : ''}.</span>
-    </div>
-  {/if}
 
   {#if id.digest || id.resolvedRef || id.requestedRef}
     <section class="re-identity">
@@ -88,6 +84,18 @@
           </ul>
         </PreviewSection>
       {/if}
+    </section>
+  {:else}
+    <!-- Triage sends people here from a "Revision has no readiness assessment" item, and
+         the page used to answer with silence -- the one fact they came for was the one
+         thing missing. Absence is a state worth naming, and naming it is also where the
+         distinction gets taught: nothing declared is not the same as declared and failing. -->
+    <section class="re-readiness">
+      <div class="rr-head">
+        <h2>Readiness</h2>
+        <IdentityBadge label="Not declared" tone="neutral" />
+      </div>
+      <p class="rr-lead">This revision declares no readiness gate, so there is nothing here to pass or fail — which is not the same as failing one.</p>
     </section>
   {/if}
 
@@ -150,8 +158,8 @@
 
   {#if d.previous || d.next}
     <section class="re-adjacent">
-      {#if d.previous}<div class="re-adj"><span class="re-k">Previous revision</span><EntityLink ref={d.previous} showStatus={false} /></div>{/if}
-      {#if d.next}<div class="re-adj"><span class="re-k">Next revision</span><EntityLink ref={d.next} showStatus={false} /></div>{/if}
+      {#if d.previous}<div class="re-adj"><span class="re-k">Previous revision</span><EntityLink ref={d.previous} showStatus={false} showKind={false} /></div>{/if}
+      {#if d.next}<div class="re-adj"><span class="re-k">Next revision</span><EntityLink ref={d.next} showStatus={false} showKind={false} /></div>{/if}
     </section>
   {/if}
 
@@ -167,11 +175,6 @@
   .re-facts, .re-identity, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .re-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
-  .re-conflicts {
-    display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline;
-    padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
-    background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
-  }
   .re-readiness { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }
   .rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
   .rr-head h2 { margin: 0; font-size: var(--text-md); }

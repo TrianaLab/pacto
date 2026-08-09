@@ -54,6 +54,15 @@ describe('buildCommands — capability-aware views (Part 1: one destination per 
     expect(hrefs).not.toContain('#/owners');
   });
 
+  it('lists each Fleet destination once, and still finds it by the words a user types', () => {
+    const views = buildCommands('', [], true).find((g) => g.label === 'Views')?.items || [];
+    const hrefs = views.map((v) => v.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length); // no two rows opening the same screen
+    // "compare" is the action, not a second destination -- it still finds the workspace.
+    const found = buildCommands('compare', [], true).find((g) => g.label === 'Views')?.items || [];
+    expect(found.map((v) => v.label)).toEqual(['Change analysis']);
+  });
+
   it('offers the LEGACY destinations on a non-Fleet host (its only UI)', () => {
     const hrefs = (buildCommands('', [], false).find((g) => g.label === 'Views')?.items || []).map((v) => v.href);
     expect(hrefs).toContain('#/');

@@ -5,7 +5,7 @@
 
   let {
     services = [], sourcesInfo = [], capabilities = null, version = '', discovering = false, view = 'list',
-    autoReload = false, refreshing = false, fleetSearch = false,
+    entityKind = '', autoReload = false, refreshing = false, fleetSearch = false,
     onRefresh, onToggleAutoReload, onToggleTheme, onOpenSearch,
   } = $props();
 
@@ -21,7 +21,7 @@
   //
   // The product IA teaches ONE mental model, in order: state, then inventory, then
   // relationships, then change. So a Fleet host has exactly four primary destinations
-  // (Overview, Services, Operational Graph, Change analysis), each answering a question
+  // (Overview, Services, Operational graph, Change analysis), each answering a question
   // a first-time user actually has. Owners, Data sources, Needs attention and Readiness
   // are DIMENSIONS of those four -- reachable from the Overview, from entity pages and
   // from the command palette -- not peer destinations. Desktop nav, the mobile drawer
@@ -30,16 +30,36 @@
   // `cap: 'fleet'` items are shown until capabilities are known and hidden once the host
   // reports no fleet; `legacyOnly` items are the mirror image, appearing only once the
   // host is confirmed NON-fleet -- so neither UI's destinations leak into the other.
+  //
+  // Every entity page shares ONE view id ('fleet-entity'), so `kinds` is what tells the
+  // nav which destination a given entity belongs under. It has to agree with the
+  // breadcrumb trail: an owner or data source is reached through the Overview
+  // (Overview > Data sources > ...), a service/revision/target through Services. Lighting
+  // "Services" on a data-source page contradicted the trail printed right below it.
   const nav = $derived(
     [
-      { label: 'Overview', href: fleetOverviewUrl(), views: ['fleet-overview', 'fleet-attention'], cap: 'fleet' },
+      {
+        label: 'Overview',
+        href: fleetOverviewUrl(),
+        views: ['fleet-overview', 'fleet-attention', 'fleet-owners', 'fleet-sources'],
+        kinds: ['owner', 'source'],
+        cap: 'fleet',
+      },
       // Services exists on BOTH host classes, so its href must be correct at every probe
       // state -- including before capabilities resolve. '#/' was not: on a Fleet host it
       // canonicalizes straight back to the Overview, so clicking Services during the probe
       // silently did nothing. '#/services' is the one spelling that works everywhere: the
       // legacy list on a legacy host, and canonicalized to /fleet/services on a Fleet one.
-      { label: 'Services', href: capabilities?.fleet ? '#/fleet/services' : '#/services', views: ['list', 'detail', 'fleet-services', 'fleet-entity', 'fleet-owners', 'fleet-sources'] },
-      { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
+      {
+        label: 'Services',
+        href: capabilities?.fleet ? '#/fleet/services' : '#/services',
+        views: ['list', 'detail', 'fleet-services'],
+        kinds: ['service', 'revision', 'target'],
+      },
+      // Sentence case, like its three siblings and like the H1 and breadcrumb on the
+      // page it opens. Title Case here made one tab in four look like a different kind
+      // of destination and made the tab read as a different name from its own page.
+      { label: 'Operational graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
       { label: 'Change analysis', href: fleetChangesUrl(), views: ['changes'], cap: 'fleet' },
       { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'], legacyOnly: true },
       { label: 'Readiness', href: readinessUrl(), views: ['readiness'], legacyOnly: true },
@@ -48,7 +68,7 @@
       ? capabilities?.fleet === false
       : !item.cap || capabilities === null || capabilities[item.cap])),
   );
-  const isActive = (item) => item.views.includes(view);
+  const isActive = (item) => (view === 'fleet-entity' ? (item.kinds || []).includes(entityKind) : item.views.includes(view));
 
   // The Pacto brand/logo is the application HOME affordance. On a Fleet-capable host it
   // goes to the canonical Operational Overview (fleetOverviewUrl, never a hardcoded
@@ -368,6 +388,14 @@
     .hamburger { display: flex; }
     .mobile-drawer { display: block; }
     .search-kbd { display: none; }
-    .search-box { max-width: none; }
+    /* At 390px a flex:1 text field between the brand and the hamburger had no room for
+       its own placeholder, which wrapped onto two lines inside a squeezed box -- the one
+       control on the bar that looked broken. Collapse it to the standard magnifier
+       button: same tap target, same overlay, and the accessible name still comes from
+       aria-label, so nothing is lost for a screen reader. */
+    .search-box { max-width: none; flex: 0 0 auto; margin-left: auto; }
+    .search-trigger { width: var(--touch-min); padding: 0; justify-content: center; }
+    .search-trigger .search-icon { position: static; transform: none; }
+    .search-trigger-text { display: none; }
   }
 </style>

@@ -1,5 +1,5 @@
 <script>
-  import StatusBadge from './StatusBadge.svelte';
+  import SeverityBadge from './SeverityBadge.svelte';
   import EntityLink from './EntityLink.svelte';
 
   // Renders findings for any rich entity page (requirement K). Items are either a
@@ -14,7 +14,7 @@
   {#each items as it, i (i)}
     {@const f = finding(it)}
     <li class="finding">
-      <StatusBadge status={f.severity} />
+      <SeverityBadge severity={f.severity} />
       <div class="f-body">
         <span class="f-msg">{f.message || f.code || 'Finding'}</span>
         {#if it.entity}<div class="f-entity"><EntityLink ref={it.entity} showStatus={false} /></div>{/if}

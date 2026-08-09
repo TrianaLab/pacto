@@ -10,7 +10,7 @@
   import SourceHealth from '../components/SourceHealth.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
-  import StatusBadge from '../components/StatusBadge.svelte';
+  import SeverityBadge from '../components/SeverityBadge.svelte';
 
   // The operational landing page (requirement G). It consumes /api/fleet/overview
   // as the single contract -- it never reconstructs the summary from the raw
@@ -132,7 +132,7 @@
         <ul class="attn-list">
           {#each overview.attention.items as it}
             <li class="attn-item">
-              <StatusBadge status={it.severity} />
+              <SeverityBadge severity={it.severity} />
               <EntityLink ref={it.entity} showStatus={false} />
               <span class="attn-reason">{it.summary || it.reason || it.label}</span>
             </li>

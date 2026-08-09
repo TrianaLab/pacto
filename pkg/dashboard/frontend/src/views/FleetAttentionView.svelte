@@ -3,11 +3,15 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { knowledgeLabel, knowledgeTone, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
+  import {
+    attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel,
+  } from '../lib/entityLabels.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
   import { fleetOverviewUrl, fleetAttentionUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
-  import StatusBadge from '../components/StatusBadge.svelte';
+  import SeverityBadge from '../components/SeverityBadge.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
 
@@ -25,7 +29,6 @@
   const PAGE_SIZE = 25;
   const CATEGORIES = ATTENTION_CATEGORIES;
   const SEVERITIES = ['error', 'warning', 'info'];
-  const STATUSES = ['Compliant', 'NonCompliant', 'Unknown', 'Invalid'];
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
   const isStale = $derived(staleOnly === '1');
   const anyFilter = $derived(!!(category || severity || status || owner || source || isStale));
@@ -83,8 +86,8 @@
 
   const chips = $derived([
     category ? { key: 'category', label: 'Category', value: attentionCategoryLabel(category) } : null,
-    severity ? { key: 'severity', label: 'Severity', value: severity } : null,
-    status ? { key: 'status', label: 'Status', value: status } : null,
+    severity ? { key: 'severity', label: 'Severity', value: severityLabel(severity) } : null,
+    status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     owner ? { key: 'owner', label: 'Owner', value: owner } : null,
     source ? { key: 'source', label: 'Source', value: source } : null,
     isStale ? { key: 'staleOnly', label: 'Stale only', value: 'yes' } : null,
@@ -106,7 +109,7 @@
       <span>Severity</span>
       <select value={severity} aria-label="Filter by severity" onchange={(e) => apply({ severity: e.currentTarget.value })}>
         <option value="">Any severity</option>
-        {#each SEVERITIES as s}<option value={s}>{s}</option>{/each}
+        {#each SEVERITIES as s}<option value={s}>{severityLabel(s)}</option>{/each}
       </select>
     </label>
     <label class="av-field">
@@ -116,14 +119,17 @@
         {#each CATEGORIES as c}<option value={c}>{attentionCategoryLabel(c)}</option>{/each}
       </select>
     </label>
-    <details class="av-advanced">
-      <summary>Advanced filters</summary>
+    <details class="av-advanced disclosure">
+      <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Advanced filters</summary>
       <div class="av-adv-grid">
         <label class="av-field">
           <span>Status</span>
           <select value={status} aria-label="Filter by compliance status" onchange={(e) => apply({ status: e.currentTarget.value })}>
             <option value="">Any status</option>
-            {#each STATUSES as s}<option value={s}>{s}</option>{/each}
+            <!-- The wire enum is the option VALUE; the option TEXT is the same word the
+                 badges use. "NonCompliant" in a picker above a row badged "Not compliant"
+                 asks the user to believe those are two states. -->
+            {#each STATUS_FILTER_OPTIONS as s}<option value={s}>{statusLabel(s)}</option>{/each}
           </select>
         </label>
         <label class="av-field">
@@ -145,9 +151,7 @@
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
-    <div class="av-knowledge tone-{knowledgeTone(knowledge.level)}" role="status">
-      {knowledgeLabel(knowledge.level)} — this attention list may be incomplete.
-    </div>
+    <KnowledgeBanner {knowledge} noun="attention list" />
   {/if}
 
   {#if state.kind !== 'ready'}
@@ -155,13 +159,19 @@
   {:else}
     <ul class="attn-list">
       {#each list.items as it}
+        <!-- Two columns, not one wrapping row. With everything in a single flex line
+             the right-aligned next step dropped onto a second line as soon as the
+             service name was long, so identical items rendered at two different
+             heights and the list read as two kinds of thing. -->
         <li class="attn-item">
-          <StatusBadge status={it.severity} />
-          <span class="attn-cat">{attentionCategoryLabel(it.category)}</span>
-          <EntityLink ref={it.entity} showStatus={false} />
-          <span class="attn-summary">{it.summary || it.reason || it.label}</span>
-          {#if it.source}<span class="attn-src">via {it.source}</span>{/if}
-          {#if it.nextStep}<span class="attn-next">{it.nextStep}</span>{/if}
+          <div class="attn-main">
+            <SeverityBadge severity={it.severity} />
+            <span class="attn-cat">{attentionCategoryLabel(it.category)}</span>
+            <EntityLink ref={it.entity} showStatus={false} />
+            <span class="attn-summary">{it.summary || it.reason || it.label}</span>
+            {#if it.source}<span class="attn-src">via {it.source}</span>{/if}
+          </div>
+          {#if it.nextStep}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
         </li>
       {/each}
     </ul>
@@ -195,28 +205,31 @@
     padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min);
   }
-  .av-advanced { font-size: var(--text-sm); }
-  .av-advanced summary { cursor: pointer; color: var(--c-accent); }
+  /* Look and behaviour come from the shared .disclosure class: an accent-coloured
+     summary here and quiet grey ones elsewhere read as two different controls. */
   .av-adv-grid { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; margin-top: var(--sp-2); }
   .av-check { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
-  .av-knowledge {
-    padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm);
-    background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
-  }
-  .av-knowledge.tone-err { background: var(--c-err-bg); border-color: color-mix(in srgb, var(--c-err) 30%, transparent); }
   .attn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .attn-item {
-    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2) var(--sp-3);
     padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     background: var(--c-surface);
   }
+  .attn-main { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .attn-cat {
     font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em;
     color: var(--c-text-3); background: var(--c-surface-inset); padding: 1px 6px; border-radius: var(--radius-xs);
   }
   .attn-summary { color: var(--c-text-2); font-size: var(--text-sm); }
   .attn-src { color: var(--c-text-3); font-size: var(--text-xs); }
-  .attn-next { color: var(--c-text-3); font-size: var(--text-xs); margin-left: auto; }
+  /* Backend-provided guidance, not a control. Right-aligned grey micro-text with an
+     imperative verb read as a link that did nothing when clicked; the "Next" key
+     names it as advice, the same way every labelled fact row does. */
+  .attn-next { display: flex; align-items: baseline; gap: var(--sp-2); color: var(--c-text-3); font-size: var(--text-xs); text-align: right; }
+  /* No opacity: every other uppercase micro-label in the product (.attn-cat, .te-k,
+     .src-k) is plain --c-text-3, and dimming this one further put it at 3.58:1 -- below
+     WCAG AA -- while also making it the only micro-label with its own shade. */
+  .attn-next-k { text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
   .av-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
   .av-range { color: var(--c-text-3); font-size: var(--text-sm); }
   .av-pager-btns { display: flex; gap: var(--sp-2); }

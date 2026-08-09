@@ -22,7 +22,7 @@ import FleetEntityView from './FleetEntityView.svelte';
 
 const meta = { schemaVersion: 'pacto.dev/fleet-product/v1', snapshotId: 'x', asOf: '2026-07-29T10:00:00Z', completeness: 'complete', sources: [{ id: 'oci', status: 'available' }] };
 
-function targetDetail() {
+function targetDetail(): Record<string, any> {
   return {
     meta,
     entity: { kind: 'target', key: 'prod/k8s/app', label: 'app', href: '/fleet/targets/prod%2Fk8s%2Fapp', status: 'Compliant', scope: 'prod' },
@@ -76,6 +76,41 @@ describe('FleetEntityView — unified entity route', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('never prints a caption and a kind chip that say the same word', async () => {
+    // "SERVICE [SERVICE] app" and "OWNER [OWNER] team/platform" is what makes a page
+    // read like a form. The caption names the relation; the chip is then redundant.
+    const d = targetDetail();
+    d.target.ownership = { owner: 'team/platform', ref: { kind: 'owner', key: 'team/platform', label: 'team/platform', href: '/fleet/owners/team%2Fplatform' } };
+    detailFn.mockResolvedValue(d);
+    const { target, component } = mountView('target', 'prod/k8s/app');
+    await vi.waitFor(() => expect(target.textContent).toContain('team/platform'));
+    for (const row of Array.from(target.querySelectorAll('.te-fact'))) {
+      const caption = row.querySelector('.te-k')?.textContent?.trim().toLowerCase();
+      const chip = row.querySelector('.ei-kind')?.textContent?.trim().toLowerCase();
+      expect(chip, `row "${caption}" repeats its caption as a kind chip`).not.toBe(caption);
+    }
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('drops the contributing-sources row when it only repeats the data source', async () => {
+    const one = targetDetail();
+    one.target.source = 'local';
+    one.target.sources = { items: ['local'], total: 1, count: 1, truncated: false };
+    detailFn.mockResolvedValue(one);
+    let m = mountView('target', 'prod/k8s/app');
+    await vi.waitFor(() => expect(m.target.textContent).toContain('Data source'));
+    expect(m.target.textContent).not.toContain('Contributing data sources');
+    unmount(m.component); document.body.removeChild(m.target);
+
+    const many = targetDetail();
+    many.target.source = 'local';
+    many.target.sources = { items: ['local', 'k8s'], total: 2, count: 2, truncated: false };
+    detailFn.mockResolvedValue(many);
+    m = mountView('target', 'prod/k8s/app');
+    await vi.waitFor(() => expect(m.target.textContent).toContain('Contributing data sources'));
+    unmount(m.component); document.body.removeChild(m.target);
+  });
+
   it('maps the DTO open-graph action to a canonical graph route', async () => {
     detailFn.mockResolvedValue(targetDetail());
     const { target, component } = mountView('target', 'prod/k8s/app');
@@ -99,7 +134,7 @@ const ref = (kind: string, key: string, extra = {}) => ({ kind, key, label: key.
 
 describe('FleetEntityView — rich service page (D)', () => {
   beforeEach(() => detailFn.mockReset());
-  function serviceDetail() {
+  function serviceDetail(): Record<string, any> {
     return {
       meta, status: 'NonCompliant',
       entity: ref('service', 'domain-a/payments', { domain: 'domain-a' }),
@@ -118,6 +153,66 @@ describe('FleetEntityView — rich service page (D)', () => {
       },
     };
   }
+
+  it('names the other end of every relationship, never the service you are already on', async () => {
+    // A service's edges run both ways. Rendering a fixed end made an inbound edge read
+    // as the service depending on ITSELF, and two edges with the same counterpart became
+    // two identical rows.
+    const d = serviceDetail();
+    const self = ref('service', 'domain-a/payments');
+    const other = ref('service', 'domain-b/ledger');
+    d.service.relationships = {
+      total: 2, count: 2, truncated: false,
+      items: [
+        { id: 'out', from: self, to: other, relation: 'dependency', difference: 'expected-not-observed', provenance: 'declared' },
+        { id: 'in', from: other, to: self, relation: 'dependency', difference: 'matched', provenance: 'declared+observed' },
+      ],
+    };
+    detailFn.mockResolvedValue(d);
+    const { target, component } = mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic'));
+    const rows = Array.from(target.querySelectorAll('.rel'));
+    expect(rows.map((r) => r.querySelector('.rel-word')?.textContent)).toEqual(['Depends on', 'Used by']);
+    for (const r of rows) {
+      expect(r.querySelector('.ei-label')?.textContent).toBe('ledger'); // never "payments"
+      // Both rows' provenance is implied by their reconciliation badge, so neither
+      // repeats it -- and the raw wire token never reaches the screen.
+      expect(r.querySelector('.rel-prov')).toBeNull();
+    }
+    expect(target.textContent).not.toContain('declared+observed');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps the provenance word when the reconciliation badge does not already say it', async () => {
+    const d = serviceDetail();
+    d.service.relationships = {
+      total: 1, count: 1, truncated: false,
+      items: [{ id: 'e', from: ref('service', 'domain-a/payments'), to: ref('service', 'domain-b/ledger'), relation: 'dependency', difference: 'insufficient', provenance: 'declared' }],
+    };
+    detailFn.mockResolvedValue(d);
+    const { target, component } = mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic'));
+    expect(target.querySelector('.rel-prov')?.textContent).toBe('Expected');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('reads an ownership conflict as a list of revisions, not a paragraph of hex', async () => {
+    const digest = `sha256:${'673e8f73'.repeat(8)}`;
+    const d = serviceDetail();
+    d.service.ownership = {
+      owner: 'team-a',
+      ref: ref('owner', 'team-a'),
+      conflicts: { total: 3, count: 1, truncated: true, items: [`domain-a/payments@${digest}: team-b`] },
+    };
+    detailFn.mockResolvedValue(d);
+    const { target, component } = mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('Ownership conflict'));
+    const rows = Array.from(target.querySelectorAll('.se-conflict-list li'));
+    expect(rows[0].textContent).toBe('domain-a/payments@673e8f73673e…: team-b');
+    expect(rows[0].getAttribute('title')).toContain(digest); // exact key still available
+    expect(rows[1].textContent).toBe('+2 more');             // truncation stays honest
+    unmount(component); document.body.removeChild(target);
+  });
 
   it('renders bounded previews with honest count-of-total and truncation, plus ownership conflict', async () => {
     detailFn.mockResolvedValue(serviceDetail());
@@ -164,7 +259,7 @@ describe('FleetEntityView — rich service page (D)', () => {
 
 describe('FleetEntityView — rich revision page (E)', () => {
   beforeEach(() => detailFn.mockReset());
-  function revisionDetail(identity = { retrievable: false, identityClass: 'mutable' }) {
+  function revisionDetail(identity = { retrievable: false, identityClass: 'mutable' }): Record<string, any> {
     return {
       meta, status: 'Compliant',
       entity: ref('revision', 'domain-a/payments@2.1.0'),
@@ -210,6 +305,44 @@ describe('FleetEntityView — rich revision page (E)', () => {
     expect(target.textContent).not.toMatch(/immutable/i); // never asserts immutability of mutable content
     unmount(component); document.body.removeChild(target);
   });
+
+  it('names a revision with no readiness gate instead of answering triage with silence', async () => {
+    const d = revisionDetail();
+    d.revision.readiness = null;
+    detailFn.mockResolvedValue(d);
+    const { target, component } = mountView('revision', 'domain-a/payments@2.1.0');
+    await vi.waitFor(() => expect(target.textContent).toContain('Readiness'));
+    const text = target.textContent || '';
+    expect(text).toContain('Not declared');
+    // "Nothing declared" and "declared and failing" must not read as the same state.
+    expect(text).toMatch(/not the same as failing/i);
+    expect(text).not.toMatch(/not passing/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('reads a field label as English, never as the wire field name', async () => {
+    const d = revisionDetail();
+    d.revision.pactoVersion = '2.0';
+    detailFn.mockResolvedValue(d);
+    const { target, component } = mountView('revision', 'domain-a/payments@2.1.0');
+    await vi.waitFor(() => expect(target.textContent).toContain('2.0'));
+    const labels = Array.from(target.querySelectorAll('.re-k')).map((n) => n.textContent);
+    expect(labels).toContain('Pacto version');
+    expect(labels).not.toContain('pactoVersion');
+  });
+
+  it('links the owner from a revision, the same as from its service', async () => {
+    // The backend emits the owner ref for both, so the trail out to "everything this
+    // team owns" does not dead-end on the revision page.
+    const d = revisionDetail();
+    d.revision.ownership = { owner: 'team-a', ref: ref('owner', 'team-a') };
+    detailFn.mockResolvedValue(d);
+    const { target, component } = mountView('revision', 'domain-a/payments@2.1.0');
+    await vi.waitFor(() => expect(target.textContent).toContain('team-a'));
+    const href = Array.from(target.querySelectorAll('a.entity-link')).map((a) => a.getAttribute('href'));
+    expect(href).toContain('#/fleet/owners/team-a');
+    unmount(component); document.body.removeChild(target);
+  });
 });
 
 describe('FleetEntityView — rich target page honesty (F)', () => {
@@ -239,10 +372,26 @@ describe('FleetEntityView — rich target page honesty (F)', () => {
     const { target, component } = mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Ambiguous revision match'));
     const text = target.textContent || '';
-    expect(text).toMatch(/no single revision is authoritative/i);
+    // The prose explains WHY we cannot name the revision -- it does not restate the badge.
+    expect(text).toMatch(/more than one known revision matches/i);
+    expect(text).toMatch(/cannot say which one is running/i);
+    // ...and it never lets "we cannot see it" read as "nothing is there".
+    expect(text).toMatch(/Something IS running/);
     // the "Running revision"/"Inferred revision" authoritative label must NOT appear
     expect(text).not.toContain('Running revision');
     expect(text).not.toContain('Inferred revision');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('gives an unresolved match its own reason, not the ambiguous one', async () => {
+    const d = ambiguousTarget();
+    d.target.linkState = 'unresolved';
+    detailFn.mockResolvedValue(d);
+    const { target, component } = mountView('target', 'prod/k8s/app');
+    await vi.waitFor(() => expect(target.textContent).toContain('Unresolved revision'));
+    const text = target.textContent || '';
+    expect(text).toMatch(/nothing we observed here ties back to a known revision/i);
+    expect(text).not.toMatch(/more than one/i);
     unmount(component); document.body.removeChild(target);
   });
 });
@@ -294,7 +443,10 @@ describe('FleetEntityView — owner and source pages (G)', () => {
 
   it('source page renders health, records and contributed entities', async () => {
     detailFn.mockResolvedValue({
-      meta, entity: ref('source', 'kubernetes'),
+      // `status` mirrors the source's health, exactly as the backend emits it
+      // (detail.go sets EntityDetail.Status from the source status). Health is badged
+      // ONCE, in the page header, so the body never restates it.
+      meta, entity: ref('source', 'kubernetes'), status: 'available',
       source: {
         kind: 'k8s', health: 'available', revisionCount: 12, targetCount: 8,
         entities: { total: 20, count: 1, truncated: true, items: [ref('target', 'prod/k8s/a')] },
@@ -304,10 +456,51 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     const { target, component } = mountView('source', 'kubernetes');
     await vi.waitFor(() => expect(target.textContent).toContain('Contributed entities'));
     const text = target.textContent || '';
-    expect(text).toContain('Available');
+    expect(text.match(/Available/g)).toHaveLength(1); // header badge only, never restated
     expect(text).toContain('12 revisions');
     expect(text).toContain('1 of 20');   // contributed-entities preview honest count
     expect(Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim())).toEqual(expect.arrayContaining(['Data sources']));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('leads a degraded source with the human reason, not the machine code', async () => {
+    detailFn.mockResolvedValue({
+      meta, entity: ref('source', 'edge-cluster'),
+      source: {
+        kind: 'k8s', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        error: { code: 'SOURCE_UNAVAILABLE', message: 'edge cluster unreachable' },
+        entities: { total: 0, count: 0, truncated: false, items: [] },
+        limitations: { total: 0, count: 0, truncated: false, items: [] },
+      },
+    });
+    const { target, component } = mountView('source', 'edge-cluster');
+    await vi.waitFor(() => expect(target.textContent).toContain('edge cluster unreachable'));
+    const banner = target.querySelector('.src-error') as HTMLElement;
+    // The sentence starts with words, not an enum -- but the exact code is still there.
+    expect(banner.textContent?.trim().startsWith('edge cluster unreachable')).toBe(true);
+    expect(banner.querySelector('.src-error-code')?.textContent).toBe('SOURCE_UNAVAILABLE');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('states a source header status in the health vocabulary, not the compliance one', async () => {
+    // `detail.status` for a source is HEALTH. Through the compliance badge it fell
+    // through to a grey lowercase "unavailable" in the header while the fact row below
+    // said "Unavailable" in red -- one source, two vocabularies, on one screen.
+    detailFn.mockResolvedValue({
+      meta, entity: ref('source', 'edge-cluster'), status: 'unavailable',
+      source: {
+        kind: 'k8s', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        entities: { total: 0, count: 0, truncated: false, items: [] },
+        limitations: { total: 0, count: 0, truncated: false, items: [] },
+      },
+    });
+    const { target, component } = mountView('source', 'edge-cluster');
+    await vi.waitFor(() => expect(target.textContent).toContain('Contributed entities'));
+    const head = target.querySelector('.ev-head') as HTMLElement;
+    expect(head.querySelector('.tag')?.textContent).toBe('Unavailable');
+    expect(head.querySelector('.tag')?.className).toContain('tone-err');
+    expect(head.querySelector('.status-badge')).toBeNull();
+    expect(head.textContent).not.toContain('unavailable'); // never the raw wire value
     unmount(component); document.body.removeChild(target);
   });
 

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   breakableIdentifierHtml,
   statusClass,
+  statusLabel,
+  STATUS_FILTER_OPTIONS,
   complianceClass,
   complianceStatusClass,
   methodClass,
@@ -45,6 +47,7 @@ import {
   summarizeFleet,
   summarize,
   shortDigest,
+  abbreviateDigests,
   driftBadgeClass,
   driftBadgeLabel,
   evaluationCoverageLabel,
@@ -1261,6 +1264,31 @@ describe('summarize', () => {
 
 // ── Lock and drift helpers ──
 
+describe('abbreviateDigests', () => {
+  const digest = `sha256:${'a1b2c3d4'.repeat(8)}`;
+  it('shortens a digest embedded in a sentence so the words around it stay readable', () => {
+    expect(abbreviateDigests(`api-gateway@${digest}: platform-foundations`)).toBe(
+      'api-gateway@a1b2c3d4a1b2…: platform-foundations',
+    );
+  });
+  it('shortens every digest in the text, not just the first', () => {
+    const out = abbreviateDigests(`${digest} and ${digest}`);
+    expect(out).toBe('a1b2c3d4a1b2… and a1b2c3d4a1b2…');
+  });
+  it('leaves text without a digest exactly as it was', () => {
+    expect(abbreviateDigests('prod/k8s/api-gateway')).toBe('prod/k8s/api-gateway');
+    expect(abbreviateDigests('domain payments')).toBe('domain payments');
+  });
+  it('leaves a short tag-like reference alone (it is not a digest)', () => {
+    expect(abbreviateDigests('svc@v1.2.0')).toBe('svc@v1.2.0');
+    expect(abbreviateDigests('registry:5000/app')).toBe('registry:5000/app');
+  });
+  it('returns empty string for null and undefined', () => {
+    expect(abbreviateDigests(null)).toBe('');
+    expect(abbreviateDigests(undefined)).toBe('');
+  });
+});
+
 describe('shortDigest', () => {
   it('strips sha256: prefix and truncates to 8 chars by default', () => {
     expect(shortDigest('sha256:abcdef1234567890')).toBe('abcdef12');
@@ -1454,5 +1482,31 @@ describe('summarize B-2 ruling', () => {
     const m = summarize(services);
     const team = m.byOwner.find((o) => o.key === 't')!;
     expect(team.compliancePercent).toBe(50); // 1/(1+1) = 50%, Unknown in denominator
+  });
+});
+
+describe('STATUS_FILTER_OPTIONS', () => {
+  // Both status pickers used to hand-list four of the seven statuses, and both omitted
+  // NotEvaluated -- the value most rows in the services list actually carry, so the
+  // dominant state in a list was missing from that list's own filter.
+  const BADGEABLE = ['Compliant', 'Warning', 'NonCompliant', 'Invalid', 'Unknown', 'NotEvaluated'];
+
+  it('offers every status the product can badge', () => {
+    for (const s of BADGEABLE) expect(STATUS_FILTER_OPTIONS).toContain(s);
+  });
+
+  // Reference marks a bundle that exists only to be referenced, not an assessment
+  // outcome, so it is not a state anyone triages by.
+  it('omits Reference, which is not an assessment outcome', () => {
+    expect(STATUS_FILTER_OPTIONS).not.toContain('Reference');
+  });
+
+  // Pins the order (worst first, the way the triage lists read) AND that every option is
+  // a wire value the badges know: a typo'd one would fall through statusLabel and show
+  // the raw token in the picker above rows badged in plain words.
+  it('reads worst-first, in the same words the badges use', () => {
+    expect(STATUS_FILTER_OPTIONS.map(statusLabel)).toEqual([
+      'Not compliant', 'Invalid', 'Warning', 'Unknown', 'Not evaluated', 'Compliant',
+    ]);
   });
 });
