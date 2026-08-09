@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
+  import { knowledgeLabel, knowledgeTone, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetAttentionUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityLink from '../components/EntityLink.svelte';
@@ -23,7 +23,7 @@
   } = $props();
 
   const PAGE_SIZE = 25;
-  const CATEGORIES = ['non-compliant', 'unknown', 'stale', 'invalid', 'readiness', 'unresolved'];
+  const CATEGORIES = ATTENTION_CATEGORIES;
   const SEVERITIES = ['error', 'warning', 'info'];
   const STATUSES = ['Compliant', 'NonCompliant', 'Unknown', 'Invalid'];
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
@@ -82,7 +82,7 @@
   const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
 
   const chips = $derived([
-    category ? { key: 'category', label: 'Category', value: category } : null,
+    category ? { key: 'category', label: 'Category', value: attentionCategoryLabel(category) } : null,
     severity ? { key: 'severity', label: 'Severity', value: severity } : null,
     status ? { key: 'status', label: 'Status', value: status } : null,
     owner ? { key: 'owner', label: 'Owner', value: owner } : null,
@@ -93,7 +93,7 @@
 </script>
 
 <div class="attn-view">
-  <Breadcrumbs trail={[{ label: 'Fleet', href: fleetOverviewUrl() }, { label: 'Attention' }]} />
+  <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Needs attention' }]} />
   <div class="av-head">
     <h1>Needs attention</h1>
     {#if list}<span class="av-total">{list.total} item{list.total === 1 ? '' : 's'}</span>{/if}
@@ -113,7 +113,7 @@
       <span>Category</span>
       <select value={category} aria-label="Filter by category" onchange={(e) => apply({ category: e.currentTarget.value })}>
         <option value="">Any category</option>
-        {#each CATEGORIES as c}<option value={c}>{c}</option>{/each}
+        {#each CATEGORIES as c}<option value={c}>{attentionCategoryLabel(c)}</option>{/each}
       </select>
     </label>
     <details class="av-advanced">
@@ -157,7 +157,7 @@
       {#each list.items as it}
         <li class="attn-item">
           <StatusBadge status={it.severity} />
-          <span class="attn-cat">{it.category}</span>
+          <span class="attn-cat">{attentionCategoryLabel(it.category)}</span>
           <EntityLink ref={it.entity} showStatus={false} />
           <span class="attn-summary">{it.summary || it.reason || it.label}</span>
           {#if it.source}<span class="attn-src">via {it.source}</span>{/if}

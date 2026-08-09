@@ -9,16 +9,31 @@
 
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
-/** kindLabel is the user-facing singular name for an entity kind. */
+/**
+ * kindLabel is the user-facing singular name for an entity kind.
+ *
+ * The internal identifiers (EntityKind 'target', TargetKey, /fleet/targets/...) are
+ * UNCHANGED; only the words a first-time user reads are. Two of them are deliberate:
+ *   - 'target' reads "Operational target" -- a concrete place a revision runs. It is
+ *     NOT "Deployment": Pacto observes where a revision runs, it never deploys.
+ *   - 'source' reads "Data source" -- the ingestion seam a snapshot was built from.
+ *     It is NOT a collector (a collector observes a real environment and emits
+ *     evidence; OCI, local and cache are sources but observe nothing).
+ */
 export function kindLabel(kind: string | undefined): string {
   switch (kind) {
     case 'service': return 'Service';
     case 'revision': return 'Revision';
-    case 'target': return 'Deployment';
+    case 'target': return 'Operational target';
     case 'owner': return 'Owner';
-    case 'source': return 'Source';
+    case 'source': return 'Data source';
     default: return kind ? kind[0].toUpperCase() + kind.slice(1) : 'Entity';
   }
+}
+
+/** kindLabelPlural is the user-facing plural of kindLabel (section headings, lists). */
+export function kindLabelPlural(kind: string | undefined): string {
+  return `${kindLabel(kind)}s`;
 }
 
 // ── revision-match certainty (a target's LinkState) ──────────────────────────
@@ -66,7 +81,7 @@ export function retrievabilityTone(identityClass: string | undefined, retrievabl
 export function knowledgeLabel(level: string | undefined): string {
   switch (level) {
     case 'complete': return 'Complete knowledge';
-    case 'empty': return 'Empty fleet';
+    case 'empty': return 'Nothing known yet';
     case 'partial': return 'Partial knowledge';
     case 'stale': return 'Stale knowledge';
     case 'unavailable': return 'Source unavailable';
@@ -113,6 +128,27 @@ export function provenanceLabel(p: string | undefined): string {
     case 'declared': return 'Expected';
     case 'observed': return 'Observed';
     default: return p || '';
+  }
+}
+
+// ── attention categories ─────────────────────────────────────────────────────
+// The backend enum (pkg/fleet/product.go) is the wire truth; these are the words a
+// first-time user reads. Readiness is one of them ON PURPOSE: readiness is a
+// dimension of triage (declared contract preparedness), not a separate workspace,
+// so this list is also the Overview's set of entry points into the triage view.
+export const ATTENTION_CATEGORIES = [
+  'non-compliant', 'unknown', 'stale', 'invalid', 'readiness', 'unresolved',
+] as const;
+
+export function attentionCategoryLabel(c: string | undefined): string {
+  switch (c) {
+    case 'non-compliant': return 'Not compliant';
+    case 'unknown': return 'Compliance unknown';
+    case 'stale': return 'Stale evidence';
+    case 'invalid': return 'Invalid contract';
+    case 'readiness': return 'Readiness gate';
+    case 'unresolved': return 'Unresolved revision';
+    default: return c || 'Other';
   }
 }
 

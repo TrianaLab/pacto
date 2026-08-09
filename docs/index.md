@@ -42,7 +42,7 @@ Pacto doesn't invent a new configuration language. An interface is a JSON Schema
 The contract states stable operational *intent*. It is deliberately not a deployment manifest and not a snapshot of every runtime detail — how a service is scheduled, scaled and wired stays with the platform, and what reality currently looks like is an *observation* gathered separately and evaluated against the contract. Pacto is an **operational contract system** made of three complementary pieces:
 
 - **CLI** — author, validate, diff, explain and publish contracts
-- **Dashboard** — explore contracts, dependency graphs, versions, readiness and diffs visually
+- **Dashboard** — see operational state, the service inventory, the operational graph and change analysis visually
 - **Kubernetes Operator** — one runtime evidence source that verifies live workloads still match the contract
 
 No sidecars. No new distribution plane. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification.
@@ -132,7 +132,7 @@ Pacto earns its keep when operational knowledge is scattered, implicit, or outda
 1. Developer writes a pacto.yaml alongside their code
 2. pacto validate checks it (structure, cross-references, policy)
 3. pacto push ships the contract to an OCI registry as a versioned artifact
-4. pacto dashboard explores contracts, graphs, versions, and diffs visually
+4. pacto dashboard shows operational state, the graph, and change analysis
 5. The Kubernetes operator verifies runtime stays faithful to the contract
 ```
 
@@ -183,7 +183,7 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
-- **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, readiness and diffs across local, OCI, and Kubernetes sources
+- **Operational dashboard** — `pacto dashboard` launches a web UI organised around four workflows — an operational **Overview**, the **Services** inventory, the **Operational Graph** and **Change analysis** — across local, OCI, and Kubernetes data sources
 - **Runtime fidelity verification** — the optional [Kubernetes Operator](integrations/kubernetes/overview.md) continuously checks that deployed services match their contracts — workload alignment, state model, capability reachability, and more
 - **AI assistant integration** — `pacto mcp` exposes contract create, edit, validate and schema operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor and GitHub Copilot
 

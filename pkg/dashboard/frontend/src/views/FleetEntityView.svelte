@@ -2,7 +2,7 @@
   import { api } from '../lib/api.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { kindLabel, knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
-  import { fleetOverviewUrl, fleetGraphFocusUrl, fleetImpactUrl, hashForHref } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, hashForHref } from '../lib/router.ts';
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
@@ -54,7 +54,7 @@
   // Entity-relationship breadcrumbs from canonical DTO refs (requirement H); a minimal
   // trail while loading/erroring.
   const trail = $derived(
-    detail ? fleetEntityBreadcrumbs(detail) : [{ label: 'Fleet', href: fleetOverviewUrl() }, { label: kindLabel(kind) }],
+    detail ? fleetEntityBreadcrumbs(detail) : [{ label: 'Overview', href: fleetOverviewUrl() }, { label: kindLabel(kind) }],
   );
 
   // The service this entity belongs to, for impact/compare actions.
@@ -62,19 +62,24 @@
     detail?.target?.service?.key || detail?.revision?.service?.key || (detail?.entity?.kind === 'service' ? detail?.entity?.key : ''),
   );
 
-  // Map the DTO's route-neutral action ids to canonical destinations. Product Compare
-  // and Impact share the fleet compare/impact workspace (the revision-selector view),
-  // per plan section J, so both route there with distinct framing.
-  // ponytail: compare and impact resolve to the same fleet workspace by design.
+  // Map the DTO's route-neutral action ids to canonical destinations. 'compare' and
+  // 'impact' are two stages of ONE question, so they resolve to the same Change analysis
+  // workspace and are emitted ONCE -- an entity page that offered both used to show two
+  // buttons that opened the identical screen. From a revision the workspace opens with
+  // that revision preselected as the later side, so the action continues the workflow the
+  // user is already in instead of restarting it.
   const actions = $derived.by(() => {
     if (!detail) return [];
     const e = detail.entity;
     const out = [];
+    let changeAdded = false;
     for (const a of detail.actions || []) {
       if (a === 'open-graph') out.push({ label: 'Open in graph', href: fleetGraphFocusUrl(e.kind, e.key) });
-      else if (a === 'compare' && svcKey) out.push({ label: 'Compare revisions', href: fleetImpactUrl(svcKey) });
-      else if (a === 'impact' && svcKey) out.push({ label: 'Analyze impact', href: fleetImpactUrl(svcKey) });
-      else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
+      else if ((a === 'compare' || a === 'impact') && svcKey && !changeAdded) {
+        changeAdded = true;
+        const opts = e.kind === 'revision' ? { new: e.key } : {};
+        out.push({ label: 'Compare revisions', href: fleetChangesUrl(svcKey, opts) });
+      } else if (a === 'service' && detail.target?.service?.href) out.push({ label: 'Open service', href: hashForHref(detail.target.service.href) });
     }
     return out;
   });
@@ -95,10 +100,18 @@
       {#if detail.status}<StatusBadge status={detail.status} />{/if}
     </header>
 
-    <div class="ev-key">
-      <span class="ev-key-label">Canonical key</span>
-      <CopyableIdentifier value={detail.entity.key} />
-    </div>
+    <!-- The canonical key is Pacto's precise identity for this entity and stays available
+         in full -- but it is ontology a first-time user has no use for, so it is one
+         disclosure away instead of the second thing on the page (requirement 9). Nothing
+         is lost: the value is unchanged and still copyable. -->
+    <details class="ev-ident">
+      <summary>Identifier</summary>
+      <div class="ev-key">
+        <span class="ev-key-label">Canonical key</span>
+        <CopyableIdentifier value={detail.entity.key} />
+      </div>
+      <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere — in the API, the CLI and shared links.</p>
+    </details>
 
     {#if knowledge.incomplete}
       <div class="ev-knowledge tone-{knowledgeTone(knowledge.level)}" role="status">
@@ -129,8 +142,14 @@
 <style>
   .entity-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   .ev-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+  .ev-ident > summary {
+    font-size: var(--text-sm); color: var(--c-text-3); cursor: pointer;
+    min-height: var(--touch-min); display: flex; align-items: center;
+  }
+  .ev-ident > summary:hover { color: var(--c-text-2); }
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-key-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .ev-key-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .ev-knowledge {
     padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm);
     background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);

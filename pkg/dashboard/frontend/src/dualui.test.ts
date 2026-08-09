@@ -107,4 +107,18 @@ describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', 
     expect(target.querySelector('h1')?.textContent).toContain('Services');
     unmount(app); document.body.removeChild(target);
   });
+
+  // The product migration canonicalizes #/readiness and #/diff into the product IA on a
+  // Fleet host. On the offline `pacto doc` export there IS no product IA, so the same
+  // routes must still mount their legacy screens -- canonicalizing there would strand
+  // the user on a route nothing serves.
+  it.each([
+    ['#/readiness', 'Service Readiness'],
+    ['#/diff', 'Compare Versions'],
+  ])('keeps %s on its legacy screen (there is no product route to send it to)', async (hash, heading) => {
+    const { target, app } = await mountAt(hash);
+    expect(location.hash).toBe(hash);
+    expect(target.querySelector('h1')?.textContent).toContain(heading);
+    unmount(app); document.body.removeChild(target);
+  });
 });

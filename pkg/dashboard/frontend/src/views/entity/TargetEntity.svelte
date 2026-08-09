@@ -30,7 +30,7 @@
 
 <div class="tgt-entity">
   <!-- The two orthogonal identity dimensions, side by side. -->
-  <section class="te-identity" aria-label="Deployment identity">
+  <section class="te-identity" aria-label="Operational target identity">
     <div class="te-dim">
       <span class="te-k">Revision match</span>
       <IdentityBadge label={linkStateLabel(d.linkState)} tone={linkStateTone(d.linkState)} />
@@ -49,18 +49,18 @@
     </div>
   {:else if unresolvedMatch}
     <div class="te-rev te-rev-unresolved" role="status">
-      No single revision is authoritative for this deployment ({linkStateLabel(d.linkState).toLowerCase()}); it is not attributed to a specific revision.
+      No single revision is authoritative for this target ({linkStateLabel(d.linkState).toLowerCase()}); it is not attributed to a specific revision.
     </div>
   {/if}
 
   <section class="te-facts">
     <div class="te-fact"><span class="te-k">Service</span><EntityLink ref={d.service} showStatus={false} /></div>
     {#if d.scope}<div class="te-fact"><span class="te-k">Scope</span><span>{d.scope}</span></div>{/if}
-    {#if d.kind}<div class="te-fact"><span class="te-k">Target kind</span><span>{d.kind}</span></div>{/if}
+    {#if d.kind}<div class="te-fact"><span class="te-k">Kind</span><span>{d.kind}</span></div>{/if}
     <div class="te-fact"><span class="te-k">Compliance</span><StatusBadge status={d.compliance} /></div>
     {#if d.coverage}<div class="te-fact"><span class="te-k">Evaluation coverage</span><span>{d.coverage.evaluated} of {d.coverage.required} evaluated</span></div>{/if}
-    {#if d.source}<div class="te-fact"><span class="te-k">Source</span><span>{d.source}</span></div>{/if}
-    {#if (d.sources?.count ?? 0) > 0}<div class="te-fact"><span class="te-k">Contributing sources</span><span>{d.sources.items.join(', ')}{d.sources.truncated ? ` (+${d.sources.total - d.sources.count})` : ''}</span></div>{/if}
+    {#if d.source}<div class="te-fact"><span class="te-k">Data source</span><span>{d.source}</span></div>{/if}
+    {#if (d.sources?.count ?? 0) > 0}<div class="te-fact"><span class="te-k">Contributing data sources</span><span>{d.sources.items.join(', ')}{d.sources.truncated ? ` (+${d.sources.total - d.sources.count})` : ''}</span></div>{/if}
     {#if d.evidenceAt}<div class="te-fact"><span class="te-k">Evidence at</span><span>{formatDate(d.evidenceAt)}</span></div>{/if}
     {#if d.reconciledAt}<div class="te-fact"><span class="te-k">Reconciled at</span><span>{formatDate(d.reconciledAt)}</span></div>{/if}
     {#if d.stale}<div class="te-fact"><IdentityBadge label="Evidence stale" tone="warn" /></div>{/if}

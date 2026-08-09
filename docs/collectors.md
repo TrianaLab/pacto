@@ -8,6 +8,11 @@ Kubernetes operator are *products* built around these roles:
 - **Evaluation engine** — the pure `Evaluate(contract, evidence)` function.
 - **Findings consumers / integration hosts** — surface or act on the results.
 
+A collector is *not* what the dashboard calls a **data source**. A data source is an
+ingestion seam that contributes revisions and targets to the
+[operational graph](operational-graph.md#sources); a collector produces the
+compliance evidence a source can then carry.
+
 The stable extension boundary is the **`EvidenceSet`**, not a collector interface.
 A *collector* is any component that observes a real system and produces a valid
 `EvidenceSet` the engine can evaluate. This is modularity through a stable Evidence

@@ -1,7 +1,8 @@
 /** Pure command-list builder for the ⌘K palette. No runes — unit-testable. */
 import {
   serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl,
-  fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl, fleetAttentionUrl,
+  fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl,
+  fleetAttentionUrl, fleetChangesUrl,
 } from './router';
 import { ownerKey, ownerMatchesFilter } from './format';
 
@@ -22,17 +23,23 @@ export interface CommandGroup {
 
 // On a Fleet-capable host the palette offers the PRODUCT destinations (never the legacy
 // routes), so the command palette can't be a back door to a superseded UI (Part 1); a
-// non-Fleet host keeps the legacy destinations, which are its only UI. Readiness and
-// Compare are retained specialized capabilities on both.
+// non-Fleet host keeps the legacy destinations, which are its only UI.
+//
+// The palette AGREES with the primary nav: the four primary destinations come first, in
+// nav order, and the secondary workspaces (the dimensions the nav deliberately does not
+// promote) follow -- so every workspace stays one keystroke away without the nav
+// pretending they are all equally fundamental. Readiness resolves to the Needs-attention
+// readiness category, the product's single definition of it.
 const FLEET_VIEWS: Command[] = [
   { kind: 'view', label: 'Overview', href: fleetOverviewUrl() },
   { kind: 'view', label: 'Services', href: fleetServicesUrl() },
   { kind: 'view', label: 'Operational Graph', href: fleetUrl() },
+  { kind: 'view', label: 'Change analysis', href: fleetChangesUrl() },
+  { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
   { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
-  { kind: 'view', label: 'Sources', href: fleetSourcesUrl() },
-  { kind: 'view', label: 'Attention', href: fleetAttentionUrl() },
-  { kind: 'view', label: 'Readiness', href: readinessUrl() },
-  { kind: 'view', label: 'Compare', href: compareDiffUrl() },
+  { kind: 'view', label: 'Data sources', href: fleetSourcesUrl() },
+  { kind: 'view', label: 'Readiness', href: fleetAttentionUrl({ category: 'readiness' }) },
+  { kind: 'view', label: 'Compare revisions', href: fleetChangesUrl() },
 ];
 const LEGACY_VIEWS: Command[] = [
   { kind: 'view', label: 'Services', href: '#/' },

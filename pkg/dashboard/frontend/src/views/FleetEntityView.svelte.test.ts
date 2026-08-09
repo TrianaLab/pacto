@@ -54,7 +54,8 @@ describe('FleetEntityView — unified entity route', () => {
     detailFn.mockResolvedValue(targetDetail());
     const { target, component } = mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => {
-      expect(target.textContent).toContain('Deployment'); // user-facing kind label for a target
+      expect(target.textContent).toContain('Operational target'); // user-facing kind label
+      expect(target.textContent).not.toContain('Deployment');     // Pacto observes, it never deploys
       expect(target.textContent).toContain('app');
       expect(target.querySelector('.copyable-value')?.textContent).toBe('prod/k8s/app');
     });
@@ -133,22 +134,29 @@ describe('FleetEntityView — rich service page (D)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  it('exposes Compare revisions and Analyze impact contextual actions', async () => {
+  // 'compare' and 'impact' are two stages of ONE question ("what changed, and what does
+  // that change affect?"), so they resolve to the same workspace and are offered ONCE.
+  // Two buttons opening the identical screen was the legacy seam this replaces.
+  it('offers the Change analysis workspace exactly once for compare AND impact', async () => {
     detailFn.mockResolvedValue(serviceDetail());
     const { target, component } = mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.querySelector('.ev-action')).toBeTruthy());
-    const labels = Array.from(target.querySelectorAll('a.ev-action')).map((a) => a.textContent?.trim());
-    expect(labels).toEqual(expect.arrayContaining(['Open in graph', 'Compare revisions', 'Analyze impact']));
+    const links = Array.from(target.querySelectorAll('a.ev-action'));
+    const labels = links.map((a) => a.textContent?.trim());
+    expect(labels).toEqual(['Open in graph', 'Compare revisions']);
+    expect(links.find((a) => a.textContent?.includes('Compare'))?.getAttribute('href'))
+      .toBe('#/fleet/changes/domain-a%2Fpayments');
     unmount(component); document.body.removeChild(target);
   });
 
-  it('breadcrumbs use the entity relationship (Fleet > Services > payments)', async () => {
+  it('breadcrumbs use the entity relationship (Overview > Services > payments)', async () => {
     detailFn.mockResolvedValue(serviceDetail());
     const { target, component } = mountView('service', 'domain-a/payments');
     // Wait for the detail to load (the entity trail replaces the loading fallback).
     await vi.waitFor(() => expect(target.textContent).toContain('Revisions'));
     const crumbs = Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim());
-    expect(crumbs.join(' > ')).toContain('Fleet');
+    expect(crumbs.join(' > ')).toContain('Overview');
+    expect(crumbs).not.toContain('Fleet');
     expect(crumbs).toEqual(expect.arrayContaining(['Services', 'payments']));
     unmount(component); document.body.removeChild(target);
   });
@@ -187,7 +195,9 @@ describe('FleetEntityView — rich revision page (E)', () => {
     const text = target.textContent || '';
     expect(text).toContain('Readiness');
     expect(text).toContain('Interfaces');
-    expect(text).toContain('Exact-match deployments');
+    expect(text).toContain('Running here (exact match)');
+    // Readiness must be legible as DECLARED preparedness, never read as a runtime result.
+    expect(text).toMatch(/not a measurement of the running system/i);
     // parent service is a link
     expect(Array.from(target.querySelectorAll('a.entity-link')).some((a) => a.getAttribute('href') === '#/fleet/services/domain-a%2Fpayments')).toBe(true);
     unmount(component); document.body.removeChild(target);
@@ -297,7 +307,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     expect(text).toContain('Available');
     expect(text).toContain('12 revisions');
     expect(text).toContain('1 of 20');   // contributed-entities preview honest count
-    expect(Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim())).toEqual(expect.arrayContaining(['Sources']));
+    expect(Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim())).toEqual(expect.arrayContaining(['Data sources']));
     unmount(component); document.body.removeChild(target);
   });
 

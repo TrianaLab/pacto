@@ -66,9 +66,9 @@ test.describe('WCAG A/AA axe gate over product states', () => {
     await audit(page, ti);
   });
 
-  test('Product Impact', async ({ page }, ti) => {
-    await page.goto('/#/fleet/impact/payments-service');
-    await expect(page.getByRole('heading', { level: 1, name: 'Impact' })).toBeVisible({ timeout: 20_000 });
+  test('Change analysis', async ({ page }, ti) => {
+    await page.goto('/#/fleet/changes/payments-service');
+    await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 });
     // Audit the SETTLED page, not the transient "Loading service revisions..." spinner
     // (whose fadeIn is caught mid-animation otherwise): the selector is enabled once the
     // revision universe has loaded.

@@ -116,18 +116,20 @@ describe('SourceHealth', () => {
 });
 
 describe('OperationalSummary', () => {
+  const summaryProps = (over = {}) => ({
+    summary: { servicesNeedingAttention: 2, exactTargetLinks: 5, inferredTargetLinks: 1, ambiguousTargetLinks: 1, unresolvedTargetLinks: 0, observedOnlyRelationships: 3, ...over },
+    entryPoints: [
+      // The backend's first attention entry point is the UNCATEGORISED one: the same
+      // "all attention" count the lead tile already shows.
+      { label: 'Services needing attention', count: 2, view: 'attention', href: '/fleet/attention' },
+      { label: 'Non-compliant operational targets', count: 2, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' },
+      { label: 'Operational targets with stale evidence', count: 4, view: 'attention', category: 'stale', href: '/fleet/attention?category=stale' },
+    ],
+    attentionTotal: 6,
+  });
+
   it('renders attention entry-point tiles with their backend hrefs and a revision-match breakdown', () => {
-    comp = mount(OperationalSummary, {
-      target,
-      props: {
-        summary: { servicesNeedingAttention: 2, exactTargetLinks: 5, inferredTargetLinks: 1, ambiguousTargetLinks: 1, unresolvedTargetLinks: 0, observedOnlyRelationships: 3 },
-        entryPoints: [
-          { label: 'Non-compliant deployments', count: 2, view: 'attention', href: '/fleet/attention?category=non-compliant' },
-          { label: 'Deployments with stale evidence', count: 4, view: 'attention', href: '/fleet/attention?category=stale' },
-        ],
-        attentionTotal: 6,
-      },
-    });
+    comp = mount(OperationalSummary, { target, props: summaryProps() });
     const nonCompliant = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('Non-compliant')) as HTMLAnchorElement;
     expect(nonCompliant.getAttribute('href')).toBe('#/fleet/attention?category=non-compliant');
     // Revision-match breakdown surfaces all four certainty buckets.
@@ -137,6 +139,24 @@ describe('OperationalSummary', () => {
     // The lead tile links to the full attention list.
     const lead = target.querySelector('a.tile-lead') as HTMLAnchorElement;
     expect(lead.getAttribute('href')).toBe('#/fleet/attention');
+  });
+
+  // The lead tile and the uncategorised entry point are the same measurement. Showing
+  // both put "2" on screen twice with two different wordings, which reads as two facts.
+  it('never repeats the lead attention count as a second tile', () => {
+    comp = mount(OperationalSummary, { target, props: summaryProps() });
+    const labels = Array.from(target.querySelectorAll('.tile-grid .tile-label')).map((n) => n.textContent);
+    expect(labels).not.toContain('Services needing attention');
+    expect(labels).toContain('Non-compliant operational targets');
+  });
+
+  it('agrees with itself on singular and plural observed-only counts', () => {
+    const label = () => Array.from(target.querySelectorAll('.tile-label')).map((n) => n.textContent).find((t) => t?.includes('undeclared'));
+    comp = mount(OperationalSummary, { target, props: summaryProps({ observedOnlyRelationships: 1 }) });
+    expect(label()).toBe('undeclared runtime call observed');
+    unmount(comp); comp = null;
+    comp = mount(OperationalSummary, { target, props: summaryProps({ observedOnlyRelationships: 2 }) });
+    expect(label()).toBe('undeclared runtime calls observed');
   });
 });
 

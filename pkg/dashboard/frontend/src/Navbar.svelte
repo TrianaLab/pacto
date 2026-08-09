@@ -1,5 +1,5 @@
 <script>
-  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, compareDiffUrl } from './lib/router.ts';
+  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import SourceDot from './components/SourceDot.svelte';
 
@@ -13,30 +13,40 @@
   // fleet-capable hosts (keyboard shortcut '/') and falls back to the command palette
   // (Cmd/Ctrl-K) otherwise. Its label and shortcut hint communicate the actual action.
   const isMac = typeof navigator !== 'undefined' && navigator.platform?.includes('Mac');
-  const searchLabel = $derived(fleetSearch ? 'Search the fleet' : 'Open command palette');
-  const searchPlaceholder = $derived(fleetSearch ? 'Search the fleet...' : 'Search...');
+  const searchLabel = $derived(fleetSearch ? 'Search services, revisions and targets' : 'Open command palette');
+  const searchPlaceholder = $derived(fleetSearch ? 'Search services, revisions, targets…' : 'Search...');
   const searchKbd = $derived(fleetSearch ? '/' : (isMac ? '⌘K' : 'Ctrl+K'));
 
-  // Persistent primary nav. `views` lists the route.view values that light the
-  // item. The Operational Graph is now the single graph/topology capability (the
-  // former standalone "Graph" folded into it, still reachable as a deep link);
-  // Impact is a contextual deep route launched from Compare or a selected
-  // service/revision, not a top-level empty page. `cap`, when set, requires that
-  // capability to be enabled on the host — so a fleet-less host never shows a dead
-  // Operational Graph tab.
-  // The Services primary destination is the product service list (/fleet/services) on
-  // fleet-capable hosts, falling back to the legacy list (#/) otherwise; both mark the
-  // Services tab active. Until capabilities are known (null), show everything; once
-  // known, hide items whose required capability the host does not serve.
+  // Persistent primary nav. `views` lists the route.view values that light the item.
+  //
+  // The product IA teaches ONE mental model, in order: state, then inventory, then
+  // relationships, then change. So a Fleet host has exactly four primary destinations
+  // (Overview, Services, Operational Graph, Change analysis), each answering a question
+  // a first-time user actually has. Owners, Data sources, Needs attention and Readiness
+  // are DIMENSIONS of those four -- reachable from the Overview, from entity pages and
+  // from the command palette -- not peer destinations. Desktop nav, the mobile drawer
+  // (which renders this same array) and the palette all agree on that ordering.
+  //
+  // `cap: 'fleet'` items are shown until capabilities are known and hidden once the host
+  // reports no fleet; `legacyOnly` items are the mirror image, appearing only once the
+  // host is confirmed NON-fleet -- so neither UI's destinations leak into the other.
   const nav = $derived(
     [
-      { label: 'Overview', href: fleetOverviewUrl(), views: ['fleet-overview', 'fleet-entity', 'fleet-attention', 'impact'], cap: 'fleet' },
-      { label: 'Services', href: capabilities?.fleet ? '#/fleet/services' : '#/', views: ['list', 'detail', 'fleet-services'] },
+      { label: 'Overview', href: fleetOverviewUrl(), views: ['fleet-overview', 'fleet-attention'], cap: 'fleet' },
+      // Services exists on BOTH host classes, so its href must be correct at every probe
+      // state -- including before capabilities resolve. '#/' was not: on a Fleet host it
+      // canonicalizes straight back to the Overview, so clicking Services during the probe
+      // silently did nothing. '#/services' is the one spelling that works everywhere: the
+      // legacy list on a legacy host, and canonicalized to /fleet/services on a Fleet one.
+      { label: 'Services', href: capabilities?.fleet ? '#/fleet/services' : '#/services', views: ['list', 'detail', 'fleet-services', 'fleet-entity', 'fleet-owners', 'fleet-sources'] },
       { label: 'Operational Graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
-      { label: 'Owners', href: capabilities?.fleet ? '#/fleet/owners' : ownersUrl(), views: ['owners', 'owner-detail', 'fleet-owners'] },
-      { label: 'Readiness', href: readinessUrl(), views: ['readiness'] },
-      { label: 'Compare', href: compareDiffUrl(), views: ['diff'] },
-    ].filter((item) => !item.cap || capabilities === null || capabilities[item.cap]),
+      { label: 'Change analysis', href: fleetChangesUrl(), views: ['changes'], cap: 'fleet' },
+      { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'], legacyOnly: true },
+      { label: 'Readiness', href: readinessUrl(), views: ['readiness'], legacyOnly: true },
+      { label: 'Compare', href: compareDiffUrl(), views: ['diff'], legacyOnly: true },
+    ].filter((item) => (item.legacyOnly
+      ? capabilities?.fleet === false
+      : !item.cap || capabilities === null || capabilities[item.cap])),
   );
   const isActive = (item) => item.views.includes(view);
 

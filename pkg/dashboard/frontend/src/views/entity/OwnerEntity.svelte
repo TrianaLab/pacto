@@ -25,7 +25,7 @@
     <PreviewSection title="Revisions" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} empty="No revisions.">
       <EntityRefList items={d.revisions?.items ?? []} showStatus={false} />
     </PreviewSection>
-    <PreviewSection title="Deployments" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} empty="No deployments.">
+    <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} empty="No running target observed.">
       <EntityRefList items={d.deployments?.items ?? []} />
     </PreviewSection>
   </div>

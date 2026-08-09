@@ -57,15 +57,19 @@
 </script>
 
 <div class="list-view">
-  <Breadcrumbs trail={[{ label: 'Fleet', href: fleetOverviewUrl() }, { label: 'Sources' }]} />
+  <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Data sources' }]} />
   <div class="lv-head">
-    <h1>Sources</h1>
-    {#if list}<span class="lv-total">{total} source{total === 1 ? '' : 's'}</span>{/if}
+    <h1>Data sources</h1>
+    {#if list}<span class="lv-total">{total} data source{total === 1 ? '' : 's'}</span>{/if}
   </div>
+  <!-- The distinction a first-time user needs here: a data source supplies records to
+       the snapshot, so a degraded one makes every other number incomplete rather than
+       zero. It is not a collector -- it does not observe anything by itself. -->
+  <p class="lv-lead">Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete — not zero.</p>
 
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
-      <input type="search" bind:value={textDraft} placeholder="Search sources..." aria-label="Search sources" />
+      <input type="search" bind:value={textDraft} placeholder="Search data sources..." aria-label="Search data sources" />
       <button type="submit" class="lv-btn">Search</button>
     </form>
     <label class="lv-field">
@@ -83,14 +87,14 @@
   {/if}
 
   {#if state.kind !== 'ready'}
-    <ProductEmptyState {state} noun="sources" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
+    <ProductEmptyState {state} noun="data sources" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
   {:else}
     <ul class="lv-list" data-testid="source-list">
       {#each list.entities as ref (ref.key)}
         <li class="lv-item"><EntityLink {ref} showStatus={true} /></li>
       {/each}
     </ul>
-    <nav class="lv-pager" aria-label="Source pages">
+    <nav class="lv-pager" aria-label="Data source pages">
       <span class="lv-range">Showing {shownFrom}–{shownTo} of {total}</span>
       <div class="lv-pager-btns">
         {#if hasPrev}<a class="lv-page" href={urlWith({}, prevOffset)} data-testid="source-prev" rel="prev">Previous</a>{:else}<span class="lv-page disabled" aria-disabled="true">Previous</span>{/if}
@@ -105,6 +109,7 @@
   .lv-head { display: flex; align-items: baseline; gap: var(--sp-3); }
   .lv-head h1 { margin: 0; }
   .lv-total { color: var(--c-text-3); }
+  .lv-lead { margin: 0; color: var(--c-text-3); font-size: var(--text-sm); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }

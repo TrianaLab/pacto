@@ -38,13 +38,13 @@ Non-semver tags (e.g. `latest`, `main`) are ignored during resolution. Digest-pi
 
 ## `pacto dashboard`
 
-Launches a contract exploration dashboard that aggregates data from all
+Launches an operational dashboard that aggregates data from all
 available sources (local filesystem, Kubernetes, OCI registries).
 
 The dashboard is the exploration and observability layer of the Pacto system.
-It visualizes the same contracts the CLI manages and the operator verifies —
-dependency graphs, version history, interfaces, configuration schemas, diffs,
-and runtime compliance — in a single unified view.
+It visualizes the same contracts the CLI manages and the operator verifies,
+organised around four workflows: an operational Overview, the Services
+inventory, the Operational Graph, and Change analysis.
 
 Each positional argument is a pacto source reference:
   - oci://registry/repo  → OCI registry source (can be repeated)

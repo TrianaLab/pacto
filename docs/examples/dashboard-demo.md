@@ -8,15 +8,18 @@ of demo contracts are compiled to WebAssembly, with no backend or live registry.
 To run the dashboard against your own services, see
 [Dashboard container](../dashboard-docker.md).
 
-It showcases the full UI against a realistic fleet:
+It showcases the full UI against a realistic set of services:
 
-- **Fleet & compliance** — eleven services across edge, domain, infra and
-  external tiers.
+- **Operational overview & compliance** — eleven services across edge, domain,
+  infra and external tiers.
 - **Dependency graph** — resolved from each contract's declared dependencies,
   with blast-radius highlighting.
-- **Version history & diff** — `payments-service` spans five versions; the
-  `v1.2.0 → v2.0.0` step is a breaking change that removes the `/charges` API.
-- **Readiness** — `payments-service` 2.1.0 declares a readiness gate that fails:
+- **Change analysis** — `payments-service` spans five versions; the
+  `v1.2.0 → v2.0.0` step is a breaking change that removes the `/charges` API,
+  and the same screen shows which consumers that break reaches.
+- **Readiness** — surfaced as a *Needs attention* category and on the revision
+  itself, never as a separate screen. `payments-service` 2.1.0 declares a
+  readiness gate that fails:
   a required check (the LLM-safety eval suite) is `not-done`, dropping its score
   to 70, below the required 80 — while `orders-service` 1.2.0 passes.
 

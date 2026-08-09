@@ -43,9 +43,14 @@
   <div class="se-grid">
     <PreviewSection title="Revisions" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} empty="No known revisions.">
       <EntityRefList items={d.revisions?.items ?? []} showStatus={false} />
+      <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
+           declared per revision and gated per revision. Rolling it up here would invent
+           a third definition of readiness, so the service page points at the one that
+           already exists instead. -->
+      <p class="se-hint">Readiness is declared per revision — open one to see its gate.</p>
     </PreviewSection>
 
-    <PreviewSection title="Deployments" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} empty="No observed deployments.">
+    <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} empty="No running target observed.">
       <EntityRefList items={d.deployments?.items ?? []} />
     </PreviewSection>
 
@@ -93,5 +98,6 @@
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
     background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
   }
+  .se-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .se-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-3); }
 </style>

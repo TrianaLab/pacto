@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   parseHash, navigate, serviceUrl, serviceVersionUrl, diffUrl, compareDiffUrl, ownersUrl, ownerUrl,
-  readinessUrl, fleetUrl, impactUrl,
+  readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
-  fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetImpactUrl,
+  fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
   legacyRedirectTarget, replaceHash,
 } from './router.ts';
 
@@ -78,8 +78,12 @@ describe('parseHash', () => {
     expect(parseHash('#/fleet/graph')).toEqual({ view: 'fleet', params: {} });
   });
 
-  it('parses impact route', () => {
-    expect(parseHash('#/impact')).toEqual({ view: 'impact', params: {} });
+  // #/impact was the standalone impact screen. It is now one half of the Change
+  // analysis workspace, so the old spelling still PARSES (bookmarks keep working) and
+  // resolves to the same view the canonical URL does.
+  it('parses the legacy impact route as change analysis', () => {
+    expect(parseHash('#/impact')).toEqual({ view: 'changes', params: {} });
+    expect(parseHash('#/fleet/changes')).toEqual({ view: 'changes', params: {} });
   });
 
   it('parses legacy diff route without query params', () => {
@@ -257,10 +261,14 @@ describe('parseHash — query strings on non-diff routes', () => {
     });
   });
 
-  it('parses impact deep-link params (old, new, observed) from the query', () => {
+  it('parses change-analysis deep-link params (old, new, observed) from the query', () => {
     expect(parseHash('#/impact?old=oci://x/a@sha256:1&new=oci://x/a@sha256:2&observed=1')).toEqual({
-      view: 'impact',
+      view: 'changes',
       params: { old: 'oci://x/a@sha256:1', new: 'oci://x/a@sha256:2', observed: '1' },
+    });
+    expect(parseHash('#/fleet/changes/domain-a%2Fpayments?old=a&new=b&observed=1')).toEqual({
+      view: 'changes',
+      params: { old: 'a', new: 'b', observed: '1', svc: 'domain-a/payments' },
     });
   });
 
@@ -368,8 +376,9 @@ describe('parseHash — fleet product IA (Phase 2)', () => {
     expect(fleetSourcesUrl({ sourceHealth: 'stale' })).toBe('#/fleet/sources?sourceHealth=stale');
   });
 
-  it('parses the service-scoped impact route', () => {
-    expect(parseHash('#/fleet/impact/domain-a%2Fpayments')).toEqual({ view: 'impact', params: { svc: 'domain-a/payments' } });
+  it('parses the service-scoped change-analysis route, old spelling included', () => {
+    expect(parseHash('#/fleet/changes/domain-a%2Fpayments')).toEqual({ view: 'changes', params: { svc: 'domain-a/payments' } });
+    expect(parseHash('#/fleet/impact/domain-a%2Fpayments')).toEqual({ view: 'changes', params: { svc: 'domain-a/payments' } });
   });
 
   it('parses a focused graph route (kind/key path segment)', () => {
@@ -394,7 +403,7 @@ describe('centralized fleet navigation builders', () => {
     expect(fleetGraphFocusUrl('service', 'a/b')).toBe('#/fleet/graph/service/a%2Fb');
     expect(fleetAttentionUrl()).toBe('#/fleet/attention');
     expect(fleetAttentionUrl({ category: 'non-compliant' })).toBe('#/fleet/attention?category=non-compliant');
-    expect(fleetImpactUrl('domain-a/payments')).toBe('#/fleet/impact/domain-a%2Fpayments');
+    expect(fleetChangesUrl('domain-a/payments')).toBe('#/fleet/changes/domain-a%2Fpayments');
   });
   it('fleetServicesUrl carries filters and a non-zero offset, dropping page 1', () => {
     expect(fleetServicesUrl()).toBe('#/fleet/services');
@@ -413,12 +422,18 @@ describe('centralized fleet navigation builders', () => {
   });
 });
 
-describe('impactUrl', () => {
-  it('returns impact URL', () => {
-    expect(impactUrl()).toBe('#/impact');
+describe('fleetChangesUrl', () => {
+  it('returns the unscoped workspace URL', () => {
+    expect(fleetChangesUrl()).toBe('#/fleet/changes');
   });
-  it('builds an impact deep link with both revisions and the observed toggle', () => {
-    expect(impactUrl({ old: 'a', new: 'b', observed: true })).toBe('#/impact?old=a&new=b&observed=1');
+  it('builds a shareable deep link with both revisions and the observed toggle', () => {
+    expect(fleetChangesUrl('domain-a/payments', { old: 'a', new: 'b', observed: true }))
+      .toBe('#/fleet/changes/domain-a%2Fpayments?old=a&new=b&observed=1');
+  });
+  // A service NAME is not a canonical ServiceKey, so it is carried as a resolvable hint
+  // in the query -- never promoted into the path where it would look canonical.
+  it('carries an unresolved legacy name as a query hint, never as the path key', () => {
+    expect(fleetChangesUrl('', { name: 'payments' })).toBe('#/fleet/changes?name=payments');
   });
 });
 
@@ -508,12 +523,25 @@ describe('legacyRedirectTarget (Part 1: legacy -> product canonicalization)', ()
     expect(legacyRedirectTarget('#/services/payments/versions/1.0.0')).toBeNull();
     expect(legacyRedirectTarget('#/owners/team-a')).toBeNull();
   });
-  it('returns null for retained and product routes (no redirect)', () => {
-    expect(legacyRedirectTarget('#/readiness')).toBeNull();
-    expect(legacyRedirectTarget('#/diff')).toBeNull();
-    expect(legacyRedirectTarget('#/impact')).toBeNull();
+  // Readiness and Compare are no longer retained legacy islands on a Fleet host:
+  // readiness is the attention view's readiness category and Compare is the Change
+  // analysis workspace, so both canonicalize instead of mounting a superseded screen.
+  it('canonicalizes the superseded Readiness and Compare screens', () => {
+    expect(legacyRedirectTarget('#/readiness')).toBe('#/fleet/attention?category=readiness');
+    expect(legacyRedirectTarget('#/diff')).toBe('#/fleet/changes');
+    expect(legacyRedirectTarget('#/diff?from_name=payments&to_name=payments')).toBe('#/fleet/changes?name=payments');
+    expect(legacyRedirectTarget('#/services/payments/diff')).toBe('#/fleet/changes?name=payments');
+  });
+  it('canonicalizes the old impact spellings, preserving the selected revisions', () => {
+    expect(legacyRedirectTarget('#/impact')).toBe('#/fleet/changes');
+    expect(legacyRedirectTarget('#/impact?svc=domain-a%2Fpayments&old=a&new=b&observed=1'))
+      .toBe('#/fleet/changes/domain-a%2Fpayments?old=a&new=b&observed=1');
+    expect(legacyRedirectTarget('#/fleet/impact/domain-a%2Fpayments')).toBe('#/fleet/changes/domain-a%2Fpayments');
+  });
+  it('returns null for product routes (no redirect)', () => {
     expect(legacyRedirectTarget('#/fleet')).toBeNull();
     expect(legacyRedirectTarget('#/fleet/services')).toBeNull();
+    expect(legacyRedirectTarget('#/fleet/changes')).toBeNull();
   });
 });
 

@@ -463,6 +463,13 @@ state for the service in a provider-neutral way. Each claim has a completion sta
 optional category and weight. The assessment includes an expiry date and scoring
 configuration. Pacto computes a readiness score from claim statuses and weights.
 
+Readiness is a **declared self-assessment**: it is what the service's authors say
+they have done, and Pacto checks the arithmetic and the expiry, not the underlying
+work. It is therefore a different question from **compliance**, which is decided
+from observed [evidence](../evidence-protocol.md) about a running workload. The
+dashboard keeps them apart: readiness appears on a revision and as a *Needs
+attention* category, never as a compliance verdict.
+
 ```yaml
 readiness:
   expires: "2027-06-30"  # assessment-level expiry (YYYY-MM-DD)
@@ -517,7 +524,7 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `expires` | string | Yes | Assessment-level expiry as a strict `YYYY-MM-DD` date. If the current date is past this date, ALL claims earn 0 weight regardless of status. Parsing is exact round-trip: zero-padded fields required and the value must re-serialize unchanged, so `2026-1-1`, RFC 3339 timestamps and impossible dates (e.g. `2026-02-30`) are rejected. |
-| `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (full compliance required). Enforced by `pacto validate --readiness` and the operator. |
+| `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (every claim must be complete). Enforced by `pacto validate --readiness` and the operator. |
 | `partialCredit` | number | No | Multiplier for `partial` status claims (0.0–1.0). Omitted ⇒ `0.5` (half credit). |
 | `claims` | [Claim](#claim-fields)[] | Yes | At least one claim. |
 | `history` | [HistoryEntry](#history-entry)[] | No | Audit trail of readiness assessment changes. |

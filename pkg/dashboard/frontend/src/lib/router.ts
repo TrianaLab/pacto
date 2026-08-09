@@ -5,7 +5,8 @@ export interface Route {
     | 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness'
     // Operational-graph (fleet) product IA. 'fleet' is the legacy operational GRAPH
     // (now mounted at /fleet/graph); the Phase-2 product routes are separate.
-    | 'fleet' | 'impact'
+    | 'fleet'
+    | 'changes'         // /fleet/changes[/:serviceKey]  Change analysis workspace
     | 'fleet-overview'  // /fleet            operational landing page
     | 'fleet-services'  // /fleet/services   product service list
     | 'fleet-owners'    // /fleet/owners     product owner list
@@ -93,17 +94,17 @@ export function parseHash(hash: string | null | undefined): Route {
     return parseFleet(path, query);
   }
 
-  // #/impact?old=&new=&observed=1 — the impact deep link carries the two revisions
-  // and the include-observed toggle so entry points (Compare, a service, a
-  // revision) can launch it preconfigured.
+  // #/impact?svc=&old=&new=&observed=1 — the superseded standalone impact deep link.
+  // It parses to the Change analysis workspace so an old bookmark still lands on the
+  // right screen; a Fleet host also canonicalizes the URL (legacyRedirectTarget).
   if (path === 'impact') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    if (qs.get('svc')) params.svc = qs.get('svc')!;
-    if (qs.get('old')) params.old = qs.get('old')!;
-    if (qs.get('new')) params.new = qs.get('new')!;
-    if (qs.get('observed')) params.observed = qs.get('observed')!;
-    return { view: 'impact', params };
+    for (const k of ['svc', 'old', 'new', 'observed']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
+    return { view: 'changes', params };
   }
 
   // #/owners/:id
@@ -121,7 +122,7 @@ export function parseHash(hash: string | null | undefined): Route {
  *   /fleet                          -> operational overview (landing)
  *   /fleet/graph[/:kind/:key][?...] -> operational graph (legacy FleetView)
  *   /fleet/attention[?category=]    -> attention list
- *   /fleet/impact/:serviceKey       -> impact, scoped to a service
+ *   /fleet/changes[/:serviceKey]    -> change analysis, scoped to a service
  *   /fleet/<plural>/:key            -> unified entity detail
  * The last path segment is a single percent-escaped key (the backend escapes '/'),
  * so decodeURIComponent recovers arbitrary canonical keys.
@@ -162,8 +163,22 @@ function parseFleet(path: string, query: string): Route {
     return { view: 'fleet-attention', params };
   }
 
-  const imp = rest.match(/^impact\/(.+)$/);
-  if (imp) return { view: 'impact', params: { svc: decodeURIComponent(imp[1]) } };
+  // Change analysis: ONE workspace answering "what changed, and what does that change
+  // affect". The service is a canonical ServiceKey path segment; `name` is only ever a
+  // migrated legacy compare bookmark, which the view resolves to a canonical key
+  // through the Product API rather than treating a display name as an identity.
+  // /fleet/impact/:key is the superseded spelling and parses here too.
+  if (rest === 'changes' || rest.startsWith('changes/') || rest.startsWith('impact/')) {
+    const params: Record<string, string> = {};
+    const qs = new URLSearchParams(query);
+    for (const k of ['name', 'old', 'new', 'observed']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
+    const svc = rest.match(/^(?:changes|impact)\/(.+)$/);
+    if (svc) params.svc = decodeURIComponent(svc[1]);
+    return { view: 'changes', params };
+  }
 
   // Bare /fleet/services is the product service LIST (the backend route builder emits
   // this canonical href for EntryPointServices). It must be matched before the
@@ -229,7 +244,7 @@ export function navigate(view: string, params: Record<string, string> = {}): voi
   // agree with parseHash, so 'fleet' goes to the graph, not the overview.
   else if (view === 'fleet') hash = fleetUrl();
   else if (view === 'fleet-overview') hash = fleetOverviewUrl();
-  else if (view === 'impact') hash = '#/impact';
+  else if (view === 'changes') hash = fleetChangesUrl(params.svc || '');
   else if (view === 'owners') hash = '#/owners';
   else if (view === 'owner-detail' && params.owner) hash = `#/owners/${encodeURIComponent(params.owner)}`;
   location.hash = hash;
@@ -241,10 +256,23 @@ export function navigate(view: string, params: Record<string, string> = {}): voi
 // covers only the STATIC 1:1 redirects (the fleet landing, and the service/owner/graph
 // LIST roots); name-bearing legacy detail URLs (#/services/:name, #/owners/:id) need a
 // Product-API lookup and are handled by the migration view, so they return null here.
-// It returns null for a URL with no product equivalent (readiness, compare, impact) or a
-// URL already under the product IA (#/fleet/...), so those are never redirected.
+// It returns null for a URL already under the product IA (#/fleet/...), so those are
+// never redirected.
 export function legacyRedirectTarget(hash: string | null | undefined): string | null {
-  const raw = (hash || '').replace(/^#\/?/, '').split('?')[0];
+  const full = (hash || '').replace(/^#\/?/, '');
+  const raw = full.split('?')[0];
+  const qs = new URLSearchParams(full.includes('?') ? full.slice(full.indexOf('?') + 1) : '');
+
+  // #/services/:name/diff[?from=&to=] -- a legacy same-service compare bookmark. Its
+  // service is a display NAME, so it is carried as `name` for the workspace to resolve
+  // to a canonical ServiceKey; the versions are dropped rather than guessed, because a
+  // version string is not a RevisionKey.
+  const svcDiff = raw.match(/^services\/(.+?)\/diff$/);
+  if (svcDiff) return fleetChangesUrl('', { name: decodeURIComponent(svcDiff[1]) });
+  // The superseded /fleet/impact/:key spelling of the same workspace.
+  const oldImpact = raw.match(/^fleet\/impact\/(.+)$/);
+  if (oldImpact) return fleetChangesUrl(decodeURIComponent(oldImpact[1]));
+
   switch (raw) {
     case '':
     case '/':
@@ -255,6 +283,21 @@ export function legacyRedirectTarget(hash: string | null | undefined): string | 
       return fleetGraphDiscoveryUrl();
     case 'owners':
       return fleetOwnersUrl();
+    // Readiness is a DIMENSION, not a destination: it is authored contract preparedness,
+    // shown on the revision that declares it and triaged as a Needs-attention category.
+    // The legacy route canonicalizes to that category rather than to a third definition.
+    case 'readiness':
+      return fleetAttentionUrl({ category: 'readiness' });
+    // Compare and Impact are two stages of ONE question ("what changed, and what does
+    // that change affect"), so both legacy routes canonicalize into Change analysis.
+    case 'diff':
+      return fleetChangesUrl('', { name: qs.get('from_name') || qs.get('to_name') || '' });
+    case 'impact':
+      return fleetChangesUrl(qs.get('svc') || '', {
+        old: qs.get('old') || '',
+        new: qs.get('new') || '',
+        observed: qs.get('observed') === '1',
+      });
     default:
       return null;
   }
@@ -421,18 +464,23 @@ export function fleetAttentionUrl(opts: {
   return str ? `#/fleet/attention?${str}` : '#/fleet/attention';
 }
 
-export function fleetImpactUrl(serviceKey: string): string {
-  return `#/fleet/impact/${encodeURIComponent(serviceKey)}`;
-}
-
-export function impactUrl(opts: { svc?: string; old?: string; new?: string; observed?: boolean } = {}): string {
+// fleetChangesUrl builds the Change analysis route. The service is a canonical
+// ServiceKey PATH segment (never a display name); `name` is only set when migrating a
+// legacy compare bookmark that had nothing but a name, and is mutually exclusive with a
+// resolved key. The selected revision pair and the include-observed toggle live in the
+// query, so an analysis is shareable and restored by back/forward.
+export function fleetChangesUrl(
+  serviceKey = '',
+  opts: { name?: string; old?: string; new?: string; observed?: boolean } = {},
+): string {
+  const base = serviceKey ? `#/fleet/changes/${encodeURIComponent(serviceKey)}` : '#/fleet/changes';
   const qs = new URLSearchParams();
-  if (opts.svc) qs.set('svc', opts.svc);
+  if (!serviceKey && opts.name) qs.set('name', opts.name);
   if (opts.old) qs.set('old', opts.old);
   if (opts.new) qs.set('new', opts.new);
   if (opts.observed) qs.set('observed', '1');
   const str = qs.toString();
-  return str ? `#/impact?${str}` : '#/impact';
+  return str ? `${base}?${str}` : base;
 }
 
 export function ownerUrl(key: string): string {

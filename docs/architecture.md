@@ -311,7 +311,9 @@ Performs async version checking against the GitHub releases API. Started in a ba
 
 ## Dashboard architecture
 
-The dashboard is complex enough to warrant its own design section. It provides a web-based UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs -- aggregated from multiple data sources. See the [Dashboard Container](dashboard-docker.md) guide for deployment.
+The dashboard is complex enough to warrant its own design section. It provides a web-based UI aggregated from multiple data sources. See the [Dashboard Container](dashboard-docker.md) guide for deployment.
+
+The sections below describe the **contract-exploration substrate**: the source model, aggregation and the `/api/services`-family endpoints, which are what a non-fleet host (the offline `pacto doc` export) serves. On a fleet-capable host that substrate is presented through the product IA -- **Overview**, **Services**, **Operational Graph** and **Change analysis** -- served by the bounded `/api/fleet/*` product endpoints described in [operational graph](operational-graph.md).
 
 ### Source model
 

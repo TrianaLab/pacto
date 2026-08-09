@@ -68,6 +68,11 @@
         <h2>Readiness</h2>
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
+      <!-- The distinction a first-time user cannot guess from the word "readiness":
+           this is the contract's own self-assessment of how prepared this revision is,
+           scored against a gate its authors declared. It says nothing about whether the
+           running system obeys the contract -- that is compliance, shown on the targets. -->
+      <p class="rr-lead">What the authors declared about this revision's preparedness — not a measurement of the running system.</p>
       <p class="rr-line">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.deferredCount ? ` · ${r.deferredCount} deferred` : ''}{r.expired ? ' · expired' : ''}</p>
       {#if (r.checks?.count ?? 0) > 0}
         <PreviewSection title="Readiness checks" total={r.checks?.total ?? 0} count={r.checks?.count ?? 0} truncated={r.checks?.truncated}>
@@ -132,12 +137,12 @@
 
   <div class="re-grid">
     {#if (d.exactTargets?.count ?? 0) > 0}
-      <PreviewSection title="Exact-match deployments" total={d.exactTargets?.total ?? 0} count={d.exactTargets?.count ?? 0} truncated={d.exactTargets?.truncated}>
+      <PreviewSection title="Running here (exact match)" total={d.exactTargets?.total ?? 0} count={d.exactTargets?.count ?? 0} truncated={d.exactTargets?.truncated}>
         <EntityRefList items={d.exactTargets?.items ?? []} />
       </PreviewSection>
     {/if}
     {#if (d.inferredTargets?.count ?? 0) > 0}
-      <PreviewSection title="Inferred-match deployments" total={d.inferredTargets?.total ?? 0} count={d.inferredTargets?.count ?? 0} truncated={d.inferredTargets?.truncated}>
+      <PreviewSection title="Running here (inferred match)" total={d.inferredTargets?.total ?? 0} count={d.inferredTargets?.count ?? 0} truncated={d.inferredTargets?.truncated}>
         <EntityRefList items={d.inferredTargets?.items ?? []} />
       </PreviewSection>
     {/if}
@@ -171,6 +176,7 @@
   .rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
   .rr-head h2 { margin: 0; font-size: var(--text-md); }
   .rr-line { color: var(--c-text-2); font-size: var(--text-sm); margin: var(--sp-2) 0 0; }
+  .rr-lead { color: var(--c-text-3); font-size: var(--text-sm); margin: 0; }
   .re-checks, .re-tools, .re-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .re-checks li, .re-tools li, .re-docs li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); }
   .rc-id, .rt-name { color: var(--c-text); }

@@ -8,11 +8,11 @@ export interface Crumb {
   href?: string;
 }
 
-/** Fleet › focused-node, or Fleet › By owner, or just Fleet. */
+/** Graph › focused-node, or Graph › By owner, or just Graph. */
 export function graphBreadcrumbs(f: { group: string; focus: string }): Crumb[] {
-  if (f.focus) return [{ label: 'Fleet', href: graphUrl() }, { label: f.focus }];
-  if (f.group === 'owner') return [{ label: 'Fleet', href: graphUrl() }, { label: 'By owner' }];
-  return [{ label: 'Fleet' }];
+  if (f.focus) return [{ label: 'Graph', href: graphUrl() }, { label: f.focus }];
+  if (f.group === 'owner') return [{ label: 'Graph', href: graphUrl() }, { label: 'By owner' }];
+  return [{ label: 'Graph' }];
 }
 
 // A minimal structural view of a product entity ref (never the whole DTO type).
@@ -34,24 +34,26 @@ function refCrumb(ref: RefLike | null | undefined, fallbackLabel: string): Crumb
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- reads a narrow subset of the DTO
 export function fleetEntityBreadcrumbs(detail: any): Crumb[] {
-  const fleet: Crumb = { label: 'Fleet', href: fleetOverviewUrl() };
+  // The trail roots at Overview, the product's home. "Fleet" is an internal word for
+  // the snapshot model and never appears in the trail a first-time user reads.
+  const root: Crumb = { label: 'Overview', href: fleetOverviewUrl() };
   const e: RefLike | undefined = detail?.entity;
-  if (!e || !e.kind) return [fleet];
+  if (!e || !e.kind) return [root];
   const services: Crumb = { label: 'Services', href: fleetServicesUrl() };
   switch (e.kind) {
     case 'service':
-      return [fleet, services, { label: e.label || e.key || 'service' }];
+      return [root, services, { label: e.label || e.key || 'service' }];
     case 'revision': {
       const leaf = detail.revision?.version ? `Revision ${detail.revision.version}` : (e.label || e.key || 'Revision');
-      return [fleet, services, refCrumb(detail.revision?.service, 'service'), { label: leaf }];
+      return [root, services, refCrumb(detail.revision?.service, 'service'), { label: leaf }];
     }
     case 'target':
-      return [fleet, services, refCrumb(detail.target?.service, 'service'), { label: `Deployment ${e.label || e.key || ''}`.trim() }];
+      return [root, services, refCrumb(detail.target?.service, 'service'), { label: e.label || e.key || 'Operational target' }];
     case 'owner':
-      return [fleet, { label: 'Owners', href: fleetOwnersUrl() }, { label: e.label || e.key || 'owner' }];
+      return [root, { label: 'Owners', href: fleetOwnersUrl() }, { label: e.label || e.key || 'owner' }];
     case 'source':
-      return [fleet, { label: 'Sources', href: fleetSourcesUrl() }, { label: e.label || e.key || 'source' }];
+      return [root, { label: 'Data sources', href: fleetSourcesUrl() }, { label: e.label || e.key || 'source' }];
     default:
-      return [fleet, { label: e.label || e.key || 'entity' }];
+      return [root, { label: e.label || e.key || 'entity' }];
   }
 }

@@ -17,6 +17,13 @@
     { label: 'Ambiguous', count: summary.ambiguousTargetLinks || 0, tone: (summary.ambiguousTargetLinks || 0) > 0 ? 'warn' : 'neutral' },
     { label: 'Unresolved', count: summary.unresolvedTargetLinks || 0, tone: (summary.unresolvedTargetLinks || 0) > 0 ? 'warn' : 'neutral' },
   ]);
+  // Exact/Inferred/Ambiguous/Unresolved is precise and load-bearing, but it is also the
+  // first taxonomy a novice hits on the landing page. The precision is kept; only its
+  // cost is reduced -- the headline is the one sentence anyone can read, and the
+  // four-way breakdown is one disclosure away.
+  const exactLinks = $derived(summary.exactTargetLinks || 0);
+  const totalLinks = $derived(revisionMatch.reduce((n, rm) => n + rm.count, 0));
+  const observedOnly = $derived(summary.observedOnlyRelationships || 0);
 </script>
 
 <div class="op-summary">
@@ -28,7 +35,11 @@
 
   <div class="tile-grid">
     {#each entryPoints as ep}
-      {#if ep.view === 'attention'}
+      <!-- Only the CATEGORISED attention entry points become tiles. The uncategorised
+           one is "all attention", which is already the lead tile above it -- rendering
+           both put the same number on screen twice, which a first-time reader takes for
+           two different measurements. -->
+      {#if ep.view === 'attention' && ep.category}
         <a class="tile tone-{tone(ep.count)}" href={hashForHref(ep.href)}>
           <span class="tile-count">{ep.count || 0}</span>
           <span class="tile-label">{ep.label}</span>
@@ -36,17 +47,27 @@
       {/if}
     {/each}
     <a class="tile tone-{tone(summary.observedOnlyRelationships)}" href={fleetUrl()}>
-      <span class="tile-count">{summary.observedOnlyRelationships || 0}</span>
-      <span class="tile-label">observed-only relationships</span>
+      <span class="tile-count">{observedOnly}</span>
+      <span class="tile-label">undeclared runtime call{observedOnly === 1 ? '' : 's'} observed</span>
     </a>
   </div>
 
-  <div class="rev-match" aria-label="Revision-match certainty across deployments">
-    <span class="rm-title">Revision match</span>
-    {#each revisionMatch as rm}
-      <span class="rm-chip tone-{rm.tone}"><b>{rm.count}</b> {rm.label}</span>
-    {/each}
-  </div>
+  <details class="rev-match">
+    <summary>
+      {#if totalLinks === 0}
+        <span class="rm-lead">Nothing running has been matched to a revision yet.</span>
+      {:else}
+        <span class="rm-lead">We know exactly which revision is running on <b>{exactLinks} of {totalLinks}</b> operational targets.</span>
+      {/if}
+      <span class="rm-toggle">Revision match detail</span>
+    </summary>
+    <p class="rm-help">How confidently each running target was tied to one revision. Anything short of an exact match still means something is running — only that we are less sure which revision it is.</p>
+    <div class="rm-chips">
+      {#each revisionMatch as rm}
+        <span class="rm-chip tone-{rm.tone}"><b>{rm.count}</b> {rm.label}</span>
+      {/each}
+    </div>
+  </details>
 </div>
 
 <style>
@@ -64,8 +85,16 @@
   .tile-count { font-size: var(--text-lg); font-weight: 700; color: var(--tone-c, var(--c-text)); }
   .tile-label { font-size: var(--text-sm); color: var(--c-text-2); }
   .tile-sub { font-size: var(--text-xs); color: var(--c-text-3); }
-  .rev-match { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .rm-title { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .rev-match { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .rev-match summary {
+    display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; cursor: pointer;
+    font-size: var(--text-sm); color: var(--c-text-2); min-height: var(--touch-min);
+  }
+  .rev-match summary::marker { color: var(--c-text-3); }
+  .rm-lead b { color: var(--c-text); }
+  .rm-toggle { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .rm-help { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .rm-chips { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .rm-chip {
     font-size: var(--text-xs); padding: 2px 8px; border-radius: var(--radius-xs);
     background: var(--c-surface-inset); color: var(--c-text-2);

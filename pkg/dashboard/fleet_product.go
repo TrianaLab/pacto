@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/trianalab/pacto/v3/pkg/diff"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/impact"
 )
@@ -194,6 +196,11 @@ const (
 	MaxImpactOwners        = 200
 	MaxImpactActiveTargets = 200
 	MaxImpactLimitations   = 100
+	// MaxImpactChanges bounds the field-level change list. MaxChangeValueRunes bounds
+	// EACH rendered value, so one changed OpenAPI schema cannot make the answer
+	// unbounded; both truncations are reported rather than silent.
+	MaxImpactChanges    = 300
+	MaxChangeValueRunes = 400
 )
 
 // ProductImpactConsumer is a navigable affected consumer with a bounded path.
@@ -220,6 +227,34 @@ type ProductImpactConsumersPage struct {
 	Items      []ProductImpactConsumer `json:"items"`
 }
 
+// ProductChange is one field-level semantic difference between the two revisions,
+// rendered for display. Values are STRINGS (not `any`): a change can carry a whole
+// OpenAPI schema, so the transport renders and bounds it here rather than shipping
+// an unbounded, untyped payload the client would have to format.
+type ProductChange struct {
+	Path           string `json:"path"`
+	Type           string `json:"type"`
+	Classification string `json:"classification"`
+	Reason         string `json:"reason,omitempty"`
+	OldValue       string `json:"oldValue,omitempty"`
+	NewValue       string `json:"newValue,omitempty"`
+	OldTruncated   bool   `json:"oldTruncated,omitempty"`
+	NewTruncated   bool   `json:"newTruncated,omitempty"`
+}
+
+// ProductChangesPreview is the bounded field-level diff, ordered breaking first.
+// Total counts EVERY change found, so a truncated preview never reads as the
+// complete set.
+type ProductChangesPreview struct {
+	Total       int             `json:"total"`
+	Count       int             `json:"count"`
+	Truncated   bool            `json:"truncated"`
+	Breaking    int             `json:"breaking"`
+	Potential   int             `json:"potential"`
+	NonBreaking int             `json:"nonBreaking"`
+	Items       []ProductChange `json:"items"`
+}
+
 // ProductRefsPreview is a bounded preview of navigable references (owners, targets).
 type ProductRefsPreview struct {
 	Total     int          `json:"total"`
@@ -243,6 +278,7 @@ type ProductImpact struct {
 	OldRevision    *ProductRef                `json:"oldRevision,omitempty"`
 	NewRevision    *ProductRef                `json:"newRevision,omitempty"`
 	Classification string                     `json:"classification"`
+	Changes        ProductChangesPreview      `json:"changes"`
 	Consumers      ProductImpactConsumersPage `json:"consumers"`
 	Owners         ProductRefsPreview         `json:"owners"`
 	ActiveTargets  ProductRefsPreview         `json:"activeTargets"`
@@ -413,6 +449,7 @@ func buildProductImpact(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKe
 		OldRevision:    productRefPtr(revisionRefFromRecord(fromRev)),
 		NewRevision:    productRefPtr(revisionRefFromRecord(toRev)),
 		Classification: res.Classification,
+		Changes:        boundProductChanges(res),
 		Consumers:      pageImpactConsumers(consumers, limit, offset),
 		Owners:         boundProductRefs(owners, MaxImpactOwners),
 		ActiveTargets:  boundProductRefs(targets, MaxImpactActiveTargets),
@@ -449,6 +486,68 @@ func pageImpactConsumers(all []ProductImpactConsumer, limit, offset int) Product
 		Total: total, Count: len(page), Limit: limit, Offset: start,
 		Truncated: truncated, NextOffset: next, Items: page,
 	}
+}
+
+// boundProductChanges renders the impact result's three change sets into ONE
+// display-ordered, bounded field-level diff: breaking first, then potentially
+// breaking, then non-breaking, which is the order a reviewer reads them in. Total
+// counts every change found, so a truncated preview is never mistaken for the whole
+// change.
+func boundProductChanges(res *impact.Result) ProductChangesPreview {
+	out := ProductChangesPreview{
+		Breaking:    len(res.BreakingChanges),
+		Potential:   len(res.PotentiallyBreakingChanges),
+		NonBreaking: len(res.NonBreakingChanges),
+		Items:       []ProductChange{},
+	}
+	out.Total = out.Breaking + out.Potential + out.NonBreaking
+	for _, set := range [][]diff.Change{res.BreakingChanges, res.PotentiallyBreakingChanges, res.NonBreakingChanges} {
+		for _, ch := range set {
+			if len(out.Items) >= MaxImpactChanges {
+				out.Truncated = true
+				out.Count = len(out.Items)
+				return out
+			}
+			oldVal, oldCut := renderChangeValue(ch.OldValue)
+			newVal, newCut := renderChangeValue(ch.NewValue)
+			out.Items = append(out.Items, ProductChange{
+				Path:           ch.Path,
+				Type:           ch.Type.String(),
+				Classification: ch.Classification.String(),
+				Reason:         ch.Reason,
+				OldValue:       oldVal, OldTruncated: oldCut,
+				NewValue: newVal, NewTruncated: newCut,
+			})
+		}
+	}
+	out.Count = len(out.Items)
+	return out
+}
+
+// renderChangeValue renders one diff value as a bounded display string. Composite
+// values are indented JSON (the same shape the client used to format itself); an
+// unmarshalable value falls back to Go's default formatting rather than vanishing.
+// It reports whether the value was cut so the UI can say so.
+func renderChangeValue(v any) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	var s string
+	switch t := v.(type) {
+	case string:
+		s = t
+	default:
+		if b, err := json.MarshalIndent(v, "", "  "); err == nil {
+			s = string(b)
+		} else {
+			s = fmt.Sprint(v)
+		}
+	}
+	r := []rune(s)
+	if len(r) > MaxChangeValueRunes {
+		return string(r[:MaxChangeValueRunes]), true
+	}
+	return s, false
 }
 
 // boundProductRefs bounds a reference list into a preview with truncation

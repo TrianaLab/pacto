@@ -38,7 +38,7 @@ function baseOverview(partial = false): any {
     attention: { total: 0, count: 0, truncated: false, items: [] },
     recentEvidence: { total: 0, count: 0, truncated: false, items: [] },
     entryPoints: [
-      { label: 'Non-compliant deployments', count: 0, view: 'attention', href: '/fleet/attention?category=non-compliant' },
+      { label: 'Non-compliant operational targets', count: 0, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' },
     ],
   };
 }
@@ -89,7 +89,7 @@ describe('FleetOverview — operational landing (scenarios 1-5)', () => {
       total: 1, count: 1, truncated: false,
       items: [{ entity: { kind: 'target', key: 'prod/k8s/app', label: 'app', href: '/fleet/targets/prod%2Fk8s%2Fapp', status: 'NonCompliant' }, severity: 'error', category: 'non-compliant', summary: 'contract violation', label: 'app' }],
     };
-    ov.entryPoints = [{ label: 'Non-compliant deployments', count: 1, view: 'attention', href: '/fleet/attention?category=non-compliant' }];
+    ov.entryPoints = [{ label: 'Non-compliant operational targets', count: 1, view: 'attention', category: 'non-compliant', href: '/fleet/attention?category=non-compliant' }];
     overviewFn.mockResolvedValue(ov);
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
@@ -133,7 +133,7 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
     const text = target.textContent || '';
     expect(text).not.toMatch(/all clear/i);
-    expect(text).not.toMatch(/every deployment is compliant/i);
+    expect(text).not.toMatch(/every operational target is compliant/i);
     expect(target.querySelector('.empty-fleet')).toBeTruthy();
     expect(text).toMatch(/no services tracked/i);
     unmount(component); document.body.removeChild(target);
@@ -145,7 +145,7 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
     const text = target.textContent || '';
     expect(text).not.toMatch(/all clear/i);
-    expect(text).not.toMatch(/every deployment is compliant/i);
+    expect(text).not.toMatch(/every operational target is compliant/i);
     expect(target.querySelector('.empty-fleet')).toBeFalsy(); // incomplete: not a confirmed-empty claim either
     expect(target.querySelector('.knowledge-banner')).toBeTruthy();
     unmount(component); document.body.removeChild(target);
@@ -155,7 +155,7 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     overviewFn.mockResolvedValue(baseOverview(false)); // services: 3, targets > 0, complete
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('.all-clear')).toBeTruthy());
-    expect(target.textContent).toMatch(/every deployment is compliant/i);
+    expect(target.textContent).toMatch(/every operational target is compliant/i);
     unmount(component); document.body.removeChild(target);
   });
 

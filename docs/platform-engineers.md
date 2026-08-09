@@ -261,13 +261,12 @@ Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for th
 
 ## Dashboard
 
-`pacto dashboard` launches the contract exploration dashboard — the same contracts the CLI manages and the operator verifies, visualized for:
+`pacto dashboard` launches the operational dashboard — the same contracts the CLI manages and the operator verifies, organised around four workflows:
 
-- Navigating service dependency chains and understanding blast radius
-- Inspecting interfaces (OpenAPI endpoints, gRPC definitions, event schemas)
-- Comparing versions and reviewing classified changes (breaking / non-breaking)
-- Exploring configuration schemas and policy references
-- Monitoring runtime compliance alongside contract content
+- **Overview** — what needs attention right now, and how complete the data behind that answer is
+- **Services** — the inventory, with interfaces, configuration schemas and policy references per service
+- **Operational Graph** — dependency chains and where each revision actually runs, declared against observed
+- **Change analysis** — what changed between two revisions, and what that change affects
 
 Sources (local, Kubernetes, OCI) are auto-detected at startup and merged per service. The platform-relevant behavior: when running alongside the Kubernetes operator, the dashboard auto-discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses, so a K8s deployment gives the full contract experience — version history, interface details, configuration schemas and diffs — without explicit OCI arguments.
 

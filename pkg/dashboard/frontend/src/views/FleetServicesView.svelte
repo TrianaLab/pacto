@@ -87,7 +87,7 @@
 </script>
 
 <div class="svc-view">
-  <Breadcrumbs trail={[{ label: 'Fleet', href: fleetOverviewUrl() }, { label: 'Services' }]} />
+  <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
   <div class="sv-head">
     <h1>Services</h1>
     {#if list}<span class="sv-total">{total} service{total === 1 ? '' : 's'}</span>{/if}

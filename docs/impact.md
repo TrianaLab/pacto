@@ -10,6 +10,9 @@ Impact is framework-independent (`pkg/impact`). It consumes the pure diff engine
 [operational-graph](operational-graph.md) read model, and imports no Kubernetes,
 OCI, dashboard, MCP or HTTP code. The same analysis therefore backs the CLI, an
 MCP tool and the dashboard, and every one of them returns the identical answer.
+`impact` is the name of the CLI command, the MCP tool and the Go package; in the
+dashboard the same analysis is presented as the **Change analysis** workspace,
+alongside the semantic diff it composes with.
 
 ---
 
@@ -145,17 +148,20 @@ agent can tell how much of the system the answer actually covers.
 
 ---
 
-## Dashboard: `/api/fleet/impact`
+## Dashboard: Change analysis
 
-The dashboard serves the analysis at the `/api/fleet/impact` endpoint, returning
-the same result model the CLI and MCP tool produce. It lets a reviewer see the
-affected consumers, targets, owners and per-consumer confidence for a proposed
-old→new change directly in the operational view, without leaving the browser.
+In the dashboard this analysis is one half of the **Change analysis** workspace,
+served by the `/api/fleet/impact` endpoint and returning the same result model the
+CLI and MCP tool produce. The workspace answers both halves of a single question on
+one screen — *what changed* between two revisions of a service, and *what that
+change affects* — so a reviewer never has to reconcile two screens that were asked
+about two different revision pairs.
 
-The Impact page is contextual: revision selectors are populated from the known
-revisions, and it can be launched preconfigured from a Diff result or a selected
-service in the Operational Graph. It analyzes the **currently published** Fleet
-Snapshot — the same one the Operational Graph shows — so the answer's `snapshotId`
+Change analysis is contextual: it is entered from the service or revision you are
+already looking at (the **Compare revisions** action), the revision selectors are
+populated from that service's known revisions, and the analyzed pair is in the URL
+so the answer itself is shareable. It analyzes the **currently published**
+snapshot — the same one the Operational Graph shows — so the answer's `snapshotId`
 matches the graph, never a divergent rebuild. Breaking and potentially-breaking
 changes are shown separately, and each consumer carries its path to the changed
 service, compatibility range and verdict, and confidence with an explanation.
@@ -169,7 +175,7 @@ dashboard never ships a control that would have no effect.
 
 ## It recommends review, it does not act
 
-Impact analysis lists **review targets**. It never recommends or performs an
+Impact analysis lists **what to review**. It never recommends or performs an
 autonomous action, and it never authorizes one.
 
 - **It does not act.** Rolling back, blocking a deploy, paging an owner or

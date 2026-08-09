@@ -90,20 +90,25 @@ type AffectedConsumer struct {
 
 // Result is the deterministic impact answer.
 type Result struct {
-	SchemaVersion              string             `json:"schemaVersion"`
-	SnapshotID                 string             `json:"snapshotId"`
-	AsOf                       time.Time          `json:"asOf"`
-	Service                    string             `json:"service"`
-	OldVersion                 string             `json:"oldVersion,omitempty"`
-	NewVersion                 string             `json:"newVersion,omitempty"`
-	Classification             string             `json:"classification"`
-	BreakingChanges            []diff.Change      `json:"breakingChanges,omitempty"`
-	PotentiallyBreakingChanges []diff.Change      `json:"potentiallyBreakingChanges,omitempty"`
-	Consumers                  []AffectedConsumer `json:"consumers"`
-	ActiveTargets              []string           `json:"activeTargets,omitempty"`
-	Owners                     []string           `json:"owners,omitempty"`
-	Completeness               fleet.Completeness `json:"completeness"`
-	Limitations                []fleet.Limitation `json:"limitations,omitempty"`
+	SchemaVersion              string        `json:"schemaVersion"`
+	SnapshotID                 string        `json:"snapshotId"`
+	AsOf                       time.Time     `json:"asOf"`
+	Service                    string        `json:"service"`
+	OldVersion                 string        `json:"oldVersion,omitempty"`
+	NewVersion                 string        `json:"newVersion,omitempty"`
+	Classification             string        `json:"classification"`
+	BreakingChanges            []diff.Change `json:"breakingChanges,omitempty"`
+	PotentiallyBreakingChanges []diff.Change `json:"potentiallyBreakingChanges,omitempty"`
+	// NonBreakingChanges completes the field-level semantic diff. The three change
+	// sets together are exactly diff.Result.Changes, partitioned by classification,
+	// so a consumer can present the WHOLE change (an added optional field is the most
+	// common real change) without re-running the diff over the same two contracts.
+	NonBreakingChanges []diff.Change      `json:"nonBreakingChanges,omitempty"`
+	Consumers          []AffectedConsumer `json:"consumers"`
+	ActiveTargets      []string           `json:"activeTargets,omitempty"`
+	Owners             []string           `json:"owners,omitempty"`
+	Completeness       fleet.Completeness `json:"completeness"`
+	Limitations        []fleet.Limitation `json:"limitations,omitempty"`
 }
 
 // Analyze compares old→new and projects the change onto the operational graph.
@@ -132,6 +137,8 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 			res.BreakingChanges = append(res.BreakingChanges, ch)
 		case diff.PotentialBreaking:
 			res.PotentiallyBreakingChanges = append(res.PotentiallyBreakingChanges, ch)
+		default:
+			res.NonBreakingChanges = append(res.NonBreakingChanges, ch)
 		}
 	}
 

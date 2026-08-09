@@ -106,15 +106,15 @@
 
 {#if open}
   <div class="es-backdrop" onclick={onClose} role="presentation">
-    <div class="es-panel" role="dialog" aria-modal="true" aria-label="Search the fleet" tabindex="-1" bind:this={panelEl} onkeydown={onPanelKeydown} onclick={(e) => e.stopPropagation()}>
+    <div class="es-panel" role="dialog" aria-modal="true" aria-label="Search services, revisions and targets" tabindex="-1" bind:this={panelEl} onkeydown={onPanelKeydown} onclick={(e) => e.stopPropagation()}>
       <div class="es-input-row">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input
           bind:this={inputEl}
           bind:value={query}
           type="text"
-          placeholder="Search services, revisions, deployments, owners, sources..."
-          aria-label="Search the fleet"
+          placeholder="Search services, revisions, operational targets, owners, data sources..."
+          aria-label="Search services, revisions and targets"
           onkeydown={onKeydown}
         />
         <kbd>Esc</kbd>
@@ -125,7 +125,7 @@
         {:else if error}
           <div class="es-msg es-err">Search unavailable: {error.message}</div>
         {:else if !query.trim()}
-          <div class="es-msg">Type to search across the fleet. Search is discovery, not a full listing.</div>
+          <div class="es-msg">Type to search across everything Pacto knows about. Search is discovery, not a full listing.</div>
         {:else if results.length === 0}
           <div class="es-msg">No entities match "{query}".</div>
         {:else}

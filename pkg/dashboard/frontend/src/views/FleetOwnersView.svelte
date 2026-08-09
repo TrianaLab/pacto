@@ -48,7 +48,7 @@
 </script>
 
 <div class="list-view">
-  <Breadcrumbs trail={[{ label: 'Fleet', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
+  <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
   <div class="lv-head">
     <h1>Owners</h1>
     {#if list}<span class="lv-total">{total} owner{total === 1 ? '' : 's'}</span>{/if}

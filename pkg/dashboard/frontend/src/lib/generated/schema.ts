@@ -1466,6 +1466,7 @@ export interface components {
             consumers: components["schemas"]["Impact.AffectedConsumer"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             newVersion?: string;
+            nonBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             oldVersion?: string;
             owners?: string[] | null;
             potentiallyBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
@@ -1730,6 +1731,30 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductChange: {
+            classification: string;
+            newTruncated?: boolean;
+            newValue?: string;
+            oldTruncated?: boolean;
+            oldValue?: string;
+            path: string;
+            reason?: string;
+            type: string;
+        };
+        ProductChangesPreview: {
+            /** Format: int64 */
+            breaking: number;
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductChange"][] | null;
+            /** Format: int64 */
+            nonBreaking: number;
+            /** Format: int64 */
+            potential: number;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductEdge: {
             /** Format: int64 */
             count?: number;
@@ -1807,6 +1832,7 @@ export interface components {
         };
         ProductImpact: {
             activeTargets: components["schemas"]["ProductRefsPreview"];
+            changes: components["schemas"]["ProductChangesPreview"];
             classification: string;
             consumers: components["schemas"]["ProductImpactConsumersPage"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];

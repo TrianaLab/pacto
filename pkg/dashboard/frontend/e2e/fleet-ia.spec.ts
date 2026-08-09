@@ -14,7 +14,7 @@ async function waitReady(page: Page) {
 
 async function openSearch(page: Page) {
   await page.keyboard.press('/');
-  await expect(page.getByRole('textbox', { name: 'Search the fleet' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('textbox', { name: 'Search services, revisions and targets' })).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe('WASM demo — fleet product IA', () => {
@@ -22,9 +22,9 @@ test.describe('WASM demo — fleet product IA', () => {
     await waitReady(page);
     await page.goto('/#/fleet');
     await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
-    // The overview summary (revision-match breakdown) proves it consumed the product
-    // overview, not a graph.
-    await expect(page.getByText('Revision match')).toBeVisible();
+    // The overview summary (revision-match breakdown, behind its disclosure) proves it
+    // consumed the product overview, not a graph.
+    await expect(page.getByText('Revision match detail')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible();
   });
 
@@ -51,36 +51,38 @@ test.describe('WASM demo — fleet product IA', () => {
   test('scenario 6/8-10: global search finds an entity and opens it by canonical identity', async ({ page }) => {
     await waitReady(page);
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search the fleet' }).fill('payment');
+    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
     const result = page.getByTestId('search-result').first();
     await expect(result).toBeVisible({ timeout: 20_000 });
     await result.click();
-    // Opened an exact entity route (any kind) with a canonical, copyable key.
+    // Opened an exact entity route (any kind). The canonical key is still there, one
+    // disclosure away; the page-ready signal is the entity's own heading.
     await expect(page).toHaveURL(/#\/fleet\/(services|revisions|targets|owners|sources)\//);
-    await expect(page.getByText('Canonical key')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20_000 });
   });
 
   test('scenario 11 + 13: a deep-linked entity route survives a reload (encoded key round-trips)', async ({ page }) => {
     await waitReady(page);
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search the fleet' }).fill('payment');
+    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
-    await expect(page.getByText('Canonical key')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20_000 });
     const url = page.url();
     expect(url).toMatch(/#\/fleet\//);
+    const heading = await page.getByRole('heading', { level: 1 }).textContent();
     await page.reload();
     // The same entity resolves after a reload from the deep link alone.
     await expect(page).toHaveURL(url);
-    await expect(page.getByText('Canonical key')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading || '', { timeout: 20_000 });
   });
 
   test('scenario 12: browser back returns from an entity to the overview', async ({ page }) => {
     await page.goto('/#/fleet');
     await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
     await openSearch(page);
-    await page.getByRole('textbox', { name: 'Search the fleet' }).fill('payment');
+    await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();
-    await expect(page.getByText('Canonical key')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20_000 });
     await page.goBack();
     await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
   });

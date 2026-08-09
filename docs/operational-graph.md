@@ -58,7 +58,10 @@ declared one.
 ## Sources
 
 The graph is assembled from **sources** — a framework-neutral ingestion seam. Each
-source observes what it can right now and contributes revisions and targets:
+source observes what it can right now and contributes revisions and targets.
+(The dashboard lists these as **Data sources**. They are not the same thing as an
+evidence [collector](collectors.md), which produces compliance evidence *for* a
+source to carry.)
 
 - **Local bundles** (`--local`) — the revision a developer is editing, before it
   is pushed.
@@ -191,14 +194,14 @@ flowchart LR
 
 - **Dashboard** — the visual front door. It builds one snapshot from every
   source it detects — local bundles, OCI, the disk cache and the live cluster —
-  and serves the operational graph and impact through `/api/fleet/*`. The
-  Operational Graph view offers three **perspectives** — **Services** (logical),
-  **Revisions** (content-addressed) and **Targets** (deployed instances) — and a
-  **Layer** control (declared · observed · reconciled · all). The Targets
-  perspective is honest about deployment: a deployed instance links to the
-  dependency **service** it depends on, never to each peer instance — a
-  full instance-to-instance mesh would assert runtime routing the snapshot never
-  observed, so it is never drawn.
+  and serves the operational graph and change analysis through `/api/fleet/*`.
+  The Operational Graph view offers three **perspectives** — **Services**
+  (logical), **Revisions** (content-addressed) and **Targets** (operational
+  targets — the places a revision runs) — and a **Layer** control (declared ·
+  observed · reconciled · all). The Targets perspective is honest about what it
+  can know: an operational target links to the dependency **service** it depends
+  on, never to each peer target — a full target-to-target mesh would assert
+  runtime routing the snapshot never observed, so it is never drawn.
 - **CLI (`pacto fleet …`)** — the five queries on the command line:
   `pacto fleet search`, `pacto fleet get`, `pacto fleet graph`, `pacto fleet
   status`, `pacto fleet explain`, plus `pacto fleet reconcile` (declared vs
@@ -247,9 +250,9 @@ diff with this graph to answer "if this revision ships, what is the transitive
 blast radius" — direct and transitive affected consumers, active targets, owners,
 a compatibility verdict and a per-consumer confidence grade. No new data, a new
 question over the same graph the dashboard and CLI already query. It is shipped
-today and exposed on the CLI, as the `pacto_impact` MCP tool and at the
-dashboard's `/api/fleet/impact` endpoint. See [Impact analysis](impact.md) for
-the full model.
+today and exposed on the CLI, as the `pacto_impact` MCP tool and — under the
+name **Change analysis**, paired with the semantic diff it composes with — in the
+dashboard. See [Impact analysis](impact.md) for the full model.
 
 ---
 
@@ -339,7 +342,7 @@ edge) or **insufficient** (no observation data at all — so it cannot be
 reconciled). The dashboard's *reconciled* layer shows only `matched` edges and
 never infers reconciliation from name resolution or from whether a provider is
 deployed. To feed observation data to the normal dashboard (so its Operational
-Graph, reconciliation and Impact see observed edges), pass offline OTLP/JSON
+Graph, reconciliation and Change analysis see observed edges), pass offline OTLP/JSON
 trace files with `pacto dashboard --traces <file>` (repeatable) or the
 `PACTO_DASHBOARD_TRACES` environment variable; the observed capability the UI
 advertises is derived from the published snapshot, never a hardcoded flag.

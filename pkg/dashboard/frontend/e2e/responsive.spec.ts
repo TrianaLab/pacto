@@ -13,8 +13,8 @@ const ROUTES: Array<{ hash: string; ready: (p: Page) => Promise<unknown> }> = [
   { hash: '#/fleet/services', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/attention', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/owners', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Owners' })).toBeVisible({ timeout: 20_000 }) },
-  { hash: '#/fleet/sources', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Sources' })).toBeVisible({ timeout: 20_000 }) },
-  { hash: '#/fleet/impact/payments-service', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Impact' })).toBeVisible({ timeout: 20_000 }) },
+  { hash: '#/fleet/sources', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Data sources' })).toBeVisible({ timeout: 20_000 }) },
+  { hash: '#/fleet/changes/payments-service', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/services/payments-service', ready: (p) => expect(p.locator('.ev-head')).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/graph', ready: (p) => expect(p.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/graph/service/payments-service', ready: (p) => expect(p.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 }) },
@@ -85,14 +85,14 @@ for (const w of WIDTHS) {
       }
     });
 
-    test('Product Impact with populated selectors and results stays within the body', async ({ page }) => {
-      await page.goto('/#/fleet/impact/payments-service');
-      await expect(page.getByRole('heading', { level: 1, name: 'Impact' })).toBeVisible({ timeout: 20_000 });
+    test('Change analysis with populated selectors and results stays within the body', async ({ page }) => {
+      await page.goto('/#/fleet/changes/payments-service');
+      await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 });
       await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
       await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.0' });
-      await page.getByRole('button', { name: /Analyze impact/ }).click();
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
       await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
-      expect(await bodyHasNoHorizontalOverflow(page), 'impact populated results (long paths)').toBe(true);
+      expect(await bodyHasNoHorizontalOverflow(page), 'change analysis populated results (long paths)').toBe(true);
     });
   });
 }

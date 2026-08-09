@@ -142,7 +142,7 @@ describe('FleetAttentionView — triage filters (I)', () => {
     await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
     expect(attentionFn).toHaveBeenCalledWith(expect.objectContaining({ category: 'stale', severity: 'warning' }));
     const chips = Array.from(target.querySelectorAll('.chip .chip-value')).map((c) => c.textContent);
-    expect(chips).toEqual(expect.arrayContaining(['stale', 'warning']));
+    expect(chips).toEqual(expect.arrayContaining(['Stale evidence', 'warning']));
     unmount(component); document.body.removeChild(target);
   });
 

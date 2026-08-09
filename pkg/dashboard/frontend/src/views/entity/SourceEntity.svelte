@@ -18,7 +18,7 @@
     {#if d.kind}<div class="src-fact"><span class="src-k">Kind</span><span>{d.kind}</span></div>{/if}
     {#if d.lastSuccessfulSync}<div class="src-fact"><span class="src-k">Last successful sync</span><span>{formatDate(d.lastSuccessfulSync)}</span></div>{/if}
     {#if d.observedAt}<div class="src-fact"><span class="src-k">Observed at</span><span>{formatDate(d.observedAt)}</span></div>{/if}
-    <div class="src-fact"><span class="src-k">Records</span><span>{d.revisionCount ?? 0} revisions · {d.targetCount ?? 0} deployments</span></div>
+    <div class="src-fact"><span class="src-k">Records</span><span>{d.revisionCount ?? 0} revisions · {d.targetCount ?? 0} operational targets</span></div>
   </section>
 
   {#if d.error}

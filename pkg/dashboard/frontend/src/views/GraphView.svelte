@@ -12,7 +12,7 @@
   import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
-  import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetImpactUrl, replaceHash } from '../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetChangesUrl, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
@@ -193,8 +193,8 @@
 
 <div class="graph-view">
   <Breadcrumbs trail={focused
-    ? [{ label: 'Fleet', href: fleetOverviewUrl() }, { label: 'Operational graph', href: fleetGraphDiscoveryUrl() }, { label: focusRef?.label || gs.key }]
-    : [{ label: 'Fleet', href: fleetOverviewUrl() }, { label: 'Operational graph' }]} />
+    ? [{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Operational graph', href: fleetGraphDiscoveryUrl() }, { label: focusRef?.label || gs.key }]
+    : [{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Operational graph' }]} />
 
   {#if !focused}
     <!-- Discovery state (requirement K): search-first, no fleet hairball, no request. -->
@@ -203,7 +203,7 @@
       <p class="disco-lead">The operational graph is search-first: pick one entity and see <strong>its</strong> local neighborhood render below. It never opens the whole fleet at once.</p>
 
       <form class="disco-search" role="search" onsubmit={submitSearch}>
-        <input type="search" bind:value={queryText} oninput={runSearch} placeholder="Search services, revisions, deployments..." aria-label="Search the fleet to focus the graph" />
+        <input type="search" bind:value={queryText} oninput={runSearch} placeholder="Search services, revisions, operational targets..." aria-label="Search for a service, revision or target to focus the graph" />
         <button type="submit" class="gv-btn gv-btn-primary">Search</button>
       </form>
 
@@ -236,7 +236,7 @@
             <line x1="30" y1="32" x2="66" y2="18" /><line x1="30" y1="32" x2="66" y2="46" /><line x1="66" y1="18" x2="96" y2="32" />
             <circle cx="30" cy="32" r="9" /><circle cx="66" cy="18" r="7" /><circle cx="66" cy="46" r="7" /><circle cx="96" cy="32" r="7" />
           </svg>
-          <p class="disco-ph-title">Select a service, revision or deployment to render its local graph</p>
+          <p class="disco-ph-title">Select a service, revision or operational target to render its local graph</p>
           <p class="disco-ph-sub">Search above, or start from an entity that needs attention. The graph appears right here once you pick a focus.</p>
         </div>
       {/if}
@@ -350,7 +350,7 @@
               <span class="lg-group">Nodes</span>
               <span class="lg-item"><span class="lg-node lg-service"></span> Service</span>
               <span class="lg-item"><span class="lg-node lg-revision"></span> Revision</span>
-              <span class="lg-item"><span class="lg-node lg-target"></span> Deployment</span>
+              <span class="lg-item"><span class="lg-node lg-target"></span> Operational target</span>
               <span class="lg-group">Relationship</span>
               <span class="lg-item"><span class="lg-edge lg-dep"></span> Depends on</span>
               <span class="lg-item"><span class="lg-edge lg-runs"></span> Runs</span>
@@ -424,7 +424,7 @@
             <div class="gv-drawer-actions">
               <a class="gv-link" href={hashForHref(selected.node.ref.href)}>Open full detail &rarr;</a>
               <a class="gv-link" href={fleetGraphFocusUrl(selected.node.ref.kind, selected.node.ref.key, { perspective: defaultPerspectiveForKind(selected.node.ref.kind), views: gs.views, direction: gs.direction })} data-testid="drawer-focus-here">Focus here</a>
-              {#if selected.node.ref.kind === 'service'}<a class="gv-link" href={fleetImpactUrl(selected.node.ref.key)}>Analyze impact &rarr;</a>{/if}
+              {#if selected.node.ref.kind === 'service'}<a class="gv-link" href={fleetChangesUrl(selected.node.ref.key)}>Compare revisions &rarr;</a>{/if}
             </div>
           </aside>
         {:else if selected.kind === 'edge' && selected.edge}
@@ -432,7 +432,7 @@
             <div class="gv-drawer-head"><h2>Relationship</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>
             <p class="gv-drow"><EntityLink ref={selected.edge.from} showStatus={false} /> <strong>{relationLabel(selected.edge.relation)}</strong> <EntityLink ref={selected.edge.to} showStatus={false} /></p>
             {#if selected.edge.relation === 'runs'}
-              <p class="gv-ddesc">This deployment runs the linked revision. It is an observed link at deployment scope, not a declared dependency.</p>
+              <p class="gv-ddesc">This operational target runs the linked revision. It is an observed link at target scope, not a declared dependency.</p>
             {:else}
               {#if selected.edge.difference}
                 <p class="gv-drow"><span class="gv-k">Difference</span> <IdentityBadge label={differenceLabel(selected.edge.difference)} tone={differenceTone(selected.edge.difference)} /></p>

@@ -382,9 +382,9 @@ func (q *Query) servicesNeedingAttention() int {
 func entryPoints(sum *OverviewSummary) []EntryPoint {
 	candidates := []EntryPoint{
 		{Label: "Services needing attention", Count: sum.ServicesNeedingAttention, View: EntryPointAttention},
-		{Label: "Non-compliant deployments", Count: sum.NonCompliantTargets, View: EntryPointAttention, Category: categoryNonCompliant},
-		{Label: "Deployments with stale evidence", Count: sum.StaleTargets, View: EntryPointAttention, Category: categoryStale},
-		{Label: "Deployments with unknown compliance", Count: sum.UnknownTargets, View: EntryPointAttention, Category: categoryUnknown},
+		{Label: "Non-compliant operational targets", Count: sum.NonCompliantTargets, View: EntryPointAttention, Category: categoryNonCompliant},
+		{Label: "Operational targets with stale evidence", Count: sum.StaleTargets, View: EntryPointAttention, Category: categoryStale},
+		{Label: "Operational targets with unknown compliance", Count: sum.UnknownTargets, View: EntryPointAttention, Category: categoryUnknown},
 		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid},
 		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved},
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices},
@@ -556,23 +556,23 @@ func (q *Query) targetAttention(t *TargetRecord) []AttentionItem {
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(t.ServiceKey), Label: t.DisplayName(),
 			Severity: severityError, Code: "NON_COMPLIANT", Category: categoryNonCompliant,
-			Summary: "Deployment has confirmed drift", Reason: "the target has confirmed compliance drift against its contract",
-			Source: t.Source, NextStep: "Open the deployment findings",
+			Summary: "Operational target has confirmed drift", Reason: "the target has confirmed compliance drift against its contract",
+			Source: t.Source, NextStep: "Open the findings for this operational target",
 		})
 	case StatusUnknown:
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(t.ServiceKey), Label: t.DisplayName(),
 			Severity: severityWarning, Code: "UNKNOWN", Category: categoryUnknown,
-			Summary: "Deployment compliance is unknown", Reason: "compliance is unknown because evidence is insufficient",
-			Source: t.Source, NextStep: "Check the deployment evidence source",
+			Summary: "Compliance of this operational target is unknown", Reason: "compliance is unknown because evidence is insufficient",
+			Source: t.Source, NextStep: "Check the evidence source for this operational target",
 		})
 	}
 	if t.Stale {
 		out = append(out, AttentionItem{
 			Entity: ref, Service: string(t.ServiceKey), Label: t.DisplayName(),
 			Severity: severityWarning, Code: "STALE_EVIDENCE", Category: categoryStale,
-			Summary: "Deployment evidence is stale", Reason: "the most recent evidence is older than the freshness window",
-			Source: t.Source, NextStep: "Refresh evidence for this deployment",
+			Summary: "Evidence for this operational target is stale", Reason: "the most recent evidence is older than the freshness window",
+			Source: t.Source, NextStep: "Refresh evidence for this operational target",
 		})
 	}
 	return out

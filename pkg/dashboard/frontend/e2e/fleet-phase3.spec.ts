@@ -26,7 +26,10 @@ async function openPaymentsService(page: Page) {
   await expect(row).toBeVisible({ timeout: T });
   await row.click();
   await expect(page).toHaveURL(/#\/fleet\/services\//);
-  await expect(page.getByText('Canonical key')).toBeVisible({ timeout: T });
+  // The page-ready signal is the entity's own heading, not its canonical key: the key is
+  // ontology a first-time user never needs, so it now lives behind the Identifier
+  // disclosure (its continued availability is asserted separately, in L21).
+  await expect(page.getByRole('heading', { level: 1, name: /^Service: / })).toBeVisible({ timeout: T });
 }
 
 test.describe('WASM demo — Phase-3 product pages', () => {
@@ -70,7 +73,7 @@ test.describe('WASM demo — Phase-3 product pages', () => {
     await expect(rev).toBeVisible({ timeout: T });
     await rev.click();
     await expect(page).toHaveURL(/#\/fleet\/revisions\//);
-    await expect(page.getByText('Canonical key')).toBeVisible({ timeout: T });
+    await expect(page.getByRole('heading', { level: 1, name: /^Revision: / })).toBeVisible({ timeout: T });
 
     // back to the service, then service -> deployment
     await openPaymentsService(page);
@@ -132,7 +135,7 @@ test.describe('WASM demo — Phase-3 product pages', () => {
   test('L18: a source navigates to a contributed entity', async ({ page }) => {
     await boot(page);
     await page.goto('/#/fleet/sources');
-    await expect(page.getByRole('heading', { name: 'Sources' })).toBeVisible({ timeout: T });
+    await expect(page.getByRole('heading', { name: 'Data sources' })).toBeVisible({ timeout: T });
     // The "local" source contributes the bundle services/revisions; open it (not the
     // partial edge-cluster source, which contributes nothing here).
     const local = page.locator('.lv-item a.entity-link', { hasText: 'local' }).first();
@@ -149,10 +152,20 @@ test.describe('WASM demo — Phase-3 product pages', () => {
   test('L19: entity breadcrumbs navigate (service page -> Services list)', async ({ page }) => {
     await boot(page);
     await openPaymentsService(page);
-    // The breadcrumb trail is Fleet > Services > <service>; clicking Services returns.
+    // The breadcrumb trail is Overview > Services > <service>; clicking Services returns.
     await page.getByRole('navigation').getByRole('link', { name: 'Services' }).first().click();
     await expect(page).toHaveURL(/#\/fleet\/services$/);
     await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible({ timeout: T });
+  });
+
+  // Progressive disclosure hides the expert identifier by DEFAULT; it must not remove it.
+  test('L21: the canonical key is still exact and copyable, one disclosure away', async ({ page }) => {
+    await boot(page);
+    await openPaymentsService(page);
+    await expect(page.getByText('Canonical key')).toBeHidden();
+    await page.locator('details.ev-ident > summary').click();
+    await expect(page.getByText('Canonical key')).toBeVisible({ timeout: T });
+    await expect(page.locator('.ev-key')).toContainText('payments-service');
   });
 
   test('L8: an attention filter deep link survives reload', async ({ page }) => {

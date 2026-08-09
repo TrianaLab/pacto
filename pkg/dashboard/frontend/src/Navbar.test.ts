@@ -81,10 +81,12 @@ describe('Navbar — search affordance communicates the actual action (A6)', () 
     return { target, component, btn, clicks };
   }
 
-  it('labels the visible affordance as fleet search with the "/" hint when fleet-capable', () => {
+  // "Search the fleet" named an internal package. The affordance now names what it
+  // actually searches, which is also what a first-time user would type.
+  it('names the things it searches, with the "/" hint, when fleet-capable', () => {
     const { target, component, btn } = mountWithSearch(true);
-    expect(btn.getAttribute('aria-label')).toBe('Search the fleet');
-    expect(btn.textContent).toContain('Search the fleet');
+    expect(btn.getAttribute('aria-label')).toBe('Search services, revisions and targets');
+    expect(btn.textContent).not.toMatch(/fleet/i);
     expect(btn.querySelector('.search-kbd')?.textContent).toBe('/');
     unmount(component); document.body.removeChild(target);
   });
@@ -138,6 +140,33 @@ describe('Navbar — the Pacto brand is the HOME affordance (Phase-2 IA residual
 
   it('never returns a fleet-capable user to the legacy landing via the logo', () => {
     expect(hrefs({ fleet: true, impact: true }).brand).not.toBe('#/');
+  });
+});
+
+describe('Navbar — four primary workflows (product IA)', () => {
+  // state -> inventory -> relationships -> change. Owners, data sources, needs-attention
+  // and readiness are DIMENSIONS of those workflows, reachable from the overview, the
+  // entity pages and the command palette, so they are deliberately not primary tabs.
+  it('a fleet host has exactly the four primary destinations, in order', () => {
+    expect(navLabels({ fleet: true, impact: true }))
+      .toEqual(['Overview', 'Services', 'Operational Graph', 'Change analysis']);
+  });
+
+  it('does not promote a dimension to a primary destination', () => {
+    const labels = navLabels({ fleet: true, impact: true });
+    for (const dimension of ['Owners', 'Readiness', 'Compare', 'Needs attention', 'Data sources']) {
+      expect(labels).not.toContain(dimension);
+    }
+  });
+
+  it('the mobile drawer offers the same destinations in the same order as the desktop nav', async () => {
+    const { target, component } = mountNavbar();
+    (target.querySelector('.hamburger') as HTMLButtonElement).click();
+    await Promise.resolve();
+    const desktop = Array.from(target.querySelectorAll('.navbar-nav-desktop .nav-link')).map((a) => a.textContent?.trim());
+    const mobile = Array.from(target.querySelectorAll('.mobile-nav-link')).map((a) => a.textContent?.trim());
+    expect(mobile).toEqual(desktop);
+    unmount(component); document.body.removeChild(target);
   });
 });
 

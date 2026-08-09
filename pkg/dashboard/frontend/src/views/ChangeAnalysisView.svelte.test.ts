@@ -1,10 +1,13 @@
 /**
- * Component tests for the Product Impact workspace (requirement A1). The workspace
- * is product-oriented end to end: it loads bounded product service/revision data
- * (never the raw FleetSnapshot), analyzes through the POST fleetImpactByIdentity with
- * canonical ServiceKey + RevisionKeys (never the legacy GET), pages consumers through
- * the product page metadata, and handles a snapshot-mismatch (409) honestly. `api` is
- * mocked so only the product endpoints are exercised.
+ * Component tests for the Change analysis workspace, the ONE screen that answers both
+ * halves of a single question: what changed between two revisions of a service, and what
+ * that change affects. It replaces the legacy name+version Compare screen, so it is
+ * canonical end to end: bounded product service/revision data (never the raw
+ * FleetSnapshot), the POST fleetImpactByIdentity with a canonical ServiceKey + two
+ * RevisionKeys (never the legacy GET), product page metadata for consumer paging, an
+ * honest 409 on a snapshot mismatch, and the field-level semantic diff carried in the
+ * same bounded answer so both halves describe the same revision pair. `api` is mocked so
+ * only the product endpoints are exercised.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
@@ -30,7 +33,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 });
 
 // @ts-expect-error — Svelte component has no declaration file
-import ImpactView from './ImpactView.svelte';
+import ChangeAnalysisView from './ChangeAnalysisView.svelte';
 import { ApiError } from '../lib/api.ts';
 
 const meta = { schemaVersion: 'pacto.dev/fleet-product/v1', snapshotId: 'sha256:abc', asOf: '2026-07-29T10:00:00Z', completeness: 'complete', sources: [{ id: 'oci', status: 'available' }] };
@@ -72,6 +75,14 @@ function impactResult(opts: { offset?: number; nextOffset?: number; match?: bool
       ],
     },
     owners: { total: 1, count: 1, truncated: false, items: [ref('owner', 'core', 'core')] },
+    changes: {
+      total: 3, count: 3, truncated: false, breaking: 1, potential: 1, nonBreaking: 1,
+      items: [
+        { path: 'paths./pay.post', type: 'removed', classification: 'BREAKING', reason: 'operation removed', oldValue: 'post /pay', newValue: '', oldTruncated: false, newTruncated: false },
+        { path: 'components.schemas.Pay.amount', type: 'changed', classification: 'POTENTIALLY_BREAKING', reason: 'type widened', oldValue: 'integer', newValue: 'number', oldTruncated: false, newTruncated: false },
+        { path: 'paths./refund.post', type: 'added', classification: 'NON_BREAKING', reason: 'operation added', oldValue: '', newValue: 'post /refund', oldTruncated: false, newTruncated: false },
+      ],
+    },
     activeTargets: { total: 1, count: 1, truncated: false, items: [ref('target', 'prod/k8s/billing', 'billing')] },
     limitations: { total: 0, count: 0, truncated: false, items: [] },
   };
@@ -80,12 +91,12 @@ function impactResult(opts: { offset?: number; nextOffset?: number; match?: bool
 function mountView(params: Record<string, unknown> = {}) {
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const component = mount(ImpactView, { target, props: { params } });
+  const component = mount(ChangeAnalysisView, { target, props: { params } });
   return { target, component };
 }
-const analyzeBtn = (t: HTMLElement) => Array.from(t.querySelectorAll('button')).find((b) => /analyze impact/i.test(b.textContent || '')) as HTMLButtonElement;
+const analyzeBtn = (t: HTMLElement) => Array.from(t.querySelectorAll('button')).find((b) => /compare revisions/i.test(b.textContent || '')) as HTMLButtonElement;
 
-describe('ImpactView — Product Impact workspace (requirement A1)', () => {
+describe('ChangeAnalysisView — one workspace for what changed and what it affects', () => {
   beforeEach(() => {
     for (const f of [detailFn, entitiesFn, impactFn, rawImpactFn, snapshotFn, capsFn]) f.mockReset();
     detailFn.mockResolvedValue(serviceDetail());
@@ -187,7 +198,7 @@ describe('ImpactView — Product Impact workspace (requirement A1)', () => {
     analyzeBtn(target).click();
     await vi.waitFor(() => {
       const text = target.textContent || '';
-      expect(text).toContain('Couldn’t analyze the impact');
+      expect(text).toContain('Couldn’t compare these revisions');
       expect(text).toContain('unretrievable content');
     });
     unmount(component); document.body.removeChild(target);
@@ -209,7 +220,7 @@ describe('ImpactView — Product Impact workspace (requirement A1)', () => {
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], text: 'pay' }));
     (target.querySelector('[data-testid="impact-picker-results"] button') as HTMLButtonElement).click();
     flushSync();
-    expect(location.hash).toBe('#/fleet/impact/domain-a%2Fpayments');
+    expect(location.hash).toBe('#/fleet/changes/domain-a%2Fpayments');
     expect(snapshotFn).not.toHaveBeenCalled();
     unmount(component); document.body.removeChild(target);
   });
@@ -238,6 +249,151 @@ describe('ImpactView — Product Impact workspace (requirement A1)', () => {
     const { target, component } = mountView({ svc: 'domain-a/big' });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-revisions-incomplete"]')).toBeTruthy());
     expect(snapshotFn).not.toHaveBeenCalled();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // The two halves are ONE workspace but TWO claims: "the contract changed" and
+  // "something running is affected" have different evidence, so they are separate,
+  // labelled stages rather than one merged verdict.
+  it('renders both stages of the question from a single analysis', async () => {
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-what-changed"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="changes-what-it-affects"]')).toBeTruthy();
+    // one POST answered both halves; the legacy name+version diff endpoint is not used
+    expect(impactFn).toHaveBeenCalledTimes(1);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('preserves the field-level semantic diff, breaking first, with per-class counts', async () => {
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-counts"]')).toBeTruthy());
+    const counts = target.querySelector('[data-testid="changes-counts"]')?.textContent || '';
+    expect(counts).toContain('1 breaking');
+    expect(counts).toContain('1 potentially breaking');
+    expect(counts).toContain('1 non-breaking');
+    const stage = target.querySelector('[data-testid="changes-what-changed"]') as HTMLElement;
+    const rows = Array.from(stage.querySelectorAll('tbody tr')).map((r) => r.textContent || '');
+    expect(rows.length).toBe(3);
+    expect(rows[0]).toContain('paths./pay.post');            // breaking first
+    expect(rows[0]).toContain('operation removed');          // the reason, not just a count
+    expect(stage.textContent).toContain('components.schemas.Pay.amount');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('reports a truncated diff honestly instead of implying it is the whole change', async () => {
+    impactFn.mockResolvedValue({
+      ...impactResult(),
+      changes: { total: 900, count: 1, truncated: true, breaking: 1, potential: 0, nonBreaking: 899, items: [{ path: 'a', type: 'removed', classification: 'BREAKING', reason: 'gone', oldValue: 'x', newValue: '', oldTruncated: false, newTruncated: false }] },
+    });
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-truncated"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="changes-truncated"]')?.textContent).toContain('900');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('an identical pair of revisions says so instead of rendering an empty table', async () => {
+    impactFn.mockResolvedValue({ ...impactResult(), changes: { total: 0, count: 0, truncated: false, breaking: 0, potential: 0, nonBreaking: 0, items: [] } });
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.textContent).toContain('No differences'));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('makes the analyzed revision pair shareable in the URL', async () => {
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(location.hash).toContain('/fleet/changes/domain-a%2Fpayments'));
+    expect(location.hash).toContain('old=' + encodeURIComponent('domain-a/payments@sha256:1'));
+    expect(location.hash).toContain('new=' + encodeURIComponent('domain-a/payments@sha256:2'));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // A shared link promises the ANSWER the sender saw, not a pre-filled form.
+  it('restores the exact revision pair from a shared link AND re-runs the comparison', async () => {
+    const { target, component } = mountView({ svc: 'domain-a/payments', old: 'domain-a/payments@sha256:2', new: 'domain-a/payments@sha256:1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-what-changed"]')).toBeTruthy());
+    expect((target.querySelector('#impact-old-rev') as HTMLSelectElement).value).toBe('domain-a/payments@sha256:2');
+    expect((target.querySelector('#impact-new-rev') as HTMLSelectElement).value).toBe('domain-a/payments@sha256:1');
+    expect(impactFn).toHaveBeenCalledWith(expect.objectContaining({
+      fromRevisionKey: 'domain-a/payments@sha256:2', toRevisionKey: 'domain-a/payments@sha256:1',
+    }));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // Half a link is not an answer: it must not silently analyze a pair the sender never
+  // chose, so it degrades to the selectors.
+  it('does not auto-run when the shared link names only one side', async () => {
+    const { target, component } = mountView({ svc: 'domain-a/payments', new: 'domain-a/payments@sha256:1' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    await Promise.resolve();
+    expect(impactFn).not.toHaveBeenCalled();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('ignores a revision key this service does not have rather than asking the backend about it', async () => {
+    const { target, component } = mountView({ svc: 'domain-a/payments', old: 'domain-a/payments@sha256:deleted' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-old-rev')).toBeTruthy());
+    expect((target.querySelector('#impact-old-rev') as HTMLSelectElement).value).toBe('domain-a/payments@sha256:1'); // the default pair
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+// A legacy Compare bookmark carries a service NAME, which is not a canonical ServiceKey:
+// domain-a/payments and domain-b/payments are both named "payments". The migration must
+// resolve the name through the Product API and never guess a domain. (These guarantees
+// used to live on the legacy Compare screen's impact CTA, which this workspace replaces.)
+describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', () => {
+  beforeEach(() => {
+    for (const f of [detailFn, entitiesFn, impactFn, rawImpactFn, snapshotFn, capsFn]) f.mockReset();
+    detailFn.mockResolvedValue(serviceDetail());
+    impactFn.mockResolvedValue(impactResult());
+    capsFn.mockResolvedValue({ fleet: true, impact: true, observed: false });
+    location.hash = '';
+  });
+
+  it('canonicalizes a unique name to its ServiceKey URL', async () => {
+    entitiesFn.mockResolvedValue({ meta, total: 1, count: 1, entities: [ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' })] });
+    const { target, component } = mountView({ name: 'payments' });
+    await vi.waitFor(() => expect(location.hash).toBe('#/fleet/changes/domain-a%2Fpayments'));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], text: 'payments' }));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('asks which one when several services share the name, picking no arbitrary winner', async () => {
+    entitiesFn.mockResolvedValue({ meta, total: 2, count: 2, entities: [
+      ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' }),
+      ref('service', 'domain-b/payments', 'payments', { domain: 'domain-b' }),
+    ] });
+    const { target, component } = mountView({ name: 'payments' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-migrate-note"]')).toBeTruthy());
+    expect(location.hash).toBe(''); // no service was chosen for the user
+    const options = Array.from(target.querySelectorAll('[data-testid="impact-picker-results"] button')).map((b) => b.textContent);
+    expect(options).toEqual(['payments (domain-a)', 'payments (domain-b)']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('never resolves a substring match as the bookmarked service', async () => {
+    entitiesFn.mockResolvedValue({ meta, total: 1, count: 1, entities: [ref('service', 'domain-a/payments-legacy', 'payments-legacy', { domain: 'domain-a' })] });
+    const { target, component } = mountView({ name: 'payments' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-migrate-note"]')).toBeTruthy());
+    expect(location.hash).toBe('');
+    expect(target.querySelector('[data-testid="changes-migrate-note"]')?.textContent).toMatch(/no service named/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('surfaces a failed resolution as an error, never as "no such service"', async () => {
+    entitiesFn.mockRejectedValue(new ApiError(503, 'unavailable'));
+    const { target, component } = mountView({ name: 'payments' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-picker-error"]')).toBeTruthy());
+    expect(target.querySelector('[data-testid="changes-migrate-note"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 });

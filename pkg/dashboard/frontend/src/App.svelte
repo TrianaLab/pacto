@@ -22,7 +22,7 @@
   import FleetSourcesView from './views/FleetSourcesView.svelte';
   import FleetEntityView from './views/FleetEntityView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
-  import ImpactView from './views/ImpactView.svelte';
+  import ChangeAnalysisView from './views/ChangeAnalysisView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
 
   let route = $state(parseHash(location.hash));
@@ -61,14 +61,13 @@
         await api.refresh().catch(() => {});
       }
 
-      // Retained specialized capabilities (Compare, Readiness) consume the legacy
-      // services plane on every host. The other legacy views only render on a NON-Fleet
-      // host (a Fleet host redirects them to the product IA), so they need the legacy
-      // list only there -- a product route never triggers api.services() (Part 1.5).
-      const retainedNeedsServices = route.view === 'diff' || route.view === 'readiness';
-      const legacyNeedsServices = capabilities?.fleet !== true &&
-        (route.view === 'list' || route.view === 'graph' || route.view === 'owners' || route.view === 'owner-detail');
-      const needsServices = retainedNeedsServices || legacyNeedsServices;
+      // The legacy services plane is a NON-Fleet-host concern only. Compare and Readiness
+      // used to fetch it on every host; on a Fleet host they are now Change analysis and
+      // the revision/attention readiness surfaces, which are Product-API-only. So no
+      // product route triggers api.services() any more (Part 1.5).
+      const needsServices = capabilities?.fleet !== true &&
+        (route.view === 'list' || route.view === 'graph' || route.view === 'owners' ||
+         route.view === 'owner-detail' || route.view === 'diff' || route.view === 'readiness');
 
       let servicesFailed = false;
       const [svcList, srcData, health, caps] = await Promise.all([
@@ -253,14 +252,21 @@
       {@render migrating()}
     {/if}
   {:else if route.view === 'diff'}
-    <DiffView
-      name={route.params.name || ''}
-      initialFrom={route.params.fromVer || route.params.from || ''}
-      initialTo={route.params.toVer || route.params.to || ''}
-      initialFromName={route.params.fromName || route.params.name || ''}
-      initialToName={route.params.toName || route.params.name || ''}
-      {services}
-    />
+    <!-- Legacy Compare: name+version keyed, so it is superseded on a Fleet host by the
+         canonical Change analysis workspace (redirected via the effect). It remains the
+         only compare screen on the non-Fleet doc export. -->
+    {#if legacyHost}
+      <DiffView
+        name={route.params.name || ''}
+        initialFrom={route.params.fromVer || route.params.from || ''}
+        initialTo={route.params.toVer || route.params.to || ''}
+        initialFromName={route.params.fromName || route.params.name || ''}
+        initialToName={route.params.toName || route.params.name || ''}
+        {services}
+      />
+    {:else}
+      {@render migrating()}
+    {/if}
   {:else if route.view === 'graph'}
     <!-- Legacy standalone graph: superseded by the Operational Graph on a Fleet host
          (redirected via the effect); retained for the non-Fleet doc export deep link. -->
@@ -270,7 +276,15 @@
       {@render migrating()}
     {/if}
   {:else if route.view === 'readiness'}
-    <ReadinessView {services} {initialLoading} />
+    <!-- Legacy Readiness: a service-name-keyed third definition of preparedness. On a
+         Fleet host readiness is a DIMENSION -- declared on the revision page that owns it
+         and triaged as the Needs-attention readiness category -- so this route redirects
+         there (via the effect) rather than mounting a competing screen. -->
+    {#if legacyHost}
+      <ReadinessView {services} {initialLoading} />
+    {:else}
+      {@render migrating()}
+    {/if}
   {:else if route.view === 'fleet-overview'}
     <FleetOverview {refreshTick} />
   {:else if route.view === 'fleet-services'}
@@ -308,8 +322,8 @@
     />
   {:else if route.view === 'fleet'}
     <GraphView params={route.params} {refreshTick} />
-  {:else if route.view === 'impact'}
-    <ImpactView params={route.params} />
+  {:else if route.view === 'changes'}
+    <ChangeAnalysisView params={route.params} />
   {:else if route.view === 'owners'}
     <!-- Owners: product owners on a Fleet host (redirected via the effect); legacy list
          only on a non-Fleet host. -->

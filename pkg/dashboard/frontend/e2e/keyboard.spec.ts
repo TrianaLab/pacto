@@ -10,7 +10,7 @@ async function ready(page: Page) {
 }
 
 test.describe('keyboard operability', () => {
-  test('"/" opens Fleet search outside an input; Escape closes it', async ({ page }) => {
+  test('"/" opens entity search outside an input; Escape closes it', async ({ page }) => {
     await ready(page);
     await page.keyboard.press('/');
     await expect(page.locator('.es-panel')).toBeVisible();

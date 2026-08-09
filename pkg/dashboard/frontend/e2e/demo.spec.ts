@@ -65,9 +65,11 @@ test.describe('WASM dashboard demo — workflows', () => {
     // an entity deep link is preserved too
     await page.goto('/#/fleet/services');
     await expect(page).toHaveURL(/#\/fleet\/services$/, { timeout: 20_000 });
-    // a legacy but explicit route is preserved (only the ABSENT/default entry canonicalizes)
+    // A legacy route WITHOUT a product equivalent is preserved verbatim; one WITH a
+    // product equivalent canonicalizes instead of mounting a second UI. Readiness has
+    // one (it is triaged as a Needs-attention category), so it canonicalizes.
     await page.goto('/#/readiness');
-    await expect(page).toHaveURL(/#\/readiness$/, { timeout: 20_000 });
+    await expect(page).toHaveURL(/#\/fleet\/attention\?category=readiness$/, { timeout: 20_000 });
   });
 
   test('the embedded fleet loads (product service list)', async ({ page }) => {
@@ -140,12 +142,14 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
   });
 
-  test('navigation exposes only registered capabilities (no dead tabs)', async ({ page }) => {
+  // The primary nav teaches ONE order -- state, inventory, relationships, change -- so a
+  // Fleet host has exactly those four destinations. Owners, Data sources, Needs attention
+  // and Readiness are dimensions of them (reachable from the Overview, entity pages and
+  // the palette), and the legacy-only destinations never leak onto a Fleet host.
+  test('navigation exposes exactly the four primary workflows (no dead tabs, no dimensions promoted)', async ({ page }) => {
     await waitReady(page);
-    const nav = page.getByRole('navigation', { name: 'Primary' });
-    await expect(nav.getByRole('link', { name: 'Operational Graph' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Services' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Owners' })).toBeVisible();
+    const nav = page.getByRole('navigation', { name: 'Primary' }).first();
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational Graph', 'Change analysis']);
   });
 
   test('O1: graph opens SEARCH-FIRST with zero Cytoscape topology nodes', async ({ page }) => {
@@ -284,40 +288,43 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
   });
 
-  test('workflow: Diff launches the canonical Product Impact workspace', async ({ page }) => {
+  test('workflow: a legacy Compare bookmark lands in Change analysis, not a legacy screen', async ({ page }) => {
     await waitReady(page);
     await page.goto('/#/diff?from_name=payments-service&from_ver=1.2.0&to_name=payments-service&to_ver=2.0.0');
-    // A2: the CTA resolves the service name to a canonical ServiceKey before offering
-    // the Product Impact route (never a bare display-name route).
-    const cta = page.getByRole('link', { name: /Analyze operational impact/ });
-    await expect(cta).toBeVisible({ timeout: 20_000 });
-    await expect(cta).toHaveAttribute('href', /#\/fleet\/impact\//);
-    await cta.click();
-    await expect(page.getByRole('heading', { name: 'Impact' })).toBeVisible();
+    // The legacy compare route has a product equivalent, so a Fleet host canonicalizes it
+    // and resolves the display NAME to a canonical ServiceKey through the Product API --
+    // it never mounts the legacy DiffView beside the product UI.
+    await expect(page).toHaveURL(/#\/fleet\/changes/, { timeout: 20_000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 });
+    await expect(page).toHaveURL(/#\/fleet\/changes\/[^?]+/, { timeout: 20_000 }); // resolved to a ServiceKey
   });
 
-  test('impact: the Product Impact workspace analyzes by canonical identity', async ({ page }) => {
+  test('changes: the Change analysis workspace compares by canonical identity', async ({ page }) => {
     await waitReady(page);
-    await page.goto('/#/fleet/impact/payments-service');
+    await page.goto('/#/fleet/changes/payments-service');
     // The revision selectors are populated from the product service detail (never the
     // raw snapshot). Pick the known breaking pair 1.0.0 -> 2.0.0.
     await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
     await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.0' });
-    await page.getByRole('button', { name: /Analyze impact/ }).click();
+    await page.getByRole('button', { name: /Compare revisions/ }).click();
+    // Stage 1 -- the field-level semantic diff survives the migration off the legacy screen.
+    await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: 20_000 });
+    // Stage 2 -- and the same revision pair answers what it operationally affects.
+    await expect(page.getByTestId('changes-what-it-affects')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
     // A consumer path renders (consumer -> ... -> changed service).
     await expect(page.locator('.path-cell', { hasText: '→' }).first()).toBeVisible({ timeout: 20_000 });
   });
 
-  test('impact: include-observed surfaces the observed-only shadow consumer', async ({ page }) => {
+  test('changes: include-observed surfaces the observed-only shadow consumer', async ({ page }) => {
     await waitReady(page);
-    await page.goto('/#/fleet/impact/payments-service');
+    await page.goto('/#/fleet/changes/payments-service');
     await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
     await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.0' });
     const cb = page.getByRole('checkbox');
     await expect(cb).toBeEnabled(); // the demo carries embedded observed edges
     await cb.check();
-    await page.getByRole('button', { name: /Analyze impact/ }).click();
+    await page.getByRole('button', { name: /Compare revisions/ }).click();
     // audit-log declares no dependency on payments-service — an observed-only shadow.
     await expect(page.getByText('audit-log').first()).toBeVisible({ timeout: 20_000 });
   });

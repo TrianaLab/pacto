@@ -1,7 +1,7 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
-  import { serviceUrl, compareDiffUrl, fleetImpactUrl } from '../lib/router.ts';
+  import { serviceUrl, compareDiffUrl } from '../lib/router.ts';
   import { classificationClass } from '../lib/format.ts';
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -101,42 +101,11 @@
 
   let isSameService = $derived(fromName === toName);
 
-  // Compare -> Product Impact canonical identity (requirement A2). A Compare workflow
-  // knows a service NAME, which is NOT a canonical ServiceKey: domain-a/payments and
-  // domain-b/payments both have the name "payments". So the impact CTA RESOLVES the
-  // name through the product Entities API to canonical services, and offers a Product
-  // Impact route only for a real, unambiguous match -- it never guesses a domain and
-  // never fabricates a route:
-  //   exactly one match  -> a canonical /fleet/impact/:serviceKey CTA;
-  //   several matches     -> explicit disambiguation (one CTA per domain-qualified match);
-  //   no match / no fleet -> no CTA at all.
-  let fleetCapable = $state(false);
-  let impactMatches = $state([]);
-  let impactResolved = $state(false);
-  const impactName = $derived(toName || fromName);
-
-  async function resolveImpact(name) {
-    impactResolved = false;
-    impactMatches = [];
-    if (!name) { impactResolved = true; return; }
-    try {
-      const list = await api.fleetEntities({ kinds: ['service'], text: name, limit: 50 });
-      // The entities text filter is a substring match; only an EXACT service-name
-      // match is this service (label is the canonical service name). A different
-      // service that merely contains the text is never offered as this one's impact.
-      impactMatches = (list.entities ?? []).filter((e) => e.label === name);
-    } catch {
-      impactMatches = []; // fleet unavailable or the query failed: no fabricated route
-    }
-    impactResolved = true;
-  }
-
-  $effect(() => { if (fleetCapable) resolveImpact(impactName); });
-
-  onMount(async () => {
-    initVersions();
-    try { const c = await api.capabilities(); fleetCapable = !!c?.fleet; } catch { fleetCapable = false; }
-  });
+  // This view is the legacy, name+version-keyed compare screen, and App mounts it ONLY
+  // on a non-Fleet host (the offline `pacto doc` export). A Fleet host canonicalizes
+  // #/diff to the Change analysis workspace, so the cross-link into the product impact
+  // workspace that used to live here was unreachable code and is gone with it.
+  onMount(initVersions);
 </script>
 
 <nav class="breadcrumb" aria-label="Breadcrumb">
@@ -151,27 +120,6 @@
 
 <h1 style="margin-bottom:var(--sp-5)">Compare Versions</h1>
 
-<!-- A2/J: Compare launches the contextual Product Impact workspace, but only for a
-     canonical service the name resolves to unambiguously (never a guessed domain). -->
-{#snippet impactCta(label)}
-  {#if fleetCapable && impactName && impactResolved}
-    {#if impactMatches.length === 1}
-      <a class="impact-link" href={fleetImpactUrl(impactMatches[0].key)}>{label} {impactName} →</a>
-    {:else if impactMatches.length > 1}
-      <div class="impact-disambig" role="group" aria-label="Choose a service to analyze">
-        <span>Multiple services are named "{impactName}" — choose one:</span>
-        {#each impactMatches as m (m.key)}
-          <a class="impact-link" href={fleetImpactUrl(m.key)}>{m.domain ? `${m.domain} / ` : ''}{m.label} →</a>
-        {/each}
-      </div>
-    {/if}
-    <!-- zero matches: no CTA is rendered; a Product Impact route is never fabricated -->
-  {/if}
-{/snippet}
-
-<div class="impact-cta-top">
-  {@render impactCta('Analyze impact of')}
-</div>
 
 <div class="diff-controls">
   <div class="diff-side">
@@ -252,8 +200,6 @@
         {#if !isSameService}
           <span class="text-3">({fromName} {fromVer} vs {toName} {toVer})</span>
         {/if}
-        <!-- A2: launch the operational impact of this change over the canonical service. -->
-        <span class="impact-cta">{@render impactCta('Analyze operational impact of')}</span>
       </div>
 
       <DiffChangesTable changes={result.changes} />
@@ -302,12 +248,6 @@
 
   .diff-result { margin-top: var(--sp-5); }
   .diff-summary { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-4); flex-wrap: wrap; }
-  .impact-cta { margin-left: auto; font-weight: 600; font-size: var(--text-sm); }
-  .impact-cta-top { margin-bottom: var(--sp-4); }
-  .impact-link { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
-  .impact-link:hover { text-decoration: underline; }
-  .impact-disambig { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-sm); color: var(--c-text-3); }
-  .impact-disambig span { color: var(--c-text-2); }
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); font-size: var(--text-sm); }

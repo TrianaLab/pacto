@@ -51,7 +51,7 @@
 {:else if state.kind === 'empty-fleet'}
   <div class="state-box">
     <h3>No {noun} yet</h3>
-    <p>This fleet has no {noun}. Once contracts are published or deployments are observed they appear here.</p>
+    <p>Nothing here yet. Once contracts are published or running targets are observed, {noun} appear here.</p>
   </div>
 {/if}
 

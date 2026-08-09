@@ -224,9 +224,53 @@ historical narrative; where it conflicts with this section, this section wins.
   impact). The keyboard graph model (semantic Relationships navigator: discover/focus,
   traverse nodes + edges, inspect, Escape restores focus, open full detail, change
   perspective/views/direction) is covered by keyboard.spec.ts. REMAINING: a full explicit
-  heading/landmark audit sweep across every canonical route and the retained specialized
-  Readiness/Compare (currently covered by the axe heading-order/landmark rules plus the
-  drawer fix, not yet an exhaustive per-route manual pass).
+  heading/landmark audit sweep across every canonical route (currently covered by the axe
+  heading-order/landmark rules plus the drawer fix, not yet an exhaustive per-route manual
+  pass). The "retained specialized Readiness/Compare" this bullet used to name no longer
+  exist on a Fleet host -- see Phase 6.
+- Phase 6 (product coherence / novice usability): COMPLETE. A real user reported the app
+  "still feels like several generations of Pacto UI stitched together". This phase was a
+  first-time-user product review of the BUILT WASM demo in a real browser (30 BEFORE
+  screens captured with a cognitive walkthrough), followed by implementation, followed by
+  the same capture again. What changed, and why:
+  1. ONE vocabulary at the surface. `target` is an **Operational target** everywhere a
+     user reads it, never a "Deployment" (which now means only the Kubernetes kind).
+     `source` is a **Data source**, never a collector. `EntityKind=target`, `TargetKey`,
+     the `/fleet/...` routes, the wire field names and the Kubernetes kind name are
+     UNCHANGED -- this was a display-string migration, not a model rename.
+  2. "Fleet" left the user-facing surface. It stays as the internal name it always was:
+     `pkg/fleet`, `/fleet/...` routes, `pacto fleet`, `pacto_fleet_*`. The breadcrumb root
+     is now "Overview", not "Fleet".
+  3. FOUR primary workflows, teaching one order -- state -> inventory -> relationships ->
+     change: **Overview - Services - Operational Graph - Change analysis**. Owners and
+     Data sources remain first-class destinations, reached from where they are relevant
+     rather than from a nav bar that made a novice choose between seven peers.
+  4. Readiness is a DIMENSION, not a fifth destination. It is the `readiness` attention
+     category and a section on a Revision -- the two definitions that already existed. No
+     third definition was introduced, and `#/readiness` canonicalizes into the attention
+     view rather than mounting the legacy screen (which, on a Fleet host, rendered "No
+     services" -- it had been dead for some time).
+  5. Compare and Impact are ONE workspace: **Change analysis** (`#/fleet/changes/:svc`),
+     RevisionKey-based end to end, keeping the full field-level semantic diff. The primary
+     CTA still reads "Compare revisions" because that is the action. `#/diff` and
+     `#/fleet/impact/:svc` canonicalize into it.
+  6. Expert ontology moved one disclosure away without being lost: the canonical key is
+     behind an "Identifier" disclosure, the exact/inferred/ambiguous/unresolved taxonomy
+     behind a plain-language headline ("We know exactly which revision is running on N of
+     M operational targets"), the snapshot id behind a "Current data / Older snapshot"
+     chip's tooltip.
+  Two REAL bugs were found by walking the product rather than reading it: the primary-nav
+  "Services" link was a silent no-op while capabilities were still unprobed (its `'#/'`
+  fallback canonicalized straight back to the Overview on a Fleet host), and a shared
+  `?old=&new=` Change-analysis link restored the FORM but not the ANSWER, so "shareable
+  URL" was only half true. Both are fixed at the source with unit tests.
+  The acceptance gate is `e2e/novice-journeys.spec.ts`: twelve first-time-user journeys
+  (J1-J12) run in a real browser against the built WASM demo, each asserting routes,
+  conceptual labels, canonical identity, workflow continuity and -- via a shared
+  `LEGACY_MARKERS` locator -- the ABSENCE of any legacy screen. J12 walks every legacy
+  bookmark and proves it canonicalizes into the product IA without mounting an older UI.
+  Non-Fleet hosts (the offline `pacto doc` export) deliberately keep the legacy screens:
+  they are the only UI on a host that has no Product API.
 
 Reproduction of record (this session, built WASM demo in real Chromium): the
 DISCOVERY route `#/fleet/graph` correctly renders ZERO Cytoscape topology
@@ -248,6 +292,79 @@ in the header: the authored source/content gate is ACTIVE and blocking; historic
 commit-message and PR-metadata enforcement is BLOCKED on explicit history-rewrite
 authorization, which does not exist this session. No Git history is rewritten,
 rebased or force-pushed this session.
+
+## 0b. Product vocabulary and user mental model (design contract)
+
+This section is the design contract for user-facing wording. It is NOT a glossary
+to render on a page. Every label, subtitle, empty state, tooltip, breadcrumb, nav
+item, test assertion and doc sentence in the product UI must agree with it. The
+reader it is written for is a platform engineer who understands services and
+Kubernetes but has never heard of Pacto.
+
+The mental model the primary navigation teaches, in order: **state, then
+inventory, then relationships, then change.**
+
+| Concept | User-facing name | One-line meaning shown to a first-time user | Internal identifier (unchanged) |
+|---|---|---|---|
+| Logical software capability | **Service** | A service Pacto knows about, identified by domain plus name. | `EntityKind=service`, `ServiceKey` |
+| Immutable contract version | **Revision** | One immutable published version of a service contract. | `EntityKind=revision`, `RevisionKey` |
+| A place a revision runs | **Operational target** | A concrete place a revision is running, such as a Kubernetes workload. | `EntityKind=target`, `TargetKey` |
+| Ingestion seam | **Data source** | Where Pacto read this from: a registry, local files, a cluster or an evidence store. | `EntityKind=source`, `SourceID` |
+| Observer of a real system | **Collector** | A component that watches a real environment and reports evidence. Not every data source is a collector. | evidence producers |
+| Observed facts | **Evidence** | What was actually observed, with a time and a reporter. | `EvidenceSet` |
+| Contract-vs-evidence verdict | **Compliance** | Whether what is running matches what the contract promised. | `Evaluate(Contract, EvidenceSet)` |
+| Authored preparedness gate | **Readiness** | A self-assessment checklist authored in the contract, scored against a gate. Declared, not observed. | `pkg/readiness` |
+| Typed conclusion | **Finding** | One specific problem, with a code, a severity and a category. | `finding.Finding` |
+| Snapshot honesty | **Knowledge** | How complete this answer is: whether a source was unavailable, partial or stale. | `Completeness`, `Limitation` |
+| Relationship graph | **Operational graph** | Which services depend on which, expected versus actually observed. | `FleetSnapshot`, `Neighborhood` |
+| Change plus consequence | **Change analysis** | What changed between two revisions, and what that change can affect. | `pkg/diff`, `pkg/impact` |
+
+Distinctions a first-time user must be able to learn from the UI alone:
+
+- **Readiness is not compliance.** Readiness is authored in the contract and asks
+  "is this contract prepared". Compliance compares a contract against observed
+  evidence and asks "does what is running match what was promised". A revision can
+  be fully ready and still non-compliant, and vice versa.
+- **A data source is not a collector.** A data source is the seam Pacto ingests
+  through. A collector is a component that observes a real running environment and
+  emits evidence. An OCI registry, a local directory and the on-disk cache are data
+  sources and are NOT collectors. Never rename `source` to `collector` anywhere.
+- **An operational target is not a deployment Pacto performs.** Pacto observes
+  targets; it never deploys. The generic identity is `scope/kind/name`, which
+  happens to be Kubernetes-shaped today but is not Kubernetes-only. This is why the
+  UI says "Operational target" and not "Deployment": "Deployment" invited the reading
+  that Pacto is a deployment engine, and it also collides with the Kubernetes kind.
+- **Expected is not observed.** A declared dependency is a claim in a contract. An
+  observed relationship is traffic somebody saw. The reconciliation of the two is a
+  Difference, and "we could not observe it" is never reported as "it is not there".
+- **An unavailable source is not an empty result.** Incomplete knowledge is stated
+  as incomplete knowledge, never rendered as a clean, healthy zero.
+
+Words that are INTERNAL and must not appear in first-time-user copy:
+
+- **"Fleet"** — the internal name of the immutable read model (`FleetSnapshot`) and
+  its pure query layer (`FleetQuery`). Routes (`#/fleet/...`), Go packages, API
+  paths, DTO names and test identifiers keep it. Product copy says "Operational
+  graph", "services", "everything Pacto knows" or the concrete noun. There is no
+  `kind: Fleet` in the contract language, so a user has no way to learn the word.
+- **"Target"** as a bare user-facing noun (the entity is an "operational target").
+- **"Snapshot ID", "canonical key", "identity class", "provenance"** — retained at
+  full precision, but demoted below the fold or into progressive disclosure rather
+  than presented in the first screenful.
+
+Primary navigation is exactly four workflows, which is the mental model above:
+
+| Nav item | The user question it answers |
+|---|---|
+| **Overview** | What is the state of everything, and what needs me? |
+| **Services** | What exists, and what is the situation of this one? |
+| **Operational Graph** | What is connected to what, and what is expected versus observed? |
+| **Change analysis** | What changed between two revisions, and what can that affect? |
+
+Owners, Data sources, Needs attention and Readiness are DIMENSIONS of those four,
+not peer destinations. They are reachable from the Overview, from entity pages and
+from the command palette, and they keep their own routes; they are not top-level
+tabs. Desktop nav, mobile nav and the command palette all agree on this ordering.
 
 ### Phase 4 reopen: visual-renderer truth and contract closure (this session)
 

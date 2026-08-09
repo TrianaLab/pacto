@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { knowledgeLabel, knowledgeTone } from '../lib/entityLabels.ts';
+  import { knowledgeLabel, knowledgeTone, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl } from '../lib/router.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -66,18 +66,18 @@
 </script>
 
 <div class="overview">
-  <Breadcrumbs trail={[{ label: 'Fleet' }]} />
+  <Breadcrumbs trail={[{ label: 'Overview' }]} />
   <h1>Operational overview</h1>
 
   {#if pageState.kind !== 'ready'}
-    <ProductEmptyState state={pageState} noun="fleet data" onRetry={load} />
+    <ProductEmptyState state={pageState} noun="operational data" onRetry={load} />
   {:else}
     {#if knowledge.incomplete}
       <div class="knowledge-banner tone-{knowledgeTone(knowledge.level)}" role="status">
         <strong>{knowledgeLabel(knowledge.level)}.</strong>
         <span>
           {#if isEmptyFleet}
-            Nothing is being tracked yet, and some sources are degraded — we can neither confirm the fleet is empty nor call it healthy.
+            Nothing is being tracked yet, and some sources are degraded — we can neither confirm there is nothing to track nor call it healthy.
           {:else}
             Some sources are degraded, so the counts below may be incomplete — this is not a clean bill of health.
           {/if}
@@ -86,14 +86,14 @@
     {:else if isEmptyFleet}
       <div class="empty-fleet" role="status">
         <strong>No services tracked yet.</strong>
-        <span>This fleet is empty — nothing has reported a contract or deployment. That is not a health assessment.</span>
+        <span>Nothing has reported a contract or a running target yet. That is not a health assessment.</span>
       </div>
     {:else if canAllClear}
       <div class="all-clear" role="status">
         <strong>All clear.</strong>
         <span>
           {#if totalTargets > 0}
-            Every deployment is compliant and every source is healthy.
+            Every operational target is compliant and every data source is healthy.
           {:else}
             No open attention items, and every source is healthy.
           {/if}
@@ -105,8 +105,8 @@
 
     <section class="ov-section">
       <div class="ov-head">
-        <h2>Sources</h2>
-        <a class="ov-viewall" href={fleetSourcesUrl()}>View all sources</a>
+        <h2>Data sources</h2>
+        <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
       </div>
       <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
     </section>
@@ -116,6 +116,16 @@
         <h2>Needs attention</h2>
         <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({attentionTotal})</a>
       </div>
+      <!-- Triage dimensions, not destinations. Readiness lives here rather than in the
+           primary nav: it is declared contract preparedness, one reason a thing needs
+           attention, and it shares the product's single definition of it. These are
+           filters, so they are deliberately count-free -- a chip claiming "0" would be a
+           health assessment the overview has not made. -->
+      <nav class="ov-cats" aria-label="Filter attention by category">
+        {#each ATTENTION_CATEGORIES as c}
+          <a class="ov-cat" href={fleetAttentionUrl({ category: c })}>{attentionCategoryLabel(c)}</a>
+        {/each}
+      </nav>
       {#if overview.attention.items.length === 0}
         <ProductEmptyState state={decideViewState({ loading: false, itemCount: 0, knowledge })} noun="attention items" />
       {:else}
@@ -163,6 +173,13 @@
      be distinguishable from the surrounding text without color alone (WCAG 1.4.1). */
   .ov-more a { color: var(--c-accent); text-decoration: underline; font-size: var(--text-sm); }
   .ov-viewall:hover { text-decoration: underline; }
+  .ov-cats { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+  .ov-cat {
+    font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;
+    padding: 4px 10px; border: 1px solid var(--c-border); border-radius: var(--radius-pill, var(--radius-sm));
+    background: var(--c-surface); min-height: var(--touch-min); display: inline-flex; align-items: center;
+  }
+  .ov-cat:hover { border-color: var(--c-accent); color: var(--c-accent); }
   .knowledge-banner, .all-clear, .empty-fleet {
     display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline;
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
