@@ -19,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/lock"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
 	"github.com/trianalab/pacto/v3/pkg/skills"
 	"github.com/trianalab/pacto/v3/pkg/validation"
 )
@@ -28,6 +29,7 @@ import (
 const (
 	maxToolsPerRevision = 500
 	maxDocRefs          = 200
+	maxSBOMLicenses     = 20
 	defaultConcurrency  = 8
 )
 
@@ -557,6 +559,9 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		FetchedAt: copyTime(raw.FetchedAt),
 		bundle:    b,
 		content:   content,
+		// The contract's free-form metadata map is author-controlled and can be
+		// arbitrarily wide, so it is bounded HERE, once, at the source boundary.
+		Metadata: runtimePreview(c.Metadata),
 	}
 	// Owner references the cloned contract so it never aliases source memory.
 	rev.Owner = rev.Contract.Service.Owner
@@ -576,8 +581,60 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		}
 	}
 	rev.Docs = docsFrom(b.FS)
+	if s, err := sbomSummary(b.FS); err != nil {
+		// The bundle ships an SBOM we could not read. Say so, because a missing
+		// summary must never be presented as "this revision declares no packages".
+		lims = append(lims, Limitation{
+			Code: LimitationSBOMUnreadable, Source: source,
+			Message: "revision " + c.Service.Name + " ships an SBOM that could not be parsed (" + err.Error() + "); its software inventory is unknown, not empty",
+		})
+	} else {
+		rev.SBOM = s
+	}
 	rev.Lock = cloneLock(lockFrom(raw))
 	return rev, lims
+}
+
+// sbomSummary projects a bundle's SBOM into the bounded [SBOMSummary]. It returns
+// (nil, nil) when the bundle simply ships no SBOM, and an error when it ships one
+// that cannot be parsed — the caller turns that into a limitation rather than into
+// silence.
+func sbomSummary(fsys fs.FS) (*SBOMSummary, error) {
+	doc, err := sbom.ParseFromFS(fsys)
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil {
+		return nil, nil
+	}
+	counts := map[string]int{}
+	for _, p := range doc.Packages {
+		lic := strings.TrimSpace(p.License)
+		if lic == "" {
+			// A package that declares no license is a real answer ("we do not know
+			// what this is licensed under"), so it gets its own bucket instead of
+			// vanishing from a distribution that claims to cover every package.
+			lic = "unspecified"
+		}
+		counts[lic]++
+	}
+	s := &SBOMSummary{Format: doc.Format, Packages: len(doc.Packages)}
+	for lic, n := range counts {
+		s.Licenses = append(s.Licenses, LicenseCount{License: lic, Count: n})
+	}
+	sort.Slice(s.Licenses, func(i, j int) bool {
+		if s.Licenses[i].Count != s.Licenses[j].Count {
+			return s.Licenses[i].Count > s.Licenses[j].Count
+		}
+		return s.Licenses[i].License < s.Licenses[j].License
+	})
+	if len(s.Licenses) > maxSBOMLicenses {
+		for _, b := range s.Licenses[maxSBOMLicenses:] {
+			s.OtherLicensed += b.Count
+		}
+		s.Licenses = s.Licenses[:maxSBOMLicenses]
+	}
+	return s, nil
 }
 
 // contentDigest derives a deterministic, collision-safe content identity for the

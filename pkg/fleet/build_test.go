@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -371,6 +372,143 @@ func TestHumanizeTitle(t *testing.T) {
 		if got := humanizeTitle(in); got != want {
 			t.Errorf("humanizeTitle(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// -------------------- sbomSummary --------------------
+
+// spdxDoc renders a minimal SPDX 2.3 document from name -> license pairs. An empty
+// license means the package declares none.
+func spdxDoc(pkgs [][2]string) string {
+	parts := make([]string, 0, len(pkgs))
+	for _, p := range pkgs {
+		parts = append(parts, fmt.Sprintf(`{"name":%q,"versionInfo":"1.0.0","licenseConcluded":%q}`, p[0], p[1]))
+	}
+	return `{"packages":[` + strings.Join(parts, ",") + `]}`
+}
+
+// The SBOM is deliberately not retained whole, so the summary carries the whole
+// burden of the inventory: the exact package count and license buckets that
+// PARTITION that count. A package declaring no license is a real answer ("we do
+// not know") and gets its own bucket rather than disappearing from a distribution
+// that claims to cover everything.
+func TestSBOMSummary_BucketsPartitionThePackagePopulation(t *testing.T) {
+	fsys := fstest.MapFS{"sbom/sbom.spdx.json": {Data: []byte(spdxDoc([][2]string{
+		{"a", "MIT"}, {"b", "MIT"}, {"c", "Apache-2.0"}, {"d", ""}, {"e", "  "},
+	}))}}
+	s, err := sbomSummary(fsys)
+	if err != nil {
+		t.Fatalf("sbomSummary: %v", err)
+	}
+	if s.Format != "spdx" || s.Packages != 5 {
+		t.Fatalf("summary = %+v, want spdx with 5 packages", s)
+	}
+	want := []LicenseCount{{License: "MIT", Count: 2}, {License: "unspecified", Count: 2}, {License: "Apache-2.0", Count: 1}}
+	if len(s.Licenses) != len(want) {
+		t.Fatalf("licenses = %+v, want %+v", s.Licenses, want)
+	}
+	sum := 0
+	for i, b := range s.Licenses {
+		if b != want[i] {
+			t.Errorf("bucket %d = %+v, want %+v (most common first, ties by name)", i, b, want[i])
+		}
+		sum += b.Count
+	}
+	if sum+s.OtherLicensed != s.Packages {
+		t.Errorf("buckets cover %d packages, want the whole %d", sum+s.OtherLicensed, s.Packages)
+	}
+}
+
+// A pathological inventory must not put an unbounded license list in the snapshot,
+// and truncating it must not quietly shrink the population: the tail is folded into
+// OtherLicensed so buckets + other still equal Packages.
+func TestSBOMSummary_FoldsTheLongTailInsteadOfDroppingIt(t *testing.T) {
+	var pkgs [][2]string
+	for i := 0; i < maxSBOMLicenses+7; i++ {
+		pkgs = append(pkgs, [2]string{fmt.Sprintf("p%02d", i), fmt.Sprintf("lic-%02d", i)})
+	}
+	s, err := sbomSummary(fstest.MapFS{"sbom/sbom.spdx.json": {Data: []byte(spdxDoc(pkgs))}})
+	if err != nil {
+		t.Fatalf("sbomSummary: %v", err)
+	}
+	if len(s.Licenses) != maxSBOMLicenses {
+		t.Fatalf("licenses = %d, want the bound %d", len(s.Licenses), maxSBOMLicenses)
+	}
+	if s.OtherLicensed != 7 {
+		t.Errorf("OtherLicensed = %d, want the 7 packages past the bound", s.OtherLicensed)
+	}
+	sum := s.OtherLicensed
+	for _, b := range s.Licenses {
+		sum += b.Count
+	}
+	if sum != s.Packages {
+		t.Errorf("buckets + other = %d, want Packages %d", sum, s.Packages)
+	}
+}
+
+func TestSBOMSummary_AbsentBundleInventoryIsNotAnError(t *testing.T) {
+	for name, fsys := range map[string]fs.FS{
+		"nil FS":     nil,
+		"no sbom/":   fstest.MapFS{"docs/x.md": {Data: []byte("x")}},
+		"no sbom in": fstest.MapFS{"sbom/README.txt": {Data: []byte("x")}},
+	} {
+		s, err := sbomSummary(fsys)
+		if s != nil || err != nil {
+			t.Errorf("%s: got (%+v, %v), want (nil, nil)", name, s, err)
+		}
+	}
+}
+
+// "We could not read the inventory" is not "there is no inventory". The revision
+// carries no summary either way, so the difference has to live in a limitation.
+func TestRevisionFrom_UnreadableSBOMBecomesALimitationNotSilence(t *testing.T) {
+	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "broken-sbom", Version: "1.0.0"}}
+	fsys := fstest.MapFS{"sbom/sbom.spdx.json": {Data: []byte("{not json")}}
+	rev, lims := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fsys}, Digest: "sha256:x"}, "local", fixedNow())
+	if rev.SBOM != nil {
+		t.Errorf("an unparseable SBOM must not produce a summary: %+v", rev.SBOM)
+	}
+	var found *Limitation
+	for i := range lims {
+		if lims[i].Code == LimitationSBOMUnreadable {
+			found = &lims[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("want a %s limitation, got %+v", LimitationSBOMUnreadable, lims)
+	}
+	if !strings.Contains(found.Message, "unknown, not empty") {
+		t.Errorf("the limitation must say the inventory is unknown rather than empty: %q", found.Message)
+	}
+}
+
+func TestRevisionFrom_ProjectsTheBundleSBOM(t *testing.T) {
+	c := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "with-sbom", Version: "1.0.0"}}
+	fsys := fstest.MapFS{"sbom/sbom.spdx.json": {Data: []byte(spdxDoc([][2]string{{"a", "MIT"}}))}}
+	rev, _ := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fsys}, Digest: "sha256:x"}, "local", fixedNow())
+	if rev.SBOM == nil || rev.SBOM.Packages != 1 || rev.SBOM.Format != "spdx" {
+		t.Fatalf("SBOM = %+v, want the projected spdx summary", rev.SBOM)
+	}
+}
+
+// The contract's metadata map is author-controlled and arbitrarily wide, so it is
+// flattened and bounded ONCE at Build, exactly like an observed-runtime map — never
+// carried raw into a per-request projection.
+func TestRevisionFrom_BoundsContractMetadataAtBuildTime(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion: "2.0", Service: contract.Service{Name: "meta-svc", Version: "1.0.0"},
+		Metadata: map[string]any{"tier": "gold", "tags": []any{"a", "b"}},
+	}
+	rev, _ := revisionFrom(RawRevision{Bundle: &contract.Bundle{Contract: c}, Digest: "sha256:x"}, "local", fixedNow())
+	got := map[string]string{}
+	for _, f := range rev.Metadata.Items {
+		got[f.Key] = f.Value
+	}
+	if got["tier"] != "gold" || got["tags[0]"] != "a" || got["tags[1]"] != "b" {
+		t.Errorf("flattened metadata = %+v", got)
+	}
+	if rev.Metadata.Truncated {
+		t.Error("a two-key metadata map is not truncated")
 	}
 }
 

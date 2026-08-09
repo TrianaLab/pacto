@@ -8,6 +8,7 @@
   import RelationshipList from '../../components/RelationshipList.svelte';
   import FindingList from '../../components/FindingList.svelte';
   import LimitationsList from '../../components/LimitationsList.svelte';
+  import HorizontalBars from '../../components/viz/HorizontalBars.svelte';
   import { formatDate } from '../../lib/dateFormat.ts';
   import { fleetEntityListUrl } from '../../lib/router.ts';
 
@@ -39,6 +40,18 @@
   // The parent ServiceKey comes from the backend ref, never parsed out of the revision
   // key: a RevisionKey is not a ServiceKey with a suffix.
   const historyHref = $derived(d.service?.key ? fleetEntityListUrl('revision', { service: d.service.key }) : '');
+
+  // The SBOM summary. The backend already bucketed every package by license over the
+  // COMPLETE inventory and folded the long tail into `otherLicensed`, so the rows are
+  // read verbatim and the tail becomes one honestly-named row rather than disappearing.
+  const sbom = $derived(d.sbom ?? null);
+  const SBOM_FORMATS = { spdx: 'SPDX', cyclonedx: 'CycloneDX' };
+  const sbomFormat = $derived(SBOM_FORMATS[sbom?.format] ?? (sbom?.format || 'Unrecognized'));
+  const sbomDir = $derived(sbom?.format === 'cyclonedx' ? 'sbom/*.cdx.json' : 'sbom/*.spdx.json');
+  const licenseRows = $derived([
+    ...(sbom?.licenses ?? []).map((l) => ({ label: l.license, value: l.count, tone: l.license === 'unspecified' ? 'warn' : 'info' })),
+    ...(sbom?.otherLicensed ? [{ label: 'Less common licenses', value: sbom.otherLicensed, tone: 'neutral' }] : []),
+  ]);
 </script>
 
 <div class="rev-entity">
@@ -247,8 +260,11 @@
   {/if}
 
   {#if (d.dependencies?.count ?? 0) > 0}
+    <!-- showClaims: on the contract inspector a dependency is a DECLARATION, so the row
+         carries what was declared (requested ref, required, compatibility, lockfile pin)
+         rather than only the name of the other service. -->
     <PreviewSection title="Declared dependencies" total={d.dependencies?.total ?? null} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated}>
-      <RelationshipList items={d.dependencies?.items ?? []} />
+      <RelationshipList items={d.dependencies?.items ?? []} showClaims />
     </PreviewSection>
   {/if}
 
@@ -280,6 +296,48 @@
   {#if (d.docs?.count ?? 0) > 0}
     <PreviewSection title="Docs" total={d.docs?.total ?? 0} count={d.docs?.count ?? 0} truncated={d.docs?.truncated}>
       <ul class="re-docs">{#each d.docs.items as doc (doc.path)}<li><span class="rd-title">{doc.title || doc.path}</span>{#if doc.title && doc.path}<span class="rd-path">{doc.path}</span>{/if}</li>{/each}</ul>
+    </PreviewSection>
+  {/if}
+
+  {#if sbom}
+    <!-- The software inventory. The packages themselves stay in the bundle -- a snapshot
+         holds every revision of every service, and one SBOM can list thousands -- so the
+         page reports the exact package count and the license mix, and says where the
+         inventory itself lives instead of implying it has been read here. -->
+    <section class="re-sbom" data-testid="revision-sbom">
+      <h2>Software inventory</h2>
+      <div class="re-facts">
+        <div class="re-fact"><span class="re-k">Format</span><span>{sbomFormat}</span></div>
+        <div class="re-fact"><span class="re-k">Packages</span><span>{sbom.packages}</span></div>
+      </div>
+      <HorizontalBars
+        title="Licenses"
+        level={3}
+        description="Every package counted once, including those that declare no license."
+        items={licenseRows}
+        unit="packages"
+        emptyLabel="This inventory records no packages."
+      />
+      <p class="ri-note">The package list itself is not retained by the dashboard; read it from the bundle's {sbomDir} directory.</p>
+    </section>
+  {/if}
+
+  {#if (d.metadata?.count ?? 0) > 0}
+    <!-- Free-form contract metadata. It is author-controlled, so it is flattened and
+         bounded at build time and shown verbatim: the dashboard assigns no meaning to
+         any key. -->
+    <PreviewSection
+      title="Contract metadata"
+      total={d.metadata?.total ?? null}
+      count={d.metadata?.count ?? 0}
+      truncated={d.metadata?.truncated}
+    >
+      <table class="re-kv">
+        <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
+        <tbody>
+          {#each d.metadata.items as m (m.key)}<tr><td>{m.key}</td><td>{m.value}</td></tr>{/each}
+        </tbody>
+      </table>
     </PreviewSection>
   {/if}
 
@@ -335,9 +393,9 @@
   .re-facts, .re-identity, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .re-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
-  .re-readiness { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }
+  .re-readiness, .re-sbom { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }
   .rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
-  .rr-head h2 { margin: 0; font-size: var(--text-md); }
+  .rr-head h2, .re-sbom h2 { margin: 0; font-size: var(--text-md); }
   .rr-line { color: var(--c-text-2); font-size: var(--text-sm); margin: var(--sp-2) 0 0; }
   .rr-lead { color: var(--c-text-3); font-size: var(--text-sm); margin: 0; }
   .re-checks, .re-tools, .re-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }

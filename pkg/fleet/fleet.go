@@ -293,6 +293,10 @@ const (
 	// LimitationObservedIdentityUnresolved: a runtime-observed endpoint name could
 	// not be mapped to exactly one domain-qualified fleet service.
 	LimitationObservedIdentityUnresolved = "OBSERVED_IDENTITY_UNRESOLVED"
+	// LimitationSBOMUnreadable: the bundle ships an SBOM file that could not be
+	// parsed. The revision therefore carries no SBOM summary, and that absence must
+	// NOT be read as "this revision declares no software inventory".
+	LimitationSBOMUnreadable = "SBOM_UNREADABLE"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -395,9 +399,18 @@ type ContractRevision struct {
 	Skills    []string   `json:"skills,omitempty"`
 	Docs      []DocRef   `json:"docs,omitempty"`
 	Lock      *lock.Lock `json:"lock,omitempty"`
-	Source    string     `json:"source"`
-	Sources   []string   `json:"sources,omitempty"`
-	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
+	// Metadata is the BOUNDED, deterministic projection of the contract's free-form
+	// metadata map, flattened ONCE at Build. The map is author-controlled and
+	// arbitrarily wide, so it is bounded at the source boundary exactly like
+	// TargetRecord.ObservedRuntime rather than re-flattened per request.
+	Metadata RuntimePreview `json:"metadata"`
+	// SBOM summarizes the bundle's software inventory when it ships a readable one.
+	// Nil means no SBOM was read; a LimitationSBOMUnreadable distinguishes "the
+	// bundle has none" from "the bundle has one we could not parse".
+	SBOM      *SBOMSummary `json:"sbom,omitempty"`
+	Source    string       `json:"source"`
+	Sources   []string     `json:"sources,omitempty"`
+	FetchedAt *time.Time   `json:"fetchedAt,omitempty"`
 
 	// bundle carries the parsed bundle used only DURING Build (to derive tools,
 	// skills, docs and validation). It is never serialized and is never exposed
@@ -412,6 +425,34 @@ type ContractRevision struct {
 	// when two sources claim the same key (e.g. the same source-pinned digest) but
 	// disagree on the contract body. Never serialized.
 	content string
+}
+
+// SBOMSummary is the bounded projection of a bundle's SBOM: enough to answer
+// "does this revision ship a software inventory, how large is it, and what
+// licenses does it pull in" WITHOUT retaining the packages themselves. A snapshot
+// holds every revision of every service and one SBOM can list thousands of
+// packages, so the inventory stays in the bundle and only its shape is projected.
+type SBOMSummary struct {
+	// Format is the source document format the parser recognized ("spdx" or
+	// "cyclonedx").
+	Format string `json:"format,omitempty"`
+	// Packages is the COMPLETE package count of the document, never a bounded one.
+	Packages int `json:"packages"`
+	// Licenses buckets packages by declared license, most common first, with
+	// packages declaring none in "unspecified". It is bounded to the most common
+	// [maxSBOMLicenses]; everything past the bound is folded into OtherLicensed, so
+	// the buckets plus OtherLicensed always equal Packages and a distribution drawn
+	// from them has a true denominator.
+	Licenses []LicenseCount `json:"licenses,omitempty"`
+	// OtherLicensed counts the packages whose license fell outside the buckets
+	// above — the long tail beyond the bound, kept so nothing is silently dropped.
+	OtherLicensed int `json:"otherLicensed,omitempty"`
+}
+
+// LicenseCount is one license bucket of an [SBOMSummary].
+type LicenseCount struct {
+	License string `json:"license"`
+	Count   int    `json:"count"`
 }
 
 // TargetRecord is a concrete operational target associated with a revision.

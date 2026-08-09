@@ -994,11 +994,13 @@ export interface components {
             fetchedAt?: string;
             key: string;
             lock?: components["schemas"]["Lock.Lock"];
+            metadata: components["schemas"]["Fleet.RuntimePreview"];
             owner?: components["schemas"]["Contract.Owner"];
             pactoVersion?: string;
             readiness?: components["schemas"]["Readiness.Result"];
             requestedRef?: string;
             resolvedRef?: string;
+            sbom?: components["schemas"]["Fleet.SBOMSummary"];
             service: string;
             serviceKey: string;
             skills?: string[] | null;
@@ -1119,6 +1121,11 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.LicenseCount": {
+            /** Format: int64 */
+            count: number;
+            license: string;
         };
         "Fleet.Limitation": {
             code: string;
@@ -1369,6 +1376,14 @@ export interface components {
             /** Format: int64 */
             total?: number;
             truncated: boolean;
+        };
+        "Fleet.SBOMSummary": {
+            format?: string;
+            licenses?: components["schemas"]["Fleet.LicenseCount"][] | null;
+            /** Format: int64 */
+            otherLicensed?: number;
+            /** Format: int64 */
+            packages: number;
         };
         "Fleet.SearchResult": {
             /** Format: int64 */
@@ -2144,6 +2159,7 @@ export interface components {
             inferredTargets: components["schemas"]["ProductRefPreview"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
+            metadata: components["schemas"]["Fleet.RuntimePreview"];
             next?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             pactoVersion?: string;
@@ -2151,6 +2167,7 @@ export interface components {
             previous?: components["schemas"]["ProductRef"];
             provenance: components["schemas"]["Fleet.RevisionProvenance"];
             readiness?: components["schemas"]["Fleet.ProductReadiness"];
+            sbom?: components["schemas"]["Fleet.SBOMSummary"];
             service: components["schemas"]["ProductRef"];
             skills: components["schemas"]["Fleet.StringsPreview"];
             state?: components["schemas"]["Fleet.StateSummary"];

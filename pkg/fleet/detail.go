@@ -319,30 +319,36 @@ type ServiceDetailData struct {
 // (bounded, not merely counted), bounded tools/skills/docs, exact/inferred
 // targets, and the previous/next known revisions of the same logical service.
 type RevisionDetailData struct {
-	Service         EntityRef             `json:"service"`
-	Version         string                `json:"version,omitempty"`
-	PactoVersion    string                `json:"pactoVersion,omitempty"`
-	Identity        RevisionIdentity      `json:"identity"`
-	Provenance      RevisionProvenance    `json:"provenance"`
-	Valid           bool                  `json:"valid"`
-	Readiness       *ProductReadiness     `json:"readiness,omitempty"`
-	Validation      FindingsPreview       `json:"validation"`
-	Interfaces      InterfacesPreview     `json:"interfaces"`
-	Configurations  ConfigurationsPreview `json:"configurations"`
-	Policies        PoliciesPreview       `json:"policies"`
-	Capabilities    CapabilitiesPreview   `json:"capabilities"`
-	Workload        string                `json:"workload,omitempty"`
-	State           *StateSummary         `json:"state,omitempty"`
-	Dependencies    RelationshipsPreview  `json:"dependencies"`
-	Tools           ToolsPreview          `json:"tools"`
-	Skills          StringsPreview        `json:"skills"`
-	Docs            DocsPreview           `json:"docs"`
-	ExactTargets    RefPreview            `json:"exactTargets"`
-	InferredTargets RefPreview            `json:"inferredTargets"`
-	Previous        *EntityRef            `json:"previous,omitempty"`
-	Next            *EntityRef            `json:"next,omitempty"`
-	Ownership       *OwnershipInfo        `json:"ownership,omitempty"`
-	Limitations     LimitationsPreview    `json:"limitations"`
+	Service        EntityRef             `json:"service"`
+	Version        string                `json:"version,omitempty"`
+	PactoVersion   string                `json:"pactoVersion,omitempty"`
+	Identity       RevisionIdentity      `json:"identity"`
+	Provenance     RevisionProvenance    `json:"provenance"`
+	Valid          bool                  `json:"valid"`
+	Readiness      *ProductReadiness     `json:"readiness,omitempty"`
+	Validation     FindingsPreview       `json:"validation"`
+	Interfaces     InterfacesPreview     `json:"interfaces"`
+	Configurations ConfigurationsPreview `json:"configurations"`
+	Policies       PoliciesPreview       `json:"policies"`
+	Capabilities   CapabilitiesPreview   `json:"capabilities"`
+	Workload       string                `json:"workload,omitempty"`
+	State          *StateSummary         `json:"state,omitempty"`
+	Dependencies   RelationshipsPreview  `json:"dependencies"`
+	Tools          ToolsPreview          `json:"tools"`
+	Skills         StringsPreview        `json:"skills"`
+	Docs           DocsPreview           `json:"docs"`
+	// SBOM is the bounded summary of the revision's software inventory, absent when
+	// the bundle ships none (or ships one that could not be parsed — see the
+	// snapshot limitations, which distinguish the two).
+	SBOM *SBOMSummary `json:"sbom,omitempty"`
+	// Metadata is the contract's declared free-form metadata, bounded at Build.
+	Metadata        RuntimePreview     `json:"metadata"`
+	ExactTargets    RefPreview         `json:"exactTargets"`
+	InferredTargets RefPreview         `json:"inferredTargets"`
+	Previous        *EntityRef         `json:"previous,omitempty"`
+	Next            *EntityRef         `json:"next,omitempty"`
+	Ownership       *OwnershipInfo     `json:"ownership,omitempty"`
+	Limitations     LimitationsPreview `json:"limitations"`
 }
 
 // TargetDetailData is the target-kind payload: the logical service and linked
@@ -526,6 +532,8 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Tools:           toolsPreview(rev.Tools),
 		Skills:          stringsPreview(rev.Skills),
 		Docs:            docsPreview(rev.Docs),
+		SBOM:            rev.SBOM,
+		Metadata:        rev.Metadata,
 		ExactTargets:    refPreview(exact),
 		InferredTargets: refPreview(inferred),
 		Previous:        prev,
