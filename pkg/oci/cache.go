@@ -146,10 +146,12 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 	return tags, nil
 }
 
-// Pull returns the bundle for ref, checking the in-memory cache, then the disk
-// cache (skipped when DisableCache is active), then the wrapped store. Registry
-// pulls are stored in memory and persisted to disk for future lookups.
-func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
+// PullCached returns the bundle for ref from the in-memory cache, then the disk
+// cache (skipped when DisableCache is active), and reports whether it was found.
+// It NEVER contacts the registry, so it is the offline read path: [Resolver] in
+// [LocalOnly] mode uses it, which is what keeps "local only" from silently
+// becoming a per-ref network pull on a cache miss.
+func (c *CachedStore) PullCached(ctx context.Context, ref string) (*contract.Bundle, bool) {
 	// 1. In-memory cache (fastest).
 	c.pullMu.Lock()
 	if el, ok := c.pullCache[ref]; ok {
@@ -157,7 +159,7 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 		b := el.Value.(*pullEntry).bundle
 		c.pullMu.Unlock()
 		logging.LoggerFromContext(ctx).Debug("cache hit (memory)", "ref", ref)
-		return b, nil
+		return b, true
 	}
 	c.pullMu.Unlock()
 
@@ -167,8 +169,18 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 		if bundle, err := c.loadFromCache(cachePath); err == nil {
 			logging.LoggerFromContext(ctx).Debug("cache hit (disk)", "ref", ref)
 			c.storePull(ref, bundle)
-			return bundle, nil
+			return bundle, true
 		}
+	}
+	return nil, false
+}
+
+// Pull returns the bundle for ref, checking the in-memory cache, then the disk
+// cache (skipped when DisableCache is active), then the wrapped store. Registry
+// pulls are stored in memory and persisted to disk for future lookups.
+func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
+	if bundle, ok := c.PullCached(ctx, ref); ok {
+		return bundle, nil
 	}
 
 	// 3. Registry (slowest).

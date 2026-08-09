@@ -21,6 +21,8 @@ type fakeStore struct {
 	bundles map[string]*contract.Bundle
 	pullErr map[string]error
 	digest  map[string]string
+	// resolves counts digest resolutions, which are registry round trips.
+	resolves int
 }
 
 func bundleFor(name string) *contract.Bundle {
@@ -48,6 +50,7 @@ func (f *fakeStore) Pull(_ context.Context, ref string) (*contract.Bundle, error
 	return nil, errors.New("not found")
 }
 func (f *fakeStore) Resolve(_ context.Context, ref string) (string, error) {
+	f.resolves++
 	if d, ok := f.digest[ref]; ok {
 		return d, nil
 	}
@@ -186,7 +189,10 @@ func TestCacheSource_Collect(t *testing.T) {
 	// A non-bundle file is ignored.
 	mustCacheFile(t, dir, "ghcr.io/org/svc/1.0.0/manifest.json")
 
-	store := &fakeStore{bundles: map[string]*contract.Bundle{"ghcr.io/org/svc:1.0.0": bundleFor("svc")}}
+	store := &fakeStore{
+		bundles: map[string]*contract.Bundle{"ghcr.io/org/svc:1.0.0": bundleFor("svc")},
+		digest:  map[string]string{"ghcr.io/org/svc:1.0.0": validDigest("c")},
+	}
 	s := NewCacheSource("cache", dir, store)
 	col, err := s.Collect(context.Background())
 	if err != nil {
@@ -194,6 +200,17 @@ func TestCacheSource_Collect(t *testing.T) {
 	}
 	if len(col.Revisions) != 1 || col.Revisions[0].RequestedRef != "ghcr.io/org/svc:1.0.0" {
 		t.Fatalf("revisions = %+v", col.Revisions)
+	}
+	// The cache source is the OFFLINE path. It must not dial the registry, even to
+	// pin a digest: one round trip per cached bundle (there can be thousands) blocks
+	// the first snapshot, and with it every fleet endpoint, on a slow or unreachable
+	// registry. Offline the mutable tag is the honest identity.
+	if store.resolves != 0 {
+		t.Errorf("cache source made %d registry digest lookups, want 0 (offline source)", store.resolves)
+	}
+	if col.Revisions[0].ResolvedRef != "ghcr.io/org/svc:1.0.0" || col.Revisions[0].Digest != "" {
+		t.Errorf("offline revision = ref %q digest %q, want the unpinned mutable tag",
+			col.Revisions[0].ResolvedRef, col.Revisions[0].Digest)
 	}
 }
 

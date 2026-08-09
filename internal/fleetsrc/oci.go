@@ -99,13 +99,23 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 			continue
 		}
 		rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: ref}
-		if digest, derr := store.Resolve(ctx, ref); derr == nil {
-			// The requested ref may be a MUTABLE tag; the resolved digest is the
-			// immutable identity. Pin ResolvedRef to the digest so a Product Impact
-			// request by canonical revision key analyzes exactly the content the
-			// snapshot captured, never whatever the tag points at later.
-			rev.Digest = digest
-			rev.ResolvedRef = pinRefToDigest(ref, digest)
+		// The requested ref may be a MUTABLE tag; the resolved digest is the
+		// immutable identity. Pin ResolvedRef to the digest so a Product Impact
+		// request by canonical revision key analyzes exactly the content the
+		// snapshot captured, never whatever the tag points at later.
+		//
+		// Resolving a digest is a REGISTRY ROUND TRIP, so it is only done when the
+		// caller may reach the network. LocalOnly is the offline path ([CacheSource]
+		// over the disk cache): dialing the registry once per cached bundle turned a
+		// disk walk into thousands of serial network waits, and because every fleet
+		// endpoint waits on the first snapshot, a slow or unreachable registry left
+		// the whole dashboard hanging with nothing rendered. Offline we keep the
+		// mutable tag, which is honest -- we cannot know the digest without asking.
+		if mode == oci.RemoteAllowed {
+			if digest, derr := store.Resolve(ctx, ref); derr == nil {
+				rev.Digest = digest
+				rev.ResolvedRef = pinRefToDigest(ref, digest)
+			}
 		}
 		col.Revisions = append(col.Revisions, rev)
 	}

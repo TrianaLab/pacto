@@ -180,17 +180,38 @@ func classifyPullError(err error) error {
 	return nil
 }
 
+// cachedPuller is a store that can serve from its own cache without contacting
+// the registry (see [CachedStore.PullCached]).
+type cachedPuller interface {
+	PullCached(ctx context.Context, ref string) (*contract.Bundle, bool)
+}
+
 func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, error) {
+	// A cached store's Pull falls through to the REGISTRY on a cache miss, so
+	// asking it to Pull would make LocalOnly a network call -- the exact opposite
+	// of what the mode promises, and enough to hang a caller that walks thousands
+	// of cached refs offline. Read the cache directly when the store can.
+	if cp, ok := r.store.(cachedPuller); ok {
+		bundle, hit := cp.PullCached(ctx, ref)
+		if !hit {
+			return nil, &ArtifactNotFoundError{Ref: ref, Err: errors.New("not found in local cache")}
+		}
+		return localBundle(ref, bundle)
+	}
+	// A store with no cache of its own has nothing "local" to read; its Pull is
+	// the only option, and its typed auth/not-found/unreachable errors are more
+	// useful to the caller than a blanket cache miss.
 	bundle, err := r.store.Pull(ctx, ref)
 	if err != nil {
-		// A cached store can still reach the registry, so surface typed
-		// auth/not-found/unreachable/invalid errors rather than masking every
-		// failure as a local-cache miss.
 		if typed := classifyPullError(err); typed != nil {
 			return nil, typed
 		}
 		return nil, &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
 	}
+	return localBundle(ref, bundle)
+}
+
+func localBundle(ref string, bundle *contract.Bundle) (*contract.Bundle, error) {
 	if bundle.Contract == nil {
 		return nil, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
 	}
