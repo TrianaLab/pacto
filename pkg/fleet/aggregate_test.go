@@ -196,3 +196,75 @@ func TestRevisionDetail_ProjectsDeclaredPoliciesAndCapabilities(t *testing.T) {
 		t.Errorf("an unbound capability must not gain a binding: %+v", caps.Items[1])
 	}
 }
+
+// The attention tallies are what a triage chart is drawn from, so they must cover the
+// FILTERED POPULATION (not the page) and they must keep a canonical, stable order. A
+// chart that reorders itself between two loads of the same list teaches nothing.
+func TestAttentionCategories_CanonicalOrderWithZerosAndUnknowns(t *testing.T) {
+	items := []AttentionItem{
+		{Category: "readiness"}, {Category: "readiness"}, {Category: "non-compliant"},
+		// A category a newer engine emits must appear as itself, after the known ones,
+		// rather than silently vanishing from a chart that claims to cover everything.
+		{Category: "a-future-category"}, {Category: "zzz-another"},
+	}
+	got := attentionCategories(items)
+	var order []string
+	sum := 0
+	for _, b := range got {
+		order = append(order, b.Category)
+		sum += b.Count
+	}
+	wantOrder := append(append([]string{}, AttentionCategories...), "a-future-category", "zzz-another")
+	if len(order) != len(wantOrder) {
+		t.Fatalf("categories = %v, want %v", order, wantOrder)
+	}
+	for i := range wantOrder {
+		if order[i] != wantOrder[i] {
+			t.Fatalf("categories = %v, want %v", order, wantOrder)
+		}
+	}
+	if sum != len(items) {
+		t.Errorf("buckets sum to %d, want %d (the buckets must partition the population)", sum, len(items))
+	}
+	if got[0].Count != 1 || got[len(AttentionCategories)-1].Count != 2 {
+		t.Errorf("counts landed in the wrong buckets: %+v", got)
+	}
+}
+
+// The severity tally is over the same filtered population, and an attention severity
+// outside error/warning/info lands in the explicit unknown bucket rather than being
+// dropped.
+func TestAttentionSeverities_CoverEveryMatchedItem(t *testing.T) {
+	items := []AttentionItem{{Severity: "error"}, {Severity: "warning"}, {Severity: "info"}, {Severity: "info"}, {Severity: "novel"}}
+	got := attentionSeverities(items)
+	if got.Total() != len(items) {
+		t.Errorf("Total() = %d, want %d", got.Total(), len(items))
+	}
+	if got != (SeverityTally{Errors: 1, Warnings: 1, Infos: 2, Unknown: 1}) {
+		t.Errorf("tally = %+v", got)
+	}
+}
+
+// The list-level tallies must agree with Total on a real snapshot: if they disagree,
+// a chart and the count beside it tell the user two different things.
+func TestAttention_TalliesAgreeWithTotalOverTheWholeFilteredPopulation(t *testing.T) {
+	q := productFleet(t)
+	// A page far smaller than the population: the tallies must still cover all of it.
+	list, err := q.Attention(AttentionFilter{Limit: 1})
+	if err != nil {
+		t.Fatalf("Attention: %v", err)
+	}
+	if list.Count >= list.Total {
+		t.Fatalf("fixture does not exercise paging: count %d, total %d", list.Count, list.Total)
+	}
+	if list.Severities.Total() != list.Total {
+		t.Errorf("severity buckets cover %d items, want the full %d matched", list.Severities.Total(), list.Total)
+	}
+	sum := 0
+	for _, b := range list.Categories {
+		sum += b.Count
+	}
+	if sum != list.Total {
+		t.Errorf("category buckets cover %d items, want the full %d matched", sum, list.Total)
+	}
+}

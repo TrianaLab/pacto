@@ -10,6 +10,8 @@
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
+  import DistributionBar from '../components/viz/DistributionBar.svelte';
+  import { complianceSegments } from '../lib/distributions.ts';
 
   // The product Services list (requirement C / A3). It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -83,6 +85,14 @@
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     domain ? { key: 'domain', label: 'Domain', value: domain } : null,
   ].filter(Boolean));
+  // Counted from the rendered page, never presented as the fleet: DistributionBar is
+  // given the page size as its denominator and the scope note states it in words.
+  const pageSegments = $derived(complianceSegments((list?.entities ?? []).reduce((acc, r) => {
+    const k = { compliant: 'compliant', 'non-compliant': 'nonCompliant', unknown: 'unknown', invalid: 'invalid' }[r.status] || 'other';
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {})));
+
   function removeChip(key) { apply({ [key]: '' }); }
 </script>
 
@@ -129,6 +139,20 @@
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <KnowledgeBanner {knowledge} noun="list" />
+  {/if}
+
+  <!-- PAGE-SCOPED, and it says so. The Entities endpoint answers "which services match"
+       and pages the answer; it does not tally the whole match, so this bar counts the
+       services actually on screen. The fleet-wide compliance distribution lives on the
+       Overview, where the backend computes it over the complete population. -->
+  {#if state.kind === 'ready' && pageSegments.some((x) => x.value > 0)}
+    <DistributionBar
+      title="Compliance on this page"
+      level={2}
+      scopeNote={`This page only — ${count} of ${total} matching services.`}
+      segments={pageSegments}
+      total={count}
+    />
   {/if}
 
   {#if state.kind !== 'ready'}

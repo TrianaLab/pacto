@@ -12,6 +12,7 @@ export interface Route {
     | 'fleet-owners'    // /fleet/owners     product owner list
     | 'fleet-sources'   // /fleet/sources    product source list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
+    | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
     | 'fleet-attention';// /fleet/attention  attention list
   params: Record<string, string>;
 }
@@ -195,6 +196,22 @@ function parseFleet(path: string, query: string): Route {
       if (v) params[k] = v;
     }
     return { view: 'fleet-services', params };
+  }
+
+  // Bare /fleet/revisions and /fleet/targets are the SCOPED inventory lists. They are
+  // how "all 47 revisions of this service" is reachable from a bounded preview: the
+  // preview stays capped, and its View-all link lands here, on a real paged list
+  // served by the same bounded Entities endpoint (?service=<canonical ServiceKey>).
+  // Unscoped they are the whole revision/target inventory. Matched before the
+  // entity-detail regex, which needs a trailing key segment.
+  if (rest === 'revisions' || rest === 'targets') {
+    const params: Record<string, string> = { kind: rest === 'revisions' ? 'revision' : 'target' };
+    const qs = new URLSearchParams(query);
+    for (const k of ['text', 'service', 'status', 'scope', 'offset']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
+    return { view: 'fleet-entity-list', params };
   }
 
   // Bare /fleet/owners and /fleet/sources are the product owner/source LISTS. They
@@ -392,6 +409,28 @@ export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; of
   if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
   const str = qs.toString();
   return str ? `#/fleet/sources?${str}` : '#/fleet/sources';
+}
+
+// fleetEntityListUrl builds a scoped inventory list route for the kinds that have no
+// list page of their own -- revisions and targets. `service` is a canonical
+// ServiceKey, never a display name, and it is what turns a capped preview ("5 of 47")
+// into a complete, paged answer. Any other kind falls back to its own list route,
+// because services/owners/sources already have one.
+export function fleetEntityListUrl(kind: string, opts: {
+  service?: string; text?: string; status?: string; scope?: string; offset?: number;
+} = {}): string {
+  if (kind !== 'revision' && kind !== 'target') {
+    return kind === 'owner' ? fleetOwnersUrl() : kind === 'source' ? fleetSourcesUrl() : fleetServicesUrl();
+  }
+  const qs = new URLSearchParams();
+  if (opts.service) qs.set('service', opts.service);
+  if (opts.text) qs.set('text', opts.text);
+  if (opts.status) qs.set('status', opts.status);
+  if (opts.scope) qs.set('scope', opts.scope);
+  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  const str = qs.toString();
+  const plural = kind === 'revision' ? 'revisions' : 'targets';
+  return str ? `#/fleet/${plural}?${str}` : `#/fleet/${plural}`;
 }
 
 // ponytail: encodeURIComponent over-escapes a few sub-delims vs Go's url.PathEscape,

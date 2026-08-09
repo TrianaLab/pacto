@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/finding"
 )
 
 // ProductSchemaVersion is the wire version of the product-oriented dashboard API
@@ -478,6 +480,10 @@ type AttentionList struct {
 	Truncated  bool            `json:"truncated"`
 	NextOffset *int            `json:"nextOffset,omitempty"`
 	Items      []AttentionItem `json:"items"`
+	// Severities and Categories tally EVERY item the filter matched, not Items.
+	// They are what a triage chart must be drawn from: Items is one page.
+	Severities SeverityTally            `json:"severities"`
+	Categories []AttentionCategoryCount `json:"categories"`
 }
 
 // validateAttentionFilter rejects a malformed attention filter (a negative limit
@@ -543,7 +549,53 @@ func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 	return &AttentionList{
 		Meta: q.productMeta(), Total: total, Count: len(page),
 		Limit: limit, Offset: start, Truncated: truncated, NextOffset: next, Items: page,
+		Severities: attentionSeverities(filtered), Categories: attentionCategories(filtered),
 	}, nil
+}
+
+// attentionSeverities and attentionCategories tally the COMPLETE filtered attention
+// population, not the page. A triage chart drawn from one page of ten items would
+// present the first page as the shape of the backlog; these two cover everything the
+// filter matched, so Total and the buckets always agree.
+func attentionSeverities(items []AttentionItem) SeverityTally {
+	var t SeverityTally
+	for i := range items {
+		t.add(finding.Severity(items[i].Severity))
+	}
+	return t
+}
+
+// AttentionCategoryCount is one triage category and how many matched items are in it.
+// Categories are emitted in the canonical enum order with their zeros, so a category
+// that empties out keeps its place instead of the chart reshuffling under the user.
+type AttentionCategoryCount struct {
+	Category string `json:"category"`
+	Count    int    `json:"count"`
+}
+
+// AttentionCategories is the canonical display order of the triage categories,
+// worst first. It mirrors the AttentionItem.Category enum.
+var AttentionCategories = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "readiness"}
+
+func attentionCategories(items []AttentionItem) []AttentionCategoryCount {
+	counts := map[string]int{}
+	for i := range items {
+		counts[items[i].Category]++
+	}
+	out := make([]AttentionCategoryCount, 0, len(AttentionCategories))
+	for _, c := range AttentionCategories {
+		out = append(out, AttentionCategoryCount{Category: c, Count: counts[c]})
+		delete(counts, c)
+	}
+	extra := make([]string, 0, len(counts))
+	for c := range counts {
+		extra = append(extra, c)
+	}
+	sort.Strings(extra)
+	for _, c := range extra {
+		out = append(out, AttentionCategoryCount{Category: c, Count: counts[c]})
+	}
+	return out
 }
 
 // collectAttention gathers every attention item from the snapshot.

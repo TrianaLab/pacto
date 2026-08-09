@@ -9,6 +9,7 @@
   import FindingList from '../../components/FindingList.svelte';
   import LimitationsList from '../../components/LimitationsList.svelte';
   import { formatDate } from '../../lib/dateFormat.ts';
+  import { fleetEntityListUrl } from '../../lib/router.ts';
 
   // The revision page: an IMMUTABLE version of the service contract, not a deployment,
   // and the CONTRACT INSPECTOR -- the one place a user reads what this exact revision
@@ -35,6 +36,9 @@
   const o = $derived(d.ownership ?? null);
   const prov = $derived(d.provenance ?? {});
   const state = $derived(d.state ?? null);
+  // The parent ServiceKey comes from the backend ref, never parsed out of the revision
+  // key: a RevisionKey is not a ServiceKey with a suffix.
+  const historyHref = $derived(d.service?.key ? fleetEntityListUrl('revision', { service: d.service.key }) : '');
 </script>
 
 <div class="rev-entity">
@@ -292,10 +296,14 @@
     {/if}
   </div>
 
-  {#if d.previous || d.next}
+  <!-- Revision chronology. Previous/next are the engine's canonical adjacency (not a
+       digest sort), and the third link is the complete, paged history of the parent
+       service -- the version-history comprehension a two-item adjacency cannot give. -->
+  {#if d.previous || d.next || historyHref}
     <section class="re-adjacent">
       {#if d.previous}<div class="re-adj"><span class="re-k">Previous revision</span><EntityLink ref={d.previous} showStatus={false} showKind={false} /></div>{/if}
       {#if d.next}<div class="re-adj"><span class="re-k">Next revision</span><EntityLink ref={d.next} showStatus={false} showKind={false} /></div>{/if}
+      {#if historyHref}<div class="re-adj"><span class="re-k">Revision history</span><a href={historyHref} data-testid="revision-history-link">All revisions of this service</a></div>{/if}
     </section>
   {/if}
 

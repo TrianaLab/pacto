@@ -935,6 +935,11 @@ export interface components {
             Kind: string;
             Name: string;
         };
+        "Fleet.AttentionCategoryCount": {
+            category: string;
+            /** Format: int64 */
+            count: number;
+        };
         "Fleet.CapabilitiesPreview": {
             /** Format: int64 */
             count: number;
@@ -1651,6 +1656,11 @@ export interface components {
             /** @description Canonical revision key of the new revision */
             toRevisionKey: string;
         };
+        ImpactTallyBucket: {
+            /** Format: int64 */
+            count: number;
+            key: string;
+        };
         Insight: {
             description?: string;
             severity: string;
@@ -1842,6 +1852,7 @@ export interface components {
             summary: string;
         };
         ProductAttentionList: {
+            categories: components["schemas"]["Fleet.AttentionCategoryCount"][] | null;
             /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductAttentionItem"][] | null;
@@ -1852,6 +1863,7 @@ export interface components {
             nextOffset?: number;
             /** Format: int64 */
             offset: number;
+            severities: components["schemas"]["Fleet.SeverityTally"];
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -2017,6 +2029,8 @@ export interface components {
             service: components["schemas"]["ProductRef"];
         };
         ProductImpactConsumersPage: {
+            byConfidence: components["schemas"]["ImpactTallyBucket"][] | null;
+            byVerdict: components["schemas"]["ImpactTallyBucket"][] | null;
             /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductImpactConsumer"][] | null;

@@ -14,6 +14,9 @@
   import SeverityBadge from '../components/SeverityBadge.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
+  import DistributionBar from '../components/viz/DistributionBar.svelte';
+  import HorizontalBars from '../components/viz/HorizontalBars.svelte';
+  import { severitySegments } from '../lib/distributions.ts';
 
   // The attention triage workspace (requirements A2/I). It consumes
   // /api/fleet/attention with the backend-supported product filters, real backend
@@ -92,6 +95,20 @@
     source ? { key: 'source', label: 'Source', value: source } : null,
     isStale ? { key: 'staleOnly', label: 'Stale only', value: 'yes' } : null,
   ].filter(Boolean));
+  // Category buckets come from the backend in canonical order with their zeros; the
+  // tone mirrors the severity each category habitually carries, and each bar is a
+  // filter link so the chart is a triage control, not a picture.
+  const CATEGORY_TONE = {
+    'non-compliant': 'err', invalid: 'err', unknown: 'warn', stale: 'warn',
+    unresolved: 'warn', readiness: 'info',
+  };
+  const categoryBars = $derived((list?.categories ?? []).map((b) => ({
+    label: attentionCategoryLabel(b.category),
+    value: b.count ?? 0,
+    tone: CATEGORY_TONE[b.category] ?? 'neutral',
+    href: urlWith({ category: b.category }),
+  })));
+
   function removeChip(key) { apply(key === 'staleOnly' ? { staleOnly: false } : { [key]: '' }); }
 </script>
 
@@ -157,6 +174,25 @@
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="attention items" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
   {:else}
+    <!-- The shape of the backlog before the backlog itself. Both charts read the
+         backend tallies, which cover EVERY item the current filter matched -- not the
+         page below them -- so the proportions do not change as the user pages. -->
+    <div class="av-shape" data-testid="attention-shape">
+      <DistributionBar
+        title="By severity"
+        level={2}
+        description="How urgent the matched items are."
+        segments={severitySegments(list.severities)}
+        total={list.total}
+      />
+      <HorizontalBars
+        title="By category"
+        level={2}
+        description="What kind of problem each matched item is."
+        items={categoryBars}
+        unit="items"
+      />
+    </div>
     <ul class="attn-list">
       {#each list.items as it}
         <!-- Two columns, not one wrapping row. With everything in a single flex line
@@ -195,6 +231,7 @@
 </div>
 
 <style>
+  .av-shape { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
   .attn-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   .av-head { display: flex; align-items: baseline; gap: var(--sp-3); }
   .av-head h1 { margin: 0; }

@@ -217,6 +217,13 @@ type ProductImpactConsumer struct {
 }
 
 // ProductImpactConsumersPage is a stable, offset-paged consumer answer.
+// ImpactTallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
+// dimension value and how many of the impact's consumers carry it.
+type ImpactTallyBucket struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
 type ProductImpactConsumersPage struct {
 	Total      int                     `json:"total"`
 	Count      int                     `json:"count"`
@@ -225,6 +232,11 @@ type ProductImpactConsumersPage struct {
 	Truncated  bool                    `json:"truncated"`
 	NextOffset *int                    `json:"nextOffset,omitempty"`
 	Items      []ProductImpactConsumer `json:"items"`
+	// ByVerdict and ByConfidence are computed over EVERY consumer, not over Items.
+	// They are what a chart must be drawn from: Items is one page, so counting it
+	// would present "the first 50 consumers" as the blast radius.
+	ByVerdict    []ImpactTallyBucket `json:"byVerdict"`
+	ByConfidence []ImpactTallyBucket `json:"byConfidence"`
 }
 
 // ProductChange is one field-level semantic difference between the two revisions,
@@ -482,10 +494,53 @@ func pageImpactConsumers(all []ProductImpactConsumer, limit, offset int) Product
 		n := end
 		next = &n
 	}
+	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
+	// a page reads exactly like a chart of the whole blast radius, so the complete
+	// distributions are computed here and the page carries them.
 	return ProductImpactConsumersPage{
 		Total: total, Count: len(page), Limit: limit, Offset: start,
 		Truncated: truncated, NextOffset: next, Items: page,
+		ByVerdict:    tallyConsumers(all, verdictOrder, func(c ProductImpactConsumer) string { return c.CompatibilityVerdict }),
+		ByConfidence: tallyConsumers(all, confidenceOrder, func(c ProductImpactConsumer) string { return c.Confidence }),
 	}
+}
+
+// verdictOrder and confidenceOrder are the canonical display orders of the two
+// consumer dimensions, worst/strongest first. They are declared here rather than
+// derived from the data so an empty bucket keeps its place and the chart does not
+// reorder itself between two analyses of the same change.
+var (
+	verdictOrder    = []string{impact.CompatibilityIncompatible, impact.CompatibilityCompatible, impact.CompatibilityUnknown}
+	confidenceOrder = []string{
+		string(impact.ConfidenceCorroborated), string(impact.ConfidenceContractual), string(impact.ConfidenceDeclared),
+		string(impact.ConfidenceObserved), string(impact.ConfidenceInferred), string(impact.ConfidenceUnknown),
+	}
+)
+
+// tallyConsumers counts the COMPLETE consumer population by one dimension, emitting
+// the known buckets in canonical order followed by any unrecognized value. Buckets
+// always sum to len(all), so a consumer can draw a proportion without inventing a
+// remainder, and a value the engine grows later shows up as itself instead of
+// silently vanishing from the chart.
+func tallyConsumers(all []ProductImpactConsumer, order []string, key func(ProductImpactConsumer) string) []ImpactTallyBucket {
+	counts := map[string]int{}
+	for i := range all {
+		counts[key(all[i])]++
+	}
+	out := make([]ImpactTallyBucket, 0, len(order))
+	for _, k := range order {
+		out = append(out, ImpactTallyBucket{Key: k, Count: counts[k]})
+		delete(counts, k)
+	}
+	extra := make([]string, 0, len(counts))
+	for k := range counts {
+		extra = append(extra, k)
+	}
+	sort.Strings(extra)
+	for _, k := range extra {
+		out = append(out, ImpactTallyBucket{Key: k, Count: counts[k]})
+	}
+	return out
 }
 
 // boundProductChanges renders the impact result's three change sets into ONE

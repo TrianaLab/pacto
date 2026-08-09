@@ -1,5 +1,5 @@
 <script>
-  import { fleetGraphFocusUrl } from '../../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
   import { abbreviateDigests } from '../../lib/format.ts';
   import { complianceSegments, linkSegments, severitySegments, evidenceSegments } from '../../lib/distributions.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
@@ -29,6 +29,11 @@
   // The graph focus is a meaningful continuation for the neighborhood previews
   // (dependencies/dependents/differences), whose exact contents live in the graph.
   const graphHref = $derived(fleetGraphFocusUrl('service', key));
+  // A capped preview must have somewhere complete to send the user: the scoped
+  // inventory lists page the SAME bounded Entities endpoint by canonical ServiceKey,
+  // so "5 of 47" is a real answer away rather than a dead end.
+  const allRevisionsHref = $derived(fleetEntityListUrl('revision', { service: key }));
+  const allTargetsHref = $derived(fleetEntityListUrl('target', { service: key }));
 
   const sum = $derived(d.summary ?? {});
   const ev = $derived(sum.evidence ?? {});
@@ -136,12 +141,12 @@
   </section>
 
   <div class="se-grid">
-    <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} empty="No revision is currently matched to a running target.">
+    <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No revision is currently matched to a running target.">
       <EntityRefList items={d.activeRevisions?.items ?? []} showStatus={false} />
       <p class="se-hint">Newest first. These are the revisions at least one target is matched to.</p>
     </PreviewSection>
 
-    <PreviewSection title="All revisions" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} empty="No known revisions.">
+    <PreviewSection title="All revisions" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions.">
       <EntityRefList items={d.revisions?.items ?? []} showStatus={false} />
       <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
            declared per revision and gated per revision. Rolling it up here would invent
@@ -150,7 +155,7 @@
       <p class="se-hint">Newest first. Readiness is declared per revision — open one to see its gate.</p>
     </PreviewSection>
 
-    <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} empty="No running target observed.">
+    <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
       <EntityRefList items={d.deployments?.items ?? []} />
     </PreviewSection>
 

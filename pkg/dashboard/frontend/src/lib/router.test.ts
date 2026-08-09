@@ -4,7 +4,7 @@ import {
   readinessUrl, fleetUrl,
   hashForHref, fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetEntityUrl, fleetGraphFocusUrl, fleetAttentionUrl, fleetChangesUrl,
-  legacyRedirectTarget, replaceHash,
+  legacyRedirectTarget, replaceHash, fleetEntityListUrl,
 } from './router.ts';
 
 describe('parseHash', () => {
@@ -558,5 +558,51 @@ describe('replaceHash', () => {
     replaceHash('#/fleet/services');
     expect(fired).toBe(1);
     window.removeEventListener('hashchange', h);
+  });
+});
+
+// The scoped inventory lists are the destination a bounded preview points at: "5 of 47
+// revisions" has to lead somewhere that can actually show 47. They page the SAME
+// bounded Entities endpoint, scoped by canonical ServiceKey.
+describe('scoped inventory lists (/fleet/revisions, /fleet/targets)', () => {
+  it('parses the bare list routes into a kind, and keeps them distinct from entity detail', () => {
+    expect(parseHash('#/fleet/revisions')).toEqual({ view: 'fleet-entity-list', params: { kind: 'revision' } });
+    expect(parseHash('#/fleet/targets')).toEqual({ view: 'fleet-entity-list', params: { kind: 'target' } });
+    // A trailing key segment is still entity DETAIL, not a list.
+    expect(parseHash('#/fleet/revisions/' + encodeURIComponent('a/b@sha256:c')))
+      .toEqual({ view: 'fleet-entity', params: { kind: 'revision', key: 'a/b@sha256:c' } });
+  });
+
+  it('carries the canonical service scope and the list filters through the URL', () => {
+    expect(parseHash('#/fleet/revisions?service=' + encodeURIComponent('domain-a/payments') + '&text=v2&offset=25'))
+      .toEqual({ view: 'fleet-entity-list', params: { kind: 'revision', service: 'domain-a/payments', text: 'v2', offset: '25' } });
+    expect(parseHash('#/fleet/targets?scope=prod&status=NonCompliant'))
+      .toEqual({ view: 'fleet-entity-list', params: { kind: 'target', scope: 'prod', status: 'NonCompliant' } });
+  });
+
+  it('builds the list URL, encoding the ServiceKey and dropping page 1', () => {
+    expect(fleetEntityListUrl('revision')).toBe('#/fleet/revisions');
+    expect(fleetEntityListUrl('target', { offset: 0 })).toBe('#/fleet/targets');
+    expect(fleetEntityListUrl('revision', { service: 'domain-a/payments', offset: 25 }))
+      .toBe('#/fleet/revisions?service=domain-a%2Fpayments&offset=25');
+    expect(fleetEntityListUrl('target', { service: 'domain-a/payments', status: 'Unknown', scope: 'prod', text: 'api' }))
+      .toBe('#/fleet/targets?service=domain-a%2Fpayments&text=api&status=Unknown&scope=prod');
+  });
+
+  // Owners, sources and services already have list pages of their own; the builder
+  // sends those kinds there rather than inventing a second inventory for them.
+  it('routes a kind that already has a list page to that page', () => {
+    expect(fleetEntityListUrl('owner')).toBe(fleetOwnersUrl());
+    expect(fleetEntityListUrl('source')).toBe(fleetSourcesUrl());
+    expect(fleetEntityListUrl('service')).toBe(fleetServicesUrl());
+    expect(fleetEntityListUrl('nonsense')).toBe(fleetServicesUrl());
+  });
+
+  it('round-trips: what the builder writes is what the router reads back', () => {
+    const url = fleetEntityListUrl('revision', { service: 'domain-a/payments', text: 'v2', offset: 50 });
+    expect(parseHash(url)).toEqual({
+      view: 'fleet-entity-list',
+      params: { kind: 'revision', service: 'domain-a/payments', text: 'v2', offset: '50' },
+    });
   });
 });

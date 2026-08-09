@@ -9,7 +9,7 @@
   import FindingList from '../../components/FindingList.svelte';
   import LimitationsList from '../../components/LimitationsList.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
-  import { fleetGraphFocusUrl } from '../../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
 
   // The deployment/target page (requirement F). It makes the TWO identity dimensions
   // immediately understandable and independent:
@@ -39,6 +39,9 @@
   // because presenting service-scoped observation under a target heading would quietly
   // upgrade "somewhere in this service" into "here".
   const serviceGraphHref = $derived(d.service?.key ? fleetGraphFocusUrl('service', d.service.key) : '');
+  // "Where else is this service running" is a question a single target page cannot
+  // answer on its own -- the scoped target inventory can, from the same canonical key.
+  const siblingTargetsHref = $derived(d.service?.key ? fleetEntityListUrl('target', { service: d.service.key }) : '');
 </script>
 
 <div class="tgt-entity">
@@ -77,6 +80,7 @@
 
   <section class="te-facts">
     <div class="te-fact"><span class="te-k">Service</span><EntityLink ref={d.service} showStatus={false} showKind={false} /></div>
+    {#if siblingTargetsHref}<div class="te-fact"><span class="te-k">Elsewhere</span><a href={siblingTargetsHref} data-testid="sibling-targets-link">All targets of this service</a></div>{/if}
     {#if d.scope}<div class="te-fact"><span class="te-k">Scope</span><span>{d.scope}</span></div>{/if}
     {#if d.kind}<div class="te-fact"><span class="te-k">Kind</span><span>{d.kind}</span></div>{/if}
     <!-- No Compliance row: the page header already badges this exact state in the same

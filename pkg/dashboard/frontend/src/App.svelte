@@ -20,6 +20,7 @@
   import FleetServicesView from './views/FleetServicesView.svelte';
   import FleetOwnersView from './views/FleetOwnersView.svelte';
   import FleetSourcesView from './views/FleetSourcesView.svelte';
+  import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetEntityView from './views/FleetEntityView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import ChangeAnalysisView from './views/ChangeAnalysisView.svelte';
@@ -303,6 +304,16 @@
     <FleetSourcesView
       text={route.params.text || ''}
       sourceHealth={route.params.sourceHealth || ''}
+      offset={route.params.offset || ''}
+      {refreshTick}
+    />
+  {:else if route.view === 'fleet-entity-list'}
+    <FleetEntityListView
+      kind={route.params.kind || 'revision'}
+      service={route.params.service || ''}
+      text={route.params.text || ''}
+      status={route.params.status || ''}
+      scope={route.params.scope || ''}
       offset={route.params.offset || ''}
       {refreshTick}
     />

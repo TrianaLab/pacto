@@ -12,6 +12,9 @@
   import EntityRefList from '../components/EntityRefList.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
   import DiffChangesTable from '../DiffChangesTable.svelte';
+  import DistributionBar from '../components/viz/DistributionBar.svelte';
+  import HorizontalBars from '../components/viz/HorizontalBars.svelte';
+  import { changeSegments, verdictSegments, confidenceSegments } from '../lib/distributions.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
   // WHAT CHANGED between two revisions of a service, and WHAT THAT CHANGE AFFECTS in the
@@ -455,6 +458,15 @@
           <span class="badge badge-warn">{changes.potential} potentially breaking</span>
           <span class="badge badge-ok">{changes.nonBreaking} non-breaking</span>
         </p>
+        <!-- The mix, drawn from the backend's COMPLETE change counts (which cover
+             every difference found, not the truncated table below). -->
+        <DistributionBar
+          title="Change mix"
+          level={3}
+          description="Every difference between the two revisions, by how much it can break a consumer."
+          segments={changeSegments(changes)}
+          total={changes.total}
+        />
         {#if changes.truncated}
           <p class="text-dim" data-testid="changes-truncated">Showing the first {changes.count} of {changes.total} differences, breaking ones first.</p>
         {/if}
@@ -475,6 +487,27 @@
       <PreviewSection title="Incomplete evidence" total={limitations.total} count={limitations.count} truncated={limitations.truncated}>
         <LimitationsList items={limitations.items} />
       </PreviewSection>
+    {/if}
+
+    <!-- The blast radius at a glance, before the table. Both rankings come from the
+         backend tallies over EVERY consumer, so they do not change as the table pages. -->
+    {#if consumers.total > 0}
+      <div class="impact-viz" data-testid="impact-consumer-viz">
+        <HorizontalBars
+          title="Consumers by compatibility verdict"
+          level={3}
+          description="Whether each affected consumer's declared range still accepts the new revision."
+          items={verdictSegments(consumers.byVerdict)}
+          unit="consumers"
+        />
+        <HorizontalBars
+          title="Consumers by evidence"
+          level={3}
+          description="How this fleet knows each consumer is affected."
+          items={confidenceSegments(consumers.byConfidence)}
+          unit="consumers"
+        />
+      </div>
     {/if}
 
     <div class="section">
@@ -547,6 +580,7 @@
 {/if}
 
 <style>
+  .impact-viz { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
   /* The product page shell, matching the other canonical screens: breadcrumbs, then a
      sentence-case h1, then one dim lead line. Named for this view so the legacy views'
      .page-header stays uniquely theirs. */

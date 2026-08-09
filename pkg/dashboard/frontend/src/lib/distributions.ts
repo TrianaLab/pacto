@@ -103,6 +103,56 @@ export function evidenceSegments(e: { withEvidence?: number; withoutEvidence?: n
   ];
 }
 
+/**
+ * changeSegments renders a contract diff's severity mix. The counts are the backend's
+ * complete change population (ProductChangesPreview.breaking/potential/nonBreaking
+ * cover every change found, not the truncated Items preview beside them).
+ */
+export function changeSegments(c: { breaking?: number; potential?: number; nonBreaking?: number } | undefined): Segment[] {
+  const x = c || {};
+  return [
+    { label: 'Breaking', value: n(x.breaking), tone: 'err' },
+    { label: 'Potentially breaking', value: n(x.potential), tone: 'warn' },
+    { label: 'Non-breaking', value: n(x.nonBreaking), tone: 'ok' },
+  ];
+}
+
+/**
+ * Impact consumer tallies. The backend emits ordered {key, count} buckets over EVERY
+ * consumer (not the current page), so the ranking here is the whole blast radius. The
+ * label and tone of each key are decided once, and an unrecognized key -- a value a
+ * newer engine emits -- is shown as itself in neutral rather than dropped.
+ */
+const VERDICT_META: Record<string, { label: string; tone: Segment['tone'] }> = {
+  incompatible: { label: 'Incompatible', tone: 'err' },
+  compatible: { label: 'Compatible', tone: 'ok' },
+  unknown: { label: 'Compatibility unknown', tone: 'warn' },
+};
+
+const CONFIDENCE_META: Record<string, { label: string; tone: Segment['tone'] }> = {
+  corroborated: { label: 'Declared and observed', tone: 'ok' },
+  contractual: { label: 'Declared with a range', tone: 'ok' },
+  declared: { label: 'Declared only', tone: 'info' },
+  observed: { label: 'Observed only', tone: 'info' },
+  inferred: { label: 'Reached through another service', tone: 'neutral' },
+  unknown: { label: 'Evidence incomplete', tone: 'warn' },
+};
+
+function buckets(items: { key?: string; count?: number }[] | undefined, meta: Record<string, { label: string; tone: Segment['tone'] }>): Segment[] {
+  return (items || []).map((b) => {
+    const m = meta[b.key || ''];
+    return { label: m?.label ?? (b.key || 'Unknown'), value: n(b.count), tone: m?.tone ?? 'neutral' };
+  });
+}
+
+export function verdictSegments(items: { key?: string; count?: number }[] | undefined): Segment[] {
+  return buckets(items, VERDICT_META);
+}
+
+export function confidenceSegments(items: { key?: string; count?: number }[] | undefined): Segment[] {
+  return buckets(items, CONFIDENCE_META);
+}
+
 /** total sums a segment list, for use as a DistributionBar denominator. */
 export function segmentTotal(segments: Segment[]): number {
   return segments.reduce((sum, s) => sum + (s.value || 0), 0);
