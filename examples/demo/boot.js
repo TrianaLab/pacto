@@ -47,19 +47,34 @@
 
   window.fetch = function (input, init) {
     init = init || {};
+    var isRequest = typeof Request !== "undefined" && input instanceof Request;
     var rawURL = typeof input === "string" ? input : input.url;
     var u = new URL(rawURL, window.location.href);
     if (!isApiPath(u.pathname)) {
       return realFetch(input, init);
     }
-    var method = (init.method || (typeof input !== "string" && input.method) || "GET").toUpperCase();
-    var body = init.body != null ? String(init.body) : null;
-    return window.__pactoReady.then(function () {
-      var res = window.__pactoServe(method, u.pathname + u.search, body);
-      return new Response(res.body, {
-        status: res.status,
-        headers: { "Content-Type": res.contentType || "application/json" },
+    var method = (init.method || (isRequest ? input.method : "GET") || "GET").toUpperCase();
+    // The body may be carried on init.body (a string) OR on a Request object -- the
+    // generated openapi-fetch client passes a Request whose body is NOT on init, so a
+    // POST body must be read from the Request itself (its text() is async). Reading it
+    // here is what lets POST operations (e.g. the product Impact analysis) work in the
+    // in-browser demo, not only query-param GETs.
+    var bodyPromise;
+    if (init.body != null) {
+      bodyPromise = Promise.resolve(String(init.body));
+    } else if (isRequest && method !== "GET" && method !== "HEAD") {
+      bodyPromise = input.clone().text();
+    } else {
+      bodyPromise = Promise.resolve(null);
+    }
+    return window.__pactoReady
+      .then(function () { return bodyPromise; })
+      .then(function (body) {
+        var res = window.__pactoServe(method, u.pathname + u.search, body && body.length ? body : null);
+        return new Response(res.body, {
+          status: res.status,
+          headers: { "Content-Type": res.contentType || "application/json" },
+        });
       });
-    });
   };
 })();

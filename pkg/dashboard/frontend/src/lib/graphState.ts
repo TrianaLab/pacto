@@ -8,7 +8,7 @@
  * vocabularies the UI renders verbatim (requirement O: never infer a difference from
  * booleans, never color-only).
  */
-import type { KnowledgeView, Direction, ProductNeighborhood } from './api.ts';
+import type { KnowledgeView, Direction } from './api.ts';
 
 export const GRAPH_PERSPECTIVES = ['service', 'revision', 'target'] as const;
 export type GraphPerspective = (typeof GRAPH_PERSPECTIVES)[number];
@@ -124,7 +124,11 @@ export function relationLabel(rel: string | undefined): string {
 }
 
 /** neighborhoodIsEmpty reports a focused neighborhood that resolved to just the focus
- *  node (no neighbors), so the UI can say so honestly rather than showing a bare dot. */
-export function neighborhoodIsEmpty(nb: ProductNeighborhood | null | undefined): boolean {
+ *  node (no neighbors), so the UI can say so honestly rather than showing a bare dot.
+ *  It reads only the two structural fields it needs, so any neighborhood-shaped value
+ *  (the full ProductNeighborhood or a partial) satisfies it. */
+export function neighborhoodIsEmpty(
+  nb: { edges?: unknown[]; unresolvedDependencies?: { count?: number } } | null | undefined,
+): boolean {
   return !!nb && (nb.edges?.length ?? 0) === 0 && (nb.unresolvedDependencies?.count ?? 0) === 0;
 }

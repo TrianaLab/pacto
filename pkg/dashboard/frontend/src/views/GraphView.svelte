@@ -81,7 +81,9 @@
     const mySeq = ++searchSeq;
     if (!q) { results = []; searching = false; return; }
     searching = true;
-    api.fleetEntities({ text: q, limit: 20 })
+    // Only graph-focusable kinds: the graph projects services, revisions and targets.
+    // Owners and sources are discovered from their own lists, not focused in the graph.
+    api.fleetEntities({ text: q, kinds: ['service', 'revision', 'target'], limit: 20 })
       .then((r) => { if (mySeq === searchSeq) results = r.entities || []; })
       .catch(() => { if (mySeq === searchSeq) results = []; })
       .finally(() => { if (mySeq === searchSeq) searching = false; });
