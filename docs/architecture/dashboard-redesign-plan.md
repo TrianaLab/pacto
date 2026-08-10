@@ -212,6 +212,34 @@ The third-correction-pass session (this ledger's current session) ran as follows
   BLOCKED (section 8 item 9). The PR stays draft; PR-body finalization is phase 14.
   Phase 7 was NOT started.
 
+The fourth-correction-pass session (this ledger's current session) ran as follows:
+
+- Starting HEAD: `759845ca` (the independently reviewed HEAD of PR #291).
+- Synchronized base: `a56b69e3` (current `main` tip). `main` had NOT moved from that
+  base (it equals the merge-base and is an ancestor of HEAD), so no re-sync was
+  needed. Integration remains merge (branch content preserved).
+- Two findings reopened work, both NARROW:
+  1. one reference-identity counterexample. `pacto.lock` holds the TRANSITIVE
+     reference closure, so it routinely carries several entries sharing a
+     (kind, name). Looking a reference up by kind and name returned an
+     authoritative digest FOR A DIFFERENT REFERENCE OCCURRENCE, which renders as a
+     confident canonical Product link the contract never declared. Phase 3 reopened
+     for exactly this.
+  2. a presentation-system defect. Product components reference GLOBAL design
+     tokens that were never declared, so their declarations are invalid at computed
+     value time and the browser silently falls back -- a section title ends up
+     outranking the page title it sits under. Phases 5 and 6 reopened for the token
+     system, the typography hierarchy, information density / progressive disclosure
+     and consistent visual nesting, plus browser acceptance of those.
+- Phase 4 stays COMPLETE and is not reopened. Document immutability, stale-while-
+  revalidate, scroll restoration and graph semantics stay CLOSED -- no new
+  counterexample was found for any of them. The Product design freeze remains in
+  force: this pass corrects presentation and one identity bug, and does not
+  redesign the product model, its ontology or its IA.
+- No Git history was rewritten, rebased or force-pushed; the U+00A7 commit-history
+  CI enforcement stays BLOCKED (section 8 item 9). The PR stays draft; PR-body
+  finalization is phase 14. Phase 7 was NOT started.
+
 ## 0a. Current status (authoritative)
 
 This is the single authoritative status. Any older phase heading below is
@@ -238,6 +266,21 @@ several generations of Pacto UI stitched together". Headings below that read
   plausible name. Both are now evidence-only. Re-closed on the adversarial acceptance
   in `pkg/fleet/document_immutable_test.go` (11 tests) and
   `pkg/fleet/refresolution_test.go` (14 tests). Nothing else in Phase 3 was reopened.
+  REOPENED again by the fourth correction pass, narrowly, for reference-OCCURRENCE
+  identity: `refresolution_test.go` established that a destination may only come
+  from an authoritative immutable identity, but not that the identity used is the
+  one recorded for THIS declared reference. RE-CLOSED: `lock.Reference` now carries
+  `From`, the closure path of the declaring contract, so From+Kind+Name names one
+  occurrence; `RootReference` answers only for the root's own entries and never
+  falls back to a transitive namesake; the closure builder emits one entry per
+  occurrence and dedups the walk on RESOLVED bundle identity, so two contracts
+  declaring `./config` are two entries and cycles still terminate; `lockVersion`
+  1 -> 2, with v1 locks degrading to unresolved with a stated reason rather than
+  being reinterpreted. Acceptance: `pkg/fleet/refoccurrence_test.go` (8) and
+  `internal/app/lock_occurrence_test.go` (6), plus the `pkg/lock` version and
+  ordering tests; the whole engine suite is green at 100.0% total coverage. See
+  "Fourth correction pass: a reference is an occurrence, not a label" below. The
+  final gate is final-SHA CI. Nothing else in Phase 3 was reopened.
 - Phase 4 (search-first Operational Graph + full dashboard migration): COMPLETE
   (re-closed). An independent review of HEAD `8a2f7910` reopened Phase 4 over six concrete
   gaps (the most important user-visible: the graph tab read as NO GRAPH). All six are now
@@ -287,6 +330,26 @@ several generations of Pacto UI stitched together". Headings below that read
   restoration: a place belongs to a HISTORY ENTRY, not to a URL, so two entries showing
   the same page keep their own places. `lib/scrollRestore.test.ts` (16 tests) and the
   browser counterexample in `place.spec.ts`.
+  REOPENED again by the fourth correction pass, narrowly, for the PRESENTATION
+  SYSTEM: design-token integrity (a Product component may not reference a global
+  token nobody declares), typography hierarchy (visual role, not HTML tag, decides
+  size and weight), information density and progressive disclosure, and consistent
+  visual nesting. RE-CLOSED against those criteria: zero undeclared global tokens
+  on any Product surface (guarded, with a positive and a negative fixture so the
+  scope is provably neither vacuous nor over-broad); nine `--role-*` tokens and
+  `.t-*` classes with no component setting its own heading size; the same
+  disclosure grammar on every dense entity page with nothing removed and every
+  closed section labelled with its count; heading semantics and the axe /
+  heading-landmark sweeps still green; and the nine-question cognitive walkthrough
+  run against BEFORE/AFTER captures of the built WASM Product in a real browser,
+  which itself found one further defect (a verdict badge breaking mid-word) that
+  was root-caused and fixed. Two items are recorded there as design debt rather
+  than closed: two list pages carry summary charts as subsection-role h2s with no
+  enclosing section title (restructuring that is IA work, and the design freeze is
+  in force), and the "Confidence" column header wraps its help button at 1440px.
+  See "Fourth correction pass: the presentation system" below. The final gate is
+  final-SHA CI. The measured contrast gate, the keyboard graph model, the
+  responsive acceptance and the heading/landmark sweep were NOT reopened.
 - Phase 6 (WASM browser acceptance): COMPLETE (re-closed). It had been marked COMPLETE
   at `c5fdc1c4` with 133 Playwright tests across 14 specs and one `test.fixme` -- and
   that status was NOT truthful, because the `fixme` covered a capability the previous
@@ -305,6 +368,14 @@ several generations of Pacto UI stitched together". Headings below that read
   repeated-URL history counterexample added to `place.spec.ts`. Still exactly one
   `test.skip` and no `test.fixme`. The final gate is final-SHA CI. Phase 7 has NOT been
   started.
+  REOPENED again (IN PROGRESS) by the fourth correction pass, narrowly, to accept
+  the presentation-system correction in a real browser: computed-style typography
+  acceptance (page title dominates its section titles; two components in the same
+  visual section role compute the same size and weight even when one is an h2 and
+  the other an h3; a subsection is smaller than its parent section), desktop and
+  mobile, plus disclosure semantics and accessibility. It may re-close when that
+  acceptance passes, ALL previous browser acceptance stays green, and no required
+  migrated capability is skipped or fixme'd. Phase 7 stays NOT started.
 - Product-coherence correction (cross-phase; NOT whole-program Phase 6, which is WASM
   browser acceptance): COMPLETE. A real user reported the app
   "still feels like several generations of Pacto UI stitched together". This phase was a
@@ -1297,6 +1368,255 @@ The second-correction-pass entry in section 0 recorded its synchronized base as
 `eb1482ff`. That was the base of the EARLIER sessions; the real base for the session
 starting at `2efeb9ef` was `a56b69e3`. Corrected in place. The earlier entries that
 genuinely used `eb1482ff` are untouched.
+
+### Fourth correction pass: a reference is an occurrence, not a label
+
+Starting HEAD: `759845ca`. Exact-SHA CI was green there. The review of that HEAD found
+two things; this half of the ledger records the first: **a lock lookup answered a
+question about one declared reference with an authoritative fact about a different
+one.**
+
+The third pass had already established that a Product reference link may only be drawn
+from evidence of immutable identity -- a digest or content hash `pacto.lock` recorded
+when it really resolved, pulled and hashed the bundle. What it did not establish is that
+the recorded identity used is the one recorded FOR THIS DECLARED REFERENCE.
+
+The counterexample, now `TestRefOccurrence_TransitiveConfigDoesNotAnswerForADirectReference`
+and its policy twin:
+
+- `app` declares config `foo` -> `child-a`, and config `settings` -> `bundle-y`.
+- `child-a` declares config `settings` -> `bundle-x`.
+- `pacto.lock` holds the TRANSITIVE closure, so it carries two config references named
+  `settings`: `child-a`'s (digest X) and `app`'s (digest Y).
+- Projecting `app`'s own `settings` asked `Lock.Reference("config", "settings")`, which
+  returned the FIRST match. `app`'s settings rendered as a confident canonical link to
+  `bundle-x` -- a bundle `app` never referenced.
+
+Both digests are real and each is authoritative; neither is corrupt. The defect is that
+`(Kind, Name)` is a LABEL, and the closure is exactly the place where a label is not
+unique. A wrong-but-plausible link is worse than an unknown one, because the reader has
+no way to tell it apart from a right one.
+
+The closure BUILDER carried the mirror image of the same mistake: it deduplicated by the
+declared ref TEXT. A root and a child both declaring `./config` produced one entry,
+pinned to whichever directory the walk reached first, and the other occurrence never
+appeared in the lock at all -- so even a correct lookup had nothing to find. A relative
+ref resolves against the directory of the contract that declared it, so identical text in
+two contracts denotes two different bundles.
+
+#### The model: the declaring contract, and nothing more
+
+`lock.Reference` gains ONE field. `From` is the closure path of the contract that
+declared the reference: `""` for the root contract, otherwise the path of the occurrence
+through which the declaring bundle was reached (`config:foo`, `config:foo/policy:limits`).
+`From` + `Kind` + `Name` names exactly one declared occurrence, which is the minimum that
+makes the association unambiguous. What was NOT added, and why: the repository basename
+is not identity; `ReferenceRef.Name` alone is the label that failed; slice order and
+sorted order are artefacts of how the file was written, not statements about who declared
+what. None of the four is consulted anywhere in the resolution path.
+
+`Lock.Reference` is replaced by `Lock.RootReference(kind, name)`, which answers only from
+entries with `From == ""` and never falls back to a transitive namesake. Two entries
+claiming the same occurrence contradict each other, so it returns unresolved rather than
+picking one. The projection also refuses a lock whose `root` names a different contract
+or version -- those entries are someone else's closure -- and says which contract it
+actually describes, so the reader can see why the pins are missing.
+
+The walk is still finite and the transitive feature is not weakened. Deduplication moved
+off the ref text and onto the RESOLVED bundle: its registry digest, or its resolved
+absolute path for a local ref. Every occurrence is emitted; recursion into an
+already-walked bundle is what is skipped. Resolutions are memoized per
+(directory, ref text), so one bundle reachable by several paths still costs one fetch.
+
+`lockVersion` goes 1 -> 2. A v1 lock still parses and keeps declaring 1 -- it is never
+reinterpreted under the new semantics -- but it records nothing attributable, so its
+references degrade to unresolved WITH A STATED REASON naming the version and the fix
+(`re-run pacto lock`), and `lock --check` reports it stale. An author-pinned
+`oci://repo@sha256:...` still resolves under a v1 lock, because that digest is in the
+contract, not the lock. `docs/lockfile.md` documents the version table and the degrade
+rule; the demo lockfiles were regenerated.
+
+Everything the third pass fixed still holds: the raw authored ref stays visible, a
+destination comes only from an actual immutable resolution, no basename or name
+inference, same-name services in different domains never cross, absent or ambiguous stays
+unresolved, and `ReferencedBy` reads the same authoritative relationships from the other
+end. Dependency semantics are untouched.
+
+Acceptance: `pkg/fleet/refoccurrence_test.go` (8 tests: the config and policy
+counterexamples, non-colliding references still resolving, a legacy lock degrading, two
+entries claiming one occurrence, a lock belonging to another contract, one naming another
+version, and an author-pinned ref surviving a legacy lock) and
+`internal/app/lock_occurrence_test.go` (6 tests: root and child namesakes staying
+distinct, `RootReference` ignoring transitive namesakes, the same relative ref from two
+directories resolving to two bundles, the same target twice recorded as two agreeing
+occurrences, a cycle terminating on resolved identity, and deterministic regeneration),
+plus the version and ordering tests in `pkg/lock/lock_test.go`.
+
+### Fourth correction pass: the presentation system
+
+The second of the two findings: **the Product had two typographic systems fighting each
+other, and the loser was the page title.**
+
+The shape is worth naming because it is the mirror image of the third pass. There, the
+product answered confidently and wrongly. Here, the SOURCE reads correctly and the
+BROWSER paints something else, which is a failure mode no source-reading test can see:
+
+- an undeclared `var()` is not a parse error. It is invalid at computed-value time, so
+  the declaration is dropped and the property inherits. `font-size: var(--text-md)`
+  against a token nobody had declared is a component asking for a size and silently
+  getting its parent's.
+- a role class can simply LOSE the cascade to a legacy class on the same element. The
+  stylesheet is valid; the class list is the bug.
+- a token can mean two different sizes at once. `html { font-size: var(--text-base) }`
+  resolved `0.9375rem` against the browser's own 16px and set the rem base to 15px,
+  after which the identical token resolved to 14.06px everywhere else.
+
+#### A. One ramp, and roles instead of tags
+
+`--text-md`, `--radius-md` and `--c-accent-border` were referenced by Product
+components and declared nowhere. They are declared now, and the size ramp is closed and
+annotated with the pixel value each step renders at. The rem base is deliberately NOT
+one of the tokens: `html` sets `93.75%`, a percentage of whatever default the reader
+configured, so the app scales with the reader instead of pinning itself to a token that
+also means something else. `body` then takes the BODY ROLE, so unclassed paragraph copy
+and `.t-body` are finally the same size.
+
+Above the ramp sit nine visual ROLES (`page-title`, `section-title`, `subsection-title`,
+`body`, `body-2`, `label`, `meta`, `metric`, `code`) as `--role-*` tokens and `.t-*`
+classes in `src/styles/typography.css`. The separation is the whole point:
+
+- HEADING LEVEL answers "where does this sit in the outline". It is structural, and a
+  nested section legitimately drops from h2 to h3.
+- VISUAL ROLE answers "what kind of text is this". It is semantic, and two things in the
+  same role look identical whatever level carries them.
+
+`base.css` maps each level to its default role once. A component picks a role class; it
+does not pick a font-size. The fourth heading size that used to live inside
+`ChangeAnalysisView` (an h2 pushed up to METRIC size, so two stage titles outranked
+every other section title in the product) is gone, and so is the mobile heading-shrink
+block that pulled the page title down toward its own section titles.
+
+#### B. Progressive disclosure, without losing a fact
+
+Every dense entity page now leads with the state a reader needs before opening anything
+and folds the exhaustive material into the one shared disclosure grammar. Nothing was
+removed: the Revision page's operations, config values, capabilities, agent tools and
+contract metadata are all still there, one interaction away, each with a count and a
+one-line summary of what is inside so the closed state still says something.
+
+The default-open policy is INFORMATIONAL rather than uniform, and the guards enforce it
+both ways: an error-toned section can never be collapsed shut, and the Service page's
+"All revisions" opens by default when nothing is running the service, because in that
+case it is the only place its revisions appear.
+
+Hover was removed as a sole access path. `data-tip` paints its words through
+`::after { content: attr(data-tip) }` -- not in the accessibility tree, hidden outright
+under `@media (hover: none)`. The Product uses `HelpTip`: a real button with an
+accessible name, `aria-expanded`, `aria-describedby`, focus-open and Escape-close.
+
+#### C. Browser acceptance, and the three defects it caught that source could not
+
+`e2e/typography.spec.ts` plus the mobile block in `e2e/mobile.spec.ts` measure COMPUTED
+styles in real Chromium over eleven canonical routes, sharing `e2e/typographyChecks.ts`
+(not a `*.spec.ts`, so it is a helper rather than a collected suite; the two projects
+cannot share a file). They assert relationships, never absolute pixels: exactly one
+visible page title per route, page title larger than normal body text and than every
+other role, section titles above body and small print, subsections strictly below their
+parent section but still heavier than body, one size and one weight per role across the
+whole sweep, and a strictly descending ramp.
+
+Two details make it honest rather than green. `settle()` waits for the count of
+role-classed elements to stop changing, because an entity route paints its h1 from the
+URL a beat before its data lands and measuring there passes vacuously. `runAnalysis()`
+drives Change analysis to its RESULT state, because scoped to a service the route opens
+on a revision picker with almost no typography in it.
+
+It found three things the source-level guards structurally could not:
+
+1. `<h3 class="section-title t-subsection-title">`. The legacy V1 `.section-title`
+   (uppercase, `--text-sm`, grey) beat the role class, so "Affected consumers" rendered
+   as a micro-label SMALLER than the subsections beneath it. Now `ca-subhead`, and a new
+   guard rejects any legacy V1 class sharing an element with a typography role.
+2. the Operational graph and Change analysis named themselves with a bare `<h1>`. Both
+   LOOKED right, because `base.css` paints an h1 at the page-title role -- and both sat
+   outside every role-based check, which is how the two of them were the only canonical
+   routes with no measurable page title. A guard now requires the explicit role on every
+   Product `<h1>`.
+3. the rem-base contradiction in the paragraph above, which no source scan can see at
+   all because both readings of the token are literally the same string.
+
+#### D. Visual cognitive walkthrough (requirement 21)
+
+BEFORE and AFTER captures of the real built WASM Product in Chromium, dark and light:
+desktop Overview, Service, Revision, Operational target, Change analysis and focused
+graph at 1440x1000; mobile Service, Revision and Operational target on Pixel 5. The
+nine questions, answered against those pairs:
+
+1. **Can I identify the page title instantly?** BEFORE, no. On the Revision page
+   "api-gateway 1.0.0" was set at roughly the size of the section titles below it and
+   sat inline after a grey REVISION chip and a digest, so the largest text on screen was
+   whichever section came first. AFTER, the title is the unambiguous top of the page on
+   every route, and the two routes that had no role-bearing title now have one.
+2. **Can I identify top-level sections without reading them?** BEFORE, only sometimes:
+   the Overview's own four sections rendered at two different sizes, and Change analysis
+   had section titles both above and below its subsections. AFTER, one section
+   treatment, one size, one weight, everywhere -- and the browser sweep asserts it
+   rather than the eye.
+3. **Can I see which blocks are nested?** BEFORE, largely not; nesting was carried by a
+   card border and nothing else. AFTER, by a real step in the ramp plus the vertical
+   rhythm, so a subsection is visibly subordinate before it is read.
+4. **Does a subsection ever visually outrank its parent?** BEFORE, yes, in both
+   directions -- a chart title hard-coding the section size onto a level-3 heading, and
+   the legacy-class collision pushing a real section title BELOW its own subsections.
+   AFTER, no, on any of the eleven routes, and the acceptance fails if it returns.
+5. **Is the most important state visible without opening anything?** Yes, and more so
+   than before. Compliance, revision-match certainty, evidence freshness, the ownership
+   conflict and the "source unavailable" banner are all above the fold and none of them
+   is collapsible. What moved behind a disclosure is exhaustive detail, never a warning.
+6. **Can I reach every detailed fact that existed before?** Yes. The AFTER Revision page
+   is 2111px against 2914px, and mobile 7392px against 11517px, with nothing deleted:
+   the difference is entirely closed disclosures, each labelled with its count.
+7. **Is explanatory prose competing with actual data?** Less. The prose is still there
+   -- the chart explanations are load-bearing on a landing page whose first taxonomy is
+   Exact/Inferred/Ambiguous/Unresolved -- but it now sits in the BODY-2 role, one step
+   below the numbers, instead of at the same weight as the data.
+8. **Are disclosures predictable from page to page?** Yes. One caret, one summary line,
+   one count position, one keyboard behaviour, on Service, Revision, Operational target
+   and Change analysis alike.
+9. **Does the page look like one product?** On the audited screens, yes -- the same
+   header grammar, ramp, section grammar, disclosure and count pattern in both themes
+   and at both widths.
+
+The walkthrough was not a rubber stamp. Reading the AFTER Change analysis capture beside
+its BEFORE showed the `incompatible` verdict badge broken mid-word as "incompatibl" /
+"e": the help affordances added to three column headers had widened those columns, and
+`td .badge { overflow-wrap: anywhere }` let auto table layout squeeze the verdict column
+below the width of its own word. `anywhere` and `break-word` break identically once a
+word genuinely exceeds its column, but only `anywhere` removes the word from min-content
+sizing, which is what allowed a break with room to spare. The rule is `break-word` now,
+which keeps the original anti-bleed guarantee for long free-form tags and fixes the
+whole family rather than the one badge that showed it.
+
+Two things were deliberately NOT changed, and are recorded as design debt rather than
+defects. On the Services list and Needs-attention pages the summary charts are h2s
+carrying the SUBSECTION role with no enclosing section title; restructuring that is IA
+work, and the Product design freeze is in force. And the "Confidence" column header now
+wraps its help button onto a second line at 1440px; widening the header would re-squeeze
+the neighbouring column, and the label is fully legible.
+
+#### E. Guards added
+
+In `src/lib/architecture.test.ts`, under `product design system`: a real token
+vocabulary including the three that were missing; no undeclared global token in any
+component, view or stylesheet (scoped to the shared families, with a positive and a
+negative fixture so the scope is provably neither vacuous nor over-broad); the nine
+roles declared exactly once; only declared role classes on Product surfaces; no
+`font-size` on a heading selector; the page-title role on every Product `<h1>`; no
+legacy V1 class sharing an element with a role; no error-toned section collapsed shut;
+no `data-tip` on a Product surface (with the legacy host still using it, so the rule is
+a scope rather than a claim the attribute is gone); and `HelpTip` proven to be a button
+with an accessible name, an exposed open state, an association to its text, Escape and
+focus-open.
 
 ## 1. Target product model
 

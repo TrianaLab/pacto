@@ -81,12 +81,19 @@
    fixed-layout table cell a long tag (e.g. a "backup-recovery" category) can't
    shrink and — with the cell's overflow:visible — bleeds into the next column.
    Inside any table cell, cap tags to the column and wrap (breaking a long word
-   if needed) so they can never overlap a neighbouring cell. */
+   if needed) so they can never overlap a neighbouring cell.
+
+   `break-word`, NOT `anywhere`: the two break identically once a word genuinely
+   exceeds the column, but `anywhere` also lets the word stop counting toward
+   min-content, so auto table layout is free to squeeze the column down to a
+   single character. That is how a "incompatible" verdict rendered as
+   "incompatibl"/"e" the moment the neighbouring headers grew -- a break with
+   room to spare, in a column the layout could have widened. */
 td .pill,
 td .badge {
   max-width: 100%;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /* Status badges are short, fixed labels (Compliant, Warning, Non-Compliant, …).
@@ -507,11 +514,15 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .disco-ph-glyph line { stroke: var(--c-text-3); stroke-width: 2; }
 .disco-ph-glyph circle { fill: var(--c-surface); stroke: var(--c-accent); stroke-width: 2; }
 .disco-ph-glyph rect { fill: none; stroke: var(--c-accent); stroke-width: 2; }
-.disco-ph-title { margin: var(--sp-2) 0 0; font-size: var(--text-md); font-weight: 600; color: var(--c-text); }
+/* The placeholder headline is a <p>, not a heading -- it names nothing in the outline,
+   it is the illustration's caption. It still reads at the SECTION role, which is the
+   point of separating role from level: it carries `t-section-title` and sets no size
+   of its own. */
+.disco-ph-title { margin: var(--sp-2) 0 0; color: var(--c-text); }
 .disco-ph-sub { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); max-width: 44ch; }
 .disco-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-3); margin-top: var(--sp-2); }
 .disco-panel { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
-.disco-panel h2 { margin: 0 0 var(--sp-2); font-size: var(--text-md); }
+.disco-panel h2 { margin: 0 0 var(--sp-2); }
 .disco-panel a { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
 .disco-panel a:hover { text-decoration: underline; }
 .disco-legend { display: grid; grid-template-columns: auto 1fr; gap: 6px var(--sp-3); margin: var(--sp-2) 0 0; }

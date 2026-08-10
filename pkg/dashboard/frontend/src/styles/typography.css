@@ -1,0 +1,95 @@
+/* ─── Typography roles ───
+   The product had two typographic systems fighting each other. Components chose a
+   size by HTML TAG (a section rendered as h2 got 18.75px, the same section rendered
+   as h3 because it was nested got 14.06px), and the components that tried to correct
+   for that reached for a `--text-md` nobody had ever declared -- an invalid value, so
+   the declaration was dropped at computed-value time and the tag default won anyway.
+   On an entity page the result was a section title that outranked the page it sat
+   under.
+
+   The fix is one dimension per question:
+
+     * HEADING LEVEL answers "where does this sit in the outline". It is chosen for
+       structure, and a nested section legitimately drops from h2 to h3.
+     * VISUAL ROLE answers "what kind of text is this". It is chosen for meaning, and
+       two things in the same role look identical whatever level they occupy.
+
+   A component picks a role class. It does not pick a font-size. The nine roles below
+   are the whole vocabulary; anything that does not fit one of them is a sign the
+   design, not the stylesheet, needs the decision. */
+
+.t-page-title {
+  font-size: var(--role-page-title-size);
+  font-weight: var(--role-page-title-weight);
+  line-height: var(--role-page-title-lh);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.t-section-title {
+  font-size: var(--role-section-title-size);
+  font-weight: var(--role-section-title-weight);
+  line-height: var(--role-section-title-lh);
+  letter-spacing: -0.01em;
+}
+
+.t-subsection-title {
+  font-size: var(--role-subsection-title-size);
+  font-weight: var(--role-subsection-title-weight);
+  line-height: var(--role-subsection-title-lh);
+}
+
+.t-body {
+  font-size: var(--role-body-size);
+  font-weight: var(--role-body-weight);
+  line-height: var(--role-body-lh);
+}
+
+.t-body-2 {
+  font-size: var(--role-body-2-size);
+  font-weight: var(--role-body-2-weight);
+  line-height: var(--role-body-2-lh);
+  color: var(--c-text-2);
+}
+
+/* A LABEL names a value ("Owner", "Canonical key"). It is deliberately small and
+   uppercase so it reads as a caption for the thing beside it, never as content. */
+.t-label {
+  font-size: var(--role-label-size);
+  font-weight: var(--role-label-weight);
+  line-height: var(--role-label-lh);
+  letter-spacing: var(--role-label-tracking);
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+
+.t-meta {
+  font-size: var(--role-meta-size);
+  font-weight: var(--role-meta-weight);
+  line-height: var(--role-meta-lh);
+  color: var(--c-text-3);
+}
+
+/* A METRIC is a number the reader is meant to land on. Tabular figures so a column
+   of them lines up and a changing value does not jitter. */
+.t-metric {
+  font-size: var(--role-metric-size);
+  font-weight: var(--role-metric-weight);
+  line-height: var(--role-metric-lh);
+  font-variant-numeric: tabular-nums;
+}
+
+.t-code {
+  font-family: var(--font-mono);
+  font-size: var(--role-code-size);
+  font-weight: var(--role-code-weight);
+  line-height: var(--role-code-lh);
+}
+
+/* ─── Vertical rhythm ───
+   Hierarchy is carried by whitespace at least as much as by size (requirement 10).
+   These are the gaps between a title and what it introduces; a component that wants
+   different spacing is describing a different role. */
+.t-page-title { margin: 0 0 var(--sp-2); }
+.t-section-title { margin: 0; }
+.t-subsection-title { margin: 0; }

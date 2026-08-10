@@ -39,7 +39,7 @@
   </PreviewSection>
 
   {#if (d.limitations?.count ?? 0) > 0}
-    <PreviewSection title="Limitations" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
+    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
       <LimitationsList items={d.limitations?.items ?? []} />
     </PreviewSection>
   {/if}

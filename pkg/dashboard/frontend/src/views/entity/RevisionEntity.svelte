@@ -77,27 +77,39 @@
   </section>
 
   {#if id.digest || id.resolvedRef || id.requestedRef}
-    <section class="re-identity">
-      {#if id.digest}<div class="re-idrow"><span class="re-k">Digest</span><CopyableIdentifier value={id.digest} /></div>{/if}
-      {#if id.resolvedRef}<div class="re-idrow"><span class="re-k">Resolved ref</span><CopyableIdentifier value={id.resolvedRef} /></div>{/if}
-      {#if id.requestedRef && id.requestedRef !== id.resolvedRef}<div class="re-idrow"><span class="re-k">Requested ref</span><CopyableIdentifier value={id.requestedRef} /></div>{/if}
-    </section>
+    <!-- The immutable content identity, in full and still copyable, one click away
+         (requirement 13). Three rows of 71-character hex were the second thing on the
+         page and the first thing every reader scrolled past; the badge in the facts
+         strip above already says whether that content is retrievable, which is the part
+         that changes what you do next. -->
+    <details class="re-identity disclosure">
+      <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Content identity</summary>
+      <div class="re-idrows">
+        {#if id.digest}<div class="re-idrow"><span class="re-k">Digest</span><CopyableIdentifier value={id.digest} /></div>{/if}
+        {#if id.resolvedRef}<div class="re-idrow"><span class="re-k">Resolved ref</span><CopyableIdentifier value={id.resolvedRef} /></div>{/if}
+        {#if id.requestedRef && id.requestedRef !== id.resolvedRef}<div class="re-idrow"><span class="re-k">Requested ref</span><CopyableIdentifier value={id.requestedRef} /></div>{/if}
+      </div>
+    </details>
   {/if}
 
   {#if r}
     <section class="re-readiness">
       <div class="rr-head">
-        <h2>Readiness</h2>
+        <h2 class="t-section-title">Readiness</h2>
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
       <!-- The distinction a first-time user cannot guess from the word "readiness":
            this is the contract's own self-assessment of how prepared this revision is,
            scored against a gate its authors declared. It says nothing about whether the
            running system obeys the contract -- that is compliance, shown on the targets. -->
-      <p class="rr-lead">What the authors declared about this revision's preparedness — not a measurement of the running system.</p>
-      <p class="rr-line">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.deferredCount ? ` · ${r.deferredCount} deferred` : ''}{r.expired ? ' · expired' : ''}</p>
+      <p class="rr-lead t-body-2">What the authors declared about this revision's preparedness — not a measurement of the running system.</p>
+      <p class="rr-line t-body">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.deferredCount ? ` · ${r.deferredCount} deferred` : ''}{r.expired ? ' · expired' : ''}</p>
       {#if (r.checks?.count ?? 0) > 0}
-        <PreviewSection title="Readiness checks" level={3} total={r.checks?.total ?? 0} count={r.checks?.count ?? 0} truncated={r.checks?.truncated}>
+        <!-- Requirement 13 draws the line here and not on the section: FAILING readiness
+             detail is an active problem and stays open; a passing gate's check-by-check
+             breakdown is inspection detail, so it opens on request. The score line above
+             is visible either way, so the state is never hidden -- only its evidence. -->
+        <PreviewSection title="Readiness checks" level={3} role="subsection" collapsible open={!r.passing} summary={r.passing ? 'All declared checks accounted for' : 'Open to see which checks are outstanding'} total={r.checks?.total ?? 0} count={r.checks?.count ?? 0} truncated={r.checks?.truncated}>
           <ul class="re-checks">
             {#each r.checks.items as c (c.id)}
               <li>
@@ -118,11 +130,19 @@
          distinction gets taught: nothing declared is not the same as declared and failing. -->
     <section class="re-readiness">
       <div class="rr-head">
-        <h2>Readiness</h2>
+        <h2 class="t-section-title">Readiness</h2>
         <IdentityBadge label="Not declared" tone="neutral" />
       </div>
-      <p class="rr-lead">This revision declares no readiness gate, so there is nothing here to pass or fail — which is not the same as failing one.</p>
+      <p class="rr-lead t-body-2">This revision declares no readiness gate, so there is nothing here to pass or fail — which is not the same as failing one.</p>
     </section>
+  {/if}
+
+  <!-- Validation findings are confirmed defects in the contract itself, so they rank
+       with readiness rather than below four inventory sections (requirement 13). -->
+  {#if (d.validation?.count ?? 0) > 0}
+    <PreviewSection title="Validation findings" tone="err" total={d.validation?.total ?? 0} count={d.validation?.count ?? 0} truncated={d.validation?.truncated}>
+      <FindingList items={d.validation?.items ?? []} />
+    </PreviewSection>
   {/if}
 
   <!-- ── what this revision declares ────────────────────────────────────────── -->
@@ -145,21 +165,32 @@
           {#if i.ref}<div class="ri-ref"><span class="re-k">Document</span><CopyableIdentifier value={i.ref} /></div>{/if}
           {#if (i.operations?.count ?? 0) > 0}
             <!-- The operations were derived from the referenced document at build time,
-                 so this is the real API surface, not a restatement of the declaration. -->
-            <ul class="re-tools">
-              {#each i.operations.items as t (t.name + t.method + t.path)}
-                <li>
-                  {#if t.mutating}<IdentityBadge label="mutating" tone="warn" />{/if}
-                  <span class="rt-method">{t.method}</span>
-                  <span class="rt-path">{t.path}</span>
-                  <span class="rt-name">{t.name}</span>
-                  {#if t.summary}<span class="rt-summary">{t.summary}</span>{/if}
-                </li>
-              {/each}
-            </ul>
-            {#if i.operations.truncated}
-              <p class="ri-note">Showing {i.operations.count} of {i.operations.total} operations.</p>
-            {/if}
+                 so this is the real API surface, not a restatement of the declaration.
+                 A revision with four interfaces of thirty operations each is 120 rows of
+                 monospace before the reader reaches Configuration, so the SIZE of the
+                 surface stays on screen and the surface itself opens on request
+                 (requirement 13). Nothing is removed: the same rows, one click away, and
+                 the flat cross-interface tool list further down still carries them. -->
+            <details class="ri-ops disclosure">
+              <summary>
+                <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+                {i.operations.count}{i.operations.truncated ? ` of ${i.operations.total}` : ''} {i.operations.total === 1 && !i.operations.truncated ? 'operation' : 'operations'}
+              </summary>
+              <ul class="re-tools">
+                {#each i.operations.items as t (t.name + t.method + t.path)}
+                  <li>
+                    {#if t.mutating}<IdentityBadge label="mutating" tone="warn" />{/if}
+                    <span class="rt-method">{t.method}</span>
+                    <span class="rt-path">{t.path}</span>
+                    <span class="rt-name">{t.name}</span>
+                    {#if t.summary}<span class="rt-summary">{t.summary}</span>{/if}
+                  </li>
+                {/each}
+              </ul>
+              {#if i.operations.truncated}
+                <p class="ri-note">Showing {i.operations.count} of {i.operations.total} operations.</p>
+              {/if}
+            </details>
           {:else if i.operationsKnown}
             <p class="ri-note">The document was read and declares no operations.</p>
           {:else}
@@ -189,13 +220,22 @@
           {#if c.schema}<div class="ri-ref"><span class="re-k">Schema</span><CopyableIdentifier value={c.schema} /></div>{/if}
           {#if c.ref}<div class="ri-ref"><span class="re-k">Reference</span><ContractReference value={c.ref} resolution={c.resolution} /></div>{/if}
           {#if (c.values?.count ?? 0) > 0}
-            <table class="re-kv">
-              <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
-              <tbody>
-                {#each c.values.items as v (v.key)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
-              </tbody>
-            </table>
-            {#if c.values.truncated}<p class="ri-note">Showing {c.values.count} values{typeof c.values.total === 'number' ? ` of ${c.values.total}` : '; total unknown'}.</p>{/if}
+            <!-- Same reasoning as the operation lists: the scope, whether it is required
+                 and the reference it resolves to are what a reader scans for; the value
+                 table is what they open when this is the scope they came for. -->
+            <details class="ri-ops disclosure">
+              <summary>
+                <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+                {c.values.count}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${c.values.total}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
+              </summary>
+              <table class="re-kv">
+                <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
+                <tbody>
+                  {#each c.values.items as v (v.key)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
+                </tbody>
+              </table>
+              {#if c.values.truncated}<p class="ri-note">Showing {c.values.count} values{typeof c.values.total === 'number' ? ` of ${c.values.total}` : '; total unknown'}.</p>{/if}
+            </details>
           {/if}
         </li>
       {/each}
@@ -228,6 +268,9 @@
 
   <PreviewSection
     title="Capabilities"
+    collapsible
+    open={false}
+    summary="What this revision offers, and how it is bound"
     total={d.capabilities?.total ?? 0}
     count={d.capabilities?.count ?? 0}
     truncated={d.capabilities?.truncated}
@@ -259,12 +302,6 @@
     </section>
   {/if}
 
-  {#if (d.validation?.count ?? 0) > 0}
-    <PreviewSection title="Validation findings" total={d.validation?.total ?? 0} count={d.validation?.count ?? 0} truncated={d.validation?.truncated}>
-      <FindingList items={d.validation?.items ?? []} />
-    </PreviewSection>
-  {/if}
-
   {#if (d.dependencies?.count ?? 0) > 0}
     <!-- showClaims: on the contract inspector a dependency is a DECLARATION, so the row
          carries what was declared (requested ref, required, compatibility, lockfile pin)
@@ -278,7 +315,7 @@
     <!-- The same operations, flat and cross-interface: this is the agent-facing tool
          list (the names MCP exposes), and it is also the safety net that keeps an
          operation reachable if the interface list above is truncated. -->
-    <PreviewSection title="Tools exposed to agents" total={d.tools?.total ?? 0} count={d.tools?.count ?? 0} truncated={d.tools?.truncated}>
+    <PreviewSection title="Tools exposed to agents" collapsible open={false} summary="Every operation, flat and cross-interface" total={d.tools?.total ?? 0} count={d.tools?.count ?? 0} truncated={d.tools?.truncated}>
       <ul class="re-tools">
         {#each d.tools.items as t (t.name + t.method + t.path)}
           <li>
@@ -294,7 +331,7 @@
   {/if}
 
   {#if (d.skills?.count ?? 0) > 0}
-    <PreviewSection title="Skills" total={d.skills?.total ?? 0} count={d.skills?.count ?? 0} truncated={d.skills?.truncated}>
+    <PreviewSection title="Skills" collapsible open={false} total={d.skills?.total ?? 0} count={d.skills?.count ?? 0} truncated={d.skills?.truncated}>
       <ul class="re-chips">{#each d.skills.items as s (s)}<li>{s}</li>{/each}</ul>
     </PreviewSection>
   {/if}
@@ -308,23 +345,29 @@
          holds every revision of every service, and one SBOM can list thousands -- so the
          page reports the exact package count and the license mix, and says where the
          inventory itself lives instead of implying it has been read here. -->
-    <section class="re-sbom" data-testid="revision-sbom">
-      <h2>Software inventory</h2>
-      <div class="re-facts">
-        <div class="re-fact"><span class="re-k">Format</span><span>{sbomFormat}</span></div>
-        <div class="re-fact"><span class="re-k">Packages</span><span>{sbom.packages}</span></div>
+    <details class="re-sbom disclosure" data-testid="revision-sbom">
+      <summary>
+        <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+        <h2 class="t-section-title">Software inventory</h2>
+        <span class="re-sbom-gist t-meta">{sbom.packages} {sbom.packages === 1 ? 'package' : 'packages'} · {sbomFormat}</span>
+      </summary>
+      <div class="re-sbom-panel">
+        <div class="re-facts">
+          <div class="re-fact"><span class="re-k">Format</span><span>{sbomFormat}</span></div>
+          <div class="re-fact"><span class="re-k">Packages</span><span>{sbom.packages}</span></div>
+        </div>
+        <HorizontalBars
+          title="Licenses"
+          level={3}
+          description="Every package counted once, including those that declare no license."
+          items={licenseRows}
+          unit="packages"
+          unitOne="package"
+          emptyLabel="This inventory records no packages."
+        />
+        <p class="ri-note">The package list itself is not retained by the dashboard; read it from the bundle's {sbomDir} directory.</p>
       </div>
-      <HorizontalBars
-        title="Licenses"
-        level={3}
-        description="Every package counted once, including those that declare no license."
-        items={licenseRows}
-        unit="packages"
-        unitOne="package"
-        emptyLabel="This inventory records no packages."
-      />
-      <p class="ri-note">The package list itself is not retained by the dashboard; read it from the bundle's {sbomDir} directory.</p>
-    </section>
+    </details>
   {/if}
 
   {#if (d.metadata?.count ?? 0) > 0}
@@ -333,6 +376,9 @@
          any key. -->
     <PreviewSection
       title="Contract metadata"
+      collapsible
+      open={false}
+      summary="Author-defined keys, shown verbatim"
       total={d.metadata?.total ?? null}
       count={d.metadata?.count ?? 0}
       truncated={d.metadata?.truncated}
@@ -373,21 +419,29 @@
   {#if prov.source || (prov.sources?.count ?? 0) > 0 || prov.fetchedAt}
     <!-- Where this content came from. The identity block above says WHAT this revision
          is; this says who told us, and when we last heard it. Both are needed to answer
-         "is what I am reading still what the registry has?". -->
-    <section class="re-facts">
-      {#if prov.source}<div class="re-fact"><span class="re-k">Primary source</span><span>{prov.source}</span></div>{/if}
-      {#if (prov.sources?.count ?? 0) > 0}
-        <div class="re-fact">
-          <span class="re-k">Seen by</span>
-          <span>{prov.sources.items.join(', ')}{prov.sources.truncated ? ` (${prov.sources.count} of ${prov.sources.total})` : ''}</span>
-        </div>
-      {/if}
-      {#if prov.fetchedAt}<div class="re-fact"><span class="re-k">Fetched at</span><span>{formatDate(prov.fetchedAt)}</span></div>{/if}
-    </section>
+         "is what I am reading still what the registry has?" -- and both are inspection
+         detail rather than the first screen (requirement 13). -->
+    <details class="re-prov disclosure">
+      <summary>
+        <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+        Provenance
+        {#if prov.fetchedAt}<span class="t-meta">Fetched {formatDate(prov.fetchedAt)}</span>{/if}
+      </summary>
+      <div class="re-facts">
+        {#if prov.source}<div class="re-fact"><span class="re-k">Primary source</span><span>{prov.source}</span></div>{/if}
+        {#if (prov.sources?.count ?? 0) > 0}
+          <div class="re-fact">
+            <span class="re-k">Seen by</span>
+            <span>{prov.sources.items.join(', ')}{prov.sources.truncated ? ` (${prov.sources.count} of ${prov.sources.total})` : ''}</span>
+          </div>
+        {/if}
+        {#if prov.fetchedAt}<div class="re-fact"><span class="re-k">Fetched at</span><span>{formatDate(prov.fetchedAt)}</span></div>{/if}
+      </div>
+    </details>
   {/if}
 
   {#if (d.limitations?.count ?? 0) > 0}
-    <PreviewSection title="Limitations" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
+    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
       <LimitationsList items={d.limitations?.items ?? []} />
     </PreviewSection>
   {/if}
@@ -395,14 +449,23 @@
 
 <style>
   .rev-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .re-facts, .re-identity, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
+  .re-facts, .re-idrows, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .re-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
-  .re-readiness, .re-sbom { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }
+  .re-readiness, .re-sbom { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
+  .re-readiness { display: flex; flex-direction: column; gap: var(--sp-3); }
   .rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
-  .rr-head h2, .re-sbom h2 { margin: 0; font-size: var(--text-md); }
-  .rr-line { color: var(--c-text-2); font-size: var(--text-sm); margin: var(--sp-2) 0 0; }
-  .rr-lead { color: var(--c-text-3); font-size: var(--text-sm); margin: 0; }
+  .rr-head h2 { margin: 0; }
+  .rr-line, .rr-lead { margin: 0; }
+  /* A section that happens to collapse must not rank below one that does not, so the
+     title keeps full section weight and colour inside the summary. */
+  .re-sbom > summary h2 { margin: 0; color: var(--c-text); }
+  .re-sbom > summary:hover h2 { color: var(--c-accent); }
+  .re-sbom-gist { margin-left: auto; }
+  .re-sbom-panel { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-3); }
+  /* Nested operation / value disclosures sit inside a card, so their summary is the
+     quiet shared grey and only the caret marks them as openable. */
+  .ri-ops > summary { color: var(--c-text-3); }
   .re-checks, .re-tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .re-checks li, .re-tools li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); }
   .rc-id, .rt-name { color: var(--c-text); }

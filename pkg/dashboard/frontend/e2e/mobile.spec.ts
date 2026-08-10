@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import {
+  boot, canonicalKeys, runAnalysis, sampleRoles, normalBody,
+  assertPageHierarchy, assertRoleCoherence, type RoleSample,
+} from './typographyChecks';
 
 // Mobile-layout E2E (runs only on the mobile project, see playwright.config.ts):
 // at a narrow viewport the desktop nav is hidden and the primary navigation
@@ -46,4 +50,48 @@ test('mobile navigation open passes the WCAG A/AA axe gate', async ({ page }) =>
     .disableRules(['color-contrast'])
     .analyze();
   expect(results.violations, JSON.stringify(results.violations.map((v) => v.id))).toEqual([]);
+});
+
+/**
+ * Mobile typography acceptance, from COMPUTED styles (requirement 20).
+ *
+ * Not a copy of the desktop sweep for symmetry's sake: at 393px the page title is the
+ * element most likely to be shrunk by a responsive override, and the section titles are
+ * the ones most likely to be left alone -- which is exactly how a hierarchy collapses to
+ * flat on the screen where the reader has the least context. Fewer routes than desktop
+ * (each is a full WASM boot on a throttled mobile profile), but the same three claims.
+ */
+test.describe('typography hierarchy on mobile', () => {
+  test('the ramp survives a 393px viewport', async ({ page }) => {
+    test.setTimeout(240_000);
+    const k = await canonicalKeys(page);
+    const e = encodeURIComponent;
+
+    const routes: Array<[string, string]> = [
+      ['Overview', '#/fleet'],
+      ['Service detail', `#/fleet/services/${e(k.service)}`],
+      ['Revision detail', `#/fleet/revisions/${e(k.revision)}`],
+      ['Target detail', `#/fleet/targets/${e(k.target)}`],
+      ['Change analysis', `#/fleet/changes/${e(k.service)}`],
+    ];
+
+    const all: RoleSample[] = [];
+    for (const [label, hash] of routes) {
+      await boot(page, hash);
+      if (label === 'Change analysis') await runAnalysis(page);
+      const s = await sampleRoles(page, label);
+      assertPageHierarchy(s, `mobile ${label}`, await normalBody(page));
+      all.push(...s);
+    }
+    assertRoleCoherence(all, 'mobile');
+
+    // Body text still has to be readable, not merely smaller than the headings: a ramp
+    // can be perfectly ordered and entirely unreadable. 12px is the floor below which
+    // this stops being a design choice.
+    const body = all.filter((x) => x.role === 't-body' || x.role === 't-body-2');
+    expect(body.length).toBeGreaterThan(0);
+    for (const b of body) {
+      expect(b.size, `${b.route}: body text at ${b.size}px "${b.text}"`).toBeGreaterThanOrEqual(12);
+    }
+  });
 });

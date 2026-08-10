@@ -7,6 +7,7 @@
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import PreviewSection from '../components/PreviewSection.svelte';
   import EntityRefList from '../components/EntityRefList.svelte';
@@ -308,7 +309,7 @@
 <Breadcrumbs {trail} />
 
 <div class="ca-head">
-  <h1>Change analysis</h1>
+  <h1 class="t-page-title">Change analysis</h1>
   <p class="disco-lead">Compare two revisions of a service, then see what that change affects in the operational graph.</p>
 </div>
 
@@ -346,7 +347,7 @@
           <rect x="10" y="16" width="34" height="32" rx="6" /><rect x="76" y="16" width="34" height="32" rx="6" />
           <line x1="48" y1="32" x2="72" y2="32" /><line x1="64" y1="26" x2="72" y2="32" /><line x1="64" y1="38" x2="72" y2="32" />
         </svg>
-        <p class="disco-ph-title">Select a service to compare two of its revisions</p>
+        <p class="disco-ph-title t-section-title">Select a service to compare two of its revisions</p>
         <p class="disco-ph-sub">Search above, or open a service and choose Compare revisions. The analysis appears right here once you pick one.</p>
       </div>
     {/if}
@@ -484,7 +485,7 @@
       </div>
 
     {#if limitations.count > 0}
-      <PreviewSection title="Incomplete evidence" total={limitations.total} count={limitations.count} truncated={limitations.truncated}>
+      <PreviewSection title="Incomplete evidence" level={3} tone="warn" total={limitations.total} count={limitations.count} truncated={limitations.truncated}>
         <LimitationsList items={limitations.items} />
       </PreviewSection>
     {/if}
@@ -513,7 +514,7 @@
     {/if}
 
     <div class="section">
-      <div class="section-title">Affected consumers <span class="tab-count">{consumers.total}</span></div>
+      <h3 class="ca-subhead t-subsection-title">Affected consumers <span class="t-meta">{consumers.total}</span></h3>
       {#if (consumers.items?.length ?? 0) === 0}
         <EmptyState title="No affected consumers" message="No service in the operational graph consumes this change." />
       {:else}
@@ -522,10 +523,10 @@
             <thead>
               <tr>
                 <th>Consumer</th>
-                <th data-tip="Direct consumers depend on the changed service; transitive ones are reached through others">Reach</th>
-                <th data-tip="The path from the consumer to the changed service">Path</th>
+                <th>Reach <HelpTip label="Reach" text="Direct consumers depend on the changed service; transitive ones are reached through others." /></th>
+                <th>Path <HelpTip label="Path" text="The chain of dependencies from the consumer back to the changed service." /></th>
                 <th>Verdict</th>
-                <th data-tip="How strongly the impact is evidenced">Confidence</th>
+                <th>Confidence <HelpTip label="Confidence" text="How strongly the impact is evidenced. Every level is defined under the table." /></th>
                 <th>Owner</th>
               </tr>
             </thead>
@@ -560,10 +561,10 @@
     </div>
 
     <div class="meta-lists">
-      <PreviewSection title="Owners" total={owners.total} count={owners.count} truncated={owners.truncated} empty="No owners identified.">
+      <PreviewSection title="Owners" level={3} role="subsection" total={owners.total} count={owners.count} truncated={owners.truncated} empty="No owners identified.">
         <EntityRefList items={owners.items} showStatus={false} />
       </PreviewSection>
-      <PreviewSection title="Operational targets running this" total={activeTargets.total} count={activeTargets.count} truncated={activeTargets.truncated} empty="No operational target is running an affected revision.">
+      <PreviewSection title="Operational targets running this" level={3} role="subsection" total={activeTargets.total} count={activeTargets.count} truncated={activeTargets.truncated} empty="No operational target is running an affected revision.">
         <EntityRefList items={activeTargets.items} />
       </PreviewSection>
     </div>
@@ -597,7 +598,10 @@
      never read as "something running broke". */
   .stage { margin-top: var(--sp-6); }
   .stage-head { border-top: 1px solid var(--c-border); padding-top: var(--sp-3); margin-bottom: var(--sp-3); }
-  .stage-head h2 { margin: 0; font-size: var(--text-lg); }
+  /* A fourth heading size lived here: an h2 pushed up to METRIC size, so the two stage
+     titles outranked every other section title in the product and competed with the page
+     title above them. They are sections; base.css already gives an h2 the section role. */
+  .stage-head h2 { margin: 0; }
   .stage-lead { margin: 4px 0 0; color: var(--c-text-3); font-size: var(--text-sm); }
   .change-counts { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin: 0 0 var(--sp-3); }
 
@@ -619,8 +623,16 @@
   .partial-banner strong { color: var(--c-warn); }
 
   .section { margin-top: var(--sp-5); }
-  .section-title { font-weight: 600; margin-bottom: var(--sp-3); }
-  .tab-count { color: var(--c-text-3); font-weight: 400; }
+  /* A bold <div> is not a heading: this block sits inside "What it affects" beside the
+     two level-3 charts, so it is an h3, and the subsection role -- not a weight of its
+     own -- is what makes it look like one. */
+  /* Spacing only. `section-title` is the legacy V1 uppercase micro-label and would
+     have overridden the role -- see the browser typography acceptance. */
+  .ca-subhead { margin-bottom: var(--sp-3); }
+  /* The count is the same plain META span PreviewSection uses for every other count
+     in the product. It used to be the legacy `.tab-count` pill, whose 600 weight had
+     to be undone here by hand -- a fix-up on top of an override, which is the shape
+     requirement 8 exists to delete. */
   .path-cell { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
   .consumer-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-3); }
   .pager-btns { display: flex; gap: var(--sp-2); }

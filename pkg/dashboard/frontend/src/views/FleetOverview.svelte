@@ -11,6 +11,7 @@
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
+  import PageHeader from '../components/PageHeader.svelte';
 
   // The operational landing page (requirement G). It consumes /api/fleet/overview
   // as the single contract -- it never reconstructs the summary from the raw
@@ -67,7 +68,7 @@
 
 <div class="overview">
   <Breadcrumbs trail={[{ label: 'Overview' }]} />
-  <h1>Operational overview</h1>
+  <PageHeader title="Operational overview" />
 
   {#if pageState.kind !== 'ready'}
     <ProductEmptyState state={pageState} noun="operational data" onRetry={load} />
@@ -164,7 +165,6 @@
 
 <style>
   .overview { display: flex; flex-direction: column; gap: var(--sp-5); }
-  h1 { margin: 0; }
   .ov-section { display: flex; flex-direction: column; gap: var(--sp-3); }
   .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .ov-head h2, .ov-section h2 { margin: 0; }

@@ -29,7 +29,12 @@
         <col class="dc-new" />
         <col class="dc-impact" />
       </colgroup>
-      <thead><tr><th data-tip="Field path in the contract">Path</th><th data-tip="Type of change">Change</th><th data-tip="Value in the older version">Old</th><th data-tip="Value in the newer version">New</th><th data-tip="Breaking change classification">Breaking</th></tr></thead>
+      <!-- No `data-tip` on these headers. A <th> takes no focus, so the shared tooltip
+           never opened for a keyboard user, and it is suppressed outright on touch --
+           and every one of the five said back the word already printed in the cell
+           ("Change" / "Type of change"). A definition worth keeping goes in a HelpTip,
+           which is a real button; a restatement goes away. -->
+      <thead><tr><th>Path</th><th>Change</th><th>Old</th><th>New</th><th>Breaking</th></tr></thead>
       <tbody>
         {#each changes as change, idx}
           {@const oldText = formatDiffValue(change.oldValue)}

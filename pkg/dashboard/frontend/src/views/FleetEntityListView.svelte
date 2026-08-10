@@ -12,6 +12,7 @@
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
+  import PageHeader from '../components/PageHeader.svelte';
 
   // The scoped inventory list for the two kinds that have no list page of their own
   // (requirement 12). A rich entity page shows a BOUNDED preview of its revisions or
@@ -89,17 +90,14 @@
 
 <div class="list-view">
   <Breadcrumbs {trail} />
-  <div class="lv-head">
-    <h1>{kindLabel(kind)}{#if service} of {service}{/if}</h1>
-    {#if list}<span class="lv-total" data-testid="entity-list-total">{total} {total === 1 ? plural.replace(/s$/, '') : plural}</span>{/if}
-  </div>
-  <p class="lv-lead">
-    {#if kind === 'target'}
-      Every place something has been observed running{#if service} for this service{/if}. A target is a runtime observation, not a contract.
-    {:else}
-      Every known contract revision{#if service} for this service{/if}, newest first. A revision is what was declared, whether or not anything runs it.
-    {/if}
-  </p>
+  <PageHeader
+    title={`${kindLabel(kind)}${service ? ` of ${service}` : ''}`}
+    count={list ? `${total} ${total === 1 ? plural.replace(/s$/, '') : plural}` : ''}
+    countTestid="entity-list-total"
+    subtitle={kind === 'target'
+      ? `Every place something has been observed running${service ? ' for this service' : ''}. A target is a runtime observation, not a contract.`
+      : `Every known contract revision${service ? ' for this service' : ''}, newest first. A revision is what was declared, whether or not anything runs it.`}
+  />
 
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
@@ -137,10 +135,6 @@
 
 <style>
   .list-view { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .lv-head { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
-  .lv-head h1 { margin: 0; }
-  .lv-total { color: var(--c-text-3); }
-  .lv-lead { margin: 0; color: var(--c-text-3); font-size: var(--text-sm); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }

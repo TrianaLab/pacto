@@ -93,16 +93,26 @@
     {#if d.reconciledAt}<div class="te-fact"><span class="te-k">Reconciled at</span><span>{formatDate(d.reconciledAt)}</span></div>{/if}
     {#if d.stale}<div class="te-fact"><IdentityBadge label="Evidence stale" tone="warn" /></div>{/if}
     {#if d.quarantined}<div class="te-fact"><IdentityBadge label="Quarantined" tone="err" /></div>{/if}
+    <!-- The owner used to be a section of its own at the foot of the page: one row, one
+         border and a heading-less block a reader had to scroll past everything else to
+         reach. It is a fact about this target like the scope and the data source, so it
+         belongs in the one facts strip (requirement 11). -->
+    {#if d.ownership}
+      <div class="te-fact">
+        <span class="te-k">Owner</span>
+        {#if d.ownership.ref}<EntityLink ref={d.ownership.ref} showStatus={false} showKind={false} />{:else}<span>{d.ownership.owner || 'Unowned'}</span>{/if}
+      </div>
+    {/if}
   </section>
 
   {#if (d.findings?.count ?? 0) > 0}
-    <PreviewSection title="Findings" total={d.findings?.total ?? 0} count={d.findings?.count ?? 0} truncated={d.findings?.truncated}>
+    <PreviewSection title="Findings" tone="err" total={d.findings?.total ?? 0} count={d.findings?.count ?? 0} truncated={d.findings?.truncated}>
       <FindingList items={d.findings?.items ?? []} />
     </PreviewSection>
   {/if}
 
   {#if (d.observedRuntime?.count ?? 0) > 0}
-    <PreviewSection title="Observed runtime" total={d.observedRuntime?.total ?? null} count={d.observedRuntime?.count ?? 0} truncated={d.observedRuntime?.truncated}>
+    <PreviewSection title="Observed runtime" collapsible open={false} summary="Raw fields as the source reported them" total={d.observedRuntime?.total ?? null} count={d.observedRuntime?.count ?? 0} truncated={d.observedRuntime?.truncated}>
       <ul class="te-runtime">
         {#each d.observedRuntime.items as f, i (i)}
           <li><span class="rt-key">{f.key}</span><span class="rt-val">{f.value}</span></li>
@@ -115,7 +125,7 @@
     <!-- Workload metadata as the platform reported it: the namespace/team/version
          labels an operator recognises the deployment by, and the fastest way to tell
          two same-named targets apart. -->
-    <PreviewSection title="Workload labels" total={d.labels?.total ?? null} count={d.labels?.count ?? 0} truncated={d.labels?.truncated}>
+    <PreviewSection title="Workload labels" collapsible open={false} summary="How the platform labels this workload" total={d.labels?.total ?? null} count={d.labels?.count ?? 0} truncated={d.labels?.truncated}>
       <ul class="te-runtime">
         {#each d.labels.items as f, i (i)}
           <li><span class="rt-key">{f.key}</span><span class="rt-val">{f.value}</span></li>
@@ -130,11 +140,11 @@
          they can legitimately disagree, so they are never merged. -->
     <section class="te-readiness">
       <div class="te-rr-head">
-        <h2>Reported readiness</h2>
+        <h2 class="t-section-title">Reported readiness</h2>
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
-      <p class="te-note">Reported by the source observing this target — not the revision's declared gate.</p>
-      <p class="te-rr-line">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.expired ? ' · expired' : ''}</p>
+      <p class="te-note t-body-2">Reported by the source observing this target — not the revision's declared gate.</p>
+      <p class="te-rr-line t-body">Score {r.score} / {r.minScore} required · {r.doneCount} done · {r.partialCount} partial · {r.notDoneCount} not done{r.expired ? ' · expired' : ''}</p>
     </section>
   {/if}
 
@@ -147,22 +157,13 @@
       viewAllHref={serviceGraphHref}
       viewAllLabel="Explore in graph"
     >
-      <p class="te-note">Observed for the whole service. Nothing we collect attributes traffic to one target, so these edges are not evidence about this instance specifically.</p>
+      <p class="te-note t-body-2">Observed for the whole service. Nothing we collect attributes traffic to one target, so these edges are not evidence about this instance specifically.</p>
       <RelationshipList items={d.serviceRelationships?.items ?? []} selfKey={d.service?.key ?? ''} />
     </PreviewSection>
   {/if}
 
-  {#if d.ownership}
-    <section class="te-facts">
-      <div class="te-fact">
-        <span class="te-k">Owner</span>
-        {#if d.ownership.ref}<EntityLink ref={d.ownership.ref} showStatus={false} showKind={false} />{:else}<span>{d.ownership.owner || 'Unowned'}</span>{/if}
-      </div>
-    </section>
-  {/if}
-
   {#if (d.limitations?.count ?? 0) > 0}
-    <PreviewSection title="Limitations" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
+    <PreviewSection title="Limitations" tone="warn" collapsible open={false} summary="What Pacto could not determine" total={d.limitations?.total ?? 0} count={d.limitations?.count ?? 0} truncated={d.limitations?.truncated}>
       <LimitationsList items={d.limitations?.items ?? []} />
     </PreviewSection>
   {/if}
@@ -175,15 +176,13 @@
   .te-facts { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .te-fact, .te-rev { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .te-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
-  .te-note { font-size: var(--text-xs); color: var(--c-text-3); }
   .te-rev-unresolved { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); background: var(--c-surface-inset); border: 1px solid var(--c-border); color: var(--c-text-2); font-size: var(--text-sm); }
   .te-runtime { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .te-runtime li { display: flex; gap: var(--sp-3); font-size: var(--text-sm); }
   .rt-key { color: var(--c-text-3); font-family: var(--font-mono, monospace); min-width: 40%; overflow-wrap: anywhere; }
   .rt-val { color: var(--c-text); overflow-wrap: anywhere; }
-  .te-readiness { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-2); }
+  .te-readiness { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-2); }
   .te-rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }
-  .te-rr-head h2 { margin: 0; font-size: var(--text-md); }
-  .te-rr-line { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); }
-  .te-note { margin: 0; }
+  .te-rr-head h2 { margin: 0; }
+  .te-rr-line, .te-note { margin: 0; }
 </style>

@@ -43,7 +43,7 @@ function targetDetail(): Record<string, any> {
 /**
  * mountView mounts the route and resolves once the ENTITY BODY exists.
  *
- * Waiting on `.ev-head` rather than on page text is load-bearing. The page-level h1
+ * Waiting on `.ev-body` rather than on page text is load-bearing. The page-level h1
  * renders immediately, before the detail request settles, because a page that is
  * still loading is still a page and has to name itself -- and that heading contains
  * the entity key. A test that waited for "payments" to appear therefore resolved
@@ -53,7 +53,7 @@ async function mountView(kind: string, key: string) {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const component = mount(FleetEntityView, { target, props: { kind, entityKey: key, refreshTick: 0 } });
-  await vi.waitFor(() => expect(target.querySelector('.ev-head')).toBeTruthy());
+  await vi.waitFor(() => expect(target.querySelector('.ev-body')).toBeTruthy());
   return { target, component };
 }
 
@@ -125,8 +125,8 @@ describe('FleetEntityView — unified entity route', () => {
   it('maps the DTO open-graph action to a canonical graph route', async () => {
     detailFn.mockResolvedValue(targetDetail());
     const { target, component } = await mountView('target', 'prod/k8s/app');
-    await vi.waitFor(() => expect(target.querySelector('.ev-action')).toBeTruthy());
-    const action = Array.from(target.querySelectorAll('a.ev-action')).find((a) => a.textContent?.includes('graph')) as HTMLAnchorElement;
+    await vi.waitFor(() => expect(target.querySelector('.page-hd-action')).toBeTruthy());
+    const action = Array.from(target.querySelectorAll('a.page-hd-action')).find((a) => a.textContent?.includes('graph')) as HTMLAnchorElement;
     expect(action.getAttribute('href')).toBe('#/fleet/graph/target/prod%2Fk8s%2Fapp');
     unmount(component); document.body.removeChild(target);
   });
@@ -185,7 +185,7 @@ describe('FleetEntityView — background refresh preserves the page (A)', () => 
     const target = document.createElement('div');
     document.body.appendChild(target);
     const component = mount(FleetEntityView, { target, props });
-    await vi.waitFor(() => expect(target.querySelector('.ev-head')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('.ev-body')).toBeTruthy());
     return { target, component };
   }
 
@@ -202,7 +202,7 @@ describe('FleetEntityView — background refresh preserves the page (A)', () => 
     await Promise.resolve();
 
     // Mid-flight: the previous answer is still the best answer we have.
-    expect(target.querySelector('.ev-head'), 'the entity header vanished during a background refresh').toBeTruthy();
+    expect(target.querySelector('.ev-body'), 'the entity body vanished during a background refresh').toBeTruthy();
     expect(target.textContent, 'the entity body vanished during a background refresh').toContain('Revisions');
 
     pending.resolve(svc());
@@ -242,7 +242,7 @@ describe('FleetEntityView — background refresh preserves the page (A)', () => 
     await Promise.resolve();
 
     // A different question is being asked; the old answer is not an answer to it.
-    expect(target.querySelector('.ev-head'), 'the previous entity stayed on screen after navigating away').toBeNull();
+    expect(target.querySelector('.ev-body'), 'the previous entity stayed on screen after navigating away').toBeNull();
     const other = svc();
     other.entity = ref('service', 'domain-b/ledger', { domain: 'domain-b' });
     other.service.domain = 'domain-b';
@@ -357,8 +357,8 @@ describe('FleetEntityView — rich service page (D)', () => {
   it('offers the Change analysis workspace exactly once for compare AND impact', async () => {
     detailFn.mockResolvedValue(serviceDetail());
     const { target, component } = await mountView('service', 'domain-a/payments');
-    await vi.waitFor(() => expect(target.querySelector('.ev-action')).toBeTruthy());
-    const links = Array.from(target.querySelectorAll('a.ev-action'));
+    await vi.waitFor(() => expect(target.querySelector('.page-hd-action')).toBeTruthy());
+    const links = Array.from(target.querySelectorAll('a.page-hd-action'));
     const labels = links.map((a) => a.textContent?.trim());
     expect(labels).toEqual(['Open in graph', 'Compare revisions']);
     expect(links.find((a) => a.textContent?.includes('Compare'))?.getAttribute('href'))
@@ -618,7 +618,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     });
     const { target, component } = await mountView('source', 'edge-cluster');
     await vi.waitFor(() => expect(target.textContent).toContain('Contributed entities'));
-    const head = target.querySelector('.ev-head') as HTMLElement;
+    const head = target.querySelector('.page-hd') as HTMLElement;
     expect(head.querySelector('.tag')?.textContent).toBe('Unavailable');
     expect(head.querySelector('.tag')?.className).toContain('tone-err');
     expect(head.querySelector('.status-badge')).toBeNull();

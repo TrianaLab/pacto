@@ -66,7 +66,7 @@
 
 <div class="op-summary">
   <a class="tile tile-lead tone-{tone(summary.servicesNeedingAttention, severityOf('attention', ''))}" href={fleetAttentionUrl()}>
-    <span class="tile-count">{summary.servicesNeedingAttention || 0}</span>
+    <span class="tile-count t-metric">{summary.servicesNeedingAttention || 0}</span>
     <!-- Sentence case, like every tile beside it. A lowercase caption on the biggest
          tile and Title-leading labels on its four siblings read as two kinds of thing. -->
     <span class="tile-label">Services need attention</span>
@@ -80,7 +80,7 @@
          two cases, with a tone guessed locally instead of the grade its own items carry. -->
     {#each tiles as ep}
       <a class="tile tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
-        <span class="tile-count">{ep.count || 0}</span>
+        <span class="tile-count t-metric">{ep.count || 0}</span>
         <span class="tile-label">{ep.label}</span>
       </a>
     {/each}
@@ -95,14 +95,14 @@
          product one: the heading said "Fleet posture" above a page whose whole
          vocabulary is services, revisions and operational targets. -->
     <section class="ov-posture" aria-labelledby="ov-posture-h">
-      <h2 id="ov-posture-h" class="ov-posture-h">Overall posture</h2>
-      <p class="ov-posture-sub">
+      <h2 id="ov-posture-h" class="t-section-title">Overall posture</h2>
+      <p class="ov-posture-sub t-body-2">
         {summary.services || 0} {(summary.services || 0) === 1 ? 'service' : 'services'} ·
         {summary.revisions || 0} {(summary.revisions || 0) === 1 ? 'revision' : 'revisions'} ·
         {targets} operational {targets === 1 ? 'target' : 'targets'}
       </p>
       <PostureBars summary={posture} {attentionUrl} />
-      <p class="ov-posture-note">We know exactly which revision is running on {exactLinks} of {targets} operational targets{(summary.staleTargets || 0) > 0 ? `, and ${summary.staleTargets} of them were last observed too long ago to trust` : ''}.</p>
+      <p class="ov-posture-note t-body-2">We know exactly which revision is running on {exactLinks} of {targets} operational targets{(summary.staleTargets || 0) > 0 ? `, and ${summary.staleTargets} of them were last observed too long ago to trust` : ''}.</p>
     </section>
   {/if}
 </div>
@@ -117,14 +117,17 @@
     border-left: 3px solid var(--tone-c, var(--c-neutral));
   }
   .tile:hover { border-color: var(--c-accent); }
+  /* The lead tile is the one number the overview wants read first. It says so with a
+     heavier tone edge and its position, NOT with a font-size of its own: a METRIC that
+     is 18.75px in four tiles and 24.38px in the fifth is a second type scale, and a
+     second type scale is what this whole pass exists to remove (requirement 8). */
   .tile-lead { border-left-width: 4px; }
-  .tile-lead .tile-count { font-size: var(--text-xl); }
-  .tile-count { font-size: var(--text-lg); font-weight: 700; color: var(--tone-c, var(--c-text)); }
+  .tile-count { color: var(--tone-c, var(--c-text)); }
   .tile-label { font-size: var(--text-sm); color: var(--c-text-2); }
   .tile-sub { font-size: var(--text-xs); color: var(--c-text-3); }
   .ov-posture { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .ov-posture-h { margin: 0; font-size: var(--text-md); }
-  .ov-posture-sub, .ov-posture-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .ov-posture h2 { margin: 0; }
+  .ov-posture-sub, .ov-posture-note { margin: 0; }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }
   .tone-err { --tone-c: var(--c-err); }

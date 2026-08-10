@@ -8,9 +8,8 @@
   import { fleetEntityBreadcrumbs } from '../lib/breadcrumbs.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
-  import EntityIdentity from '../components/EntityIdentity.svelte';
+  import PageHeader from '../components/PageHeader.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
-  import EntityStatusBadge from '../components/EntityStatusBadge.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ServiceEntity from './entity/ServiceEntity.svelte';
@@ -91,76 +90,75 @@
 <div class="entity-view">
   <Breadcrumbs {trail} />
 
-  <!-- One useful page-level heading for the entity page (requirement 8.1). The rich
-       EntityIdentity remains the visual header; the h1 gives the accessibility tree a
-       meaningful page title without visual duplication.
+  <!-- The page's one visible title, at page-title scale, plus the kind, the
+       disambiguating context, the current status and the primary actions
+       (requirement 9). It used to be a visually-hidden h1 with the inline list-row
+       identity underneath, which rendered at exactly the size and weight of every
+       section title on the page: the page was outranked by its own contents.
 
        It sits OUTSIDE the ready branch on purpose. A page that is still loading, or
-       whose entity does not exist, is still a page: it needs a name in the
+       whose entity does not exist, is still a page: it needs a name on screen, in the
        accessibility tree and in the browser tab, and without one the empty-state
        heading became the first heading on the page. We know the kind and the requested
        key before the request resolves, so there is always something honest to say. -->
-  <h1 class="visually-hidden">{kindLabel(kind)}: {detail?.entity?.label || detail?.entity?.key || entityKey}</h1>
+  <PageHeader
+    ref={detail?.entity}
+    title={detail?.entity ? '' : entityKey}
+    titlePrefix={kindLabel(kind)}
+    {kind}
+    status={detail?.status || ''}
+    {actions}
+  />
 
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={kindLabel(kind).toLowerCase()} onRetry={load} />
   {:else}
-    <header class="ev-head">
-      <EntityIdentity ref={detail.entity} showStatus={false} />
-      <EntityStatusBadge kind={detail.entity.kind} status={detail.status} />
-    </header>
+    <div class="ev-body">
+      <!-- Uncertainty and failed refreshes come FIRST and are never collapsible: they
+           qualify everything below them, so a reader who stops after the first screen
+           must still have seen them. -->
+      <KnowledgeBanner {knowledge} noun="page" />
 
-    <!-- The canonical key is Pacto's precise identity for this entity and stays available
-         in full -- but it is ontology a first-time user has no use for, so it is one
-         disclosure away instead of the second thing on the page (requirement 9). Nothing
-         is lost: the value is unchanged and still copyable. -->
-    <details class="ev-ident disclosure">
-      <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Identifier</summary>
-      <div class="ev-key">
-        <span class="ev-key-label">Canonical key</span>
-        <CopyableIdentifier value={detail.entity.key} />
-      </div>
-      <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere — in the API, the CLI and shared links.</p>
-    </details>
+      {#if refreshError}
+        <StaleRefreshNotice noun="page" onRetry={load} />
+      {/if}
 
-    <KnowledgeBanner {knowledge} noun="page" />
+      <!-- The canonical key is Pacto's precise identity for this entity and stays available
+           in full -- but it is ontology a first-time user has no use for, so it is one
+           disclosure away instead of the second thing on the page (requirement 9). Nothing
+           is lost: the value is unchanged and still copyable. -->
+      <details class="ev-ident disclosure">
+        <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Identifier</summary>
+        <div class="ev-key">
+          <span class="ev-key-label">Canonical key</span>
+          <CopyableIdentifier value={detail.entity.key} />
+        </div>
+        <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere — in the API, the CLI and shared links.</p>
+      </details>
 
-    {#if refreshError}
-      <StaleRefreshNotice noun="page" onRetry={load} />
-    {/if}
-
-    {#if actions.length}
-      <div class="ev-actions">
-        {#each actions as act}<a class="ev-action" href={act.href}>{act.label}</a>{/each}
-      </div>
-    {/if}
-
-    {#if detail.service}
-      <ServiceEntity {detail} />
-    {:else if detail.revision}
-      <RevisionEntity {detail} />
-    {:else if detail.target}
-      <TargetEntity {detail} />
-    {:else if detail.owner}
-      <OwnerEntity {detail} />
-    {:else if detail.source}
-      <SourceEntity {detail} />
-    {/if}
+      {#if detail.service}
+        <ServiceEntity {detail} />
+      {:else if detail.revision}
+        <RevisionEntity {detail} />
+      {:else if detail.target}
+        <TargetEntity {detail} />
+      {:else if detail.owner}
+        <OwnerEntity {detail} />
+      {:else if detail.source}
+        <SourceEntity {detail} />
+      {/if}
+    </div>
   {/if}
 </div>
 
 <style>
   .entity-view { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .ev-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+  /* The resolved page. Its own element (rather than a bare fragment) is what lets a
+     test say "the entity BODY is on screen" without that also being true while the
+     page header is still waiting for the request. */
+  .ev-body { display: flex; flex-direction: column; gap: var(--sp-4); }
   /* Look and behaviour come from the shared .disclosure class in styles/components.css. */
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-key-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
   .ev-key-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .ev-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-  .ev-action {
-    text-decoration: none; font-size: var(--text-sm); color: var(--c-accent);
-    border: 1px solid var(--c-accent-border); background: var(--c-accent-bg);
-    padding: 4px 12px; border-radius: var(--radius-sm);
-  }
-  .ev-action:hover { border-color: var(--c-accent); }
 </style>

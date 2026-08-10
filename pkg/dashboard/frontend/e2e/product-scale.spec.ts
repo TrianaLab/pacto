@@ -233,7 +233,7 @@ test('render baseline for every product surface, on real demo data', async ({ pa
   const surfaces: [string, string, string][] = [
     ['Services list', '#/fleet/services', '[data-testid="service-list"] li'],
     ['Attention', '#/fleet/attention', '.attn-list li'],
-    ['Service detail', '#/fleet/services/' + encodeURIComponent('payments-service'), '.ev-head'],
+    ['Service detail', '#/fleet/services/' + encodeURIComponent('payments-service'), '.ev-body'],
     ['Operational Graph (focused)', '#/fleet/graph/service/payments-service', '[data-testid="neighborhood-canvas"] canvas'],
     ['Change analysis', '#/fleet/changes', '[data-testid="impact-service-picker"]'],
     ['Overview', '#/fleet', 'main figure.dist'],

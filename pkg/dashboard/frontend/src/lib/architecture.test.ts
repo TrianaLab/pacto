@@ -218,6 +218,240 @@ describe('product visualization system', () => {
 });
 
 /**
+ * Design-system guards (requirements 7, 8, 13, 14, 22).
+ *
+ * Three defects motivated these, and each was invisible to a green test suite because
+ * every one of them is a CSS declaration that silently does nothing:
+ *
+ *  1. A component reached for `--text-md`, `--radius-md` or `--c-accent-border` before
+ *     any of them was declared. An undefined custom property makes the whole
+ *     declaration invalid at computed-value time, so `font-size: var(--text-md)`
+ *     did not fall back to something close -- it INHERITED, and a section title that
+ *     was trying to be one size ended up whatever its parent happened to be.
+ *  2. Components picked a size by HTML tag, so the same visual role rendered at two
+ *     sizes depending on whether it was nested, and the fix-ups were hard-coded
+ *     `font-size` overrides on `h2`/`h3` selectors -- a second, private type scale.
+ *  3. Definitions lived in a `data-tip`, a CSS `::after` fed by `attr()`. It is
+ *     mouse-only: a `<th>` or a `<span>` takes no focus, and the shared rule removes
+ *     the tooltip entirely under `@media (hover: none)`.
+ *
+ * SCOPE, stated explicitly because the token rule would otherwise produce false
+ * positives: only GLOBAL design tokens are checked -- the families declared in
+ * styles/tokens.css and listed in GLOBAL_TOKEN_FAMILIES below. A component-local
+ * custom property (`--tone-c`, set by a tone class and read by the element it colours)
+ * belongs to its component, is not part of the shared vocabulary, and is not checked.
+ * A file that declares a token itself is likewise never flagged for using it.
+ *
+ * This is a source scan over files on disk, not a runtime sanitizer: it parses
+ * declarations and `var()` references out of stylesheets and component `<style>`
+ * blocks. Requirement 20's e2e/typography.spec.ts is the other half -- it measures
+ * COMPUTED styles in a real browser, which is the only place "these two look the same"
+ * can actually be proven.
+ */
+describe('product design system', () => {
+  const STYLES = join(SRC, 'styles');
+  const globalCss = readdirSync(STYLES)
+    .filter((f) => f.endsWith('.css'))
+    .map((f) => readFileSync(join(STYLES, f), 'utf8'))
+    .join('\n');
+
+  const declarations = (css: string) => new Set(css.match(/--[a-zA-Z0-9-]+(?=\s*:)/g) ?? []);
+  const references = (css: string) =>
+    new Set([...css.matchAll(/var\(\s*(--[a-zA-Z0-9-]+)/g)].map((m) => m[1]));
+
+  const DECLARED = declarations(globalCss);
+  // The shared vocabulary, by family. Anything outside these prefixes is a
+  // component-local variable and out of scope by design.
+  const GLOBAL_TOKEN_FAMILIES = [
+    '--text-', '--font-', '--line-', '--sp-', '--radius-', '--c-', '--shadow-',
+    '--role-', '--touch-', '--transition-', '--chart-', '--container-', '--navbar-',
+  ];
+  const isGlobalToken = (t: string) => GLOBAL_TOKEN_FAMILIES.some((p) => t.startsWith(p));
+
+  // Every source file that can carry CSS: components, views and the stylesheets
+  // themselves (a token family that references a token from another family is the same
+  // bug one level up).
+  const STYLED = [
+    ...files.filter((f) => f.rel.endsWith('.svelte')),
+    ...readdirSync(STYLES).filter((f) => f.endsWith('.css'))
+      .map((f) => ({ rel: `styles/${f}`, body: readFileSync(join(STYLES, f), 'utf8') })),
+  ];
+
+  it('declares a real token vocabulary', () => {
+    expect(DECLARED.size).toBeGreaterThan(50);
+    // The three that were missing, named so a regression is unambiguous.
+    for (const t of ['--text-md', '--radius-md', '--c-accent-border']) {
+      expect(DECLARED.has(t), `${t} must be declared`).toBe(true);
+    }
+  });
+
+  it('references no undeclared global design token', () => {
+    const offenders: string[] = [];
+    for (const f of STYLED) {
+      const local = declarations(f.body);
+      for (const t of references(f.body)) {
+        if (isGlobalToken(t) && !DECLARED.has(t) && !local.has(t)) offenders.push(`${f.rel}: ${t}`);
+      }
+    }
+    expect(offenders, `undeclared global design token:\n  ${offenders.join('\n  ')}`).toEqual([]);
+  });
+
+  it('scopes the token rule to the shared vocabulary, not to component-local variables', () => {
+    // Proof the rule is scoped rather than vacuous or over-broad: `--tone-c` is a real
+    // component-local variable in the tree, is NOT globally declared, and must not be
+    // flagged; a made-up token in a global family must be.
+    expect(DECLARED.has('--tone-c'), 'the fixture assumes --tone-c is component-local').toBe(false);
+    expect(isGlobalToken('--tone-c')).toBe(false);
+    expect(isGlobalToken('--text-enormous')).toBe(true);
+    expect(DECLARED.has('--text-enormous')).toBe(false);
+    const usesLocal = files.filter((f) => references(f.body).has('--tone-c'));
+    expect(usesLocal.length, 'the scope carve-out would be vacuous if nothing used a local var').toBeGreaterThan(0);
+  });
+
+  /**
+   * Requirement 8: a component picks a ROLE, not a size. The typography roles are the
+   * whole vocabulary, and a heading's LEVEL (its place in the outline) must not decide
+   * how big it looks -- that coupling is what put a section title above the page title
+   * it sat under.
+   */
+  const ROLE_CLASSES = [...globalCss.matchAll(/^\.(t-[a-z0-9-]+)\s*[,{]/gm)].map((m) => m[1]);
+  const PRODUCT_SURFACES = files.filter((f) => f.rel.endsWith('.svelte')).filter((f) =>
+    /^views\/(Fleet[^/]*|ChangeAnalysisView|GraphView)\.svelte$/.test(f.rel)
+    || f.rel.startsWith('views/entity/')
+    || /^components\/(PageHeader|PreviewSection|OperationalSummary|HelpTip|EntityIdentity|Breadcrumbs)\.svelte$/.test(f.rel)
+    || f.rel.startsWith('components/viz/'));
+
+  it('scans the product surfaces', () => {
+    expect(PRODUCT_SURFACES.length).toBeGreaterThanOrEqual(15);
+    expect(STYLED.length).toBeGreaterThan(30);
+  });
+
+  it('declares the nine typography roles once, in the shared stylesheet', () => {
+    expect([...new Set(ROLE_CLASSES)].sort()).toEqual([
+      't-body', 't-body-2', 't-code', 't-label', 't-meta', 't-metric',
+      't-page-title', 't-section-title', 't-subsection-title',
+    ]);
+  });
+
+  it('uses only declared role classes on product surfaces', () => {
+    const known = new Set(ROLE_CLASSES);
+    const offenders: string[] = [];
+    for (const f of PRODUCT_SURFACES) {
+      for (const m of f.body.matchAll(/\bt-[a-z0-9-]+\b/g)) {
+        if (!known.has(m[0])) offenders.push(`${f.rel}: ${m[0]}`);
+      }
+    }
+    expect(offenders, `unknown typography role class:\n  ${offenders.join('\n  ')}`).toEqual([]);
+  });
+
+  it('sets no font-size on a heading selector, so visual role stays independent of level', () => {
+    // `h2 { font-size: ... }` inside a component is the private type scale returning.
+    // base.css maps each level to its default role once; a component that wants a
+    // different look asks for a different ROLE class.
+    const HEADING_SIZE = /(^|[\s,{}])h[1-6]\b[^{}]*\{[^{}]*font-size\s*:/m;
+    const offenders = PRODUCT_SURFACES
+      .filter((f) => HEADING_SIZE.test(f.body))
+      .map((f) => f.rel);
+    expect(offenders, `hard-coded heading font-size on a product surface: ${offenders.join(', ')}`).toEqual([]);
+    // Non-vacuous: the pattern really does match the shape it is looking for.
+    expect(HEADING_SIZE.test('.gv-drawer-head h2 { margin: 0; font-size: var(--text-md); }')).toBe(true);
+    expect(HEADING_SIZE.test('.rr-head h2 { margin: 0; }')).toBe(false);
+  });
+
+  /**
+   * Requirement 22: ONE shared visible page-title grammar.
+   *
+   * Found by the browser acceptance, not by reading source: the Operational graph and
+   * Change analysis workspaces named themselves with a bare `<h1>`. base.css paints an
+   * h1 at the page-title role, so both LOOKED right -- and both sat outside every check
+   * that reasons about roles, which is how they were the only two canonical routes with
+   * no measurable page title at all. The grammar has to be explicit to be checkable.
+   */
+  it('gives every product page title the page-title role', () => {
+    const offenders: string[] = [];
+    for (const f of PRODUCT_SURFACES) {
+      for (const m of f.body.matchAll(/<h1\b[^>]*>/g)) {
+        if (!m[0].includes('t-page-title')) offenders.push(`${f.rel}: ${m[0]}`);
+      }
+    }
+    expect(offenders, `a product page title without the shared role:\n  ${offenders.join('\n  ')}`).toEqual([]);
+    // Non-vacuous: the surfaces really do contain h1s to check.
+    const withH1 = PRODUCT_SURFACES.filter((f) => /<h1\b/.test(f.body)).length;
+    expect(withH1, 'no product surface declares an h1, so this guard checks nothing').toBeGreaterThan(1);
+  });
+
+  /**
+   * A role class only wins if nothing outranks it. `.section-title` is the legacy V1
+   * uppercase micro-label at --text-sm; put it on the same element as a role class and
+   * the cascade picks the legacy rule, so a subsection title rendered a step SMALLER
+   * than the body text beneath it while its siblings rendered correctly. The stylesheet
+   * was valid, the class list was the bug.
+   */
+  it('never mixes a legacy V1 class with a typography role on the same element', () => {
+    const LEGACY = ['section-title', 'tab-count', 'text-2', 'text-3'];
+    const offenders: string[] = [];
+    for (const f of PRODUCT_SURFACES) {
+      for (const m of f.body.matchAll(/class="([^"]*\bt-[a-z0-9-]+\b[^"]*)"/g)) {
+        const classes = m[1].split(/\s+/);
+        const clash = classes.filter((c) => LEGACY.includes(c));
+        if (clash.length) offenders.push(`${f.rel}: "${m[1]}" (legacy: ${clash.join(', ')})`);
+      }
+    }
+    expect(offenders, `a legacy class competing with a typography role:\n  ${offenders.join('\n  ')}`).toEqual([]);
+  });
+
+  /**
+   * Requirement 13: the default-open policy is INFORMATIONAL. An active failure is
+   * never something a reader has to go looking for, so a section toned as an error
+   * cannot also be collapsed shut.
+   */
+  it('never collapses an error-toned section shut by default', () => {
+    const offenders: string[] = [];
+    for (const f of PRODUCT_SURFACES) {
+      for (const m of f.body.matchAll(/<PreviewSection\b[^>]*>/gs)) {
+        const tag = m[0];
+        if (!/tone="err"/.test(tag)) continue;
+        if (/\bcollapsible\b/.test(tag) && !/open=\{true\}|\bopen\b(?!=)/.test(tag)) {
+          offenders.push(`${f.rel}: ${tag.slice(0, 80)}`);
+        }
+      }
+    }
+    expect(offenders, `an error-toned section must not default to collapsed:\n  ${offenders.join('\n  ')}`).toEqual([]);
+  });
+
+  /**
+   * Requirement 14 / 19: hover is supplementary, never the sole access path.
+   *
+   * `data-tip` renders its text through a CSS `::after { content: attr(data-tip) }`,
+   * which means the words exist ONLY while a pointer hovers: they are not in the
+   * accessibility tree, the host is usually not focusable, and the shared rule hides
+   * them outright under `@media (hover: none)`. HelpTip is the product's answer -- a
+   * real button, reachable by Tab and by touch, dismissed by Escape.
+   *
+   * Legacy `pacto doc` surfaces keep `data-tip`; they are a different host and out of
+   * scope, which is also what keeps this guard honest rather than vacuous.
+   */
+  it('carries no hover-only definition on a product surface', () => {
+    const offenders = PRODUCT_SURFACES.filter((f) => f.body.includes('data-tip')).map((f) => f.rel);
+    expect(offenders, `hover-only data-tip on a product surface: ${offenders.join(', ')}`).toEqual([]);
+    // Non-vacuous: the legacy host still uses data-tip, so the rule is a scope, not a
+    // statement that the attribute has disappeared from the repository.
+    const legacy = files.filter((f) => f.body.includes('data-tip')).map((f) => f.rel);
+    expect(legacy.length, 'the guard would be vacuous if data-tip existed nowhere').toBeGreaterThan(0);
+  });
+
+  it('keeps the help affordance keyboard-, screen-reader- and touch-operable', () => {
+    const tip = readFileSync(join(SRC, 'components/HelpTip.svelte'), 'utf8');
+    expect(tip, 'the affordance must be a real button, not a hover target').toMatch(/<button\b/);
+    expect(tip, 'it must have an accessible name').toMatch(/aria-label=/);
+    expect(tip, 'its open state must be exposed').toMatch(/aria-expanded=/);
+    expect(tip, 'the text must be associated with the control, not just painted').toMatch(/aria-describedby=/);
+    expect(tip, 'Escape must close it').toMatch(/'Escape'/);
+    expect(tip, 'it must open on focus, not only on hover').toMatch(/onfocus=/);
+  });
+});
+
+/**
  * Product vocabulary. "Fleet" is an internal word -- the snapshot package, the /fleet
  * routes, the host capability flag -- and it kept leaking into the words on screen
  * ("Fleet posture" above a page about services, "how this fleet knows"). The words a

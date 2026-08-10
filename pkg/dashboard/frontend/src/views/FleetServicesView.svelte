@@ -14,6 +14,7 @@
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { complianceSegments, tallyStatuses } from '../lib/distributions.ts';
+  import PageHeader from '../components/PageHeader.svelte';
 
   // The product Services list (requirement C / A3). It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -115,10 +116,7 @@
 
 <div class="svc-view">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
-  <div class="sv-head">
-    <h1>Services</h1>
-    {#if list}<span class="sv-total">{total} service{total === 1 ? '' : 's'}</span>{/if}
-  </div>
+  <PageHeader title="Services" count={list ? `${total} service${total === 1 ? '' : 's'}` : ''} />
 
   <div class="sv-filters">
     <!-- Suggestions come from the backend Entities query, restricted to services, so
@@ -228,9 +226,6 @@
 
 <style>
   .svc-view { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .sv-head { display: flex; align-items: baseline; gap: var(--sp-3); }
-  .sv-head h1 { margin: 0; }
-  .sv-total { color: var(--c-text-3); }
   .sv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .sv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   /* The suggestion popup is absolutely positioned inside its field, so a field that

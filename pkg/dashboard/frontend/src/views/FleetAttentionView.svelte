@@ -18,6 +18,7 @@
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import { severitySegments } from '../lib/distributions.ts';
+  import PageHeader from '../components/PageHeader.svelte';
 
   // The attention triage workspace (requirements A2/I). It consumes
   // /api/fleet/attention with the backend-supported product filters, real backend
@@ -125,10 +126,7 @@
 
 <div class="attn-view">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Needs attention' }]} />
-  <div class="av-head">
-    <h1>Needs attention</h1>
-    {#if list}<span class="av-total">{list.total} item{list.total === 1 ? '' : 's'}</span>{/if}
-  </div>
+  <PageHeader title="Needs attention" count={list ? `${list.total} item${list.total === 1 ? '' : 's'}` : ''} />
 
   <!-- Primary triage filters; secondary ones live behind an advanced disclosure so the
        default surface stays simple (requirement I). -->
@@ -249,9 +247,6 @@
 <style>
   .av-shape { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
   .attn-view { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .av-head { display: flex; align-items: baseline; gap: var(--sp-3); }
-  .av-head h1 { margin: 0; }
-  .av-total { color: var(--c-text-3); }
   .av-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .av-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); }
   .av-filters select, .av-filters input[type="text"] {

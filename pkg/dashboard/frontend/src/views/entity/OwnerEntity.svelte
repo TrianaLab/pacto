@@ -30,8 +30,8 @@
 
 <div class="owner-entity">
   <section class="oe-posture" aria-labelledby="oe-posture-h">
-    <h2 id="oe-posture-h">Operational summary</h2>
-    <p class="oe-lead">
+    <h2 id="oe-posture-h" class="t-section-title">Operational summary</h2>
+    <p class="oe-lead t-body-2">
       {sum.services ?? 0} {(sum.services ?? 0) === 1 ? 'service' : 'services'} ·
       {sum.revisions ?? 0} {(sum.revisions ?? 0) === 1 ? 'revision' : 'revisions'}{(sum.invalidRevisions ?? 0) > 0 ? ` (${sum.invalidRevisions} invalid)` : ''} ·
       {sum.targets ?? 0} operational {(sum.targets ?? 0) === 1 ? 'target' : 'targets'}
@@ -73,9 +73,9 @@
   .owner-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   /* Same card as the service page's operational summary: one scope up should not look
      like a different product. */
-  .oe-posture { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }
-  .oe-posture h2 { margin: 0; font-size: var(--text-md); }
-  .oe-lead { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); }
+  .oe-posture { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }
+  .oe-posture h2 { margin: 0; }
+  .oe-lead { margin: 0; }
   .oe-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-3); }
   .oe-attn { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .oe-attn-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }

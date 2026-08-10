@@ -56,7 +56,7 @@ test.describe('WCAG A/AA axe gate over product states', () => {
 
   test('Service detail', async ({ page }, ti) => {
     await page.goto('/#/fleet/services/payments-service');
-    await expect(page.getByTestId('graph-legend').or(page.locator('.ev-head'))).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('graph-legend').or(page.locator('.ev-body'))).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });
 

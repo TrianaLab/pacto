@@ -1,6 +1,7 @@
 <script>
   import { kindLabel } from '../lib/entityLabels.ts';
   import { abbreviateDigests } from '../lib/format.ts';
+  import { identityContext, primaryLabel } from '../lib/identityContext.ts';
   import EntityStatusBadge from './EntityStatusBadge.svelte';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
 
@@ -12,34 +13,12 @@
   // reading like a form instead of a sentence.
   let { ref = {}, showStatus = true, showKey = false, showKind = true } = $props();
 
-  const primary = $derived(ref.label || ref.key || '(unknown)');
+  const primary = $derived(primaryLabel(ref));
 
-  // A context bit the label already spells out is not disambiguation, it is the same
-  // word twice: rows read "payments-service 1.2.0 · payments-service · 45cc…" and
-  // "prod/k8s/orders-service · orders-service · prod". Whole segments only (bounded by
-  // the start, the end or a separator), so a target whose own name genuinely differs
-  // from its service still says which service it belongs to.
-  function spelledOut(label, bit) {
-    const i = label.indexOf(bit);
-    if (i < 0) return false;
-    const sep = (c) => c === undefined || '/ @:·,'.includes(c);
-    return sep(label[i - 1]) && sep(label[i + bit.length]);
-  }
-
-  // The disambiguating context bits, in priority order. Same-named services in two
-  // domains differ by domain; targets differ by scope + parent service.
-  const context = $derived(
-    [
-      { raw: ref.domain, text: `domain ${ref.domain}` },
-      { raw: ref.parentService && ref.parentService !== ref.key ? ref.parentService : '', text: ref.parentService },
-      { raw: ref.scope, text: ref.scope },
-      // secondary is the copyable-ish extra (a digest or scope); show it only when it
-      // is not already the key and not already surfaced as scope.
-      { raw: ref.secondary && ref.secondary !== ref.scope ? ref.secondary : '', text: ref.secondary },
-    ]
-      .filter((b) => b.raw && !spelledOut(primary, b.raw))
-      .map((b) => b.text),
-  );
+  // The disambiguating context bits, shared with the page header via
+  // lib/identityContext so a page never disambiguates itself differently from the
+  // row the user clicked to reach it.
+  const context = $derived(identityContext(ref));
 
   // A content digest is 71 characters that identify content exactly and read as noise;
   // full width it also overflowed narrow cards and got clipped mid-string, which is

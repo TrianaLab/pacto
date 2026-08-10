@@ -142,7 +142,7 @@ async function mountView(kind: string, key: string) {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const component = mount(FleetEntityView, { target, props: { kind, entityKey: key, refreshTick: 0 } });
-  await vi.waitFor(() => expect(target.querySelector('.ev-head')).toBeTruthy());
+  await vi.waitFor(() => expect(target.querySelector('.ev-body')).toBeTruthy());
   return { target, component };
 }
 

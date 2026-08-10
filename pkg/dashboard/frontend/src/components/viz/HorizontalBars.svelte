@@ -33,7 +33,7 @@
 
 <figure class="hbars">
   <figcaption class="hb-cap">
-    <svelte:element this={`h${level}`} class="hb-title">{title}</svelte:element>
+    <svelte:element this={`h${level}`} class="hb-title t-subsection-title">{title}</svelte:element>
     {#if description}<p class="hb-desc">{description}</p>{/if}
     {#if scopeNote}<p class="hb-scope">{scopeNote}</p>{/if}
   </figcaption>
@@ -67,7 +67,10 @@
 <style>
   .hbars { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .hb-cap { display: flex; flex-direction: column; gap: 2px; }
-  .hb-title { margin: 0; font-size: var(--text-md); font-weight: 600; }
+  /* A chart title is a SUBSECTION of the block it sits in. It used to hard-code the
+     section size and weight instead, so a level-3 chart title rendered larger than the
+     level-2 section heading above it. Size and weight come from the role now. */
+  .hb-title { margin: 0; }
   .hb-desc, .hb-scope, .hb-scale, .hb-empty { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .hb-scope { font-style: italic; }
   .hb-scale { font-size: var(--text-xs); }

@@ -11,6 +11,7 @@
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
+  import PageHeader from '../components/PageHeader.svelte';
 
   // The product Sources list (requirement G): source discovery through
   // /api/fleet/entities?kinds=source via the SDK facade, with a search box and a
@@ -66,14 +67,14 @@
 
 <div class="list-view">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Data sources' }]} />
-  <div class="lv-head">
-    <h1>Data sources</h1>
-    {#if list}<span class="lv-total">{total} data source{total === 1 ? '' : 's'}</span>{/if}
-  </div>
   <!-- The distinction a first-time user needs here: a data source supplies records to
        the snapshot, so a degraded one makes every other number incomplete rather than
        zero. It is not a collector -- it does not observe anything by itself. -->
-  <p class="lv-lead">Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete — not zero.</p>
+  <PageHeader
+    title="Data sources"
+    count={list ? `${total} data source${total === 1 ? '' : 's'}` : ''}
+    subtitle="Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete — not zero."
+  />
 
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
@@ -118,10 +119,6 @@
 
 <style>
   .list-view { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .lv-head { display: flex; align-items: baseline; gap: var(--sp-3); }
-  .lv-head h1 { margin: 0; }
-  .lv-total { color: var(--c-text-3); }
-  .lv-lead { margin: 0; color: var(--c-text-3); font-size: var(--text-sm); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }

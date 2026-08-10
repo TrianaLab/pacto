@@ -15,7 +15,7 @@ const ROUTES: Array<{ hash: string; ready: (p: Page) => Promise<unknown> }> = [
   { hash: '#/fleet/owners', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Owners' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/sources', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Data sources' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/changes/payments-service', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 }) },
-  { hash: '#/fleet/services/payments-service', ready: (p) => expect(p.locator('.ev-head')).toBeVisible({ timeout: 20_000 }) },
+  { hash: '#/fleet/services/payments-service', ready: (p) => expect(p.locator('.ev-body')).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/graph', ready: (p) => expect(p.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/graph/service/payments-service', ready: (p) => expect(p.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 }) },
 ];

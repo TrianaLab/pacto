@@ -19,6 +19,7 @@
   import EntityLink from '../components/EntityLink.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
 
@@ -163,6 +164,12 @@
     { v: 'observed', label: 'Observed', help: 'Relationships backed by runtime observation.' },
     { v: 'differences', label: 'Differences', help: 'Where declared intent and observed reality diverge.' },
   ];
+  // The three layers are DEFINED in the discovery state's legend -- but a reader who
+  // arrives on a focused graph from a deep link or an entity page never sees discovery,
+  // and on that screen the only explanation was a `title=` tooltip: mouse-only, gone on
+  // touch, unreachable by keyboard (requirement 14). One help affordance beside the
+  // control carries all three, built from the same source so the two cannot drift.
+  const VIEW_HELP = VIEW_DEFS.map((d) => `${d.label}: ${d.help}`).join(' ');
 
   // ── discovery search (search-first entry, product-honest) ────────────────────
   let queryText = $state('');
@@ -215,7 +222,7 @@
   {#if !focused}
     <!-- Discovery state (requirement K): search-first, no fleet hairball, no request. -->
     <section class="discovery" data-testid="graph-discovery">
-      <h1>Operational graph</h1>
+      <h1 class="t-page-title">Operational graph</h1>
       <p class="disco-lead">The operational graph is search-first: pick one entity and see <strong>its</strong> local neighborhood render below. It never opens every service at once.</p>
 
       <form class="disco-search" role="search" onsubmit={submitSearch}>
@@ -252,7 +259,7 @@
             <line x1="30" y1="32" x2="66" y2="18" /><line x1="30" y1="32" x2="66" y2="46" /><line x1="66" y1="18" x2="96" y2="32" />
             <circle cx="30" cy="32" r="9" /><circle cx="66" cy="18" r="7" /><circle cx="66" cy="46" r="7" /><circle cx="96" cy="32" r="7" />
           </svg>
-          <p class="disco-ph-title">Select a service, revision or operational target to render its local graph</p>
+          <p class="disco-ph-title t-section-title">Select a service, revision or operational target to render its local graph</p>
           <p class="disco-ph-sub">Search above, or start from an entity that needs attention. The graph appears right here once you pick a focus.</p>
         </div>
       {/if}
@@ -277,7 +284,7 @@
   {:else}
     <!-- Focused neighborhood: an actual visual topology (requirements F/G/H). -->
     <div class="gv-head">
-      <h1>Operational graph</h1>
+      <h1 class="t-page-title">Operational graph</h1>
       {#if focusRef}<EntityIdentity ref={focusRef} />{/if}
       <button type="button" class="btn gv-reset" onclick={resetFocus} data-testid="graph-reset">Reset focus</button>
     </div>
@@ -292,7 +299,7 @@
         </div>
       </div>
       <div class="gv-ctl">
-        <span class="gv-ctl-k">Knowledge</span>
+        <span class="gv-ctl-k">Knowledge <HelpTip label="the knowledge layers" text={VIEW_HELP} /></span>
         <div class="gv-seg">
           {#each VIEW_DEFS as vd}
             <button type="button" class:active={gs.views.includes(vd.v)} title={vd.help} onclick={() => flipView(vd.v)} data-testid="view-{vd.v}" aria-pressed={gs.views.includes(vd.v)}>{vd.label}</button>
@@ -425,7 +432,7 @@
 
           {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
             <section class="gv-unresolved" data-testid="graph-unresolved">
-              <h3>Unresolved dependencies ({shown.unresolvedDependencies.total})</h3>
+              <h2>Unresolved dependencies ({shown.unresolvedDependencies.total})</h2>
               <ul>
                 {#each shown.unresolvedDependencies.items as u (u.from.key + '::' + u.ref)}
                   <li><EntityLink ref={u.from} showStatus={false} /> declares <code>{u.requestedRef || u.ref}</code> - no provider resolves it{#if u.reason}: {u.reason}{/if}</li>
@@ -436,7 +443,7 @@
 
           {#if (shown.limitations?.count ?? 0) > 0}
             <section class="gv-limitations" data-testid="graph-limitations">
-              <h3>Limitations</h3>
+              <h2>Limitations</h2>
               <LimitationsList items={shown.limitations.items} />
             </section>
           {/if}
@@ -558,12 +565,16 @@
   .gv-rel { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em; color: var(--c-text-3); }
   .gv-diff { margin-left: auto; }
   .gv-unresolved, .gv-limitations { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); }
-  .gv-unresolved h3, .gv-limitations h3 { margin: 0 0 var(--sp-2); font-size: var(--text-md); }
+  /* These were h3s forced back up to section size with a hard-coded font-size -- a
+     section title dressed as a subsection, then un-dressed by hand. They sit directly
+     under the page h1, so h2 is both the honest outline level and, via base.css, the
+     section role. No override left to drift. */
+  .gv-unresolved h2, .gv-limitations h2 { margin: 0 0 var(--sp-2); }
   .gv-unresolved ul { margin: 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); display: flex; flex-direction: column; gap: 4px; }
 
   .gv-drawer { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-2); }
   .gv-drawer-head { display: flex; align-items: center; justify-content: space-between; }
-  .gv-drawer-head h2 { margin: 0; font-size: var(--text-md); }
+  .gv-drawer-head h2 { margin: 0; }
   .gv-close { background: none; border: none; color: var(--c-text-3); cursor: pointer; font-size: var(--text-md); }
   .gv-drow { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .gv-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }

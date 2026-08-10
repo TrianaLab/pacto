@@ -39,21 +39,79 @@
   --c-neutral-bg: rgba(100, 116, 139, 0.08);
   --c-accent: #818cf8;
   --c-accent-bg: rgba(129, 140, 248, 0.08);
+  --c-accent-border: rgba(129, 140, 248, 0.28);
   --c-accent-hover: #a5b4fc;
   /* Text/icon color to place ON a solid --c-accent fill (buttons, active segments).
      White on the light-indigo dark-mode accent is only 2.98:1; a dark ink is 6.47:1, so
      on-accent controls read at AA. (Light theme flips this to white; see below.) */
   --c-on-accent: #0a0e17;
 
-  /* Typography — scaled up for readability at 100% zoom */
+  /* ── Typography: the SIZE RAMP ──
+     One ramp, no gaps. 1rem inside the app is 15px (base.css sets the rem base to
+     93.75% of the browser's own 16px default, so a reader who has raised that default
+     still scales), and each step's rendered pixel value is listed below. Nothing
+     outside this block may invent a size: a component picks a ROLE (see roles below),
+     and the role picks the step.
+
+     The rem base is deliberately NOT one of these tokens. `html { font-size:
+     var(--text-base) }` resolved 0.9375rem against the browser's 16px and set the root
+     to 15px -- after which the very same token resolved to 14.06px everywhere else.
+     One name, two sizes, and the larger of them was the default body text, which no
+     role could reproduce and nothing could match. */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  --text-xs: 0.75rem;    /* 12px (was 11px) */
-  --text-sm: 0.875rem;   /* 14px (was 13px) */
-  --text-base: 0.9375rem; /* 15px (was 14px) */
-  --text-lg: 1.25rem;    /* 20px (was 18px) */
-  --text-xl: 1.625rem;   /* 26px (was 24px) */
+  --text-xs: 0.75rem;     /* 11.25px */
+  --text-sm: 0.875rem;    /* 13.13px */
+  --text-base: 0.9375rem; /* 14.06px */
+  --text-md: 1.125rem;    /* 16.88px — the step between base and lg that section titles need */
+  --text-lg: 1.25rem;     /* 18.75px */
+  --text-xl: 1.625rem;    /* 24.38px */
+  --text-2xl: 2rem;       /* 30px */
   --line-height: 1.65;
+
+  /* ── Typography: the ROLES ──
+     A role is what a piece of text IS in the product, and it is the only thing a
+     component chooses. Heading LEVEL is a separate dimension: it says where the
+     text sits in the accessibility outline, never how large it is, so a section
+     rendered as h3 because it is nested still looks like every other section.
+     Use them through the .t-* classes in typography.css; these tokens exist so a
+     component that must set the size on its own element still lands on the ramp. */
+  --role-page-title-size: var(--text-xl);
+  --role-page-title-weight: 700;
+  --role-page-title-lh: 1.25;
+
+  --role-section-title-size: var(--text-md);
+  --role-section-title-weight: 600;
+  --role-section-title-lh: 1.35;
+
+  --role-subsection-title-size: var(--text-base);
+  --role-subsection-title-weight: 600;
+  --role-subsection-title-lh: 1.4;
+
+  --role-body-size: var(--text-base);
+  --role-body-weight: 400;
+  --role-body-lh: var(--line-height);
+
+  --role-body-2-size: var(--text-sm);
+  --role-body-2-weight: 400;
+  --role-body-2-lh: 1.6;
+
+  --role-label-size: var(--text-xs);
+  --role-label-weight: 500;
+  --role-label-lh: 1.4;
+  --role-label-tracking: 0.04em;
+
+  --role-meta-size: var(--text-xs);
+  --role-meta-weight: 400;
+  --role-meta-lh: 1.5;
+
+  --role-metric-size: var(--text-lg);
+  --role-metric-weight: 700;
+  --role-metric-lh: 1.2;
+
+  --role-code-size: var(--text-xs);
+  --role-code-weight: 400;
+  --role-code-lh: 1.5;
 
   /* Spacing — slightly larger scale */
   --sp-1: 4px;
@@ -64,10 +122,12 @@
   --sp-6: 32px;
   --sp-8: 40px;
 
-  /* Radii */
+  /* Radii — one ramp, same rule as the type ramp: no component invents a value. */
   --radius: 10px;
+  --radius-md: 8px;
   --radius-sm: 6px;
   --radius-xs: 4px;
+  --radius-pill: 999px;
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -118,6 +178,7 @@
      controls both clear AA 4.5:1 on the light surface (was 4.47/4.27, now 6.29/6.01). */
   --c-accent: #4f46e5;
   --c-accent-bg: rgba(79, 70, 229, 0.06);
+  --c-accent-border: rgba(79, 70, 229, 0.24);
   --c-accent-hover: #4338ca;
   /* On the darker light-mode accent, white now clears AA (6.29:1). */
   --c-on-accent: #ffffff;

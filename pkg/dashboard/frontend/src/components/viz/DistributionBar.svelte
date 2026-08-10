@@ -39,7 +39,7 @@
 
 <figure class="dist">
   <figcaption class="dist-cap">
-    <svelte:element this={`h${level}`} class="dist-title">{title}</svelte:element>
+    <svelte:element this={`h${level}`} class="dist-title t-subsection-title">{title}</svelte:element>
     {#if description}<p class="dist-desc">{description}</p>{/if}
     {#if scopeNote}<p class="dist-scope">{scopeNote}</p>{/if}
   </figcaption>
@@ -77,7 +77,8 @@
 <style>
   .dist { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .dist-cap { display: flex; flex-direction: column; gap: 2px; }
-  .dist-title { margin: 0; font-size: var(--text-md); font-weight: 600; }
+  /* Subsection role, not a private size -- see HorizontalBars. */
+  .dist-title { margin: 0; }
   .dist-desc, .dist-scope { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .dist-scope { font-style: italic; }
   .dist-empty { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
