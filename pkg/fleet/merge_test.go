@@ -18,7 +18,11 @@ func TestMergeRevision_FillsEmptyAndUnionsSources(t *testing.T) {
 		Key: "svc@sha256:x", Service: "svc", Source: "local", Digest: "sha256:x",
 		Lock: &lock.Lock{LockVersion: 1}, Readiness: &readiness.Result{Score: 90},
 		Validation: []finding.Finding{{Code: "X"}}, Valid: true, validated: true,
-		Tools: []ToolSummary{{Name: "t"}}, Skills: []string{"s"}, Docs: []DocRef{{Path: "d"}},
+		Tools: []ToolSummary{{Name: "t"}}, Skills: []string{"s"},
+		// A doc list is only adoptable together with the filesystem that backs it:
+		// paths whose bodies can never be read are not a projection worth filling.
+		Docs:        []DocRef{{Path: "docs/d.md", digest: "abc"}},
+		bundle:      &contract.Bundle{FS: fstest.MapFS{"docs/d.md": {Data: []byte("d")}}},
 		ResolvedRef: "oci://x:1.0.0",
 	}
 	if lims := mergeRevision(existing, add); lims != nil {

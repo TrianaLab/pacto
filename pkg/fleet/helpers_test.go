@@ -87,7 +87,10 @@ func validLeafBundle(t *testing.T) *contract.Bundle {
 	}
 }
 
-// validLockYAML is a minimal lockVersion:1 lock naming dependency "dep-svc".
+// validLockYAML is a minimal lockVersion:1 lock naming dependency "dep-svc" and
+// recording what the config scope "cfg-svc" actually resolved to. The reference
+// digest is the ONLY authority a config/policy ref has: without it the scope name
+// is just a label and the destination is unknown.
 const validLockYAML = `lockVersion: 1
 pacto:
   version: 0.0.0
@@ -100,6 +103,13 @@ dependencies:
     ref: oci://example.com/dep-svc
     version: 2.0.0
     digest: sha256:deadbeef
+references:
+  - kind: config
+    name: cfg-svc
+    source: oci
+    ref: oci://ex/cfg-svc
+    version: 1.0.0
+    digest: sha256:cfg
 `
 
 func mustLock(t *testing.T) *lock.Lock {

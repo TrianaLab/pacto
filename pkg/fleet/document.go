@@ -1,18 +1,35 @@
 package fleet
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"unicode/utf8"
 )
 
-// Lazy in-bundle document reads.
+// Lazy, content-verified in-bundle document reads.
 //
-// A revision's DocRefs are collected at Build time without reading a single body
-// (see docsFrom): a snapshot holds every revision of every service and eagerly
-// inlining documentation would make the index grow with the prose in the fleet.
-// The bodies stay where they are — in the revision's own bundle filesystem — and
-// are read one at a time, on demand, through [Query.RevisionDocument].
+// A revision's DocRefs are collected at Build time without RETAINING a single
+// body (see docsFrom): a snapshot holds every revision of every service and
+// eagerly inlining documentation would make the index grow with the prose in the
+// fleet. The bodies stay where they are — in the revision's own bundle
+// filesystem — and are read one at a time, on demand, through
+// [Query.RevisionDocument].
+//
+// What Build DOES retain is a SHA-256 fingerprint per document. That is the
+// difference between a lazy read and a live one. A bundle filesystem is not
+// necessarily immutable storage: a local source's FS is an os.DirFS over a
+// working directory, and the file behind docs/overview.md can be edited, replaced
+// or deleted while the snapshot is still being queried. A read that simply
+// re-opened the path would let one
+//
+//	(SnapshotID, RevisionKey, document path)
+//
+// name different bytes at different times, which is not what an immutable
+// revision means. Every read therefore re-derives the fingerprint and refuses to
+// serve anything that does not match: the caller gets the revision's content, or
+// an explicit statement that it is no longer available. Never new bytes under the
+// old identity.
 //
 // The read is deliberately narrow:
 //
@@ -27,6 +44,11 @@ import (
 //   - The body is bounded by [MaxDocumentBytes] and must be text. An oversized,
 //     unreadable or non-text document is an explicit error, never a silently
 //     truncated half-document.
+//   - The body must hash to the fingerprint recorded for that path at Build.
+//   - The revision's documents must not be in conflict: when two sources
+//     contributed the same revision with different document content, neither is
+//     served (see mergeRevisionDocs), because picking one would make the answer
+//     depend on source ordering.
 //
 // The read returns a fresh copy; the snapshot is never mutated and no
 // snapshot-owned memory is handed out.
@@ -39,8 +61,14 @@ const MaxDocumentBytes = 512 << 10
 
 // DocumentUnavailableError is returned when a document the snapshot DOES list
 // cannot be served: its bundle filesystem is not retained, it could not be read,
-// it exceeds [MaxDocumentBytes], or it is not text. It is distinct from
-// [NotFoundError], which means the revision or the path is unknown.
+// it exceeds [MaxDocumentBytes], it is not text, its bytes no longer match the
+// content recorded for this revision at Build, or its sources conflict. It is
+// distinct from [NotFoundError], which means the revision or the path is unknown.
+//
+// It is deliberately the ONLY alternative to serving the revision's own content:
+// the two acceptable outcomes for a document whose backing bytes changed are the
+// immutable content or an explicit failure, never a fresh body under the old
+// revision identity.
 type DocumentUnavailableError struct {
 	Revision string
 	Path     string
@@ -94,6 +122,9 @@ func (q *Query) RevisionDocument(revisionKey, path string) (*RevisionDocument, e
 	unavailable := func(reason string) error {
 		return &DocumentUnavailableError{Revision: revisionKey, Path: doc.Path, Reason: reason}
 	}
+	if rev.docConflict != "" {
+		return nil, unavailable(rev.docConflict)
+	}
 	if rev.bundle == nil || rev.bundle.FS == nil {
 		return nil, unavailable("this revision's bundle filesystem is not retained in the snapshot")
 	}
@@ -110,6 +141,16 @@ func (q *Query) RevisionDocument(revisionKey, path string) (*RevisionDocument, e
 	}
 	if len(body) > MaxDocumentBytes {
 		return nil, unavailable(fmt.Sprintf("it exceeds the %d-byte read bound", MaxDocumentBytes))
+	}
+	// The immutability check. Everything above proves the bytes are servable; this
+	// proves they are THIS revision's. A document Build could not fingerprint has
+	// no immutable content to serve, so it fails here too rather than being served
+	// unverified.
+	switch {
+	case doc.digest == "":
+		return nil, unavailable("no immutable content was recorded for it when the snapshot was built, so the bytes on disk cannot be attributed to this revision")
+	case fmt.Sprintf("%x", sha256.Sum256(body)) != doc.digest:
+		return nil, unavailable("its content changed after the snapshot was built; this revision's document is no longer available from its backing storage")
 	}
 	if !utf8.Valid(body) {
 		return nil, unavailable("it is not valid UTF-8 text")

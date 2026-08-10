@@ -282,6 +282,12 @@ const (
 	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
 	LimitationRevisionConflict    = "REVISION_CONTENT_CONFLICT"
 	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
+	// LimitationRevisionDocConflict: two sources contributed the same immutable
+	// revision but disagree about its documents (a different set of paths, or the
+	// same path with different content). There is no honest way to pick a winner —
+	// whichever one served would make the revision's documents depend on source
+	// ordering — so the revision's documents become unreadable and say why.
+	LimitationRevisionDocConflict = "REVISION_DOCUMENT_CONFLICT"
 	// LimitationRevisionContentMutable: a revision was resolved through a MUTABLE
 	// reference (a tag or local path) rather than an immutable digest, so its
 	// content may differ from what the snapshot captured. Snapshot parity is not
@@ -347,6 +353,16 @@ type ToolSummary struct {
 type DocRef struct {
 	Path  string `json:"path"`
 	Title string `json:"title"`
+	// digest is the SHA-256 of the body as it stood at Build. It is the whole of
+	// the revision-content immutability guarantee for lazily-read documents: the
+	// snapshot keeps the fingerprint (32 bytes) instead of the prose, and
+	// [Query.RevisionDocument] refuses to serve bytes that no longer match it. It
+	// is unexported for the same reason [ContractRevision.bundle] is — it is a
+	// build-time integrity fact, not product data — so it never reaches the wire.
+	// Empty means the body could not be fingerprinted at Build (unreadable or over
+	// [MaxDocumentBytes]); such a document can never be served, because there is
+	// nothing to prove the bytes on hand are the revision's.
+	digest string
 }
 
 // Coverage records how much of a target's required assertion set was actually
@@ -418,7 +434,18 @@ type ContractRevision struct {
 	// path this revision already listed in Docs). It is never serialized and the
 	// pointer is never handed to a caller, so nobody can mutate snapshot-owned
 	// bundle data.
+	//
+	// The bundle filesystem is only a byte SOURCE, never the authority on what this
+	// revision's documents are: it may be a live os.DirFS over a working directory
+	// that changes after Build. The authority is the per-document digest recorded
+	// in Docs, which every read verifies.
 	bundle *contract.Bundle
+	// docConflict, when non-empty, is why this revision's documents cannot be
+	// served: two sources contributed the same immutable revision with different
+	// document content. It is set by mergeRevision, reported as a
+	// LimitationRevisionDocConflict, and turns every document read into an explicit
+	// unavailable rather than an arbitrary, order-dependent winner.
+	docConflict string
 	// validated records that this revision had raw YAML and was run through the
 	// validator at build time. Stored so status queries never dereference the
 	// build-only bundle after Build.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
 // chainFleet builds web -> api -> {db, cache} with a db -> web cycle, all declared
@@ -20,8 +21,16 @@ func chainFleet(t *testing.T) *Query {
 		}
 		return &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: "t"}}, Dependencies: d}
 	}
+	// web also CONFIGURES itself from cache, authoritatively resolved through its
+	// lock. The neighborhood is a dependency graph, so this in-scope edge must be
+	// skipped rather than drawn as a dependency.
+	webContract := mk("web", "api")
+	webContract.Configurations = []contract.Configuration{{Name: "tuning", Ref: "oci://x/cache"}}
+	webLock := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{{
+		Kind: contract.ReferenceKindConfig, Name: "tuning", Source: "oci", Ref: "oci://x/cache", Digest: "sha256:cache",
+	}}}
 	src := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
-		{Bundle: &contract.Bundle{Contract: mk("web", "api"), FS: fstest.MapFS{}}, Digest: "sha256:web"},
+		{Bundle: &contract.Bundle{Contract: webContract, FS: fstest.MapFS{}}, Digest: "sha256:web", Lock: webLock},
 		{Bundle: &contract.Bundle{Contract: mk("api", "db", "cache"), FS: fstest.MapFS{}}, Digest: "sha256:api"},
 		{Bundle: &contract.Bundle{Contract: mk("db", "web"), FS: fstest.MapFS{}}, Digest: "sha256:db"},
 		{Bundle: &contract.Bundle{Contract: mk("cache"), FS: fstest.MapFS{}}, Digest: "sha256:cache"},
@@ -155,8 +164,12 @@ func TestNeighborhood_DepthAndCycle(t *testing.T) {
 	if len(nb.Nodes) != 4 {
 		t.Errorf("nodes = %d, want 4 (cycle must not duplicate)", len(nb.Nodes))
 	}
-	if len(nb.Edges) != 4 { // web->api, api->db, api->cache, db->web
-		t.Errorf("edges = %d, want 4", len(nb.Edges))
+	// web->api, api->db, api->cache, db->web. web's resolved CONFIGURATION
+	// reference to cache is in scope and deliberately not among them: a
+	// dependency graph that silently absorbed reference edges would overstate
+	// what depends on what.
+	if len(nb.Edges) != 4 {
+		t.Errorf("edges = %d, want 4: %+v", len(nb.Edges), nb.Edges)
 	}
 }
 

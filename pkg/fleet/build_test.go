@@ -668,15 +668,10 @@ func TestResolveDepService(t *testing.T) {
 	if _, ok := resolveDepService(snap, "", contract.Dependency{Name: "missing-pacto"}); ok {
 		t.Error("stripped name absent → unresolved")
 	}
-}
-
-func TestResolveRefService(t *testing.T) {
-	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{NewServiceKey("cfg"): {Key: NewServiceKey("cfg"), Name: "cfg"}}}
-	if r, ok := resolveRefService(snap, "", contract.ReferenceRef{Name: "cfg"}); !ok || r != NewServiceKey("cfg") {
-		t.Errorf("ref resolve = %q,%v", r, ok)
-	}
-	if _, ok := resolveRefService(snap, "", contract.ReferenceRef{Name: "nope"}); ok {
-		t.Error("unknown ref should not resolve")
+	// A nameless dependency names nothing, so it resolves to nothing rather than
+	// to whatever happens to be keyed on the empty name.
+	if _, ok := resolveDepService(snap, "", contract.Dependency{}); ok {
+		t.Error("an empty dependency name must not resolve")
 	}
 }
 
@@ -698,20 +693,6 @@ func TestResolveDepService_Domain(t *testing.T) {
 	// A name present only in a different domain does not resolve.
 	if _, ok := resolveDepService(snap, "east", contract.Dependency{Name: "billing"}); ok {
 		t.Error("cross-domain dependency must not resolve")
-	}
-}
-
-func TestResolveRefService_Domain(t *testing.T) {
-	snap := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{
-		NewServiceKeyDomain("east", "cfg"):  {Key: NewServiceKeyDomain("east", "cfg"), Name: "cfg", Domain: "east"},
-		NewServiceKeyDomain("west", "cfg2"): {Key: NewServiceKeyDomain("west", "cfg2"), Name: "cfg2", Domain: "west"},
-	}}
-	if r, ok := resolveRefService(snap, "east", contract.ReferenceRef{Name: "cfg"}); !ok || r != NewServiceKeyDomain("east", "cfg") {
-		t.Errorf("same-domain ref resolve = %q,%v", r, ok)
-	}
-	// A reference whose name exists only in another domain does not resolve.
-	if _, ok := resolveRefService(snap, "east", contract.ReferenceRef{Name: "cfg2"}); ok {
-		t.Error("cross-domain reference must not resolve")
 	}
 }
 
@@ -1321,8 +1302,8 @@ func buildRelSnapshot(t *testing.T) *FleetSnapshot {
 			{Name: "leaf-svc", Ref: "oci://ex/leaf", Required: true, Compatibility: "^1.0.0"},
 			{Name: "ghost", Ref: "oci://ex/ghost", Required: false, Compatibility: "^1.0.0"},
 		},
-		// resolveRefService matches the reference's declared Name against service
-		// keys, so name the config after the service it should resolve to.
+		// The scope name is a label, not a destination. This one resolves because
+		// mustLock records the digest the ref actually resolved to (sha256:cfg).
 		Configurations: []contract.Configuration{{Name: "cfg-svc", Ref: "oci://ex/cfg-svc"}},
 	}
 	webRev := RawRevision{Bundle: &contract.Bundle{Contract: web, FS: fstest.MapFS{}}, Digest: "sha256:web", Lock: mustLock(t)}
@@ -1563,21 +1544,23 @@ func TestBuild_RelationshipsRefAndLock(t *testing.T) {
 // DISTINCT typed edges (never collapsed into one generic "reference"), and that an
 // unresolved reference still emits an edge carrying a reason.
 func TestBuild_TypedReferenceEdges(t *testing.T) {
+	// Digest-pinned refs: the ref itself is the content address, so no lock is
+	// needed. "ghost-pol" pins a bundle nobody collected.
 	app := &contract.Contract{
 		PactoVersion: "2.0",
 		Service:      contract.Service{Name: "app", Version: "1.0.0"},
 		Configurations: []contract.Configuration{
-			{Name: "cfg-target", Ref: "oci://x/cfg"},
+			{Name: "cfg-target", Ref: "oci://x/cfg@" + refDigest("cfg")},
 		},
 		Policies: []contract.Policy{
-			{Name: "pol-target", Ref: "oci://x/pol"},
-			{Name: "ghost-pol", Ref: "oci://x/ghost"},
+			{Name: "pol-target", Ref: "oci://x/pol@" + refDigest("pol")},
+			{Name: "ghost-pol", Ref: "oci://x/ghost@" + refDigest("ghost")},
 		},
 	}
 	col := &Collection{Revisions: []RawRevision{
 		{Bundle: &contract.Bundle{Contract: app, FS: fstest.MapFS{}}, Digest: "sha256:app"},
-		{Bundle: bundleFor(t, "cfg-target"), Digest: "sha256:cfg"},
-		{Bundle: bundleFor(t, "pol-target"), Digest: "sha256:pol"},
+		{Bundle: bundleFor(t, "cfg-target"), Digest: refDigest("cfg")},
+		{Bundle: bundleFor(t, "pol-target"), Digest: refDigest("pol")},
 	}}
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
 	if err != nil {

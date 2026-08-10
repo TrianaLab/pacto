@@ -27,13 +27,16 @@ func docFleetQuery(t *testing.T, overviewA, overviewB string) *fleet.Query {
 		}
 		return fleet.RawRevision{Bundle: b, Domain: domain, Digest: validDigest(fill)}
 	}
-	checkout := func(domain, fill string) fleet.RawRevision {
+	checkout := func(domain, fill, target string) fleet.RawRevision {
+		// The refs are digest-pinned: a scope named after a service is a label, not
+		// evidence, so only the content address makes the destination navigable.
+		ref := "oci://" + domain + "/payment-service@" + validDigest(target)
 		return fleet.RawRevision{
 			Bundle: &contract.Bundle{Contract: &contract.Contract{
 				PactoVersion:   "2.0",
 				Service:        contract.Service{Name: "checkout", Version: "1.0.0"},
-				Configurations: []contract.Configuration{{Name: "payment-service", Ref: "oci://" + domain + "/payment-service:2.0.0"}},
-				Policies:       []contract.Policy{{Name: "payment-service", Ref: "oci://" + domain + "/payment-service:2.0.0", Target: "spend"}},
+				Configurations: []contract.Configuration{{Name: "payment-service", Ref: ref}},
+				Policies:       []contract.Policy{{Name: "payment-service", Ref: ref, Target: "spend"}},
 			}, FS: fstest.MapFS{}},
 			Domain: domain, Digest: validDigest(fill),
 		}
@@ -41,7 +44,7 @@ func docFleetQuery(t *testing.T, overviewA, overviewB string) *fleet.Query {
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
 		fleet.NewMemorySource("s", "local", &fleet.Collection{Revisions: []fleet.RawRevision{
 			payment("domain-a", overviewA, "a"), payment("domain-b", overviewB, "b"),
-			checkout("domain-a", "c"), checkout("domain-b", "d"),
+			checkout("domain-a", "c", "a"), checkout("domain-b", "d", "b"),
 		}}))
 	if err != nil {
 		t.Fatal(err)

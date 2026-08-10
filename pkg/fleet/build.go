@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"sort"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/capability"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/lock"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
@@ -277,24 +277,70 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	if len(existing.Skills) == 0 {
 		existing.Skills = add.Skills
 	}
-	if len(existing.Docs) == 0 {
-		existing.Docs = add.Docs
-		// Docs are an allow-list INTO a specific bundle filesystem. Adopting the
-		// list without its filesystem would advertise documents whose bodies can
-		// never be read (Query.RevisionDocument). Both sides describe the same
-		// content — a disagreement is reported as a conflict below.
-		existing.bundle = add.bundle
-	}
+	lims := mergeRevisionDocs(existing, add)
 	if existing.ResolvedRef == "" {
 		existing.ResolvedRef = add.ResolvedRef
 	}
 	if existing.content != add.content {
-		return []Limitation{{
+		lims = append(lims, Limitation{
 			Code: LimitationRevisionConflict, Source: add.Source,
 			Message: "sources disagree on the content of revision " + string(existing.Key),
-		}}
+		})
 	}
-	return nil
+	return lims
+}
+
+// mergeRevisionDocs folds a second contributor's documents into the revision.
+//
+// Documents are the one projection backed by bytes the snapshot does not own, so
+// "fill the empty side" is not enough here: adopting a doc list also adopts a
+// private bundle handle, and if two contributors disagree about the content
+// behind a path then whichever one happened to arrive first would decide what
+// Query.RevisionDocument returns. Source ordering must never be able to change
+// the bytes served under one SnapshotID.
+//
+// Evidence is the bundle filesystem, not the doc list: a contributor with a
+// filesystem and no docs/ directory positively says "this revision has no
+// documents", while a runtime-only contributor (an operator status with no
+// bundle at all) says nothing and cannot conflict with anything. Two contributors
+// that both have evidence must agree on every path AND every content digest;
+// otherwise the revision's documents become unreadable and say why. The conflict
+// is sticky, so a third, agreeing contributor cannot talk us back into serving
+// one side of a real disagreement.
+func mergeRevisionDocs(existing, add *ContractRevision) []Limitation {
+	hasFS := func(r *ContractRevision) bool { return r.bundle != nil && r.bundle.FS != nil }
+	switch {
+	case !hasFS(add):
+		return nil
+	case !hasFS(existing):
+		existing.Docs, existing.bundle = add.Docs, add.bundle
+		return nil
+	case existing.docConflict != "" || sameDocSet(existing.Docs, add.Docs):
+		return nil
+	}
+	existing.docConflict = "two sources contributed this revision with different document content, so no document body can be attributed to it"
+	return []Limitation{{
+		Code: LimitationRevisionDocConflict, Source: add.Source,
+		Message: "sources disagree on the documents of revision " + string(existing.Key) +
+			"; its document bodies are not served",
+	}}
+}
+
+// sameDocSet reports whether two contributors describe exactly the same
+// documents: the same paths, in the same walk order, with the same content
+// fingerprints. An unfingerprintable document (empty digest) equals only another
+// unfingerprintable one at the same path — it is never quietly compatible with a
+// readable body.
+func sameDocSet(a, b []DocRef) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Path != b[i].Path || a[i].digest != b[i].digest {
+			return false
+		}
+	}
+	return true
 }
 
 // mergeTarget folds a later contribution of the same target into the existing
@@ -719,8 +765,17 @@ func toolsFrom(c *contract.Contract, fsys fs.FS) (tools []ToolSummary, specsRead
 	return out, specsRead
 }
 
-// docsFrom collects bounded doc references (path + humanized title) without
-// reading any body — bodies are fetched lazily via the bundle when needed.
+// docsFrom collects bounded doc references (path + humanized title + content
+// fingerprint) without RETAINING any body — bodies are fetched lazily via the
+// bundle when needed.
+//
+// Each body is streamed once, through a hash, and thrown away: the snapshot grows
+// by a fingerprint per document, never by the prose in the fleet. That
+// fingerprint is what makes a lazy read honest. A bundle filesystem can be a live
+// os.DirFS over a working directory, so the bytes behind a path may change,
+// disappear or be replaced after Build; without a recorded digest the tuple
+// (SnapshotID, RevisionKey, path) would silently name different documents over
+// time. See [Query.RevisionDocument], which refuses any body that does not match.
 func docsFrom(fsys fs.FS) []DocRef {
 	if fsys == nil {
 		return nil
@@ -736,10 +791,31 @@ func docsFrom(fsys fs.FS) []DocRef {
 		if len(out) >= maxDocRefs {
 			return fs.SkipAll
 		}
-		out = append(out, DocRef{Path: p, Title: humanizeTitle(p)})
+		out = append(out, DocRef{Path: p, Title: humanizeTitle(p), digest: docDigest(fsys, p)})
 		return nil
 	})
 	return out
+}
+
+// docDigest fingerprints one document body under the SAME bound the lazy read
+// applies, and returns "" when there is nothing trustworthy to record: the file
+// could not be opened or read, or it is larger than [MaxDocumentBytes] and so can
+// never be served whole anyway. An empty digest is not a silent pass — a document
+// that carries one is reported as unavailable rather than served unverified.
+func docDigest(fsys fs.FS, path string) string {
+	f, err := fsys.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close() //nolint:errcheck // read-only
+	h := sha256.New()
+	// One byte past the bound, exactly like the read, so "at the bound" and "over
+	// it" are distinguished the same way in both places.
+	n, err := io.Copy(h, io.LimitReader(f, MaxDocumentBytes+1))
+	if err != nil || n > MaxDocumentBytes {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // humanizeTitle turns a doc path into a display title from its filename.
@@ -1463,7 +1539,6 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
 	var out []Relationship
 	for _, ref := range rev.Contract.ReferenceRefs() {
-		toSvc, ok := resolveRefService(snap, rev.Domain, ref)
 		typ := RelationshipConfigRef
 		if ref.Kind == contract.ReferenceKindPolicy {
 			typ = RelationshipPolicyRef
@@ -1471,10 +1546,16 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 		rel := Relationship{
 			FromService: rev.ServiceKey, FromRevision: rk, To: ref.Name,
 			Type: typ, Provenance: ProvenanceDeclared, RequestedRef: ref.Ref,
-			Resolved: ok, ToService: toSvc,
 		}
-		if !ok {
-			rel.Reason = "no service in the fleet resolves this reference"
+		locked := lockReference(rev.Lock, ref)
+		if locked != nil {
+			rel.LockedDigest, rel.LockedVersion = locked.Digest, locked.Version
+		}
+		target, reason := resolveRefRevision(snap, rev, ref, locked)
+		if target == nil {
+			rel.Reason = reason
+		} else {
+			rel.Resolved, rel.ToService, rel.ResolvedRevision = true, target.ServiceKey, target.Key
 		}
 		out = append(out, rel)
 	}
@@ -1503,44 +1584,102 @@ func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Depe
 	return key, key != ""
 }
 
-// resolveRefService resolves a config/policy reference to a service in the
-// referencing revision's domain.
-//
-// The REF names the destination; the declared name does not. A configuration
-// scope is called "platform" and points at "platform-app-config" — matching on
-// the declared name alone (as this once did) leaves every realistic reference
-// unresolved, which is why the product rendered references as inert text. The
-// declared name is kept as a fallback for the contracts that do name the scope
-// after the service it reads.
-//
-// Neither lookup can leave the referring revision's domain, so two same-named
-// services in two domains resolve to their own.
-func resolveRefService(snap *FleetSnapshot, fromDomain string, ref contract.ReferenceRef) (ServiceKey, bool) {
-	if key := lookupServiceInDomain(snap, fromDomain, refServiceName(ref.Ref)); key != "" {
-		return key, true
+// lockReference returns the lock entry that records what a declared config/policy
+// reference actually resolved to, or nil when the revision has no lock or the
+// lock does not cover this reference.
+func lockReference(l *lock.Lock, ref contract.ReferenceRef) *lock.Reference {
+	if l == nil {
+		return nil
 	}
-	key := lookupServiceInDomain(snap, fromDomain, ref.Name)
-	return key, key != ""
+	e, found := l.Reference(ref.Kind, ref.Name)
+	if !found {
+		return nil
+	}
+	return e
 }
 
-// refServiceName is the service name an authored reference points at: the leaf of
-// its OCI repository (or of a local path), with any digest or tag removed. With no
-// registry resolver in the snapshot this is the only thing in a ref that can name
-// a service — and it never IS a destination: the caller must still find a service
-// with that name in the referring revision's own domain.
-func refServiceName(ref string) string {
-	loc := graph.ParseDependencyRef(ref).Location
-	if at := strings.IndexByte(loc, '@'); at >= 0 {
-		loc = loc[:at]
+// resolveRefRevision resolves a config/policy reference to the EXACT fleet
+// revision it names, or explains why it cannot. It returns nil and a reason
+// rather than a guess.
+//
+// A Product reference link is a claim about identity, so it is made only from
+// evidence of identity. The only such evidence a snapshot holds is an immutable
+// content identifier for the referenced bundle:
+//
+//   - the digest (or contentHash) pacto.lock recorded when it actually resolved,
+//     pulled and hashed that bundle — the same authority resolveDepRevision uses
+//     for dependencies; or
+//   - a digest the author pinned in the ref itself (oci://repo@sha256:...), which
+//     IS the content address of exactly one bundle.
+//
+// Matching that identifier against a revision the snapshot already holds yields
+// the referenced bundle's REAL contract.service.name, because the revision was
+// built from that contract.
+//
+// What is deliberately NOT evidence, and used to be:
+//
+//   - the leaf of the ref's repository path. An artifact repository is named by
+//     whoever pushed it; `oci://ghcr.io/acme/shared-config-contract` may publish a
+//     contract whose service.name is `platform-settings`, and an unrelated service
+//     genuinely called `shared-config-contract` may exist in the same domain. The
+//     basename therefore both misses the real destination and invents a false one.
+//   - ReferenceRef.Name. For a configuration that is the SCOPE name and for a
+//     policy the POLICY ENTRY name — author-chosen labels for a slot in the
+//     referring contract, with no relationship to the referenced service. A policy
+//     called "payments" pointing at a retired bundle must not become a link to the
+//     payments service.
+//
+// The domain boundary is unchanged: the destination revision must live in the
+// referring revision's own domain, so two same-named services in two domains can
+// never resolve to each other, and an identifier matching several services in one
+// domain is ambiguous rather than arbitrarily won. Dependency resolution is
+// untouched.
+func resolveRefRevision(snap *FleetSnapshot, from *ContractRevision, ref contract.ReferenceRef, locked *lock.Reference) (*ContractRevision, string) {
+	ids := authoritativeRefIdentities(ref, locked)
+	if len(ids) == 0 {
+		return nil, "this reference carries no resolved identity: it is not digest-pinned and pacto.lock records no resolution for it, so the destination contract is unknown"
 	}
-	leaf := strings.TrimSuffix(loc, "/")
-	leaf = leaf[strings.LastIndexByte(leaf, '/')+1:]
-	// A colon in the LEAF can only be a tag: a registry port lives in the first
-	// path segment, which we have already dropped.
-	if c := strings.IndexByte(leaf, ':'); c >= 0 {
-		leaf = leaf[:c]
+	var match *ContractRevision
+	for _, id := range ids {
+		for _, rev := range snap.Revisions {
+			if rev.Domain != from.Domain || rev.Digest != id {
+				continue
+			}
+			if match != nil && match.Key != rev.Key {
+				// Two different revisions in one domain claiming one content identity
+				// cannot both be the destination, and neither is more right than the other.
+				return nil, "the resolved identity of this reference matches more than one revision in this domain, so its destination is ambiguous"
+			}
+			match = rev
+		}
 	}
-	return leaf
+	if match == nil {
+		return nil, "the bundle this reference resolves to is not present in this snapshot, so its destination contract is unknown"
+	}
+	return match, ""
+}
+
+// authoritativeRefIdentities lists the immutable content identifiers that
+// genuinely identify a reference's destination, most authoritative first: what
+// the lock recorded when it resolved the reference for real, then a digest the
+// author pinned in the ref. It returns nothing for a mutable tag, a local path or
+// an unlocked reference — cases where Pacto has not established what the ref
+// points at.
+func authoritativeRefIdentities(ref contract.ReferenceRef, locked *lock.Reference) []string {
+	var ids []string
+	add := func(id string) {
+		if id != "" && !containsStr(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	if locked != nil {
+		add(locked.Digest)
+		add(locked.ContentHash)
+	}
+	if _, dgst, err := ParseCanonicalOCIRef(ref.Ref); err == nil {
+		add(dgst.String())
+	}
+	return ids
 }
 
 // lookupServiceInDomain finds a service by name within ONE domain, tolerating the
