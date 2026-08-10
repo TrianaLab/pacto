@@ -218,7 +218,7 @@ describe('PostureBars', () => {
     expect(titles).toEqual(['Compliance', 'Revision-match certainty', 'Evidence freshness', 'Findings by severity']);
     const text = target.textContent || '';
     // Exact counts, and each proportion states the population it is a proportion of.
-    for (const fragment of ['Compliant', '3', 'Non-compliant', '2', 'Exact', '4', 'Stale evidence', 'No evidence', 'of 6']) {
+    for (const fragment of ['Compliant', '3', 'Not compliant', '2', 'Exact', '4', 'Stale evidence', 'No evidence', 'of 6']) {
       expect(text).toContain(fragment);
     }
   });

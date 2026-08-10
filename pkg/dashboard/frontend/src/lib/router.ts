@@ -191,7 +191,9 @@ function parseFleet(path: string, query: string): Route {
     // Only the filters the product Services list actually implements live in its
     // route state -- scope (target-only in the Entities API) and source were inert
     // URL params no view consumed, so they are not parsed here (requirement F1).
-    for (const k of ['text', 'owner', 'status', 'domain', 'offset']) {
+    // `ownership` is a real Entities filter over services (consistent/conflicting/
+    // unowned), and it is what makes "12 services have no declared owner" a link.
+    for (const k of ['text', 'owner', 'ownership', 'status', 'domain', 'offset']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -205,9 +207,14 @@ function parseFleet(path: string, query: string): Route {
   // Unscoped they are the whole revision/target inventory. Matched before the
   // entity-detail regex, which needs a trailing key segment.
   if (rest === 'revisions' || rest === 'targets') {
-    const params: Record<string, string> = { kind: rest === 'revisions' ? 'revision' : 'target' };
+    const isRevisions = rest === 'revisions';
+    const params: Record<string, string> = { kind: isRevisions ? 'revision' : 'target' };
     const qs = new URLSearchParams(query);
-    for (const k of ['text', 'service', 'status', 'scope', 'offset']) {
+    // `readiness` is parsed for REVISIONS only. Readiness is declared and assessed per
+    // contract revision, and the Entities API rejects the filter on any other kind, so
+    // carrying it on /fleet/targets would be an inert param that 422s if anyone used it.
+    const keys = ['text', 'service', 'status', 'scope', 'offset'];
+    for (const k of isRevisions ? [...keys, 'readiness'] : keys) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -300,11 +307,14 @@ export function legacyRedirectTarget(hash: string | null | undefined): string | 
       return fleetGraphDiscoveryUrl();
     case 'owners':
       return fleetOwnersUrl();
-    // Readiness is a DIMENSION, not a destination: it is authored contract preparedness,
-    // shown on the revision that declares it and triaged as a Needs-attention category.
-    // The legacy route canonicalizes to that category rather than to a third definition.
+    // Readiness is a property of a CONTRACT REVISION, so the legacy readiness page
+    // canonicalizes to the revision inventory, where the whole assessed population is
+    // shown and filterable. It used to land on the attention backlog's readiness
+    // category, which only ever holds the revisions that FAIL -- an old bookmark for
+    // "how ready are we" arrived at a list that structurally cannot contain a passing
+    // revision. The category still exists and is still linked; it is one slice of this.
     case 'readiness':
-      return fleetAttentionUrl({ category: 'readiness' });
+      return fleetEntityListUrl('revision');
     // Compare and Impact are two stages of ONE question ("what changed, and what does
     // that change affect"), so both legacy routes canonicalize into Change analysis.
     case 'diff':
@@ -380,11 +390,14 @@ export function fleetOverviewUrl(): string {
 // target-only Entities filter and source was never wired into the Services list, so
 // carrying them would be an inert URL filter (requirement F1).
 export function fleetServicesUrl(opts: {
-  text?: string; owner?: string; status?: string; domain?: string; offset?: number;
+  text?: string; owner?: string; ownership?: string; status?: string; domain?: string; offset?: number;
 } = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.owner) qs.set('owner', opts.owner);
+  // Who owns it (a name) and whether ownership is declared at all (a state) are two
+  // different questions, and both are real Entities filters, so they compose.
+  if (opts.ownership) qs.set('ownership', opts.ownership);
   if (opts.status) qs.set('status', opts.status);
   if (opts.domain) qs.set('domain', opts.domain);
   if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
@@ -417,7 +430,7 @@ export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; of
 // into a complete, paged answer. Any other kind falls back to its own list route,
 // because services/owners/sources already have one.
 export function fleetEntityListUrl(kind: string, opts: {
-  service?: string; text?: string; status?: string; scope?: string; offset?: number;
+  service?: string; text?: string; status?: string; scope?: string; readiness?: string; offset?: number;
 } = {}): string {
   if (kind !== 'revision' && kind !== 'target') {
     return kind === 'owner' ? fleetOwnersUrl() : kind === 'source' ? fleetSourcesUrl() : fleetServicesUrl();
@@ -427,6 +440,9 @@ export function fleetEntityListUrl(kind: string, opts: {
   if (opts.text) qs.set('text', opts.text);
   if (opts.status) qs.set('status', opts.status);
   if (opts.scope) qs.set('scope', opts.scope);
+  // Revisions only: the Entities API rejects a readiness filter on a target, so
+  // emitting one here would build a URL that 422s.
+  if (opts.readiness && kind === 'revision') qs.set('readiness', opts.readiness);
   if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
   const str = qs.toString();
   const plural = kind === 'revision' ? 'revisions' : 'targets';

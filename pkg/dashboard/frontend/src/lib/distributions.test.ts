@@ -10,15 +10,22 @@
 import { describe, it, expect } from 'vitest';
 import {
   complianceSegments, linkSegments, severitySegments, evidenceSegments,
-  changeSegments, verdictSegments, confidenceSegments, segmentTotal, tallyStatuses,
+  changeSegments, verdictSegments, confidenceSegments, segmentTotal,
+  COMPLIANCE_STATES, statusHrefs, bucketLabel,
 } from './distributions.ts';
+import { statusLabel } from './format.ts';
 
 describe('complianceSegments', () => {
-  it('emits all four Compliance 2.0 states plus the catch-all, in a fixed order', () => {
-    const s = complianceSegments({ compliant: 3, nonCompliant: 2, unknown: 1, invalid: 1, other: 0 });
-    expect(s.map((x) => x.label))
-      .toEqual(['Compliant', 'Non-compliant', 'Unknown', 'Invalid', 'Not evaluated', 'Other']);
-    expect(segmentTotal(s)).toBe(7);
+  it('emits every canonical compliance state plus the catch-all, in a fixed order', () => {
+    const s = complianceSegments({
+      compliant: 3, nonCompliant: 2, unknown: 1, warning: 1,
+      invalid: 1, reference: 1, notEvaluated: 1, other: 0,
+    });
+    expect(s.map((x) => x.label)).toEqual([
+      'Compliant', 'Not compliant', 'Unknown', 'Warning',
+      'Invalid', 'Reference', 'Not evaluated', 'Other',
+    ]);
+    expect(segmentTotal(s)).toBe(10);
   });
 
   // "We cannot evaluate this" is an open question, not a benign state.
@@ -33,7 +40,7 @@ describe('complianceSegments', () => {
 
   it('attaches a drill-down href per bucket when the caller supplies one', () => {
     const s = complianceSegments({ nonCompliant: 2 }, { nonCompliant: '#/fleet/attention?category=non-compliant' });
-    expect(s.find((x) => x.label === 'Non-compliant')?.href).toBe('#/fleet/attention?category=non-compliant');
+    expect(s.find((x) => x.label === 'Not compliant')?.href).toBe('#/fleet/attention?category=non-compliant');
     expect(s.find((x) => x.label === 'Compliant')?.href).toBeUndefined();
   });
 });
@@ -134,31 +141,40 @@ describe('impact consumer buckets', () => {
 });
 
 /**
- * The bug this pins: a view spelled the compliance buckets itself and matched
+ * The bug this pins: the frontend used to spell the compliance buckets itself, matching
  * lowercase 'compliant'/'non-compliant' against the PascalCase values the wire actually
  * carries, so every service fell through to "Other" and the services list drew one flat
- * grey bar above rows badged Compliant, Unknown and Not compliant.
+ * grey bar above rows badged Compliant, Unknown and Not compliant. The tally is now the
+ * backend's, and the residual risk moved with it: a state table row whose `value` is not
+ * a wire status, or whose wording is a second spelling of a badge.
  */
-describe('tallyStatuses', () => {
-  it('buckets the real wire spellings, never a lowercased guess at them', () => {
-    const t = tallyStatuses(['Compliant', 'Compliant', 'NonCompliant', 'Unknown', 'Invalid', 'NotEvaluated']);
-    expect(t).toEqual({ compliant: 2, nonCompliant: 1, unknown: 1, invalid: 1, notEvaluated: 1 });
-    // The old lowercase spellings are not statuses: they must land in the catch-all,
-    // so a future rename shows up as "Other" rather than as a silently correct count.
-    expect(tallyStatuses(['compliant', 'non-compliant'])).toEqual({ other: 2 });
+describe('COMPLIANCE_STATES', () => {
+  // The canonical states pkg/fleet counts, one field each (mirrors
+  // TestComplianceTally_EveryCanonicalStatusHasItsOwnBucket).
+  const CANONICAL = ['Compliant', 'NonCompliant', 'Unknown', 'Warning', 'Invalid', 'Reference', 'NotEvaluated'];
+
+  it('gives every canonical wire status its own bucket, never the catch-all', () => {
+    expect(COMPLIANCE_STATES.filter((s) => s.value).map((s) => s.value)).toEqual(CANONICAL);
+    expect(COMPLIANCE_STATES.filter((s) => !s.value).map((s) => s.field)).toEqual(['other']);
   });
 
-  it('gives every status exactly one bucket, so the tally is the population', () => {
-    const statuses = ['Compliant', 'Warning', 'Reference', 'Something-New', undefined, ''];
-    const t = tallyStatuses(statuses);
-    const total = Object.values(t).reduce((a, b) => a + (b || 0), 0);
-    expect(total).toBe(statuses.length);
+  // A legend reading "Non-Compliant" over rows badged "Not compliant" asks the reader to
+  // believe those are two states.
+  it('words each bucket exactly as the row badges do', () => {
+    for (const s of COMPLIANCE_STATES.filter((x) => x.value)) {
+      expect(s.label).toBe(statusLabel(s.value));
+    }
+    expect(bucketLabel(COMPLIANCE_STATES, 'NotEvaluated')).toBe('Not evaluated');
+    // An unknown value is shown as itself, not silently relabelled.
+    expect(bucketLabel(COMPLIANCE_STATES, 'Quarantined')).toBe('Quarantined');
   });
 
-  it('draws the not-evaluated bucket with the same words the row badges use', () => {
-    const s = complianceSegments(tallyStatuses(['NotEvaluated', 'NotEvaluated']));
-    const seg = s.find((x) => x.value > 0);
-    expect(seg?.label).toBe('Not evaluated');
-    expect(segmentTotal(s)).toBe(2);
+  // Callers used to hand-list three or four buckets, so a fleet that was mostly
+  // "Not evaluated" drew its largest slice as a dead end.
+  it('drills down from every filterable bucket, and only those', () => {
+    const h = statusHrefs((s) => `#/x?status=${s}`);
+    expect(Object.keys(h).sort()).toEqual(CANONICAL.map((v) => v.charAt(0).toLowerCase() + v.slice(1)).sort());
+    expect(h.notEvaluated).toBe('#/x?status=NotEvaluated');
+    expect(h.other).toBeUndefined();
   });
 });

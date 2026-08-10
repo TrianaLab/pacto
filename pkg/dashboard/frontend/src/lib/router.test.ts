@@ -535,10 +535,15 @@ describe('legacyRedirectTarget (Part 1: legacy -> product canonicalization)', ()
     expect(legacyRedirectTarget('#/owners/team-a')).toBeNull();
   });
   // Readiness and Compare are no longer retained legacy islands on a Fleet host:
-  // readiness is the attention view's readiness category and Compare is the Change
-  // analysis workspace, so both canonicalize instead of mounting a superseded screen.
+  // readiness is a property of a contract revision (so it canonicalizes to the revision
+  // inventory, the whole assessed population) and Compare is the Change analysis
+  // workspace. Neither mounts a superseded screen.
+  //
+  // Readiness deliberately does NOT land on the attention backlog's readiness category:
+  // that list only ever holds revisions that FAIL, so an old "how ready are we" bookmark
+  // arrived somewhere that structurally cannot contain a passing revision.
   it('canonicalizes the superseded Readiness and Compare screens', () => {
-    expect(legacyRedirectTarget('#/readiness')).toBe('#/fleet/attention?category=readiness');
+    expect(legacyRedirectTarget('#/readiness')).toBe('#/fleet/revisions');
     expect(legacyRedirectTarget('#/diff')).toBe('#/fleet/changes');
     expect(legacyRedirectTarget('#/diff?from_name=payments&to_name=payments')).toBe('#/fleet/changes?name=payments');
     expect(legacyRedirectTarget('#/services/payments/diff')).toBe('#/fleet/changes?name=payments');

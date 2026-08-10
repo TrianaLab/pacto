@@ -12,6 +12,8 @@
  * preview's Items as a population: no semantics are invented in the frontend.
  */
 
+import { statusLabel } from './format.ts';
+
 export interface Segment {
   label: string;
   value: number;
@@ -19,46 +21,47 @@ export interface Segment {
   href?: string;
 }
 
+/**
+ * A bucket state: the wire value the Entities API filters by, the tally field it is
+ * counted in, and the one wording every surface shows it under.
+ *
+ * `value` and `field` are kept together on purpose. A legend row and the filter it
+ * drills into MUST describe the same slice, and the surest way to guarantee that is for
+ * the chart, the filter <select> and the active-filter chip to read the pair from here
+ * rather than each spelling its own copy.
+ */
+export interface BucketState<F> {
+  value: string;
+  field: F;
+  label: string;
+  tone: Segment['tone'];
+}
+
+function stateSegments<F extends string>(
+  states: BucketState<F>[],
+  tally: Partial<Record<F, number>> | undefined,
+  hrefs: Record<string, string>,
+): Segment[] {
+  const t: Partial<Record<F, number>> = tally || {};
+  return states.map((s) => ({ label: s.label, value: n(t[s.field]), tone: s.tone, href: hrefs[s.field] }));
+}
+
+/** The label a bucket state is always shown under, for a filter chip or an <option>. */
+export function bucketLabel<F extends string>(states: BucketState<F>[], value: string): string {
+  return states.find((s) => s.value === value)?.label || value;
+}
+
 /** ComplianceTally as emitted by the Product API (pkg/fleet/aggregate.go). */
 export interface ComplianceTally {
   compliant?: number;
   nonCompliant?: number;
   unknown?: number;
+  warning?: number;
   invalid?: number;
-  /**
-   * Client-side page tallies only. The backend tallies TARGETS, which are always
-   * evaluated, so it has no such bucket and folds anything unrecognized into `other`.
-   * A services page is mostly not-evaluated bundles, and drawing eight rows badged
-   * "Not evaluated" as an unnamed grey "Other" teaches the taxonomy wrong.
-   */
+  reference?: number;
   notEvaluated?: number;
+  /** A status value this build does not know. Never a canonical state. */
   other?: number;
-}
-
-/**
- * tallyStatuses buckets wire status values exactly the way the backend's
- * ComplianceTally.add does (pkg/fleet/aggregate.go), so a client-side page tally and a
- * backend population tally can never disagree about which bucket a state belongs in.
- *
- * It exists because a view that spelled the buckets itself got the wire enum wrong -- it
- * matched lowercase 'compliant'/'non-compliant' against the PascalCase values the API
- * actually emits, so every single service fell through to "Other" and the services list
- * drew one flat grey bar above rows badged Compliant, Unknown and Not compliant.
- */
-export function tallyStatuses(statuses: (string | undefined)[]): ComplianceTally {
-  const t: ComplianceTally = {};
-  const bucket: Record<string, keyof ComplianceTally> = {
-    Compliant: 'compliant',
-    NonCompliant: 'nonCompliant',
-    Unknown: 'unknown',
-    Invalid: 'invalid',
-    NotEvaluated: 'notEvaluated',
-  };
-  for (const s of statuses) {
-    const k = bucket[s || ''] || 'other';
-    t[k] = (t[k] || 0) + 1;
-  }
-  return t;
 }
 
 /** LinkTally as emitted by the Product API (revision-match certainty). */
@@ -80,21 +83,37 @@ export interface SeverityTally {
 const n = (v: number | undefined) => v || 0;
 
 /**
- * complianceSegments renders the four Compliance 2.0 states plus the catch-all.
- * "Unknown" is deliberately toned warn, not neutral: a target we cannot evaluate is
- * an open question, and painting it grey beside a green Compliant reads as benign.
+ * Every canonical compliance state, plus the catch-all, in the order always shown.
+ *
+ * The label is `statusLabel`'s, never a second spelling: a legend reading
+ * "Non-Compliant" above rows badged "Not compliant" asks the reader to believe those
+ * are two states. "Unknown" is deliberately toned warn, not neutral: a target we cannot
+ * evaluate is an open question, and painting it grey beside a green Compliant reads as
+ * benign. "Not evaluated" IS neutral -- nothing is running to evaluate.
  */
+export const COMPLIANCE_STATES: BucketState<keyof ComplianceTally>[] = [
+  { value: 'Compliant', field: 'compliant', label: statusLabel('Compliant'), tone: 'ok' },
+  { value: 'NonCompliant', field: 'nonCompliant', label: statusLabel('NonCompliant'), tone: 'err' },
+  { value: 'Unknown', field: 'unknown', label: statusLabel('Unknown'), tone: 'warn' },
+  { value: 'Warning', field: 'warning', label: statusLabel('Warning'), tone: 'warn' },
+  { value: 'Invalid', field: 'invalid', label: statusLabel('Invalid'), tone: 'err' },
+  { value: 'Reference', field: 'reference', label: statusLabel('Reference'), tone: 'info' },
+  { value: 'NotEvaluated', field: 'notEvaluated', label: statusLabel('NotEvaluated'), tone: 'neutral' },
+  // No wire value: "Other" is by definition not a status this build can filter for.
+  { value: '', field: 'other', label: 'Other', tone: 'neutral' },
+];
+
 export function complianceSegments(t: ComplianceTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
-  const c = t || {};
-  return [
-    { label: 'Compliant', value: n(c.compliant), tone: 'ok', href: hrefs.compliant },
-    { label: 'Non-compliant', value: n(c.nonCompliant), tone: 'err', href: hrefs.nonCompliant },
-    { label: 'Unknown', value: n(c.unknown), tone: 'warn', href: hrefs.unknown },
-    { label: 'Invalid', value: n(c.invalid), tone: 'err', href: hrefs.invalid },
-    // Same wording as the badge on the rows beside it, never the wire spelling.
-    { label: 'Not evaluated', value: n(c.notEvaluated), tone: 'neutral', href: hrefs.notEvaluated },
-    { label: 'Other', value: n(c.other), tone: 'neutral', href: hrefs.other },
-  ];
+  return stateSegments(COMPLIANCE_STATES, t, hrefs);
+}
+
+/**
+ * statusHrefs builds the drill-down for every compliance bucket that IS a real filter,
+ * from one `status` URL builder. Callers used to hand-list three or four buckets, so a
+ * fleet that was mostly "Not evaluated" drew its largest slice as a dead end.
+ */
+export function statusHrefs(url: (status: string) => string): Record<string, string> {
+  return Object.fromEntries(COMPLIANCE_STATES.filter((s) => s.value).map((s) => [s.field, url(s.value)]));
 }
 
 /**
@@ -136,6 +155,60 @@ export function evidenceSegments(e: { withEvidence?: number; withoutEvidence?: n
     { label: 'Stale evidence', value: n(w.stale), tone: 'warn' },
     { label: 'No evidence', value: n(w.withoutEvidence), tone: 'neutral' },
   ];
+}
+
+/** OwnershipTally as emitted by the Product API. Partitions a SERVICE population. */
+export interface OwnershipTally {
+  consistent?: number;
+  conflicting?: number;
+  unowned?: number;
+}
+
+/** ReadinessTally as emitted by the Product API. Partitions a CONTRACT REVISION population. */
+export interface ReadinessTally {
+  passing?: number;
+  belowThreshold?: number;
+  expired?: number;
+  notDeclared?: number;
+}
+
+/**
+ * How ownership is DECLARED across a service population, in the order always shown.
+ *
+ * "Conflicting" is toned err and never merged into "No declared owner": two teams
+ * claiming one service and nobody claiming it are different failures needing opposite
+ * fixes, and a page that shows one number for both tells its reader to go declare an
+ * owner that already exists twice. It is not toned warn either — a service whose
+ * revisions name two teams has no answer at all to "who do I page".
+ */
+export const OWNERSHIP_STATES: BucketState<keyof OwnershipTally>[] = [
+  { value: 'consistent', field: 'consistent', label: 'One declared owner', tone: 'ok' },
+  { value: 'conflicting', field: 'conflicting', label: 'Revisions name different owners', tone: 'err' },
+  { value: 'unowned', field: 'unowned', label: 'No declared owner', tone: 'warn' },
+];
+
+export function ownershipSegments(t: OwnershipTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
+  return stateSegments(OWNERSHIP_STATES, t, hrefs);
+}
+
+/**
+ * Declared readiness across a CONTRACT REVISION population.
+ *
+ * The four buckets are exactly the states the readiness engine computes, so nothing
+ * here is a frontend invention. "Not assessed" is neutral, not a failure: nobody
+ * writing an assessment is a gap in what we know, and painting it red would claim the
+ * revision was judged and found wanting. "Assessment expired" is its own bucket for
+ * the same reason — an out-of-date assessment is not a low score.
+ */
+export const READINESS_STATES: BucketState<keyof ReadinessTally>[] = [
+  { value: 'passing', field: 'passing', label: 'Passing', tone: 'ok' },
+  { value: 'below-threshold', field: 'belowThreshold', label: 'Below its own threshold', tone: 'warn' },
+  { value: 'expired', field: 'expired', label: 'Assessment expired', tone: 'warn' },
+  { value: 'not-declared', field: 'notDeclared', label: 'Not assessed', tone: 'neutral' },
+];
+
+export function readinessSegments(t: ReadinessTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
+  return stateSegments(READINESS_STATES, t, hrefs);
 }
 
 /**

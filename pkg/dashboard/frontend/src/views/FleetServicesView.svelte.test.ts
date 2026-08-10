@@ -19,7 +19,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 import FleetServicesView from './FleetServicesView.svelte';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
-function listResp(entities: any[], opts: { total?: number; offset?: number; nextOffset?: number; partial?: boolean } = {}): any {
+function listResp(entities: any[], opts: { total?: number; offset?: number; nextOffset?: number; partial?: boolean; aggregate?: any } = {}): any {
   const total = opts.total ?? entities.length;
   const offset = opts.offset ?? 0;
   return {
@@ -30,6 +30,9 @@ function listResp(entities: any[], opts: { total?: number; offset?: number; next
     },
     total, count: entities.length, offset, limit: 25,
     truncated: opts.nextOffset != null, nextOffset: opts.nextOffset, entities,
+    // The backend aggregate over every service matching the filters, paging excluded.
+    // Absent by default so the tests that are not about the inventory keep it off screen.
+    aggregate: opts.aggregate,
   };
 }
 
@@ -74,10 +77,33 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1, offset: 25 }));
     const { target, component } = mountView({ offset: '25' });
     await vi.waitFor(() => expect(rows(target).length).toBe(1));
-    const sel = target.querySelector('select') as HTMLSelectElement;
+    const sel = target.querySelector('select[aria-label="Filter by compliance status"]') as HTMLSelectElement;
     sel.value = 'NonCompliant';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/services?status=NonCompliant'); // offset reset to page 1
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // Who owns it and whether ownership is declared at all are different questions, and
+  // they compose: picking a state must not disturb the owner name already committed.
+  it('the ownership-state filter is its own backend param and composes with owner', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView({ owner: 'team-a' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const sel = target.querySelector('select[aria-label="Filter by declared ownership"]') as HTMLSelectElement;
+    expect(Array.from(sel.options).map((o) => o.value))
+      .toEqual(['', 'consistent', 'conflicting', 'unowned']);
+    sel.value = 'conflicting';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/services?owner=team-a&ownership=conflicting');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows an ownership-state chip in its legend wording, not the wire value', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView({ ownership: 'conflicting' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(target.querySelector('.chip')?.textContent).toContain('Revisions name different owners');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -159,23 +185,86 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
   });
 
   /**
-   * The page chart bucketed statuses with its own lowercase spellings while the wire
-   * carries PascalCase, so every row fell through to "Other" and the bar drew one flat
-   * grey block above rows badged Compliant, Unknown and Not compliant. It now shares the
-   * bucketing with the backend tally, so the two cannot split a status two ways.
+   * The inventory (requirement A / §10). This page used to tally the 25 rendered rows:
+   * honest about its scope in a caption and still the wrong chart to draw, because page
+   * 1 of a 40-service fleet is a sample nobody chose. The aggregate is the backend's,
+   * over every service the SAME filters select, with paging excluded.
    */
-  it('the page compliance bar buckets the real wire statuses instead of collapsing to Other', async () => {
-    const withStatus = (d: string, s: string) => ({ ...svc(d), status: s });
-    entitiesFn.mockResolvedValue(listResp(
-      [withStatus('a', 'Compliant'), withStatus('b', 'NonCompliant'), withStatus('c', 'Unknown'), withStatus('d', 'NotEvaluated')],
-      { total: 40 },
-    ));
+  const AGG = {
+    matched: 40,
+    serviceCompliance: { compliant: 20, nonCompliant: 5, unknown: 3, notEvaluated: 12 },
+    ownership: { consistent: 30, conflicting: 2, unowned: 8 },
+    byOwner: [{ owner: 'team-a', services: 18, targets: 40 }, { owner: 'team-b', services: 12, targets: 9 }],
+    otherOwners: 4, distinctOwners: 5,
+  };
+  const dist = (t: HTMLElement, title: string) =>
+    Array.from(t.querySelectorAll('.sv-inv-grid .dist')).find((f) => f.querySelector('.dist-title')?.textContent === title) as HTMLElement;
+
+  it('charts the backend aggregate over the whole matching population, not the page', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('a'), svc('b')], { total: 40, aggregate: AGG }));
     const { target, component } = mountView();
-    await vi.waitFor(() => expect(rows(target).length).toBe(4));
-    const labels = Array.from(target.querySelectorAll('.dist-legend .dist-label')).map((n) => n.textContent);
-    expect(labels).toEqual(['Compliant', 'Non-compliant', 'Unknown', 'Not evaluated']);
-    // And it never claims to be the whole match: the denominator is the page.
-    expect(target.querySelector('.dist-scope')?.textContent).toBe('This page only — 4 of 40 matching services.');
+    await vi.waitFor(() => expect(rows(target).length).toBe(2));
+
+    const compliance = dist(target, 'Compliance');
+    expect(Array.from(compliance.querySelectorAll('.dist-legend .dist-item')).map((n) => [
+      n.querySelector('.dist-label')?.textContent, n.querySelector('.dist-value')?.textContent,
+    ])).toEqual([['Compliant', '20'], ['Not compliant', '5'], ['Unknown', '3'], ['Not evaluated', '12']]);
+    // 40 matching services, of which only 2 are on screen: the denominator is the match.
+    expect(compliance.querySelector('.dist-scope')?.textContent).toBe('All 40 services in the snapshot.');
+    expect(compliance.querySelector('.dist-pct')?.textContent).toBe('(50% of 40)');
+    // Every bucket drills into the same list, narrowed by that status.
+    expect(compliance.querySelector('.dist-legend a')?.getAttribute('href')).toBe('#/fleet/services?status=Compliant');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says the aggregate follows the filters, and its buckets narrow the same query', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 40, aggregate: { ...AGG, matched: 7 } }));
+    const { target, component } = mountView({ owner: 'team-a' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(target.querySelector('#sv-inv-h')?.textContent).toBe('What these filters select');
+    const ownership = dist(target, 'Declared ownership');
+    expect(ownership.querySelector('.dist-scope')?.textContent).toBe('All 7 matching services, not just this page.');
+    expect(Array.from(ownership.querySelectorAll('.dist-legend .dist-label')).map((n) => n.textContent))
+      .toEqual(['One declared owner', 'Revisions name different owners', 'No declared owner']);
+    // The owner filter survives the click; it is narrowed, not replaced.
+    expect(ownership.querySelector('.dist-legend a')?.getAttribute('href'))
+      .toBe('#/fleet/services?owner=team-a&ownership=consistent');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  /**
+   * The owner ranking is a RANKING, not a partition: unowned and conflicting services
+   * have no single owner to rank under and appear in no row. A page that let the reader
+   * read the rows as a breakdown would quietly lose them.
+   */
+  it('says the owner ranking is a ranking, and what it leaves out', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 40, aggregate: AGG }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const bars = Array.from(target.querySelectorAll('.sv-inv-grid .hbars'));
+    const services = bars[0], targets = bars[1];
+    expect(services.querySelector('.hb-title')?.textContent).toBe('Services per owner');
+    expect(Array.from(services.querySelectorAll('.hb-row')).map((n) => [
+      n.querySelector('.hb-label')?.textContent, n.querySelector('.hb-value')?.textContent,
+    ])).toEqual([['team-a', '18 services'], ['team-b', '12 services']]);
+    const note = services.querySelector('.hb-scope')?.textContent || '';
+    expect(note).toContain('Top 2 of 5 declared owners by service count.');
+    expect(note).toContain('The remaining 3 of 5 owners account for 4 more services.');
+    expect(note).toContain('Services with no owner, or whose revisions name different owners, appear in no row here.');
+    expect(services.querySelector('.hb-row a')?.getAttribute('href')).toBe('#/fleet/services?owner=team-a');
+    // Targets per owner keeps the service-count order and says so, rather than
+    // re-sorting a top-N-by-services list and presenting it as a target ranking.
+    expect(Array.from(targets.querySelectorAll('.hb-label')).map((n) => n.textContent)).toEqual(['team-a', 'team-b']);
+    expect(targets.querySelector('.hb-scope')?.textContent)
+      .toBe('Same owners, in the same service-count order as above — this is not a ranking by target count.');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('draws no inventory when the filters select nothing to aggregate', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 1, aggregate: { ...AGG, matched: 0 } }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(target.querySelector('.sv-inventory')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 

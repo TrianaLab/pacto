@@ -190,56 +190,48 @@ describe('OperationalSummary', () => {
     attentionTotal: 6,
   });
 
-  it('renders attention entry-point tiles with their backend hrefs and a revision-match breakdown', () => {
+  // Every entry prints the backend's label verbatim, and only entry points that lead
+  // somewhere else are rendered at all. The lead tile and the uncategorised entry point
+  // are the same measurement (two wordings, one number); the overview entry point links
+  // back to the page it is on, where the source health strip already shows what it counts.
+  //
+  // Eight identical tiles made the reader redo the ranking the backend had already done,
+  // so the backend's own grade now decides the treatment: errors share the grid with the
+  // lead tile, everything milder becomes one compact line.
+  it('leads with the errors and compacts the milder grades, worded as the backend worded them', () => {
+    comp = mount(OperationalSummary, { target, props: summaryProps() });
+    expect(Array.from(target.querySelectorAll('.tile-grid .tile-label')).map((n) => n.textContent)).toEqual([
+      'Services need attention',
+      'Operational targets not compliant',
+    ]);
+    // Demoting the treatment must not delete the number: the milder entries keep their
+    // exact count and stay one click away.
+    const sec = Array.from(target.querySelectorAll('.op-secondary a.op-sec'));
+    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual([
+      'Operational targets with stale evidence',
+      'Undeclared runtime dependencies observed',
+    ]);
+    expect(sec.map((n) => n.querySelector('.op-sec-count')?.textContent)).toEqual(['4', '3']);
+  });
+
+  it('sends every entry to the backend href it arrived with', () => {
     comp = mount(OperationalSummary, { target, props: summaryProps() });
     const nonCompliant = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('not compliant')) as HTMLAnchorElement;
     expect(nonCompliant.getAttribute('href')).toBe('#/fleet/attention?category=non-compliant');
-    // Fleet posture draws both distributions over the backend's OWN target population,
-    // and prints every exact count as text beside the bar (nothing is colour-only).
-    const posture = target.querySelector('.ov-posture')?.textContent || '';
-    expect(posture).toContain('Exact');
-    expect(posture).toContain('Ambiguous');
-    expect(posture).toContain('Compliant');
-    expect(posture).toContain('7 operational targets');
-    // A proportion is a way in, not a picture: the triageable buckets are links.
-    const ambiguous = Array.from(target.querySelectorAll('.ov-posture a')).find((a) => a.textContent?.includes('Ambiguous')) as HTMLAnchorElement;
-    expect(ambiguous.getAttribute('href')).toBe('#/fleet/attention?category=unresolved');
+    const stale = Array.from(target.querySelectorAll('a.op-sec')).find((a) => a.textContent?.includes('stale evidence')) as HTMLAnchorElement;
+    expect(stale.getAttribute('href')).toBe('#/fleet/attention?category=stale');
     // The lead tile links to the full attention list.
     const lead = target.querySelector('a.tile-lead') as HTMLAnchorElement;
     expect(lead.getAttribute('href')).toBe('#/fleet/attention');
   });
 
-  // The denominator is the backend's Targets count, never the sum of the buckets it
-  // was handed: if a bucket is missing, the gap must show as an explicit unclassified
-  // slice rather than silently rescaling the proportion to whatever added up.
-  it('shows the gap when the compliance buckets do not account for the whole population', () => {
-    comp = mount(OperationalSummary, { target, props: summaryProps({ compliantTargets: 1, nonCompliantTargets: 1, unknownTargets: 0 }) });
-    const posture = target.querySelector('.ov-posture')?.textContent || '';
-    expect(posture).toContain('Unclassified');
-    expect(posture).toContain('5');
-  });
-
-  // Every tile prints the backend's label verbatim, and only entry points that lead
-  // somewhere else become tiles. The lead tile and the uncategorised entry point are the
-  // same measurement (two wordings, one number); the overview entry point links back to
-  // the page it is on, where the source health strip already shows what it counts.
-  it('renders exactly the entry points that lead somewhere else, worded as the backend worded them', () => {
-    comp = mount(OperationalSummary, { target, props: summaryProps() });
-    const labels = Array.from(target.querySelectorAll('.tile-grid .tile-label')).map((n) => n.textContent);
-    expect(labels).toEqual([
-      'Operational targets not compliant',
-      'Operational targets with stale evidence',
-      'Undeclared runtime dependencies observed',
-    ]);
-  });
-
   // Every non-zero tile used to be amber, so the overview graded a confirmed drift and
   // an undeclared runtime call the same, and the attention list directly below it then
-  // badged them Error and Info. The tile now carries the backend's grade for the
+  // badged them Error and Info. Each entry now carries the backend's grade for the
   // category, which is the grade its own items carry.
-  it('grades a tile the same way the items behind it are graded', () => {
+  it('grades an entry the same way the items behind it are graded', () => {
     comp = mount(OperationalSummary, { target, props: summaryProps() });
-    const toneOf = (text: string) => (Array.from(target.querySelectorAll('a.tile'))
+    const toneOf = (text: string) => (Array.from(target.querySelectorAll('a.tile, a.op-sec'))
       .find((t) => t.textContent?.includes(text)) as HTMLElement).className;
     expect(toneOf('not compliant')).toContain('tone-err');
     expect(toneOf('stale evidence')).toContain('tone-warn');
@@ -251,8 +243,18 @@ describe('OperationalSummary', () => {
     const props = summaryProps();
     props.entryPoints = props.entryPoints.map((ep) => ({ ...ep, count: 0 }));
     comp = mount(OperationalSummary, { target, props });
-    const tile = Array.from(target.querySelectorAll('a.tile')).find((t) => t.textContent?.includes('Undeclared')) as HTMLElement;
-    expect(tile.className).toContain('tone-ok');
+    const entry = Array.from(target.querySelectorAll('a.tile, a.op-sec')).find((t) => t.textContent?.includes('Undeclared')) as HTMLElement;
+    expect(entry.className).toContain('tone-ok');
+  });
+
+  // A grade a newer engine spells differently must not quietly become a footnote: only
+  // the grades this build can read AS milder than an error are allowed to be compacted.
+  it('promotes an entry point whose grade this build does not recognise', () => {
+    const props = summaryProps();
+    props.entryPoints = [...props.entryPoints, { label: 'Contracts revoked upstream', count: 1, view: 'services', severity: 'catastrophic', href: '/fleet/services' }];
+    comp = mount(OperationalSummary, { target, props });
+    expect(Array.from(target.querySelectorAll('.tile-grid .tile-label')).map((n) => n.textContent))
+      .toContain('Contracts revoked upstream');
   });
 });
 

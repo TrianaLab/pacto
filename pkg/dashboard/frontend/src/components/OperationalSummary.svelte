@@ -1,84 +1,61 @@
 <script>
   import { hashForHref, fleetAttentionUrl } from '../lib/router.ts';
   import { severityTone } from '../lib/entityLabels.ts';
-  import PostureBars from './viz/PostureBars.svelte';
 
-  // The overview summary tiles. Every tile is a backend entry point, rendered with the
-  // backend's own label, grade and href -- nothing is re-worded or re-derived here. The
-  // revision-match breakdown below is the one informational block (no entry point).
+  // The immediate situation: what requires action right now.
+  //
+  // Every entry is a backend entry point, rendered with the backend's own label, grade
+  // and href -- nothing is re-worded or re-derived here.
+  //
+  // It used to render all eight entry points as identical tiles, so a confirmed
+  // contract violation and an undeclared runtime call arrived at the same size, in the
+  // same colour block, in a grid the eye reads left to right. Eight equal tiles is a
+  // list with extra steps: it makes the reader do the ranking the backend already did.
+  // Now the backend's own severity decides the treatment -- errors are tiles, everything
+  // milder is one compact line -- so the first thing seen is the worst thing true.
   let { summary = {}, entryPoints = [], attentionTotal = 0 } = $props();
 
   // A tile has to take you somewhere you are not. Two entry points do not:
   // the uncategorised attention one is the lead tile's own number under a second
   // wording, and the overview one links back to this page, where the source health
   // strip a few lines below already shows exactly what it counts.
-  const tiles = $derived(entryPoints.filter(
+  const shown = $derived(entryPoints.filter(
     (ep) => ep.view !== 'overview' && !(ep.view === 'attention' && !ep.category),
   ));
+
+  // An entry point whose severity this build does not recognise is promoted, not
+  // demoted: a grade a newer engine spells differently must not quietly become a
+  // footnote. Only the grades we can read as milder than an error are compacted.
+  const MILDER = ['warning', 'info'];
+  const leadTiles = $derived(shown.filter((ep) => !MILDER.includes(ep.severity)));
+  const secondary = $derived(shown.filter((ep) => MILDER.includes(ep.severity)));
 
   // A count of zero is a clean state whatever the category; above zero the backend
   // grades the category (EntryPoint.severity) exactly as it grades the attention items
   // inside it. Painting every non-zero tile amber said a confirmed drift and an
   // undeclared call were equally urgent, and the list right below it disagreed.
   function tone(count, severity) { return count > 0 ? severityTone(severity) : 'ok'; }
-  // The two tiles that are not rendered from an entry point still carry one, so their
-  // grade is read from the same place rather than guessed here.
-  const severityOf = (view, category) =>
-    entryPoints.find((ep) => ep.view === view && (ep.category || '') === category)?.severity;
-
-  // Exact/Inferred/Ambiguous/Unresolved is precise and load-bearing, but it is also the
-  // first taxonomy a novice hits on the landing page. The precision is kept; only its
-  // cost is reduced -- the headline is the one sentence anyone can read, and the
-  // four-way breakdown is one disclosure away.
-  const exactLinks = $derived(summary.exactTargetLinks || 0);
-  // Targets is the backend's own population count, not a sum of the buckets: if the two
-  // ever disagree, DistributionBar shows the gap as "Unclassified" instead of silently
-  // rescaling a proportion to whatever happened to add up.
-  const targets = $derived(summary.targets || 0);
-
-  // The fleet posture is drawn by the SAME component a service page and an owner page
-  // use, so the three surfaces cannot drift in wording, ordering or colour. The flat
-  // OverviewSummary counters are reshaped into the shared tally shape here rather than
-  // in the component: the overview is the one surface whose aggregate predates the
-  // shared shape, and translating it once at the edge beats teaching the component
-  // about a second field layout.
-  const posture = $derived({
-    targets,
-    compliance: {
-      compliant: summary.compliantTargets,
-      nonCompliant: summary.nonCompliantTargets,
-      unknown: summary.unknownTargets,
-      invalid: summary.invalidTargets,
-      other: summary.otherComplianceTargets,
-    },
-    links: {
-      exact: summary.exactTargetLinks,
-      inferred: summary.inferredTargetLinks,
-      ambiguous: summary.ambiguousTargetLinks,
-      unresolved: summary.unresolvedTargetLinks,
-    },
-    evidence: summary.evidence,
-  });
-  // Fleet scope: no service/owner filter, so a drill-down lands on the whole backlog
-  // for that category -- which is exactly the population this chart drew.
-  const attentionUrl = (category) => fleetAttentionUrl({ category });
+  // The lead tile is not rendered from an entry point but still has one, so its grade is
+  // read from the same place rather than guessed here.
+  const leadSeverity = $derived(
+    entryPoints.find((ep) => ep.view === 'attention' && !ep.category)?.severity,
+  );
 </script>
 
 <div class="op-summary">
-  <a class="tile tile-lead tone-{tone(summary.servicesNeedingAttention, severityOf('attention', ''))}" href={fleetAttentionUrl()}>
-    <span class="tile-count t-metric">{summary.servicesNeedingAttention || 0}</span>
-    <!-- Sentence case, like every tile beside it. A lowercase caption on the biggest
-         tile and Title-leading labels on its four siblings read as two kinds of thing. -->
-    <span class="tile-label">Services need attention</span>
-    <span class="tile-sub">{attentionTotal} attention item{attentionTotal === 1 ? '' : 's'}</span>
-  </a>
-
   <div class="tile-grid">
+    <a class="tile tile-lead tone-{tone(summary.servicesNeedingAttention, leadSeverity)}" href={fleetAttentionUrl()}>
+      <span class="tile-count t-metric">{summary.servicesNeedingAttention || 0}</span>
+      <!-- Sentence case, like every tile beside it. A lowercase caption on the biggest
+           tile and Title-leading labels on its siblings read as two kinds of thing. -->
+      <span class="tile-label">Services need attention</span>
+      <span class="tile-sub">{attentionTotal} attention item{attentionTotal === 1 ? '' : 's'}</span>
+    </a>
     <!-- The observed-only tile used to be hand-written here, beside its own backend entry
          point -- so the same count reached the screen under two labels ("undeclared
          runtime call observed" against "Undeclared runtime dependencies observed"), in
          two cases, with a tone guessed locally instead of the grade its own items carry. -->
-    {#each tiles as ep}
+    {#each leadTiles as ep}
       <a class="tile tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
         <span class="tile-count t-metric">{ep.count || 0}</span>
         <span class="tile-label">{ep.label}</span>
@@ -86,30 +63,29 @@
     {/each}
   </div>
 
-  {#if targets > 0}
-    <!-- Overall posture: the two orthogonal questions, over the COMPLETE target
-         population the backend counted. They are kept apart on purpose -- a target can
-         be compliant against a revision we only guessed at.
-
-         "Fleet" is an internal word (the snapshot package, the /fleet routes), never a
-         product one: the heading said "Fleet posture" above a page whose whole
-         vocabulary is services, revisions and operational targets. -->
-    <section class="ov-posture" aria-labelledby="ov-posture-h">
-      <h2 id="ov-posture-h" class="t-section-title">Overall posture</h2>
-      <p class="ov-posture-sub t-body-2">
-        {summary.services || 0} {(summary.services || 0) === 1 ? 'service' : 'services'} ·
-        {summary.revisions || 0} {(summary.revisions || 0) === 1 ? 'revision' : 'revisions'} ·
-        {targets} operational {targets === 1 ? 'target' : 'targets'}
-      </p>
-      <PostureBars summary={posture} {attentionUrl} />
-      <p class="ov-posture-note t-body-2">We know exactly which revision is running on {exactLinks} of {targets} operational targets{(summary.staleTargets || 0) > 0 ? `, and ${summary.staleTargets} of them were last observed too long ago to trust` : ''}.</p>
-    </section>
+  {#if secondary.length}
+    <!-- Present, exact and one click away, but not competing with the errors above it.
+         The count is still shown: demoting the treatment must not delete the number. -->
+    <ul class="op-secondary" aria-label="Also open">
+      {#each secondary as ep}
+        <li>
+          <a class="op-sec tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
+            <span class="op-sec-dot" aria-hidden="true"></span>
+            <span class="op-sec-count">{ep.count || 0}</span>
+            <span class="op-sec-label">{ep.label}</span>
+          </a>
+        </li>
+      {/each}
+    </ul>
   {/if}
 </div>
 
 <style>
-  .op-summary { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--sp-3); }
+  .op-summary { display: flex; flex-direction: column; gap: var(--sp-3); }
+  /* auto-fit, not auto-fill: with the grid holding a lead tile and only the ERROR
+     entry points, a healthy fleet has one or two cells, and auto-fill would reserve
+     empty tracks across a wide screen so two tiles sat in a row of ghosts. */
+  .tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: var(--sp-3); }
   .tile {
     display: flex; flex-direction: column; gap: 2px; text-decoration: none;
     padding: var(--sp-3); border-radius: var(--radius-md);
@@ -125,9 +101,16 @@
   .tile-count { color: var(--tone-c, var(--c-text)); }
   .tile-label { font-size: var(--text-sm); color: var(--c-text-2); }
   .tile-sub { font-size: var(--text-xs); color: var(--c-text-3); }
-  .ov-posture { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .ov-posture h2 { margin: 0; }
-  .ov-posture-sub, .ov-posture-note { margin: 0; }
+  .op-secondary { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }
+  .op-sec {
+    display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--touch-min);
+    font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;
+  }
+  .op-sec:hover .op-sec-label, .op-sec:focus-visible .op-sec-label { text-decoration: underline; }
+  /* Shape carries the grade too, not colour alone: the dot is a filled swatch of the
+     tone beside a label that names the state in words (WCAG 1.4.1). */
+  .op-sec-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--tone-c, var(--c-neutral)); }
+  .op-sec-count { font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }
   .tone-err { --tone-c: var(--c-err); }

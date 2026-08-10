@@ -13,6 +13,8 @@
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import DistributionBar from '../components/viz/DistributionBar.svelte';
+  import { complianceSegments, readinessSegments, statusHrefs, bucketLabel, READINESS_STATES } from '../lib/distributions.ts';
 
   // The scoped inventory list for the two kinds that have no list page of their own
   // (requirement 12). A rich entity page shows a BOUNDED preview of its revisions or
@@ -23,11 +25,15 @@
   // Revisions are returned in the backend's canonical order. This view does not
   // re-sort them: the chronology is the engine's answer, and a client re-sort by key
   // is exactly the digest-ordered version list the redesign was fixing.
-  let { kind = 'revision', service = '', text = '', status = '', scope = '', offset = '', refreshTick = 0 } = $props();
+  let { kind = 'revision', service = '', text = '', status = '', scope = '', readiness = '', offset = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
-  const anyFilter = $derived(!!(text || status || scope));
+  const isRevisions = $derived(kind === 'revision');
+  // Readiness is declared BY a revision, so the Entities API rejects the filter on any
+  // other kind. Carrying it here for a target list would build a query that 422s.
+  const readinessFilter = $derived(isRevisions ? readiness : '');
+  const anyFilter = $derived(!!(text || status || scope || readinessFilter));
   const plural = $derived(kind === 'target' ? 'operational targets' : 'contract revisions');
 
   let textDraft = $state(text);
@@ -39,6 +45,7 @@
     text: text || undefined,
     status: status || undefined,
     scope: kind === 'target' && scope ? scope : undefined,
+    readiness: readinessFilter || undefined,
     offset: pageOffset || undefined,
     limit: PAGE_SIZE,
   }));
@@ -46,7 +53,7 @@
   // the filters and the page. refreshTick only re-asks it. Rows are retained across a
   // re-ask and never across a different question, so switching the scoped service can
   // never show one service's revisions under another's heading.
-  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${pageOffset}`);
+  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${pageOffset}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -75,7 +82,8 @@
 
   function urlWith(patch, off = 0) {
     return fleetEntityListUrl(kind, {
-      service, text: patch.text ?? text, status: patch.status ?? status, scope: patch.scope ?? scope, offset: off,
+      service, text: patch.text ?? text, status: patch.status ?? status, scope: patch.scope ?? scope,
+      readiness: patch.readiness ?? readinessFilter, offset: off,
     });
   }
   function submitSearch(e) { e.preventDefault(); location.hash = urlWith({ text: textDraft }); }
@@ -84,8 +92,28 @@
     text ? { key: 'text', label: 'Search', value: text } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     scope ? { key: 'scope', label: 'Scope', value: scope } : null,
+    readinessFilter ? { key: 'readiness', label: 'Readiness', value: bucketLabel(READINESS_STATES, readinessFilter) } : null,
   ].filter(Boolean));
   function removeChip(key) { location.hash = urlWith({ [key]: '' }); }
+
+  // The inventory over the COMPLETE filtered population, computed by the backend with
+  // paging excluded -- so it describes the query, not the 25 rows underneath it.
+  //
+  // A revision list gets its declared readiness; a target list does not, because
+  // readiness is a property of the revision that declares it. A revision can be passing
+  // its own readiness threshold and still be running on a target observed to violate
+  // its contract: those are two different questions about two different units, and this
+  // page keeps them apart by never drawing readiness where the unit is not a revision.
+  const agg = $derived(list?.aggregate ?? null);
+  const matched = $derived(agg?.matched ?? 0);
+  const scopeNote = $derived(anyFilter
+    ? `All ${matched} matching ${matched === 1 ? plural.replace(/s$/, '') : plural}, not just this page.`
+    : `All ${matched} ${matched === 1 ? plural.replace(/s$/, '') : plural}${service ? ' for this service' : ' in the snapshot'}.`);
+  const readinessOfMatch = $derived(readinessSegments(agg?.readiness, Object.fromEntries(
+    READINESS_STATES.map((s) => [s.field, urlWith({ readiness: s.value })]),
+  )));
+  const complianceOfMatch = $derived(complianceSegments(agg?.targetCompliance,
+    statusHrefs((s) => urlWith({ status: s }))));
 </script>
 
 <div class="list-view">
@@ -104,6 +132,15 @@
       <input type="search" bind:value={textDraft} placeholder={`Search ${plural}...`} aria-label={`Search ${plural}`} />
       <button type="submit" class="btn">Search</button>
     </form>
+    {#if isRevisions}
+      <label class="lv-field">
+        <span>Readiness</span>
+        <select value={readinessFilter} aria-label="Filter by declared readiness" onchange={(e) => { location.hash = urlWith({ readiness: e.currentTarget.value }); }}>
+          <option value="">Any assessment</option>
+          {#each READINESS_STATES as r}<option value={r.value}>{r.label}</option>{/each}
+        </select>
+      </label>
+    {/if}
   </div>
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
@@ -113,6 +150,32 @@
 
   {#if refreshError}
     <StaleRefreshNotice noun="list" onRetry={load} />
+  {/if}
+
+  {#if state.kind === 'ready' && matched > 0}
+    <section class="lv-inventory" aria-labelledby="lv-inv-h">
+      <h2 id="lv-inv-h" class="t-section-title">{anyFilter ? 'What these filters select' : `This ${isRevisions ? 'revision' : 'target'} inventory`}</h2>
+      <div class="lv-inv-grid">
+        {#if isRevisions}
+          <DistributionBar
+            title="Contract revision readiness"
+            description="Declared preparedness of each revision, judged against the threshold that revision set for itself. This is not compliance: a passing revision can still be running on a target observed to violate its contract."
+            {scopeNote}
+            segments={readinessOfMatch}
+            total={matched}
+            emptyLabel="None of these revisions declares a readiness assessment."
+          />
+        {:else}
+          <DistributionBar
+            title="Compliance"
+            description="Whether each target is observed to obey the contract of the revision it runs."
+            {scopeNote}
+            segments={complianceOfMatch}
+            total={matched}
+          />
+        {/if}
+      </div>
+    </section>
   {/if}
 
   {#if state.kind !== 'ready'}
@@ -137,6 +200,11 @@
   .list-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
+  .lv-field { display: flex; flex-direction: column; gap: 2px; min-width: 180px; font-size: var(--text-xs); color: var(--c-text-3); }
+  .lv-inventory { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--c-border); }
+  .lv-inventory h2 { margin: 0; }
+  /* Same track rule as every other chart block in the product. */
+  .lv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
   .lv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .lv-item { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }

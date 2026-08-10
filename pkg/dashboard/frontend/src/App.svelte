@@ -292,9 +292,10 @@
     {/if}
   {:else if route.view === 'readiness'}
     <!-- Legacy Readiness: a service-name-keyed third definition of preparedness. On a
-         Fleet host readiness is a DIMENSION -- declared on the revision page that owns it
-         and triaged as the Needs-attention readiness category -- so this route redirects
-         there (via the effect) rather than mounting a competing screen. -->
+         Fleet host readiness is a property of the CONTRACT REVISION that declares it, so
+         this route redirects (via the effect) to the revision inventory -- the whole
+         assessed population, filterable by assessment -- rather than mounting a competing
+         screen keyed by a unit that does not own the fact. -->
     {#if legacyHost}
       <ReadinessView {services} {initialLoading} />
     {:else}
@@ -306,6 +307,7 @@
     <FleetServicesView
       text={route.params.text || ''}
       owner={route.params.owner || ''}
+      ownership={route.params.ownership || ''}
       status={route.params.status || ''}
       domain={route.params.domain || ''}
       offset={route.params.offset || ''}
@@ -327,6 +329,7 @@
       text={route.params.text || ''}
       status={route.params.status || ''}
       scope={route.params.scope || ''}
+      readiness={route.params.readiness || ''}
       offset={route.params.offset || ''}
       {refreshTick}
     />

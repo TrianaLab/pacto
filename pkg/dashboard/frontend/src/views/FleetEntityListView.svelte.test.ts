@@ -17,12 +17,14 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 import FleetEntityListView from './FleetEntityListView.svelte';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
-function listResp(entities: any[], opts: { total?: number; offset?: number; nextOffset?: number } = {}): any {
+function listResp(entities: any[], opts: { total?: number; offset?: number; nextOffset?: number; aggregate?: any } = {}): any {
   const total = opts.total ?? entities.length;
   return {
     meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [] },
     total, count: entities.length, offset: opts.offset ?? 0, limit: 25,
     truncated: opts.nextOffset != null, nextOffset: opts.nextOffset, entities,
+    // The backend aggregate over the whole filtered population, paging excluded.
+    aggregate: opts.aggregate,
   };
 }
 
@@ -162,6 +164,77 @@ describe('FleetEntityListView (requirement 12)', () => {
     flushSync();
     await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(2));
     expect(entitiesFn.mock.calls[1][0]).toEqual(entitiesFn.mock.calls[0][0]);
+    unmount(component);
+  });
+
+  /**
+   * Readiness is DECLARED BY a contract revision, so the unit of every readiness number
+   * on this page is a revision — never a service, a target or "the fleet". A revision
+   * passing its own threshold while a target running it is observed non-compliant is a
+   * possible, meaningful state, so the two are never drawn as one dimension.
+   */
+  const READY_AGG = {
+    matched: 47,
+    readiness: { passing: 20, belowThreshold: 5, expired: 2, notDeclared: 20 },
+    targetCompliance: { compliant: 30, nonCompliant: 4, notEvaluated: 13 },
+  };
+
+  it('charts declared readiness over the whole matching revision population', async () => {
+    entitiesFn.mockResolvedValue(listResp([rev('a')], { total: 47, aggregate: READY_AGG }));
+    const { target, component } = mountView({ kind: 'revision' });
+    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(1));
+    expect(target.querySelector('.lv-inventory .dist-title')?.textContent).toBe('Contract revision readiness');
+    expect(Array.from(target.querySelectorAll('.lv-inventory .dist-item')).map((n) => [
+      n.querySelector('.dist-label')?.textContent, n.querySelector('.dist-value')?.textContent,
+    ])).toEqual([['Passing', '20'], ['Below its own threshold', '5'], ['Assessment expired', '2'], ['Not assessed', '20']]);
+    // 47 revisions, one on screen: the denominator is the population, not the page.
+    expect(target.querySelector('.lv-inventory .dist-scope')?.textContent).toBe('All 47 contract revisions in the snapshot.');
+    expect(target.querySelector('.lv-inventory .dist-desc')?.textContent).toContain('This is not compliance');
+    expect(target.querySelector('.lv-inventory .dist-legend a')?.getAttribute('href'))
+      .toBe('#/fleet/revisions?readiness=passing');
+    unmount(component);
+  });
+
+  it('filters revisions by declared readiness through the backend param', async () => {
+    entitiesFn.mockResolvedValue(listResp([rev('a')], { total: 1 }));
+    const { target, component } = mountView({ kind: 'revision', service: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(1));
+    const sel = target.querySelector('select[aria-label="Filter by declared readiness"]') as HTMLSelectElement;
+    expect(Array.from(sel.options).map((o) => o.value))
+      .toEqual(['', 'passing', 'below-threshold', 'expired', 'not-declared']);
+    sel.value = 'expired';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/revisions?service=domain-a%2Fpayments&readiness=expired');
+    unmount(component);
+  });
+
+  it('shows the readiness chip in its legend wording, not the wire value', async () => {
+    entitiesFn.mockResolvedValue(listResp([rev('a')], { total: 1 }));
+    const { target, component } = mountView({ kind: 'revision', readiness: 'below-threshold' });
+    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(1));
+    expect(target.querySelector('.chip')?.textContent).toContain('Below its own threshold');
+    unmount(component);
+  });
+
+  // Readiness is a property of the revision that declares it. Offering the control on a
+  // target list would build a query the Entities API rejects with a 422.
+  it('never offers or forwards readiness on a target list', async () => {
+    entitiesFn.mockResolvedValue(listResp([], { total: 0, aggregate: READY_AGG }));
+    const { target, component } = mountView({ kind: 'target', readiness: 'passing' });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    expect(entitiesFn.mock.calls[0][0].readiness).toBeUndefined();
+    expect(target.querySelector('select[aria-label="Filter by declared readiness"]')).toBeNull();
+    unmount(component);
+  });
+
+  it('charts compliance, never readiness, when the unit is an operational target', async () => {
+    entitiesFn.mockResolvedValue(listResp([rev('a')], { total: 47, aggregate: READY_AGG }));
+    const { target, component } = mountView({ kind: 'target', service: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(1));
+    expect(target.querySelector('.lv-inventory .dist-title')?.textContent).toBe('Compliance');
+    expect(target.textContent).not.toContain('Contract revision readiness');
+    expect(target.querySelector('.lv-inventory .dist-scope')?.textContent)
+      .toBe('All 47 operational targets for this service.');
     unmount(component);
   });
 

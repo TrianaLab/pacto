@@ -17,16 +17,26 @@ import (
 // computed over the whole snapshot slice and their buckets are exhaustive, so a
 // consumer can render a proportional visual without inventing a remainder.
 
-// ComplianceTally is the COMPLETE compliance distribution over a target
-// population: the four Compliance 2.0 states plus one explicit catch-all, so the
-// buckets always sum to the population size. Without the catch-all a consumer
-// drawing a distribution has to guess whether the missing slice is a legacy
-// status or a bug.
+// ComplianceTally is the COMPLETE compliance distribution over an evaluated
+// population: every canonical status gets its own bucket, plus one explicit
+// catch-all, so the buckets always sum to the population size. Without the
+// catch-all a consumer drawing a distribution has to guess whether the missing
+// slice is a legacy status or a bug.
+//
+// All seven canonical states are named, not just the four Compliance 2.0 ones.
+// The tally used to fold Warning, Reference and NotEvaluated into Other, which was
+// harmless while only TARGETS were tallied -- a target is always evaluated -- and
+// wrong the moment a SERVICE population was, because a service with nothing running
+// is NotEvaluated and that is the common case, not an anomaly. Rendering a third of
+// a fleet as an unnamed grey "Other" teaches the taxonomy wrong.
 type ComplianceTally struct {
 	Compliant    int `json:"compliant"`
 	NonCompliant int `json:"nonCompliant"`
 	Unknown      int `json:"unknown"`
+	Warning      int `json:"warning"`
 	Invalid      int `json:"invalid"`
+	Reference    int `json:"reference"`
+	NotEvaluated int `json:"notEvaluated"`
 	Other        int `json:"other"`
 }
 
@@ -38,8 +48,14 @@ func (c *ComplianceTally) add(status string) {
 		c.NonCompliant++
 	case StatusUnknown:
 		c.Unknown++
+	case StatusWarning:
+		c.Warning++
 	case StatusInvalid:
 		c.Invalid++
+	case StatusReference:
+		c.Reference++
+	case StatusNotEvaluated:
+		c.NotEvaluated++
 	default:
 		c.Other++
 	}
@@ -47,7 +63,8 @@ func (c *ComplianceTally) add(status string) {
 
 // Total is the population the tally covers.
 func (c ComplianceTally) Total() int {
-	return c.Compliant + c.NonCompliant + c.Unknown + c.Invalid + c.Other
+	return c.Compliant + c.NonCompliant + c.Unknown + c.Warning +
+		c.Invalid + c.Reference + c.NotEvaluated + c.Other
 }
 
 // LinkTally is the COMPLETE revision-match certainty distribution over a target

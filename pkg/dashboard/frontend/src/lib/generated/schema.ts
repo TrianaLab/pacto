@@ -986,9 +986,15 @@ export interface components {
             /** Format: int64 */
             nonCompliant: number;
             /** Format: int64 */
+            notEvaluated: number;
+            /** Format: int64 */
             other: number;
             /** Format: int64 */
+            reference: number;
+            /** Format: int64 */
             unknown: number;
+            /** Format: int64 */
+            warning: number;
         };
         "Fleet.ContractRevision": {
             contract?: components["schemas"]["Contract.Contract"];

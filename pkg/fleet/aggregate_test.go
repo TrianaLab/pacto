@@ -20,16 +20,42 @@ func TestComplianceTally_BucketsArePartitionOfThePopulation(t *testing.T) {
 	var c ComplianceTally
 	for _, s := range []string{
 		StatusCompliant, StatusNonCompliant, StatusNonCompliant, StatusUnknown,
-		StatusInvalid, "SomethingElse", "",
+		StatusWarning, StatusInvalid, StatusReference, StatusNotEvaluated,
+		"SomethingElse", "",
 	} {
 		c.add(s)
 	}
-	want := ComplianceTally{Compliant: 1, NonCompliant: 2, Unknown: 1, Invalid: 1, Other: 2}
+	// Every CANONICAL status has its own bucket. Other is reserved for a value this
+	// build does not know -- a service with nothing running is NotEvaluated, which is
+	// the ordinary case and must never be drawn as an unnamed remainder.
+	want := ComplianceTally{
+		Compliant: 1, NonCompliant: 2, Unknown: 1, Warning: 1,
+		Invalid: 1, Reference: 1, NotEvaluated: 1, Other: 2,
+	}
 	if c != want {
 		t.Errorf("tally = %+v, want %+v", c, want)
 	}
-	if c.Total() != 7 {
-		t.Errorf("Total() = %d, want 7 (the whole population, so a distribution has a denominator)", c.Total())
+	if c.Total() != 10 {
+		t.Errorf("Total() = %d, want 10 (the whole population, so a distribution has a denominator)", c.Total())
+	}
+}
+
+// A canonical status is one ValidStatus accepts, so the two cannot drift: adding a
+// status to the vocabulary without giving it a bucket would leave part of a real
+// population in the catch-all.
+func TestComplianceTally_EveryCanonicalStatusHasItsOwnBucket(t *testing.T) {
+	for _, s := range []string{
+		StatusCompliant, StatusNonCompliant, StatusUnknown, StatusWarning,
+		StatusInvalid, StatusReference, StatusNotEvaluated,
+	} {
+		if !ValidStatus(s) {
+			t.Fatalf("%q is not a canonical status; fix the test list", s)
+		}
+		var c ComplianceTally
+		c.add(s)
+		if c.Other != 0 {
+			t.Errorf("canonical status %q fell through to Other", s)
+		}
 	}
 }
 

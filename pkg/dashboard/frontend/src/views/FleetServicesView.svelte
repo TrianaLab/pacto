@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
-  import { fleetOverviewUrl, fleetServicesUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityCombobox from '../components/EntityCombobox.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -13,7 +13,8 @@
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
-  import { complianceSegments, tallyStatuses } from '../lib/distributions.ts';
+  import HorizontalBars from '../components/viz/HorizontalBars.svelte';
+  import { complianceSegments, ownershipSegments, statusHrefs, bucketLabel, OWNERSHIP_STATES } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
 
   // The product Services list (requirement C / A3). It is the canonical destination of
@@ -22,11 +23,11 @@
   // through the generated SDK facade -- NEVER the legacy preloaded /api/services list
   // and never a FleetSnapshot reconstruction. Filters and the page offset live in the
   // URL, so the filtered/paged list is deep-linkable and back/forward-restorable.
-  let { text = '', owner = '', status = '', domain = '', offset = '', refreshTick = 0 } = $props();
+  let { text = '', owner = '', ownership = '', status = '', domain = '', offset = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
-  const anyFilter = $derived(!!(text || owner || status || domain));
+  const anyFilter = $derived(!!(text || owner || ownership || status || domain));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -42,6 +43,7 @@
     kinds: ['service'],
     text: text || undefined,
     owner: owner || undefined,
+    ownership: ownership || undefined,
     status: status || undefined,
     domain: domain || undefined,
     offset: pageOffset || undefined,
@@ -52,7 +54,7 @@
   // poll still fires. Retaining rows across a refresh is stale-while-revalidate;
   // retaining them across a filter or page change would be showing one query's answer
   // under another query's heading, so `list` is gated on the tag matching.
-  const queryIdentity = $derived(`${text}@@${owner}@@${status}@@${domain}@@${pageOffset}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownership}@@${status}@@${domain}@@${pageOffset}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -80,6 +82,7 @@
     return fleetServicesUrl({
       text: patch.text ?? text,
       owner: patch.owner ?? owner,
+      ownership: patch.ownership ?? ownership,
       status: patch.status ?? status,
       domain: patch.domain ?? domain,
       offset: off,
@@ -102,14 +105,53 @@
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
     owner ? { key: 'owner', label: 'Owner', value: owner } : null,
+    ownership ? { key: 'ownership', label: 'Ownership', value: bucketLabel(OWNERSHIP_STATES, ownership) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     domain ? { key: 'domain', label: 'Domain', value: domain } : null,
   ].filter(Boolean));
-  // Counted from the rendered page, never presented as the whole population:
-  // DistributionBar is given the page size as its denominator and the scope note states
-  // it in words. The bucketing itself is the SHARED one, so this page and the backend's
-  // own tallies can never split the same status two different ways.
-  const pageSegments = $derived(complianceSegments(tallyStatuses((list?.entities ?? []).map((r) => r.status))));
+
+  // The inventory. `aggregate` is computed by the backend over every service matching
+  // these filters, with paging deliberately excluded, so it answers "what does this
+  // filter select" rather than "what happens to be on screen".
+  //
+  // This page used to tally the 25 rendered rows instead. That bar was honest about its
+  // scope in a caption and still wrong to draw: page 1 of a 400-service fleet is a
+  // sample nobody chose, it changed shape as you paged, and it could not answer the
+  // question the reader was actually asking. It is gone rather than demoted -- keeping
+  // both would put two compliance bars with different denominators on one screen.
+  const agg = $derived(list?.aggregate ?? null);
+  const matched = $derived(agg?.matched ?? 0);
+  const scopeNote = $derived(anyFilter
+    ? `All ${matched} matching ${matched === 1 ? 'service' : 'services'}, not just this page.`
+    : `All ${matched} ${matched === 1 ? 'service' : 'services'} in the snapshot.`);
+  const complianceOfMatch = $derived(complianceSegments(agg?.serviceCompliance,
+    statusHrefs((s) => urlWith({ status: s }))));
+  const ownershipOfMatch = $derived(ownershipSegments(agg?.ownership, Object.fromEntries(
+    OWNERSHIP_STATES.map((s) => [s.field, urlWith({ ownership: s.value })]),
+  )));
+  // A ranking, NOT a partition: it is the backend's top owners by service count, so the
+  // rows do not add up to the matched population and are never drawn as if they did.
+  // Each row narrows THIS query by that owner rather than jumping to the owner page, so
+  // the filters the reader already set survive the click.
+  const ranked = $derived((agg?.byOwner ?? []).map((o) => ({
+    label: o.owner, value: o.services, tone: 'info', href: urlWith({ owner: o.owner }),
+  })));
+  const rankedTargets = $derived((agg?.byOwner ?? []).map((o) => ({
+    label: o.owner, value: o.targets, tone: 'info', href: urlWith({ owner: o.owner }),
+  })));
+  const rankNote = $derived.by(() => {
+    const other = agg?.otherOwners ?? 0;
+    const distinct = agg?.distinctOwners ?? 0;
+    const shown = ranked.length;
+    if (!distinct) return '';
+    const tail = other > 0
+      ? ` The remaining ${distinct - shown} of ${distinct} ${distinct - shown === 1 ? 'owner accounts' : 'owners account'} for ${other} more ${other === 1 ? 'service' : 'services'}.`
+      : '';
+    // Services with no declared owner, and services whose revisions disagree, are in
+    // none of these rows -- they have no single owner to rank under. Saying so is the
+    // difference between a ranking and a partition that quietly loses rows.
+    return `Top ${shown} of ${distinct} declared ${distinct === 1 ? 'owner' : 'owners'} by service count.${tail} Services with no owner, or whose revisions name different owners, appear in no row here.`;
+  });
 
   function removeChip(key) { apply({ [key]: '' }); }
 </script>
@@ -154,6 +196,15 @@
         oncommit={(v) => { if (v !== owner) apply({ owner: v }); }}
       />
     </div>
+    <!-- Who owns it (a name, above) and whether ownership is declared at all (a state)
+         are different questions, so they are different controls and they compose. -->
+    <label class="sv-field">
+      <span>Ownership</span>
+      <select value={ownership} aria-label="Filter by declared ownership" onchange={(e) => apply({ ownership: e.currentTarget.value })}>
+        <option value="">Any ownership</option>
+        {#each OWNERSHIP_STATES as o}<option value={o.value}>{o.label}</option>{/each}
+      </select>
+    </label>
     <label class="sv-field">
       <span>Status</span>
       <select value={status} aria-label="Filter by compliance status" onchange={(e) => apply({ status: e.currentTarget.value })}>
@@ -181,18 +232,47 @@
     <StaleRefreshNotice noun="services list" onRetry={load} />
   {/if}
 
-  <!-- PAGE-SCOPED, and it says so. The Entities endpoint answers "which services match"
-       and pages the answer; it does not tally the whole match, so this bar counts the
-       services actually on screen. The fleet-wide compliance distribution lives on the
-       Overview, where the backend computes it over the complete population. -->
-  {#if state.kind === 'ready' && pageSegments.some((x) => x.value > 0)}
-    <DistributionBar
-      title="Compliance on this page"
-      level={2}
-      scopeNote={`This page only — ${count} of ${total} matching services.`}
-      segments={pageSegments}
-      total={count}
-    />
+  {#if state.kind === 'ready' && matched > 0}
+    <section class="sv-inventory" aria-labelledby="sv-inv-h">
+      <div class="sv-inv-head">
+        <h2 id="sv-inv-h" class="t-section-title">{anyFilter ? 'What these filters select' : 'The whole service inventory'}</h2>
+        <a class="sv-viewall" href={fleetOwnersUrl()}>Browse owners</a>
+      </div>
+      <div class="sv-inv-grid">
+        <DistributionBar
+          title="Compliance"
+          description="Whether each service is observed to obey its contract, rolled up from the targets running it."
+          {scopeNote}
+          segments={complianceOfMatch}
+          total={matched}
+        />
+        <DistributionBar
+          title="Declared ownership"
+          description="Ownership is authored on each contract revision, so a service is cleanly owned only when its revisions agree."
+          {scopeNote}
+          segments={ownershipOfMatch}
+          total={matched}
+        />
+        <HorizontalBars
+          title="Services per owner"
+          description="Who carries the most of this selection."
+          scopeNote={rankNote}
+          items={ranked}
+          unit="services"
+          unitOne="service"
+          emptyLabel="Nothing here has a single declared owner to rank by."
+        />
+        <HorizontalBars
+          title="Operational targets per owner"
+          description="How much is actually running behind each of those owners."
+          scopeNote="Same owners, in the same service-count order as above — this is not a ranking by target count."
+          items={rankedTargets}
+          unit="targets"
+          unitOne="target"
+          emptyLabel="None of these owners has anything running yet."
+        />
+      </div>
+    </section>
   {/if}
 
   {#if state.kind !== 'ready'}
@@ -238,6 +318,14 @@
   /* The Search control is the shared .btn from styles/components.css. Each list view
      used to carry its own byte-identical copy, which is how one product ends up with
      four Search buttons in three flavours. */
+  .sv-inventory { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--c-border); }
+  .sv-inv-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+  .sv-inv-head h2 { margin: 0; }
+  .sv-viewall { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
+  .sv-viewall:hover { text-decoration: underline; }
+  /* Same track rule as PostureBars: two charts side by side where there is room, one on
+     a phone. Charts across the product line up instead of each picking a breakpoint. */
+  .sv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
   .sv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .sv-item {
     display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;

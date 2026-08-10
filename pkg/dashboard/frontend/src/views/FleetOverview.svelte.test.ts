@@ -36,6 +36,10 @@ function baseOverview(partial = false): any {
       ambiguousTargetLinks: 0, unresolvedTargetLinks: 0,
       compliantTargets: 5, nonCompliantTargets: 0, unknownTargets: 0, invalidTargets: 0, otherComplianceTargets: 0,
       staleTargets: 0, unresolvedRelationships: 0, observedOnlyRelationships: 0, recentEvidence: 0,
+      // Backend tallies over the COMPLETE populations: ownership over all 3 services,
+      // readiness over all 6 contract revisions.
+      ownership: { consistent: 2, conflicting: 0, unowned: 1 },
+      readiness: { passing: 4, belowThreshold: 1, expired: 0, notDeclared: 1 },
     },
     attention: { total: 0, count: 0, truncated: false, items: [] },
     recentEvidence: { total: 0, count: 0, truncated: false, items: [] },
@@ -187,6 +191,105 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     expect(target.querySelector('.all-clear')).toBeFalsy();
     expect(text).not.toMatch(/sources are degraded/i);
     expect(text).toMatch(/no services tracked yet/i);
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+/**
+ * The three bands. Each one answers a different question, and each fact inside a band
+ * is drawn over a COMPLETE population the backend tallied -- never over the truncated
+ * attention or evidence previews further down the same page.
+ */
+describe('FleetOverview — every band draws a complete population', () => {
+  beforeEach(() => overviewFn.mockReset());
+
+  const sectionText = (target: HTMLElement, id: string) =>
+    (target.querySelector(`section[aria-labelledby="${id}"]`) as HTMLElement | null)?.textContent || '';
+  const linkIn = (target: HTMLElement, id: string, text: string) =>
+    Array.from(target.querySelectorAll(`section[aria-labelledby="${id}"] a`))
+      .find((a) => a.textContent?.includes(text)) as HTMLAnchorElement | undefined;
+
+  it('band 2 draws posture over the backend target population and links each bucket to its triage', async () => {
+    const ov = baseOverview(false);
+    ov.summary.exactTargetLinks = 3; ov.summary.ambiguousTargetLinks = 1; // still 5 targets
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-posture"]')).toBeTruthy());
+    const posture = sectionText(target, 'ov-posture');
+    // Compliance, revision-match certainty and evidence freshness are three separate
+    // questions, each printed as exact text beside its bar (nothing is colour-only).
+    expect(posture).toContain('Compliant');
+    expect(posture).toContain('Exact');
+    expect(posture).toContain('5 operational targets');
+    expect(posture).toContain('exactly which revision is running on 3 of 5');
+    // A proportion is a way in, not a picture.
+    expect(linkIn(target, 'ov-posture', 'Ambiguous')?.getAttribute('href')).toBe('#/fleet/attention?category=unresolved');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // The denominator is the backend's Targets count, never the sum of the buckets it was
+  // handed: if a bucket is missing, the gap shows as an explicit unclassified slice
+  // rather than silently rescaling the proportion to whatever added up.
+  it('band 2 shows the gap when the compliance buckets do not account for the whole population', async () => {
+    const ov = baseOverview(false);
+    ov.summary.compliantTargets = 1; // 5 targets, 1 accounted for
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-posture"]')).toBeTruthy());
+    const posture = sectionText(target, 'ov-posture');
+    expect(posture).toContain('Unclassified');
+    expect(posture).toContain('4');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('band 3 partitions every service by declared ownership and drills into that exact filter', async () => {
+    const ov = baseOverview(false);
+    ov.summary.ownership = { consistent: 1, conflicting: 1, unowned: 1 };
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-org"]')).toBeTruthy());
+    const org = sectionText(target, 'ov-org');
+    expect(org).toContain('Declared ownership');
+    expect(org).toContain('All 3 services in the snapshot.');
+    // Two teams claiming one service is its own state, never folded into "no owner".
+    expect(org).toContain('Revisions name different owners');
+    expect(linkIn(target, 'ov-org', 'Revisions name different owners')?.getAttribute('href'))
+      .toBe('#/fleet/services?ownership=conflicting');
+    expect(linkIn(target, 'ov-org', 'No declared owner')?.getAttribute('href'))
+      .toBe('#/fleet/services?ownership=unowned');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // Readiness is declared BY a contract revision, so the unit is always the revision --
+  // never the service, the fleet, the runtime or the operational target.
+  it('band 3 partitions every contract revision by its own declared assessment', async () => {
+    overviewFn.mockResolvedValue(baseOverview(false));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-org"]')).toBeTruthy());
+    const org = sectionText(target, 'ov-org');
+    expect(org).toContain('Contract revision readiness');
+    expect(org).toContain('All 6 contract revisions in the snapshot.');
+    expect(org).toContain('Below its own threshold');
+    expect(linkIn(target, 'ov-org', 'Below its own threshold')?.getAttribute('href'))
+      .toBe('#/fleet/revisions?readiness=below-threshold');
+    expect(linkIn(target, 'ov-org', 'Not assessed')?.getAttribute('href'))
+      .toBe('#/fleet/revisions?readiness=not-declared');
+    // A readiness-passing revision can still run on a target observed to violate its
+    // contract, so the page must never conflate the two -- or rename the unit.
+    expect(org).not.toMatch(/service readiness|fleet readiness|fleet health|runtime readiness|target readiness/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('an empty fleet says the population is empty instead of drawing a bar over nothing', async () => {
+    const ov = baseOverview(false);
+    ov.summary.services = 0; ov.summary.revisions = 0;
+    ov.summary.ownership = {}; ov.summary.readiness = {};
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-org"]')).toBeTruthy());
+    const org = sectionText(target, 'ov-org');
+    expect(org).toContain('No services are tracked yet');
+    expect(org).toContain('No contract revisions are tracked yet');
     unmount(component); document.body.removeChild(target);
   });
 });
