@@ -17,6 +17,15 @@ type EntityFilter struct {
 	// Status filters compliance-bearing entities (service/revision/target) by
 	// their canonical compliance status. Source health is a separate axis.
 	Status string
+	// Ownership filters SERVICES by how their revisions declare ownership
+	// (consistent, conflicting, unowned) — see [OwnershipTally] for the rule. It is
+	// what turns "12 services have no declared owner" from a number into a list.
+	Ownership string
+	// Readiness filters CONTRACT REVISIONS by their declared readiness assessment
+	// (passing, below-threshold, expired, not-declared) — see [ReadinessTally]. It is
+	// a separate axis from Status: readiness is authored preparedness, compliance is
+	// observed behaviour, and a revision can pass one and fail the other.
+	Readiness string
 	// SourceHealth filters source entities by their health (available, partial,
 	// stale, unavailable) - kept distinct from compliance Status so the two are
 	// never validated against one enum.
@@ -45,6 +54,10 @@ type EntityList struct {
 	Truncated  bool        `json:"truncated"`
 	NextOffset *int        `json:"nextOffset,omitempty"`
 	Entities   []EntityRef `json:"entities"`
+	// Aggregate tallies everything the filter matched, not this page. It is what
+	// makes a filtered list page able to say something true about the whole match
+	// instead of about its first 25 rows.
+	Aggregate EntityAggregate `json:"aggregate"`
 }
 
 // Entities searches services, revisions, targets, owners and sources with one
@@ -93,7 +106,41 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	return &EntityList{
 		Meta: q.productMeta(), Total: total, Count: len(page),
 		Limit: limit, Offset: start, Truncated: truncated, NextOffset: next, Entities: page,
+		Aggregate: q.aggregate(filtered),
 	}, nil
+}
+
+// Ownership filter values (see [OwnershipTally]).
+const (
+	OwnershipConsistent  = "consistent"
+	OwnershipConflicting = "conflicting"
+	OwnershipUnowned     = "unowned"
+)
+
+// Readiness filter values (see [ReadinessTally]).
+const (
+	ReadinessPassing        = "passing"
+	ReadinessBelowThreshold = "below-threshold"
+	ReadinessExpired        = "expired"
+	ReadinessNotDeclared    = "not-declared"
+)
+
+func validOwnershipFilter(s string) bool {
+	switch s {
+	case OwnershipConsistent, OwnershipConflicting, OwnershipUnowned:
+		return true
+	default:
+		return false
+	}
+}
+
+func validReadinessFilter(s string) bool {
+	switch s {
+	case ReadinessPassing, ReadinessBelowThreshold, ReadinessExpired, ReadinessNotDeclared:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateEntityFilter(f EntityFilter) error {
@@ -108,6 +155,12 @@ func validateEntityFilter(f EntityFilter) error {
 	}
 	if f.SourceHealth != "" && !validSourceHealth(f.SourceHealth) {
 		return &InvalidQueryError{Field: "sourceHealth", Value: f.SourceHealth, Reason: "not a source-health value (available, partial, stale, unavailable)"}
+	}
+	if f.Ownership != "" && !validOwnershipFilter(f.Ownership) {
+		return &InvalidQueryError{Field: "ownership", Value: f.Ownership, Reason: "not an ownership state (consistent, conflicting, unowned)"}
+	}
+	if f.Readiness != "" && !validReadinessFilter(f.Readiness) {
+		return &InvalidQueryError{Field: "readiness", Value: f.Readiness, Reason: "not a readiness state (passing, below-threshold, expired, not-declared)"}
 	}
 	for _, k := range f.Kinds {
 		if !validEntityKind(k) {
@@ -155,6 +208,11 @@ func validateFilterCombos(f EntityFilter) error {
 		{"scope", f.Scope, []EntityKind{KindTarget}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"service", f.Service, []EntityKind{KindService, KindRevision, KindTarget}},
+		// Ownership is declared per revision but classified per SERVICE (the whole
+		// question is whether a service's revisions agree), and readiness is declared
+		// and assessed per REVISION. Each applies to exactly one kind.
+		{"ownership", f.Ownership, []EntityKind{KindService}},
+		{"readiness", f.Readiness, []EntityKind{KindRevision}},
 	} {
 		if err := appliesTo(c.field, c.value, c.kinds...); err != nil {
 			return err
@@ -238,7 +296,48 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 	return matchScalarFields(r, f) &&
 		matchEntityText(r, f.Text) &&
 		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
-		(f.Source == "" || q.entityFromSource(r, f.Source))
+		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
+		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
+		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness))
+}
+
+// matchOwnershipState reports whether a SERVICE reference is in the requested
+// ownership state. Any other kind never matches, so an ownership filter on a mixed
+// query narrows to services rather than silently letting revisions through.
+func (q *Query) matchOwnershipState(r EntityRef, want string) bool {
+	if r.Kind != KindService {
+		return false
+	}
+	n, _ := q.ownershipState(q.snap.Services[ServiceKey(r.Key)])
+	switch n {
+	case 0:
+		return want == OwnershipUnowned
+	case 1:
+		return want == OwnershipConsistent
+	default:
+		return want == OwnershipConflicting
+	}
+}
+
+// matchReadinessState reports whether a REVISION reference is in the requested
+// readiness state, bucketing it by the SAME rule [ReadinessTally.add] uses so a
+// filtered list and the distribution above it always agree.
+func (q *Query) matchReadinessState(r EntityRef, want string) bool {
+	if r.Kind != KindRevision {
+		return false
+	}
+	var t ReadinessTally
+	t.add(q.snap.Revisions[RevisionKey(r.Key)].Readiness)
+	switch want {
+	case ReadinessPassing:
+		return t.Passing == 1
+	case ReadinessExpired:
+		return t.Expired == 1
+	case ReadinessBelowThreshold:
+		return t.BelowThreshold == 1
+	default:
+		return t.NotDeclared == 1
+	}
 }
 
 // matchScalarFields checks the filter fields that are a direct comparison against a

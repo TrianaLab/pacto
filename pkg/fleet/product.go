@@ -194,6 +194,15 @@ type OverviewSummary struct {
 	StaleSources              int `json:"staleSources"`
 	UnavailableSources        int `json:"unavailableSources"`
 	RecentEvidence            int `json:"recentEvidence"`
+	// Ownership partitions the COMPLETE service population and Readiness the
+	// COMPLETE contract-revision population. Neither is an operational failure, and
+	// that is exactly why they belong on the landing page rather than in the
+	// attention backlog: "is ownership declared at all" and "is anyone assessing
+	// readiness" are systemic questions about how the fleet is organized and
+	// authored, and no per-entity page can answer them. They are the only two
+	// overview facts whose denominator is not the target population.
+	Ownership OwnershipTally `json:"ownership"`
+	Readiness ReadinessTally `json:"readiness"`
 	// Evidence is the fleet's freshness envelope: the third orthogonal question a
 	// service page already answers ("how recently did we look"), at fleet scale and
 	// over the same complete target population. Evidence.Stale equals StaleTargets by
@@ -264,12 +273,17 @@ func (q *Query) Overview() *Overview {
 	sum := &ov.Summary
 	sum.Services = len(q.snap.Services)
 
+	for _, s := range q.snap.Services {
+		q.addOwnership(&sum.Ownership, s)
+	}
+
 	var recent []EvidenceItem
 	sum.Revisions = len(q.snap.Revisions)
 	for _, r := range q.snap.Revisions {
 		if r.validated && !r.Valid {
 			sum.InvalidRevisions++
 		}
+		sum.Readiness.add(r.Readiness)
 	}
 	sum.Targets = len(q.snap.Targets)
 	var link LinkTally

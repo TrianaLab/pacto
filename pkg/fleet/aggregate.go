@@ -4,7 +4,9 @@ import (
 	"sort"
 	"time"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
 
 // Backend-authoritative aggregates over a COMPLETE population.
@@ -138,6 +140,227 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 	if e.Newest == nil || t.EvidenceAt.After(*e.Newest) {
 		e.Newest = copyTime(t.EvidenceAt)
 	}
+}
+
+// OwnershipTally partitions a SERVICE population by how well ownership is
+// DECLARED on it: Consistent + Conflicting + Unowned == the population.
+//
+// Ownership is authored per revision (`service.owner` in the contract), so a
+// service's ownership is a property of its revisions agreeing rather than of one
+// field somebody set. A service is Consistent when every revision that declares an
+// owner declares the SAME one; a revision that declares none is silence, not a
+// contradiction. That is exactly the rule [deriveOwner] raises OWNER_CONFLICT by,
+// so the tally and the limitation can never disagree.
+//
+// Conflicting is never folded into Unowned. "Two teams claim this" and "nobody
+// claims this" are different answers to "who do I page", and they need opposite
+// fixes. Neither is folded into Consistent either: ServiceRecord.Owner is only a
+// documented summary (the lowest-keyed revision's owner), so counting a conflicted
+// service as owned would present that tie-break as agreement.
+type OwnershipTally struct {
+	Consistent  int `json:"consistent"`
+	Conflicting int `json:"conflicting"`
+	Unowned     int `json:"unowned"`
+}
+
+// Total is the population the tally covers.
+func (o OwnershipTally) Total() int { return o.Consistent + o.Conflicting + o.Unowned }
+
+// ReadinessTally partitions a CONTRACT REVISION population by its declared
+// readiness assessment. The unit is always the revision: readiness is authored
+// preparedness of one immutable contract, never a property of a service, of a
+// running target or of the fleet.
+//
+// It is orthogonal to compliance, and deliberately so — a revision whose readiness
+// passes can still be running on a target observed to violate its contract, and a
+// revision nobody assessed can be running perfectly. Every bucket is a state
+// [readiness.Evaluate] already computes, so there is no invented middle tier.
+// NotDeclared is its own bucket because "nobody wrote an assessment" is not the
+// same answer as "the assessment does not pass".
+type ReadinessTally struct {
+	Passing int `json:"passing"`
+	// BelowThreshold: assessed, in date, and scoring under the contract's own
+	// minScore.
+	BelowThreshold int `json:"belowThreshold"`
+	// Expired: assessed, but past its `expires` date, so it earns no weight at all
+	// and cannot be read as current.
+	Expired     int `json:"expired"`
+	NotDeclared int `json:"notDeclared"`
+}
+
+// add buckets one revision's assessment. Passing already excludes expiry, so the
+// three assessed buckets are mutually exclusive.
+func (r *ReadinessTally) add(res *readiness.Result) {
+	switch {
+	case res == nil:
+		r.NotDeclared++
+	case res.Passing:
+		r.Passing++
+	case res.Expired:
+		r.Expired++
+	default:
+		r.BelowThreshold++
+	}
+}
+
+// Total is the population the tally covers.
+func (r ReadinessTally) Total() int {
+	return r.Passing + r.BelowThreshold + r.Expired + r.NotDeclared
+}
+
+// OwnerCount is one owner's share of a service population and the operational
+// targets those services carry. It is a RANKING row, not a partition bucket — see
+// [EntityAggregate.ByOwner] for what the ranking leaves out.
+type OwnerCount struct {
+	Owner    string `json:"owner"`
+	Services int    `json:"services"`
+	Targets  int    `json:"targets"`
+}
+
+// maxOwnerRanking bounds the owner ranking on an entity aggregate. A fleet may
+// have any number of owners and this answer travels on every list response, so the
+// ranking is capped and the tail is reported as a count rather than dropped.
+const maxOwnerRanking = 10
+
+// EntityAggregate is the backend-authoritative tally of the COMPLETE population an
+// [EntityFilter] matched, computed before paging. It is what a list page must draw
+// a distribution from: the page it renders is one bounded slice of this
+// population, and counting THAT would present the first 25 rows as the fleet.
+//
+// Every tally names the population it partitions instead of sharing one
+// denominator, because the matched population is heterogeneous by design: a query
+// for services and revisions at once has a compliance answer about the services
+// and a readiness answer about the revisions, and no honest single whole. The
+// per-kind counts are reported, never derived by summing buckets, so a
+// disagreement between a denominator and its buckets stays visible.
+type EntityAggregate struct {
+	// Matched repeats EntityList.Total so a consumer holding only the aggregate
+	// still has the whole it divides.
+	Matched   int `json:"matched"`
+	Services  int `json:"services"`
+	Revisions int `json:"revisions"`
+	Targets   int `json:"targets"`
+	Owners    int `json:"owners"`
+	Sources   int `json:"sources"`
+	// ServiceCompliance partitions Services and TargetCompliance partitions Targets.
+	// They are kept apart rather than summed: a service status is a roll-up of its
+	// targets, so adding the two would count the same operational reality twice.
+	ServiceCompliance ComplianceTally `json:"serviceCompliance"`
+	TargetCompliance  ComplianceTally `json:"targetCompliance"`
+	// Ownership partitions Services; Readiness partitions Revisions.
+	Ownership OwnershipTally `json:"ownership"`
+	Readiness ReadinessTally `json:"readiness"`
+	// ByOwner ranks the CONSISTENTLY OWNED matched services by owner, largest first,
+	// bounded to maxOwnerRanking. It is not a partition of Services and does not
+	// pretend to be: Ownership.Conflicting and Ownership.Unowned are excluded (they
+	// have no one owner to rank under), OtherOwners holds the services whose owner
+	// fell past the bound, and DistinctOwners says how many owners exist in total.
+	// So Sum(ByOwner.Services) + OtherOwners == Ownership.Consistent, and a consumer
+	// can state exactly what the ranking omits.
+	ByOwner        []OwnerCount `json:"byOwner,omitempty"`
+	OtherOwners    int          `json:"otherOwners,omitempty"`
+	DistinctOwners int          `json:"distinctOwners,omitempty"`
+}
+
+// ownershipState classifies a service's declared ownership: how many DISTINCT
+// owners its revisions declare, and the display label when they declare exactly
+// one. The count is the classification (0 unowned, 1 consistent, more
+// conflicting); the label is only for ranking and linking, and it is empty for an
+// owner that carries contacts but neither a team nor a DRI. Such a service is
+// consistently owned and simply has nothing to rank under — which is why the count
+// and the label are returned separately rather than an empty label standing in for
+// "no owner".
+func (q *Query) ownershipState(s *ServiceRecord) (distinctOwners int, label string) {
+	var distinct []contract.Owner
+	for _, rk := range s.Revisions {
+		o := q.snap.Revisions[rk].Owner
+		if o.IsEmpty() || ownerSeen(distinct, o) {
+			continue
+		}
+		distinct = append(distinct, o)
+	}
+	if len(distinct) == 1 {
+		return 1, distinct[0].DisplayString()
+	}
+	return len(distinct), ""
+}
+
+// addOwnership buckets one service into the ownership partition and returns the
+// label it is consistently owned by (empty when conflicted, unowned or unlabelled),
+// so a caller ranking owners classifies by the SAME rule the partition uses.
+func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
+	n, label := q.ownershipState(s)
+	switch n {
+	case 0:
+		o.Unowned++
+	case 1:
+		o.Consistent++
+	default:
+		o.Conflicting++
+	}
+	return label
+}
+
+// aggregate tallies the complete matched population. refs are the filtered
+// references BEFORE paging, which is the whole point: this is the denominator the
+// page is a slice of.
+func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
+	agg := EntityAggregate{Matched: len(refs)}
+	byOwner := map[string]*OwnerCount{}
+	for _, r := range refs {
+		switch r.Kind {
+		case KindService:
+			agg.Services++
+			s := q.snap.Services[ServiceKey(r.Key)]
+			agg.ServiceCompliance.add(s.Status)
+			if owner := q.addOwnership(&agg.Ownership, s); owner != "" {
+				c := byOwner[owner]
+				if c == nil {
+					c = &OwnerCount{Owner: owner}
+					byOwner[owner] = c
+				}
+				c.Services++
+				c.Targets += len(s.Targets)
+			}
+		case KindRevision:
+			agg.Revisions++
+			agg.Readiness.add(q.snap.Revisions[RevisionKey(r.Key)].Readiness)
+		case KindTarget:
+			agg.Targets++
+			agg.TargetCompliance.add(r.Status)
+		case KindOwner:
+			agg.Owners++
+		case KindSource:
+			agg.Sources++
+		}
+	}
+	agg.DistinctOwners = len(byOwner)
+	agg.ByOwner, agg.OtherOwners = rankOwners(byOwner)
+	return agg
+}
+
+// rankOwners orders the owner buckets largest first (ties by owner label, so the
+// order is deterministic) and cuts the ranking at maxOwnerRanking, returning the
+// services the cut dropped rather than losing them.
+func rankOwners(m map[string]*OwnerCount) ([]OwnerCount, int) {
+	out := make([]OwnerCount, 0, len(m))
+	for _, c := range m {
+		out = append(out, *c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Services != out[j].Services {
+			return out[i].Services > out[j].Services
+		}
+		return out[i].Owner < out[j].Owner
+	})
+	if len(out) <= maxOwnerRanking {
+		return out, 0
+	}
+	other := 0
+	for _, c := range out[maxOwnerRanking:] {
+		other += c.Services
+	}
+	return out[:maxOwnerRanking], other
 }
 
 // ServiceSummary is the complete, backend-authoritative aggregate a service page

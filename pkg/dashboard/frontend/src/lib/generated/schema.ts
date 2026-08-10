@@ -1059,6 +1059,29 @@ export interface components {
             path: string;
             title: string;
         };
+        "Fleet.EntityAggregate": {
+            byOwner?: components["schemas"]["Fleet.OwnerCount"][] | null;
+            /** Format: int64 */
+            distinctOwners?: number;
+            /** Format: int64 */
+            matched: number;
+            /** Format: int64 */
+            otherOwners?: number;
+            /** Format: int64 */
+            owners: number;
+            ownership: components["schemas"]["Fleet.OwnershipTally"];
+            readiness: components["schemas"]["Fleet.ReadinessTally"];
+            /** Format: int64 */
+            revisions: number;
+            serviceCompliance: components["schemas"]["Fleet.ComplianceTally"];
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            sources: number;
+            targetCompliance: components["schemas"]["Fleet.ComplianceTally"];
+            /** Format: int64 */
+            targets: number;
+        };
         "Fleet.EvidenceWindow": {
             /** Format: date-time */
             newest?: string;
@@ -1210,6 +1233,8 @@ export interface components {
             observedOnlyRelationships: number;
             /** Format: int64 */
             otherComplianceTargets: number;
+            ownership: components["schemas"]["Fleet.OwnershipTally"];
+            readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             recentEvidence: number;
             /** Format: int64 */
@@ -1233,6 +1258,13 @@ export interface components {
             /** Format: int64 */
             unresolvedTargetLinks: number;
         };
+        "Fleet.OwnerCount": {
+            owner: string;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            targets: number;
+        };
         "Fleet.OwnerSummary": {
             compliance: components["schemas"]["Fleet.ComplianceTally"];
             evidence: components["schemas"]["Fleet.EvidenceWindow"];
@@ -1246,6 +1278,14 @@ export interface components {
             services: number;
             /** Format: int64 */
             targets: number;
+        };
+        "Fleet.OwnershipTally": {
+            /** Format: int64 */
+            conflicting: number;
+            /** Format: int64 */
+            consistent: number;
+            /** Format: int64 */
+            unowned: number;
         };
         "Fleet.ProductEvidenceRef": {
             observedAt?: string;
@@ -1330,6 +1370,16 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.ReadinessTally": {
+            /** Format: int64 */
+            belowThreshold: number;
+            /** Format: int64 */
+            expired: number;
+            /** Format: int64 */
+            notDeclared: number;
+            /** Format: int64 */
+            passing: number;
         };
         "Fleet.Relationship": {
             compatibility?: string;
@@ -2008,6 +2058,7 @@ export interface components {
             target?: components["schemas"]["ProductTargetDetail"];
         };
         ProductEntityList: {
+            aggregate: components["schemas"]["Fleet.EntityAggregate"];
             /** Format: int64 */
             count: number;
             entities: components["schemas"]["ProductRef"][] | null;
@@ -2808,6 +2859,10 @@ export interface operations {
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
                 status?: string;
+                /** @description Declared-ownership filter for service entities */
+                ownership?: "consistent" | "conflicting" | "unowned";
+                /** @description Declared-readiness filter for contract revision entities */
+                readiness?: "passing" | "below-threshold" | "expired" | "not-declared";
                 /** @description Source-health filter for source entities */
                 sourceHealth?: "available" | "partial" | "stale" | "unavailable";
                 source?: string;

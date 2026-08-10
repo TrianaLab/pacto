@@ -89,6 +89,8 @@ type fleetEntitiesInput struct {
 	Domain       string `query:"domain"`
 	Scope        string `query:"scope"`
 	Status       string `query:"status" doc:"Compliance status filter (service/revision/target)"`
+	Ownership    string `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
+	Readiness    string `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
 	SourceHealth string `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
 	Source       string `query:"source"`
 	Service      string `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
@@ -106,6 +108,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: parseKinds(in.Kinds), Owner: in.Owner, Domain: in.Domain,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
+		Ownership: in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {
