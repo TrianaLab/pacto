@@ -177,6 +177,22 @@ The Phase-3 closure + Phase-4 session (this ledger's current session) ran as fol
   draft; PR-body finalization is phase 14. The session then continued DIRECTLY into
   Phase 4 (search-first Operational Graph) in the same pass.
 
+The second-correction-pass session (this ledger's current session) ran as follows:
+
+- Starting HEAD: `2efeb9ef` (the independently reviewed HEAD of PR #291).
+- Synchronized base: `eb1482ff` (current `main` tip). `main` had NOT moved from that
+  base (it equals the merge-base and is an ancestor of HEAD), so no re-sync was
+  needed. Integration remains merge (branch content preserved).
+- Exact-SHA CI was green at `2efeb9ef` and a second real-user review still found five
+  concrete regressions the acceptance suite did not cover -- two of them capabilities
+  the previous dashboard shipped, both recorded in this file as deliberate scope. The
+  Product-UI / information-parity / interaction / browser-acceptance items were
+  REOPENED narrowly and re-closed; the proven engine, identity, fleet-query,
+  graph-projection, boundedness and evidence semantics were not reopened. See "Second
+  correction pass" below. No Git history was rewritten, rebased or force-pushed; the
+  U+00A7 commit-history CI enforcement stays BLOCKED (section 8 item 9). The PR stays
+  draft; PR-body finalization is phase 14. Phase 7 was NOT started.
+
 ## 0a. Current status (authoritative)
 
 This is the single authoritative status. Any older phase heading below is
@@ -243,14 +259,18 @@ several generations of Pacto UI stitched together". Headings below that read
   See "Phase 5 closure" below. The "retained specialized Readiness/Compare" this bullet
   used to name no longer exist on a Fleet host -- see the product-coherence correction
   below.
-- Phase 6 (WASM browser acceptance): COMPLETE. Every Phase-6 criterion has a spec and
-  every spec passes on the built demo (133 Playwright tests across 14 specs, desktop plus
-  Pixel-5; 1 skipped -- the `test.fixme` mermaid doc-body case recorded in section 0c).
-  The full local gate set is green, the final real-user browser inspection is done (see
-  "Post-freeze correction pass" below, which is what that inspection produced), and every
-  GitHub workflow passed on `c5fdc1c4`, the commit carrying the final code: CI, Pacto
-  Contract CI, Security, Docs check, Repowise, Validate PR title. Phase 7 has NOT been
-  started.
+- Phase 6 (WASM browser acceptance): COMPLETE (re-closed). It had been marked COMPLETE
+  at `c5fdc1c4` with 133 Playwright tests across 14 specs and one `test.fixme` -- and
+  that status was NOT truthful, because the `fixme` covered a capability the previous
+  dashboard really had (rendered doc bodies) and because three further regressions had
+  no acceptance at all. A second independent real-user review of `2efeb9ef` found them.
+  Phase 6 was REOPENED, narrowly, together with the information-parity and interaction
+  ledger items it depends on, and is re-closed here: 158 Playwright tests across 17
+  specs, desktop plus Pixel-5, and NO `test.fixme` covering a required existing
+  capability. See "Second correction pass" below for the five defects, their root causes
+  and the specs that now hold them. The one remaining `test.skip` is a data guard in
+  `headings.spec.ts` (skips when the demo publishes no legacy service to open), not a
+  deferred capability. The final gate is final-SHA CI. Phase 7 has NOT been started.
 - Product-coherence correction (cross-phase; NOT whole-program Phase 6, which is WASM
   browser acceptance): COMPLETE. A real user reported the app
   "still feels like several generations of Pacto UI stitched together". This phase was a
@@ -462,12 +482,14 @@ accompanies this matrix.
 | `DependenciesSection` — Ref / Required / Compatibility / Pinned columns | REVISION | yes | **yes (restored)** | the API always sent `NeighborhoodEdge.declaredClaims`; the row dropped them. `RelationshipList` now renders them behind `showClaims`, on outbound edges only |
 | `ConfigSection` — schema path | REVISION | yes | yes | |
 | `ConfigSection` — effective key/value table | REVISION | yes | yes | bounded `values` preview per configuration scope |
-| `PolicySection` | REVISION | yes | yes | name, definition, target, local/remote |
+| `ConfigSection` — remote ref NAVIGABLE to the referenced service | REVISION | **yes (added)** | **yes (restored)** | the legacy page made a remote ref clickable by splitting the ref string. The row rendered the ref as inert text, which is a real loss. The fleet builder now resolves each config/policy ref to a canonical `ServiceKey` inside the REFERRING revision's own domain and publishes the verdict as `RefResolution`; the UI links to what the backend resolved and never re-derives a destination from a string or a label. The raw ref stays visible verbatim; an unresolved ref says so with the backend's reason and fabricates no service |
+| `PolicySection` | REVISION | yes | yes | name, definition, target, local/remote; remote refs are navigable on the same `RefResolution`, same rule |
+| Reverse reference navigation ("who reads my config / policy") | SERVICE | **yes (added)** | **yes (added)** | a reference is not a dependency, so a shared configuration or policy service was reachable FROM its consumers but could never list them back. `ServiceDetailData.ReferencedBy` closes the loop. The old page did not have this at all |
 | `ReadinessSection` — score / gate / checks | REVISION | yes | yes | readiness is declared and gated PER REVISION; the service page deliberately does not roll it up, which would invent a third definition |
 | `ReadinessSection` — reported readiness | OPERATIONAL TARGET | yes | yes | kept separate from the declared gate, because the two can legitimately disagree |
 | `RevisionHistory` (inside readiness) | REVISION | yes | yes | previous/next revision links + the scoped revision inventory |
 | `DocsSection` — doc list (title/path) | REVISION | yes | yes | bounded `docs` preview |
-| `DocsSection` — rendered doc BODIES (Markdown + Mermaid) | NON-FLEET COMPATIBILITY ONLY | no | no | full doc content is not a bounded fact; a doc-content endpoint plus a product viewer is a recorded post-freeze follow-up. Still works on the `pacto doc` export. The `mermaid.spec.ts` acceptance is `test.fixme` with this exact reason, not silently dropped |
+| `DocsSection` — rendered doc BODIES (Markdown + Mermaid) | REVISION | **yes (added)** | **yes (restored)** | this row once read NON-FLEET COMPATIBILITY ONLY with a post-freeze follow-up; that classification was wrong and is withdrawn — it recorded a real capability loss as a design boundary. A body is now read LAZILY, one document at a time, by canonical RevisionKey plus a path the revision itself published (`Query.RevisionDocument`, `GET /api/fleet/revisions/document`), so the entity response stays bounded and the doc list stays a preview. The published-path allow-list is the traversal and cross-revision defense; `MaxDocumentBytes` bounds the read and an oversized, unreadable or non-text body is an explicit 422, never empty content. Rendered through the shared `MarkdownView` (sanitized, Mermaid `securityLevel: 'strict'`). `mermaid.spec.ts` is migrated to this path and is no longer `test.fixme` |
 | `SbomSection` | REVISION | yes (added) | yes (added) | `SBOMSummary`: format, the COMPLETE package count, and license buckets capped at 20 with the tail folded into `OtherLicensed`, so the buckets always partition the package population. The packages themselves stay in the bundle — a snapshot holds every revision of every service. An unparseable SBOM raises `SBOM_UNREADABLE` rather than rendering as "declares no packages" |
 | `ValidationSection` — findings | REVISION | yes | yes | `validation` preview |
 | `ValidationSection` — operator conditions | OPERATIONAL TARGET | **no** | no | same collector gap as `OverviewSection` conditions |
@@ -477,14 +499,20 @@ accompanies this matrix.
 
 ### Deliberate non-parity
 
-Three things the old page did that the product IA will NOT do, each for a stated
+Two things the old page did that the product IA will NOT do, each for a stated
 reason rather than by omission:
 
 1. **A version TIMELINE chart.** The snapshot has no publication history:
    `FetchedAt` is when we fetched a revision, not when it was published. Drawing a
    timeline from it would be a fabricated time series.
 2. **A single service health score.** See the compliance-score row above.
-3. **Doc bodies on a Fleet host.** See the `DocsSection` row above.
+
+This list used to have a third entry, "doc bodies on a Fleet host". It did not
+belong here: the other two are facts the model genuinely cannot produce without
+inventing them, while doc bodies were a capability the previous dashboard shipped
+and the product IA dropped. A capability loss recorded as a design boundary is how
+a regression survives a review, so it is withdrawn and the capability is restored.
+See the `DocsSection` doc-BODIES row above.
 
 ### Collector gaps (not UI gaps)
 
@@ -626,17 +654,24 @@ and made unreachable on a Fleet host. Dead code removed: `addTargetLogicalDepend
 `serviceReverseDeps` (`pkg/fleet/projection.go`) and the unused `edgeColor`
 (`lib/graph.ts`).
 
-Deferred product capability surfaced by the dual-UI cleanup (Part 1.4 option C):
+Product capability lost by the dual-UI cleanup (Part 1.4 option C), and since RESTORED:
 rich-doc / Mermaid RENDERING lived only in the legacy ServiceDetailView (it fetched full
 doc content over the legacy `/api/services/:name` plane and rendered it with mermaid). The
-product entity pages expose bounded doc PREVIEWS (title/path) by design; the product API
-does not carry full doc content. So making the legacy service detail unreachable on a
-Fleet host removed rendered-doc viewing from the Fleet product. Migrating it (product API
-doc content + a product doc viewer) is a post-freeze product follow-up (it is not a
-browser-acceptance item, so it is not Phase 6); the capability still works on
-the non-Fleet `pacto doc` export. The `mermaid.spec.ts` section-K acceptance, which
-validated rendering via that legacy path, is marked `test.fixme` with this reason (it is
-NOT silently dropped).
+product entity pages expose bounded doc PREVIEWS (title/path), and the product API did not
+carry doc content at all. So making the legacy service detail unreachable on a Fleet host
+removed rendered-doc viewing from the Fleet product.
+
+This paragraph used to close by deferring the migration to a "post-freeze product
+follow-up" and marking the `mermaid.spec.ts` section-K acceptance `test.fixme` with that
+reason. That was the wrong call and it is withdrawn: a capability the previous dashboard
+shipped, removed by our own cleanup, is a regression to fix rather than a follow-up to
+schedule -- and a `fixme` standing over it made the browser suite report green on a
+capability that no longer worked. The migration is done (`Query.RevisionDocument` +
+`GET /api/fleet/revisions/document` + the `RevisionDocs` product viewer; see the
+`DocsSection` doc-BODIES row in section 0c and "Second correction pass" below), the
+`fixme` is gone, and `mermaid.spec.ts` now proves rendering through the PRODUCT path on a
+Fleet host. The capability also still works on the non-Fleet `pacto doc` export, which is
+unchanged.
 
 ### Phase 5 progress (this session)
 
@@ -898,6 +933,18 @@ exposed are named with the spec that now closes each one.
 | **The visualization contract holds on composed pages, both themes** | `viz-acceptance.spec.ts` | ADDED |
 | **Reduced motion actually reaches the rendered bars** | `viz-acceptance.spec.ts` | ADDED |
 | **Recorded render baselines** | `product-scale.spec.ts` | ADDED |
+| **A background refresh keeps the user's place (poll, explicit Refresh, same-route data change)** | `place.spec.ts` | ADDED (second pass) |
+| **A failed background refresh keeps the stale page and says so** | `place.spec.ts` | ADDED (second pass) |
+| **Hard reload and Back/Forward restore position on canonical deep links** | `place.spec.ts` | ADDED (second pass) |
+| **Doc BODIES render on a Fleet host, Markdown and Mermaid, through the product path** | `mermaid.spec.ts` (migrated off `test.fixme`) | REPAIRED (second pass) |
+| **Contract references are navigable, including the same-name/cross-domain case** | `references.spec.ts` | ADDED (second pass) |
+| **Search-as-you-type: suggestions, keyboard, same-name domains, no-result, stale ordering, mobile** | `suggest.spec.ts` | ADDED (second pass) |
+
+The three "second pass" groups exist because Phase 6 had been closed with a
+`test.fixme` standing over a capability the previous dashboard shipped, and with no
+acceptance at all for refresh behaviour, reference navigation or the search field.
+A criterion nobody wrote a spec for is not a criterion that passed. See "Second
+correction pass" below.
 
 Two notes on what these specs deliberately do NOT do.
 
@@ -960,6 +1007,15 @@ What the freeze does not cover, because it was never Product UI design: the rema
 whole-program phases in section 5 (7 onward), and the ordinary maintenance of the surfaces
 already shipped.
 
+What the freeze also does not cover, learned the hard way in the second correction pass
+below: a capability the PREVIOUS dashboard shipped and this migration dropped. That is a
+regression, and the freeze exists to stop taste passes, not to make a regression
+permanent. Two of the five defects below are exactly that shape (rendered doc bodies,
+navigable contract references), and both had been recorded in this file as deliberate
+scope rather than as loss. Restoring a lost capability is a bug fix under the freeze. So
+is fixing a field that behaves worse than the one it replaced -- which is why the
+Services search field gained suggestions rather than a redesign.
+
 ### Post-freeze correction pass: six defects the terminal could not have found
 
 The freeze allows exactly one kind of change: a concrete defect. The final real-user
@@ -993,6 +1049,43 @@ browser reload (identical node positions in captures 09/10/11); nothing that V1 
 missing without a recorded reason (section 0c); no surface still looks like the old UI;
 and no chart is decorative -- each is a population partition or a ranked count with its
 exact numbers as text.
+
+### Second correction pass: five regressions a green suite reported as shipped
+
+Starting HEAD: `2efeb9ef` (the independently reviewed HEAD of PR #291). Exact-SHA CI
+was green there and most of the redesign was real, and a second real-user review still
+found five concrete regressions. Two of them are capabilities the PREVIOUS dashboard
+had, and this file had recorded both as deliberate scope. That is the lesson of this
+pass, and it is why the entries below name what the ledger said as well as what the
+code did: **a regression written down as a boundary stops being reviewable.**
+
+What was reopened, narrowly: rich entity / information parity for docs and references,
+interaction for refresh / scroll / autocomplete, and the WASM browser acceptance for
+those. The proven engine, identity, fleet-query, graph-projection, boundedness and
+evidence semantics were NOT reopened and are untouched.
+
+| Regression | Root cause | Fixed in |
+|---|---|---|
+| A background refresh threw away the page the user was reading: the body vanished, the page collapsed and the scroll offset was clamped toward the top, several times a minute, untouched | `FleetEntityView.load()` set `loading = true; error = null; detail = null` on EVERY tick, and `App.loadGlobal()` advances that tick on the poll timer. The lifecycle had one event where it needed four; and `decideViewState` ranked "a request is in flight" above "we already have the answer", so the collapse was decided in the shared state machine, not in one view | `lib/knowledgeState.ts` (stale-while-revalidate decided once, for every view, with `revalidating` / `refreshError` reported ALONGSIDE the data), `views/FleetEntityView.svelte` (identity vs re-ask, via the shared `createProductLoader` and a `dataTag` so another entity's answer never renders under this heading), `lib/scrollRestore.ts` (route-scoped restoration for the cases the browser genuinely cannot do: async content on a hash router) |
+| Rendered doc bodies (Markdown + Mermaid) were gone on a Fleet host | the capability lived only in the legacy ServiceDetailView over `/api/services/:name`, which the dual-UI cleanup correctly made unreachable — and the replacement was recorded as a post-freeze follow-up instead of being built, with a `test.fixme` standing over the acceptance | `pkg/fleet/document.go` (`Query.RevisionDocument`: keyed by canonical RevisionKey, path must be one the revision itself published, `MaxDocumentBytes` bound, explicit `DocumentUnavailableError`), `pkg/dashboard/fleet_product.go` (`GET /api/fleet/revisions/document`, 404 unknown / 422 unavailable), `components/RevisionDocs.svelte` (lazy per-document read, shared sanitized `MarkdownView` + Mermaid) |
+| Contract references were inert text: a configuration or policy pointing at another service could not be clicked | two causes, one visible. The row rendered the raw ref with no destination — but underneath, `resolveRefService` matched on the DECLARED NAME only, so a scope called "platform" pointing at `platform-app-config` never resolved and the backend had no destination to give. Almost every realistic reference was unresolved and nobody noticed, because nothing rendered the resolution | `pkg/fleet/build.go` (`refServiceName` reads the destination out of the REF, still resolved strictly inside the referring revision's own domain, so two same-named services in two domains resolve to their own), `pkg/fleet/contractdetail.go` (`RefResolution` published on config scopes and policies), `pkg/fleet/detail.go` (`ReferencedBy`: the reverse direction, which the old page never had), `components/ContractReference.svelte` (raw ref always visible, canonical `EntityLink` when resolved, honest unresolved state otherwise, nothing inferred from a label) |
+| The Services search field was submit-only: type a name, press Search, hope | it was the one search surface that never got the product Entities query; the global palette had it | `lib/entitySuggest.svelte.ts` (the debounce, the bound and the stale-response guard extracted from `EntitySearch` and now shared by both surfaces, so the race is fixed once), `components/EntityCombobox.svelte` (ARIA 1.2 combobox; suggestions only — the filter or the navigation commits on an explicit choice, so a keystroke writes no history entry), `views/FleetServicesView.svelte` |
+| Four unresolved CodeQL threads on `lib/architecture.test.ts` ("incomplete multi-character sanitization", "bad HTML filtering regexp") | the product-vocabulary guard extracted the reader-visible words from a component by DELETING the script, the stylesheet, the comments and the class attributes with a chain of regex replacements. It was never a sanitizer — it is source analysis, in a test, over files on disk — but it was shaped exactly like one, and a shape is what a static analyzer can see | `lib/architecture.test.ts`: `readerVisibleText` now walks the Svelte compiler's own modern AST (`parse(source, { modern: true })`), which hands back the script, the stylesheet and the template as separate things, so nothing is removed and the analysis says structurally what it always meant. A self-check test proves the extraction on all six placements at once (text / title / expression visible; script / comment / class not). No CodeQL rule is suppressed |
+
+Where the counterexamples live: `views/FleetEntityView.svelte.test.ts` and
+`lib/knowledgeState.test.ts` (a refresh over data on hand stays `ready`, a FAILED
+refresh stays `ready` with `refreshError`, another entity's answer never renders under
+this heading), `lib/scrollRestore.test.ts`, `pkg/fleet/document_test.go` (traversal,
+absolute path, another revision's path, oversized, non-UTF-8, bundle not retained),
+`pkg/fleet/refresolution_test.go` (same name in two domains resolves to its own),
+`pkg/dashboard/fleet_document_test.go`, `lib/entitySuggest.test.ts` and the three new
+browser specs `place.spec.ts`, `references.spec.ts` and `suggest.spec.ts` plus the
+migrated `mermaid.spec.ts`.
+
+The WASM demo gained a second domain (`examples/demo/partners/`) rather than a test-only
+fixture, because the same-name/cross-domain case cannot be proven against a fleet that
+has one domain — and a doc body served through a frontend fixture would prove the viewer
+and not the product mechanism.
 
 ## 1. Target product model
 
@@ -1182,12 +1275,17 @@ section 8.
    COMPLETE this session (an actual Cytoscape visual topology; final gate is
    final-SHA CI). See the authoritative current-status section 0a.
 5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile). COMPLETE.
-6. WASM browser acceptance (Playwright over the in-browser demo). COMPLETE: every
-   Phase-6 criterion has a spec (see the coverage reconciliation in section 0c),
+6. WASM browser acceptance (Playwright over the in-browser demo). COMPLETE (re-closed):
+   every Phase-6 criterion has a spec (see the coverage reconciliation in section 0c),
    including the four added later -- boundedness at scale, hostile identity,
-   the composed visualization contract, and recorded render baselines. The full local
-   verification, the final real-user UI inspection and final-SHA CI are all done. See
-   the authoritative current-status section 0a.
+   the composed visualization contract, and recorded render baselines -- and the three
+   added by the second correction pass: keeping the user's place across a refresh,
+   navigable contract references, and search-as-you-type. This phase was REOPENED after
+   a second real-user review of `2efeb9ef`, because it had been closed with a
+   `test.fixme` covering a capability the previous dashboard shipped. It may return to
+   COMPLETE only with its browser acceptance green and no `fixme` over a required
+   existing capability; both now hold. The final gate is final-SHA CI. See the
+   authoritative current-status section 0a.
 7. Operator-managed trace source: an operator-owned observed/trace source so the
    observed layer is real end to end, not demo-only.
 8. Live Kind vertical: the full install (operator + dashboard + Evidence Server +
