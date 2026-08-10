@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { parse } from 'svelte/compiler';
 
 /**
  * Architecture guard (ADR-6, requirement, item 9): the generated OpenAPI SDK is
@@ -225,18 +226,54 @@ describe('product visualization system', () => {
  * comment, and nowhere a reader can see it.
  */
 describe('product vocabulary', () => {
-  const PRODUCT_UI = files.filter((f) =>
+  const PRODUCT_UI = files.filter((f) => f.rel.endsWith('.svelte')).filter((f) =>
     /^views\/(Fleet[^/]*|ChangeAnalysisView|GraphView)\.svelte$/.test(f.rel)
     || f.rel.startsWith('views/entity/')
     || /^components\/(viz\/.*|OperationalSummary|Navbar|Breadcrumbs|EntitySearch)\.svelte$/.test(f.rel));
 
-  // Markup only. The script block, the stylesheet, the class names and the comments are
-  // all places the internal name legitimately lives; none of them is read by anyone.
-  const rendered = (body: string) => body
-    .replace(/<script[\s\S]*?<\/script>/g, '')
-    .replace(/<style[\s\S]*?<\/style>/g, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/class(:[\w-]+)?=(["'][^"']*["']|\{[^}]*\})/g, '');
+  /**
+   * The words a reader can actually see, taken from the Svelte compiler's own parse of
+   * the component rather than by deleting things from its text.
+   *
+   * That distinction is the point. This used to strip the script block, the stylesheet,
+   * the comments and the class attributes with a chain of regex replacements -- which
+   * is exactly the shape of a hand-rolled HTML sanitizer, and was read as one. It never
+   * was one: it is source analysis, in a test, over files on disk. So it now says so
+   * structurally. Nothing is removed. The parser already hands back the script, the
+   * stylesheet and the template as separate things, so this walks the template alone,
+   * and within it only the nodes that reach the screen: text, and the human-readable
+   * literals in attributes and template expressions beside it.
+   */
+  const readerVisibleText = (source: string): string => {
+    const out: string[] = [];
+    const visit = (node: unknown): void => {
+      if (Array.isArray(node)) { node.forEach(visit); return; }
+      if (!node || typeof node !== 'object') return;
+      const n = node as { type?: string; data?: string; name?: string; value?: unknown };
+      switch (n.type) {
+        // A note to the next developer, and a hook for the stylesheet. Neither is read
+        // by anyone using the product.
+        case 'Comment':
+        case 'ClassDirective':
+          return;
+        case 'Text':
+          out.push(String(n.data ?? ''));
+          return;
+        case 'Attribute':
+          if (n.name === 'class') return;
+          break;
+        case 'Literal': // a string built inside a template expression
+          if (typeof n.value === 'string') out.push(n.value);
+          return;
+        case 'TemplateElement':
+          out.push(String((n.value as { cooked?: string } | undefined)?.cooked ?? ''));
+          return;
+      }
+      for (const v of Object.values(n)) if (v && typeof v === 'object') visit(v);
+    };
+    visit(parse(source, { modern: true }).fragment);
+    return out.join('\n');
+  };
   // A route, an identifier or a view id -- never a word a reader sees.
   const INTERNAL = /fleet[A-Z][A-Za-z]*|[/'"#]fleet|fleet-[a-z]/g;
 
@@ -244,9 +281,31 @@ describe('product vocabulary', () => {
     expect(PRODUCT_UI.length).toBeGreaterThanOrEqual(12);
   });
 
+  it('reads the words a reader sees, and not the ones only a developer does', () => {
+    // The guard is only worth its green tick if the extraction underneath it is right,
+    // so it is checked against a component that puts the internal name in all six
+    // places at once -- three a reader meets, three they never do.
+    const sample = [
+      "<script>const fleetLoader = 'fleet inside the script';</script>",
+      '<!-- fleet inside a comment -->',
+      '<div class="fleet-card" class:fleet-active={true} title="fleet inside a title">',
+      "  fleet inside the text {'fleet inside an expression'}",
+      '</div>',
+      '<style>.fleet-card { color: red; }</style>',
+    ].join('\n');
+    const visible = readerVisibleText(sample);
+    expect(visible).toContain('fleet inside the text');
+    expect(visible).toContain('fleet inside a title');
+    expect(visible).toContain('fleet inside an expression');
+    expect(visible).not.toContain('inside the script');
+    expect(visible).not.toContain('inside a comment');
+    expect(visible).not.toContain('fleet-card');
+    expect(visible).not.toContain('fleet-active');
+  });
+
   it('renders the internal name nowhere a reader can see it', () => {
     const offenders = PRODUCT_UI
-      .filter((f) => /\bfleets?\b/i.test(rendered(f.body).replace(INTERNAL, '')))
+      .filter((f) => /\bfleets?\b/i.test(readerVisibleText(f.body).replace(INTERNAL, '')))
       .map((f) => f.rel);
     expect(offenders, `internal "fleet" wording rendered on a product surface: ${offenders.join(', ')}`).toEqual([]);
   });
