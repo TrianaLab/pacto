@@ -182,6 +182,18 @@ The Phase-3 closure + Phase-4 session (this ledger's current session) ran as fol
 This is the single authoritative status. Any older phase heading below is
 historical narrative; where it conflicts with this section, this section wins.
 
+**One canonical program sequence.** Phase numbers mean exactly what section 5
+says they mean, and nothing else. Section 5 is the numbering; this section is the
+status of that numbering. In particular: **Phase 6 is WASM browser acceptance**,
+as it always was. Earlier sessions used "Phase 6" as a working label for the
+product-coherence / novice-usability correction; that was a second meaning for a
+number already taken, and it is retired here. That work is now recorded under its
+own name — the **product-coherence correction** — because it was not a new phase
+at all: it re-opened and re-closed deliverables belonging to phases 2, 3 and 4
+(IA, entity pages, graph) after a real user reported the app "still feels like
+several generations of Pacto UI stitched together". Headings below that read
+"Phase 6 ... coherence" describe that correction, not whole-program Phase 6.
+
 - Phase 1 (product API hardening): COMPLETE.
 - Phase 2 (frontend IA and routing): COMPLETE.
 - Phase 3 (Overview, Services, Attention, rich entity pages): COMPLETE.
@@ -213,7 +225,7 @@ historical narrative; where it conflicts with this section, this section wins.
   focus" placeholder, no whole-fleet auto-render). The earlier `540cf692` / `973daa14`
   blockers remain closed. The visual-acceptance blocker is cleared.
 - Phase 5 (responsive + accessible interaction: keyboard graph navigation, mobile
-  layout, formal WCAG): IN PROGRESS (unpaused, advanced this session). DONE: the real
+  layout, formal WCAG): COMPLETE. DONE: the real
   WCAG contrast gate -- axe no longer blanket-disables color-contrast; the design tokens
   were measured in both themes and deepened so every rendered text pair clears AA 4.5:1
   (new --c-on-accent, deepened light accent/ok/warn, removed the empty-state opacity fade
@@ -223,12 +235,16 @@ historical narrative; where it conflicts with this section, this section wins.
   acceptance (graph drawers + navigator, attention advanced filters, mobile nav, populated
   impact). The keyboard graph model (semantic Relationships navigator: discover/focus,
   traverse nodes + edges, inspect, Escape restores focus, open full detail, change
-  perspective/views/direction) is covered by keyboard.spec.ts. REMAINING: a full explicit
-  heading/landmark audit sweep across every canonical route (currently covered by the axe
-  heading-order/landmark rules plus the drawer fix, not yet an exhaustive per-route manual
-  pass). The "retained specialized Readiness/Compare" this bullet used to name no longer
-  exist on a Fleet host -- see Phase 6.
-- Phase 6 (product coherence / novice usability): COMPLETE. A real user reported the app
+  perspective/views/direction) is covered by keyboard.spec.ts. The last open item -- a
+  full explicit heading/landmark sweep across every canonical route -- is now done and
+  gated by `e2e/headings.spec.ts`; it found and fixed a per-route page title, a skipped
+  heading level in the shared empty state, a missing banner landmark next to two
+  navigation landmarks, and an entity page with no heading while loading or not found.
+  See "Phase 5 closure" below. The "retained specialized Readiness/Compare" this bullet
+  used to name no longer exist on a Fleet host -- see the product-coherence correction
+  below.
+- Product-coherence correction (cross-phase; NOT whole-program Phase 6, which is WASM
+  browser acceptance): COMPLETE. A real user reported the app
   "still feels like several generations of Pacto UI stitched together". This phase was a
   first-time-user product review of the BUILT WASM demo in a real browser (30 BEFORE
   screens captured with a cognitive walkthrough), followed by implementation, followed by
@@ -263,7 +279,7 @@ historical narrative; where it conflicts with this section, this section wins.
      generations of UI": one control (`<details>`) carried five unrelated designs across
      five screens, `.btn` had been re-implemented four times under four private names, and
      two status pickers each hand-listed four of the seven wire statuses. All three are now
-     single shared idioms -- see "Phase 6 second pass" below.
+     single shared idioms -- see "second pass: visual coherence" below.
   Two REAL bugs were found by walking the product rather than reading it: the primary-nav
   "Services" link was a silent no-op while capabilities were still unprobed (its `'#/'`
   fallback canonicalized straight back to the Overview on a Fleet host), and a shared
@@ -371,6 +387,113 @@ not peer destinations. They are reachable from the Overview, from entity pages a
 from the command palette, and they keep their own routes; they are not top-level
 tabs. Desktop nav, mobile nav and the command palette all agree on this ordering.
 
+## 0c. Old-detail to Product-detail parity matrix (requirement 1)
+
+The legacy dashboard had ONE page — `views/ServiceDetailView.svelte` plus
+`src/sections/**` — that answered every question about a service. The Product
+entity model deliberately splits that page across three entities, because the old
+page conflated three different things under one name (a logical service, an
+immutable contract revision, and a running instance). A split is not a licence to
+lose information, so every capability of the old page is classified below into
+exactly one destination:
+
+- **SERVICE** — a property of the logical service across all its revisions and
+  targets.
+- **REVISION** — a property of an immutable contract revision (declared).
+- **OPERATIONAL TARGET** — a property of a running instance (observed).
+- **CHANGE ANALYSIS** — a property of the difference between two revisions.
+- **REMOVED BY PACTO V2 MODEL** — the v2 slim contract no longer declares it and
+  no runtime source observes it, so there is nothing to render. Rendering it
+  would mean inventing it.
+- **NON-FLEET COMPATIBILITY ONLY** — retained on the offline `pacto doc` export,
+  which has no Product API, and deliberately not migrated.
+
+"In API" = the Product API already carries the fact. "Rendered" = a product page
+actually shows it. Both columns are the state AFTER the restoration commit that
+accompanies this matrix.
+
+### Header and identity
+
+| Old capability | Destination | In API | Rendered | Action taken |
+|---|---|---|---|---|
+| Service name / title | SERVICE | yes | yes | entity header + breadcrumbs |
+| Contract status badge | SERVICE (aggregate) and OPERATIONAL TARGET (per instance) | yes | yes | the old single badge conflated the two; the service page shows the compliance DISTRIBUTION over its complete target population, the target page shows its own verdict |
+| "Definition only" badge (no runtime data) | SERVICE | yes | yes | expressed as the evidence-freshness distribution plus an explicit "nothing running has been observed" empty state — never as a failure |
+| Numeric compliance score | REMOVED BY PACTO V2 MODEL | no | no | Compliance 2.0 is four named states, not a percentage. A score averaged a confirmed contradiction with a cannot-observe, which is the exact conflation the 4-state model exists to prevent |
+| Error / warning count badges | SERVICE | yes | yes | severity distribution + the attributed findings list |
+| `checksSummary` passed/total | OPERATIONAL TARGET | yes | yes | `coverage.evaluated of coverage.required` on the target page |
+| Evaluation coverage | OPERATIONAL TARGET | yes | yes | same row as above |
+| Blast radius indicator | CHANGE ANALYSIS | yes | yes | impact analysis over the canonical RevisionKey, with the affected consumers enumerated instead of a bare number |
+| Version pill | REVISION | yes | yes | revision header |
+| "via cluster" override pill | OPERATIONAL TARGET | yes | yes | the target's own observed identity, kept separate from the declared one |
+| Version policy pill (tracking / pinned-tag / pinned-digest) | OPERATIONAL TARGET | yes | yes | superseded by the two-dimension identity model (revision-match certainty + content retrievability), which says strictly more: an exact match to non-retrievable content is now expressible and was not before |
+| "N available" update pill + Compare CTA | SERVICE | yes | yes | revisions list is newest-first with "in use" marked; Compare is the Change analysis CTA |
+| Source dots | SERVICE and OPERATIONAL TARGET | yes | yes | `sources` preview on the target; source health strip on the Overview |
+| Owner link, DRI | SERVICE / REVISION / TARGET | yes | yes | `ownership` on all three, plus ownership-conflict reporting the old page did not have |
+| Namespace | OPERATIONAL TARGET | yes | yes | `scope` |
+| Resolved / image ref | REVISION and OPERATIONAL TARGET | yes | yes | `identity.resolvedRef` on both |
+| Version `<select>` + "Compare versions" | REVISION | yes | yes | the scoped revision inventory (`/fleet/entities/revision?service=`) is a bounded, canonical, paged list; the old `<select>` was an unbounded name-based fetch |
+| Reference-only banner | REVISION | yes | yes | `Reference` status |
+| "Viewing version X, not current" banner | REVISION | yes | yes | the revision page IS a specific revision; previous/next links carry the chronology |
+
+### Sections
+
+| Old section | Destination | In API | Rendered | Action taken |
+|---|---|---|---|---|
+| Insights list | SERVICE | yes | yes | replaced by attention + attributed findings, which are backend-derived rather than client-computed |
+| Endpoint Probes | OPERATIONAL TARGET | **no** | no | Pacto no longer probes endpoints and no collector reports probe results. Not fabricated. Recorded as a collector gap, not a UI gap |
+| `OverviewSection` — operator Conditions | OPERATIONAL TARGET | **no** | no | the k8s collector (`internal/fleetsrc/k8s.go`) does not currently carry operator `status.conditions` into the snapshot. Collector gap, recorded, not fabricated |
+| `OverviewSection` — Runtime card (`upgradeStrategy`, `gracefulShutdownSeconds`, `healthPath`, `metricsPath`) | REMOVED BY PACTO V2 MODEL | no | no | the v2 slim contract does not declare these and nothing observes them |
+| `OverviewSection` — Scaling card | REMOVED BY PACTO V2 MODEL | no | no | as above |
+| `OverviewSection` — Resources | REMOVED BY PACTO V2 MODEL | no | no | as above |
+| `OverviewSection` — contract metadata | REVISION | yes (added) | yes (added) | `ContractRevision.Metadata`, bounded ONCE at Build like observed runtime, because the map is author-controlled and arbitrarily wide. Rendered as "Contract metadata" |
+| `SourcesPanel` | SERVICE and OPERATIONAL TARGET | yes | yes | `sources` preview + Data sources destination |
+| `InterfacesSection` | REVISION | yes | yes | interfaces with their OPERATIONS (name, method, path, summary, mutating), not a count. This is the named regression the parity test guards |
+| `CapabilitiesSection` (capabilities + skills) | REVISION | yes | yes | each capability with its binding, or an explicit "no binding declared" |
+| `DependenciesSection` — service names | REVISION (declared) and SERVICE (neighbourhood) | yes | yes | both |
+| `DependenciesSection` — Ref / Required / Compatibility / Pinned columns | REVISION | yes | **yes (restored)** | the API always sent `NeighborhoodEdge.declaredClaims`; the row dropped them. `RelationshipList` now renders them behind `showClaims`, on outbound edges only |
+| `ConfigSection` — schema path | REVISION | yes | yes | |
+| `ConfigSection` — effective key/value table | REVISION | yes | yes | bounded `values` preview per configuration scope |
+| `PolicySection` | REVISION | yes | yes | name, definition, target, local/remote |
+| `ReadinessSection` — score / gate / checks | REVISION | yes | yes | readiness is declared and gated PER REVISION; the service page deliberately does not roll it up, which would invent a third definition |
+| `ReadinessSection` — reported readiness | OPERATIONAL TARGET | yes | yes | kept separate from the declared gate, because the two can legitimately disagree |
+| `RevisionHistory` (inside readiness) | REVISION | yes | yes | previous/next revision links + the scoped revision inventory |
+| `DocsSection` — doc list (title/path) | REVISION | yes | yes | bounded `docs` preview |
+| `DocsSection` — rendered doc BODIES (Markdown + Mermaid) | NON-FLEET COMPATIBILITY ONLY | no | no | full doc content is not a bounded fact; a doc-content endpoint plus a product viewer is a recorded post-freeze follow-up. Still works on the `pacto doc` export. The `mermaid.spec.ts` acceptance is `test.fixme` with this exact reason, not silently dropped |
+| `SbomSection` | REVISION | yes (added) | yes (added) | `SBOMSummary`: format, the COMPLETE package count, and license buckets capped at 20 with the tail folded into `OtherLicensed`, so the buckets always partition the package population. The packages themselves stay in the bundle — a snapshot holds every revision of every service. An unparseable SBOM raises `SBOM_UNREADABLE` rather than rendering as "declares no packages" |
+| `ValidationSection` — findings | REVISION | yes | yes | `validation` preview |
+| `ValidationSection` — operator conditions | OPERATIONAL TARGET | **no** | no | same collector gap as `OverviewSection` conditions |
+| `RuntimeDiffSection` — per-field declared-vs-observed rows | OPERATIONAL TARGET | **no** | no | the snapshot carries observed runtime and declared contract separately, but no collector emits the field-level reconciliation rows. The service-level declared-vs-observed reconciliation IS carried (`difference` per edge) and is rendered. Recorded as a collector gap |
+| `ObservedRuntimeSection` | OPERATIONAL TARGET | yes | yes | `observedRuntime` bounded preview, plus `labels` which the old page did not have |
+| Sticky "On this page" TOC | (presentation) | n/a | n/a | not information; the product pages are shorter and use headings + landmarks instead |
+
+### Deliberate non-parity
+
+Three things the old page did that the product IA will NOT do, each for a stated
+reason rather than by omission:
+
+1. **A version TIMELINE chart.** The snapshot has no publication history:
+   `FetchedAt` is when we fetched a revision, not when it was published. Drawing a
+   timeline from it would be a fabricated time series.
+2. **A single service health score.** See the compliance-score row above.
+3. **Doc bodies on a Fleet host.** See the `DocsSection` row above.
+
+### Collector gaps (not UI gaps)
+
+Recorded so they are not mistaken for information loss in the redesign: operator
+`status.conditions`, endpoint probe results, and field-level runtime diff rows are
+absent because no source in `internal/fleetsrc` collects them into the snapshot,
+not because a product page declines to show them. Each belongs to OPERATIONAL
+TARGET and would render there the day a collector supplies it.
+
+### Enforcement
+
+`src/views/entity/informationParity.svelte.test.ts` is the regression gate. It
+asserts SEMANTIC AVAILABILITY, never layout: given a detail payload that carries a
+fact, the fact must be reachable in the rendered page. A redesign may move
+anything; it may not drop a fact the backend sends. The test fails if a revision
+page ever again reduces the declared surface to "3 Interfaces".
+
 ### Phase 4 reopen: visual-renderer truth and contract closure (this session)
 
 - Starting HEAD: `8a2f7910` (the reviewed HEAD of PR #291).
@@ -460,7 +583,10 @@ packages and an error-clean svelte-check + full Vitest suite:
    revision-node border. The legend is rewritten so every item maps to a real canvas
    distinction; the drawer and text list keep the full precise wording.
 
-Canonical post-migration route map (the ONE destination per concept on a Fleet host):
+Canonical post-migration route map as it stood AT THE END OF PHASE 4. It was
+superseded by the product-coherence correction (Change analysis absorbed Impact
+and Compare; Readiness became a dimension). Section 3 is the authoritative route
+map; this table is retained only as the Phase-4 record.
 
 | Concept | Canonical product route | Legacy route (redirected on a Fleet host) |
 |---------|-------------------------|-------------------------------------------|
@@ -474,16 +600,17 @@ Canonical post-migration route map (the ONE destination per concept on a Fleet h
 | Sources | `#/fleet/sources` | (none) |
 | Attention | `#/fleet/attention` | (none) |
 | Operational Graph | `#/fleet/graph` | `#/graph` |
-| Product Impact | `#/fleet/impact/:serviceKey` | `#/impact` (advanced raw-ref form, retained) |
+| Product Impact (superseded) | `#/fleet/impact/:serviceKey` | `#/impact` (advanced raw-ref form, retained) |
 
-Intentionally retained specialized capabilities (option A/C of requirement 1.4): Readiness
-(`#/readiness`) and Compare (`#/diff`) have NO product equivalent (no product readiness or
-contract-diff route), so they are kept on every host and participate in the primary nav;
-they consume the legacy services plane as the documented retained boundary. Deeper
-migration of their internals to the Product API is a Phase 6+ follow-up, not a Phase-4
-blocker. The Impact workspace is a supported product capability reached from Compare, a
-service/revision, the graph and deep links (requirement 1.4 option A). No legacy view is a
-hidden second UI on a Fleet host: each renders only when `capabilities.fleet === false`.
+Phase-4-era position on the specialized capabilities, ALSO SUPERSEDED: Readiness
+(`#/readiness`) and Compare (`#/diff`) were kept on every host and participated
+in the primary nav, consuming the legacy services plane as a documented retained
+boundary. The product-coherence correction removed both from the Fleet primary
+nav — Compare became the Change analysis workspace on canonical RevisionKeys,
+and Readiness became an attention/revision dimension. Both legacy routes are now
+compatibility redirects on a Fleet host and remain the real UI on a non-Fleet
+one. No legacy view is a hidden second UI on a Fleet host: each renders only when
+`capabilities.fleet === false`.
 
 Removed / rewired: no legacy view is deleted (the non-Fleet `pacto doc` export is their
 only host and still needs them); instead they are gated behind the non-Fleet host class
@@ -497,7 +624,8 @@ doc content over the legacy `/api/services/:name` plane and rendered it with mer
 product entity pages expose bounded doc PREVIEWS (title/path) by design; the product API
 does not carry full doc content. So making the legacy service detail unreachable on a
 Fleet host removed rendered-doc viewing from the Fleet product. Migrating it (product API
-doc content + a product doc viewer) is a Phase-6 follow-up; the capability still works on
+doc content + a product doc viewer) is a post-freeze product follow-up (it is not a
+browser-acceptance item, so it is not Phase 6); the capability still works on
 the non-Fleet `pacto doc` export. The `mermaid.spec.ts` section-K acceptance, which
 validated rendering via that legacy path, is marked `test.fixme` with this reason (it is
 NOT silently dropped).
@@ -548,21 +676,65 @@ desktop and mobile projects):
 - Deterministic unit coverage for the above (shortcut guards, drawer Escape/focus return,
   the EntitySearch trap, the graph signatures and the img-role) is in the Vitest suite.
 
-Remaining Phase-5 acceptance NOT yet done (Phase 5 stays IN PROGRESS):
+### Phase 5 closure: the per-route heading / landmark pass (8.1)
 
-- Formal color-contrast MEASUREMENT in light and dark themes (8.8) -- the axe gate
-  excludes color-contrast by design; a measured audit is still owed.
-- A broader semantic-heading / landmark audit across every rich entity sub-page and the
-  retained Compare/Readiness views (8.1) beyond the h1 and named-region basics verified.
-- The accessible graph navigator is the text alternative behind a disclosure; a richer
-  navigator (arrow-key traversal between nodes, edge-by-edge stepping) is not built (8.2
-  is met at the "every node/edge operable + inspectable by keyboard" level, not full
-  spatial traversal).
-- No physical-device testing (only emulated widths), as the task requires.
+The last open Phase-5 item was the exhaustive per-route document-structure audit. It
+is done, and it found three defects the existing gates structurally could not see:
+`axe.spec.ts` samples STATES (correct for contrast and widget semantics, which vary by
+state), while document structure varies by ROUTE.
 
-### Phase 6 second pass: visual coherence (this session)
+The audit walked all eighteen canonical product routes plus the retained non-Fleet
+compatibility surface in the built WASM demo. What it found:
 
-The first Phase-6 pass fixed the CONCEPTUAL incoherence (vocabulary, IA, dead legacy
+1. `document.title` was the literal string "Pacto Dashboard" on every route. WCAG 2.4.2
+   asks a page to be identifiable by its title, and a screen reader announces the title
+   on navigation; tabs and history entries were also unusable. Fixed in
+   `lib/pageTitle.ts` by MIRRORING the rendered h1 rather than maintaining a parallel
+   route-to-title table -- a second copy of the page name would be free to drift from
+   the heading the user can see, and mirroring covers the legacy views for free. A
+   MutationObserver drives it because a detail heading only exists once its request
+   lands.
+2. Change analysis skipped h1 -> h3. The cause was not that view: `EmptyState` hard
+   coded `<h3>`, so EVERY screen whose main content is an empty state skipped a level.
+   Fixed once in the shared component and its product wrapper (a `level` prop, default
+   2), not per caller.
+3. Every route exposed TWO navigation landmarks -- one named "Primary", one unnamed
+   wrapping it -- and NO banner. So "skip to main content" had nothing to skip past,
+   and landmark navigation offered two indistinguishable "navigation" entries. The app
+   chrome is a banner and now says so (`<header class="navbar">`).
+
+Also fixed: the entity page had no h1 at all while loading, while erroring, or when the
+entity does not exist -- exactly when a user most needs the page to name itself. The
+heading moved out of the ready branch; kind and requested key are known before the
+request resolves.
+
+The durable gate is `e2e/headings.spec.ts`. Per route it asserts one non-empty h1 in
+`main`, no skipped heading level, a `document.title` that contains the heading and is
+not the generic fallback, exactly one main landmark, exactly one banner, and uniquely
+named navigation landmarks -- then runs the axe structural rule subset
+(`page-has-heading-one`, `heading-order`, `empty-heading`, `document-title`, the
+`landmark-*` rules, `bypass`). Two design points make it trustworthy: landmarks go
+through Playwright's ROLE engine rather than a tag selector (a `<header>` is a banner
+only outside sectioning content), and each route is entered by a REAL navigation --
+`page.goto` to a URL differing only in its fragment is a same-document navigation, so
+a fragment-only sweep would audit the first page eighteen times and pass. The spec
+proves it actually moved by requiring the collected titles to be mostly distinct.
+
+**Phase 5 is COMPLETE.** All of its acceptance is now green: measured AA contrast
+enforced by axe in both themes, the keyboard graph model, the drawer focus model,
+reduced motion, the 320/375px responsive sweep, the automated axe gate, and this
+per-route structural sweep. Two things are recorded as deliberate SCOPE, not debt:
+the accessible graph navigator is the semantic Relationships list (8.2's bar is "every
+node and edge operable and inspectable by keyboard", which is met -- arrow-key spatial
+traversal of the canvas is not built), and testing is on emulated widths only, no
+physical devices, as the task requires.
+
+### Product-coherence correction, second pass: visual coherence
+
+(Historically headed "Phase 6 second pass". Renamed to keep one canonical program
+sequence — see section 0a. Whole-program Phase 6 is WASM browser acceptance.)
+
+The first coherence pass fixed the CONCEPTUAL incoherence (vocabulary, IA, dead legacy
 screens). Re-capturing the 30 screens afterwards and reading them side by side exposed the
 remaining PRESENTATIONAL incoherence -- the same control drawn several ways, which is what
 "several generations of UI stitched together" looks like at the pixel level. Each item
@@ -705,22 +877,58 @@ canonical hrefs (ADR-2). Fleet-side shapes:
 
 ## 3. Routes and information architecture
 
-Primary navigation: Overview, Services, Operational Graph, Readiness, Owners,
-Compare. Impact is a contextual workflow reached from Compare, service detail,
-revision detail, the graph and deep links (it keeps a route but is never the
-primary raw-ref form).
+This section is AUTHORITATIVE for the shipped IA. The six-item primary
+navigation it used to describe (Overview, Services, Operational Graph,
+Readiness, Owners, Compare) was superseded by the product-coherence correction
+and is no longer what the app renders; it is recorded here only so a reader of
+an older revision of this file knows which text to disregard.
+
+**Primary navigation (four workflows, teaching one order — state, inventory,
+relationships, change):**
+
+1. Overview
+2. Services
+3. Operational graph
+4. Change analysis
+
+**Secondary / contextual destinations** (reached from where they are relevant,
+never from the primary nav on a Fleet host):
+
+- Needs attention — `#/fleet/attention`, reached from the Overview tiles and
+  from the lead attention number.
+- Owners — `#/fleet/owners`, reached from the Overview and from the owner shown
+  on any service / revision / target.
+- Data sources — `#/fleet/sources`, reached from the Overview source-health
+  strip.
+- Readiness — NOT a destination. It is the `readiness` attention category and a
+  section on a Revision: an attention dimension and a revision dimension, which
+  are the two definitions that already existed. `#/readiness` canonicalizes into
+  the attention view on a Fleet host.
+
+**Canonical change workspace:** `#/fleet/changes/:serviceKey`. Comparison and
+impact are ONE workspace, RevisionKey-based end to end.
 
 Stable routes (hash-router encoding, canonical + reversible):
 
 - `/fleet` (overview)
-- `/fleet/services/:serviceKey`
+- `/fleet/services` and `/fleet/services/:serviceKey`
 - `/fleet/revisions/:revisionKey`
 - `/fleet/targets/:targetKey`
-- `/fleet/owners/:ownerKey`
-- `/fleet/sources/:sourceId`
+- `/fleet/owners` and `/fleet/owners/:ownerKey`
+- `/fleet/sources` and `/fleet/sources/:sourceId`
 - `/fleet/attention`
-- `/fleet/graph/:entityKind/:entityKey`
-- `/fleet/impact/:serviceKey`
+- `/fleet/entities/:kind` (scoped inventory: the bounded Entities endpoint by
+  canonical key, so a capped preview always has somewhere complete to send you)
+- `/fleet/graph` and `/fleet/graph/:entityKind/:entityKey`
+- `/fleet/changes` and `/fleet/changes/:serviceKey`
+
+Legacy routes (`#/`, `#/services`, `#/services/:name`, `#/owners`,
+`#/owners/:id`, `#/graph`, `#/diff`, `#/impact`, `#/readiness`,
+`#/fleet/impact/:serviceKey`) are COMPATIBILITY REDIRECTS on a Fleet host: they
+canonicalize into the product IA via a history REPLACE and never mount a legacy
+view. On a NON-Fleet host (the offline `pacto doc` single-service export, which
+has no Product API) the legacy views are the only UI and are retained
+deliberately.
 
 Navigation adds breadcrumbs, meaningful titles, contextual actions, browser
 history, back navigation that preserves filters and focus, and global search.
@@ -761,8 +969,8 @@ section 8.
    knowledge views (expected / observed / differences) and honest focus mapping.
    COMPLETE this session (an actual Cytoscape visual topology; final gate is
    final-SHA CI). See the authoritative current-status section 0a.
-5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile).
-6. WASM browser acceptance (Playwright over the in-browser demo).
+5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile). COMPLETE.
+6. WASM browser acceptance (Playwright over the in-browser demo). IN PROGRESS.
 7. Operator-managed trace source: an operator-owned observed/trace source so the
    observed layer is real end to end, not demo-only.
 8. Live Kind vertical: the full install (operator + dashboard + Evidence Server +
