@@ -1773,6 +1773,7 @@ export interface components {
         "Lock.Reference": {
             contentHash?: string;
             digest?: string;
+            from?: string;
             kind: string;
             name: string;
             path?: string;
