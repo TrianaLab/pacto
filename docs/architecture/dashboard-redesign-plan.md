@@ -829,6 +829,42 @@ No third rendering of the attention categories was added. `AttentionPreview` car
 population-complete category tally, and the two places that do have one already draw it;
 a third would be a dead infographic by duplication.
 
+### WASM demo richness (requirement 16)
+
+A demo whose every target is compliant, unlabelled and observed by one collector shows a
+product with empty distributions, empty runtime inspectors and an empty source list -- and
+that is what it showed. `examples/demo/source_fleet.go` now builds the snapshot from five
+sources instead of two, through the same `fleet.Build` pipeline the CLI and the operator
+use: a bundle registry (declared), a cluster collector (running), a telemetry collector
+that corroborates two of those targets and contributes the observed call edges, a partial
+registry mirror and an unreachable edge cluster. The nine targets between them cover every
+compliance verdict, exact / inferred / unresolved revision matching, fresh / stale /
+never-observed evidence, one service running in two scopes, three finding severities, and
+the labels and observed runtime values the target page exists to show.
+
+Two engine behaviours shaped the fixture, and both are recorded because they are easy to
+re-break:
+
+- The **fresher** contribution owns the evaluation fields. Telemetry does not evaluate
+  compliance, so the telemetry observations are deliberately older than the cluster's; a
+  fresher telemetry contribution replaces real verdicts with empty ones and the whole demo
+  goes Unknown.
+- An **exact revision match** and **retrievable content** are different facts. The one
+  exact target carries both (a real embedded digest and a canonical digest ref); the
+  tag-referenced targets are confident matches over mutable content; the ref-less ones are
+  matches with nothing to fetch.
+
+Deliberately NOT added, each because the fixture would have to lie to produce it: an
+ambiguous link (needs two revisions sharing a version, which the demo's bundle set does
+not contain), a quarantined target (needs two sources contradicting each other -- shipping
+a self-contradicting fleet as the reference example teaches the wrong lesson), an invalid
+revision (every demo bundle is validated by `make -C examples/demo validate`), and
+multiple domains (the demo has one registry, so one domain is the truth).
+
+`examples/demo/smoke.mjs` asserts the richness through the PRODUCT endpoints the UI
+actually calls, not the raw snapshot: a demo that is rich in `/api/fleet/snapshot` and thin
+in `/api/fleet/overview` still renders an empty product. It runs in CI (`docs.yml`).
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
