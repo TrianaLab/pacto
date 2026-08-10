@@ -352,6 +352,25 @@ describe('parseHash — fleet product IA (Phase 2)', () => {
     expect(fleetServicesUrl({ owner: 'team-a', offset: 25 })).toBe('#/fleet/services?owner=team-a&offset=25');
   });
 
+  it('carries declared-ownership as route state, so an aggregate finding is a link', () => {
+    // "12 services have no declared owner" is only useful if it can be FOLLOWED, and a
+    // followed link has to survive a copy-paste and a Back. Ownership (a state:
+    // consistent / conflicting / unowned) is a different question from owner (a name),
+    // so the two are separate params and compose.
+    expect(parseHash('#/fleet/services?ownership=unowned')).toEqual({
+      view: 'fleet-services', params: { ownership: 'unowned' },
+    });
+    expect(parseHash('#/fleet/services?owner=team-a&ownership=conflicting')).toEqual({
+      view: 'fleet-services', params: { owner: 'team-a', ownership: 'conflicting' },
+    });
+    const url = fleetServicesUrl({ text: 'pay', owner: 'team-a', ownership: 'consistent', status: 'Unknown', domain: 'core', offset: 25 });
+    expect(url).toBe('#/fleet/services?text=pay&owner=team-a&ownership=consistent&status=Unknown&domain=core&offset=25');
+    expect(parseHash(url)).toEqual({
+      view: 'fleet-services',
+      params: { text: 'pay', owner: 'team-a', ownership: 'consistent', status: 'Unknown', domain: 'core', offset: '25' },
+    });
+  });
+
   it('a bare /fleet/services must NOT be shadowed by service detail (regression A3)', () => {
     // /fleet/services is the LIST; /fleet/services/:key is one service. The list must
     // never fall through to the entity route (which needs a key) or the overview.
@@ -614,7 +633,29 @@ describe('scoped inventory lists (/fleet/revisions, /fleet/targets)', () => {
     expect(fleetEntityListUrl('nonsense')).toBe(fleetServicesUrl());
   });
 
+  // Readiness is DECLARED AND ASSESSED PER CONTRACT REVISION. The Entities API rejects
+  // the filter on any other kind, so a `readiness` param on /fleet/targets would be an
+  // inert piece of URL that 422s the moment anyone acted on it. The route model refuses
+  // to write it and refuses to read it, on both sides, rather than relying on the two
+  // list pages to independently remember not to.
+  it('carries readiness as route state for revisions, and for nothing else', () => {
+    expect(parseHash('#/fleet/revisions?readiness=expired')).toEqual({
+      view: 'fleet-entity-list', params: { kind: 'revision', readiness: 'expired' },
+    });
+    expect(parseHash('#/fleet/targets?readiness=expired')).toEqual({
+      view: 'fleet-entity-list', params: { kind: 'target' },
+    });
+    expect(fleetEntityListUrl('revision', { service: 'domain-a/payments', readiness: 'below-threshold' }))
+      .toBe('#/fleet/revisions?service=domain-a%2Fpayments&readiness=below-threshold');
+    expect(fleetEntityListUrl('target', { readiness: 'passing' })).toBe('#/fleet/targets');
+  });
+
   it('round-trips: what the builder writes is what the router reads back', () => {
+    const ready = fleetEntityListUrl('revision', { service: 'domain-a/payments', readiness: 'passing', offset: 25 });
+    expect(parseHash(ready)).toEqual({
+      view: 'fleet-entity-list',
+      params: { kind: 'revision', service: 'domain-a/payments', readiness: 'passing', offset: '25' },
+    });
     const url = fleetEntityListUrl('revision', { service: 'domain-a/payments', text: 'v2', offset: 50 });
     expect(parseHash(url)).toEqual({
       view: 'fleet-entity-list',

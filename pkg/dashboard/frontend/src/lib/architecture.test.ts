@@ -359,25 +359,34 @@ describe('product design system', () => {
   });
 
   /**
-   * Requirement 22: ONE shared visible page-title grammar.
+   * Requirement 22: ONE shared visible page-title grammar, in ONE place.
    *
    * Found by the browser acceptance, not by reading source: the Operational graph and
    * Change analysis workspaces named themselves with a bare `<h1>`. base.css paints an
    * h1 at the page-title role, so both LOOKED right -- and both sat outside every check
    * that reasons about roles, which is how they were the only two canonical routes with
-   * no measurable page title at all. The grammar has to be explicit to be checkable.
+   * no measurable page title at all.
+   *
+   * A role class on each private h1 fixed the size and left the grammar duplicated, so
+   * the rule is now the stronger one: a product page does not write a page title, it
+   * asks PageHeader for one. That is also what makes the eyebrow, the status badge, the
+   * count and the `document.title` mirror arrive with it instead of per page.
    */
-  it('gives every product page title the page-title role', () => {
-    const offenders: string[] = [];
-    for (const f of PRODUCT_SURFACES) {
-      for (const m of f.body.matchAll(/<h1\b[^>]*>/g)) {
-        if (!m[0].includes('t-page-title')) offenders.push(`${f.rel}: ${m[0]}`);
-      }
-    }
-    expect(offenders, `a product page title without the shared role:\n  ${offenders.join('\n  ')}`).toEqual([]);
-    // Non-vacuous: the surfaces really do contain h1s to check.
-    const withH1 = PRODUCT_SURFACES.filter((f) => /<h1\b/.test(f.body)).length;
-    expect(withH1, 'no product surface declares an h1, so this guard checks nothing').toBeGreaterThan(1);
+  it('takes every product page title from the one shared header', () => {
+    const offenders = PRODUCT_SURFACES
+      .filter((f) => f.rel !== 'components/PageHeader.svelte' && /<h1\b/.test(f.body))
+      .map((f) => f.rel);
+    expect(offenders, `a product page declaring its own page title:\n  ${offenders.join('\n  ')}`).toEqual([]);
+
+    const header = readFileSync(join(SRC, 'components/PageHeader.svelte'), 'utf8');
+    expect(header, 'the shared header must carry the page-title role').toMatch(/<h1\b[^>]*t-page-title/);
+
+    // Non-vacuous: the product surfaces really are pages with titles -- they just get
+    // them from the header now. And the legacy host still writes its own h1s, so this
+    // is a scope rather than a claim that the tag has left the repository.
+    const usesHeader = PRODUCT_SURFACES.filter((f) => /<PageHeader\b/.test(f.body)).length;
+    expect(usesHeader, 'no product surface renders the shared header').toBeGreaterThan(4);
+    expect(files.filter((f) => /<h1\b/.test(f.body)).length).toBeGreaterThan(1);
   });
 
   /**

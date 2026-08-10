@@ -16,6 +16,7 @@
   import EntityStatusBadge from '../components/EntityStatusBadge.svelte';
   import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetChangesUrl, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import PageHeader from '../components/PageHeader.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
@@ -215,16 +216,31 @@
 
 <svelte:window onkeydown={onDrawerKeydown} />
 
-<div class="graph-view">
+<div class="product-page">
   <Breadcrumbs trail={focused
     ? [{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Operational graph', href: fleetGraphDiscoveryUrl() }, { label: focusRef?.label || gs.key }]
     : [{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Operational graph' }]} />
 
+  <!-- One page title, outside both branches, in the shared page-header grammar. Each
+       branch used to declare its own h1: the workspace was the only product route whose
+       title moved, changed its neighbours and re-rendered when the user searched. What
+       the focus IS belongs in the header too -- it is the second half of the page's
+       name once one is chosen. -->
+  <PageHeader
+    title="Operational graph"
+    subtitle={focused ? '' : 'The operational graph is search-first: pick one entity and see its local neighborhood render below. It never opens every service at once.'}
+  >
+    {#if focused}
+      <div class="gv-focus">
+        {#if focusRef}<EntityIdentity ref={focusRef} />{/if}
+        <button type="button" class="btn gv-reset" onclick={resetFocus} data-testid="graph-reset">Reset focus</button>
+      </div>
+    {/if}
+  </PageHeader>
+
   {#if !focused}
     <!-- Discovery state (requirement K): search-first, no fleet hairball, no request. -->
     <section class="discovery" data-testid="graph-discovery">
-      <h1 class="t-page-title">Operational graph</h1>
-      <p class="disco-lead">The operational graph is search-first: pick one entity and see <strong>its</strong> local neighborhood render below. It never opens every service at once.</p>
 
       <form class="disco-search" role="search" onsubmit={submitSearch}>
         <input type="search" bind:value={queryText} oninput={runSearch} placeholder="Search services, revisions, operational targets..." aria-label="Search for a service, revision or target to focus the graph" />
@@ -284,13 +300,7 @@
     </section>
   {:else}
     <!-- Focused neighborhood: an actual visual topology (requirements F/G/H). -->
-    <div class="gv-head">
-      <h1 class="t-page-title">Operational graph</h1>
-      {#if focusRef}<EntityIdentity ref={focusRef} />{/if}
-      <button type="button" class="btn gv-reset" onclick={resetFocus} data-testid="graph-reset">Reset focus</button>
-    </div>
-
-    <div class="gv-toolbar" role="group" aria-label="Graph controls">
+    <div class="workspace-controls is-row" role="group" aria-label="Graph controls">
       <div class="gv-ctl">
         <span class="gv-ctl-k">Perspective</span>
         <div class="gv-seg">
@@ -510,17 +520,16 @@
 </div>
 
 <style>
-  .graph-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   /* Buttons and the .disco-* discovery language are shared with the rest of the product
      and live in styles/components.css -- two search-first tabs side by side in the nav
      must not look like two different products. This view had reimplemented .btn as
      .gv-btn, and the copy was broken: .gv-btn was declared AFTER .gv-btn-primary at the
      same specificity, so the primary Search button rendered as a plain surface one. */
 
-  .gv-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
-  .gv-head h1 { margin: 0; }
+  /* What the graph is focused ON, beside the page title. The panel around the controls
+     below it is the shared .workspace-controls. */
+  .gv-focus { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
   .gv-reset { margin-left: auto; }
-  .gv-toolbar { display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: flex-end; padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-md); background: var(--c-surface); }
   .gv-ctl { display: flex; flex-direction: column; gap: 4px; }
   .gv-viewctl { margin-left: auto; }
   .gv-ctl-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }

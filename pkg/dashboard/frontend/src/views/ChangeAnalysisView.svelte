@@ -5,6 +5,7 @@
   import { formatDate } from '../lib/dateFormat.ts';
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import PageHeader from '../components/PageHeader.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
   import HelpTip from '../components/HelpTip.svelte';
@@ -306,12 +307,13 @@
   const canAnalyze = $derived(!!serviceKey && !!fromRevKey && !!toRevKey && !analyzing);
 </script>
 
+<div class="product-page">
 <Breadcrumbs {trail} />
 
-<div class="ca-head">
-  <h1 class="t-page-title">Change analysis</h1>
-  <p class="disco-lead">Compare two revisions of a service, then see what that change affects in the operational graph.</p>
-</div>
+<PageHeader
+  title="Change analysis"
+  subtitle="Compare two revisions of a service, then see what that change affects in the operational graph."
+/>
 
 {#if !serviceKey}
   <!-- No service in the route: search for one (product entities API, search-first so
@@ -374,7 +376,7 @@
 {:else if loadError}
   <EmptyState error title="Couldn’t load this service" message={loadError instanceof ApiError ? loadError.message : String(loadError)} onRetry={() => loadRevisions(serviceKey)} />
 {:else}
-  <form class="impact-form" onsubmit={(e) => { e.preventDefault(); analyze(0); }}>
+  <form class="workspace-controls" onsubmit={(e) => { e.preventDefault(); analyze(0); }}>
     <div class="svc-line">
       <!-- No "Service" caption here: EntityLink already carries the kind chip, and the
            breadcrumb above already says which service. Three labels for one fact is how
@@ -581,31 +583,29 @@
     {/if}
   {/if}
 {/if}
+</div>
 
 <style>
-  .impact-viz { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
-  /* The product page shell, matching the other canonical screens: breadcrumbs, then a
-     sentence-case h1, then one dim lead line. Named for this view so the legacy views'
-     .page-header stays uniquely theirs. */
-  .ca-head { display: flex; flex-direction: column; gap: var(--sp-1, 4px); margin-bottom: var(--sp-4); }
-  .ca-head h1 { margin: 0; }
+  .impact-viz { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--sp-4); }
 
   /* The discovery state is entirely the shared .disco-* language in
      styles/components.css -- nothing about it is specific to this view. */
   .migrate-note { color: var(--c-text-2); font-size: var(--text-sm); margin: 0; }
 
   /* The two stages of one question, visually separated so "the contract changed" is
-     never read as "something running broke". */
-  .stage { margin-top: var(--sp-6); }
-  .stage-head { border-top: 1px solid var(--c-border); padding-top: var(--sp-3); margin-bottom: var(--sp-3); }
+     never read as "something running broke". The separation is a RULE, not a margin:
+     the page shell already owns the rhythm between sections, and a per-page margin-top
+     on top of it is how this view ended up sitting at a different distance from its
+     own contents than every other product page. */
+  .stage { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .stage-head { border-top: 1px solid var(--c-border); padding-top: var(--sp-3); }
   /* A fourth heading size lived here: an h2 pushed up to METRIC size, so the two stage
      titles outranked every other section title in the product and competed with the page
      title above them. They are sections; base.css already gives an h2 the section role. */
   .stage-head h2 { margin: 0; }
   .stage-lead { margin: 4px 0 0; color: var(--c-text-3); font-size: var(--text-sm); }
-  .change-counts { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin: 0 0 var(--sp-3); }
+  .change-counts { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
 
-  .impact-form { display: flex; flex-direction: column; gap: var(--sp-3); margin-bottom: var(--sp-5); padding: var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
   .svc-line { display: flex; align-items: center; gap: var(--sp-2); }
   .selectors { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
   .field { display: flex; flex-direction: column; gap: 6px; }

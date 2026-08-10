@@ -124,7 +124,7 @@
   function removeChip(key) { apply(key === 'staleOnly' ? { staleOnly: false } : { [key]: '' }); }
 </script>
 
-<div class="attn-view">
+<div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Needs attention' }]} />
   <PageHeader title="Needs attention" count={list ? `${list.total} item${list.total === 1 ? '' : 's'}` : ''} />
 
@@ -246,7 +246,6 @@
 
 <style>
   .av-shape { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
-  .attn-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   .av-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .av-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); }
   .av-filters select, .av-filters input[type="text"] {

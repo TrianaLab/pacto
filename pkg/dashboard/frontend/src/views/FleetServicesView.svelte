@@ -156,7 +156,7 @@
   function removeChip(key) { apply({ [key]: '' }); }
 </script>
 
-<div class="svc-view">
+<div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
   <PageHeader title="Services" count={list ? `${total} service${total === 1 ? '' : 's'}` : ''} />
 
@@ -305,7 +305,6 @@
 </div>
 
 <style>
-  .svc-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   .sv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .sv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   /* The suggestion popup is absolutely positioned inside its field, so a field that

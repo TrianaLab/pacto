@@ -88,7 +88,7 @@
   });
 </script>
 
-<div class="entity-view">
+<div class="product-page">
   <Breadcrumbs {trail} />
 
   <!-- The page's one visible title, at page-title scale, plus the kind, the
@@ -159,7 +159,6 @@
 </div>
 
 <style>
-  .entity-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   /* The resolved page. Its own element (rather than a bare fragment) is what lets a
      test say "the entity BODY is on screen" without that also being true while the
      page header is still waiting for the request. The column layout comes from the

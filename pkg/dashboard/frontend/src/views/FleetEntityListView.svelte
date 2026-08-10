@@ -116,7 +116,7 @@
     statusHrefs((s) => urlWith({ status: s }))));
 </script>
 
-<div class="list-view">
+<div class="product-page">
   <Breadcrumbs {trail} />
   <PageHeader
     title={`${kindLabel(kind)}${service ? ` of ${service}` : ''}`}
@@ -197,7 +197,6 @@
 </div>
 
 <style>
-  .list-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   .lv-field { display: flex; flex-direction: column; gap: 2px; min-width: 180px; font-size: var(--text-xs); color: var(--c-text-3); }

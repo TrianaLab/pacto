@@ -65,7 +65,7 @@
   function removeChip(key) { location.hash = urlWith({ [key]: '' }); }
 </script>
 
-<div class="list-view">
+<div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Data sources' }]} />
   <!-- The distinction a first-time user needs here: a data source supplies records to
        the snapshot, so a degraded one makes every other number incomplete rather than
@@ -118,7 +118,6 @@
 </div>
 
 <style>
-  .list-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }

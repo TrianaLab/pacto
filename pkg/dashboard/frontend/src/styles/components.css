@@ -546,6 +546,30 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .disclosure[open] > summary .disclosure-caret { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .disclosure-caret { transition: none; } }
 
+/* ─── Page scaffold ─── */
+/* THE product page shell: breadcrumbs, page header, then sections, separated by one
+   rhythm. Every product route had declared this identical rule privately -- seven
+   copies of `display: flex; flex-direction: column; gap: var(--sp-4)` -- except the two
+   workspaces, which had no shell at all and spaced themselves with per-page
+   `margin-top` / `margin-bottom` instead. That is why the Operational graph and Change
+   analysis sat at different distances from the app bar and from their own first
+   section, and why the fix could not be another margin: the rhythm has to come from the
+   container, or every page owns a different one. */
+.product-page { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* The bordered control panel a WORKSPACE puts between its title and its results -- the
+   graph's perspective/knowledge/direction toolbar, the change workspace's revision
+   pickers. Two names (`.gv-toolbar`, `.impact-form`) for one thing had drifted to
+   different radii and different padding, which is visible when the two tabs sit beside
+   each other in the nav. */
+.workspace-controls {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: var(--sp-4); border: 1px solid var(--c-border);
+  border-radius: var(--radius-md); background: var(--c-surface);
+}
+/* A row of independent controls rather than a stack of form rows. */
+.workspace-controls.is-row { flex-flow: row wrap; gap: var(--sp-4); align-items: flex-end; }
+
 /* ─── Page contents scaffold ─── */
 /* The two-column shape a long page takes once it carries an "On this page" navigator:
    the rail beside the content where there is room, the same navigator stacked above the
