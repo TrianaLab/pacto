@@ -243,13 +243,14 @@ several generations of Pacto UI stitched together". Headings below that read
   See "Phase 5 closure" below. The "retained specialized Readiness/Compare" this bullet
   used to name no longer exist on a Fleet host -- see the product-coherence correction
   below.
-- Phase 6 (WASM browser acceptance): IN PROGRESS, one gate open. Every Phase-6 criterion
-  now has a spec and every spec passes locally on the built demo (133 Playwright tests
-  across 14 specs, desktop plus Pixel-5, 1 skipped: the `test.fixme` mermaid doc-body case
-  recorded in section 0c). The full local verification is green and the final real-user
-  browser inspection is done -- see "Post-freeze correction pass" below, which is what that
-  inspection produced. The ONE remaining gate is GitHub CI on the exact final SHA. Phase 6
-  is not claimed COMPLETE until that is green, and Phase 7 has NOT been started.
+- Phase 6 (WASM browser acceptance): COMPLETE. Every Phase-6 criterion has a spec and
+  every spec passes on the built demo (133 Playwright tests across 14 specs, desktop plus
+  Pixel-5; 1 skipped -- the `test.fixme` mermaid doc-body case recorded in section 0c).
+  The full local gate set is green, the final real-user browser inspection is done (see
+  "Post-freeze correction pass" below, which is what that inspection produced), and every
+  GitHub workflow passed on `c5fdc1c4`, the commit carrying the final code: CI, Pacto
+  Contract CI, Security, Docs check, Repowise, Validate PR title. Phase 7 has NOT been
+  started.
 - Product-coherence correction (cross-phase; NOT whole-program Phase 6, which is WASM
   browser acceptance): COMPLETE. A real user reported the app
   "still feels like several generations of Pacto UI stitched together". This phase was a
@@ -1181,12 +1182,12 @@ section 8.
    COMPLETE this session (an actual Cytoscape visual topology; final gate is
    final-SHA CI). See the authoritative current-status section 0a.
 5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile). COMPLETE.
-6. WASM browser acceptance (Playwright over the in-browser demo). IN PROGRESS: every
-   Phase-6 criterion now has a spec (see the coverage reconciliation in section 0c),
+6. WASM browser acceptance (Playwright over the in-browser demo). COMPLETE: every
+   Phase-6 criterion has a spec (see the coverage reconciliation in section 0c),
    including the four added later -- boundedness at scale, hostile identity,
    the composed visualization contract, and recorded render baselines. The full local
-   verification and the final real-user UI inspection are both DONE (see the post-freeze
-   correction pass in section 0c). The one remaining gate is final-SHA CI.
+   verification, the final real-user UI inspection and final-SHA CI are all done. See
+   the authoritative current-status section 0a.
 7. Operator-managed trace source: an operator-owned observed/trace source so the
    observed layer is real end to end, not demo-only.
 8. Live Kind vertical: the full install (operator + dashboard + Evidence Server +
