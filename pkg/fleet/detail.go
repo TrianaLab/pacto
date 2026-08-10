@@ -393,9 +393,14 @@ type TargetDetailData struct {
 	Limitations          LimitationsPreview   `json:"limitations"`
 }
 
-// OwnerDetailData is the owner-kind payload: bounded previews of the owner's
-// services, revisions and deployments, plus a bounded attention preview.
+// OwnerDetailData is the owner-kind payload: the complete owner-scoped aggregate,
+// bounded previews of the owner's services, revisions and deployments, and a
+// bounded attention preview.
 type OwnerDetailData struct {
+	// Summary covers the owner's COMPLETE populations. The previews beside it are
+	// capped, so an owner-scoped proportion must be drawn from here: counting the
+	// previews would turn "the first 200 targets" into "this owner's estate".
+	Summary     OwnerSummary     `json:"summary"`
 	Services    RefPreview       `json:"services"`
 	Revisions   RefPreview       `json:"revisions"`
 	Deployments RefPreview       `json:"deployments"`
@@ -593,6 +598,9 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 
 func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	var services, deployments, revisions []EntityRef
+	// The aggregate is accumulated in the SAME walk that builds the previews, over the
+	// same records, so the summary and the lists can never describe two populations.
+	var sum OwnerSummary
 	for _, s := range q.snap.Services {
 		if s.Owner.DisplayString() != key {
 			continue
@@ -601,17 +609,24 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 		for _, tk := range s.Targets {
 			if t := q.snap.Targets[tk]; t != nil {
 				deployments = append(deployments, targetEntityRef(t))
+				sum.addTarget(t)
 			}
 		}
 	}
 	for _, r := range q.snap.Revisions {
 		if r.Owner.DisplayString() == key {
 			revisions = append(revisions, revisionEntityRef(r))
+			// Read validity from the authoritative snapshot record: revisionStatus knows
+			// the difference between "validated and invalid" and "never validated".
+			if revisionStatus(r) == StatusInvalid {
+				sum.InvalidRevisions++
+			}
 		}
 	}
 	if len(services) == 0 && len(revisions) == 0 {
 		return nil, &NotFoundError{Kind: "owner", ID: key}
 	}
+	sum.Services, sum.Revisions, sum.Targets = len(services), len(revisions), len(deployments)
 	sortEntityRefs(services)
 	sortEntityRefs(deployments)
 	sortEntityRefs(revisions)
@@ -623,6 +638,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: ownerEntityRef(key),
 		Owner: &OwnerDetailData{
+			Summary:     sum,
 			Services:    refPreview(services),
 			Revisions:   refPreview(revisions),
 			Deployments: refPreview(deployments),

@@ -1,8 +1,6 @@
 <script>
-  import { fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
+  import { fleetGraphFocusUrl, fleetEntityListUrl, fleetAttentionUrl } from '../../lib/router.ts';
   import { abbreviateDigests } from '../../lib/format.ts';
-  import { complianceSegments, linkSegments, severitySegments, evidenceSegments } from '../../lib/distributions.ts';
-  import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
@@ -10,7 +8,7 @@
   import FindingList from '../../components/FindingList.svelte';
   import EvidenceList from '../../components/EvidenceList.svelte';
   import LimitationsList from '../../components/LimitationsList.svelte';
-  import DistributionBar from '../../components/viz/DistributionBar.svelte';
+  import PostureBars from '../../components/viz/PostureBars.svelte';
 
   // The principal operational service page (requirement D). It renders ONLY the
   // product entity-detail payload (never the snapshot): owner + ownership conflicts,
@@ -36,8 +34,11 @@
   const allTargetsHref = $derived(fleetEntityListUrl('target', { service: key }));
 
   const sum = $derived(d.summary ?? {});
-  const ev = $derived(sum.evidence ?? {});
   const targets = $derived(sum.targets ?? 0);
+  // Drill-downs from the posture bars stay scoped to THIS service, by canonical key.
+  // Sending a service page's "3 non-compliant" to the fleet-wide backlog would answer
+  // a question the user did not ask and lose the three rows they clicked for.
+  const attentionUrl = $derived((category) => fleetAttentionUrl({ service: key, category }));
   // Drift rows are only worth a line each when they are non-zero; a service with no
   // declared dependencies should not be told about four kinds of zero.
   const drift = $derived([
@@ -91,44 +92,11 @@
       {sum.revisionsInUse ?? 0} of {sum.revisions ?? 0} known {(sum.revisions ?? 0) === 1 ? 'revision' : 'revisions'} in use{(sum.invalidRevisions ?? 0) > 0 ? ` · ${sum.invalidRevisions} invalid` : ''}
     </p>
 
-    {#if targets > 0}
-      <div class="se-dists">
-        <DistributionBar
-          title="Compliance"
-          description="Whether each running target is observed to obey its contract."
-          segments={complianceSegments(sum.compliance)}
-          total={targets}
-        />
-        <DistributionBar
-          title="Revision-match certainty"
-          description="How confidently each target is matched to the exact revision it runs."
-          segments={linkSegments(sum.links)}
-          total={targets}
-        />
-        <DistributionBar
-          title="Evidence freshness"
-          description="How recently each target was observed. No evidence is its own state, not stale."
-          segments={evidenceSegments(ev)}
-          total={targets}
-        />
-        {#if (sum.findings?.errors ?? 0) + (sum.findings?.warnings ?? 0) + (sum.findings?.infos ?? 0) + (sum.findings?.unknown ?? 0) > 0}
-          <DistributionBar
-            title="Findings by severity"
-            description="Every finding attributed to this service's targets."
-            segments={severitySegments(sum.findings)}
-          />
-        {/if}
-      </div>
-      {#if ev.oldest || ev.newest}
-        <p class="se-hint">
-          Evidence spans {ev.oldest ? formatDate(ev.oldest) : 'unknown'} to {ev.newest ? formatDate(ev.newest) : 'unknown'}{(ev.quarantined ?? 0) > 0 ? ` · ${ev.quarantined} quarantined` : ''}.
-        </p>
-      {/if}
-    {:else}
-      <!-- No targets is a real, common state (a contract published before anything runs
-           it) and it is NOT a compliance failure. Saying so beats three empty bars. -->
-      <p class="se-hint">Nothing running has been observed for this service, so there is no compliance, identity or freshness picture yet.</p>
-    {/if}
+    <PostureBars
+      summary={sum}
+      {attentionUrl}
+      empty="Nothing running has been observed for this service, so there is no compliance, identity or freshness picture yet."
+    />
 
     {#if drift.length > 0}
       <h3 class="se-subh">Dependency drift</h3>
@@ -213,9 +181,6 @@
   .se-summary h2 { margin: 0; font-size: var(--text-md); }
   .se-subh { margin: 0; font-size: var(--text-sm); font-weight: 600; color: var(--c-text-2); }
   .se-lead { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); }
-  /* Two columns where there is room; one on a phone. auto-fit keeps a lone bar from
-     stretching to an unreadable width. */
-  .se-dists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
   .se-drift { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--sp-2); flex-wrap: wrap; }
   .se-drift li { font-size: var(--text-sm); color: var(--c-text-2); background: var(--c-surface-inset); border: 1px solid var(--c-border); border-left: 3px solid var(--tone-c, var(--c-neutral)); padding: 2px 10px; border-radius: var(--radius-xs); }
   .se-drift li b { color: var(--c-text); font-variant-numeric: tabular-nums; }

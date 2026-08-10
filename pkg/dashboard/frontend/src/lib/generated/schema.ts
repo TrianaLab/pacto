@@ -1183,6 +1183,7 @@ export interface components {
             compliantTargets: number;
             /** Format: int64 */
             degradedSources: number;
+            evidence: components["schemas"]["Fleet.EvidenceWindow"];
             /** Format: int64 */
             exactTargetLinks: number;
             /** Format: int64 */
@@ -1219,6 +1220,20 @@ export interface components {
             unresolvedRelationships: number;
             /** Format: int64 */
             unresolvedTargetLinks: number;
+        };
+        "Fleet.OwnerSummary": {
+            compliance: components["schemas"]["Fleet.ComplianceTally"];
+            evidence: components["schemas"]["Fleet.EvidenceWindow"];
+            findings: components["schemas"]["Fleet.SeverityTally"];
+            /** Format: int64 */
+            invalidRevisions: number;
+            links: components["schemas"]["Fleet.LinkTally"];
+            /** Format: int64 */
+            revisions: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            targets: number;
         };
         "Fleet.PoliciesPreview": {
             /** Format: int64 */
@@ -2105,6 +2120,7 @@ export interface components {
             deployments: components["schemas"]["ProductRefPreview"];
             revisions: components["schemas"]["ProductRefPreview"];
             services: components["schemas"]["ProductRefPreview"];
+            summary: components["schemas"]["Fleet.OwnerSummary"];
         };
         ProductOwnership: {
             conflicts: components["schemas"]["Fleet.StringsPreview"];

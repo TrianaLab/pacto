@@ -168,6 +168,45 @@ type ServiceSummary struct {
 	ObservedNotDeclared  int `json:"observedNotDeclared"`
 }
 
+// OwnerSummary is the complete, backend-authoritative aggregate an owner page
+// draws its posture from. Every counter covers ALL of the owner's services,
+// revisions and targets — the sibling previews on OwnerDetailData are bounded and
+// must never be counted instead.
+//
+// It deliberately carries the SAME dimensions as [ServiceSummary] rather than a
+// bespoke owner score: an owner page and a service page then answer the same three
+// orthogonal questions (does it obey the contract, do we know which revision runs,
+// how recently did we look) in one visual language, instead of teaching a second
+// vocabulary for the same facts. There is no composite "owner health" number for
+// the same reason there is no service one.
+//
+// The populations are exactly the previews' populations: Targets are the targets of
+// the services this owner owns, and Revisions are the revisions that declare this
+// owner — which is not always the same set, because a revision may declare an owner
+// other than its service's (that disagreement is the ownership conflict the service
+// page reports).
+type OwnerSummary struct {
+	Services         int             `json:"services"`
+	Revisions        int             `json:"revisions"`
+	InvalidRevisions int             `json:"invalidRevisions"`
+	Targets          int             `json:"targets"`
+	Compliance       ComplianceTally `json:"compliance"`
+	Links            LinkTally       `json:"links"`
+	Evidence         EvidenceWindow  `json:"evidence"`
+	Findings         SeverityTally   `json:"findings"`
+}
+
+// addTarget tallies one target into every target-scoped dimension at once, so a
+// caller cannot update three of the four and ship a summary whose bars disagree.
+func (o *OwnerSummary) addTarget(t *TargetRecord) {
+	o.Compliance.add(t.Compliance)
+	o.Links.add(t)
+	o.Evidence.add(t)
+	for _, f := range t.Findings {
+		o.Findings.add(f.Severity)
+	}
+}
+
 // serviceSummary aggregates the service's complete target, revision and edge
 // populations. inUse is the set of revisions at least one target links to.
 func (q *Query) serviceSummary(view *ServiceView) (ServiceSummary, map[RevisionKey]bool) {

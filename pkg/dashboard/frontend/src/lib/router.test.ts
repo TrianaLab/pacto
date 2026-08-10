@@ -416,6 +416,17 @@ describe('centralized fleet navigation builders', () => {
     expect(fleetAttentionUrl({ category: 'stale', offset: 50 })).toBe('#/fleet/attention?category=stale&offset=50');
     expect(fleetAttentionUrl({ owner: 'team-a', staleOnly: true })).toBe('#/fleet/attention?owner=team-a&staleOnly=1');
   });
+  // A service page's posture bars drill into that service's OWN backlog, by canonical
+  // ServiceKey. The scope has to survive the round-trip, or the link silently widens
+  // to the whole fleet and answers a question nobody asked.
+  it('round-trips a service-scoped attention deep link by canonical key', () => {
+    const url = fleetAttentionUrl({ service: 'domain-a/payments', category: 'stale' });
+    expect(url).toBe('#/fleet/attention?category=stale&service=domain-a%2Fpayments');
+    expect(parseHash(url)).toEqual({
+      view: 'fleet-attention',
+      params: { service: 'domain-a/payments', category: 'stale' },
+    });
+  });
   it('hashForHref then parseHash round-trips a backend entity href', () => {
     const href = '/fleet/revisions/' + encodeURIComponent('svc@sha256:abc');
     expect(parseHash(hashForHref(href))).toEqual({ view: 'fleet-entity', params: { kind: 'revision', key: 'svc@sha256:abc' } });

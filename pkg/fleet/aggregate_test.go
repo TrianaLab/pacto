@@ -117,6 +117,63 @@ func TestServiceSummary_CountsInvalidAndUnusedRevisions(t *testing.T) {
 	}
 }
 
+// An owner page draws its posture from OwnerSummary, so the summary has to cover
+// the owner's WHOLE estate over the same populations its previews list. team-a owns
+// one service with two targets, one of them observed 48h ago.
+func TestOwnerSummary_CoversTheOwnersCompleteEstate(t *testing.T) {
+	q := productFleet(t)
+	d, err := q.EntityDetail(KindOwner, "team-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := d.Owner.Summary
+	if sum.Services != 1 || sum.Revisions != 1 || sum.Targets != 2 {
+		t.Errorf("estate = %d services / %d revisions / %d targets, want 1/1/2", sum.Services, sum.Revisions, sum.Targets)
+	}
+	// The previews and the summary must describe ONE population, or the page draws a
+	// proportion of "the first 200" and calls it the owner's estate.
+	if d.Owner.Services.Total != sum.Services || d.Owner.Revisions.Total != sum.Revisions || d.Owner.Deployments.Total != sum.Targets {
+		t.Errorf("summary and previews disagree: %+v vs services=%d revisions=%d deployments=%d",
+			sum, d.Owner.Services.Total, d.Owner.Revisions.Total, d.Owner.Deployments.Total)
+	}
+	if sum.Compliance.Compliant != 2 || sum.Compliance.Total() != 2 {
+		t.Errorf("compliance = %+v, want both targets compliant", sum.Compliance)
+	}
+	if sum.Links.Exact != 2 || sum.Links.Total() != 2 {
+		t.Errorf("links = %+v, want both targets matched by digest", sum.Links)
+	}
+	if sum.Evidence.WithEvidence != 2 || sum.Evidence.Stale != 1 {
+		t.Errorf("evidence = %+v, want 2 observed of which 1 stale", sum.Evidence)
+	}
+}
+
+// Findings are tallied per owner from the owner's own targets: team-b's single
+// non-compliant target carries one error, and an owner page that could not say so
+// would send its reader to the fleet backlog to find their own drift.
+func TestOwnerSummary_TalliesFindingsAndInvalidRevisions(t *testing.T) {
+	q := productFleet(t)
+	d, err := q.EntityDetail(KindOwner, "team-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Owner.Summary.Findings; got.Errors != 1 || got.Total() != 1 {
+		t.Errorf("team-b findings = %+v, want exactly 1 error", got)
+	}
+	// platform owns only the invalid revision and nothing running: the estate is real
+	// but every target-scoped population is empty, and "no evidence" is the answer.
+	p, err := q.EntityDetail(KindOwner, "platform")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := p.Owner.Summary
+	if sum.InvalidRevisions != 1 {
+		t.Errorf("invalid revisions = %d, want 1", sum.InvalidRevisions)
+	}
+	if sum.Targets != 0 || sum.Compliance.Total() != 0 || sum.Links.Total() != 0 || sum.Evidence.WithEvidence != 0 || sum.Findings.Total() != 0 {
+		t.Errorf("an owner with nothing running must tally an empty population: %+v", sum)
+	}
+}
+
 // A target has no owner of its own; it borrows its logical service's. When the
 // service record is missing there is nobody to page, and the block must be absent
 // rather than an empty owner that reads as "unowned".

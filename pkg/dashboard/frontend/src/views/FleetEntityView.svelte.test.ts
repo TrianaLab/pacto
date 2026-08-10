@@ -39,10 +39,20 @@ function targetDetail(): Record<string, any> {
   };
 }
 
-function mountView(kind: string, key: string) {
+/**
+ * mountView mounts the route and resolves once the ENTITY BODY exists.
+ *
+ * Waiting on `.ev-head` rather than on page text is load-bearing. The page-level h1
+ * renders immediately, before the detail request settles, because a page that is
+ * still loading is still a page and has to name itself -- and that heading contains
+ * the entity key. A test that waited for "payments" to appear therefore resolved
+ * against the loading shell and then asserted on a body that did not exist yet.
+ */
+async function mountView(kind: string, key: string) {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const component = mount(FleetEntityView, { target, props: { kind, entityKey: key, refreshTick: 0 } });
+  await vi.waitFor(() => expect(target.querySelector('.ev-head')).toBeTruthy());
   return { target, component };
 }
 
@@ -52,7 +62,7 @@ describe('FleetEntityView — unified entity route', () => {
 
   it('scenario 11: resolves via the entity-detail endpoint and shows identity + copyable key', async () => {
     detailFn.mockResolvedValue(targetDetail());
-    const { target, component } = mountView('target', 'prod/k8s/app');
+    const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => {
       expect(target.textContent).toContain('Operational target'); // user-facing kind label
       expect(target.textContent).not.toContain('Deployment');     // Pacto observes, it never deploys
@@ -67,7 +77,7 @@ describe('FleetEntityView — unified entity route', () => {
     // An exact revision match whose content is not retrievable (no canonical ref) is
     // honest, not contradictory (the whole point of the identity split).
     detailFn.mockResolvedValue(targetDetail());
-    const { target, component } = mountView('target', 'prod/k8s/app');
+    const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => {
       const text = target.textContent || '';
       expect(text).toContain('Exact revision match');
@@ -82,7 +92,7 @@ describe('FleetEntityView — unified entity route', () => {
     const d = targetDetail();
     d.target.ownership = { owner: 'team/platform', ref: { kind: 'owner', key: 'team/platform', label: 'team/platform', href: '/fleet/owners/team%2Fplatform' } };
     detailFn.mockResolvedValue(d);
-    const { target, component } = mountView('target', 'prod/k8s/app');
+    const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.textContent).toContain('team/platform'));
     for (const row of Array.from(target.querySelectorAll('.te-fact'))) {
       const caption = row.querySelector('.te-k')?.textContent?.trim().toLowerCase();
@@ -97,7 +107,7 @@ describe('FleetEntityView — unified entity route', () => {
     one.target.source = 'local';
     one.target.sources = { items: ['local'], total: 1, count: 1, truncated: false };
     detailFn.mockResolvedValue(one);
-    let m = mountView('target', 'prod/k8s/app');
+    let m = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(m.target.textContent).toContain('Data source'));
     expect(m.target.textContent).not.toContain('Contributing data sources');
     unmount(m.component); document.body.removeChild(m.target);
@@ -106,14 +116,14 @@ describe('FleetEntityView — unified entity route', () => {
     many.target.source = 'local';
     many.target.sources = { items: ['local', 'k8s'], total: 2, count: 2, truncated: false };
     detailFn.mockResolvedValue(many);
-    m = mountView('target', 'prod/k8s/app');
+    m = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(m.target.textContent).toContain('Contributing data sources'));
     unmount(m.component); document.body.removeChild(m.target);
   });
 
   it('maps the DTO open-graph action to a canonical graph route', async () => {
     detailFn.mockResolvedValue(targetDetail());
-    const { target, component } = mountView('target', 'prod/k8s/app');
+    const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.querySelector('.ev-action')).toBeTruthy());
     const action = Array.from(target.querySelectorAll('a.ev-action')).find((a) => a.textContent?.includes('graph')) as HTMLAnchorElement;
     expect(action.getAttribute('href')).toBe('#/fleet/graph/target/prod%2Fk8s%2Fapp');
@@ -169,7 +179,7 @@ describe('FleetEntityView — rich service page (D)', () => {
       ],
     };
     detailFn.mockResolvedValue(d);
-    const { target, component } = mountView('service', 'domain-a/payments');
+    const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic'));
     const rows = Array.from(target.querySelectorAll('.rel'));
     expect(rows.map((r) => r.querySelector('.rel-word')?.textContent)).toEqual(['Depends on', 'Used by']);
@@ -190,7 +200,7 @@ describe('FleetEntityView — rich service page (D)', () => {
       items: [{ id: 'e', from: ref('service', 'domain-a/payments'), to: ref('service', 'domain-b/ledger'), relation: 'dependency', difference: 'insufficient', provenance: 'declared' }],
     };
     detailFn.mockResolvedValue(d);
-    const { target, component } = mountView('service', 'domain-a/payments');
+    const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic'));
     expect(target.querySelector('.rel-prov')?.textContent).toBe('Expected');
     unmount(component); document.body.removeChild(target);
@@ -205,7 +215,7 @@ describe('FleetEntityView — rich service page (D)', () => {
       conflicts: { total: 3, count: 1, truncated: true, items: [`domain-a/payments@${digest}: team-b`] },
     };
     detailFn.mockResolvedValue(d);
-    const { target, component } = mountView('service', 'domain-a/payments');
+    const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Ownership conflict'));
     const rows = Array.from(target.querySelectorAll('.se-conflict-list li'));
     expect(rows[0].textContent).toBe('domain-a/payments@673e8f73673e…: team-b');
@@ -216,7 +226,7 @@ describe('FleetEntityView — rich service page (D)', () => {
 
   it('renders bounded previews with honest count-of-total and truncation, plus ownership conflict', async () => {
     detailFn.mockResolvedValue(serviceDetail());
-    const { target, component } = mountView('service', 'domain-a/payments');
+    const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('Revisions'));
     const text = target.textContent || '';
     expect(text).toContain('2 of 5');            // revisions preview count-of-total
@@ -234,7 +244,7 @@ describe('FleetEntityView — rich service page (D)', () => {
   // Two buttons opening the identical screen was the legacy seam this replaces.
   it('offers the Change analysis workspace exactly once for compare AND impact', async () => {
     detailFn.mockResolvedValue(serviceDetail());
-    const { target, component } = mountView('service', 'domain-a/payments');
+    const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.querySelector('.ev-action')).toBeTruthy());
     const links = Array.from(target.querySelectorAll('a.ev-action'));
     const labels = links.map((a) => a.textContent?.trim());
@@ -246,7 +256,7 @@ describe('FleetEntityView — rich service page (D)', () => {
 
   it('breadcrumbs use the entity relationship (Overview > Services > payments)', async () => {
     detailFn.mockResolvedValue(serviceDetail());
-    const { target, component } = mountView('service', 'domain-a/payments');
+    const { target, component } = await mountView('service', 'domain-a/payments');
     // Wait for the detail to load (the entity trail replaces the loading fallback).
     await vi.waitFor(() => expect(target.textContent).toContain('Revisions'));
     const crumbs = Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim());
@@ -285,7 +295,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
 
   it('shows version, readiness, contract facets and the parent service link', async () => {
     detailFn.mockResolvedValue(revisionDetail());
-    const { target, component } = mountView('revision', 'domain-a/payments@2.1.0');
+    const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
     await vi.waitFor(() => expect(target.textContent).toContain('2.1.0'));
     const text = target.textContent || '';
     expect(text).toContain('Readiness');
@@ -300,7 +310,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
 
   it('shows content retrievability as its OWN dimension and never calls mutable content immutable', async () => {
     detailFn.mockResolvedValue(revisionDetail({ retrievable: false, identityClass: 'mutable' }));
-    const { target, component } = mountView('revision', 'domain-a/payments@2.1.0');
+    const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
     await vi.waitFor(() => expect(target.textContent).toContain('Mutable reference'));
     expect(target.textContent).not.toMatch(/immutable/i); // never asserts immutability of mutable content
     unmount(component); document.body.removeChild(target);
@@ -310,7 +320,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
     const d = revisionDetail();
     d.revision.readiness = null;
     detailFn.mockResolvedValue(d);
-    const { target, component } = mountView('revision', 'domain-a/payments@2.1.0');
+    const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
     await vi.waitFor(() => expect(target.textContent).toContain('Readiness'));
     const text = target.textContent || '';
     expect(text).toContain('Not declared');
@@ -324,7 +334,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
     const d = revisionDetail();
     d.revision.pactoVersion = '2.0';
     detailFn.mockResolvedValue(d);
-    const { target, component } = mountView('revision', 'domain-a/payments@2.1.0');
+    const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
     await vi.waitFor(() => expect(target.textContent).toContain('2.0'));
     const labels = Array.from(target.querySelectorAll('.re-k')).map((n) => n.textContent);
     expect(labels).toContain('Pacto version');
@@ -337,7 +347,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
     const d = revisionDetail();
     d.revision.ownership = { owner: 'team-a', ref: ref('owner', 'team-a') };
     detailFn.mockResolvedValue(d);
-    const { target, component } = mountView('revision', 'domain-a/payments@2.1.0');
+    const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
     await vi.waitFor(() => expect(target.textContent).toContain('team-a'));
     const href = Array.from(target.querySelectorAll('a.entity-link')).map((a) => a.getAttribute('href'));
     expect(href).toContain('#/fleet/owners/team-a');
@@ -369,7 +379,7 @@ describe('FleetEntityView — rich target page honesty (F)', () => {
 
   it('an ambiguous match never presents a specific revision as authoritative', async () => {
     detailFn.mockResolvedValue(ambiguousTarget());
-    const { target, component } = mountView('target', 'prod/k8s/app');
+    const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Ambiguous revision match'));
     const text = target.textContent || '';
     // The prose explains WHY we cannot name the revision -- it does not restate the badge.
@@ -387,7 +397,7 @@ describe('FleetEntityView — rich target page honesty (F)', () => {
     const d = ambiguousTarget();
     d.target.linkState = 'unresolved';
     detailFn.mockResolvedValue(d);
-    const { target, component } = mountView('target', 'prod/k8s/app');
+    const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Unresolved revision'));
     const text = target.textContent || '';
     expect(text).toMatch(/nothing we observed here ties back to a known revision/i);
@@ -409,7 +419,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
         attention: { total: 1, count: 1, truncated: false, items: [{ severity: 'warning', category: 'stale', entity: ref('target', 'prod/k8s/a'), summary: 'evidence stale' }] },
       },
     });
-    const { target, component } = mountView('owner', 'platform-team');
+    const { target, component } = await mountView('owner', 'platform-team');
     await vi.waitFor(() => expect(target.textContent).toContain('Services'));
     const text = target.textContent || '';
     expect(text).toContain('2 of 4');       // services preview honest count
@@ -433,7 +443,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
         attention: { total: 1, count: 1, truncated: true, items: [{ severity: 'warning', category: 'stale', entity: ref('target', 'prod/k8s/a'), summary: 'stale' }] },
       },
     });
-    const { target, component } = mountView('owner', 'team:platform');
+    const { target, component } = await mountView('owner', 'team:platform');
     await vi.waitFor(() => expect(target.textContent).toContain('Needs attention'));
     const viewAll = Array.from(target.querySelectorAll('a')).find((a) => a.textContent?.includes('View all for this owner')) as HTMLAnchorElement;
     expect(viewAll.getAttribute('href')).toBe(`#/fleet/attention?owner=${encodeURIComponent('team:platform')}`);
@@ -453,7 +463,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },
     });
-    const { target, component } = mountView('source', 'kubernetes');
+    const { target, component } = await mountView('source', 'kubernetes');
     await vi.waitFor(() => expect(target.textContent).toContain('Contributed entities'));
     const text = target.textContent || '';
     expect(text.match(/Available/g)).toHaveLength(1); // header badge only, never restated
@@ -473,7 +483,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },
     });
-    const { target, component } = mountView('source', 'edge-cluster');
+    const { target, component } = await mountView('source', 'edge-cluster');
     await vi.waitFor(() => expect(target.textContent).toContain('edge cluster unreachable'));
     const banner = target.querySelector('.src-error') as HTMLElement;
     // The sentence starts with words, not an enum -- but the exact code is still there.
@@ -494,7 +504,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },
     });
-    const { target, component } = mountView('source', 'edge-cluster');
+    const { target, component } = await mountView('source', 'edge-cluster');
     await vi.waitFor(() => expect(target.textContent).toContain('Contributed entities'));
     const head = target.querySelector('.ev-head') as HTMLElement;
     expect(head.querySelector('.tag')?.textContent).toBe('Unavailable');
@@ -520,7 +530,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },
     });
-    const { target, component } = mountView('target', 'prod/k8s/app');
+    const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed runtime'));
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text).not.toContain('200 of 400'); // scanned is NOT the total
@@ -558,7 +568,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },
     });
-    const { target, component } = mountView('revision', 'domain-a/app@sha256:1');
+    const { target, component } = await mountView('revision', 'domain-a/app@sha256:1');
     await vi.waitFor(() => expect(target.textContent).toContain('Readiness checks'));
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     // Ownership rendered (not just a count).
@@ -592,7 +602,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },
     });
-    const { target, component } = mountView('service', 'domain-a/app');
+    const { target, component } = await mountView('service', 'domain-a/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed traffic and differences'));
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text).not.toContain('200 of 200');

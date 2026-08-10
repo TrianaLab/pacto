@@ -782,6 +782,53 @@ differences" are summary-then-detail; `src/sections/**` keeps its own presentati
 that is the non-Fleet `pacto doc` host. Only `.disclosure` has an automated coherence
 guard -- the shared `.btn` does not, so a fifth private button clone would not fail CI.
 
+### Visual-intelligence audit (requirement 6 and 7)
+
+The redesign over-corrected: the product surfaces became clean, correct lists and lost
+the at-a-glance comprehension the old dashboard had. This audit classifies every old
+visualization and every current product surface as RESTORE / EVOLVE / RETIRE. The rule
+applied throughout: **a proportion may only be drawn from a backend aggregate over a
+COMPLETE population.** Bounded previews (`MaxDetailPreview` = 200, list pages = 25) are
+lists, not denominators, and a chart drawn from one would report "the first 200 targets"
+as the estate.
+
+Old dashboard visualizations (`src/lib/charts.ts` and its Svelte wrappers, still live on
+the non-Fleet legacy host, none reachable from the Product IA):
+
+| Old visualization | Verdict | Where it went |
+|---|---|---|
+| `renderCategoryStackedBars` / `CategoryBreakdownChart` | EVOLVE | The numbers survive as graded `EntryPoint` tiles on the Overview and as the complete "By category" `HorizontalBars` on the attention workspace. |
+| Summary bar (status split) | RESTORE | `DistributionBar`, now the shared four-bar `PostureBars` block. |
+| `renderOwnerBars` / `OwnersBarChart` | EVOLVE | Became per-owner posture on the owner detail page, backed by the new `OwnerSummary` aggregate. A fleet-wide owner bar chart is not restored: the owners LIST is capped at 25 and `EntityRef` carries no counts, so any chart drawn there would be page-derived. |
+| `renderReadinessDonut` / `ReadinessDonut` | RETIRE | Readiness is per revision, not a fleet-scoped population; a donut over mixed revisions counts a thing that does not exist. Also a pie by another name. |
+| `renderHeatmap` / `ReadinessHeatmap` | RETIRE | Same reason, plus colour-only meaning at cell size. |
+| `renderTreemap` / `TreemapChart` | RETIRE | Superseded by Change analysis impact, which answers the same "what does this touch" question against canonical `RevisionKey`s instead of area-encoded name boxes. |
+| `renderPriorityQuadrant` / `PriorityQuadrant` | RETIRE | Both axes were an invented composite score. The product grades attention items with the backend's own severity. |
+| `renderVersionTimeline` / `VersionTimeline` | RETIRE as a timeline, EVOLVE as a list | The snapshot has no publication history (see "Deliberate non-parity"); the chronology is served by the bounded revision-history API and rendered as an ordered list. |
+
+Current Product surfaces:
+
+| Surface | Verdict | Outcome |
+|---|---|---|
+| Overview | EVOLVE | Asked two of the three orthogonal questions. `OverviewSummary.Evidence` adds the freshness partition (fresh / stale / never observed), so "how recently did we look" is a proportion and not just a stale count. `Evidence.Stale` equals the pre-existing `StaleTargets` by construction, pinned by a test. |
+| Service detail | RESTORE | Kept its four distributions, now drawn by the shared component. |
+| Owner detail | RESTORE | Was four bounded lists and no posture. New `fleet.OwnerSummary` (complete service / revision / target populations, accumulated in the same walk that builds the previews) drives the same four bars. Gated by `informationParity.svelte.test.ts`. |
+| Target detail | RETIRE | A single entity is not a population, and its findings preview is truncated. Facts, not charts. |
+| Source detail | RETIRE | Two counts and a status is not a chart. |
+| List workspaces | unchanged | Aggregate context allowed, page-scoped charts must be labeled page-scoped (requirement 8, already closed). |
+
+Shared implementation: `components/viz/PostureBars.svelte` renders the three orthogonal
+questions plus findings-by-severity in one visual language, so fleet, service and owner
+cannot drift in wording, ordering or colour -- and none of them ever collapses into a
+single "health score". Every non-clean bucket is a keyboard-operable drill-down into the
+attention backlog SCOPED to the surface that drew it: the attention endpoint already
+accepted `service` and `owner`, so this was a routing change (`fleetAttentionUrl({
+service })`, parsed back into a filter chip) rather than a new API.
+
+No third rendering of the attention categories was added. `AttentionPreview` carries no
+population-complete category tally, and the two places that do have one already draw it;
+a third would be a dead infographic by duplication.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:

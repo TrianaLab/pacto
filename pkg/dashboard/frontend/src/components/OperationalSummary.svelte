@@ -1,8 +1,7 @@
 <script>
   import { hashForHref, fleetAttentionUrl } from '../lib/router.ts';
   import { severityTone } from '../lib/entityLabels.ts';
-  import { complianceSegments, linkSegments } from '../lib/distributions.ts';
-  import DistributionBar from './viz/DistributionBar.svelte';
+  import PostureBars from './viz/PostureBars.svelte';
 
   // The overview summary tiles. Every tile is a backend entry point, rendered with the
   // backend's own label, grade and href -- nothing is re-worded or re-derived here. The
@@ -37,34 +36,32 @@
   // rescaling a proportion to whatever happened to add up.
   const targets = $derived(summary.targets || 0);
 
-  // Every bucket that has a triage destination gets one, so a proportion is a way IN
-  // rather than a picture. Compliant and Exact have no destination by design: there is
-  // no "list of things that are fine" workspace, and inventing one would be a dead link.
-  const compliance = $derived(complianceSegments(
-    {
+  // The fleet posture is drawn by the SAME component a service page and an owner page
+  // use, so the three surfaces cannot drift in wording, ordering or colour. The flat
+  // OverviewSummary counters are reshaped into the shared tally shape here rather than
+  // in the component: the overview is the one surface whose aggregate predates the
+  // shared shape, and translating it once at the edge beats teaching the component
+  // about a second field layout.
+  const posture = $derived({
+    targets,
+    compliance: {
       compliant: summary.compliantTargets,
       nonCompliant: summary.nonCompliantTargets,
       unknown: summary.unknownTargets,
       invalid: summary.invalidTargets,
       other: summary.otherComplianceTargets,
     },
-    {
-      nonCompliant: fleetAttentionUrl({ category: 'non-compliant' }),
-      unknown: fleetAttentionUrl({ category: 'unknown' }),
-      invalid: fleetAttentionUrl({ category: 'invalid' }),
+    links: {
+      exact: summary.exactTargetLinks,
+      inferred: summary.inferredTargetLinks,
+      ambiguous: summary.ambiguousTargetLinks,
+      unresolved: summary.unresolvedTargetLinks,
     },
-  ));
-  const links = $derived(linkSegments({
-    exact: summary.exactTargetLinks,
-    inferred: summary.inferredTargetLinks,
-    ambiguous: summary.ambiguousTargetLinks,
-    unresolved: summary.unresolvedTargetLinks,
-  }).map((s) => (
-    s.label === 'Ambiguous' || s.label === 'Unresolved'
-      ? { ...s, href: fleetAttentionUrl({ category: 'unresolved' }) }
-      : s
-  )));
-  const totalLinks = $derived(links.reduce((n, s) => n + s.value, 0));
+    evidence: summary.evidence,
+  });
+  // Fleet scope: no service/owner filter, so a drill-down lands on the whole backlog
+  // for that category -- which is exactly the population this chart drew.
+  const attentionUrl = (category) => fleetAttentionUrl({ category });
 </script>
 
 <div class="op-summary">
@@ -100,23 +97,8 @@
         {summary.revisions || 0} {(summary.revisions || 0) === 1 ? 'revision' : 'revisions'} ·
         {targets} operational {targets === 1 ? 'target' : 'targets'}
       </p>
-      <div class="ov-dists">
-        <DistributionBar
-          title="Compliance"
-          description="Whether each running target is observed to obey its contract."
-          segments={compliance}
-          total={targets}
-        />
-        <DistributionBar
-          title="Revision-match certainty"
-          description="How confidently each running target was tied to one revision. Anything short of an exact match still means something is running — only that we are less sure which revision."
-          segments={links}
-          total={targets}
-        />
-      </div>
-      {#if totalLinks > 0}
-        <p class="ov-posture-note">We know exactly which revision is running on {exactLinks} of {totalLinks} operational targets{(summary.staleTargets || 0) > 0 ? `, and ${summary.staleTargets} of them were last observed too long ago to trust` : ''}.</p>
-      {/if}
+      <PostureBars summary={posture} {attentionUrl} />
+      <p class="ov-posture-note">We know exactly which revision is running on {exactLinks} of {targets} operational targets{(summary.staleTargets || 0) > 0 ? `, and ${summary.staleTargets} of them were last observed too long ago to trust` : ''}.</p>
     </section>
   {/if}
 </div>
@@ -139,7 +121,6 @@
   .ov-posture { display: flex; flex-direction: column; gap: var(--sp-3); }
   .ov-posture-h { margin: 0; font-size: var(--text-md); }
   .ov-posture-sub, .ov-posture-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .ov-dists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
   .tone-ok { --tone-c: var(--c-ok); }
   .tone-warn { --tone-c: var(--c-warn); }
   .tone-err { --tone-c: var(--c-err); }

@@ -25,8 +25,8 @@
   // answers what is affected, why, how severe, what evidence/source supports it and
   // what to inspect next (the backend-provided nextStep, never invented remediation).
   let {
-    category = '', severity = '', status = '', owner = '', source = '', staleOnly = '',
-    offset = '', refreshTick = 0,
+    category = '', severity = '', status = '', owner = '', source = '', service = '',
+    staleOnly = '', offset = '', refreshTick = 0,
   } = $props();
 
   const PAGE_SIZE = 25;
@@ -34,7 +34,7 @@
   const SEVERITIES = ['error', 'warning', 'info'];
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
   const isStale = $derived(staleOnly === '1');
-  const anyFilter = $derived(!!(category || severity || status || owner || source || isStale));
+  const anyFilter = $derived(!!(category || severity || status || owner || source || service || isStale));
 
   // One reusable, race-safe loader (requirement E): the fetcher reads current filters
   // at request time; sync(key) dedupes the initial load and the generation guard stops
@@ -47,12 +47,13 @@
     status: status || undefined,
     owner: owner || undefined,
     source: source || undefined,
+    service: service || undefined,
     staleOnly: isStale ? true : undefined,
     offset: pageOffset || undefined,
     limit: PAGE_SIZE,
   }));
   $effect(() => {
-    loader.sync([category, severity, status, owner, source, staleOnly, pageOffset, refreshTick].join('@@'));
+    loader.sync([category, severity, status, owner, source, service, staleOnly, pageOffset, refreshTick].join('@@'));
   });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -73,6 +74,7 @@
       status: patch.status ?? status,
       owner: patch.owner ?? owner,
       source: patch.source ?? source,
+      service: patch.service ?? service,
       staleOnly: stale || undefined,
       offset: off,
     });
@@ -93,6 +95,10 @@
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     owner ? { key: 'owner', label: 'Owner', value: owner } : null,
     source ? { key: 'source', label: 'Source', value: source } : null,
+    // Scoping arrives by deep link from a service page's posture bars; it gets a chip
+    // like every other filter so the user can see they are in one service's backlog
+    // and widen to the fleet in one click, instead of silently reading a subset.
+    service ? { key: 'service', label: 'Service', value: service } : null,
     isStale ? { key: 'staleOnly', label: 'Stale only', value: 'yes' } : null,
   ].filter(Boolean));
   // Category buckets come from the backend in canonical order with their zeros; the

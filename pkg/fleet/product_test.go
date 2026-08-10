@@ -133,6 +133,28 @@ func TestOverview_Counts(t *testing.T) {
 	}
 }
 
+// Freshness is only a proportion once "never observed at all" is its own bucket, so
+// the overview carries the whole evidence partition and not just the stale count.
+// The flat StaleTargets field stays the same number by construction; if the two ever
+// diverge, one of the two entry points is lying about the same population.
+func TestOverview_EvidenceWindowPartitionsTheTargetPopulation(t *testing.T) {
+	q := productFleet(t)
+	s := q.Overview().Summary
+	ev := s.Evidence
+	if ev.WithEvidence != 4 || ev.WithoutEvidence != 1 {
+		t.Errorf("evidence split = %d observed / %d never observed, want 4/1", ev.WithEvidence, ev.WithoutEvidence)
+	}
+	if ev.WithEvidence+ev.WithoutEvidence != s.Targets {
+		t.Errorf("the buckets must cover all %d targets, got %d", s.Targets, ev.WithEvidence+ev.WithoutEvidence)
+	}
+	if ev.Stale != s.StaleTargets {
+		t.Errorf("evidence.stale = %d but staleTargets = %d: the same population under two numbers", ev.Stale, s.StaleTargets)
+	}
+	if ev.Oldest == nil || ev.Newest == nil || !ev.Oldest.Before(*ev.Newest) {
+		t.Errorf("evidence span = %v..%v, want a real oldest-before-newest window", ev.Oldest, ev.Newest)
+	}
+}
+
 // assertEvidenceNewestFirst fails if the evidence items are not in newest-first order.
 func assertEvidenceNewestFirst(t *testing.T, items []EvidenceItem) {
 	t.Helper()

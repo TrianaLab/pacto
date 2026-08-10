@@ -194,6 +194,13 @@ type OverviewSummary struct {
 	StaleSources              int `json:"staleSources"`
 	UnavailableSources        int `json:"unavailableSources"`
 	RecentEvidence            int `json:"recentEvidence"`
+	// Evidence is the fleet's freshness envelope: the third orthogonal question a
+	// service page already answers ("how recently did we look"), at fleet scale and
+	// over the same complete target population. Evidence.Stale equals StaleTargets by
+	// construction — the flat field predates this and the entry points still read it —
+	// but a proportion needs the whole partition, and fresh / stale / never-observed is
+	// only a partition once "never observed at all" is its own bucket.
+	Evidence EvidenceWindow `json:"evidence"`
 }
 
 // EntryPointView is the route-neutral destination class of an entry point. The
@@ -270,6 +277,7 @@ func (q *Query) Overview() *Overview {
 	for _, t := range q.snap.Targets {
 		link.add(t)
 		comp.add(t.Compliance)
+		sum.Evidence.add(t)
 		if t.Stale {
 			sum.StaleTargets++
 		}

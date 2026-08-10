@@ -171,3 +171,88 @@ describe('HorizontalBars', () => {
     expect(target.querySelector('.hb-value')?.textContent).toBe('6 consumers');
   });
 });
+
+// @ts-expect-error — Svelte components have no declaration files
+import PostureBars from './PostureBars.svelte';
+
+/**
+ * PostureBars is the one place the fleet, a service and an owner draw the same three
+ * orthogonal questions, so what is asserted here is that the three surfaces cannot
+ * drift: same dimensions, same denominator rule, and a drill-down scoped to whatever
+ * population was drawn.
+ */
+const posture = {
+  targets: 6,
+  compliance: { compliant: 3, nonCompliant: 2, unknown: 1 },
+  links: { exact: 4, inferred: 1, unresolved: 1 },
+  evidence: { withEvidence: 5, withoutEvidence: 1, stale: 2, oldest: '2026-07-01T00:00:00Z', newest: '2026-07-29T00:00:00Z' },
+  findings: { errors: 1, warnings: 2 },
+};
+
+describe('PostureBars', () => {
+  it('asks all three orthogonal questions, and never collapses them into a score', () => {
+    comp = mount(PostureBars, { target, props: { summary: posture } });
+    const titles = Array.from(target.querySelectorAll('.dist-title')).map((h) => h.textContent);
+    expect(titles).toEqual(['Compliance', 'Revision-match certainty', 'Evidence freshness', 'Findings by severity']);
+    const text = target.textContent || '';
+    // Exact counts, and each proportion states the population it is a proportion of.
+    for (const fragment of ['Compliant', '3', 'Non-compliant', '2', 'Exact', '4', 'Stale evidence', 'No evidence', 'of 6']) {
+      expect(text).toContain(fragment);
+    }
+  });
+
+  it('uses the backend population as the denominator, not the sum of the buckets', () => {
+    // Five classified targets out of a population of six: the missing one is shown,
+    // not absorbed. A page that rescaled to 5 would report a proportion of a
+    // population nobody counted.
+    comp = mount(PostureBars, {
+      target,
+      props: { summary: { targets: 6, compliance: { compliant: 5 } } },
+    });
+    const legend = target.querySelector('.dist-legend')?.textContent || '';
+    expect(legend).toContain('Unclassified');
+    expect(legend).toContain('of 6');
+  });
+
+  it('scopes every drill-down to the population it drew', () => {
+    comp = mount(PostureBars, {
+      target,
+      props: { summary: posture, attentionUrl: (c: string) => `#/fleet/attention?service=svc&category=${c}` },
+    });
+    const hrefs = Array.from(target.querySelectorAll('.dist-legend a')).map((a) => a.getAttribute('href'));
+    // Every href carries the scope; a service page must never send the user to the
+    // fleet-wide backlog.
+    expect(hrefs.every((h) => h?.includes('service=svc'))).toBe(true);
+    expect(hrefs).toContain('#/fleet/attention?service=svc&category=non-compliant');
+    expect(hrefs).toContain('#/fleet/attention?service=svc&category=unknown');
+    expect(hrefs).toContain('#/fleet/attention?service=svc&category=unresolved');
+    expect(hrefs).toContain('#/fleet/attention?service=svc&category=stale');
+    // Compliant and Exact have no destination by design: there is no list of things
+    // that are fine, and inventing one would be a dead link.
+    const linked = Array.from(target.querySelectorAll('.dist-legend a')).map((a) => a.textContent || '');
+    expect(linked.some((t) => t.includes('Compliant') && !t.includes('Non-compliant'))).toBe(false);
+    expect(linked.some((t) => t.startsWith('Exact'))).toBe(false);
+  });
+
+  it('renders plain text, not dead links, when the caller has no scoped destination', () => {
+    comp = mount(PostureBars, { target, props: { summary: posture } });
+    expect(target.querySelectorAll('.dist-legend a')).toHaveLength(0);
+  });
+
+  it('states the evidence window in words, so freshness is not only a bar length', () => {
+    comp = mount(PostureBars, { target, props: { summary: posture } });
+    expect(target.querySelector('.pb-hint')?.textContent).toContain('Evidence spans');
+  });
+
+  it('says nothing is running rather than drawing three empty bars', () => {
+    comp = mount(PostureBars, { target, props: { summary: { targets: 0 }, empty: 'Nothing observed here yet.' } });
+    expect(target.querySelector('.pb-dists')).toBeNull();
+    expect(target.querySelector('.pb-hint')?.textContent).toBe('Nothing observed here yet.');
+  });
+
+  it('omits the findings bar entirely when there are no findings', () => {
+    comp = mount(PostureBars, { target, props: { summary: { ...posture, findings: {} } } });
+    const titles = Array.from(target.querySelectorAll('.dist-title')).map((h) => h.textContent);
+    expect(titles).not.toContain('Findings by severity');
+  });
+});

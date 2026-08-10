@@ -117,16 +117,22 @@ function richRevision(): Record<string, any> {
   };
 }
 
-function mountView(kind: string, key: string) {
+/**
+ * mountView resolves once the ENTITY BODY exists, not once the page has any text: the
+ * page-level h1 carries the entity key while the request is still in flight, so
+ * waiting for the entity's name would resolve against the loading shell.
+ */
+async function mountView(kind: string, key: string) {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const component = mount(FleetEntityView, { target, props: { kind, entityKey: key, refreshTick: 0 } });
+  await vi.waitFor(() => expect(target.querySelector('.ev-head')).toBeTruthy());
   return { target, component };
 }
 
 async function renderRevision() {
   detailFn.mockResolvedValue(richRevision());
-  const { target, component } = mountView('revision', 'domain-a/payments@sha256:abc');
+  const { target, component } = await mountView('revision', 'domain-a/payments@sha256:abc');
   await vi.waitFor(() => expect(target.textContent).toContain('payments'));
   return { target, component, text: () => target.textContent || '' };
 }
@@ -277,7 +283,7 @@ describe('service detail stays an operational dashboard (requirement 5)', () => 
 
   it('reports the complete populations, not the size of a bounded preview', async () => {
     detailFn.mockResolvedValue(richService());
-    const { target, component } = mountView('service', 'domain-a/payments');
+    const { target, component } = await mountView('service', 'domain-a/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('payments'));
     const text = target.textContent || '';
     // 7 revisions exist; the preview shows 1. The page must say 7.
@@ -291,6 +297,64 @@ describe('service detail stays an operational dashboard (requirement 5)', () => 
     expect(text).toContain('response schema drifted');
     expect(text).toContain('ledger');
     expect(text).toContain('checkout');
+    unmount(component); target.remove();
+  });
+});
+
+/**
+ * The owner page replaces the old owner view, whose whole point was posture: an owner
+ * opens it to find out whether THEIR estate is behaving. For a while it was four
+ * bounded lists and no answer. It must ask the same three questions a service page
+ * asks, one scope up, from the backend aggregate over the owner's complete
+ * populations — never by counting the capped previews beside it.
+ */
+function richOwner(): Record<string, any> {
+  return {
+    meta,
+    entity: { kind: 'owner', key: 'team/payments', label: 'team/payments', href: '/fleet/owners/team%2Fpayments' },
+    actions: ['attention'],
+    owner: {
+      summary: {
+        services: 4, revisions: 9, invalidRevisions: 1, targets: 6,
+        compliance: { compliant: 3, nonCompliant: 2, unknown: 1, invalid: 0, other: 0 },
+        links: { exact: 4, inferred: 1, ambiguous: 0, unresolved: 1 },
+        findings: { errors: 1, warnings: 2, infos: 0, unknown: 0 },
+        evidence: {
+          withEvidence: 5, withoutEvidence: 1, stale: 2, quarantined: 0,
+          oldest: '2026-07-20T08:00:00Z', newest: '2026-07-29T08:00:00Z',
+        },
+      },
+      services: preview([{ kind: 'service', key: 'domain-a/payments', label: 'payments', href: '#' }], { total: 4, count: 1, truncated: true }),
+      revisions: preview([{ kind: 'revision', key: 'domain-a/payments@sha256:abc', label: 'payments 2.1.0', href: '#' }], { total: 9, count: 1, truncated: true }),
+      deployments: preview([{ kind: 'target', key: 'prod/k8s/payments', label: 'payments', href: '#' }], { total: 6, count: 1, truncated: true }),
+      attention: preview([{ severity: 'error', category: 'compliance', entity: { kind: 'target', key: 'prod/k8s/payments', label: 'payments', href: '#' }, summary: 'response schema drifted' }]),
+    },
+  };
+}
+
+describe('owner detail answers the posture question (requirement 6)', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  it('draws compliance, revision-match and freshness from the complete estate', async () => {
+    detailFn.mockResolvedValue(richOwner());
+    const { target, component } = await mountView('owner', 'team/payments');
+    const text = target.textContent || '';
+    // The estate, from the summary: the previews below it show one row each.
+    expect(text).toContain('4');
+    expect(text).toContain('9');
+    expect(text).toContain('6');
+    expect(text).toContain('1 invalid');
+    // The same three orthogonal questions the service page asks, never collapsed
+    // into one owner health score.
+    for (const fragment of ['Compliant', 'Exact', 'Stale evidence', 'Errors']) {
+      expect(text).toContain(fragment);
+    }
+    // And every bucket drills into THIS owner's backlog, not the fleet's.
+    const drill = Array.from(target.querySelectorAll('a[href*="attention"]'))
+      .map((a) => a.getAttribute('href') || '');
+    expect(drill.length).toBeGreaterThan(0);
+    expect(drill.every((h) => h.includes('owner=team%2Fpayments'))).toBe(true);
+    expect(drill.some((h) => h.includes('category=non-compliant'))).toBe(true);
     unmount(component); target.remove();
   });
 });
@@ -333,7 +397,7 @@ describe('target detail stays a runtime inspector (requirement 11)', () => {
 
   it('renders the observed runtime, the labels, the coverage and every contributing source', async () => {
     detailFn.mockResolvedValue(richTarget());
-    const { target, component } = mountView('target', 'prod/k8s/payments');
+    const { target, component } = await mountView('target', 'prod/k8s/payments');
     await vi.waitFor(() => expect(target.textContent).toContain('payments'));
     const text = target.textContent || '';
     for (const fragment of [

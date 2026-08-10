@@ -336,6 +336,7 @@
       status={route.params.status || ''}
       owner={route.params.owner || ''}
       source={route.params.source || ''}
+      service={route.params.service || ''}
       staleOnly={route.params.staleOnly || ''}
       offset={route.params.offset || ''}
       {refreshTick}

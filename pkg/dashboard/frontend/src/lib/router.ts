@@ -157,7 +157,7 @@ function parseFleet(path: string, query: string): Route {
     const qs = new URLSearchParams(query);
     // Category and offset (and the section-I triage filters) live in the URL so the
     // attention list is deep-linkable and back/forward restores the exact page.
-    for (const k of ['category', 'offset', 'owner', 'source', 'severity', 'status', 'staleOnly']) {
+    for (const k of ['category', 'offset', 'owner', 'source', 'service', 'severity', 'status', 'staleOnly']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -488,13 +488,17 @@ export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphS
 // and the section-I triage filters in the URL so a filtered page is deep-linkable and
 // restored by refresh/back/forward. A zero/absent offset is omitted (canonical page 1).
 export function fleetAttentionUrl(opts: {
-  category?: string; offset?: number; owner?: string; source?: string;
+  category?: string; offset?: number; owner?: string; source?: string; service?: string;
   severity?: string; status?: string; staleOnly?: boolean;
 } = {}): string {
   const qs = new URLSearchParams();
   if (opts.category) qs.set('category', opts.category);
   if (opts.owner) qs.set('owner', opts.owner);
   if (opts.source) qs.set('source', opts.source);
+  // A canonical ServiceKey, never a display name: this is the same scoping the
+  // Product attention filter applies, so a service page can send the user to its OWN
+  // backlog instead of the whole fleet's.
+  if (opts.service) qs.set('service', opts.service);
   if (opts.severity) qs.set('severity', opts.severity);
   if (opts.status) qs.set('status', opts.status);
   if (opts.staleOnly) qs.set('staleOnly', '1');
