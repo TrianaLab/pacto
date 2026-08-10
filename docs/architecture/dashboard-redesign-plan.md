@@ -368,14 +368,19 @@ several generations of Pacto UI stitched together". Headings below that read
   repeated-URL history counterexample added to `place.spec.ts`. Still exactly one
   `test.skip` and no `test.fixme`. The final gate is final-SHA CI. Phase 7 has NOT been
   started.
-  REOPENED again (IN PROGRESS) by the fourth correction pass, narrowly, to accept
-  the presentation-system correction in a real browser: computed-style typography
+  REOPENED again by the fourth correction pass, narrowly, to accept the
+  presentation-system correction in a real browser: computed-style typography
   acceptance (page title dominates its section titles; two components in the same
   visual section role compute the same size and weight even when one is an h2 and
   the other an h3; a subsection is smaller than its parent section), desktop and
-  mobile, plus disclosure semantics and accessibility. It may re-close when that
-  acceptance passes, ALL previous browser acceptance stays green, and no required
-  migrated capability is skipped or fixme'd. Phase 7 stays NOT started.
+  mobile, plus disclosure semantics and accessibility. RE-CLOSED: 171 Playwright
+  tests across 19 specs (desktop plus Pixel-5) against the built WASM demo, the new
+  spec being `typography.spec.ts` -- eleven canonical routes measured in Chromium,
+  sharing `typographyChecks.ts` with the mobile ramp block in `mobile.spec.ts`. All
+  previous browser acceptance stays green, and there is still exactly one
+  `test.skip` (the `headings.spec.ts` data guard) and no `test.fixme`, so no
+  required migrated capability is deferred. The final gate is final-SHA CI. Phase 7
+  stays NOT started.
 - Product-coherence correction (cross-phase; NOT whole-program Phase 6, which is WASM
   browser acceptance): COMPLETE. A real user reported the app
   "still feels like several generations of Pacto UI stitched together". This phase was a
