@@ -13,6 +13,7 @@
   import EntityLink from '../components/EntityLink.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
+  import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
@@ -52,18 +53,22 @@
     offset: pageOffset || undefined,
     limit: PAGE_SIZE,
   }));
-  $effect(() => {
-    loader.sync([category, severity, status, owner, source, service, staleOnly, pageOffset, refreshTick].join('@@'));
-  });
+  // queryIdentity is the QUESTION (filters + page); refreshTick only re-asks it. Rows
+  // are retained across a re-ask and never across a different question.
+  const queryIdentity = $derived([category, severity, status, owner, source, service, staleOnly, pageOffset].join('@@'));
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.data);
+  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
   const loading = $derived(loader.loading);
   const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.items?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
+  // A poll that failed over rows we can still show. decideViewState keeps the rows;
+  // this is the half that keeps it honest, so a frozen list never reads as a live one.
+  const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
 
   // A filter change resets the offset to page 1; a patch value of '' clears a filter.
   function urlWith(patch, off = 0) {
@@ -177,6 +182,10 @@
     <KnowledgeBanner {knowledge} noun="attention list" />
   {/if}
 
+  {#if refreshError}
+    <StaleRefreshNotice noun="attention list" onRetry={load} />
+  {/if}
+
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="attention items" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
   {:else}
@@ -200,7 +209,7 @@
         unitOne="item"
       />
     </div>
-    <ul class="attn-list">
+    <ul class="attn-list" data-testid="attention-list">
       {#each list.items as it}
         <!-- Two columns, not one wrapping row. With everything in a single flex line
              the right-aligned next step dropped onto a second line as soon as the

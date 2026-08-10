@@ -10,6 +10,7 @@
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
+  import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
 
   // The scoped inventory list for the two kinds that have no list page of their own
@@ -40,16 +41,24 @@
     offset: pageOffset || undefined,
     limit: PAGE_SIZE,
   }));
-  $effect(() => { loader.sync(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${pageOffset}@@${refreshTick}`); });
+  // queryIdentity is the QUESTION -- the kind, the service the inventory is scoped to,
+  // the filters and the page. refreshTick only re-asks it. Rows are retained across a
+  // re-ask and never across a different question, so switching the scoped service can
+  // never show one service's revisions under another's heading.
+  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${pageOffset}`);
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.data);
+  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
   const loading = $derived(loader.loading);
   const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.entities?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
+  // A poll that failed over rows we can still show. decideViewState keeps the rows;
+  // this is the half that keeps it honest, so a frozen list never reads as a live one.
+  const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
   const total = $derived(list?.total ?? 0);
   const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
   const shownTo = $derived((list?.offset ?? pageOffset) + count);
@@ -102,6 +111,10 @@
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <KnowledgeBanner {knowledge} noun="list" />
+  {/if}
+
+  {#if refreshError}
+    <StaleRefreshNotice noun="list" onRetry={load} />
   {/if}
 
   {#if state.kind !== 'ready'}

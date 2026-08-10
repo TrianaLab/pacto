@@ -84,7 +84,8 @@ function makeHost(hash = '#/a') {
 describe('scrollRestore', () => {
   it('restores a reloaded deep link once its async content has settled', () => {
     const host = makeHost('#/fleet/services/payments');
-    host.sessionStorage!.setItem('pacto:scroll', JSON.stringify({ '#/fleet/services/payments': 900 }));
+    // Keyed by history ENTRY plus URL: this is the first entry of a fresh load.
+    host.sessionStorage!.setItem('pacto:scroll', JSON.stringify({ '0|#/fleet/services/payments': 900 }));
 
     const stop = initScrollRestore(host);
     // The entity request has not landed: the page cannot hold 900px yet, and this
@@ -234,7 +235,7 @@ describe('scrollRestore', () => {
 
   it('gives up a pending restore the moment the user scrolls themselves', () => {
     const host = makeHost('#/deep');
-    host.sessionStorage!.setItem('pacto:scroll', JSON.stringify({ '#/deep': 900 }));
+    host.sessionStorage!.setItem('pacto:scroll', JSON.stringify({ '0|#/deep': 900 }));
     const stop = initScrollRestore(host);
 
     host.emit('wheel');
@@ -253,13 +254,88 @@ describe('scrollRestore', () => {
 
     const reloaded = host.reload();
     stop();
-    expect(JSON.parse(host.stored()!)['#/a']).toBe(640);
+    expect(JSON.parse(host.stored()!)['0|#/a']).toBe(640);
 
     const stop2 = initScrollRestore(reloaded);
     reloaded.height = 2000;
     reloaded.tick();
     expect(reloaded.scrollY).toBe(640);
     stop2();
+  });
+
+  // The counterexample that forced positions off URLs and onto history entries.
+  // Three entries, two of them showing #/a. Keyed by URL, the third visit's 0
+  // overwrote the first visit's 800 and Back Back landed at the top of a page the
+  // user had read halfway.
+  it('keeps two history entries for the same URL independent (A, B, A, back, back)', () => {
+    const host = makeHost('#/a');
+    const stop = initScrollRestore(host);
+    host.height = 2000;
+    host.scrollTo(0, 800);        // entry 1: #/a, read to 800
+
+    host.push('#/b');             // entry 2
+    host.scrollTo(0, 300);
+    host.push('#/a');             // entry 3: the SAME url, a fresh visit
+    expect(host.scrollY).toBe(0); // and therefore a fresh scroll state
+
+    host.go(-1);                  // back to entry 2 (#/b)
+    host.tick();
+    expect(host.scrollY).toBe(300);
+
+    host.go(-1);                  // back to entry 1 (#/a) -- the halfway-read one
+    host.tick();
+    expect(host.scrollY).toBe(800);
+    stop();
+  });
+
+  // Canonicalization renames THIS entry rather than creating one, so the position
+  // travels with it and Back still finds only the entries the user really made.
+  it('transfers the position to the canonical URL without creating an entry', () => {
+    const host = makeHost('#/a');
+    const stop = initScrollRestore(host);
+    host.height = 2000;
+    host.scrollTo(0, 500);
+    host.replace('#/a?text=pay');
+
+    host.push('#/b');
+    host.go(-1);
+    host.tick();
+    expect(host.scrollY).toBe(500);
+
+    // The old URL kept nothing behind: it is not a place the user can return to.
+    host.emit('pagehide');
+    const keys = Object.keys(JSON.parse(host.stored()!));
+    expect(keys.some((k) => k.endsWith('|#/a'))).toBe(false);
+    expect(keys.some((k) => k.endsWith('|#/a?text=pay'))).toBe(true);
+    stop();
+  });
+
+  // A push truncates the forward history. An entry that later reuses a discarded
+  // index is a different place and must not inherit the discarded one's position.
+  it('does not let a new entry inherit a discarded forward entry position', () => {
+    const host = makeHost('#/a');
+    const stop = initScrollRestore(host);
+    host.height = 2000;
+    host.push('#/b');
+    host.scrollTo(0, 600);
+    host.go(-1);                  // back to #/a; #/b is now forward history
+    host.push('#/b');             // a NEW entry 1, discarding the old one
+    host.tick();
+    expect(host.scrollY).toBe(0);
+    stop();
+  });
+
+  it('bounds what it remembers', () => {
+    const host = makeHost('#/a');
+    const stop = initScrollRestore(host);
+    host.height = 2000;
+    for (let i = 0; i < 60; i++) {
+      host.push(`#/p${i}`);
+      host.scrollTo(0, 100 + i);
+    }
+    host.emit('pagehide');
+    expect(Object.keys(JSON.parse(host.stored()!)).length).toBeLessThanOrEqual(30);
+    stop();
   });
 
   it('survives an unreadable session store', () => {

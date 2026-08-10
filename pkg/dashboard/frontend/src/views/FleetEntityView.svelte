@@ -12,6 +12,7 @@
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import EntityStatusBadge from '../components/EntityStatusBadge.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
+  import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ServiceEntity from './entity/ServiceEntity.svelte';
   import RevisionEntity from './entity/RevisionEntity.svelte';
   import TargetEntity from './entity/TargetEntity.svelte';
@@ -125,10 +126,7 @@
     <KnowledgeBanner {knowledge} noun="page" />
 
     {#if refreshError}
-      <p class="ev-stale" role="status">
-        This page could not be refreshed, so you are reading the last answer we received.
-        <button type="button" class="ev-stale-retry" onclick={load}>Try again</button>
-      </p>
+      <StaleRefreshNotice noun="page" onRetry={load} />
     {/if}
 
     {#if actions.length}
@@ -158,16 +156,6 @@
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-key-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
   .ev-key-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .ev-stale {
-    margin: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
-    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-left: 3px solid var(--c-warn);
-    border-radius: var(--radius-sm); background: var(--c-surface);
-    font-size: var(--text-sm); color: var(--c-text-2);
-  }
-  .ev-stale-retry {
-    font: inherit; color: var(--c-accent); background: none; border: none; padding: 0;
-    text-decoration: underline; cursor: pointer;
-  }
   .ev-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-action {
     text-decoration: none; font-size: var(--text-sm); color: var(--c-accent);

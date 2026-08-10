@@ -10,6 +10,7 @@
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
+  import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { complianceSegments, tallyStatuses } from '../lib/distributions.ts';
@@ -45,18 +46,25 @@
     offset: pageOffset || undefined,
     limit: PAGE_SIZE,
   }));
-  $effect(() => {
-    loader.sync(`${text}@@${owner}@@${status}@@${domain}@@${pageOffset}@@${refreshTick}`);
-  });
+  // queryIdentity is the QUESTION -- every filter and the page, and deliberately not
+  // refreshTick, which only asks the same question again. requestKey adds the tick so a
+  // poll still fires. Retaining rows across a refresh is stale-while-revalidate;
+  // retaining them across a filter or page change would be showing one query's answer
+  // under another query's heading, so `list` is gated on the tag matching.
+  const queryIdentity = $derived(`${text}@@${owner}@@${status}@@${domain}@@${pageOffset}`);
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.data);
+  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
   const loading = $derived(loader.loading);
   const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.entities?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
+  // A poll that failed over rows we can still show. decideViewState keeps the rows;
+  // this is the half that keeps it honest, so a frozen list never reads as a live one.
+  const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
 
   const total = $derived(list?.total ?? 0);
   const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
@@ -169,6 +177,10 @@
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <KnowledgeBanner {knowledge} noun="list" />
+  {/if}
+
+  {#if refreshError}
+    <StaleRefreshNotice noun="services list" onRetry={load} />
   {/if}
 
   <!-- PAGE-SCOPED, and it says so. The Entities endpoint answers "which services match"

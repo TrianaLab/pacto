@@ -181,6 +181,49 @@ test.describe('WASM demo — the product keeps the user\'s place', () => {
     expect(await page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(TOLERANCE);
   });
 
+  // The counterexample that forced positions off URLs and onto history ENTRIES. Three
+  // entries, two of them showing the same service page. Keyed by URL, the third visit's
+  // fresh 0 overwrote the first visit's offset, and Back Back landed the reader at the
+  // top of a page they had read halfway.
+  test('two history entries showing the SAME page keep their own places (A, B, A, back, back)', async ({ page }) => {
+    await boot(page);
+    await openService(page);
+    const aURL = await page.evaluate(() => location.hash);
+    const revision = await page.locator('a.entity-link[href*="/fleet/revisions/"]').first().getAttribute('href');
+
+    // Entry 1: the service page, read part way down.
+    const { heading, y } = await scrollToLastSection(page);
+    expect(y).toBeGreaterThan(0);
+
+    // Entry 2, then entry 3 -- the SAME service URL again, reached by navigation rather
+    // than by Back, so it is a fresh visit and starts at the top.
+    await page.evaluate((h) => { location.hash = h!; }, revision);
+    await expect(page.getByRole('heading', { level: 1, name: /^Revision: / })).toBeVisible({ timeout: T });
+    await page.evaluate(() => window.scrollTo(0, 200));
+    await page.waitForTimeout(150);
+    const bY = await page.evaluate(() => window.scrollY);
+
+    await page.evaluate((h) => { location.hash = h; }, aURL);
+    await expect(page.getByRole('heading', { level: 1, name: /^Service: / })).toBeVisible({ timeout: T });
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(TOLERANCE);
+
+    // Back to entry 2...
+    await page.goBack();
+    await expect(page.getByRole('heading', { level: 1, name: /^Revision: / })).toBeVisible({ timeout: T });
+    await expect
+      .poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - bY), { timeout: T })
+      .toBeLessThanOrEqual(TOLERANCE);
+
+    // ...and back to entry 1, the halfway-read one, which entry 3 must not have erased.
+    await page.goBack();
+    await expect(page.getByRole('heading', { level: 1, name: /^Service: / })).toBeVisible({ timeout: T });
+    await expect
+      .poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - y), { timeout: T })
+      .toBeLessThanOrEqual(TOLERANCE);
+    await expect(heading).toBeVisible();
+  });
+
   test('Back returns to where you left the previous page', async ({ page }) => {
     await boot(page);
     await openService(page);

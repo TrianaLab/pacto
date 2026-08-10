@@ -9,9 +9,17 @@
  *
  * The rule follows what the USER did, not what changed on screen:
  *
- *   back / forward, and a hard reload  -> restore that URL's last position
+ *   back / forward, and a hard reload  -> restore that ENTRY's last position
  *   a deliberate navigation (push)     -> start at the top of the new page
  *   a canonicalization (replace)       -> leave the page exactly where it is
+ *
+ * A position belongs to a history ENTRY, not to a URL. The same URL can occupy
+ * several entries -- read A halfway, open B, come back to A through a link
+ * rather than Back -- and those are different places in the user's history, each
+ * with its own reading position. Keying by URL alone made the third visit
+ * overwrite the first, so Back Back landed at the top of a page the user had
+ * read halfway. Positions are therefore keyed by the entry index we stamp on
+ * `history.state` PLUS the URL, and a push starts a genuinely fresh one.
  *
  * A background data refresh is not a navigation and never reaches here. Keeping
  * the user's place through one is the loader's job -- stale-while-revalidate, so
@@ -22,7 +30,7 @@
 /** Where a hard reload picks the position back up from. */
 const STORE_KEY = 'pacto:scroll';
 
-/** Positions remembered per URL. Bounded: this is a convenience, not a log. */
+/** Positions remembered per history entry. Bounded: a convenience, not a log. */
 const MAX_ENTRIES = 30;
 
 /** How long we keep re-applying an offset while async content settles. */
@@ -87,28 +95,61 @@ function stamp(win: ScrollHost, idx: number): void {
 }
 
 /**
+ * The storage key for one history entry showing one URL. Only the text before the
+ * FIRST separator is ever read back as the index, and the index is always written
+ * first, so a hash containing the separator itself cannot confuse the two.
+ */
+function posKey(idx: number, hash: string): string {
+  return `${idx}|${hash}`;
+}
+
+/** The entry index encoded in a storage key, or -1 if the key is malformed. */
+function keyIndex(key: string): number {
+  const n = Number(key.slice(0, key.indexOf('|')));
+  return Number.isInteger(n) ? n : -1;
+}
+
+/**
  * initScrollRestore takes over scroll restoration for the hash router. Returns a
  * teardown.
  */
 export function initScrollRestore(win: ScrollHost = window as unknown as ScrollHost): () => void {
   const positions = new Map<string, number>(load(win));
-  let currentKey = win.location.hash;
+  let currentHash = win.location.hash;
   let cancel: (() => void) | null = null;
 
   // Push or traversal is decided by the history ENTRY, never by which event fired:
   // Chromium fires popstate for a plain fragment link click too, so an event-order
   // discriminator calls every navigation a Back. An entry we have never stamped is
   // new (a push); one that comes back carrying its stamp is a traversal.
-  let highWater = Math.max(entryIndex(win), 0);
-  stamp(win, highWater);
+  //
+  // currentIdx is THIS entry; highWater is the furthest entry we have handed out.
+  // They differ after a Back, which is exactly why a re-stamp must write currentIdx:
+  // stamping the high-water mark onto an earlier entry would give two entries the
+  // same identity and merge their positions back together.
+  let currentIdx = Math.max(entryIndex(win), 0);
+  let highWater = currentIdx;
+  stamp(win, currentIdx);
+
+  const currentKey = () => posKey(currentIdx, currentHash);
 
   const remember = () => {
-    positions.delete(currentKey);
-    positions.set(currentKey, win.scrollY);
+    const key = currentKey();
+    positions.delete(key);
+    positions.set(key, win.scrollY);
     while (positions.size > MAX_ENTRIES) {
       const oldest = positions.keys().next().value;
       if (oldest === undefined) break;
       positions.delete(oldest);
+    }
+  };
+
+  // A push truncates the forward history, so every entry at or beyond the new index
+  // is gone. Their remembered positions go with them: a future entry that happens to
+  // land on the same index is a different place, and must not inherit one.
+  const dropForwardOf = (idx: number) => {
+    for (const key of [...positions.keys()]) {
+      if (keyIndex(key) >= idx) positions.delete(key);
     }
   };
 
@@ -147,10 +188,10 @@ export function initScrollRestore(win: ScrollHost = window as unknown as ScrollH
   const onScroll = () => remember();
 
   const onHashChange = (e: Event) => {
-    const prevKey = currentKey;
+    const prevKey = currentKey();
     const next = win.location.hash;
-    const changed = next !== prevKey;
-    currentKey = next;
+    const changed = next !== currentHash;
+    currentHash = next;
 
     // The position we are LEAVING is whatever the last scroll event reported -- not
     // whatever scrollY says now. By the time this listener runs, an earlier listener
@@ -161,25 +202,29 @@ export function initScrollRestore(win: ScrollHost = window as unknown as ScrollH
     // replaceHash() canonicalizes the URL in place and notifies listeners with a
     // BARE Event; a genuine hash navigation always carries a HashChangeEvent. A
     // canonicalization did not move the user, so neither do we -- the position just
-    // moves with the URL that now names this page. It does call replaceState, which
-    // drops our stamp, so put that back.
+    // moves with the URL that now names this page -- SAME entry, renamed. It does
+    // call replaceState, which drops our stamp, so put that back.
     if (!('oldURL' in e)) {
       const held = positions.get(prevKey);
-      if (changed && held !== undefined) { positions.delete(prevKey); positions.set(next, held); }
-      stamp(win, highWater);
+      if (changed && held !== undefined) { positions.delete(prevKey); positions.set(currentKey(), held); }
+      stamp(win, currentIdx);
       return;
     }
     if (!changed) return;
 
     const idx = entryIndex(win);
     if (idx < 0) {
-      // A history entry we have never seen: a deliberate navigation. It starts at
-      // the top of its new page rather than inheriting the last page's offset.
-      stamp(win, ++highWater);
+      // A history entry we have never seen: a deliberate navigation. It gets the
+      // next index of its own and starts at the top of its new page, even when the
+      // URL is one an earlier entry already shows.
+      currentIdx = ++highWater;
+      dropForwardOf(currentIdx);
+      stamp(win, currentIdx);
       restoreTo(0);
     } else {
+      currentIdx = idx;
       highWater = Math.max(highWater, idx);
-      restoreTo(positions.get(next) ?? 0);
+      restoreTo(positions.get(currentKey()) ?? 0);
     }
   };
 
@@ -198,8 +243,9 @@ export function initScrollRestore(win: ScrollHost = window as unknown as ScrollH
   win.addEventListener('pagehide', onPageHide);
 
   // A hard reload lands here with the URL already set and the page empty: this is
-  // the case the browser cannot do for us.
-  restoreTo(positions.get(currentKey) ?? 0);
+  // the case the browser cannot do for us. history.state survives the reload, so the
+  // entry stamp identifies WHICH visit to this URL is being reloaded.
+  restoreTo(positions.get(currentKey()) ?? 0);
 
   return () => {
     cancel?.();

@@ -221,11 +221,11 @@ describe('FleetEntityView — background refresh preserves the page (A)', () => 
     props.refreshTick = 1;
     flushSync();
 
-    await vi.waitFor(() => expect(target.querySelector('.ev-stale')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="stale-refresh"]')).toBeTruthy());
     // Good data must not decay into an error screen...
     expect(target.textContent, 'a failed refresh emptied a page that had good data').toContain('Revisions');
     // ...and the failure must not be swallowed either.
-    expect(target.querySelector('.ev-stale')?.textContent).toMatch(/could not be refreshed/i);
+    expect(target.querySelector('[data-testid="stale-refresh"]')?.textContent).toMatch(/could not be refreshed/i);
     unmount(component); document.body.removeChild(target);
   });
 
