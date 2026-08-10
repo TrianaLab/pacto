@@ -700,7 +700,7 @@ packages and an error-clean svelte-check + full Vitest suite:
    consumers as dependency edges, hanging a depth-2 logical component off the one-hop
    target focus and contradicting `effectiveDepth=1`. Inbound dependency knowledge is
    only available at logical-service scope (Pacto does not observe which logical
-   consumers routed to a specific deployment), so the target projection now draws NO
+   consumers routed to a specific operational target), so the target projection draws NO
    inbound dependents and surfaces a `DEPENDENTS_LOGICAL_SERVICE_SCOPED` limitation
    pointing to the service perspective. A `node.Depth <= effectiveDepth` invariant test
    covers every projection; the dead `addTargetLogicalDependents`/`serviceReverseDeps`
@@ -1641,24 +1641,32 @@ The dashboard must answer, in order:
 2. Search or select an entity.
 3. See its operational situation.
 4. Explore its local neighborhood.
-5. Navigate to revisions, deployments, evidence, ownership, findings and impact.
+5. Navigate to revisions, operational targets, evidence, ownership, findings and impact.
 
 Three identities are never flattened (this is the engine invariant the product
 must honor end to end):
 
 - Service: the logical software capability (domain-qualified `ServiceKey`).
 - Revision: one immutable version of an operational contract (`RevisionKey`).
-- Deployment/Target: one observed environment or instance reporting against a
+- Operational target: one observed environment or instance reporting against a
   contract revision (`TargetKey`).
 
 User-facing terminology replaces internal ontology in the primary experience:
 
-| Internal (kept in API/docs/devtools) | User-facing (primary UI)          |
-|--------------------------------------|-----------------------------------|
-| perspective: services/revisions/targets | View: Services / Revisions / Deployments |
-| layer: declared                      | Expected dependencies             |
-| layer: observed                      | Observed traffic                  |
-| layer: reconciled                    | Differences                       |
+| Internal (kept in API/docs/devtools) | User-facing (primary UI)                       |
+|--------------------------------------|------------------------------------------------|
+| perspective: services/revisions/targets | View: Services / Revisions / Operational targets |
+| layer: declared                      | Expected dependencies                          |
+| layer: observed                      | Observed traffic                               |
+| layer: reconciled                    | Differences                                    |
+
+The user-facing noun is **Operational target**, never "Deployment", for the reason
+recorded above: Pacto observes targets and never deploys one, and "Deployment"
+collides with the Kubernetes kind. Earlier sections of this document were written
+before that decision and still say "Deployment" or "deployment graph" where they
+mean an operational target; they are records of what was done at the time and are
+superseded by this section. The internal `target` identifier in Go, the Product API
+and the `perspective` parameter is deliberately unchanged.
 
 ## 2. API and DTO design (product-oriented, versioned)
 

@@ -196,12 +196,12 @@ flowchart LR
   source it detects — local bundles, OCI, the disk cache and the live cluster —
   and serves the operational graph and change analysis through `/api/fleet/*`.
   The Operational Graph view offers three **perspectives** — **Services**
-  (logical), **Revisions** (content-addressed) and **Targets** (operational
-  targets — the places a revision runs) — and a **Layer** control (declared ·
-  observed · reconciled · all). The Targets perspective is honest about what it
-  can know: an operational target links to the dependency **service** it depends
-  on, never to each peer target — a full target-to-target mesh would assert
-  runtime routing the snapshot never observed, so it is never drawn.
+  (logical), **Revisions** (content-addressed) and **Operational targets** (the
+  places a revision runs) — and a **Knowledge** control (Expected · Observed ·
+  Differences). The Operational targets perspective is honest about what it can
+  know: an operational target links to the dependency **service** it depends on,
+  never to each peer target — a full target-to-target mesh would assert runtime
+  routing the snapshot never observed, so it is never drawn.
 - **CLI (`pacto fleet …`)** — the five queries on the command line:
   `pacto fleet search`, `pacto fleet get`, `pacto fleet graph`, `pacto fleet
   status`, `pacto fleet explain`, plus `pacto fleet reconcile` (declared vs
@@ -331,8 +331,11 @@ The OTel observer can also emit signable EvidenceSets
 Observed edges live in a **separate** adjacency index from declared edges, so the
 declared graph stays declared and consumers layer observed evidence on top rather
 than conflating the two. In the dashboard's Operational Graph this is the
-**Layer** control (declared · observed · reconciled · all); a layer with no
-backing data in the current snapshot is disabled rather than shown as a placebo.
+**Knowledge** control: **Expected** (contract-declared intent), **Observed**
+(backed by runtime observation) and **Differences** (where the two diverge). When
+a snapshot carries no observation data the graph says so — the edges come back
+`insufficient` and the knowledge banner states what is missing — rather than
+drawing an empty Observed view that would read as "there is no traffic".
 
 Reconciliation is an **explicit backend fact**, not a frontend guess. Every
 declared dependency edge in a snapshot carries a `reconciliation` state computed

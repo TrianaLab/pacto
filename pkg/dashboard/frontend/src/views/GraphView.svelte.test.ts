@@ -283,6 +283,16 @@ describe('GraphView — product Operational Graph (Phase 4)', () => {
     unmount(m.component); document.body.removeChild(m.target);
   });
 
+  it('labels the perspective control in product language, not the wire enum', async () => {
+    neighborhoodFn.mockResolvedValue(targetNeighborhood());
+    const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/web', perspective: 'target' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="perspective-target"]')).toBeTruthy());
+    // "Operational targets", never a lowercase "target" -- the noun the rest of the
+    // product uses, because Pacto observes where a revision runs and never deploys it.
+    expect(q(target, '[data-testid="perspective-target"]')?.textContent?.trim()).toBe('Operational targets');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('disables depth and expand for the one-hop target perspective and shows the effective-depth note', async () => {
     neighborhoodFn.mockResolvedValue(targetNeighborhood({ depth: 3, effectiveDepth: 1 }));
     const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/web', perspective: 'target', depth: '3' });

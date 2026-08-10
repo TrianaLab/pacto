@@ -20,6 +20,7 @@
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
   import HelpTip from '../components/HelpTip.svelte';
+  import { kindLabelPlural } from '../lib/entityLabels.ts';
   import LimitationsList from '../components/LimitationsList.svelte';
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
 
@@ -294,7 +295,10 @@
         <span class="gv-ctl-k">Perspective</span>
         <div class="gv-seg">
           {#each perspectives as p}
-            <button type="button" class:active={gs.perspective === p} onclick={() => setPerspective(p)} data-testid="perspective-{p}">{p}</button>
+            <!-- The wire enum is service/revision/target; the button says what the user
+                 reads everywhere else in the product ("Operational targets", never a
+                 lowercase "target"). data-testid keeps the wire value for tests. -->
+            <button type="button" class:active={gs.perspective === p} onclick={() => setPerspective(p)} data-testid="perspective-{p}">{kindLabelPlural(p)}</button>
           {/each}
         </div>
       </div>
