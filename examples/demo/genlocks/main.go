@@ -7,19 +7,19 @@
 // embedded demo set, so the closure is resolved BY SERVICE NAME within ./bundles,
 // mirroring how EmbedSource derives the graph.
 //
-// Pin method: the lockfile's `digest` carries the deterministic content hash of
-// the target bundle (lock.HashFS over the ignore-filtered bundle FS), NOT a live
-// OCI manifest digest. Computing a real registry digest offline is impractical
-// (the go-containerregistry image build is unexported and embeds file mtimes into
-// the tar, which would leak into the digest and break determinism). The content
-// hash excludes the default-ignored pacto.lock/.pactoignore, so re-running this
-// generator produces byte-identical locks (the lock it writes never feeds its own
-// hash). The original declared oci:// ref is preserved verbatim in `ref`.
+// Pin method: the lockfile's `digest` carries the demo registry's content address
+// for the target bundle, NOT a live OCI manifest digest. Computing a real registry
+// digest offline is impractical (the go-containerregistry image build is unexported
+// and embeds file mtimes into the tar, which would leak into the digest and break
+// determinism). See contractDigest for why it must be that exact identifier. The
+// original declared oci:// ref is preserved verbatim in `ref`.
 //
 // Run from examples/demo:  go run ./genlocks   (or: make demo-locks)
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"os"
@@ -29,13 +29,13 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/ignore"
 	"github.com/trianalab/pacto/v3/pkg/lock"
 	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
 const (
 	bundlesDir   = "bundles"
+	partnersDir  = "partners"
 	contractFile = "pacto.yaml"
 	// pinPactoVersion is a fixed, content-free version stamp for the demo locks.
 	// A real `pacto lock` stamps the building CLI version; here it must be stable
@@ -43,12 +43,12 @@ const (
 	pinPactoVersion = "0.0.0"
 )
 
-// svcVersion is one indexed bundle: its declaring contract plus the deterministic
-// content hash of its ignore-filtered FS and its on-disk directory.
+// svcVersion is one indexed bundle: its declaring contract, its on-disk directory
+// and the demo registry's content address for it.
 type svcVersion struct {
 	contract *contract.Contract
 	dir      string
-	hash     string // "sha256:..." over the ignore-filtered bundle FS
+	hash     string // "sha256:..." — see contractDigest
 }
 
 // index maps service name -> version -> bundle.
@@ -62,27 +62,34 @@ func main() {
 }
 
 func run() error {
-	idx, err := buildIndex(bundlesDir)
-	if err != nil {
-		return err
-	}
-
-	// Generate a lock for every bundle that bears dependencies and/or config/policy
-	// references. Leaf bundles (no deps, no refs) get nothing.
 	var written []string
-	for name, versions := range idx {
-		for ver, sv := range versions {
-			if !depBearing(sv.contract) {
-				continue
+	// One index per bundle tree, and no index ever sees another. The trees are
+	// separate DOMAINS in the demo fleet, and a reference resolves inside its own
+	// domain — the partners tree publishes its own platform-app-config, and a lock
+	// that pinned the core tree's same-named bundle would hand the reader forged
+	// evidence for exactly the cross-domain link the demo exists to disprove.
+	for _, root := range []string{bundlesDir, partnersDir} {
+		idx, err := buildIndex(root)
+		if err != nil {
+			return err
+		}
+
+		// Generate a lock for every bundle that bears dependencies and/or config/policy
+		// references. Leaf bundles (no deps, no refs) get nothing.
+		for name, versions := range idx {
+			for ver, sv := range versions {
+				if !depBearing(sv.contract) {
+					continue
+				}
+				l, err := buildLock(idx, sv)
+				if err != nil {
+					return fmt.Errorf("%s@%s: %w", name, ver, err)
+				}
+				if err := writeLock(sv.dir, l); err != nil {
+					return err
+				}
+				written = append(written, sv.dir)
 			}
-			l, err := buildLock(idx, sv)
-			if err != nil {
-				return fmt.Errorf("%s@%s: %w", name, ver, err)
-			}
-			if err := writeLock(sv.dir, l); err != nil {
-				return err
-			}
-			written = append(written, sv.dir)
 		}
 	}
 
@@ -114,15 +121,11 @@ func buildIndex(root string) (index, error) {
 		if err != nil {
 			return fmt.Errorf("parse %s: %w", p, err)
 		}
-		h, err := hashBundle(dir)
-		if err != nil {
-			return fmt.Errorf("hash %s: %w", dir, err)
-		}
 		name, ver := c.Service.Name, c.Service.Version
 		if idx[name] == nil {
 			idx[name] = map[string]*svcVersion{}
 		}
-		idx[name][ver] = &svcVersion{contract: c, dir: dir, hash: h}
+		idx[name][ver] = &svcVersion{contract: c, dir: dir, hash: contractDigest(raw)}
 		return nil
 	})
 	if err != nil {
@@ -131,15 +134,27 @@ func buildIndex(root string) (index, error) {
 	return idx, nil
 }
 
-// hashBundle returns the deterministic content hash of the bundle at dir over its
-// pristine content. pacto.lock now ships by default (it is no longer in the
-// DefaultPatterns ignore set), so the hash must EXPLICITLY exclude pacto.lock —
-// otherwise the lock this tool writes would fold back into its own hash and break
-// regeneration determinism. The bundle's own .pactoignore is deliberately not
-// honored (we pass an explicit pattern, not ignore.Load).
-func hashBundle(dir string) (string, error) {
-	dirFS := os.DirFS(dir)
-	return lock.HashFS(ignore.FS(dirFS, ignore.New([]string{lock.FileName})))
+// contractDigest returns the demo registry's content address for a bundle:
+// sha256 over its raw pacto.yaml. That is the identifier EmbedSource computes and
+// the demo fleet publishes as every revision's Digest (and inside its @sha256:
+// resolved ref), so it is what the lock has to record.
+//
+// It has to be that identifier and nothing richer. A lock's `digest` says WHICH
+// ARTIFACT the resolution landed on, and the fleet reader correlates it against
+// the revisions it holds to learn the destination's real service identity. A hash
+// over the whole bundle FS describes the same bundle but addresses nothing the
+// demo publishes, so a reference pinned with it correlates to no revision at all
+// and the product reports it unresolved — the honest answer to a lock pointing at
+// an unknown artifact, and useless as a fixture. Real `pacto lock` writes the OCI
+// manifest digest here for the same reason: the registry's address, not a second
+// opinion on content.
+//
+// It also makes regeneration trivially deterministic: pacto.yaml never contains
+// the lock this tool writes, so no exclusion dance is needed to keep the lock out
+// of its own hash.
+func contractDigest(raw []byte) string {
+	h := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(h[:])
 }
 
 // depBearing reports whether a contract declares any dependency or any config/
@@ -260,7 +275,14 @@ func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, err
 			seen[d.Ref] = true
 			target, err := latest(idx, serviceName(d.Ref))
 			if err != nil {
-				return fmt.Errorf("%s reference %q: %w", d.Kind, d.Name, err)
+				// A real `pacto lock` fails closed here. This generator records
+				// nothing and carries on, because the demo deliberately ships a
+				// reference that resolves to nothing (the partners domain publishes
+				// no http policy bundle) and "no pin" is precisely how an
+				// unresolvable reference is represented: the reader then reports it
+				// unresolved instead of being handed a destination to invent.
+				fmt.Printf("unpinned: %s reference %q -> %s (%v)\n", d.Kind, d.Name, d.Ref, err)
+				continue
 			}
 			out = append(out, lock.Reference{
 				Kind:    d.Kind,

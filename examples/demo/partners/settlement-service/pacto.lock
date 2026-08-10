@@ -1,0 +1,13 @@
+lockVersion: 1
+pacto:
+    version: 0.0.0
+root:
+    name: settlement-service
+    version: 1.4.0
+references:
+    - kind: config
+      name: platform
+      source: oci
+      ref: oci://partners.acme.com/pacto/platform-app-config
+      version: 1.0.0
+      digest: sha256:457b439626742bd1fe5b02ec058b9db7295abfe41d8baa3a57ab589a7c3a3046

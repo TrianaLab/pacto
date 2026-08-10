@@ -10,7 +10,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/api-gateway
       constraint: ^1.0.0
       version: 1.2.0
-      digest: sha256:6fd63f2432c1b990b83fd39e830c6d2365b501d810639496e72d11ec60f3c776
+      digest: sha256:673e8f7360f1f6adb54ea16e50aafb1e9c28f1e14e64285473560b178e2c8b9a
       dependsOn:
         - auth-service
         - orders-service
@@ -20,7 +20,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/auth-service
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:2c9c73809a54e41f4276cd6eae1f3b2603d3dfd8b207fb9ea6899ee0f8cab5de
+      digest: sha256:1d5a6701101c48119aee021854aaaafc30fb4158954a746a6fb9ebbad5491110
       dependsOn:
         - redis
     - name: email-provider
@@ -28,13 +28,13 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/email-provider
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:2ef9480d81b9d2006f9f2d98b1745cd698fe2d5805e2fe42980fb1ad24acf366
+      digest: sha256:a5179e3070cb65a6d8bc4826dcf096d997ec0ca47d2dcbd4a12677f269d5b283
     - name: fraud-service
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/fraud-service
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:43f5e2c5fae57886921678d2d84d249b005a3fcebe16430635edbc7903ab9acc
+      digest: sha256:3e20654ce2a826bf2dc685974a5d51e8632b5a14bfbda9f870188a87eab6e034
       dependsOn:
         - redis
     - name: notification-worker
@@ -42,7 +42,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/notification-worker
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:a09e6995d3c62a4bf8446ef98efd9c3b81572208ac5f5eb76a92a44d7539a314
+      digest: sha256:569ff2fd3c335367e0c72efb79d9fc0f853b6370492fa9b78cff2dd56f560c5c
       dependsOn:
         - email-provider
     - name: orders-service
@@ -50,7 +50,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/orders-service
       constraint: ^1.0.0
       version: 1.2.0
-      digest: sha256:cc83798cbad4e1a793f594471e780c604542e1aab5a2adfff09a0e95ee133ee5
+      digest: sha256:aee31d7ab55014b6fbcfd4a5e033a92769f25e32ac67c2b61637bcfec315ca69
       dependsOn:
         - notification-worker
         - payments-service
@@ -60,7 +60,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/payments-service
       constraint: ^1.0.0
       version: 2.1.0
-      digest: sha256:50e5dc439ae90a8f3c8c5b079674145fe37c8b7c5d74d3c77733f626c41e769e
+      digest: sha256:4f5b3e6ef65bbf3ef2843d25c5a107df8e94632c60addca0303dd76100e5b08a
       dependsOn:
         - fraud-service
         - postgresql
@@ -70,29 +70,29 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/postgresql
       constraint: ^16.0.0
       version: 16.0.0
-      digest: sha256:5df5c6c08e82bf3a6f1ab512a8d13f2948e2b92cf13c7c28f354ae1f3794b2bf
+      digest: sha256:92a1f1c2b273490a54e80f8e599632fcde7bba2c5215f02bb1460e6c63dc0f3e
     - name: redis
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/redis
       constraint: ^7.0.0
       version: 7.2.0
-      digest: sha256:62ea5244d912c65257e16fb538df281a802c9541771a04f3a512ba114d30bc37
+      digest: sha256:d06edc980f34a7a24bbadce58305f9f8285bd863091c12de1e91cc1a6c704293
     - name: stripe-api
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/stripe-api
       constraint: ^2024.01.01
       version: 2024.01.01
-      digest: sha256:8c5fae3f3c2ef7fe805c525f62befa78663a7e87cae88010704533fdc1504d08
+      digest: sha256:fd4ab81035d3bfe3f80e8030f046a901d5a898e5b18cff8b3a264dd7e7451c93
 references:
     - kind: config
       name: platform
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/platform-app-config
       version: 1.0.0
-      digest: sha256:1ae13ed5c1779963835f2feb187261b2fe42f6c4fe12a7a3b2b05f020a1275b5
+      digest: sha256:621781dac22b3d9716d87a920b80c00f1471052f036bccc0a68003e223f20967
     - kind: policy
       name: http-security
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
       version: 1.0.0
-      digest: sha256:37a6efb94754ea8d622cbb87ed184d6a270ec7b54a5571f003c74d544663dca3
+      digest: sha256:43b85f6522c75dee67041cffbbff8b990c34b954c090ca6bafa60c4d814d4fff
