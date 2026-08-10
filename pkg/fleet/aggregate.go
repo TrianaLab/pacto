@@ -243,8 +243,30 @@ func (q *Query) serviceSummary(view *ServiceView) (ServiceSummary, map[RevisionK
 // two drift directions. An observed edge is "observed, not declared" iff no
 // declared edge exists for the same (from, to) service pair — the same
 // declared/observed split the engine keeps.
+//
+// Every counter is over DISTINCT dependencies, not over declaration records. A
+// declared relationship is per-revision (Relationship.FromRevision), so counting
+// records made a service with five revisions of three dependencies report thirteen
+// declared dependencies beside its own "Expected dependencies 3 of 3" list — a number
+// that grew with release history rather than with the dependency set.
+//
+// Collapsing is lossless for reconciliation, which reconcileDeclared computes purely
+// from the (FromService, ToService) pair and so is identical for every revision that
+// declares the same dependency. Resolution is per-record, so a dependency counts as
+// unresolved if ANY declaring revision failed to resolve it: a resolution failure in
+// one revision is not erased by a newer revision that pins it.
 func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
+	// An unresolved dependency has no ToService, so the raw ref keys it instead —
+	// otherwise every unresolvable dependency would collapse onto one empty key.
+	depKey := func(rel Relationship) string {
+		if rel.ToService != "" {
+			return "svc:" + string(rel.ToService)
+		}
+		return "ref:" + rel.To
+	}
 	declared := map[ServiceKey]bool{}
+	seen := map[string]bool{}
+	unresolved := map[string]bool{}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.FromService != key || rel.Type != RelationshipDependency {
@@ -254,10 +276,16 @@ func (q *Query) tallyServiceEdges(sum *ServiceSummary, key ServiceKey) {
 			continue
 		}
 		declared[rel.ToService] = true
-		sum.DeclaredDependencies++
-		if !rel.Resolved {
+		dk := depKey(rel)
+		if !rel.Resolved && !unresolved[dk] {
+			unresolved[dk] = true
 			sum.UnresolvedDeclared++
 		}
+		if seen[dk] {
+			continue
+		}
+		seen[dk] = true
+		sum.DeclaredDependencies++
 		switch rel.Reconciliation {
 		case ReconciliationMatched:
 			sum.ReconciledMatched++

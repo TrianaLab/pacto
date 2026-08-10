@@ -1,8 +1,11 @@
 package fleet
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
@@ -307,5 +310,57 @@ func TestServiceOwnership(t *testing.T) {
 	empty := serviceOwnership(&ServiceRecord{Key: "svc2"}, nil)
 	if empty.Owner != "" || empty.Ref != nil {
 		t.Errorf("ownerless service must have no owner ref: %+v", empty)
+	}
+}
+
+// TestServiceRelationships_OnlyEdgesIncidentToTheService proves the entity's relationship
+// list is about the ENTITY. A neighborhood is a graph, so at depth 1 it already carries
+// edges between two neighbours; rendered in a flat list keyed on the counterpart, those
+// read as the entity's own relationships and repeat a neighbour's name once per edge it
+// happens to have. Here `edge` depends on BOTH `hub` and `store`, so the hub
+// neighborhood contains edge->store, which is not one of hub's relationships.
+func TestServiceRelationships_OnlyEdgesIncidentToTheService(t *testing.T) {
+	svc := func(name string, deps ...string) *contract.Contract {
+		c := &contract.Contract{
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: "t"}},
+			Workload:     contract.WorkloadService,
+		}
+		for _, d := range deps {
+			c.Dependencies = append(c.Dependencies, contract.Dependency{Name: d, Ref: "oci://x/" + d, Required: true})
+		}
+		return c
+	}
+	local := NewMemorySource("local", "local", &Collection{
+		Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: svc("hub", "store"), FS: fstest.MapFS{}}, Digest: "sha256:hub"},
+			{Bundle: &contract.Bundle{Contract: svc("store"), FS: fstest.MapFS{}}, Digest: "sha256:store"},
+			// The neighbour that also talks to hub's dependency.
+			{Bundle: &contract.Bundle{Contract: svc("edge", "hub", "store"), FS: fstest.MapFS{}}, Digest: "sha256:edge"},
+		},
+	})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow, FreshnessWindow: time.Hour}, local)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	d, err := NewQuery(snap).EntityDetail(KindService, "hub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range d.Service.Relationships.Items {
+		got = append(got, e.From.Key+"->"+e.To.Key)
+	}
+	want := []string{"edge->hub", "hub->store"}
+	if len(got) != len(want) {
+		t.Fatalf("relationships = %v, want exactly %v (an edge between two neighbours is not hub's)", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("relationship[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if d.Service.Relationships.Total == nil || *d.Service.Relationships.Total != len(want) {
+		t.Errorf("total = %v, want %d: the total must count what the list counts", d.Service.Relationships.Total, len(want))
 	}
 }

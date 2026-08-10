@@ -243,8 +243,31 @@ func relationshipsPreview(es []NeighborhoodEdge) RelationshipsPreview {
 // total was bounded before it could be counted, so the total is left UNKNOWN (nil)
 // and the preview is reported truncated. It never claims the pre-truncation edge
 // count as the total.
+//
+// Only the edges INCIDENT to the focus service become relationships. A neighborhood is
+// a graph: at depth 1 it already carries edges between two neighbours (api-gateway ->
+// audit-log), which are somebody else's relationships, not this entity's. Rendered in a
+// flat list keyed on the counterpart they read as this entity's own -- and, because the
+// counterpart of every outbound edge of one neighbour is a different service while the
+// row names only the neighbour, several of them collapsed into repeated
+// indistinguishable rows ("Used by api-gateway" twice, above a Dependents list of two).
+// The full graph is one click away in the same section; the list is about the entity.
+//
+// Only the service perspective is filtered, because only there are the edge endpoints
+// service-keyed like FocusService; a finer perspective would match nothing and silently
+// empty the list rather than trim it.
 func relationshipsPreviewFromNeighborhood(nb *Neighborhood) RelationshipsPreview {
-	it, total, capTrunc := boundSlice(nb.Edges, MaxDetailPreview)
+	incident := nb.Edges
+	if nb.Perspective == PerspectiveService {
+		focus := nb.FocusService.Key
+		incident = make([]NeighborhoodEdge, 0, len(nb.Edges))
+		for _, e := range nb.Edges {
+			if e.From.Key == focus || e.To.Key == focus {
+				incident = append(incident, e)
+			}
+		}
+	}
+	it, total, capTrunc := boundSlice(incident, MaxDetailPreview)
 	rp := RelationshipsPreview{Count: len(it), Truncated: capTrunc || nb.Truncated, Items: it}
 	if !nb.Truncated {
 		// The neighborhood carried every edge, so `total` is the exact relationship

@@ -335,3 +335,60 @@ func TestAttention_TalliesAgreeWithTotalOverTheWholeFilteredPopulation(t *testin
 		t.Errorf("category buckets cover %d items, want the full %d matched", sum, list.Total)
 	}
 }
+
+// A declared dependency edge is per-REVISION, so a service with five revisions of the
+// same three dependencies used to report thirteen "declared dependencies" beside its
+// own three-item Expected dependencies list — a count that grew with release history
+// instead of with the dependency set. Every drift counter is over distinct
+// dependencies; an unresolved dependency keys off its raw ref, since it has no
+// resolved service to key off.
+func TestServiceEdgeTally_CountsDistinctDependenciesNotDeclarationRecords(t *testing.T) {
+	const from = ServiceKey("shop/orders")
+	decl := func(rev, to, ref string, resolved bool, rec string) Relationship {
+		return Relationship{
+			FromService: from, FromRevision: RevisionKey(rev), To: ref, ToService: ServiceKey(to),
+			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
+			Resolved: resolved, Reconciliation: rec,
+		}
+	}
+	snap := &FleetSnapshot{Relationships: []Relationship{
+		// Three revisions declare the same two dependencies: two dependencies, not six.
+		decl("r1", "shop/postgres", "postgres", true, ReconciliationMatched),
+		decl("r1", "shop/stripe", "stripe", true, ReconciliationDeclaredNotObserved),
+		decl("r2", "shop/postgres", "postgres", true, ReconciliationMatched),
+		decl("r2", "shop/stripe", "stripe", true, ReconciliationDeclaredNotObserved),
+		decl("r3", "shop/postgres", "postgres", true, ReconciliationMatched),
+		decl("r3", "shop/stripe", "stripe", true, ReconciliationDeclaredNotObserved),
+		// One unresolvable dependency, declared twice: no ToService to collapse on.
+		decl("r2", "", "oci://nowhere/thing", false, ""),
+		decl("r3", "", "oci://nowhere/thing", false, ""),
+		// A second unresolvable one, so the ref keying is doing real work.
+		decl("r3", "", "oci://nowhere/other", false, ""),
+		// Observed traffic nobody declared, plus observed traffic that was declared.
+		{FromService: from, ToService: "shop/audit", Type: RelationshipDependency, Provenance: ProvenanceObserved},
+		{FromService: from, ToService: "shop/postgres", Type: RelationshipDependency, Provenance: ProvenanceObserved},
+		// Another service's edges must not leak into this service's tally.
+		{FromService: "shop/other", ToService: "shop/redis", Type: RelationshipDependency, Provenance: ProvenanceDeclared, Resolved: true},
+	}}
+
+	var sum ServiceSummary
+	NewQuery(snap).tallyServiceEdges(&sum, from)
+
+	want := ServiceSummary{
+		DeclaredDependencies: 4, // postgres, stripe and the two distinct dead refs
+		UnresolvedDeclared:   2, // the two dead refs, each declared by more than one revision
+		ReconciledMatched:    1,
+		DeclaredNotObserved:  1,
+		ObservedNotDeclared:  1,
+	}
+	got := ServiceSummary{
+		DeclaredDependencies: sum.DeclaredDependencies,
+		UnresolvedDeclared:   sum.UnresolvedDeclared,
+		ReconciledMatched:    sum.ReconciledMatched,
+		DeclaredNotObserved:  sum.DeclaredNotObserved,
+		ObservedNotDeclared:  sum.ObservedNotDeclared,
+	}
+	if got != want {
+		t.Errorf("edge tally = %+v, want %+v", got, want)
+	}
+}
