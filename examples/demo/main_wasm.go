@@ -23,6 +23,15 @@ import (
 //go:embed bundles
 var embeddedBundles embed.FS
 
+// embeddedPartners holds a SECOND domain's contracts. They are kept out of
+// ./bundles deliberately: one of them is another "platform-app-config", and the
+// legacy name-keyed source cannot hold two services with the same name. Only the
+// operational graph, which identifies a service by domain AND name, can — which
+// is the whole reason this domain exists in the demo.
+//
+//go:embed partners
+var embeddedPartners embed.FS
+
 // handler is the in-memory dashboard router (the same Huma operations the real
 // `pacto dashboard` server serves), driven per request from JavaScript.
 var handler http.Handler
@@ -41,6 +50,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	partnersRoot, err := fs.Sub(embeddedPartners, "partners")
+	if err != nil {
+		panic(err)
+	}
+	partners, err := NewEmbedSource(partnersRoot)
+	if err != nil {
+		panic(err)
+	}
 
 	// nil UI fs and nil resolver: the static host serves the UI, and the graph
 	// resolves from the embedded contracts' declared dependencies — no OCI.
@@ -50,7 +67,7 @@ func main() {
 	// Wire the operational graph (fleet) and impact provider from the embedded
 	// bundles + deterministic targets, so the Operational Graph and Impact pages
 	// prove the full product story in the browser with no server and no OCI.
-	if snap, byRef, err := buildDemoFleet(src); err != nil {
+	if snap, byRef, err := buildDemoFleet(src, partners); err != nil {
 		panic(err)
 	} else {
 		q := fleet.NewQuery(snap)

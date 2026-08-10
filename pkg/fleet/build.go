@@ -16,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/capability"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/lock"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
@@ -278,6 +279,11 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 	}
 	if len(existing.Docs) == 0 {
 		existing.Docs = add.Docs
+		// Docs are an allow-list INTO a specific bundle filesystem. Adopting the
+		// list without its filesystem would advertise documents whose bodies can
+		// never be read (Query.RevisionDocument). Both sides describe the same
+		// content — a disagreement is reported as a conflict below.
+		existing.bundle = add.bundle
 	}
 	if existing.ResolvedRef == "" {
 		existing.ResolvedRef = add.ResolvedRef
@@ -1493,25 +1499,67 @@ func resolveDepRevision(snap *FleetSnapshot, toSvc ServiceKey, lockedDigest stri
 // depending revision's own domain (a bare dependency ref carries no domain, so it
 // resolves within the same domain), tolerating a "-pacto" bundle-name suffix.
 func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Dependency) (ServiceKey, bool) {
-	if s := snap.Services[NewServiceKeyDomain(fromDomain, dep.Name)]; s != nil {
-		return s.Key, true
-	}
-	stripped := strings.TrimSuffix(dep.Name, "-pacto")
-	if stripped != dep.Name {
-		if s := snap.Services[NewServiceKeyDomain(fromDomain, stripped)]; s != nil {
-			return s.Key, true
-		}
-	}
-	return "", false
+	key := lookupServiceInDomain(snap, fromDomain, dep.Name)
+	return key, key != ""
 }
 
 // resolveRefService resolves a config/policy reference to a service in the
 // referencing revision's domain.
+//
+// The REF names the destination; the declared name does not. A configuration
+// scope is called "platform" and points at "platform-app-config" — matching on
+// the declared name alone (as this once did) leaves every realistic reference
+// unresolved, which is why the product rendered references as inert text. The
+// declared name is kept as a fallback for the contracts that do name the scope
+// after the service it reads.
+//
+// Neither lookup can leave the referring revision's domain, so two same-named
+// services in two domains resolve to their own.
 func resolveRefService(snap *FleetSnapshot, fromDomain string, ref contract.ReferenceRef) (ServiceKey, bool) {
-	if s := snap.Services[NewServiceKeyDomain(fromDomain, ref.Name)]; s != nil {
-		return s.Key, true
+	if key := lookupServiceInDomain(snap, fromDomain, refServiceName(ref.Ref)); key != "" {
+		return key, true
 	}
-	return "", false
+	key := lookupServiceInDomain(snap, fromDomain, ref.Name)
+	return key, key != ""
+}
+
+// refServiceName is the service name an authored reference points at: the leaf of
+// its OCI repository (or of a local path), with any digest or tag removed. With no
+// registry resolver in the snapshot this is the only thing in a ref that can name
+// a service — and it never IS a destination: the caller must still find a service
+// with that name in the referring revision's own domain.
+func refServiceName(ref string) string {
+	loc := graph.ParseDependencyRef(ref).Location
+	if at := strings.IndexByte(loc, '@'); at >= 0 {
+		loc = loc[:at]
+	}
+	leaf := strings.TrimSuffix(loc, "/")
+	leaf = leaf[strings.LastIndexByte(leaf, '/')+1:]
+	// A colon in the LEAF can only be a tag: a registry port lives in the first
+	// path segment, which we have already dropped.
+	if c := strings.IndexByte(leaf, ':'); c >= 0 {
+		leaf = leaf[:c]
+	}
+	return leaf
+}
+
+// lookupServiceInDomain finds a service by name within ONE domain, tolerating the
+// "-pacto" bundle-name suffix. It returns "" when nothing matches; it never falls
+// back to another domain, because a same-named service elsewhere is a different
+// service.
+func lookupServiceInDomain(snap *FleetSnapshot, domain, name string) ServiceKey {
+	if name == "" {
+		return ""
+	}
+	if s := snap.Services[NewServiceKeyDomain(domain, name)]; s != nil {
+		return s.Key
+	}
+	if stripped := strings.TrimSuffix(name, "-pacto"); stripped != name {
+		if s := snap.Services[NewServiceKeyDomain(domain, stripped)]; s != nil {
+			return s.Key
+		}
+	}
+	return ""
 }
 
 // classifyCompleteness derives snapshot completeness from source health.

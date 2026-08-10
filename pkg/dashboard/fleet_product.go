@@ -57,6 +57,12 @@ func (s *Server) registerProductOperations(api huma.API) {
 		Description: "Returns navigable, offset-paged attention items across every category; each links to the exact affected entity and recommends a next step.",
 	}, s.fleetAttention)
 
+	huma.Register(api, huma.Operation{
+		OperationID: "fleet-revision-document", Method: http.MethodGet, Path: "/api/fleet/revisions/document",
+		Summary: "Read a revision document", Tags: []string{"Fleet"},
+		Description: "Reads ONE in-bundle document body belonging to exactly the given canonical revision. The path must be one the revision already published in its docs list, which is what prevents traversal and cross-revision reads; the body is size-bounded and an oversized or unreadable document is an explicit error rather than empty content.",
+	}, s.fleetRevisionDocument)
+
 	if s.impactProvider != nil {
 		huma.Register(api, huma.Operation{
 			OperationID: "fleet-impact-post", Method: http.MethodPost, Path: "/api/fleet/impact",
@@ -125,6 +131,25 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 		return nil, productQueryError(err)
 	}
 	return &fleetEntityDetailOutput{Body: toProductEntityDetail(res)}, nil
+}
+
+type fleetRevisionDocumentInput struct {
+	Key  string `query:"key" required:"true" doc:"Canonical revision key the document belongs to"`
+	Path string `query:"path" required:"true" doc:"In-bundle document path, exactly as published in the revision's docs list"`
+}
+
+type fleetRevisionDocumentOutput struct{ Body *ProductRevisionDocument }
+
+func (s *Server) fleetRevisionDocument(ctx context.Context, in *fleetRevisionDocumentInput) (*fleetRevisionDocumentOutput, error) {
+	q, err := s.fleetQuery(ctx)
+	if err != nil {
+		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
+	}
+	res, err := q.RevisionDocument(in.Key, in.Path)
+	if err != nil {
+		return nil, productQueryError(err)
+	}
+	return &fleetRevisionDocumentOutput{Body: toProductRevisionDocument(res)}, nil
 }
 
 type fleetNeighborhoodInput struct {
@@ -676,12 +701,19 @@ func pathFleetRefs(snap *fleet.FleetSnapshot, keys []string) []fleet.EntityRef {
 	return out
 }
 
-// productQueryError maps a product-query error to HTTP: absent → 404, everything
+// productQueryError maps a product-query error to HTTP: absent → 404, a document
+// that exists but cannot be served → 422 carrying the exact reason, everything
 // else (invalid filter, ambiguous key) → 422 with an actionable message.
 func productQueryError(err error) error {
 	var nf *fleet.NotFoundError
 	if errors.As(err, &nf) {
 		return huma.Error404NotFound("not found", err)
+	}
+	// The document is listed but its body is oversized, unreadable or not text.
+	// That is an explicit failure with its own explanation, never empty content.
+	var du *fleet.DocumentUnavailableError
+	if errors.As(err, &du) {
+		return huma.Error422UnprocessableEntity(du.Error(), err)
 	}
 	return huma.Error422UnprocessableEntity("invalid query", err)
 }

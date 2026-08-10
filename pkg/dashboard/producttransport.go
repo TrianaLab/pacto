@@ -306,6 +306,7 @@ type ProductServiceDetail struct {
 	Deployments     ProductRefPreview                   `json:"deployments"`
 	Dependencies    ProductRefPreview                   `json:"dependencies"`
 	Dependents      ProductRefPreview                   `json:"dependents"`
+	ReferencedBy    ProductRefPreview                   `json:"referencedBy"`
 	Relationships   ProductRelationshipsPreview         `json:"relationships"`
 	Findings        ProductAttributedFindingsPreview    `json:"findings"`
 	Evidence        ProductEvidencePreview              `json:"evidence"`
@@ -321,6 +322,7 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 		Deployments:       productRefPreview(d.Deployments),
 		Dependencies:      productRefPreview(d.Dependencies),
 		Dependents:        productRefPreview(d.Dependents),
+		ReferencedBy:      productRefPreview(d.ReferencedBy),
 		Relationships:     productRelationshipsPreview(d.Relationships),
 		Findings:          productAttributedFindingsPreview(d.Findings),
 		Evidence:          productEvidencePreview(d.Evidence),
@@ -328,22 +330,86 @@ func toProductServiceDetail(d *fleet.ServiceDetailData) *ProductServiceDetail {
 	}
 }
 
+// ── contract references ──────────────────────────────────────────────────────
+
+// ProductRefResolution is a contract reference's resolution with a canonical
+// href on the destination, so the UI links to the referenced service instead of
+// re-deriving one from the raw ref string. The raw ref itself stays on the
+// summary that carries this: it is authored contract information and is never
+// replaced by the resolution.
+type ProductRefResolution struct {
+	fleet.RefResolution
+	Service *ProductRef `json:"service,omitempty"`
+}
+
+func productRefResolution(r *fleet.RefResolution) *ProductRefResolution {
+	if r == nil {
+		return nil
+	}
+	return &ProductRefResolution{RefResolution: *r, Service: productRefPtr(r.Service)}
+}
+
+// ProductConfigurationSummary is a declared configuration scope whose ref, when
+// it resolves, is navigable.
+type ProductConfigurationSummary struct {
+	fleet.ConfigurationSummary
+	Resolution *ProductRefResolution `json:"resolution,omitempty"`
+}
+
+// ProductConfigurationsPreview is the bounded preview of those scopes.
+type ProductConfigurationsPreview struct {
+	fleet.ConfigurationsPreview
+	Items []ProductConfigurationSummary `json:"items"`
+}
+
+func productConfigurationsPreview(p fleet.ConfigurationsPreview) ProductConfigurationsPreview {
+	items := make([]ProductConfigurationSummary, len(p.Items))
+	for i, c := range p.Items {
+		items[i] = ProductConfigurationSummary{ConfigurationSummary: c, Resolution: productRefResolution(c.Resolution)}
+	}
+	return ProductConfigurationsPreview{ConfigurationsPreview: p, Items: items}
+}
+
+// ProductPolicySummary is a declared policy whose ref, when it resolves, is navigable.
+type ProductPolicySummary struct {
+	fleet.PolicySummary
+	Resolution *ProductRefResolution `json:"resolution,omitempty"`
+}
+
+// ProductPoliciesPreview is the bounded preview of those policies.
+type ProductPoliciesPreview struct {
+	fleet.PoliciesPreview
+	Items []ProductPolicySummary `json:"items"`
+}
+
+func productPoliciesPreview(p fleet.PoliciesPreview) ProductPoliciesPreview {
+	items := make([]ProductPolicySummary, len(p.Items))
+	for i, s := range p.Items {
+		items[i] = ProductPolicySummary{PolicySummary: s, Resolution: productRefResolution(s.Resolution)}
+	}
+	return ProductPoliciesPreview{PoliciesPreview: p, Items: items}
+}
+
 // ProductRevisionDetail is the navigable revision-kind detail payload.
 type ProductRevisionDetail struct {
 	fleet.RevisionDetailData
-	Service         ProductRef                  `json:"service"`
-	Dependencies    ProductRelationshipsPreview `json:"dependencies"`
-	ExactTargets    ProductRefPreview           `json:"exactTargets"`
-	InferredTargets ProductRefPreview           `json:"inferredTargets"`
-	Previous        *ProductRef                 `json:"previous,omitempty"`
-	Next            *ProductRef                 `json:"next,omitempty"`
-	Ownership       *ProductOwnership           `json:"ownership,omitempty"`
+	Service         ProductRef                   `json:"service"`
+	Configurations  ProductConfigurationsPreview `json:"configurations"`
+	Policies        ProductPoliciesPreview       `json:"policies"`
+	Dependencies    ProductRelationshipsPreview  `json:"dependencies"`
+	ExactTargets    ProductRefPreview            `json:"exactTargets"`
+	InferredTargets ProductRefPreview            `json:"inferredTargets"`
+	Previous        *ProductRef                  `json:"previous,omitempty"`
+	Next            *ProductRef                  `json:"next,omitempty"`
+	Ownership       *ProductOwnership            `json:"ownership,omitempty"`
 }
 
 func toProductRevisionDetail(d *fleet.RevisionDetailData) *ProductRevisionDetail {
 	return &ProductRevisionDetail{
 		RevisionDetailData: *d,
 		Service:            productRef(d.Service),
+		Configurations:     productConfigurationsPreview(d.Configurations),
+		Policies:           productPoliciesPreview(d.Policies),
 		Dependencies:       productRelationshipsPreview(d.Dependencies),
 		ExactTargets:       productRefPreview(d.ExactTargets),
 		InferredTargets:    productRefPreview(d.InferredTargets),
@@ -399,6 +465,17 @@ type ProductSourceDetail struct {
 
 func toProductSourceDetail(d *fleet.SourceDetailData) *ProductSourceDetail {
 	return &ProductSourceDetail{SourceDetailData: *d, Entities: productRefPreview(d.Entities)}
+}
+
+// ProductRevisionDocument is one lazily-read in-bundle document with a navigable
+// reference back to the revision that owns it.
+type ProductRevisionDocument struct {
+	fleet.RevisionDocument
+	Revision ProductRef `json:"revision"`
+}
+
+func toProductRevisionDocument(d *fleet.RevisionDocument) *ProductRevisionDocument {
+	return &ProductRevisionDocument{RevisionDocument: *d, Revision: productRef(d.Revision)}
 }
 
 // ProductEntityDetail is the navigable, discriminated entity-detail envelope.

@@ -25,6 +25,14 @@ import (
 // network.
 const demoRegistry = "oci://demo.pacto.local/"
 
+// partnerRegistry and partnerDomain are the second domain's registry and logical
+// scope. A domain comes from the SOURCE, never from the contract, which is what
+// keeps two services that call themselves "platform-app-config" apart.
+const (
+	partnerRegistry = "oci://partners.demo.pacto.local/"
+	partnerDomain   = "partners"
+)
+
 // demoNow is a fixed clock so the embedded snapshot (and its stale-target
 // computation) is fully deterministic across builds.
 func demoNow() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
@@ -39,21 +47,50 @@ func demoNow() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) 
 // cluster collector that observes it are not the same thing (section 0b, Data source
 // vs Collector), telemetry comes from a third, and an environment nobody could reach
 // is what makes the snapshot honestly partial.
-func buildDemoFleet(src *EmbedSource) (*fleet.FleetSnapshot, map[string]*contract.Bundle, error) {
+func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[string]*contract.Bundle, error) {
 	col := &fleet.Collection{}
 	byRef := map[string]*contract.Bundle{}
-	for _, name := range src.names {
-		for ver, entry := range src.byName[name] {
-			ref := demoRegistry + name + "@sha256:" + entry.hash
-			col.Revisions = append(col.Revisions, fleet.RawRevision{
-				Bundle:       entry.bundle,
-				RequestedRef: demoRegistry + name + ":" + ver,
-				ResolvedRef:  ref,
-				Digest:       "sha256:" + entry.hash,
-			})
-			byRef[ref] = entry.bundle
+	revisions := func(s *EmbedSource, registry string) []fleet.RawRevision {
+		var out []fleet.RawRevision
+		for _, name := range s.names {
+			for ver, entry := range s.byName[name] {
+				ref := registry + name + "@sha256:" + entry.hash
+				out = append(out, fleet.RawRevision{
+					Bundle:       entry.bundle,
+					RequestedRef: registry + name + ":" + ver,
+					ResolvedRef:  ref,
+					Digest:       "sha256:" + entry.hash,
+				})
+				byRef[ref] = entry.bundle
+			}
 		}
+		return out
 	}
+	col.Revisions = revisions(src, demoRegistry)
+
+	// A second registry, in a second DOMAIN. It publishes its own platform-app-config
+	// — the same NAME as the default domain's, and not the same service — plus the
+	// settlement-service that reads it.
+	//
+	// This is the demo's adversarial identity case, and every product surface has to
+	// survive it: settlement-service's configuration reference must resolve to the
+	// PARTNER platform-app-config (a reference resolves within the referring revision's
+	// own domain), its policy reference must stay honestly unresolved (the partner
+	// domain publishes no http policy and the default domain's is not a candidate),
+	// search must show two distinguishable platform-app-configs, each config's
+	// "Referenced by" must list only its own domain's consumers, and each service's
+	// documentation must be its own. Anything that identifies a service by bare name
+	// reads the wrong contract here.
+	//
+	// The colliding name is deliberately one that carries NO observed traffic. An
+	// observed edge names a bare service name, so a collision there resolves to
+	// ObservedAmbiguous and the edge is dropped with a limitation rather than
+	// misattributed — correct, but it would silently empty the demo's Observed layer.
+	partnerCol := &fleet.Collection{Revisions: revisions(partnersSrc, partnerRegistry)}
+	for i := range partnerCol.Revisions {
+		partnerCol.Revisions[i].Domain = partnerDomain
+	}
+	partnerRegistrySource := fleet.NewMemorySource("partner-registry", "oci", partnerCol)
 
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
@@ -84,7 +121,7 @@ func buildDemoFleet(src *EmbedSource) (*fleet.FleetSnapshot, map[string]*contrac
 	})
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour},
-		fleet.NewMemorySource("local", "local", col), cluster, telemetry, mirror, unavailable)
+		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, cluster, telemetry, mirror, unavailable)
 	if err != nil {
 		return nil, nil, err
 	}

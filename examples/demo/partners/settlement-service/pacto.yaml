@@ -1,0 +1,31 @@
+pactoVersion: '2.0'
+service:
+  name: settlement-service
+  version: 1.4.0
+  owner:
+    team: partner-integrations
+    dri: nadia.okoro
+    contacts:
+    - type: email
+      value: partner-integrations@acme.com
+      purpose: escalation
+    - type: chat
+      value: '#partner-integrations'
+      purpose: support
+configurations:
+- name: platform
+  ref: oci://partners.acme.com/pacto/platform-app-config
+  required: true
+policies:
+- name: http-security
+  ref: oci://partners.acme.com/pacto/platform-http-policy
+metadata:
+  tier: domain
+  category: payments
+  criticality: high
+  summary: Partner-domain settlement. Reads the partners domain's own platform-app-config,
+    not the core one that shares its name.
+  repo: github.com/trianalab/pacto-demo/partners-settlement-service
+  tags:
+  - partners
+  - settlement

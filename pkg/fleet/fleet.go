@@ -412,9 +412,12 @@ type ContractRevision struct {
 	Sources   []string     `json:"sources,omitempty"`
 	FetchedAt *time.Time   `json:"fetchedAt,omitempty"`
 
-	// bundle carries the parsed bundle used only DURING Build (to derive tools,
-	// skills, docs and validation). It is never serialized and is never exposed
-	// through a query result, so callers cannot mutate snapshot-owned bundle data.
+	// bundle carries the parsed bundle used during Build (to derive tools, skills,
+	// docs and validation) and afterwards as the read-only backing store for lazy
+	// document reads (see Query.RevisionDocument, which reads a bounded body for a
+	// path this revision already listed in Docs). It is never serialized and the
+	// pointer is never handed to a caller, so nobody can mutate snapshot-owned
+	// bundle data.
 	bundle *contract.Bundle
 	// validated records that this revision had raw YAML and was run through the
 	// validator at build time. Stored so status queries never dereference the

@@ -303,14 +303,19 @@ type ServiceDetailData struct {
 	// ActiveRevisions is the subset of Revisions at least one target is linked to
 	// (exact or inferred): the revisions actually in use, as opposed to every
 	// revision the fleet has ever seen.
-	ActiveRevisions RefPreview                   `json:"activeRevisions"`
-	Deployments     RefPreview                   `json:"deployments"`
-	Dependencies    RefPreview                   `json:"dependencies"`
-	Dependents      RefPreview                   `json:"dependents"`
-	Relationships   RelationshipsPreview         `json:"relationships"`
-	Findings        AttributedFindingsPreview    `json:"findings"`
-	Evidence        EvidencePreview              `json:"evidence"`
-	Limitations     AttributedLimitationsPreview `json:"limitations"`
+	ActiveRevisions RefPreview `json:"activeRevisions"`
+	Deployments     RefPreview `json:"deployments"`
+	Dependencies    RefPreview `json:"dependencies"`
+	Dependents      RefPreview `json:"dependents"`
+	// ReferencedBy names the services whose revisions declare a configuration or
+	// policy REFERENCE to this service. A reference is not a dependency, so these
+	// services are absent from Dependents and from graph traversal; a shared
+	// configuration or policy service would otherwise never list its consumers.
+	ReferencedBy  RefPreview                   `json:"referencedBy"`
+	Relationships RelationshipsPreview         `json:"relationships"`
+	Findings      AttributedFindingsPreview    `json:"findings"`
+	Evidence      EvidencePreview              `json:"evidence"`
+	Limitations   AttributedLimitationsPreview `json:"limitations"`
 }
 
 // RevisionDetailData is the revision-kind payload: parent service, immutable
@@ -495,6 +500,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Deployments:     refPreview(targetRefs(view.Targets)),
 		Dependencies:    refPreview(q.dependencyRefs(view.Dependencies)),
 		Dependents:      refPreview(q.serviceKeyRefs(view.Dependents)),
+		ReferencedBy:    refPreview(q.referencingServices(s.Key)),
 		Findings:        attributedTargetFindingsPreview(view.Targets),
 		Evidence:        evidencePreview(evidenceForTargets(view.Targets)),
 		Limitations:     attributedLimitationsPreview(attributedTargetLimitations(view.Targets)),
@@ -518,6 +524,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	}
 	exact, inferred := q.targetsForRevision(rev.Key)
 	prev, next := q.siblingRevisions(rev)
+	cfgRefs, polRefs := q.revisionRefResolutions(rev.Key)
 	data := &RevisionDetailData{
 		Service:         q.serviceRef(rev.ServiceKey),
 		Version:         rev.Version,
@@ -529,8 +536,8 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Validation:      findingsPreview(rev.Validation),
 		Capabilities:    capabilitiesPreview(rev.Contract.Capabilities),
 		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead),
-		Configurations:  configurationsPreview(rev.Contract.Configurations),
-		Policies:        policiesPreview(rev.Contract.Policies),
+		Configurations:  configurationsPreview(rev.Contract.Configurations, cfgRefs),
+		Policies:        policiesPreview(rev.Contract.Policies, polRefs),
 		Workload:        rev.Contract.Workload,
 		State:           stateSummary(rev.Contract.State),
 		Dependencies:    relationshipsPreview(q.revisionEdges(rev.Key)),
@@ -787,6 +794,69 @@ func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].To.Key < out[j].To.Key })
 	return out
+}
+
+// revisionRefResolutions indexes a revision's declared configuration- and
+// policy-reference edges by the DECLARED NAME they belong to, so the revision
+// detail can attach each resolution to the scope or policy that authored it.
+//
+// The resolution itself is not recomputed here: revisionReferenceEdges already
+// resolved every reference against the referring revision's own domain at Build
+// time, which is what makes two same-named services in different domains
+// resolve to different destinations. This only reads that verdict back.
+func (q *Query) revisionRefResolutions(revKey RevisionKey) (cfg, pol map[string]*RefResolution) {
+	cfg, pol = map[string]*RefResolution{}, map[string]*RefResolution{}
+	for i := range q.snap.Relationships {
+		rel := q.snap.Relationships[i]
+		if rel.FromRevision != revKey {
+			continue
+		}
+		var into map[string]*RefResolution
+		switch rel.Type {
+		case RelationshipConfigRef:
+			into = cfg
+		case RelationshipPolicyRef:
+			into = pol
+		default:
+			continue
+		}
+		res := &RefResolution{Resolved: rel.Resolved, Reason: rel.Reason}
+		if rel.Resolved {
+			// A resolved edge whose service is gone is reported as unresolved rather
+			// than as a link to nothing: the destination must be a real canonical
+			// entity or the reference is honestly not navigable.
+			if s := q.snap.Services[rel.ToService]; s != nil {
+				ref := serviceEntityRef(s)
+				res.Service = &ref
+			} else {
+				res.Resolved = false
+				res.Reason = "the referenced service is not present in this snapshot"
+			}
+		}
+		into[rel.To] = res
+	}
+	return cfg, pol
+}
+
+// referencingServices names the services whose revisions declare a configuration
+// or policy reference to the given service. Reference edges are not dependency
+// edges and so are absent from reverseDeps and from graph traversal; without
+// this, a shared configuration or policy service could be reached from its
+// consumers but never listed its consumers back.
+func (q *Query) referencingServices(key ServiceKey) []EntityRef {
+	var keys []ServiceKey
+	for i := range q.snap.Relationships {
+		rel := q.snap.Relationships[i]
+		if rel.Type != RelationshipConfigRef && rel.Type != RelationshipPolicyRef {
+			continue
+		}
+		if !rel.Resolved || rel.ToService != key || rel.FromService == key {
+			continue
+		}
+		keys = appendUnique(keys, rel.FromService)
+	}
+	sortKeys(keys)
+	return q.serviceKeyRefs(keys)
 }
 
 // targetsForRevision splits the targets linked to a revision into exact and

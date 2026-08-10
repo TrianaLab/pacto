@@ -16,9 +16,15 @@ const (
 )
 
 // Query is a pure, network-free view over an immutable [FleetSnapshot]. It never
-// performs I/O and never mutates the snapshot, so a single snapshot can serve
-// concurrent queries. Every answer carries a [Meta] with the snapshot's as-of
-// time, completeness, and limitations.
+// mutates the snapshot, so a single snapshot can serve concurrent queries. Every
+// answer carries a [Meta] with the snapshot's as-of time, completeness, and
+// limitations.
+//
+// Every query answers from memory with one deliberate exception:
+// [Query.RevisionDocument] reads one bounded document body from the revision's
+// own bundle filesystem, because inlining every bundle's prose into the snapshot
+// would make the index grow with the documentation in the fleet. It performs no
+// network I/O either.
 type Query struct {
 	snap *FleetSnapshot
 }

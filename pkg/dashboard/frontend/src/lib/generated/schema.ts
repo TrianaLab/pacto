@@ -208,6 +208,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/revisions/document": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a revision document
+         * @description Reads ONE in-bundle document body belonging to exactly the given canonical revision. The path must be one the revision already published in its docs list, which is what prevents traversal and cross-revision reads; the body is size-bounded and an oversized or unreadable document is an explicit error rather than empty content.
+         */
+        get: operations["fleet-revision-document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/service": {
         parameters: {
             query?: never;
@@ -970,21 +990,6 @@ export interface components {
             /** Format: int64 */
             unknown: number;
         };
-        "Fleet.ConfigurationSummary": {
-            name: string;
-            ref?: string;
-            required: boolean;
-            schema?: string;
-            values: components["schemas"]["Fleet.RuntimePreview"];
-        };
-        "Fleet.ConfigurationsPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.ConfigurationSummary"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
         "Fleet.ContractRevision": {
             contract?: components["schemas"]["Contract.Contract"];
             digest?: string;
@@ -1046,6 +1051,13 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.DocumentBody": {
+            /** Format: int64 */
+            bytes: number;
+            content: string;
+            path: string;
+            title: string;
         };
         "Fleet.EvidenceWindow": {
             /** Format: date-time */
@@ -1234,20 +1246,6 @@ export interface components {
             services: number;
             /** Format: int64 */
             targets: number;
-        };
-        "Fleet.PoliciesPreview": {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["Fleet.PolicySummary"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
-        "Fleet.PolicySummary": {
-            name: string;
-            ref?: string;
-            schema?: string;
-            target?: string;
         };
         "Fleet.ProductEvidenceRef": {
             observedAt?: string;
@@ -1954,6 +1952,22 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductConfigurationSummary: {
+            name: string;
+            ref?: string;
+            required: boolean;
+            resolution?: components["schemas"]["ProductRefResolution"];
+            schema?: string;
+            values: components["schemas"]["Fleet.RuntimePreview"];
+        };
+        ProductConfigurationsPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductConfigurationSummary"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         ProductEdge: {
             /** Format: int64 */
             count?: number;
@@ -2127,6 +2141,21 @@ export interface components {
             owner?: string;
             ref?: components["schemas"]["ProductRef"];
         };
+        ProductPoliciesPreview: {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["ProductPolicySummary"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        ProductPolicySummary: {
+            name: string;
+            ref?: string;
+            resolution?: components["schemas"]["ProductRefResolution"];
+            schema?: string;
+            target?: string;
+        };
         ProductRef: {
             domain?: string;
             explanation?: string;
@@ -2149,6 +2178,11 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        ProductRefResolution: {
+            reason?: string;
+            resolved: boolean;
+            service?: components["schemas"]["ProductRef"];
+        };
         ProductRefsPreview: {
             /** Format: int64 */
             count: number;
@@ -2167,7 +2201,7 @@ export interface components {
         };
         ProductRevisionDetail: {
             capabilities: components["schemas"]["Fleet.CapabilitiesPreview"];
-            configurations: components["schemas"]["Fleet.ConfigurationsPreview"];
+            configurations: components["schemas"]["ProductConfigurationsPreview"];
             dependencies: components["schemas"]["ProductRelationshipsPreview"];
             docs: components["schemas"]["Fleet.DocsPreview"];
             exactTargets: components["schemas"]["ProductRefPreview"];
@@ -2179,7 +2213,7 @@ export interface components {
             next?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
             pactoVersion?: string;
-            policies: components["schemas"]["Fleet.PoliciesPreview"];
+            policies: components["schemas"]["ProductPoliciesPreview"];
             previous?: components["schemas"]["ProductRef"];
             provenance: components["schemas"]["Fleet.RevisionProvenance"];
             readiness?: components["schemas"]["Fleet.ProductReadiness"];
@@ -2193,6 +2227,11 @@ export interface components {
             version?: string;
             workload?: string;
         };
+        ProductRevisionDocument: {
+            document: components["schemas"]["Fleet.DocumentBody"];
+            meta: components["schemas"]["Fleet.ProductMeta"];
+            revision: components["schemas"]["ProductRef"];
+        };
         ProductServiceDetail: {
             activeRevisions: components["schemas"]["ProductRefPreview"];
             dependencies: components["schemas"]["ProductRefPreview"];
@@ -2203,6 +2242,7 @@ export interface components {
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
             ownership?: components["schemas"]["ProductOwnership"];
+            referencedBy: components["schemas"]["ProductRefPreview"];
             relationships: components["schemas"]["ProductRelationshipsPreview"];
             revisions: components["schemas"]["ProductRefPreview"];
             summary: components["schemas"]["Fleet.ServiceSummary"];
@@ -2967,6 +3007,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductOverview"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-revision-document": {
+        parameters: {
+            query: {
+                /** @description Canonical revision key the document belongs to */
+                key: string;
+                /** @description In-bundle document path, exactly as published in the revision's docs list */
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductRevisionDocument"];
                 };
             };
             /** @description Error */

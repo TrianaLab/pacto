@@ -41,6 +41,22 @@ type InterfacesPreview struct {
 	Items     []InterfaceSummary `json:"items"`
 }
 
+// RefResolution is the backend's verdict on a contract reference: does the
+// authored ref point at a service this fleet knows, and if so which canonical
+// one. It exists so a consumer never has to re-derive a destination by splitting
+// the raw ref string — the builder already resolved it against the referring
+// revision's own domain, which is the only resolution that respects same-named
+// services in different domains.
+//
+// Resolved false is a real answer, not missing data: the raw Ref is still the
+// authored truth and stays visible, and Reason says why nothing was found.
+type RefResolution struct {
+	Resolved bool `json:"resolved"`
+	// Service is the canonical destination, present only when Resolved.
+	Service *EntityRef `json:"service,omitempty"`
+	Reason  string     `json:"reason,omitempty"`
+}
+
 // ConfigurationSummary is one declared configuration scope. Values is the
 // bounded flattening of the inline values map (the same bounded walk used for
 // observed runtime facts), so an arbitrarily wide or deep values block can never
@@ -51,6 +67,9 @@ type ConfigurationSummary struct {
 	Ref      string         `json:"ref,omitempty"`
 	Required bool           `json:"required"`
 	Values   RuntimePreview `json:"values"`
+	// Resolution is present only when this scope declares a Ref, and reports where
+	// that ref resolves to (or why it does not).
+	Resolution *RefResolution `json:"resolution,omitempty"`
 }
 
 // ConfigurationsPreview is a bounded preview of declared configuration scopes.
@@ -68,6 +87,8 @@ type PolicySummary struct {
 	Schema string `json:"schema,omitempty"`
 	Ref    string `json:"ref,omitempty"`
 	Target string `json:"target,omitempty"`
+	// Resolution is present only when this policy declares a Ref; see [RefResolution].
+	Resolution *RefResolution `json:"resolution,omitempty"`
 }
 
 // PoliciesPreview is a bounded preview of declared policies.
@@ -141,23 +162,29 @@ func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRe
 	return InterfacesPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
 }
 
-func configurationsPreview(cfgs []contract.Configuration) ConfigurationsPreview {
+// configurationsPreview projects the declared configuration scopes, attaching the
+// builder's resolution for every scope that declares a ref. resolved is keyed by
+// the DECLARED NAME, which is exactly what the reference relationship records as
+// its To, so the join needs no ref-string parsing.
+func configurationsPreview(cfgs []contract.Configuration, resolved map[string]*RefResolution) ConfigurationsPreview {
 	src, total, trunc := boundSlice(cfgs, MaxDetailPreview)
 	items := make([]ConfigurationSummary, 0, len(src))
 	for _, c := range src {
 		items = append(items, ConfigurationSummary{
 			Name: c.Name, Schema: c.Schema, Ref: c.Ref, Required: c.Required,
-			Values: runtimePreview(c.Values),
+			Values: runtimePreview(c.Values), Resolution: resolved[c.Name],
 		})
 	}
 	return ConfigurationsPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
 }
 
-func policiesPreview(ps []contract.Policy) PoliciesPreview {
+func policiesPreview(ps []contract.Policy, resolved map[string]*RefResolution) PoliciesPreview {
 	src, total, trunc := boundSlice(ps, MaxDetailPreview)
 	items := make([]PolicySummary, 0, len(src))
 	for _, p := range src {
-		items = append(items, PolicySummary{Name: p.Name, Schema: p.Schema, Ref: p.Ref, Target: p.Target})
+		items = append(items, PolicySummary{
+			Name: p.Name, Schema: p.Schema, Ref: p.Ref, Target: p.Target, Resolution: resolved[p.Name],
+		})
 	}
 	return PoliciesPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
 }
