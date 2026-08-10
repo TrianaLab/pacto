@@ -22,7 +22,9 @@ async function boot(page: Page) {
 async function openPaymentsService(page: Page) {
   await page.goto('/#/fleet/services');
   await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible({ timeout: T });
-  const row = page.locator('.sv-item a.entity-link', { hasText: 'payments-service' }).first();
+  // By canonical key, not by label: the demo publishes same-named services in two
+  // domains, so a visible name is not an identity.
+  const row = page.locator('.sv-item a.entity-link[href$="/fleet/services/payments-service"]').first();
   await expect(row).toBeVisible({ timeout: T });
   await row.click();
   await expect(page).toHaveURL(/#\/fleet\/services\//);

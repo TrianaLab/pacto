@@ -28,13 +28,21 @@ async function gotoGraphFocus(page: Page, kind: string, key: string) {
 // Search the discovery state and follow the focus link for a given default perspective
 // (service links carry no perspective; revision/target links carry theirs), proving the
 // entity kind chooses the projection (requirement E).
+//
+// The result is picked by canonical KEY, never by position: the demo publishes
+// same-named services in two domains, so "the first match" is whichever key happens to
+// sort first, which is not an identity.
 async function searchAndFocus(page: Page, text: string, perspective: 'service' | 'revision' | 'target') {
   await gotoGraphDiscovery(page);
   await page.getByRole('searchbox').fill(text);
-  const sel = perspective === 'service'
-    ? 'a[data-testid="graph-focus-link"]:not([href*="perspective="])'
-    : `a[data-testid="graph-focus-link"][href*="perspective=${perspective}"]`;
-  const link = page.locator(sel).first();
+  // A default-domain key carries no "<domain>%2F" prefix, so anchoring on the path
+  // segment that starts the key excludes any other domain's same-named entities.
+  const key = {
+    service: 'service/payments-service"]',
+    revision: 'revision/payments-service%40"]',
+    target: 'target/prod%2FDeployment%2Fpayments-service"]',
+  }[perspective];
+  const link = page.locator(`a[data-testid="graph-focus-link"][href*="/fleet/graph/${key}`).first();
   await expect(link).toBeVisible({ timeout: 20_000 });
   await link.click();
   await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
@@ -106,10 +114,23 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('M5: an old service-detail URL canonicalizes to the product entity (never the legacy detail view)', async ({ page }) => {
+    // Exactly one service is named payments-service, so the legacy name resolves.
     await page.goto('/#/services/payments-service');
-    // Resolved through the Product API to the canonical service entity; a same-named set
-    // would instead show the explicit disambiguation (data-testid legacy-migration).
-    await expect(page).toHaveURL(/#\/fleet\/services\//, { timeout: 20_000 });
+    await expect(page).toHaveURL(/#\/fleet\/services\/payments-service$/, { timeout: 20_000 });
+  });
+
+  test('M5a: a legacy URL for a name TWO domains use disambiguates instead of guessing', async ({ page }) => {
+    // A legacy URL carries a bare name, and a bare name is not an identity. Two domains
+    // publish a platform-app-config, so migrating this bookmark to either one would be a
+    // fabricated answer -- the product asks which.
+    await page.goto('/#/services/platform-app-config');
+    await expect(page.getByTestId('legacy-migration-ambiguous')).toBeVisible({ timeout: 20_000 });
+    await expect(page).toHaveURL(/#\/services\/platform-app-config$/); // no guess was made
+    const choices = page.locator('[data-testid="legacy-migration"] a.entity-link');
+    await expect(choices).toHaveCount(2);
+    // Both canonical services are offered, each by its own key.
+    await expect(page.locator('[data-testid="legacy-migration"] a[href$="/fleet/services/platform-app-config"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="legacy-migration"] a[href$="/fleet/services/partners%2Fplatform-app-config"]')).toHaveCount(1);
   });
 
   test('M5b: a legacy service-VERSION bookmark migrates to the canonical Product Revision (keeps the version)', async ({ page }) => {
