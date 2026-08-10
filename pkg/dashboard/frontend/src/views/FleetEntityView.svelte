@@ -89,13 +89,20 @@
 <div class="entity-view">
   <Breadcrumbs {trail} />
 
+  <!-- One useful page-level heading for the entity page (requirement 8.1). The rich
+       EntityIdentity remains the visual header; the h1 gives the accessibility tree a
+       meaningful page title without visual duplication.
+
+       It sits OUTSIDE the ready branch on purpose. A page that is still loading, or
+       whose entity does not exist, is still a page: it needs a name in the
+       accessibility tree and in the browser tab, and without one the empty-state
+       heading became the first heading on the page. We know the kind and the requested
+       key before the request resolves, so there is always something honest to say. -->
+  <h1 class="visually-hidden">{kindLabel(kind)}: {detail?.entity?.label || detail?.entity?.key || entityKey}</h1>
+
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={kindLabel(kind).toLowerCase()} onRetry={load} />
   {:else}
-    <!-- One useful page-level heading for the entity page (requirement 8.1). The rich
-         EntityIdentity remains the visual header; the h1 gives the accessibility tree a
-         meaningful page title without visual duplication. -->
-    <h1 class="visually-hidden">{kindLabel(kind)}: {detail.entity.label || detail.entity.key}</h1>
     <header class="ev-head">
       <EntityIdentity ref={detail.entity} showStatus={false} />
       <EntityStatusBadge kind={detail.entity.kind} status={detail.status} />

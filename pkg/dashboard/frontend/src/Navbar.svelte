@@ -138,7 +138,12 @@
 
 <svelte:document onclick={handleClickOutside} />
 
-<nav class="navbar">
+<!-- The application chrome is a BANNER, not a navigation landmark. It used to be a
+     bare <nav>, which meant every page exposed two navigation landmarks -- one named
+     "Primary" and one unnamed wrapping it -- and no banner at all. A screen-reader
+     user landing on any route got "navigation, navigation" and no way to tell the
+     site chrome from the page's own nav. -->
+<header class="navbar">
   <div class="navbar-left">
     <a href={homeHref} class="navbar-brand" onclick={spinLogo}>
       <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M10 6 5 12 10 18"/><path d="M14 6 19 12 14 18"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
@@ -194,7 +199,7 @@
   >
     <span></span><span></span><span></span>
   </button>
-</nav>
+</header>
 
 <!-- Mobile drawer: an overlay with a focus trap, Escape-to-close and focus
      restore. It is only in the DOM while open, so its navigation is never present

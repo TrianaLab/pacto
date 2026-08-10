@@ -12,20 +12,25 @@
     noun = 'items',
     onRetry = null,
     onClearFilters = null,
+    // Heading level of every variant's title, forwarded to EmptyState so the two
+    // components agree. Defaults to 2: a product empty state replaces a whole page or
+    // workspace body, directly under that page's h1, and a hard-coded 3 was a skipped
+    // level. A caller nesting one inside an h2 section passes 3.
+    level = 2,
   } = $props();
 </script>
 
 {#if state.kind === 'loading'}
-  <EmptyState loading={true} />
+  <EmptyState loading={true} {level} />
 {:else if state.kind === 'backend-error'}
-  <EmptyState error={true} title="Can’t reach the Pacto backend" message={state.message} {onRetry} />
+  <EmptyState error={true} title="Can’t reach the Pacto backend" message={state.message} {onRetry} {level} />
 {:else if state.kind === 'schema-error'}
-  <EmptyState error={true} title="Dashboard is out of date" message={`${state.message} Reload the page or upgrade the dashboard.`} {onRetry} />
+  <EmptyState error={true} title="Dashboard is out of date" message={`${state.message} Reload the page or upgrade the dashboard.`} {onRetry} {level} />
 {:else if state.kind === 'not-found'}
-  <EmptyState error={true} title="Not found" message={state.message} />
+  <EmptyState error={true} title="Not found" message={state.message} {level} />
 {:else if state.kind === 'filtered-empty'}
   <div class="state-box">
-    <h3>No matching {noun}</h3>
+    <svelte:element this={`h${level}`}>No matching {noun}</svelte:element>
     <p>No {noun} match the current filters or search.</p>
     <!-- Both facts must survive: a filter matched nothing AND knowledge is incomplete.
          The empty match never hides the incompleteness caveat (requirement D). -->
@@ -40,7 +45,7 @@
   <!-- The non-negotiable case: no items, but knowledge is incomplete. This is NOT
        "all clear" — it is a lack of knowledge, shown as such. -->
   <div class="state-box is-unknown" role="status">
-    <h3>No {noun} known</h3>
+    <svelte:element this={`h${level}`}>No {noun} known</svelte:element>
     <p>Knowledge is incomplete, so this is not a clean bill of health.</p>
     <span class="ps-knowledge">{knowledgeLabel(state.knowledge.level)}</span>
     {#if state.knowledge.unavailableSources > 0}<p class="ps-detail">{state.knowledge.unavailableSources} source(s) unavailable.</p>{/if}
@@ -50,7 +55,7 @@
   </div>
 {:else if state.kind === 'empty-fleet'}
   <div class="state-box">
-    <h3>No {noun} yet</h3>
+    <svelte:element this={`h${level}`}>No {noun} yet</svelte:element>
     <p>Nothing here yet. Once contracts are published or running targets are observed, {noun} appear here.</p>
   </div>
 {/if}
@@ -61,8 +66,8 @@
     padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3);
     gap: var(--sp-2);
   }
-  .state-box h3 { color: var(--c-text-2); }
-  .state-box.is-unknown h3 { color: var(--c-warn); }
+  .state-box :is(h2, h3) { color: var(--c-text-2); }
+  .state-box.is-unknown :is(h2, h3) { color: var(--c-warn); }
   .ps-knowledge {
     font-size: var(--text-xs); font-weight: 600; color: var(--c-warn);
     background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);

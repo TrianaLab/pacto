@@ -4,6 +4,7 @@
   import { syncFromHash } from './lib/filters.svelte.ts';
   import { toggleTheme } from './lib/theme.svelte.ts';
   import { initTooltipPlacement } from './lib/tooltips.ts';
+  import { syncPageTitle } from './lib/pageTitle.ts';
   import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
   import CommandPalette from './CommandPalette.svelte';
@@ -184,10 +185,16 @@
     else if (id === 'autoreload') toggleAutoReload();
   }
 
+  let mainEl = $state(null);
+
   onMount(() => {
     window.addEventListener('hashchange', onHashChange);
     window.addEventListener('keydown', handlePaletteKeydown);
     const teardownTips = initTooltipPlacement();
+    // Every route used to be titled "Pacto Dashboard". The title now follows the
+    // page's own h1, so a tab, a history entry and a screen reader all name the
+    // page the user is on.
+    const teardownTitle = syncPageTitle(mainEl);
     loadGlobal();
     // Start with fast polling; loadGlobal adjusts interval based on discovery state
     if (!(globalThis).__PACTO_STATIC__) { reloadTimer = setInterval(loadGlobal, POLL_FAST); }
@@ -195,6 +202,7 @@
       window.removeEventListener('hashchange', onHashChange);
       window.removeEventListener('keydown', handlePaletteKeydown);
       teardownTips();
+      teardownTitle();
       if (reloadTimer) clearInterval(reloadTimer);
     };
   });
@@ -238,7 +246,7 @@
   <p class="app-loading" role="status">Loading…</p>
 {/snippet}
 
-<main class="container">
+<main class="container" bind:this={mainEl}>
   {#if route.view === 'detail'}
     <!-- Service detail: the product entity page on a Fleet host (resolved via the
          Product API); the legacy view only on a non-Fleet host, where it is the only UI. -->
