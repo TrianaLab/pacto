@@ -243,6 +243,13 @@ several generations of Pacto UI stitched together". Headings below that read
   See "Phase 5 closure" below. The "retained specialized Readiness/Compare" this bullet
   used to name no longer exist on a Fleet host -- see the product-coherence correction
   below.
+- Phase 6 (WASM browser acceptance): IN PROGRESS, one gate open. Every Phase-6 criterion
+  now has a spec and every spec passes locally on the built demo (133 Playwright tests
+  across 14 specs, desktop plus Pixel-5, 1 skipped: the `test.fixme` mermaid doc-body case
+  recorded in section 0c). The full local verification is green and the final real-user
+  browser inspection is done -- see "Post-freeze correction pass" below, which is what that
+  inspection produced. The ONE remaining gate is GitHub CI on the exact final SHA. Phase 6
+  is not claimed COMPLETE until that is green, and Phase 7 has NOT been started.
 - Product-coherence correction (cross-phase; NOT whole-program Phase 6, which is WASM
   browser acceptance): COMPLETE. A real user reported the app
   "still feels like several generations of Pacto UI stitched together". This phase was a
@@ -952,6 +959,40 @@ What the freeze does not cover, because it was never Product UI design: the rema
 whole-program phases in section 5 (7 onward), and the ordinary maintenance of the surfaces
 already shipped.
 
+### Post-freeze correction pass: six defects the terminal could not have found
+
+The freeze allows exactly one kind of change: a concrete defect. The final real-user
+inspection produced six, and every one of them was visible in a screenshot while the whole
+test suite was green. They are recorded together because they share a shape -- a number or
+a word on a page disagreeing with the rows directly beneath it, which no unit test asserts
+because no unit test looks at two components at once.
+
+| Defect | Where it was seen | Root cause | Fixed in |
+|---|---|---|---|
+| The Services compliance bar was one flat grey block above rows badged Compliant, Unknown and Not compliant | Services list | the page bucketed statuses with its own lowercase spellings; the wire is PascalCase, so all 16 rows fell through to "Other" | `lib/distributions.ts` (shared `tallyStatuses` plus a Not-evaluated bucket), consumed by `FleetServicesView` |
+| "13 declared dependencies" above an Expected dependencies card reading "3 of 3" | Service page | a declared relationship is per-revision, so the tally counted declaration records, not dependencies -- the number grew with release history | `pkg/fleet/aggregate.go` |
+| "1 items", "1 consumers" | Attention, Change analysis, Revision | ranked charts are mostly small numbers, so the singular is the common case, and an irregular noun cannot be recovered by stripping an "s" | `components/viz/HorizontalBars.svelte` (`unitOne`) |
+| "Fleet posture" above a page about services; "how this fleet knows" above a list of consumers | Service, Overview, Change analysis, entity lists, Graph | the internal name leaking into rendered copy, which section 0b forbids | the five surfaces, locked by a product-vocabulary guard in `architecture.test.ts` |
+| "USED BY api-gateway" twice, indistinguishable, and 8 relationship rows for a service with 3 dependencies and 2 dependents | Service page, Operational target page | a neighborhood is a graph: at depth 1 it carries edges BETWEEN two neighbours, which are somebody else's relationships, and a flat list labelled by counterpart reads them as this entity's | `pkg/fleet/preview.go` |
+| The same duplicate rows on the target page | Operational target page | same root cause; fixed once in the shared preview rather than per view | `pkg/fleet/preview.go` |
+
+Two of the six are backend semantics, so they are fixed in `pkg/fleet` and the API, the
+MCP tools and the dashboard all get the correction from one place. Each has a test that
+fails before the fix: the relationship one was proven non-vacuous by neutering the guard,
+which reproduces the neighbour-to-neighbour edge in the list.
+
+The inspection's own questions, answered against the AFTER captures: the system is
+legible without reading every table (the Overview leads with attention counts and three
+labelled distributions); the full contract is inspectable at precision on the Revision
+page (interfaces with operations, configuration values, policies, capabilities, workload
+facts, validation findings, declared dependencies with ref/required/compatibility/pinned,
+tools, docs, metadata); information now sits on the entity it describes (this pass moved
+two counts back); the graph preserves the mental map across a semantic refresh and a full
+browser reload (identical node positions in captures 09/10/11); nothing that V1 showed is
+missing without a recorded reason (section 0c); no surface still looks like the old UI;
+and no chart is decorative -- each is a population partition or a ranked count with its
+exact numbers as text.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
@@ -1142,10 +1183,10 @@ section 8.
 5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile). COMPLETE.
 6. WASM browser acceptance (Playwright over the in-browser demo). IN PROGRESS: every
    Phase-6 criterion now has a spec (see the coverage reconciliation in section 0c),
-   including the four this session added -- boundedness at scale, hostile identity,
-   the composed visualization contract, and recorded render baselines. The remaining
-   gates are the full local verification, final-SHA CI, and the final real-user UI
-   inspection.
+   including the four added later -- boundedness at scale, hostile identity,
+   the composed visualization contract, and recorded render baselines. The full local
+   verification and the final real-user UI inspection are both DONE (see the post-freeze
+   correction pass in section 0c). The one remaining gate is final-SHA CI.
 7. Operator-managed trace source: an operator-owned observed/trace source so the
    observed layer is real end to end, not demo-only.
 8. Live Kind vertical: the full install (operator + dashboard + Evidence Server +
