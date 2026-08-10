@@ -43,6 +43,30 @@ func (e *UnresolvedError) Error() string {
 	return fmt.Sprintf("LOCK_UNRESOLVED: cannot resolve %s: %s", e.Ref, e.Reason)
 }
 
+// AmbiguousError: one reference occurrence would have to hold two different
+// resolutions, so the lock cannot record both. Two closures reach it:
+//
+//   - Duplicate configuration or policy names in one contract. Canonical
+//     validation rejects these (DUPLICATE_CONFIGURATION_NAME /
+//     DUPLICATE_POLICY_NAME), but `pacto lock` resolves the closure without
+//     validating it, so the closure builder is the last gate.
+//   - Two byte-identical local bundle directories in different places, each
+//     resolving the same relative ref to a different sibling. They are one
+//     contract by content, and a declaration is identified by the contract that
+//     contains it, so the pair is genuinely outside what the lock can express.
+//
+// Either way this fails the lock rather than silently pinning one of the two.
+type AmbiguousError struct {
+	Occurrence    Occurrence
+	First, Second string
+}
+
+// Error formats a LOCK_AMBIGUOUS_REFERENCE message naming the occurrence and both resolutions.
+func (e *AmbiguousError) Error() string {
+	return fmt.Sprintf("LOCK_AMBIGUOUS_REFERENCE: %s resolves to both %s and %s; a lock records one resolution per declared reference, so these cannot both be pinned",
+		e.Occurrence, e.First, e.Second)
+}
+
 // MissingError: a lock was required (e.g. --check) but none exists.
 type MissingError struct{ Path string }
 

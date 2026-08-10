@@ -262,12 +262,13 @@ func childNames(c *contract.Contract) []string {
 }
 
 // referenceClosure pins the transitive config/policy reference closure: one entry
-// per declared reference OCCURRENCE, tagged with the closure path of the contract
-// that declared it, with the walk deduplicated by the RESOLVED bundle (which
-// terminates cycles). Mirrors the real buildReferenceClosure; each ref resolves to
-// a bundle by service name instead of a registry pull.
+// per DECLARATION, tagged with the content identity of the contract that declared
+// it, with the walk deduplicated by the RESOLVED bundle (which terminates cycles).
+// Mirrors the real buildReferenceClosure; each ref resolves to a bundle by service
+// name instead of a registry pull.
 func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, error) {
 	walked := map[string]bool{}
+	seen := map[lock.Occurrence]lock.Reference{}
 	var out []lock.Reference
 	var walk func(c *contract.Contract, from string) error
 	walk = func(c *contract.Contract, from string) error {
@@ -283,7 +284,7 @@ func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, err
 				fmt.Printf("unpinned: %s reference %q -> %s (%v)\n", d.Kind, d.Name, d.Ref, err)
 				continue
 			}
-			out = append(out, lock.Reference{
+			entry := lock.Reference{
 				From:    from,
 				Kind:    d.Kind,
 				Name:    d.Name,
@@ -291,12 +292,20 @@ func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, err
 				Ref:     d.Ref,
 				Version: target.contract.Service.Version,
 				Digest:  target.hash,
-			})
+			}
+			if prev, dup := seen[entry.Occurrence()]; dup {
+				if prev != entry {
+					return fmt.Errorf("%s resolves to both %s and %s", entry.Occurrence(), prev.Ref, entry.Ref)
+				}
+				continue // the same declaration, reached again by another route
+			}
+			seen[entry.Occurrence()] = entry
+			out = append(out, entry)
 			if walked[target.hash] {
 				continue
 			}
 			walked[target.hash] = true
-			if err := walk(target.contract, lock.ReferencePath(from, d.Kind, d.Name)); err != nil {
+			if err := walk(target.contract, entry.DestinationID()); err != nil {
 				return err
 			}
 		}

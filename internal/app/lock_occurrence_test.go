@@ -27,13 +27,10 @@ import (
 // key that identifies the RESOLVED bundle rather than the ref text used to reach
 // it.
 
-// occKey is the (From, Kind, Name) occurrence identity, for map lookups.
-func occKey(r lock.Reference) string { return r.From + "|" + r.Kind + "|" + r.Name }
-
-func occIndex(refs []lock.Reference) map[string]lock.Reference {
-	out := make(map[string]lock.Reference, len(refs))
+func occIndex(refs []lock.Reference) map[lock.Occurrence]lock.Reference {
+	out := make(map[lock.Occurrence]lock.Reference, len(refs))
 	for _, r := range refs {
-		out[occKey(r)] = r
+		out[r.Occurrence()] = r
 	}
 	return out
 }
@@ -122,15 +119,23 @@ func TestReferenceClosure_SameNameAcrossRootAndChildStayDistinct(t *testing.T) {
 		t.Fatalf("want one entry per declared occurrence (6), got %d: %+v", len(refs), refs)
 	}
 	byOcc := occIndex(refs)
+	// The declaring identity of child-a's and child-b's own scopes is whatever the
+	// root's entries recorded as their destination -- read off the closure rather
+	// than spelled out, because that IS the invariant.
+	childA := byOcc[lock.Occurrence{Kind: "config", Name: "foo"}].DestinationID()
+	childB := byOcc[lock.Occurrence{Kind: "policy", Name: "bar"}].DestinationID()
+	if childA == "" || childB == "" || childA == childB {
+		t.Fatalf("the root's two referenced bundles must have distinct identities: %q %q", childA, childB)
+	}
 	for _, tc := range []struct{ from, kind, name, wantRef string }{
 		{"", "config", "foo", "oci://r/child-a"},
 		{"", "config", "settings", "oci://r/bundle-y"},
-		{"config:foo", "config", "settings", "oci://r/bundle-x"},
+		{childA, "config", "settings", "oci://r/bundle-x"},
 		{"", "policy", "bar", "oci://r/child-b"},
 		{"", "policy", "guardrails", "oci://r/bundle-q"},
-		{"policy:bar", "policy", "guardrails", "oci://r/bundle-p"},
+		{childB, "policy", "guardrails", "oci://r/bundle-p"},
 	} {
-		got, ok := byOcc[tc.from+"|"+tc.kind+"|"+tc.name]
+		got, ok := byOcc[lock.Occurrence{From: tc.from, Kind: tc.kind, Name: tc.name}]
 		if !ok {
 			t.Errorf("occurrence %q %s/%s missing from the closure", tc.from, tc.kind, tc.name)
 			continue
@@ -233,13 +238,14 @@ func TestReferenceClosure_SameRelativeRefFromDifferentDirectories(t *testing.T) 
 		t.Fatalf("want 3 occurrences (root/child, root/shared, child/shared), got %d: %+v", len(refs), refs)
 	}
 	byOcc := occIndex(refs)
-	rootShared, ok := byOcc["|config|shared"]
+	rootShared, ok := byOcc[lock.Occurrence{Kind: "config", Name: "shared"}]
 	if !ok {
 		t.Fatal("the root's own ./config occurrence is missing from the closure")
 	}
-	childShared, ok := byOcc["config:child|config|shared"]
+	childID := byOcc[lock.Occurrence{Kind: "config", Name: "child"}].DestinationID()
+	childShared, ok := byOcc[lock.Occurrence{From: childID, Kind: "config", Name: "shared"}]
 	if !ok {
-		t.Fatal("the child's ./config occurrence is missing from the closure")
+		t.Fatalf("the child's ./config occurrence is missing from the closure (declarer %q)", childID)
 	}
 	if rootShared.Version != "1.0.0" {
 		t.Errorf("root's ./config pinned version %q, want root-config's 1.0.0", rootShared.Version)
@@ -274,10 +280,13 @@ func TestReferenceClosure_SameTargetTwiceIsTwoAgreeingOccurrences(t *testing.T) 
 		t.Fatalf("buildReferenceClosure: %v", err)
 	}
 	if len(refs) != 2 {
-		t.Fatalf("want one entry per occurrence (2), got %d: %+v", len(refs), refs)
+		t.Fatalf("want one entry per declaration (2), got %d: %+v", len(refs), refs)
+	}
+	if refs[0].Name == refs[1].Name {
+		t.Errorf("two scopes sharing a ref string are still two declarations: %+v", refs)
 	}
 	if refs[0].Digest == "" || refs[0].Digest != refs[1].Digest {
-		t.Errorf("both occurrences resolve the same bundle and must agree: %+v", refs)
+		t.Errorf("both declarations resolve the same bundle and must agree: %+v", refs)
 	}
 }
 
@@ -305,8 +314,11 @@ func TestReferenceClosure_CycleTerminatesOnResolvedIdentity(t *testing.T) {
 	if len(refs) != 3 {
 		t.Fatalf("want 3 occurrences around the cycle, got %d: %+v", len(refs), refs)
 	}
-	if _, ok := occIndex(refs)["config:to-p/config:to-q|config|to-p"]; !ok {
-		t.Errorf("the closure path must name the occurrence that closes the cycle: %+v", refs)
+	byOcc := occIndex(refs)
+	toQ := byOcc[lock.Occurrence{From: byOcc[lock.Occurrence{Kind: "config", Name: "to-p"}].DestinationID(),
+		Kind: "config", Name: "to-q"}]
+	if _, ok := byOcc[lock.Occurrence{From: toQ.DestinationID(), Kind: "config", Name: "to-p"}]; !ok {
+		t.Errorf("the occurrence that closes the cycle must be declared by q: %+v", refs)
 	}
 }
 

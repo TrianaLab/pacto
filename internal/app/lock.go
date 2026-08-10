@@ -145,22 +145,26 @@ func compareLocks(existing, fresh *lock.Lock) error {
 	if len(existing.References) != len(fresh.References) {
 		return &lock.StaleError{Detail: "reference set changed"}
 	}
-	byID := make(map[string]lock.Reference, len(existing.References))
+	// Keyed on the occurrence STRUCT, never on a rendering of it: names accept any
+	// character, so any string built by joining them can be forged by a legal name
+	// and would silently file two references in one slot.
+	byID := make(map[lock.Occurrence]lock.Reference, len(existing.References))
 	for _, er := range existing.References {
-		byID[referenceID(er)] = er
+		byID[er.Occurrence()] = er
 	}
 	for _, fr := range fresh.References {
-		er, ok := byID[referenceID(fr)]
+		id := fr.Occurrence()
+		er, ok := byID[id]
 		if !ok {
-			return &lock.StaleError{Detail: "new reference " + referenceID(fr)}
+			return &lock.StaleError{Detail: "new reference: " + id.String()}
 		}
 		// A reference repointed at a different source is stale even when both
 		// happen to resolve to the same bytes today: the lock no longer records
 		// what the contract declares.
 		if er.Source != fr.Source || er.Ref != fr.Ref || er.Path != fr.Path {
-			return &lock.StaleError{Detail: "reference " + referenceID(fr) + " now points at a different source"}
+			return &lock.StaleError{Detail: id.String() + " now points at a different source"}
 		}
-		if err := compareEntry(referenceID(fr), fr.Source, er.Digest, er.ContentHash, fr.Digest, fr.ContentHash); err != nil {
+		if err := compareEntry(id.String(), fr.Source, er.Digest, er.ContentHash, fr.Digest, fr.ContentHash); err != nil {
 			return err
 		}
 	}
@@ -180,14 +184,6 @@ func compareEntry(name, source, lockedDigest, lockedHash, freshDigest, freshHash
 		return &lock.DriftError{Name: name, Locked: lockedDigest, Current: freshDigest}
 	}
 	return nil
-}
-
-// referenceID returns a reference OCCURRENCE's identity: the contract that
-// declared it, plus the kind and name it declared it under. Neither the ref text
-// nor the local path is unique — the whole closure shares one namespace, and the
-// same relative path resolved from two directories is two different bundles.
-func referenceID(r lock.Reference) string {
-	return lock.ReferencePath(r.From, r.Kind, r.Name)
 }
 
 // mergePreservingPins keeps existing dependency pins whose constraint is

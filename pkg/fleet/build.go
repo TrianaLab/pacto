@@ -1614,7 +1614,7 @@ func lockReference(rev *ContractRevision, ref contract.ReferenceRef) (*lock.Refe
 	if l.Root.Version != "" && l.Root.Version != rev.Contract.Service.Version {
 		return nil, lockBelongsElsewhere(l)
 	}
-	if l.LockVersion < lock.OccurrenceLockVersion {
+	if l.LockVersion < lock.RootOccurrenceLockVersion {
 		return nil, "this pacto.lock predates reference-occurrence identity (lockVersion " +
 			strconv.Itoa(l.LockVersion) + "), so which of its recorded resolutions belongs to this " +
 			"declared reference cannot be established; re-run `pacto lock` to record it"

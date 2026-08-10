@@ -27,13 +27,14 @@ func readLock(t *testing.T, dir string) *lock.Lock {
 	return l
 }
 
-// reference finds the entry for one declared reference OCCURRENCE: the (kind,
-// name) declared by the contract at closure path from ("" is the root).
+// reference finds the entry for one DECLARATION: the (kind, name) declared by
+// the contract whose content identity is from ("" is the root).
 // lock.RootReference covers from == "" for production callers; a test that walks
 // deeper into the closure needs the general form.
 func reference(l *lock.Lock, from, kind, name string) (*lock.Reference, bool) {
+	want := lock.Occurrence{From: from, Kind: kind, Name: name}
 	for i := range l.References {
-		if r := &l.References[i]; r.From == from && r.Kind == kind && r.Name == name {
+		if r := &l.References[i]; r.Occurrence() == want {
 			return r, true
 		}
 	}
@@ -285,7 +286,7 @@ func TestLockCapturesReferenceJumps(t *testing.T) {
 	// attributed to policy-p -- the occurrence it was reached through -- not to the
 	// root. `pacto lock` records that as From, so the walk is now verifiable from
 	// the lockfile alone.
-	q, ok := reference(l, lock.ReferencePath("", "policy", "p"), "policy", "q")
+	q, ok := reference(l, p.DestinationID(), "policy", "q")
 	if !ok {
 		t.Fatalf("expected TRANSITIVE policy-q reference declared by policy-p (reference jump), got %+v", l.References)
 	}
@@ -750,7 +751,7 @@ func TestLockEmbeddedInPushedBundle(t *testing.T) {
 	// Generate a valid pacto.lock for this bundle (empty dependencies, but valid).
 	// It must be at the CURRENT schema version: push verifies the lock, and a lock
 	// written before reference-occurrence identity is stale by definition.
-	lockContent := `lockVersion: 2
+	lockContent := `lockVersion: 3
 pacto:
   version: 1.4.0
 root:

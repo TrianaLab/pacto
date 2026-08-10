@@ -76,6 +76,7 @@ If any resolved dependency or reference produces a digest that does not match th
 | `LOCK_CONFLICT` | The dependency closure requires the same service at two incompatible versions |
 | `LOCK_UNRESOLVED` | A ref in the lockfile could not be resolved (network error, registry unreachable, bundle deleted) |
 | `LOCK_MISSING` | `pacto lock --check` was run but no `pacto.lock` file exists (the verification commands treat a missing lock as a no-op) |
+| `LOCK_AMBIGUOUS_REFERENCE` | One declared reference would have to be pinned to two different destinations, so the lock cannot record it (see [Reference identity](#reference-identity)) |
 
 Because push enforces the lock, a stale lock blocks publishing — an automatic supply-chain gate.
 
@@ -84,7 +85,7 @@ Because push enforces the lock, a stale lock blocks publishing — an automatic 
 ## Example `pacto.lock`
 
 ```yaml
-lockVersion: 2
+lockVersion: 3
 pacto:
   version: 1.4.0
 root:
@@ -122,7 +123,7 @@ references:
     ref: oci://ghcr.io/acme/shared-config
     version: 2.0.0
     digest: sha256:222eee...
-  - from: config:shared-config
+  - from: oci:sha256:222eee...
     kind: config
     name: limits
     source: oci
@@ -137,16 +138,29 @@ Each `dependencies[]` entry records the `source` (oci or local), the full ref or
 
 The `references[]` section records config and policy refs with their `kind`, `source` and digest — references carry no `constraint` (only dependencies do). Local file-based refs appear here with a contentHash instead of an OCI digest.
 
-Because the closure is transitive, `kind` and `name` alone do not identify an entry: two bundles in the same closure can each declare a `config` named `settings`, and a relative ref like `./config` resolves to a different directory depending on which bundle declared it. The `from` field carries the identity of the *declaring* contract — empty for the root contract, otherwise the closure path of the reference occurrence the declaring bundle was reached through (`config:shared-config`, `config:shared-config/policy:limits`, and so on). Together, `from`, `kind` and `name` name exactly one declared reference occurrence, which is what tools match on when they associate a contract's own reference with its pinned destination.
+### Reference identity
+
+Because the closure is transitive, `kind` and `name` alone do not identify an entry: two bundles in the same closure can each declare a `config` named `settings`, and a relative ref like `./config` resolves to a different directory depending on which bundle declared it. Three separate things have to stay distinct, and the lock keeps them so:
+
+- **The declaring contract.** `from` is that contract's *content* identity — `oci:<digest>` for a registry bundle, `local:sha256:<hash>` for a directory, and empty for the root contract. It is the same string the entry that reached that bundle recorded as its own destination, which is what lets a reader join entries into the closure.
+- **The declaration.** `from`, `kind` and `name` together name exactly one declared reference — one scope, written once, inside one immutable contract. This is what tools match on when they associate a contract's own reference with its pinned destination.
+- **How the walk got there.** Not a field. A bundle reachable by several paths is still one bundle holding one set of declarations, so each is pinned once, and the route is not part of what a pin means. The entries form a graph rooted at the empty `from`, so every path through the closure is recoverable by following `from` back through the destinations — without any one path being written down as *the* path.
+
+Names are `{"type": "string", "minLength": 1}`: any non-empty string, including one containing `/` or `:`. So the identity is the three fields, never a single string built by joining them — a scope legitimately named `a/policy:b` would forge any such joined form. Configuration and policy names must be unique within a contract (`DUPLICATE_CONFIGURATION_NAME`, `DUPLICATE_POLICY_NAME`), but `pacto lock` resolves the closure without validating it, so the lock itself refuses any declaration that would need two pins with `LOCK_AMBIGUOUS_REFERENCE` rather than silently recording one of them.
 
 ### Schema compatibility
 
 | lockVersion | Written by | Read by this build |
 |-------------|-----------|--------------------|
-| 1 | Builds before reference-occurrence identity | Parses, but carries no `from` |
-| 2 | This build | Current schema |
+| 1 | Builds before reference-occurrence identity | Parses; carries no `from`, so no reference lookup |
+| 2 | Builds that identified the declaring contract by closure path | Parses; the root's own references are trustworthy, transitive ones are not |
+| 3 | This build | Current schema |
 
-A `lockVersion: 1` file still parses, so nothing that merely reads a lock breaks. What it cannot do is answer *which* declared reference a given entry belongs to: without `from`, an entry labelled `config`/`settings` may have been declared by the root contract or by anything beneath it. Rather than guess, consumers report a v1 lock's references as unresolved — an unknown destination is safer than a plausible wrong one. `pacto lock --check` and the verification commands report a v1 lock as `LOCK_STALE`; re-run `pacto lock` to rewrite it at version 2.
+Every version still parses, so nothing that merely reads a lock breaks. What older versions cannot do is answer *which* declared reference an entry belongs to.
+
+A v1 lock has no `from` at all: an entry labelled `config`/`settings` may have been declared by the root contract or by anything beneath it. A v2 lock identified the declaring contract by the path of reference names taken to reach it (`config:shared-config/policy:limits`), which is not injective — a scope named `a/policy:b` produces the same path as a scope named `a` whose bundle declares a policy `b`. Its root entries are still sound, because those are the ones with an empty `from` and no name can produce that; its transitive entries may name a bundle the declaring contract never referenced.
+
+Rather than guess, consumers report a v1 lock's references as unresolved, and an unknown destination is safer than a plausible wrong one. `pacto lock --check` and the verification commands report any lock below version 3 as `LOCK_STALE`; re-run `pacto lock` to rewrite it. Rewriting is the whole migration — the closure is re-resolved from the contract, so there is nothing in an old lock that has to be translated.
 
 ---
 

@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -166,17 +167,67 @@ func TestReferencesSortedByKindThenName(t *testing.T) {
 	}
 }
 
-func TestReferencePath(t *testing.T) {
-	if got := ReferencePath("", "config", "settings"); got != "config:settings" {
-		t.Errorf("root occurrence path = %q, want config:settings", got)
+// The occurrence identity keeps its parts apart, so no legal name can forge
+// another declaration's identity. The joined closure path of lockVersion 2 could
+// be forged exactly this way: a scope named "a/policy:b" rendered to the same
+// text as a policy "b" declared inside the bundle a scope named "a" reached.
+func TestOccurrenceIsInjectiveOverLegalNames(t *testing.T) {
+	forger := Reference{Kind: "config", Name: "a/policy:b", Source: "oci", Digest: "sha256:x"}
+	victim := Reference{From: "oci:sha256:c", Kind: "policy", Name: "b", Source: "oci", Digest: "sha256:y"}
+	if forger.Occurrence() == victim.Occurrence() {
+		t.Errorf("a legal scope name forged another declaration's identity: %v", forger.Occurrence())
 	}
-	if got := ReferencePath("config:foo", "config", "settings"); got != "config:foo/config:settings" {
-		t.Errorf("nested occurrence path = %q, want config:foo/config:settings", got)
+	// Kind is part of the identity, not a prefix on the name.
+	cfgRef := Reference{Kind: "config", Name: "policy:x"}
+	polRef := Reference{Kind: "policy", Name: "x"}
+	if cfgRef.Occurrence() == polRef.Occurrence() {
+		t.Error("a name may start with another kind's label without colliding with it")
 	}
-	// Distinctness is the whole point: same kind and name, different declaring
-	// contract, different path.
-	if ReferencePath("", "config", "settings") == ReferencePath("config:foo", "config", "settings") {
-		t.Error("a root occurrence and a transitive namesake must not share a path")
+	// Two entries of the same declaration ARE one identity.
+	if (Reference{From: "oci:sha256:c", Kind: "config", Name: "s"}).Occurrence() !=
+		(Reference{From: "oci:sha256:c", Kind: "config", Name: "s", Digest: "sha256:z"}).Occurrence() {
+		t.Error("the identity must not depend on what the reference resolved to")
+	}
+}
+
+// DestinationID is the edge that turns the reference set into a graph: it is in
+// the same namespace as From, so an entry declared by another entry's target is
+// recognizable without storing any route.
+func TestDestinationIDSharesTheFromNamespace(t *testing.T) {
+	parent := Reference{Kind: "config", Name: "mid", Source: "oci", Digest: "sha256:mid"}
+	child := Reference{From: parent.DestinationID(), Kind: "config", Name: "deep", Source: "local", ContentHash: "sha256:deep"}
+	if parent.DestinationID() != "oci:sha256:mid" {
+		t.Errorf("oci destination = %q", parent.DestinationID())
+	}
+	if child.DestinationID() != "local:sha256:deep" {
+		t.Errorf("local destination = %q", child.DestinationID())
+	}
+	if child.From != parent.DestinationID() {
+		t.Error("the child's declaring identity must be the parent's destination")
+	}
+	// "" is reserved for the root, so no entry can claim to be root-declared.
+	if (Reference{Source: "oci"}).DestinationID() != "" {
+		t.Error("an unpinned entry has no destination identity")
+	}
+	// An oci entry never answers with a local hash, and vice versa.
+	if (Reference{Source: "oci", ContentHash: "sha256:x"}).DestinationID() != "" {
+		t.Error("a content hash is not an oci destination")
+	}
+	if (Reference{Source: "local", Digest: "sha256:x"}).DestinationID() != "" {
+		t.Error("a digest is not a local destination")
+	}
+}
+
+// Occurrence.String is diagnostic text, not an identity, and says so by never
+// being used as one. It must still name both the declaration and its declarer.
+func TestOccurrenceStringNamesDeclarationAndDeclarer(t *testing.T) {
+	root := Occurrence{Kind: "config", Name: "settings"}.String()
+	if !strings.Contains(root, "root") || !strings.Contains(root, "settings") {
+		t.Errorf("root occurrence renders as %q", root)
+	}
+	nested := Occurrence{From: "oci:sha256:abc", Kind: "policy", Name: "limits"}.String()
+	if !strings.Contains(nested, "oci:sha256:abc") || !strings.Contains(nested, "limits") {
+		t.Errorf("nested occurrence renders as %q", nested)
 	}
 }
 
@@ -225,7 +276,7 @@ func TestRootReferenceIgnoresEverythingItCannotAttribute(t *testing.T) {
 	}
 
 	// A pre-occurrence lock records nothing that can be attributed at all.
-	legacy := &Lock{LockVersion: OccurrenceLockVersion - 1, References: []Reference{
+	legacy := &Lock{LockVersion: RootOccurrenceLockVersion - 1, References: []Reference{
 		{Kind: "config", Name: "settings", Source: "oci", Digest: "sha256:mine"},
 	}}
 	if _, ok := legacy.RootReference("config", "settings"); ok {
@@ -242,5 +293,66 @@ func TestParseAcceptsOlderSchemaWithoutUpgradingIt(t *testing.T) {
 	}
 	if got.LockVersion != MinLockVersion {
 		t.Errorf("LockVersion = %d, want %d preserved as written", got.LockVersion, MinLockVersion)
+	}
+}
+
+// The published compatibility matrix, as a test rather than as prose in a doc
+// that can drift from it.
+//
+//	v1  readable   no declaring contract at all      root lookup: no
+//	v2  readable   root sound, transitive unsound    root lookup: yes
+//	v3  readable   injective for every legal name    root lookup: yes
+//	v4  refused    written by a newer pacto
+//
+// v2 keeps its root lookup deliberately: the delimiter flaw could forge a
+// transitive path but never the empty string, so "the root declared this" was
+// always decidable. Nothing may read a v2 entry's transitive attribution, which
+// is why RootOccurrenceLockVersion is the only version gate in the package.
+func TestLockVersionCompatibilityMatrix(t *testing.T) {
+	body := "\npacto:\n  version: 1.4.0\nroot:\n  name: app\n  version: 1.0.0\nreferences:\n" +
+		"  - kind: config\n    name: settings\n    source: oci\n    ref: oci://r/c\n    digest: sha256:c\n"
+	for _, tc := range []struct {
+		version      int
+		readable     bool
+		rootResolves bool
+	}{
+		{1, true, false},
+		{2, true, true},
+		{3, true, true},
+		{CurrentLockVersion + 1, false, false},
+	} {
+		l, err := Parse([]byte(fmt.Sprintf("lockVersion: %d%s", tc.version, body)))
+		if !tc.readable {
+			if err == nil {
+				t.Errorf("lockVersion %d must be refused, not reinterpreted", tc.version)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("lockVersion %d must stay readable: %v", tc.version, err)
+			continue
+		}
+		if l.LockVersion != tc.version {
+			t.Errorf("lockVersion %d was rewritten to %d on read", tc.version, l.LockVersion)
+		}
+		if _, ok := l.RootReference("config", "settings"); ok != tc.rootResolves {
+			t.Errorf("lockVersion %d root lookup = %v, want %v", tc.version, ok, tc.rootResolves)
+		}
+	}
+}
+
+// Marshal always writes the current schema, so a lock read at an older version
+// and written back declares what it now actually contains.
+func TestMarshalWritesTheCurrentSchemaVersion(t *testing.T) {
+	l := &Lock{LockVersion: 1, Root: RootInfo{Name: "app", Version: "1.0.0"}}
+	data, err := l.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), fmt.Sprintf("lockVersion: %d", CurrentLockVersion)) {
+		t.Errorf("marshal must declare the current schema:\n%s", data)
+	}
+	if l.LockVersion != 1 {
+		t.Error("Marshal must not mutate its receiver")
 	}
 }
