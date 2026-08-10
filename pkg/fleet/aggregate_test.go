@@ -197,10 +197,11 @@ func TestEntityInService_KindsWithoutAParentServiceNeverMatch(t *testing.T) {
 	}
 }
 
-// The declared content of a revision (policies, capabilities and their bindings)
-// has to reach the product detail: "3 policies" with no way to see which three is
-// the information loss the contract inspector exists to undo.
-func TestRevisionDetail_ProjectsDeclaredPoliciesAndCapabilities(t *testing.T) {
+// guardedRevisionDetail builds the one revision both declared-content tests read: two
+// policies (one inline schema, one remote ref) and two capabilities (one bound over an
+// interface, one unbound). Shared so each test asserts one thing.
+func guardedRevisionDetail(t *testing.T) *RevisionDetailData {
+	t.Helper()
 	c := &contract.Contract{
 		PactoVersion: "2.0",
 		Service:      contract.Service{Name: "guarded", Version: "1.0.0", Owner: contract.Owner{Team: "sec"}},
@@ -229,8 +230,13 @@ func TestRevisionDetail_ProjectsDeclaredPoliciesAndCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return d.Revision
+}
 
-	pol := d.Revision.Policies
+// The declared content of a revision has to reach the product detail: "2 policies" with
+// no way to see which two is the information loss the contract inspector exists to undo.
+func TestRevisionDetail_ProjectsDeclaredPolicies(t *testing.T) {
+	pol := guardedRevisionDetail(t).Policies
 	if pol.Total != 2 || pol.Count != 2 || pol.Truncated {
 		t.Fatalf("policies preview = %+v, want 2 of 2 untruncated", pol)
 	}
@@ -240,8 +246,12 @@ func TestRevisionDetail_ProjectsDeclaredPoliciesAndCapabilities(t *testing.T) {
 	if pol.Items[1].Ref != "oci://x/retention" {
 		t.Errorf("a referenced policy must keep its ref: %+v", pol.Items[1])
 	}
+}
 
-	caps := d.Revision.Capabilities
+// A capability is only actionable with its binding: "health" tells you nothing, "health
+// over the http interface at /healthz" tells you where to look.
+func TestRevisionDetail_ProjectsDeclaredCapabilitiesWithTheirBindings(t *testing.T) {
+	caps := guardedRevisionDetail(t).Capabilities
 	if caps.Total != 2 || caps.Count != 2 {
 		t.Fatalf("capabilities preview = %+v, want 2 of 2", caps)
 	}

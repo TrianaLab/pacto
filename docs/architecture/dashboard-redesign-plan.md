@@ -865,6 +865,93 @@ multiple domains (the demo has one registry, so one domain is the truth).
 actually calls, not the raw snapshot: a demo that is rich in `/api/fleet/snapshot` and thin
 in `/api/fleet/overview` still renders an empty product. It runs in CI (`docs.yml`).
 
+### Phase 6 coverage reconciliation (requirement 20)
+
+Browser coverage had grown opportunistically: each correction pass added the spec that
+proved its own fix. That is how it should grow, but it means the total is not automatically
+the same thing as the Phase-6 criterion ("WASM browser acceptance"). Below, the existing
+specs are mapped onto what Phase 6 actually has to demonstrate, and the gaps that mapping
+exposed are named with the spec that now closes each one.
+
+| Phase-6 criterion | Covered by | Status |
+|---|---|---|
+| The real Svelte bundle boots against the real engine in a real browser | every spec (`playwright.config.ts` serves the built `examples/demo/dist`) | pre-existing |
+| The product IA is navigable end to end by a first-time user | `novice-journeys.spec.ts` (J1-J12) | pre-existing |
+| Legacy screens never mount on a Fleet host | `novice-journeys.spec.ts` (`LEGACY_MARKERS`, J12) | pre-existing |
+| The Operational Graph actually paints | `graph-visual.spec.ts` (non-headless canvas, pixels, counts) | pre-existing |
+| Graph spatial state survives refresh / reload / semantic update | `graph-state.spec.ts` (13.4 A-L) | pre-existing |
+| WCAG A/AA, both themes, on real product states | `axe.spec.ts` | pre-existing |
+| Keyboard operability of graph and global affordances | `keyboard.spec.ts` | pre-existing |
+| 320 / 375px, including populated interactive states | `responsive.spec.ts`, `mobile.spec.ts` | pre-existing |
+| Heading / landmark structure per canonical route | `headings.spec.ts` | pre-existing |
+| **Bounded rendering under a population far larger than a page** | `product-scale.spec.ts` | ADDED |
+| **Honest truncation and paging messaging at that scale** | `product-scale.spec.ts` | ADDED |
+| **Hostile identities render as text and keep their canonical key** | `product-scale.spec.ts` | ADDED |
+| **The visualization contract holds on composed pages, both themes** | `viz-acceptance.spec.ts` | ADDED |
+| **Reduced motion actually reaches the rendered bars** | `viz-acceptance.spec.ts` | ADDED |
+| **Recorded render baselines** | `product-scale.spec.ts` | ADDED |
+
+Two notes on what these specs deliberately do NOT do.
+
+They do not assert a millisecond budget. No requirement derives one, the runner's speed is
+not controlled, and a threshold nobody derived becomes a flake that gets raised until it
+means nothing. The numbers are printed and recorded below; the assertions are on invariants
+that hold at any speed -- the rendered row count stays at the page size however large the
+answer, and the document does not grow as the user pages.
+
+They do not mock the product. The scale and hostile-identity cases amend one response, in
+the page, through the `window.__pactoServe` seam `graph-state.spec.ts` established (a
+wasm-served fetch is invisible to Playwright's network interception). Everything else --
+parsing, routing, rendering, paging -- is the real app on the real bundle.
+
+The visualization audit is written to cover figures it has never seen: it walks every
+`figure.dist` / `figure.hbars` on each surface and applies the whole rule (a caption
+heading for the accessible name, every graphic `aria-hidden`, every row's label and exact
+value as text, no page with neither rows nor an explicit empty state). A chart added later
+is covered the day it ships. The closed-set guard on `components/viz/` and the retired-chart
+guard on product surfaces live in `src/lib/architecture.test.ts`, because "no donut came
+back" is a source fact, not something a browser can prove by absence.
+
+#### Recorded render baselines
+
+Measured on the built WASM demo in Chromium, desktop project, single worker, on the
+reviewed build. These are a baseline to compare against, not a gate.
+
+| Surface | Wall clock | DOM nodes |
+|---|---|---|
+| Cold boot (wasm instantiate + Overview render) | 460 ms | 312 |
+| Overview (warm route render) | 9 ms | 313 |
+| Services list | 15 ms | 220 |
+| Attention | 17 ms | 458 |
+| Service detail | 21 ms | 341 |
+| Operational Graph, focused (Cytoscape paint) | 40 ms | 248 |
+| Change analysis | 7 ms | 96 |
+| Services list, 25,000-service population | 409 ms | 333 |
+| Attention, 25,000-item backlog | 401 ms | 509 |
+
+The line that matters is the last two against their demo-data equivalents: a thousandfold
+larger population costs a bounded number of DOM nodes (220 to 333, 458 to 509 -- the
+difference is wider numbers and a longer range line, not more rows). The wall clock rises
+because those runs include a fresh page load and the interceptor's work, not because more
+was rendered.
+
+### Product UI design freeze (requirement 19)
+
+The broad Product UI migration is CLOSED as of this session. The IA, the vocabulary, the
+entity model, the four primary workflows, the visualization system and the graph
+interaction model are FROZEN.
+
+Frozen means: changes from here are concrete bugs and concrete counterexamples -- a
+behaviour that contradicts a stated invariant, an information-parity regression against the
+matrix in section 0c, a failing acceptance, an accessibility defect. Not another taste
+pass, and not a re-litigation of a decision already recorded here. The accepted decisions
+are enumerated in section 0a (product-coherence correction) and section 0b (vocabulary);
+reopening one needs a new concrete counterexample, not a new preference.
+
+What the freeze does not cover, because it was never Product UI design: the remaining
+whole-program phases in section 5 (7 onward), and the ordinary maintenance of the surfaces
+already shipped.
+
 ## 1. Target product model
 
 The dashboard must answer, in order:
@@ -1053,7 +1140,12 @@ section 8.
    COMPLETE this session (an actual Cytoscape visual topology; final gate is
    final-SHA CI). See the authoritative current-status section 0a.
 5. Responsive and accessible interaction (keyboard, ARIA, focus, mobile). COMPLETE.
-6. WASM browser acceptance (Playwright over the in-browser demo). IN PROGRESS.
+6. WASM browser acceptance (Playwright over the in-browser demo). IN PROGRESS: every
+   Phase-6 criterion now has a spec (see the coverage reconciliation in section 0c),
+   including the four this session added -- boundedness at scale, hostile identity,
+   the composed visualization contract, and recorded render baselines. The remaining
+   gates are the full local verification, final-SHA CI, and the final real-user UI
+   inspection.
 7. Operator-managed trace source: an operator-owned observed/trace source so the
    observed layer is real end to end, not demo-only.
 8. Live Kind vertical: the full install (operator + dashboard + Evidence Server +
@@ -1087,6 +1179,10 @@ section 8.
 | projections (17)  | `pkg/evidencestore/*_test.go`                              | Kind evidence E2E |
 | invariants (19)   | `tests/architecture/*`                                     | n/a |
 | U+00A7 gate (24)  | `tests/scripts/check_section_test.go`                      | n/a |
+| boundedness at scale | `pkg/fleet/product_test.go` (page bounds), `pkg/dashboard/product_test.go` | `e2e/product-scale.spec.ts` |
+| hostile identity  | `pkg/fleet/matchrevision_identity_test.go`, `pkg/dashboard/producttransport_test.go` (route escaping) | `e2e/product-scale.spec.ts` |
+| visualization system | n/a (presentation)                                      | `src/components/viz/viz.test.ts`, `src/lib/architecture.test.ts`, `e2e/viz-acceptance.spec.ts` |
+| render baselines  | n/a                                                        | `e2e/product-scale.spec.ts` (recorded, not gated) |
 
 ## 7. Architectural decisions
 

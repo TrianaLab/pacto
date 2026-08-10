@@ -90,12 +90,32 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
   });
 
   // J5. "What is this service, and where does it run?" Pacto observes where a revision
-  // runs; it does not deploy. The page must never call that a Deployment.
-  test('J5: a service page says "Operational targets", never "Deployment"', async ({ page }) => {
+  // runs; it does not deploy. The page must never NAME that a Deployment.
+  //
+  // The vocabulary contract (section 0b) draws the line precisely: "Deployment" means the
+  // Kubernetes kind and nothing else, and the Kubernetes kind is part of a canonical
+  // TargetKey ("prod/Deployment/payments-service"). So the word is allowed to appear
+  // inside an identity and nowhere else -- never as a heading, a label, a nav item or a
+  // column header. Scanning for the bare word would forbid the identity too, and would
+  // only pass while the demo fixture happened to use a placeholder kind.
+  test('J5: a service page says "Operational targets", and calls nothing a Deployment', async ({ page }) => {
     await boot(page);
     await openPaymentsService(page);
     await expect(page.getByRole('heading', { name: 'Operational targets' })).toBeVisible({ timeout: T });
-    expect(await page.locator('main').innerText()).not.toMatch(/\bDeployments?\b/);
+
+    const misuses = await page.evaluate(() => {
+      const WORD = /\bDeployments?\b/;
+      // A canonical TargetKey is "<scope>/<Kind>/<name>"; the kind sits between slashes.
+      const INSIDE_A_KEY = /\/Deployment\//;
+      const out: string[] = [];
+      const walker = document.createTreeWalker(document.querySelector('main')!, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const text = (n.textContent || '').trim();
+        if (WORD.test(text) && !INSIDE_A_KEY.test(text)) out.push(text);
+      }
+      return out;
+    });
+    expect(misuses, `"Deployment" used as product wording, not as a Kubernetes kind: ${misuses.join(' | ')}`).toEqual([]);
     await expectNoLegacyScreen(page);
   });
 

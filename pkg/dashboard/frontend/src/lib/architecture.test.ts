@@ -165,3 +165,53 @@ describe('product visual coherence', () => {
     expect(css).toMatch(/\.disclosure-caret\b/);
   });
 });
+
+/**
+ * Visualization-system guard.
+ *
+ * The redesign audit RETIRED four chart types from the product because each answered a
+ * question the data cannot support: a readiness donut (a part-of-whole reading of scores
+ * that are not parts of a whole), a heatmap and a treemap (dense colour with no textual
+ * equivalent), and a priority quadrant (a synthetic two-axis score nobody can trace back
+ * to a finding). They still exist, and legitimately so, on the legacy non-Fleet `pacto
+ * doc` surfaces, which keep their own presentation and are out of scope.
+ *
+ * What must not happen is their quiet return to the product. This guard names the product
+ * surfaces explicitly, so adding a Fleet view puts it under the rule automatically, and a
+ * decision to bring one of these back has to be made out loud by editing this list.
+ */
+describe('product visualization system', () => {
+  const isProduct = (rel: string) =>
+    /^views\/Fleet[^/]*\.svelte$/.test(rel) || rel.startsWith('views/entity/') || rel.startsWith('components/viz/');
+  const PRODUCT = files.filter((f) => isProduct(f.rel));
+
+  // The primitives the product is allowed to draw with. Each is bounded, textual and
+  // accessible by construction; see components/viz/viz.test.ts for their contracts.
+  const ALLOWED_VIZ = ['DistributionBar.svelte', 'HorizontalBars.svelte', 'PostureBars.svelte'];
+  // Retired: a shape whose meaning the product data cannot honestly support.
+  const RETIRED = /\b(ReadinessDonut|ReadinessHeatmap|TreemapChart|PriorityQuadrant)\b|conic-gradient|stroke-dasharray/;
+
+  it('scans the product surfaces', () => {
+    expect(PRODUCT.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it('draws with the shared primitives only, and never with a retired chart type', () => {
+    const offenders = PRODUCT.filter((f) => RETIRED.test(f.body)).map((f) => f.rel);
+    expect(
+      offenders,
+      `retired chart type (donut/heatmap/treemap/quadrant) back on a product surface: ${offenders.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('keeps the primitive set closed, so a new chart type is a decision and not an accident', () => {
+    const present = readdirSync(join(SRC, 'components/viz')).filter((f) => f.endsWith('.svelte'));
+    expect(present.sort()).toEqual(ALLOWED_VIZ.slice().sort());
+  });
+
+  it('still allows the legacy non-Fleet host its own charts', () => {
+    // Proof the guard is scoped, not vacuous: the retired components DO still exist and
+    // are still used somewhere, just never on a product surface.
+    const legacy = files.filter((f) => !isProduct(f.rel) && RETIRED.test(f.body)).map((f) => f.rel);
+    expect(legacy.length, 'the guard would be vacuous if nothing used these anywhere').toBeGreaterThan(0);
+  });
+});
