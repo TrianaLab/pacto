@@ -1,40 +1,71 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// section K: validate that Mermaid diagrams in bundle docs actually RENDER in the browser
-// — not merely that the ```mermaid source survives. The demo's payments-service
-// v2.1.0 overview carries a flowchart; opening it must replace the code block with
-// a real <svg>. jsdom cannot render Mermaid (it needs a browser), so this can only
-// be proven here.
+// Rich bundle documentation in the PRODUCT information architecture: a revision page
+// must not merely list its docs, it must open them, render the Markdown as formatted
+// content and render a Mermaid fence as a real diagram. jsdom cannot render Mermaid
+// (it needs a browser), so this can only be proven here.
+//
+// The body is read lazily through the product API, keyed by the canonical revision key
+// plus the exact published path, so what runs here is the mechanism a real deployment
+// uses -- not a frontend fixture. The rejection cases (traversal, unlisted path,
+// oversized body, two same-named services in different domains) are proven against the
+// engine and the HTTP transport in Go, where they can be constructed exactly.
+
+const T = 20_000;
 
 async function waitReady(page: Page) {
   await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: T });
 }
 
-// DEFERRED (Part 1.4 option C): this validated Mermaid RENDERING via the legacy
-// ServiceDetailView. The Phase-4 dual-UI cleanup correctly makes the legacy service
-// detail unreachable on a Fleet host (a Fleet demo canonicalizes #/services/:name to the
-// product entity page), and the product entity pages currently expose bounded doc
-// PREVIEWS (title/path), not rendered content -- the product API does not carry full doc
-// content. Rich-doc/Mermaid rendering in the product IA (product API doc content + a
-// product doc viewer) is a later-phase migration; the capability still works on the
-// non-Fleet `pacto doc` export via ServiceDetailView. Re-enable this against the product
-// doc viewer once that migration lands.
-test.fixme('a bundle doc with a mermaid diagram renders to SVG', async ({ page }) => {
-  await waitReady(page);
-  await page.goto('/#/services/payments-service');
+// The demo's payments-service v2.1.0 overview carries a flowchart fence.
+//
+// The row is picked by canonical key, never by label: the demo publishes same-named
+// services in two domains, so matching on the visible name alone can silently open
+// whichever of them happens to sort first.
+async function openMermaidDoc(page: Page) {
+  await page.goto('/#/fleet/services');
+  await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible({ timeout: T });
+  await page.locator('.sv-item a.entity-link[href$="/fleet/services/payments-service"]').first().click();
+  await expect(page).toHaveURL(/#\/fleet\/services\/payments-service$/);
+  await page.locator('a.entity-link[href*="/fleet/revisions/"]', { hasText: '2.1.0' }).first().click();
+  await expect(page).toHaveURL(/#\/fleet\/revisions\//);
 
-  // Open the Documentation collapsible section, then expand the overview doc.
-  const docSection = page.locator('button.section-toggle', { hasText: 'Documentation' });
-  await expect(docSection).toBeVisible({ timeout: 20_000 });
-  await docSection.click();
-  await page.getByRole('button', { name: /overview\.md/ }).first().click();
+  const doc = page.locator('details.rd-doc', { hasText: 'overview' }).first();
+  await expect(doc).toBeVisible({ timeout: T });
+  await doc.locator('summary').click();
+  return doc;
+}
+
+test('a revision doc opens as rendered Markdown with its mermaid diagram as SVG', async ({ page }) => {
+  await waitReady(page);
+  const doc = await openMermaidDoc(page);
+
+  // Formatted content, not raw source: the heading is an element, and the Markdown
+  // syntax that produced the second heading is gone from the text.
+  await expect(doc.locator('.markdown-body h1')).toHaveText(/Payments Service/, { timeout: T });
+  await expect(doc.locator('.markdown-body')).not.toContainText('## Request flow');
 
   // Mermaid replaced the code block with a rendered SVG diagram.
-  const diagram = page.locator('.mermaid-diagram svg').first();
-  await expect(diagram).toBeVisible({ timeout: 20_000 });
+  await expect(doc.locator('.mermaid-diagram svg').first()).toBeVisible({ timeout: T });
   // The rendered SVG carries our node labels as native <text> (htmlLabels:false).
-  await expect(page.locator('.mermaid-diagram').first()).toContainText('payments-service');
-  // The raw ```mermaid fence must NOT be left visible as source.
+  await expect(doc.locator('.mermaid-diagram').first()).toContainText('payments-service');
+  // The raw mermaid fence must NOT be left visible as source.
   await expect(page.locator('code.language-mermaid')).toHaveCount(0);
+});
+
+test('a revision doc opens in a keyboard-usable reading view', async ({ page }) => {
+  await waitReady(page);
+  const doc = await openMermaidDoc(page);
+  await expect(doc.locator('.markdown-body h1')).toBeVisible({ timeout: T });
+
+  await doc.getByRole('button', { name: 'Read full screen' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible({ timeout: T });
+  await expect(dialog.locator('.markdown-body h1')).toHaveText(/Payments Service/);
+  // The diagram renders in the reading view too, not only inline.
+  await expect(dialog.locator('.mermaid-diagram svg').first()).toBeVisible({ timeout: T });
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
 });

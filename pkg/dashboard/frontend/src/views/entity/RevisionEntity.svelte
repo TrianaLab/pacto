@@ -4,6 +4,8 @@
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
+  import ContractReference from '../../components/ContractReference.svelte';
+  import RevisionDocs from '../../components/RevisionDocs.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
   import FindingList from '../../components/FindingList.svelte';
@@ -26,10 +28,12 @@
   //
   // Content retrievability is shown as its OWN dimension: the revision is immutable,
   // but its content may not be retrievable -- we never call non-retrievable content
-  // "immutable" just because the revision is known. Anything that lives in the bundle
+  // "immutable" just because the revision is known. Most of what lives in the bundle
   // FILES rather than in the contract (the raw OpenAPI document, JSON Schema bodies,
-  // doc and skill bodies, the SBOM) is not retained by the snapshot, so this page
-  // shows the declared PATH to it and never pretends to have read it.
+  // skill bodies, the SBOM) is not retained by the snapshot, so this page shows the
+  // declared PATH to it and never pretends to have read it. Documentation is the
+  // exception: RevisionDocs reads one doc body on demand, keyed by this revision, so
+  // the docs are readable here without the page carrying them.
   let { detail } = $props();
   const d = $derived(detail.revision ?? {});
   const id = $derived(d.identity ?? {});
@@ -183,7 +187,7 @@
             <IdentityBadge label={c.required ? 'required' : 'optional'} tone={c.required ? 'warn' : 'neutral'} />
           </div>
           {#if c.schema}<div class="ri-ref"><span class="re-k">Schema</span><CopyableIdentifier value={c.schema} /></div>{/if}
-          {#if c.ref}<div class="ri-ref"><span class="re-k">Reference</span><CopyableIdentifier value={c.ref} /></div>{/if}
+          {#if c.ref}<div class="ri-ref"><span class="re-k">Reference</span><ContractReference value={c.ref} resolution={c.resolution} /></div>{/if}
           {#if (c.values?.count ?? 0) > 0}
             <table class="re-kv">
               <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
@@ -212,7 +216,9 @@
           <tr>
             <td data-label="Name">{p.name}</td>
             <td data-label="Kind">{p.ref ? 'Remote' : 'Local'}</td>
-            <td data-label="Definition" class="rt-path">{p.schema || p.ref || '—'}</td>
+            <td data-label="Definition" class="rt-path">
+              {#if p.ref}<ContractReference value={p.ref} resolution={p.resolution} />{:else}{p.schema || '—'}{/if}
+            </td>
             <td data-label="Target">{p.target || '—'}</td>
           </tr>
         {/each}
@@ -294,9 +300,7 @@
   {/if}
 
   {#if (d.docs?.count ?? 0) > 0}
-    <PreviewSection title="Docs" total={d.docs?.total ?? 0} count={d.docs?.count ?? 0} truncated={d.docs?.truncated}>
-      <ul class="re-docs">{#each d.docs.items as doc (doc.path)}<li><span class="rd-title">{doc.title || doc.path}</span>{#if doc.title && doc.path}<span class="rd-path">{doc.path}</span>{/if}</li>{/each}</ul>
-    </PreviewSection>
+    <RevisionDocs revisionKey={detail.entity?.key ?? ''} docs={d.docs} />
   {/if}
 
   {#if sbom}
@@ -399,10 +403,10 @@
   .rr-head h2, .re-sbom h2 { margin: 0; font-size: var(--text-md); }
   .rr-line { color: var(--c-text-2); font-size: var(--text-sm); margin: var(--sp-2) 0 0; }
   .rr-lead { color: var(--c-text-3); font-size: var(--text-sm); margin: 0; }
-  .re-checks, .re-tools, .re-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
-  .re-checks li, .re-tools li, .re-docs li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); }
+  .re-checks, .re-tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+  .re-checks li, .re-tools li { display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; font-size: var(--text-sm); }
   .rc-id, .rt-name { color: var(--c-text); }
-  .rc-cat, .rc-desc, .rt-summary, .rd-path { color: var(--c-text-3); }
+  .rc-cat, .rc-desc, .rt-summary { color: var(--c-text-3); }
   .rt-method { font-family: var(--font-mono, monospace); text-transform: uppercase; color: var(--c-text-2); }
   .rt-path { font-family: var(--font-mono, monospace); color: var(--c-text); overflow-wrap: anywhere; }
   .re-chips { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--sp-2); flex-wrap: wrap; }

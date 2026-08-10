@@ -31,7 +31,11 @@
   --c-info: #60a5fa;
   --c-info-bg: rgba(96, 165, 250, 0.08);
   --c-info-border: rgba(96, 165, 250, 0.18);
-  --c-neutral: #64748b;
+  /* slate-400, not slate-500: the neutral tone is a TEXT color on identity badges
+     ("Insufficient evidence", "Unknown"), and slate-500 on the dark surface is only
+     4.16:1 at badge size. slate-400 is 7.7:1, and reads at least as well as a dot or a
+     chart fill does. The light theme keeps slate-500, which clears AA there. */
+  --c-neutral: #94a3b8;
   --c-neutral-bg: rgba(100, 116, 139, 0.08);
   --c-accent: #818cf8;
   --c-accent-bg: rgba(129, 140, 248, 0.08);

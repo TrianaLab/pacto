@@ -17,10 +17,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 
-const { detailFn } = vi.hoisted(() => ({ detailFn: vi.fn() }));
+const { detailFn, docFn } = vi.hoisted(() => ({ detailFn: vi.fn(), docFn: vi.fn() }));
 vi.mock('../../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api.ts')>();
-  return { ...actual, api: { fleetEntityDetail: (...a: unknown[]) => detailFn(...a) } };
+  return {
+    ...actual,
+    api: {
+      fleetEntityDetail: (...a: unknown[]) => detailFn(...a),
+      fleetRevisionDocument: (...a: unknown[]) => docFn(...a),
+    },
+  };
 });
 
 // @ts-expect-error — Svelte component has no declaration file
@@ -76,10 +82,20 @@ function richRevision(): Record<string, any> {
       configurations: preview([{
         name: 'runtime', required: true, schema: 'configuration/schema.json',
         values: preview([{ key: 'timeoutSeconds', value: '30' }, { key: 'region', value: 'eu-west-1' }]),
+      }, {
+        name: 'shared-limits', required: false, ref: 'oci://acme/limits:1.0.0',
+        resolution: {
+          resolved: true,
+          service: { kind: 'service', key: 'domain-a/limits', label: 'limits', href: '/fleet/services/domain-a%2Flimits' },
+        },
+        values: preview([]),
       }]),
       policies: preview([
         { name: 'pii-redaction', schema: 'policy/schema.json', target: 'data' },
-        { name: 'retention', ref: 'oci://acme/policies/retention' },
+        {
+          name: 'retention', ref: 'oci://acme/policies/retention',
+          resolution: { resolved: false, reason: 'no service in this domain publishes that contract' },
+        },
       ]),
       capabilities: preview([
         { type: 'health', binding: { type: 'http', interface: 'http', path: '/healthz' } },
@@ -228,6 +244,64 @@ describe('revision detail keeps the whole contract inspectable (requirement 3)',
     unmount(component); target.remove();
   });
 
+  // Old surface: ConfigSection / PolicySection made a remote contract reference
+  // NAVIGABLE. The product page rendered the ref as a copyable string and stopped
+  // there, which is the loss this asserts against. The destination comes from the
+  // backend's own resolution -- the raw ref is never parsed to guess it.
+  it('links a resolved contract reference to the referenced service, raw ref intact', async () => {
+    const { target, component, text } = await renderRevision();
+    expect(text()).toContain('oci://acme/limits:1.0.0'); // the authored ref survives
+    const links = Array.from(target.querySelectorAll('a[href]')).map((a) => a.getAttribute('href') || '');
+    expect(links.some((h) => h.includes('domain-a%2Flimits'))).toBe(true);
+    unmount(component); target.remove();
+  });
+
+  it('states an unresolved reference instead of fabricating a destination', async () => {
+    const { target, component, text } = await renderRevision();
+    expect(text()).toContain('oci://acme/policies/retention');
+    expect(text()).toContain('Unresolved');
+    expect(text()).toContain('no service in this domain publishes that contract');
+    unmount(component); target.remove();
+  });
+
+  // Old surface: DocsSection rendered the document BODY as Markdown. The product page
+  // listed title and path only, which made the docs unreadable in the product IA.
+  it('reads a bundle document on demand and renders it as formatted content', async () => {
+    docFn.mockResolvedValue({
+      meta,
+      revision: { kind: 'revision', key: 'domain-a/payments@sha256:abc', label: 'payments 2.1.0', href: '#' },
+      document: { path: 'docs/operations.md', title: 'operations', bytes: 24, content: '# Runbook\n\nRestart the pods.' },
+    });
+    const { target, component } = await renderRevision();
+
+    const doc = target.querySelector('details.rd-doc') as HTMLDetailsElement;
+    expect(doc).toBeTruthy();
+    doc.open = true;
+    doc.dispatchEvent(new Event('toggle'));
+
+    await vi.waitFor(() => expect(target.querySelector('.markdown-body h1')).toBeTruthy());
+    // Formatted content, not raw Markdown source.
+    expect(target.querySelector('.markdown-body h1')?.textContent).toBe('Runbook');
+    expect(target.textContent).toContain('Restart the pods.');
+    // Read by CANONICAL REVISION KEY plus the exact published path -- never by name.
+    expect(docFn).toHaveBeenCalledWith('domain-a/payments@sha256:abc', 'docs/operations.md');
+    unmount(component); target.remove();
+  });
+
+  it('states why a document is unavailable rather than showing an empty reading pane', async () => {
+    docFn.mockRejectedValue(new Error('document "docs/operations.md" is unavailable: it exceeds the 524288-byte read bound'));
+    const { target, component } = await renderRevision();
+
+    const doc = target.querySelector('details.rd-doc') as HTMLDetailsElement;
+    doc.open = true;
+    doc.dispatchEvent(new Event('toggle'));
+
+    await vi.waitFor(() => expect(target.querySelector('.rd-error')).toBeTruthy());
+    expect(target.querySelector('.rd-error')?.textContent).toContain('exceeds the 524288-byte read bound');
+    expect(target.querySelector('.markdown-body')).toBeNull();
+    unmount(component); target.remove();
+  });
+
   it('renders the resolved identity and the revision chronology', async () => {
     const { target, component, text } = await renderRevision();
     expect(text()).toContain('sha256:abcdef1234567890');
@@ -270,6 +344,7 @@ function richService(): Record<string, any> {
       deployments: preview([{ kind: 'target', key: 'prod/k8s/payments', label: 'payments', href: '#' }]),
       dependencies: preview([{ kind: 'service', key: 'domain-b/ledger', label: 'ledger', href: '#' }]),
       dependents: preview([{ kind: 'service', key: 'domain-c/checkout', label: 'checkout', href: '#' }]),
+      referencedBy: preview([{ kind: 'service', key: 'domain-a/billing', label: 'billing', href: '/fleet/services/domain-a%2Fbilling' }]),
       relationships: preview([]),
       findings: preview([{ finding: { code: 'SCHEMA_DRIFT', severity: 'error', message: 'response schema drifted' }, entity: { kind: 'target', key: 'prod/k8s/payments', label: 'payments', href: '#' } }]),
       evidence: preview([{ target: { kind: 'target', key: 'prod/k8s/payments', label: 'payments', href: '#' }, at: '2026-07-29T08:00:00Z' }]),
@@ -297,6 +372,18 @@ describe('service detail stays an operational dashboard (requirement 5)', () => 
     expect(text).toContain('response schema drifted');
     expect(text).toContain('ledger');
     expect(text).toContain('checkout');
+    unmount(component); target.remove();
+  });
+
+  // A configuration/policy reference is not a dependency and never enters the graph,
+  // so without this section the referenced service cannot see who reaches into it --
+  // the reverse of the link the revision page renders forward.
+  it('names the services that reference this one, navigably', async () => {
+    detailFn.mockResolvedValue(richService());
+    const { target, component } = await mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('billing'));
+    const links = Array.from(target.querySelectorAll('a[href]')).map((a) => a.getAttribute('href') || '');
+    expect(links.some((h) => h.includes('domain-a%2Fbilling'))).toBe(true);
     unmount(component); target.remove();
   });
 });

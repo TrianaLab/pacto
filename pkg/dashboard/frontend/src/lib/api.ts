@@ -38,6 +38,7 @@ export type ProductEntityDetail = JSON200<'fleet-entity-detail'>;
 export type ProductNeighborhood = JSON200<'fleet-neighborhood'>;
 export type ProductAttentionList = JSON200<'fleet-attention'>;
 export type ProductImpact = JSON200<'fleet-impact-post'>;
+export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductMeta = ProductOverview['meta'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
@@ -51,7 +52,9 @@ type PostResponse<P extends keyof paths> =
   paths[P] extends { post: { responses: { 200: infer R } } } ? JSONBody<R> : never;
 
 // ── finite wire vocabularies (derived from generated enums, never hand-listed) ──
-export type EntityKind = NonNullable<ProductEntityList['entities']>[number]['kind'];
+/** One canonical entity reference as the backend emits it, href and all. */
+export type ProductEntityRef = NonNullable<ProductEntityList['entities']>[number];
+export type EntityKind = ProductEntityRef['kind'];
 export type SourceHealth = components['schemas']['Fleet.SourceState']['status'];
 export type Direction = NonNullable<ProductNeighborhood['direction']>;
 export type KnowledgeView = NonNullable<ProductNeighborhood['views']>[number];
@@ -332,4 +335,8 @@ export const api = {
     })),
   fleetImpactByIdentity: (body: FleetImpactInput): Promise<ProductImpact> =>
     productGet(client.POST('/api/fleet/impact', { body })),
+  /** Lazily reads ONE document body belonging to exactly this revision. Kept off
+   *  the entity detail so a revision page stays bounded. */
+  fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>
+    productGet(client.GET('/api/fleet/revisions/document', { params: { query: { key, path } } })),
 };

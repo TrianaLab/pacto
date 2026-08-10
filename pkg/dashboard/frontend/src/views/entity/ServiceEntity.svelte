@@ -134,6 +134,15 @@
     <PreviewSection title="Dependents" total={d.dependents?.total ?? 0} count={d.dependents?.count ?? 0} truncated={d.dependents?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty="Nothing depends on this service.">
       <EntityRefList items={d.dependents?.items ?? []} showStatus={false} />
     </PreviewSection>
+
+    <!-- A configuration or policy reference is NOT a dependency: it does not enter the
+         dependency graph, so nothing above and nothing in the graph would ever mention
+         it, and the referenced service had no way to learn who reaches into it. This is
+         the reverse side of the reference the revision page links forward. -->
+    <PreviewSection title="Referenced by" total={d.referencedBy?.total ?? 0} count={d.referencedBy?.count ?? 0} truncated={d.referencedBy?.truncated} empty="No service references this service's configuration or policy.">
+      <EntityRefList items={d.referencedBy?.items ?? []} showStatus={false} />
+      <p class="se-hint">These services reference this one's configuration or policy contract, which is not a runtime dependency.</p>
+    </PreviewSection>
   </div>
 
   {#if (d.relationships?.count ?? 0) > 0}
