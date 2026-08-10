@@ -158,6 +158,27 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  /**
+   * The page chart bucketed statuses with its own lowercase spellings while the wire
+   * carries PascalCase, so every row fell through to "Other" and the bar drew one flat
+   * grey block above rows badged Compliant, Unknown and Not compliant. It now shares the
+   * bucketing with the backend tally, so the two cannot split a status two ways.
+   */
+  it('the page compliance bar buckets the real wire statuses instead of collapsing to Other', async () => {
+    const withStatus = (d: string, s: string) => ({ ...svc(d), status: s });
+    entitiesFn.mockResolvedValue(listResp(
+      [withStatus('a', 'Compliant'), withStatus('b', 'NonCompliant'), withStatus('c', 'Unknown'), withStatus('d', 'NotEvaluated')],
+      { total: 40 },
+    ));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(4));
+    const labels = Array.from(target.querySelectorAll('.dist-legend .dist-label')).map((n) => n.textContent);
+    expect(labels).toEqual(['Compliant', 'Non-compliant', 'Unknown', 'Not evaluated']);
+    // And it never claims to be the whole match: the denominator is the page.
+    expect(target.querySelector('.dist-scope')?.textContent).toBe('This page only — 4 of 40 matching services.');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('Clear filters returns to the unfiltered first page', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
     const { target, component } = mountView({ owner: 'team-a', status: 'NonCompliant', offset: '25' });

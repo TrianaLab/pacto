@@ -11,7 +11,7 @@
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
-  import { complianceSegments } from '../lib/distributions.ts';
+  import { complianceSegments, tallyStatuses } from '../lib/distributions.ts';
 
   // The product Services list (requirement C / A3). It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -85,13 +85,11 @@
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     domain ? { key: 'domain', label: 'Domain', value: domain } : null,
   ].filter(Boolean));
-  // Counted from the rendered page, never presented as the fleet: DistributionBar is
-  // given the page size as its denominator and the scope note states it in words.
-  const pageSegments = $derived(complianceSegments((list?.entities ?? []).reduce((acc, r) => {
-    const k = { compliant: 'compliant', 'non-compliant': 'nonCompliant', unknown: 'unknown', invalid: 'invalid' }[r.status] || 'other';
-    acc[k] = (acc[k] || 0) + 1;
-    return acc;
-  }, {})));
+  // Counted from the rendered page, never presented as the whole population:
+  // DistributionBar is given the page size as its denominator and the scope note states
+  // it in words. The bucketing itself is the SHARED one, so this page and the backend's
+  // own tallies can never split the same status two different ways.
+  const pageSegments = $derived(complianceSegments(tallyStatuses((list?.entities ?? []).map((r) => r.status))));
 
   function removeChip(key) { apply({ [key]: '' }); }
 </script>

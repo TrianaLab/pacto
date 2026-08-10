@@ -10,13 +10,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   complianceSegments, linkSegments, severitySegments, evidenceSegments,
-  changeSegments, verdictSegments, confidenceSegments, segmentTotal,
+  changeSegments, verdictSegments, confidenceSegments, segmentTotal, tallyStatuses,
 } from './distributions.ts';
 
 describe('complianceSegments', () => {
   it('emits all four Compliance 2.0 states plus the catch-all, in a fixed order', () => {
     const s = complianceSegments({ compliant: 3, nonCompliant: 2, unknown: 1, invalid: 1, other: 0 });
-    expect(s.map((x) => x.label)).toEqual(['Compliant', 'Non-compliant', 'Unknown', 'Invalid', 'Other']);
+    expect(s.map((x) => x.label))
+      .toEqual(['Compliant', 'Non-compliant', 'Unknown', 'Invalid', 'Not evaluated', 'Other']);
     expect(segmentTotal(s)).toBe(7);
   });
 
@@ -129,5 +130,35 @@ describe('impact consumer buckets', () => {
   it('handles a bucket with neither key nor count, and a missing list', () => {
     expect(verdictSegments([{}])).toEqual([{ label: 'Unknown', value: 0, tone: 'neutral' }]);
     expect(confidenceSegments(undefined)).toEqual([]);
+  });
+});
+
+/**
+ * The bug this pins: a view spelled the compliance buckets itself and matched
+ * lowercase 'compliant'/'non-compliant' against the PascalCase values the wire actually
+ * carries, so every service fell through to "Other" and the services list drew one flat
+ * grey bar above rows badged Compliant, Unknown and Not compliant.
+ */
+describe('tallyStatuses', () => {
+  it('buckets the real wire spellings, never a lowercased guess at them', () => {
+    const t = tallyStatuses(['Compliant', 'Compliant', 'NonCompliant', 'Unknown', 'Invalid', 'NotEvaluated']);
+    expect(t).toEqual({ compliant: 2, nonCompliant: 1, unknown: 1, invalid: 1, notEvaluated: 1 });
+    // The old lowercase spellings are not statuses: they must land in the catch-all,
+    // so a future rename shows up as "Other" rather than as a silently correct count.
+    expect(tallyStatuses(['compliant', 'non-compliant'])).toEqual({ other: 2 });
+  });
+
+  it('gives every status exactly one bucket, so the tally is the population', () => {
+    const statuses = ['Compliant', 'Warning', 'Reference', 'Something-New', undefined, ''];
+    const t = tallyStatuses(statuses);
+    const total = Object.values(t).reduce((a, b) => a + (b || 0), 0);
+    expect(total).toBe(statuses.length);
+  });
+
+  it('draws the not-evaluated bucket with the same words the row badges use', () => {
+    const s = complianceSegments(tallyStatuses(['NotEvaluated', 'NotEvaluated']));
+    const seg = s.find((x) => x.value > 0);
+    expect(seg?.label).toBe('Not evaluated');
+    expect(segmentTotal(s)).toBe(2);
   });
 });

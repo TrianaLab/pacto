@@ -87,11 +87,15 @@
   </div>
 
   {#if targets > 0}
-    <!-- Fleet posture: the two orthogonal questions, at fleet scale, over the COMPLETE
-         target population the backend counted. They are kept apart on purpose -- a
-         target can be compliant against a revision we only guessed at. -->
+    <!-- Overall posture: the two orthogonal questions, over the COMPLETE target
+         population the backend counted. They are kept apart on purpose -- a target can
+         be compliant against a revision we only guessed at.
+
+         "Fleet" is an internal word (the snapshot package, the /fleet routes), never a
+         product one: the heading said "Fleet posture" above a page whose whole
+         vocabulary is services, revisions and operational targets. -->
     <section class="ov-posture" aria-labelledby="ov-posture-h">
-      <h2 id="ov-posture-h" class="ov-posture-h">Fleet posture</h2>
+      <h2 id="ov-posture-h" class="ov-posture-h">Overall posture</h2>
       <p class="ov-posture-sub">
         {summary.services || 0} {(summary.services || 0) === 1 ? 'service' : 'services'} ·
         {summary.revisions || 0} {(summary.revisions || 0) === 1 ? 'revision' : 'revisions'} ·

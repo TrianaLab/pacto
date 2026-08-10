@@ -25,7 +25,40 @@ export interface ComplianceTally {
   nonCompliant?: number;
   unknown?: number;
   invalid?: number;
+  /**
+   * Client-side page tallies only. The backend tallies TARGETS, which are always
+   * evaluated, so it has no such bucket and folds anything unrecognized into `other`.
+   * A services page is mostly not-evaluated bundles, and drawing eight rows badged
+   * "Not evaluated" as an unnamed grey "Other" teaches the taxonomy wrong.
+   */
+  notEvaluated?: number;
   other?: number;
+}
+
+/**
+ * tallyStatuses buckets wire status values exactly the way the backend's
+ * ComplianceTally.add does (pkg/fleet/aggregate.go), so a client-side page tally and a
+ * backend population tally can never disagree about which bucket a state belongs in.
+ *
+ * It exists because a view that spelled the buckets itself got the wire enum wrong -- it
+ * matched lowercase 'compliant'/'non-compliant' against the PascalCase values the API
+ * actually emits, so every single service fell through to "Other" and the services list
+ * drew one flat grey bar above rows badged Compliant, Unknown and Not compliant.
+ */
+export function tallyStatuses(statuses: (string | undefined)[]): ComplianceTally {
+  const t: ComplianceTally = {};
+  const bucket: Record<string, keyof ComplianceTally> = {
+    Compliant: 'compliant',
+    NonCompliant: 'nonCompliant',
+    Unknown: 'unknown',
+    Invalid: 'invalid',
+    NotEvaluated: 'notEvaluated',
+  };
+  for (const s of statuses) {
+    const k = bucket[s || ''] || 'other';
+    t[k] = (t[k] || 0) + 1;
+  }
+  return t;
 }
 
 /** LinkTally as emitted by the Product API (revision-match certainty). */
@@ -58,6 +91,8 @@ export function complianceSegments(t: ComplianceTally | undefined, hrefs: Record
     { label: 'Non-compliant', value: n(c.nonCompliant), tone: 'err', href: hrefs.nonCompliant },
     { label: 'Unknown', value: n(c.unknown), tone: 'warn', href: hrefs.unknown },
     { label: 'Invalid', value: n(c.invalid), tone: 'err', href: hrefs.invalid },
+    // Same wording as the badge on the rows beside it, never the wire spelling.
+    { label: 'Not evaluated', value: n(c.notEvaluated), tone: 'neutral', href: hrefs.notEvaluated },
     { label: 'Other', value: n(c.other), tone: 'neutral', href: hrefs.other },
   ];
 }

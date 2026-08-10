@@ -499,13 +499,15 @@
           description="Whether each affected consumer's declared range still accepts the new revision."
           items={verdictSegments(consumers.byVerdict)}
           unit="consumers"
+          unitOne="consumer"
         />
         <HorizontalBars
           title="Consumers by evidence"
           level={3}
-          description="How this fleet knows each consumer is affected."
+          description="How each affected consumer is known."
           items={confidenceSegments(consumers.byConfidence)}
           unit="consumers"
+          unitOne="consumer"
         />
       </div>
     {/if}

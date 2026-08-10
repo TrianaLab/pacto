@@ -197,6 +197,7 @@
         description="What kind of problem each matched item is."
         items={categoryBars}
         unit="items"
+        unitOne="item"
       />
     </div>
     <ul class="attn-list">

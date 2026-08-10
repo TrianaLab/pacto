@@ -216,7 +216,7 @@
     <!-- Discovery state (requirement K): search-first, no fleet hairball, no request. -->
     <section class="discovery" data-testid="graph-discovery">
       <h1>Operational graph</h1>
-      <p class="disco-lead">The operational graph is search-first: pick one entity and see <strong>its</strong> local neighborhood render below. It never opens the whole fleet at once.</p>
+      <p class="disco-lead">The operational graph is search-first: pick one entity and see <strong>its</strong> local neighborhood render below. It never opens every service at once.</p>
 
       <form class="disco-search" role="search" onsubmit={submitSearch}>
         <input type="search" bind:value={queryText} oninput={runSearch} placeholder="Search services, revisions, operational targets..." aria-label="Search for a service, revision or target to focus the graph" />

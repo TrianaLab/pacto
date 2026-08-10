@@ -170,6 +170,28 @@ describe('HorizontalBars', () => {
     comp = mount(HorizontalBars, { target, props: { title: 'By category', items: bars, unit: 'consumers' } });
     expect(target.querySelector('.hb-value')?.textContent).toBe('6 consumers');
   });
+
+  // A ranked chart is mostly small numbers, so "1 consumers" is the common case rather
+  // than the edge case. The singular is supplied by the caller because an irregular
+  // noun cannot be recovered by stripping an "s".
+  it('uses the caller-supplied singular for a row of one, and the plural otherwise', () => {
+    comp = mount(HorizontalBars, {
+      target,
+      props: {
+        title: 'By category',
+        items: [{ label: 'Checkout', value: 1 }, { label: 'Billing', value: 4 }],
+        unit: 'consumers',
+        unitOne: 'consumer',
+      },
+    });
+    const values = Array.from(target.querySelectorAll('.hb-value')).map((n) => n.textContent);
+    expect(values).toEqual(['1 consumer', '4 consumers']);
+  });
+
+  it('falls back to the plural when no singular is given, rather than dropping the unit', () => {
+    comp = mount(HorizontalBars, { target, props: { title: 'By category', items: [{ label: 'Checkout', value: 1 }], unit: 'items' } });
+    expect(target.querySelector('.hb-value')?.textContent).toBe('1 items');
+  });
 });
 
 // @ts-expect-error — Svelte components have no declaration files

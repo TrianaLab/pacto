@@ -215,3 +215,44 @@ describe('product visualization system', () => {
     expect(legacy.length, 'the guard would be vacuous if nothing used these anywhere').toBeGreaterThan(0);
   });
 });
+
+/**
+ * Product vocabulary. "Fleet" is an internal word -- the snapshot package, the /fleet
+ * routes, the host capability flag -- and it kept leaking into the words on screen
+ * ("Fleet posture" above a page about services, "how this fleet knows"). The words a
+ * product surface renders are services, revisions, operational targets and data
+ * sources; the internal name is allowed anywhere it is a route, an identifier or a
+ * comment, and nowhere a reader can see it.
+ */
+describe('product vocabulary', () => {
+  const PRODUCT_UI = files.filter((f) =>
+    /^views\/(Fleet[^/]*|ChangeAnalysisView|GraphView)\.svelte$/.test(f.rel)
+    || f.rel.startsWith('views/entity/')
+    || /^components\/(viz\/.*|OperationalSummary|Navbar|Breadcrumbs|EntitySearch)\.svelte$/.test(f.rel));
+
+  // Markup only. The script block, the stylesheet, the class names and the comments are
+  // all places the internal name legitimately lives; none of them is read by anyone.
+  const rendered = (body: string) => body
+    .replace(/<script[\s\S]*?<\/script>/g, '')
+    .replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/class(:[\w-]+)?=(["'][^"']*["']|\{[^}]*\})/g, '');
+  // A route, an identifier or a view id -- never a word a reader sees.
+  const INTERNAL = /fleet[A-Z][A-Za-z]*|[/'"#]fleet|fleet-[a-z]/g;
+
+  it('scans the product surfaces', () => {
+    expect(PRODUCT_UI.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('renders the internal name nowhere a reader can see it', () => {
+    const offenders = PRODUCT_UI
+      .filter((f) => /\bfleets?\b/i.test(rendered(f.body).replace(INTERNAL, '')))
+      .map((f) => f.rel);
+    expect(offenders, `internal "fleet" wording rendered on a product surface: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('proves the guard is not vacuous: the internal name is still used as a route', () => {
+    const routed = PRODUCT_UI.filter((f) => INTERNAL.test(f.body)).map((f) => f.rel);
+    expect(routed.length).toBeGreaterThan(0);
+  });
+});

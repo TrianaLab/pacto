@@ -18,12 +18,17 @@
     scopeNote = '',
     items = [],
     unit = '',
+    unitOne = '',
     emptyLabel = 'Nothing to show yet.',
   } = $props();
 
   const rows = $derived(items.filter((i) => (i.value || 0) > 0));
   const max = $derived(rows.reduce((m, i) => Math.max(m, i.value || 0), 0));
   const width = (v) => (max > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0);
+  // A ranked chart is mostly small numbers, so "1 items" and "1 consumers" are the
+  // common case, not the edge case. Callers give the singular; irregular nouns are not
+  // guessed at by stripping an "s".
+  const amount = (v) => `${v}${unit ? ` ${v === 1 ? unitOne || unit : unit}` : ''}`;
 </script>
 
 <figure class="hbars">
@@ -43,13 +48,13 @@
             <a class="hb-inner" href={r.href}>
               <span class="hb-label">{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" style="width: {width(r.value)}%"></span></span>
-              <span class="hb-value">{r.value}{unit ? ` ${unit}` : ''}</span>
+              <span class="hb-value">{amount(r.value)}</span>
             </a>
           {:else}
             <span class="hb-inner">
               <span class="hb-label">{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" style="width: {width(r.value)}%"></span></span>
-              <span class="hb-value">{r.value}{unit ? ` ${unit}` : ''}</span>
+              <span class="hb-value">{amount(r.value)}</span>
             </span>
           {/if}
         </li>

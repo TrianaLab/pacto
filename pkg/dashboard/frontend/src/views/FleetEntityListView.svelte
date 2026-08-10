@@ -86,9 +86,9 @@
   </div>
   <p class="lv-lead">
     {#if kind === 'target'}
-      Every place this fleet has observed something running{#if service} for this service{/if}. A target is a runtime observation, not a contract.
+      Every place something has been observed running{#if service} for this service{/if}. A target is a runtime observation, not a contract.
     {:else}
-      Every contract revision this fleet knows about{#if service} for this service{/if}, newest first. A revision is what was declared, whether or not anything runs it.
+      Every known contract revision{#if service} for this service{/if}, newest first. A revision is what was declared, whether or not anything runs it.
     {/if}
   </p>
 

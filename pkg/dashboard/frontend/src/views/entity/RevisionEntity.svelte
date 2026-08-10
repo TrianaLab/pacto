@@ -316,6 +316,7 @@
         description="Every package counted once, including those that declare no license."
         items={licenseRows}
         unit="packages"
+        unitOne="package"
         emptyLabel="This inventory records no packages."
       />
       <p class="ri-note">The package list itself is not retained by the dashboard; read it from the bundle's {sbomDir} directory.</p>
