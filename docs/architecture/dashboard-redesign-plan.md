@@ -180,9 +180,12 @@ The Phase-3 closure + Phase-4 session (this ledger's current session) ran as fol
 The second-correction-pass session (this ledger's current session) ran as follows:
 
 - Starting HEAD: `2efeb9ef` (the independently reviewed HEAD of PR #291).
-- Synchronized base: `eb1482ff` (current `main` tip). `main` had NOT moved from that
-  base (it equals the merge-base and is an ancestor of HEAD), so no re-sync was
-  needed. Integration remains merge (branch content preserved).
+- Synchronized base: `a56b69e3` (`main` tip for that session). This entry originally
+  recorded `eb1482ff`, the base of the EARLIER sessions above; that was wrong for
+  this one. `main` had advanced to `a56b69e3` and the branch had already been
+  synchronized to it, so `a56b69e3` is the merge-base and an ancestor of HEAD and no
+  re-sync was needed. Integration remains merge (branch content preserved). The
+  earlier entries' `eb1482ff` is left alone: it was genuinely their base.
 - Exact-SHA CI was green at `2efeb9ef` and a second real-user review still found five
   concrete regressions the acceptance suite did not cover -- two of them capabilities
   the previous dashboard shipped, both recorded in this file as deliberate scope. The
@@ -192,6 +195,22 @@ The second-correction-pass session (this ledger's current session) ran as follow
   correction pass" below. No Git history was rewritten, rebased or force-pushed; the
   U+00A7 commit-history CI enforcement stays BLOCKED (section 8 item 9). The PR stays
   draft; PR-body finalization is phase 14. Phase 7 was NOT started.
+
+The third-correction-pass session (this ledger's current session) ran as follows:
+
+- Starting HEAD: `13810112` (the independently reviewed HEAD of PR #291).
+- Synchronized base: `a56b69e3` (current `main` tip). `main` had NOT moved from that
+  base (it equals the merge-base and is an ancestor of HEAD), so no re-sync was
+  needed. Integration remains merge (branch content preserved).
+- Exact-SHA CI was green at `13810112` and an invariant review still found four
+  counterexamples the suite could not see -- three of them cases where the product
+  answered CONFIDENTLY and wrongly rather than failing. Phases 3, 5 and 6 were
+  REOPENED narrowly for exactly those, and re-closed. The proven engine, identity,
+  fleet-query, graph-projection, boundedness and evidence semantics were not
+  otherwise reopened. See "Third correction pass" below. No Git history was
+  rewritten, rebased or force-pushed; the U+00A7 commit-history CI enforcement stays
+  BLOCKED (section 8 item 9). The PR stays draft; PR-body finalization is phase 14.
+  Phase 7 was NOT started.
 
 ## 0a. Current status (authoritative)
 
@@ -212,7 +231,13 @@ several generations of Pacto UI stitched together". Headings below that read
 
 - Phase 1 (product API hardening): COMPLETE.
 - Phase 2 (frontend IA and routing): COMPLETE.
-- Phase 3 (Overview, Services, Attention, rich entity pages): COMPLETE.
+- Phase 3 (Overview, Services, Attention, rich entity pages): COMPLETE (re-closed).
+  Reopened narrowly by the third correction pass over two claims the pages made and
+  could not support: a document body read live from a mutable filesystem under an
+  immutable revision identity, and a config/policy reference link resolved from a
+  plausible name. Both are now evidence-only. Re-closed on the adversarial acceptance
+  in `pkg/fleet/document_immutable_test.go` (11 tests) and
+  `pkg/fleet/refresolution_test.go` (14 tests). Nothing else in Phase 3 was reopened.
 - Phase 4 (search-first Operational Graph + full dashboard migration): COMPLETE
   (re-closed). An independent review of HEAD `8a2f7910` reopened Phase 4 over six concrete
   gaps (the most important user-visible: the graph tab read as NO GRAPH). All six are now
@@ -258,7 +283,10 @@ several generations of Pacto UI stitched together". Headings below that read
   navigation landmarks, and an entity page with no heading while loading or not found.
   See "Phase 5 closure" below. The "retained specialized Readiness/Compare" this bullet
   used to name no longer exist on a Fleet host -- see the product-coherence correction
-  below.
+  below. Re-closed after the third correction pass reopened it narrowly for scroll
+  restoration: a place belongs to a HISTORY ENTRY, not to a URL, so two entries showing
+  the same page keep their own places. `lib/scrollRestore.test.ts` (16 tests) and the
+  browser counterexample in `place.spec.ts`.
 - Phase 6 (WASM browser acceptance): COMPLETE (re-closed). It had been marked COMPLETE
   at `c5fdc1c4` with 133 Playwright tests across 14 specs and one `test.fixme` -- and
   that status was NOT truthful, because the `fixme` covered a capability the previous
@@ -270,7 +298,13 @@ several generations of Pacto UI stitched together". Headings below that read
   capability. See "Second correction pass" below for the five defects, their root causes
   and the specs that now hold them. The one remaining `test.skip` is a data guard in
   `headings.spec.ts` (skips when the demo publishes no legacy service to open), not a
-  deferred capability. The final gate is final-SHA CI. Phase 7 has NOT been started.
+  deferred capability. Re-closed AGAIN after the third correction pass, which reopened
+  it for the two interaction counterexamples no browser test could have caught without
+  a way to HOLD a request in flight: 167 Playwright tests across 18 specs (desktop plus
+  Pixel-5), the new spec being `swr.spec.ts` (8 delayed-network tests) plus the
+  repeated-URL history counterexample added to `place.spec.ts`. Still exactly one
+  `test.skip` and no `test.fixme`. The final gate is final-SHA CI. Phase 7 has NOT been
+  started.
 - Product-coherence correction (cross-phase; NOT whole-program Phase 6, which is WASM
   browser acceptance): COMPLETE. A real user reported the app
   "still feels like several generations of Pacto UI stitched together". This phase was a
@@ -1086,6 +1120,183 @@ The WASM demo gained a second domain (`examples/demo/partners/`) rather than a t
 fixture, because the same-name/cross-domain case cannot be proven against a fleet that
 has one domain — and a doc body served through a frontend fixture would prove the viewer
 and not the product mechanism.
+
+### Third correction pass: four invariants a green suite could not see
+
+Starting HEAD: `13810112`. Exact-SHA CI was green there and the second correction pass
+had genuinely landed. An invariant review of that HEAD found four counterexamples, and
+three of them share a shape worth naming: **the product answered confidently and
+wrongly instead of failing.** A test suite cannot see that shape, because every
+assertion it makes is satisfied by the confident answer. Only a counterexample can.
+
+Phases 3, 5 and 6 were reopened for exactly these and nothing else.
+
+#### A. A document body must be immutable under a revision identity
+
+A `RevisionDocument` read opened `rev.bundle.FS` lazily, and for a LocalSource that FS
+is an `os.DirFS` over a directory a human is editing. The same
+`(SnapshotID, RevisionKey, path)` therefore returned today's draft under yesterday's
+revision identity — a snapshot read model quietly serving a view over mutable external
+state.
+
+Architecture chosen: **fingerprint at Build, verify at read.** Build records a SHA-256
+per listed document (32 bytes each, not the prose, so a snapshot never grows by the
+size of the documentation) and every read re-derives the digest of the bytes it just
+read. Equal digest, serve them; anything else, `DocumentUnavailableError`. That keeps
+`Query` a deterministic read model over an immutable snapshot and keeps the 512 KiB
+`MaxDocumentBytes` bound and the canonical `RevisionKey` boundary exactly as they were.
+Eagerly embedding bodies was rejected outright: it would put unbounded author prose in
+a snapshot that is held in memory and shipped over the wire.
+
+Behaviour, by backing store:
+
+- Local `os.DirFS`: a post-Build edit is not served. Explicit unavailability.
+- In-memory bundle FS: same — the fingerprint does not care where the bytes came from.
+- OCI-loaded immutable bundles: unaffected, because their bytes never change and the
+  digest always matches.
+- Deleted after Build: explicitly unavailable, never silently absent.
+- Unreadable at Build (no fingerprint could be taken): never served later either. A
+  document with no recorded identity is not a document whose identity we can check.
+
+`mergeRevision` was audited and fixed with it. Adopting a `Docs` list now requires
+adopting the filesystem that backs it — the two travel together or not at all, so
+hidden bundle selection can never decide which bytes a read returns while `SnapshotID`
+stays identical. Two sources contributing the SAME immutable revision with DIFFERENT
+document content serve neither and say so, in either collection order; source
+permutation cannot change the answer. A runtime-only contributor (no FS, no docs) is
+not a conflict, it is simply silent.
+
+Acceptance: `pkg/fleet/document_immutable_test.go`, 11 tests, covering each bullet
+above plus the two-order permutation and the differing-doc-set case.
+
+#### B. A reference link is a claim about identity, so it needs evidence of identity
+
+`resolveRefService` resolved a config/policy reference by taking the ref's repository
+basename (or, failing that, the reference entry's own `Name`) and looking for a
+same-domain service called that. Both are guesses. A repository is named by whoever
+pushed it, so `oci://ghcr.io/acme/shared-config-contract` may publish a contract whose
+`service.name` is `platform-settings` — and an unrelated service genuinely called
+`shared-config-contract` may exist in the same domain, so the heuristic both MISSES the
+real destination and INVENTS a false one. `ReferenceRef.Name` is worse: for a
+configuration it is the SCOPE name and for a policy the POLICY ENTRY name, author-chosen
+labels for a slot in the REFERRING contract. A policy entry called "payments" became a
+link to the payments service.
+
+The authoritative source of destination identity is now, and only, an immutable content
+identifier for the referenced bundle:
+
+1. the `digest` (or `contentHash`) `pacto.lock` recorded when it actually resolved,
+   pulled and hashed that bundle — the same authority dependency resolution already
+   used; or
+2. a digest the author pinned in the ref itself (`oci://repo@sha256:...`), which IS the
+   content address of exactly one bundle.
+
+That identifier is matched against the revisions the snapshot already holds, inside the
+referring revision's own domain. The matched revision was BUILT from its contract, so
+its `service.name` is fact, not inference. Both heuristics are gone: no
+repository-basename promotion, no `ReferenceRef.Name` promotion, no arbitrary
+same-domain winner. An identifier matching several revisions in one domain is
+AMBIGUOUS, not won. An identifier matching none is UNKNOWN. Both render as unresolved,
+and the raw authored ref stays visible in every case — resolution never replaces
+contract text. `ReferencedBy` (the reverse direction) inherits all of it, so a
+name-collision destination never appears in another domain's list. Dependency
+resolution is untouched.
+
+This is enforced in the BACKEND relationship, not the frontend: the UI links to what
+the backend resolved and has no resolution logic of its own to disagree with.
+
+Acceptance: `pkg/fleet/refresolution_test.go`, 14 tests, including repo-name is not
+service-name, an unrelated repo leaf that collides with a real service name, policy
+entry name is not identity, cross-domain identity does not resolve, ambiguity is not
+arbitrarily won, content hash resolves, digest-pinned ref resolves without a lock, and
+the two `ReferencedBy` domain-scoping cases.
+
+The demo fixture had to be corrected with it, and the way it failed is worth recording.
+`examples/demo/genlocks` pinned each reference to a hash over the whole bundle FS,
+while the demo registry addresses bundles by `sha256` over the raw `pacto.yaml` — two
+different identifiers. Under the new rule every demo reference correctly reported
+itself unresolved: the reader was being honest about a lock pointing at an artifact
+nobody publishes. The generator now records the registry's content address (what real
+`pacto lock` does with the OCI manifest digest) and indexes the two bundle trees
+separately so a closure never resolves across the domain boundary the partners tree
+exists to test. A reference it cannot resolve inside its own tree is left unpinned
+rather than aborting the run, because the partners domain deliberately publishes no
+http policy and "no pin" is exactly how an unresolvable reference is represented.
+
+#### C. Retained rows must answer the question that is on screen
+
+Stale-while-revalidate keeps the previous answer rendered while a new request is in
+flight. That is correct for a RE-ASK of the same question and wrong for a NEW one: a
+committed filter, a page change or a scope change left the previous population on
+screen under the new controls, and a user reading it had no way to tell.
+
+`decideViewState` was deliberately NOT changed to guess query identity. The caller owns
+the question. Every `createProductLoader` consumer now defines two strings:
+`queryIdentity` (everything that changes WHAT is being asked) and the request key
+(`queryIdentity` + `refreshTick`, which only RE-asks it), calls
+`loader.sync(requestKey, queryIdentity)`, and treats retained data as current only when
+`loader.dataTag === queryIdentity`. Per view:
+
+| View | `queryIdentity` |
+|---|---|
+| `FleetServicesView` | text, owner, status, domain, page offset |
+| `FleetAttentionView` | category, severity, status, owner, source, service, stale-only, page offset |
+| `FleetOwnersView` | text, page offset |
+| `FleetSourcesView` | text, source health, page offset |
+| `FleetEntityListView` | kind, service scope, text, status, scope, page offset |
+| `FleetEntityView` | kind + canonical entity key (already correct; audited, unchanged) |
+
+Same question: rows and scroll survive, and a poll that FAILS keeps the rows AND says
+so. The honest-stale line was a one-off inside `FleetEntityView`; it is now the shared
+`components/StaleRefreshNotice.svelte`, because "you are reading the last answer we
+received" must say the same thing everywhere it is true.
+
+Acceptance: `e2e/swr.spec.ts`, 8 tests. Proving these needed a way to HOLD a request in
+flight, which Playwright's `page.route()` cannot do here — the demo's API calls are
+served synchronously in-page by the wasm export, so no network interception ever sees
+them. The spec installs a `window.fetch` gate via a getter/setter pair (returning the
+native fetch until `boot.js` assigns its shim, so the shim's own fallback path never
+recurses through the wrapper) and a `__pactoServe` wrapper that inflates the service
+population so real pagination exists. The tests: a Services filter committed mid-flight;
+Services pagination mid-flight; an Attention filter change; an Owners search change; a
+scoped Revisions inventory change; a same-query automatic poll preserving rows and
+place; a same-query poll FAILING and preserving rows with an honest indication; and the
+pre-existing stale-response generation guard.
+
+#### D. A place belongs to a history entry, not to a URL
+
+Scroll positions were keyed by hash. Three entries, two showing the same page: visit A
+and read to 800, push B, push A again (a fresh visit, correctly starting at 0) — the
+fresh 0 overwrote the stored 800, and Back Back landed the reader at the top of a page
+they had read halfway.
+
+Positions are now keyed by `"<entryIndex>|<hash>"`. The entry index is stamped into
+`history.state` on push and read back on traversal, so:
+
+- a PUSH takes the next index, discards any forward entries' positions and starts at 0;
+- Back/Forward restores that exact entry's position;
+- two entries with the same URL are independent, which is the counterexample itself;
+- a canonical REPLACE keeps the same entry and TRANSFERS its stored position to the new
+  URL (this also fixed a real bug: replace used to stamp the high-water index, which
+  could give two entries the same index);
+- a hard reload restores the current entry, because the index survives in
+  `history.state`;
+- storage is bounded at 30 entries, evicted oldest-first.
+
+A user wheel/touch/key still cancels a pending restoration, and a background refresh
+never invokes navigation restoration at all — only a real navigation does.
+
+Acceptance: `lib/scrollRestore.test.ts`, 16 tests, including the exact A-B-A-Back-Back
+counterexample asserting 800, the canonical-replace transfer, the discarded-forward
+case and the bound; plus the same counterexample as a real browser test in
+`e2e/place.spec.ts`. The existing async-content settling tests are unchanged.
+
+#### E. Ledger correction
+
+The second-correction-pass entry in section 0 recorded its synchronized base as
+`eb1482ff`. That was the base of the EARLIER sessions; the real base for the session
+starting at `2efeb9ef` was `a56b69e3`. Corrected in place. The earlier entries that
+genuinely used `eb1482ff` are untouched.
 
 ## 1. Target product model
 
