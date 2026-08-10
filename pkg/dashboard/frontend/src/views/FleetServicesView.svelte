@@ -4,8 +4,9 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
-  import { fleetOverviewUrl, fleetServicesUrl } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetServicesUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import EntityCombobox from '../components/EntityCombobox.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
@@ -79,6 +80,16 @@
   function submitSearch(e) { e.preventDefault(); apply({ text: textDraft }); }
   function clearAll() { location.hash = fleetServicesUrl(); }
 
+  // A picked suggestion goes to that exact service, by the canonical href the backend
+  // put on the reference (falling back to its canonical key) -- never to a filter
+  // rebuilt from the visible name, which two domains can share.
+  function openSuggestion(ref) {
+    location.hash = ref.href ? hashForHref(ref.href) : fleetEntityUrl(ref.kind, ref.key);
+  }
+  // An owner suggestion is a filter, not a destination: it commits the owner the
+  // backend actually knows, spelled exactly as the snapshot spells it.
+  function pickOwner(ref) { apply({ owner: ref.label ?? '' }); }
+
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
     owner ? { key: 'owner', label: 'Owner', value: owner } : null,
@@ -102,20 +113,41 @@
   </div>
 
   <div class="sv-filters">
+    <!-- Suggestions come from the backend Entities query, restricted to services, so
+         what is offered is what exists rather than what happens to be on this page.
+         Nothing commits until the user picks a suggestion, presses Enter or submits:
+         typing must not write a history entry per keystroke. -->
     <form class="sv-search" onsubmit={submitSearch} role="search">
-      <input
-        type="search"
+      <EntityCombobox
+        id="svc-search"
         bind:value={textDraft}
+        kinds={['service']}
         placeholder="Search services..."
-        aria-label="Search services by name, key or domain"
+        label="Search services by name, key or domain"
+        testid="svc-search"
+        onselect={openSuggestion}
       />
       <button type="submit" class="btn">Search</button>
     </form>
-    <label class="sv-field">
-      <span>Owner</span>
-      <input type="text" value={owner} placeholder="team or DRI" aria-label="Filter by owner"
-        onchange={(e) => apply({ owner: e.currentTarget.value.trim() })} />
-    </label>
+    <!-- Not a wrapping <label>: a click inside one is forwarded to its control, which
+         would swallow the click on a suggestion. The association is by `for` instead. -->
+    <div class="sv-field">
+      <label for="svc-owner">Owner</label>
+      <!-- Owner is a real backend entity kind derived from the whole snapshot, so its
+           suggestions are the complete owner population. Domain below stays free text:
+           there is no authoritative domain facet to draw from, and suggesting domains
+           off the 25 rows on screen would quietly present a page as the fleet. -->
+      <EntityCombobox
+        id="svc-owner"
+        value={owner}
+        kinds={['owner']}
+        placeholder="team or DRI"
+        label="Filter by owner"
+        testid="svc-owner"
+        onselect={pickOwner}
+        oncommit={(v) => { if (v !== owner) apply({ owner: v }); }}
+      />
+    </div>
     <label class="sv-field">
       <span>Status</span>
       <select value={status} aria-label="Filter by compliance status" onchange={(e) => apply({ status: e.currentTarget.value })}>
@@ -128,7 +160,7 @@
     </label>
     <label class="sv-field">
       <span>Domain</span>
-      <input type="text" value={domain} placeholder="exact domain" aria-label="Filter by domain"
+      <input class="input" type="text" value={domain} placeholder="exact domain" aria-label="Filter by domain"
         onchange={(e) => apply({ domain: e.currentTarget.value.trim() })} />
     </label>
   </div>
@@ -189,12 +221,13 @@
   .sv-total { color: var(--c-text-3); }
   .sv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .sv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
-  .sv-search input { flex: 1; }
-  .sv-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); }
-  .sv-filters input, .sv-filters select {
-    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min);
-  }
+  /* The suggestion popup is absolutely positioned inside its field, so a field that
+     clips or stacks below its neighbour would hide it. */
+  .sv-search, .sv-field { position: relative; }
+  .sv-field { display: flex; flex-direction: column; gap: 2px; min-width: 180px; font-size: var(--text-xs); color: var(--c-text-3); }
+  /* Text inputs use the shared .input from styles/components.css so the two
+     comboboxes -- whose inputs live in a child component and are out of reach of this
+     scoped block -- and the plain Domain field are one control, not two look-alikes. */
   /* The Search control is the shared .btn from styles/components.css. Each list view
      used to carry its own byte-identical copy, which is how one product ends up with
      four Search buttons in three flavours. */

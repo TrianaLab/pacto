@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { api } from './lib/api.ts';
+  import { createEntitySuggest } from './lib/entitySuggest.svelte.ts';
   import { hashForHref, fleetEntityUrl } from './lib/router.ts';
   import EntityIdentity from './components/EntityIdentity.svelte';
 
@@ -14,28 +14,22 @@
   let { open = false, onClose } = $props();
 
   let query = $state('');
-  let results = $state([]);
-  let total = $state(0);
-  let truncated = $state(false);
-  let loading = $state(false);
-  let error = $state(null);
   let selectedIdx = $state(0);
   let inputEl = $state(null);
   let prevFocus = null;
-  let debounceTimer = null;
-  // seq is the active-search generation. A response may touch the UI only if its
-  // generation still matches (mySeq === seq). It is advanced on EVERY transition that
-  // ends the current search -- a new/changed query, a cleared query, an open, a close
-  // and destroy -- so a response from an abandoned search can never repopulate the UI
-  // (the A4 stale-request race). seq is a plain (non-reactive) counter deliberately.
-  let seq = 0;
+
+  // The debounce, the bound and the stale-response guard live in the shared
+  // createEntitySuggest -- the same mechanics the inline Services comboboxes use, so
+  // the A4 stale-request race is fixed once rather than once per search surface.
+  const suggest = createEntitySuggest({ limit: 25 });
+  const results = $derived(suggest.results);
 
   // Reset + focus on open; restore focus on close. Any open/close transition
   // invalidates in-flight responses from the prior modal state.
   $effect(() => {
-    seq++;
+    suggest.clear();
     if (open) {
-      query = ''; results = []; total = 0; truncated = false; loading = false; error = null; selectedIdx = 0;
+      query = ''; selectedIdx = 0;
       prevFocus = document.activeElement;
       queueMicrotask(() => inputEl?.focus());
     } else if (prevFocus) {
@@ -44,33 +38,10 @@
     }
   });
 
-  // Debounced backend search. The generation is advanced FIRST, so clearing the query
-  // (or any change) immediately invalidates a request already in flight.
-  $effect(() => {
-    const q = query.trim();
-    clearTimeout(debounceTimer);
-    const mySeq = ++seq;
-    if (!q) { results = []; total = 0; truncated = false; loading = false; error = null; return; }
-    loading = true;
-    debounceTimer = setTimeout(() => {
-      api.fleetEntities({ text: q, limit: 25 })
-        .then((res) => {
-          if (mySeq !== seq) return;
-          results = res.entities || [];
-          total = res.total ?? results.length;
-          truncated = total > results.length;
-          error = null;
-        })
-        .catch((e) => {
-          if (mySeq !== seq) return;
-          error = e; results = []; total = 0; truncated = false;
-        })
-        .finally(() => { if (mySeq === seq) loading = false; });
-    }, 140);
-  });
+  $effect(() => { suggest.search(query); });
 
   // Destroy invalidates any in-flight response so it can never write to torn-down state.
-  onDestroy(() => { seq++; });
+  onDestroy(() => suggest.destroy());
 
   // Keep the selection in range as results change.
   $effect(() => { if (selectedIdx > results.length - 1) selectedIdx = Math.max(0, results.length - 1); });
@@ -120,10 +91,10 @@
         <kbd>Esc</kbd>
       </div>
       <div class="es-results" role="listbox">
-        {#if loading}
+        {#if suggest.loading}
           <div class="es-msg">Searching…</div>
-        {:else if error}
-          <div class="es-msg es-err">Search unavailable: {error.message}</div>
+        {:else if suggest.error}
+          <div class="es-msg es-err">Search unavailable: {suggest.error.message}</div>
         {:else if !query.trim()}
           <div class="es-msg">Type to search across everything Pacto knows about. Search is discovery, not a full listing.</div>
         {:else if results.length === 0}
@@ -143,8 +114,8 @@
               <EntityIdentity ref={r} showStatus={true} />
             </button>
           {/each}
-          {#if truncated}
-            <div class="es-trunc">Showing {results.length} of {total}. Refine your search to narrow it.</div>
+          {#if suggest.truncated}
+            <div class="es-trunc">Showing {results.length} of {suggest.total}. Refine your search to narrow it.</div>
           {/if}
         {/if}
       </div>
