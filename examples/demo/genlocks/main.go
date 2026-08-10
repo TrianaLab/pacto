@@ -185,9 +185,10 @@ func depBearing(c *contract.Contract) bool {
 //	    for offline e2e, NOT live OCI manifest digests — the demo never contacts a
 //	    registry. The `digest` field carries this content hash by design.
 //	(b) The closure walk mirrors internal/app's walkClosure / buildReferenceClosure
-//	    (policies first, then configs, deduped by ref/name, cycle-terminating) but
-//	    resolves every edge OFFLINE by service name within ./bundles instead of
-//	    pulling from a registry.
+//	    (policies first, then configs; one lock entry per declared reference
+//	    occurrence; the walk deduplicated by resolved bundle, which terminates
+//	    cycles) but resolves every edge OFFLINE by service name within ./bundles
+//	    instead of pulling from a registry.
 func buildLock(idx index, sv *svcVersion) (*lock.Lock, error) {
 	l := &lock.Lock{
 		LockVersion: lock.CurrentLockVersion,
@@ -260,19 +261,17 @@ func childNames(c *contract.Contract) []string {
 	return names
 }
 
-// referenceClosure pins the transitive config/policy reference closure,
-// deduplicated by declared ref string (which also terminates cycles), resolving
-// each ref to a bundle by service name. Mirrors the real buildReferenceClosure.
+// referenceClosure pins the transitive config/policy reference closure: one entry
+// per declared reference OCCURRENCE, tagged with the closure path of the contract
+// that declared it, with the walk deduplicated by the RESOLVED bundle (which
+// terminates cycles). Mirrors the real buildReferenceClosure; each ref resolves to
+// a bundle by service name instead of a registry pull.
 func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, error) {
-	seen := map[string]bool{}
+	walked := map[string]bool{}
 	var out []lock.Reference
-	var walk func(c *contract.Contract) error
-	walk = func(c *contract.Contract) error {
+	var walk func(c *contract.Contract, from string) error
+	walk = func(c *contract.Contract, from string) error {
 		for _, d := range c.ReferenceRefs() {
-			if seen[d.Ref] {
-				continue
-			}
-			seen[d.Ref] = true
 			target, err := latest(idx, serviceName(d.Ref))
 			if err != nil {
 				// A real `pacto lock` fails closed here. This generator records
@@ -285,6 +284,7 @@ func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, err
 				continue
 			}
 			out = append(out, lock.Reference{
+				From:    from,
 				Kind:    d.Kind,
 				Name:    d.Name,
 				Source:  "oci",
@@ -292,13 +292,17 @@ func referenceClosure(idx index, root *contract.Contract) ([]lock.Reference, err
 				Version: target.contract.Service.Version,
 				Digest:  target.hash,
 			})
-			if err := walk(target.contract); err != nil {
+			if walked[target.hash] {
+				continue
+			}
+			walked[target.hash] = true
+			if err := walk(target.contract, lock.ReferencePath(from, d.Kind, d.Name)); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err := walk(root); err != nil {
+	if err := walk(root, ""); err != nil {
 		return nil, err
 	}
 	return out, nil

@@ -11,7 +11,7 @@ The lockfile **ships inside any bundle produced from a directory that contains `
 A `pacto.lock` file records:
 
 - **Full transitive dependency closure** — every dependency declared in `dependencies[]`, recursively resolved through the dependency tree, pinned by OCI digest.
-- **Full transitive reference closure** — every config/policy reference declared in `configurations[].ref` and `policies[].ref`, recursively resolved (reference jumps), pinned by OCI digest.
+- **Full transitive reference closure** — every config/policy reference declared in `configurations[].ref` and `policies[].ref`, recursively resolved (reference jumps), pinned by OCI digest. One entry per declared reference *occurrence*, tagged with the contract that declared it, so a root contract's `settings` reference and a referenced bundle's own `settings` reference stay distinct pins.
 - **Local dependencies and references** — file-based deps and refs pinned by their content hash (`sha256:...`) so local changes invalidate the lock.
 
 The lock does not capture configuration values (`configurations[].values`), runtime metadata or scaling parameters. It only pins the structural dependencies and references that form the contract's external boundary.
@@ -84,7 +84,7 @@ Because push enforces the lock, a stale lock blocks publishing — an automatic 
 ## Example `pacto.lock`
 
 ```yaml
-lockVersion: 1
+lockVersion: 2
 pacto:
   version: 1.4.0
 root:
@@ -122,6 +122,13 @@ references:
     ref: oci://ghcr.io/acme/shared-config
     version: 2.0.0
     digest: sha256:222eee...
+  - from: config:shared-config
+    kind: config
+    name: limits
+    source: oci
+    ref: oci://ghcr.io/acme/platform-limits
+    version: 4.0.0
+    digest: sha256:333ddd...
 ```
 
 The lockfile starts with `lockVersion` (schema version), `pacto.version` (the CLI version that wrote the lock) and `root` (the contract's name and version).
@@ -129,6 +136,17 @@ The lockfile starts with `lockVersion` (schema version), `pacto.version` (the CL
 Each `dependencies[]` entry records the `source` (oci or local), the full ref or path as written in the contract, the constraint and resolved version and the digest (for OCI) or contentHash (for local). The lockfile's `constraint` is the dependency's `compatibility` range copied from `pacto.yaml`. The `dependsOn` field captures the dependency chain so Pacto can rebuild the full graph structure from the lock without re-resolving upstream refs.
 
 The `references[]` section records config and policy refs with their `kind`, `source` and digest — references carry no `constraint` (only dependencies do). Local file-based refs appear here with a contentHash instead of an OCI digest.
+
+Because the closure is transitive, `kind` and `name` alone do not identify an entry: two bundles in the same closure can each declare a `config` named `settings`, and a relative ref like `./config` resolves to a different directory depending on which bundle declared it. The `from` field carries the identity of the *declaring* contract — empty for the root contract, otherwise the closure path of the reference occurrence the declaring bundle was reached through (`config:shared-config`, `config:shared-config/policy:limits`, and so on). Together, `from`, `kind` and `name` name exactly one declared reference occurrence, which is what tools match on when they associate a contract's own reference with its pinned destination.
+
+### Schema compatibility
+
+| lockVersion | Written by | Read by this build |
+|-------------|-----------|--------------------|
+| 1 | Builds before reference-occurrence identity | Parses, but carries no `from` |
+| 2 | This build | Current schema |
+
+A `lockVersion: 1` file still parses, so nothing that merely reads a lock breaks. What it cannot do is answer *which* declared reference a given entry belongs to: without `from`, an entry labelled `config`/`settings` may have been declared by the root contract or by anything beneath it. Rather than guess, consumers report a v1 lock's references as unresolved — an unknown destination is safer than a plausible wrong one. `pacto lock --check` and the verification commands report a v1 lock as `LOCK_STALE`; re-run `pacto lock` to rewrite it at version 2.
 
 ---
 

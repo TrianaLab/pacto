@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1547,11 +1548,11 @@ func revisionReferenceEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRe
 			FromService: rev.ServiceKey, FromRevision: rk, To: ref.Name,
 			Type: typ, Provenance: ProvenanceDeclared, RequestedRef: ref.Ref,
 		}
-		locked := lockReference(rev.Lock, ref)
+		locked, lockNote := lockReference(rev, ref)
 		if locked != nil {
 			rel.LockedDigest, rel.LockedVersion = locked.Digest, locked.Version
 		}
-		target, reason := resolveRefRevision(snap, rev, ref, locked)
+		target, reason := resolveRefRevision(snap, rev, ref, locked, lockNote)
 		if target == nil {
 			rel.Reason = reason
 		} else {
@@ -1584,18 +1585,58 @@ func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Depe
 	return key, key != ""
 }
 
-// lockReference returns the lock entry that records what a declared config/policy
-// reference actually resolved to, or nil when the revision has no lock or the
-// lock does not cover this reference.
-func lockReference(l *lock.Lock, ref contract.ReferenceRef) *lock.Reference {
+// lockReference returns the lock entry that records what THIS revision's own
+// declared config/policy reference actually resolved to, or nil plus the reason
+// no entry authoritatively answers for it.
+//
+// pacto.lock pins the TRANSITIVE reference closure of one root contract, so it
+// routinely holds several entries sharing a (kind, name): a configuration scope
+// called "settings" the root declared, and another called "settings" declared by
+// a bundle the root reached through a different reference. Both digests are real
+// and each is authoritative for a different reference. Choosing between them by
+// label — by slice order, sorted order, or any other tiebreak — yields a digest
+// that names the wrong bundle and renders as a confident canonical Product link
+// the contract never declared. Only the declaring contract recorded in the entry
+// settles it, so only the root's own entries answer here.
+func lockReference(rev *ContractRevision, ref contract.ReferenceRef) (*lock.Reference, string) {
+	l := rev.Lock
 	if l == nil {
-		return nil
+		return nil, ""
 	}
-	e, found := l.Reference(ref.Kind, ref.Name)
+	// A lock describes exactly one root contract, and "declared by the root" is
+	// only meaningful about that one. A lock that names a DIFFERENT contract was
+	// attached to the wrong revision, and its root entries are someone else's. A
+	// lock that names no contract at all is unstated rather than contradictory, so
+	// it is read at face value.
+	if l.Root.Name != "" && l.Root.Name != rev.Contract.Service.Name {
+		return nil, lockBelongsElsewhere(l)
+	}
+	if l.Root.Version != "" && l.Root.Version != rev.Contract.Service.Version {
+		return nil, lockBelongsElsewhere(l)
+	}
+	if l.LockVersion < lock.OccurrenceLockVersion {
+		return nil, "this pacto.lock predates reference-occurrence identity (lockVersion " +
+			strconv.Itoa(l.LockVersion) + "), so which of its recorded resolutions belongs to this " +
+			"declared reference cannot be established; re-run `pacto lock` to record it"
+	}
+	e, found := l.RootReference(ref.Kind, ref.Name)
 	if !found {
-		return nil
+		return nil, ""
 	}
-	return e
+	return e, ""
+}
+
+// lockBelongsElsewhere explains, for a reader who has to work out why the pins
+// are missing, which contract the attached lock actually describes.
+func lockBelongsElsewhere(l *lock.Lock) string {
+	who := l.Root.Name
+	if who == "" {
+		who = "another contract"
+	} else if l.Root.Version != "" {
+		who += "@" + l.Root.Version
+	}
+	return "the pacto.lock carried by this revision records the closure of " + who +
+		", not of this contract, so it says nothing about this reference"
 }
 
 // resolveRefRevision resolves a config/policy reference to the EXACT fleet
@@ -1634,10 +1675,16 @@ func lockReference(l *lock.Lock, ref contract.ReferenceRef) *lock.Reference {
 // never resolve to each other, and an identifier matching several services in one
 // domain is ambiguous rather than arbitrarily won. Dependency resolution is
 // untouched.
-func resolveRefRevision(snap *FleetSnapshot, from *ContractRevision, ref contract.ReferenceRef, locked *lock.Reference) (*ContractRevision, string) {
+// lockNote, when non-empty, explains why the revision's lock could not answer for
+// this reference occurrence; it is preferred over the generic reason when no
+// authoritative identity is available at all.
+func resolveRefRevision(snap *FleetSnapshot, from *ContractRevision, ref contract.ReferenceRef, locked *lock.Reference, lockNote string) (*ContractRevision, string) {
 	ids := authoritativeRefIdentities(ref, locked)
 	if len(ids) == 0 {
-		return nil, "this reference carries no resolved identity: it is not digest-pinned and pacto.lock records no resolution for it, so the destination contract is unknown"
+		if lockNote != "" {
+			return nil, lockNote
+		}
+		return nil, "this reference carries no resolved identity: it is not digest-pinned and pacto.lock records no unambiguous resolution for it, so the destination contract is unknown"
 	}
 	var match *ContractRevision
 	for _, id := range ids {

@@ -388,10 +388,10 @@ func TestCompareLocksLocalConsistent(t *testing.T) {
 }
 
 func TestCompareLocksReferenceByRefDrift(t *testing.T) {
-	existing := &lock.Lock{References: []lock.Reference{
+	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/cfg", Digest: "sha256:old"},
 	}}
-	fresh := &lock.Lock{References: []lock.Reference{
+	fresh := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/cfg", Digest: "sha256:new"},
 	}}
 	err := compareLocks(existing, fresh)
@@ -401,27 +401,58 @@ func TestCompareLocksReferenceByRefDrift(t *testing.T) {
 	}
 }
 
-// TestCompareLocksReferenceNameCollision proves references are matched by Ref,
-// not (kind,name): two refs with the SAME name but different Ref do not collide.
+// TestCompareLocksReferenceNameCollision proves references are matched by
+// OCCURRENCE, not (kind, name): the root's "cfg" and a transitive "cfg" declared
+// by another bundle in the closure are two entries, compared against their own
+// counterparts. Matching on (kind, name) alone would compare the root's digest
+// against the transitive one and report drift that does not exist.
 func TestCompareLocksReferenceNameCollision(t *testing.T) {
-	existing := &lock.Lock{References: []lock.Reference{
-		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/a", Digest: "sha256:a"},
-		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/b", Digest: "sha256:b"},
-	}}
-	fresh := &lock.Lock{References: []lock.Reference{
-		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/a", Digest: "sha256:a"},
-		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/b", Digest: "sha256:b"},
-	}}
+	refs := []lock.Reference{
+		{From: "", Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/a", Digest: "sha256:a"},
+		{From: "config:parent", Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/b", Digest: "sha256:b"},
+	}
+	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: refs}
+	fresh := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: append([]lock.Reference(nil), refs...)}
 	if err := compareLocks(existing, fresh); err != nil {
-		t.Errorf("same-name distinct-ref references should be consistent, got %v", err)
+		t.Errorf("same-name references at different closure depths should be consistent, got %v", err)
+	}
+}
+
+// A local reference occurrence is identified by its declaring contract too: the
+// same relative path text under two different bundles is two different targets,
+// and comparing them against each other would report drift between unrelated
+// bundles.
+func TestCompareLocksLocalReferenceSamePathDifferentOccurrences(t *testing.T) {
+	refs := []lock.Reference{
+		{From: "", Kind: "config", Name: "shared", Source: "local", Path: "./config", ContentHash: "h-root"},
+		{From: "config:child", Kind: "config", Name: "shared", Source: "local", Path: "./config", ContentHash: "h-child"},
+	}
+	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: refs}
+	fresh := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: append([]lock.Reference(nil), refs...)}
+	if err := compareLocks(existing, fresh); err != nil {
+		t.Errorf("two ./config occurrences are two targets, not drift: %v", err)
+	}
+}
+
+// A lock written under an older schema is stale, not silently reinterpreted.
+func TestCompareLocksOlderSchemaIsStale(t *testing.T) {
+	existing := &lock.Lock{LockVersion: 1, References: []lock.Reference{
+		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/a", Digest: "sha256:a"},
+	}}
+	fresh := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
+		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/a", Digest: "sha256:a"},
+	}}
+	var se *lock.StaleError
+	if err := compareLocks(existing, fresh); !errors.As(err, &se) {
+		t.Fatalf("expected *lock.StaleError for an older schema, got %v", err)
 	}
 }
 
 func TestCompareLocksReferenceLocalDrift(t *testing.T) {
-	existing := &lock.Lock{References: []lock.Reference{
+	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "local", Path: "./cfg", ContentHash: "h-old"},
 	}}
-	fresh := &lock.Lock{References: []lock.Reference{
+	fresh := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "local", Path: "./cfg", ContentHash: "h-new"},
 	}}
 	err := compareLocks(existing, fresh)
@@ -432,10 +463,10 @@ func TestCompareLocksReferenceLocalDrift(t *testing.T) {
 }
 
 func TestCompareLocksReferenceLocalConsistent(t *testing.T) {
-	existing := &lock.Lock{References: []lock.Reference{
+	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "local", Path: "./cfg", ContentHash: "h"},
 	}}
-	fresh := &lock.Lock{References: []lock.Reference{
+	fresh := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "local", Path: "./cfg", ContentHash: "h"},
 	}}
 	if err := compareLocks(existing, fresh); err != nil {
@@ -446,7 +477,7 @@ func TestCompareLocksReferenceLocalConsistent(t *testing.T) {
 // TestCompareLocksReferenceCountChanged covers the reference-count StaleError:
 // both locks have equal dependency counts but a different number of references.
 func TestCompareLocksReferenceCountChanged(t *testing.T) {
-	existing := &lock.Lock{References: []lock.Reference{
+	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/cfg", Digest: "sha256:x"},
 	}}
 	fresh := &lock.Lock{} // same dep count (0), fewer references
@@ -458,18 +489,34 @@ func TestCompareLocksReferenceCountChanged(t *testing.T) {
 }
 
 // TestCompareLocksReferenceNew covers the membership mismatch when counts match
-// but a fresh reference's identity is absent from the existing set.
+// but a fresh reference occurrence is absent from the existing set.
 func TestCompareLocksReferenceNew(t *testing.T) {
-	existing := &lock.Lock{References: []lock.Reference{
-		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/old", Digest: "sha256:x"},
+	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
+		{From: "", Kind: "config", Name: "old-scope", Source: "oci", Ref: "oci://r/a", Digest: "sha256:x"},
 	}}
-	fresh := &lock.Lock{References: []lock.Reference{
-		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/new", Digest: "sha256:x"},
+	fresh := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
+		{From: "", Kind: "config", Name: "new-scope", Source: "oci", Ref: "oci://r/a", Digest: "sha256:x"},
 	}}
 	err := compareLocks(existing, fresh)
 	var se *lock.StaleError
 	if !errors.As(err, &se) {
 		t.Fatalf("expected *lock.StaleError for new reference, got %v", err)
+	}
+}
+
+// A reference repointed at a different ref is stale even when the new target
+// happens to hash the same. The lock records the declared source, not just the
+// bytes it reached.
+func TestCompareLocksReferenceRepointedIsStale(t *testing.T) {
+	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
+		{From: "", Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/old", Digest: "sha256:x"},
+	}}
+	fresh := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
+		{From: "", Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/new", Digest: "sha256:x"},
+	}}
+	var se *lock.StaleError
+	if err := compareLocks(existing, fresh); !errors.As(err, &se) {
+		t.Fatalf("expected *lock.StaleError for a repointed reference, got %v", err)
 	}
 }
 

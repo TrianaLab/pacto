@@ -116,10 +116,10 @@ func TestParseRoundTrip(t *testing.T) {
 	if _, ok := got.Dependency("missing"); ok {
 		t.Errorf("Dependency(missing) should be false")
 	}
-	if r, ok := got.Reference("policy", "sec"); !ok || r.Digest != "sha256:s" {
+	if r, ok := got.RootReference("policy", "sec"); !ok || r.Digest != "sha256:s" {
 		t.Errorf("Reference(policy,sec) lookup failed")
 	}
-	if _, ok := got.Reference("config", "missing"); ok {
+	if _, ok := got.RootReference("config", "missing"); ok {
 		t.Errorf("Reference(config,missing) should be false")
 	}
 }
@@ -163,5 +163,84 @@ func TestReferencesSortedByKindThenName(t *testing.T) {
 		idxConfigGamma >= idxPolicyAlpha ||
 		idxPolicyAlpha >= idxPolicyZeta {
 		t.Errorf("references not sorted by kind then name:\n%s", out)
+	}
+}
+
+func TestReferencePath(t *testing.T) {
+	if got := ReferencePath("", "config", "settings"); got != "config:settings" {
+		t.Errorf("root occurrence path = %q, want config:settings", got)
+	}
+	if got := ReferencePath("config:foo", "config", "settings"); got != "config:foo/config:settings" {
+		t.Errorf("nested occurrence path = %q, want config:foo/config:settings", got)
+	}
+	// Distinctness is the whole point: same kind and name, different declaring
+	// contract, different path.
+	if ReferencePath("", "config", "settings") == ReferencePath("config:foo", "config", "settings") {
+		t.Error("a root occurrence and a transitive namesake must not share a path")
+	}
+}
+
+// The declaring contract leads the reference sort, so a bundle's own references
+// stay grouped under it and the ordering itself never has to be interpreted.
+func TestReferencesSortedByDeclaringContractFirst(t *testing.T) {
+	l := &Lock{
+		LockVersion: CurrentLockVersion,
+		References: []Reference{
+			{From: "config:foo", Kind: "config", Name: "aaa", Source: "oci", Ref: "oci://r/nested"},
+			{From: "", Kind: "config", Name: "zzz", Source: "oci", Ref: "oci://r/root"},
+		},
+	}
+	data, err := l.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	out := string(data)
+	// Root ("") sorts ahead of "config:foo" even though its name sorts last.
+	if strings.Index(out, "oci://r/root") > strings.Index(out, "oci://r/nested") {
+		t.Errorf("references not sorted by declaring contract first:\n%s", out)
+	}
+}
+
+// RootReference answers only for the root contract's OWN declared references.
+func TestRootReferenceIgnoresEverythingItCannotAttribute(t *testing.T) {
+	mine := Reference{From: "", Kind: "config", Name: "settings", Source: "oci", Digest: "sha256:mine"}
+	theirs := Reference{From: "config:foo", Kind: "config", Name: "settings", Source: "oci", Digest: "sha256:theirs"}
+
+	l := &Lock{LockVersion: CurrentLockVersion, References: []Reference{theirs, mine}}
+	r, ok := l.RootReference("config", "settings")
+	if !ok || r.Digest != "sha256:mine" {
+		t.Errorf("RootReference returned %+v (%v), want the root's own entry", r, ok)
+	}
+
+	// A transitive namesake alone answers for nothing.
+	only := &Lock{LockVersion: CurrentLockVersion, References: []Reference{theirs}}
+	if _, ok := only.RootReference("config", "settings"); ok {
+		t.Error("a transitive namesake must not answer for the root's reference")
+	}
+
+	// Two entries claiming the same occurrence contradict each other.
+	dup := &Lock{LockVersion: CurrentLockVersion, References: []Reference{mine, mine}}
+	if _, ok := dup.RootReference("config", "settings"); ok {
+		t.Error("contradictory occurrence entries must not resolve")
+	}
+
+	// A pre-occurrence lock records nothing that can be attributed at all.
+	legacy := &Lock{LockVersion: OccurrenceLockVersion - 1, References: []Reference{
+		{Kind: "config", Name: "settings", Source: "oci", Digest: "sha256:mine"},
+	}}
+	if _, ok := legacy.RootReference("config", "settings"); ok {
+		t.Error("a lock predating occurrence identity must not resolve a reference")
+	}
+}
+
+// A lockVersion 1 file still parses, and keeps declaring 1 -- reading it as if it
+// were current would silently reinterpret it under semantics it never recorded.
+func TestParseAcceptsOlderSchemaWithoutUpgradingIt(t *testing.T) {
+	got, err := Parse([]byte("lockVersion: 1\nroot:\n  name: app\n  version: 1.0.0\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got.LockVersion != MinLockVersion {
+		t.Errorf("LockVersion = %d, want %d preserved as written", got.LockVersion, MinLockVersion)
 	}
 }

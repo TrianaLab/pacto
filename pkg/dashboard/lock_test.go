@@ -12,7 +12,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
-const sampleLockYAML = `lockVersion: 1
+const sampleLockYAML = `lockVersion: 2
 pacto:
   version: 0.9.0
 root:

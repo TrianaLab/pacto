@@ -84,47 +84,77 @@ func referenceBaseDir(ref string) string {
 	return base
 }
 
-// buildReferenceClosure pins the full transitive config/policy reference closure.
-// Deduplicated by declared ref string, which also terminates cycles.
+// buildReferenceClosure pins the full transitive config/policy reference closure:
+// one entry per declared reference OCCURRENCE, tagged with the closure path of
+// the contract that declared it (lock.Reference.From, "" for the root).
+//
+// Two properties matter and neither is free:
+//
+//   - Every occurrence is emitted, even when two of them share a declared ref
+//     string. A ref string is text a human wrote in one contract; the same text
+//     in two contracts is two references. Collapsing them either drops a real
+//     closure member or files one contract's resolution under another's name.
+//   - The walk is deduplicated by the RESOLVED bundle -- its registry digest, or
+//     its resolved absolute path for a local ref -- not by that text. A relative
+//     ref is resolved against the directory of the contract that declared it, so
+//     "./config" declared in two directories denotes two different bundles;
+//     conversely two different ref strings may name one bundle. Resolved identity
+//     is what makes the walk finite, so cycles still terminate.
 func (s *Service) buildReferenceClosure(ctx context.Context, root *contract.Contract, baseDir string) ([]lock.Reference, error) {
-	seen := map[string]bool{}
+	walked := map[string]bool{}            // resolved bundle identity -> already recursed into
+	resolved := map[string]refResolution{} // (dir, ref text) -> resolution, so a repeat costs no fetch
 	var out []lock.Reference
-	var walk func(c *contract.Contract, dir string) error
-	walk = func(c *contract.Contract, dir string) error {
+	var walk func(c *contract.Contract, dir, from string) error
+	walk = func(c *contract.Contract, dir, from string) error {
 		for _, d := range c.ReferenceRefs() {
-			if seen[d.Ref] {
-				continue
-			}
-			seen[d.Ref] = true
-			entry, child, childDir, err := s.resolveReference(ctx, d, dir)
-			if err != nil {
-				return err
-			}
-			out = append(out, entry)
-			if child != nil {
-				if err := walk(child, childDir); err != nil {
+			memo, ok := resolved[dir+"\x00"+d.Ref]
+			if !ok {
+				var err error
+				if memo, err = s.resolveReference(ctx, d, dir); err != nil {
 					return err
 				}
+				resolved[dir+"\x00"+d.Ref] = memo
+			}
+			entry := memo.entry
+			entry.From = from
+			out = append(out, entry)
+			if memo.child == nil || walked[memo.identity] {
+				continue
+			}
+			walked[memo.identity] = true
+			if err := walk(memo.child, memo.childDir, lock.ReferencePath(from, d.Kind, d.Name)); err != nil {
+				return err
 			}
 		}
 		return nil
 	}
-	if err := walk(root, baseDir); err != nil {
+	if err := walk(root, baseDir, ""); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
+// refResolution is one resolved reference: the lock entry (minus its From, which
+// belongs to the declaring contract, not the target), the referenced bundle's
+// contract and base dir for recursion, and the resolved identity that terminates
+// the walk. identity is runtime-only and never serialized.
+type refResolution struct {
+	entry    lock.Reference
+	child    *contract.Contract
+	childDir string
+	identity string
+}
+
 // resolveReference pins one reference and returns the referenced bundle's
-// contract (for recursion) and its base dir ("" for OCI). Any resolve/pull/
-// hash/load failure yields *lock.UnresolvedError (fail closed).
-func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef, dir string) (lock.Reference, *contract.Contract, string, error) {
+// contract (for recursion), its base dir ("" for OCI) and its resolved identity.
+// Any resolve/pull/hash/load failure yields *lock.UnresolvedError (fail closed).
+func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef, dir string) (refResolution, error) {
 	r := lock.Reference{Kind: d.Kind, Name: d.Name}
 	parsed := graph.ParseDependencyRef(d.Ref)
 
 	if parsed.IsLocal() {
 		if dir == "" {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: "local reference inside an OCI bundle cannot be resolved"}
+			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: "local reference inside an OCI bundle cannot be resolved"}
 		}
 		path := parsed.Location
 		if !filepath.IsAbs(path) {
@@ -132,32 +162,34 @@ func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef,
 		}
 		b, err := loadLocalBundle(path)
 		if err != nil {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
+			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
 		h, err := lock.HashFS(b.FS)
 		if err != nil {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
+			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
 		r.Source = "local"
 		r.Path = parsed.Location
 		r.ContentHash = h
 		r.Version = b.Contract.Service.Version
-		return r, b.Contract, path, nil
+		// The resolved absolute path, not the content hash: two byte-identical
+		// bundle directories still resolve their own relative refs differently.
+		return refResolution{entry: r, child: b.Contract, childDir: path, identity: "local:" + path}, nil
 	}
 
 	resolvedRef, digest, err := resolveDigest(ctx, s.BundleStore, parsed.Location, "")
 	if err != nil {
-		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
+		return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 	}
 	b, err := s.BundleStore.Pull(ctx, resolvedRef)
 	if err != nil {
-		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
+		return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 	}
 	r.Source = "oci"
 	r.Ref = d.Ref
 	r.Digest = digest
 	r.Version = b.Contract.Service.Version
-	return r, b.Contract, "", nil
+	return refResolution{entry: r, child: b.Contract, childDir: "", identity: "oci:" + digest}, nil
 }
 
 // entryFromEdge builds a dependency lock entry from a resolved graph node,

@@ -70,14 +70,19 @@ func ApplyLock(svc *ServiceDetails, l *lock.Lock) {
 			svc.Dependencies[i].LockedVersion = e.Version
 		}
 	}
+	// Only the ROOT contract's own entries pin its declared references. The lock
+	// holds the transitive closure, so a same-named entry declared by some bundle
+	// deeper in it is an authoritative resolution of a DIFFERENT reference; pinning
+	// it here would show this service a digest it never resolved. A lock with no
+	// occurrence identity (pre-v2) pins nothing rather than guessing.
 	for i := range svc.Configurations {
-		if r, ok := l.Reference(lockKindConfig, svc.Configurations[i].Name); ok {
+		if r, ok := l.RootReference(lockKindConfig, svc.Configurations[i].Name); ok {
 			svc.Configurations[i].LockedDigest = r.Digest
 			svc.Configurations[i].LockedVersion = r.Version
 		}
 	}
 	for i := range svc.Policies {
-		if r, ok := l.Reference(lockKindPolicy, svc.Policies[i].Name); ok {
+		if r, ok := l.RootReference(lockKindPolicy, svc.Policies[i].Name); ok {
 			svc.Policies[i].LockedDigest = r.Digest
 			svc.Policies[i].LockedVersion = r.Version
 		}
