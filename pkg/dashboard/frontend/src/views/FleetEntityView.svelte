@@ -9,6 +9,7 @@
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import PageToc from '../components/PageToc.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
@@ -113,7 +114,12 @@
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={kindLabel(kind).toLowerCase()} onRetry={load} />
   {:else}
-    <div class="ev-body">
+    <!-- An entity page is a dozen titled sections deep. The shared navigator lists the
+         ones actually rendered for THIS kind (a target has no revision list, an owner no
+         findings), so the contents can never offer a section that is not there. -->
+    <div class="page-toc-layout">
+      <PageToc />
+      <div class="page-toc-main ev-body">
       <!-- Uncertainty and failed refreshes come FIRST and are never collapsible: they
            qualify everything below them, so a reader who stops after the first screen
            must still have seen them. -->
@@ -147,6 +153,7 @@
       {:else if detail.source}
         <SourceEntity {detail} />
       {/if}
+      </div>
     </div>
   {/if}
 </div>
@@ -155,8 +162,9 @@
   .entity-view { display: flex; flex-direction: column; gap: var(--sp-4); }
   /* The resolved page. Its own element (rather than a bare fragment) is what lets a
      test say "the entity BODY is on screen" without that also being true while the
-     page header is still waiting for the request. */
-  .ev-body { display: flex; flex-direction: column; gap: var(--sp-4); }
+     page header is still waiting for the request. The column layout comes from the
+     shared `.page-toc-main`; only the tighter section rhythm is this page's own. */
+  .ev-body { gap: var(--sp-4); }
   /* Look and behaviour come from the shared .disclosure class in styles/components.css. */
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-key-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }

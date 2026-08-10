@@ -549,3 +549,86 @@ describe('product vocabulary', () => {
     expect(routed.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * In-page navigation guard (requirements 15 and 16).
+ *
+ * A long page needs a way to reach its own sections, and there are two ways to build
+ * one. Only one of them is available here.
+ *
+ * The obvious way -- `<a href="#operational-summary">` -- is what the platform is for,
+ * and it is exactly wrong in this application: the URL fragment ALREADY carries the
+ * route. A jump link would overwrite `#/fleet/services/x` with `#operational-summary`,
+ * so following it would navigate away from the page it was trying to scroll, and Back
+ * would then walk through jump targets instead of pages. So in-page navigation is a
+ * button that scrolls, and the fragment keeps its single meaning.
+ *
+ * The second rule is what keeps the navigator honest. Its entries are DISCOVERED from
+ * the rendered DOM, never hand-listed beside a page: a page that hand-lists its own
+ * contents offers sections the data did not produce as soon as the two drift, which is
+ * a worse failure than having no contents list at all.
+ */
+describe('product in-page navigation', () => {
+  // The product host, plus the shared components it is built from. The legacy `pacto
+  // doc` surfaces (src/sections/**, ServiceDetailView) are a different host with their
+  // own contents list and their own navigation, and stay out of scope.
+  const PRODUCT_UI = files.filter((f) => f.rel.endsWith('.svelte')).filter((f) =>
+    /^views\/(Fleet[^/]*|ChangeAnalysisView|GraphView)\.svelte$/.test(f.rel)
+    || f.rel.startsWith('views/entity/')
+    || f.rel.startsWith('components/'));
+
+  // A source scan reads comments too, and both rules below are about what the TEMPLATE
+  // does -- a comment explaining why an `href="#anchor"` is forbidden must not read as
+  // one. Comments are removed before matching, never from the file.
+  const code = (s: string) => s
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  it('scans the product surfaces', () => {
+    expect(PRODUCT_UI.length).toBeGreaterThanOrEqual(15);
+  });
+
+  it('spends the URL fragment on routes only, never on a jump target', () => {
+    // Any literal fragment href must be a ROUTE (`#/...`). `#` alone and `#anchor` are
+    // both the second-meaning bug; the router owns everything after the hash.
+    const JUMP = /href\s*=\s*(?:"#(?!\/)|'#(?!\/)|\{`#(?!\/))/;
+    const offenders = PRODUCT_UI.filter((f) => JUMP.test(code(f.body))).map((f) => f.rel);
+    expect(offenders, `an in-page fragment link would collide with the hash route: ${offenders.join(', ')}`).toEqual([]);
+    // Non-vacuous, in both directions: the pattern catches the shape it names, it does
+    // NOT catch the route form, and the product really is full of links -- they are just
+    // built by the router's URL helpers rather than written as literals, which is the
+    // other half of why a raw fragment href stands out as a mistake.
+    expect(JUMP.test('<a href="#operational-summary">')).toBe(true);
+    expect(JUMP.test('<a href="#">')).toBe(true);
+    expect(JUMP.test('<a href="#/fleet/services">')).toBe(false);
+    expect(PRODUCT_UI.filter((f) => /href=\{/.test(f.body)).length).toBeGreaterThan(3);
+    expect(readFileSync(join(SRC, 'lib/router.ts'), 'utf8')).toMatch(/'#\//);
+  });
+
+  it('has exactly one "On this page" navigator, and it scrolls rather than links', () => {
+    const toc = readFileSync(join(SRC, 'components/PageToc.svelte'), 'utf8');
+    expect(toc, 'entries must be buttons').toMatch(/<button\b[^>]*class="toc-link"/);
+    expect(toc, 'it must name itself for assistive tech').toMatch(/aria-label=\{label\}/);
+    const others = PRODUCT_UI.filter((f) => f.rel !== 'components/PageToc.svelte' && /On this page/.test(code(f.body)));
+    expect(others.map((f) => f.rel), 'a second contents list has appeared').toEqual([]);
+  });
+
+  it('discovers its entries from the rendered page, never from a hand-written list', () => {
+    const toc = readFileSync(join(SRC, 'components/PageToc.svelte'), 'utf8');
+    expect(toc, 'entries come from the DOM').toMatch(/querySelectorAll\('\[data-toc\]\[id\]'\)/);
+    expect(toc, 'and are kept in step with it').toMatch(/new MutationObserver\(/);
+  });
+
+  it('tags sections through the shared section grammar, so a page cannot forget to', () => {
+    // PreviewSection is every titled block on a product page, so tagging it there is
+    // what makes the navigator complete without each page opting in section by section.
+    const ps = readFileSync(join(SRC, 'components/PreviewSection.svelte'), 'utf8');
+    expect(ps, 'only top-level sections are page-outline entries').toMatch(/level === 2 && title/);
+    expect(ps).toMatch(/'data-toc': title/);
+    // The hand-written sections that are not PreviewSections must be tagged too, or the
+    // contents would silently skip them.
+    const tagged = PRODUCT_UI.filter((f) => /data-toc="/.test(f.body)).map((f) => f.rel);
+    expect(tagged.length, 'no page contributes a section to the navigator').toBeGreaterThan(3);
+  });
+});

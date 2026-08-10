@@ -57,6 +57,13 @@
   const totalKnown = $derived(typeof total === 'number' && Number.isFinite(total));
   const titleClass = $derived(role === 'subsection' ? 't-subsection-title' : 't-section-title');
   const countText = $derived(totalKnown ? `${count} of ${total}` : `${count}`);
+
+  // Every top-level section on a page is addressable, so the shared "On this page"
+  // navigator can DISCOVER it instead of a page hand-listing its own contents and
+  // drifting. Only level 2: a preview nested inside another titled block is a
+  // subsection of it, and listing it as a peer would misdescribe the page outline.
+  const tocId = $derived(`sec-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`);
+  const toc = $derived(level === 2 && title ? { id: tocId, 'data-toc': title } : {});
 </script>
 
 {#snippet head(withHelp)}
@@ -91,7 +98,7 @@
        would be an interactive element nested in an interactive element: the help click
        would also toggle the section. Requirement 14 asks for substantive explanation
        behind an expandable disclosure anyway, and this section already is one. -->
-  <details class="ps disclosure ps-collapsible" class:ps-toned={tone} data-tone={tone} data-testid="preview-section" {open}>
+  <details class="ps disclosure ps-collapsible" class:ps-toned={tone} data-tone={tone} data-testid="preview-section" {open} {...toc}>
     <summary class="ps-head">
       <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
       {@render head(false)}
@@ -99,7 +106,7 @@
     <div class="ps-panel">{@render body(!!help)}</div>
   </details>
 {:else}
-  <section class="ps" class:ps-toned={tone} data-tone={tone} data-testid="preview-section">
+  <section class="ps" class:ps-toned={tone} data-tone={tone} data-testid="preview-section" {...toc}>
     <div class="ps-head">{@render head(true)}</div>
     {@render body(false)}
   </section>

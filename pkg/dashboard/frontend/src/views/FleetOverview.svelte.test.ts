@@ -260,6 +260,17 @@ describe('FleetOverview — every band draws a complete population', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // Owners is a dimension, not a fifth primary destination, so the nav does not carry
+  // it. A reader shown a fleet-wide ownership gap has to be able to get from that fact
+  // to whose gap it is without knowing the URL.
+  it('band 3 is a door to Owners, which the primary nav deliberately does not carry', async () => {
+    overviewFn.mockResolvedValue(baseOverview(false));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-org"]')).toBeTruthy());
+    expect(linkIn(target, 'ov-org', 'Browse owners')?.getAttribute('href')).toBe('#/fleet/owners');
+    unmount(component); document.body.removeChild(target);
+  });
+
   // Readiness is declared BY a contract revision, so the unit is always the revision --
   // never the service, the fleet, the runtime or the operational target.
   it('band 3 partitions every contract revision by its own declared assessment', async () => {

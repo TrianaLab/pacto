@@ -93,7 +93,7 @@
   {/if}
 
   {#if r}
-    <section class="re-readiness">
+    <section class="re-readiness" id="sec-readiness" data-toc="Readiness">
       <div class="rr-head">
         <h2 class="t-section-title">Readiness</h2>
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
@@ -128,7 +128,7 @@
          the page used to answer with silence -- the one fact they came for was the one
          thing missing. Absence is a state worth naming, and naming it is also where the
          distinction gets taught: nothing declared is not the same as declared and failing. -->
-    <section class="re-readiness">
+    <section class="re-readiness" id="sec-readiness" data-toc="Readiness">
       <div class="rr-head">
         <h2 class="t-section-title">Readiness</h2>
         <IdentityBadge label="Not declared" tone="neutral" />
@@ -345,7 +345,7 @@
          holds every revision of every service, and one SBOM can list thousands -- so the
          page reports the exact package count and the license mix, and says where the
          inventory itself lives instead of implying it has been read here. -->
-    <details class="re-sbom disclosure" data-testid="revision-sbom">
+    <details class="re-sbom disclosure" id="sec-software-inventory" data-toc="Software inventory" data-testid="revision-sbom">
       <summary>
         <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
         <h2 class="t-section-title">Software inventory</h2>

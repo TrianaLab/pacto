@@ -98,7 +98,7 @@
        Keeping them as three bars rather than one health score is the point: a target
        can be compliant against a revision we only guessed at, and a fleet of "unknown"
        is not a fleet of failures. -->
-  <section class="se-summary" aria-labelledby="se-summary-h">
+  <section class="se-summary" id="sec-operational-summary" data-toc="Operational summary" aria-labelledby="se-summary-h">
     <h2 id="se-summary-h" class="t-section-title">Operational summary</h2>
     <p class="se-lead t-body-2">
       {targets} operational {targets === 1 ? 'target' : 'targets'} ·

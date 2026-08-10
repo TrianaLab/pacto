@@ -545,3 +545,20 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .disclosure-caret { display: inline-block; transition: transform 0.12s ease; flex-shrink: 0; }
 .disclosure[open] > summary .disclosure-caret { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .disclosure-caret { transition: none; } }
+
+/* ─── Page contents scaffold ─── */
+/* The two-column shape a long page takes once it carries an "On this page" navigator:
+   the rail beside the content where there is room, the same navigator stacked above the
+   content where there is not. One rule, so Overview and the entity pages cannot drift
+   into two different column widths or two different breakpoints.
+
+   `align-items: start` is load-bearing: it is what lets the rail's `position: sticky`
+   do anything, since a stretched grid child is already the height of its row. */
+.page-toc-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+.page-toc-main { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+@media (min-width: 1100px) {
+  .page-toc-layout { grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-6); }
+}
+/* Every navigable section clears the sticky app bar when it is scrolled to, rather than
+   arriving with its own heading hidden underneath it. */
+[data-toc] { scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }

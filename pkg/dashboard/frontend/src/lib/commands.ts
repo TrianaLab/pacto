@@ -2,7 +2,7 @@
 import {
   serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl,
   fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl,
-  fleetAttentionUrl, fleetChangesUrl,
+  fleetAttentionUrl, fleetChangesUrl, fleetEntityListUrl,
 } from './router';
 import { ownerKey, ownerMatchesFilter } from './format';
 
@@ -29,8 +29,12 @@ export interface CommandGroup {
 // The palette AGREES with the primary nav: the four primary destinations come first, in
 // nav order, and the secondary workspaces (the dimensions the nav deliberately does not
 // promote) follow -- so every workspace stays one keystroke away without the nav
-// pretending they are all equally fundamental. Readiness resolves to the Needs-attention
-// readiness category, the product's single definition of it.
+// pretending they are all equally fundamental.
+//
+// "Readiness" resolves to the contract revision inventory, where the whole assessed
+// population lives. It used to resolve to the Needs-attention readiness category, which
+// is a triage cut of that population and structurally cannot contain a passing revision:
+// a user typing "readiness" was shown the failures and told that was readiness.
 const FLEET_VIEWS: Command[] = [
   { kind: 'view', label: 'Overview', href: fleetOverviewUrl() },
   { kind: 'view', label: 'Services', href: fleetServicesUrl() },
@@ -42,7 +46,7 @@ const FLEET_VIEWS: Command[] = [
   { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
   { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
   { kind: 'view', label: 'Data sources', href: fleetSourcesUrl() },
-  { kind: 'view', label: 'Readiness', href: fleetAttentionUrl({ category: 'readiness' }) },
+  { kind: 'view', label: 'Readiness', href: fleetEntityListUrl('revision'), keywords: ['contract revisions', 'assessment'] },
 ];
 const LEGACY_VIEWS: Command[] = [
   { kind: 'view', label: 'Services', href: '#/' },

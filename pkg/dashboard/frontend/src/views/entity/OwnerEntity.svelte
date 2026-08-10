@@ -29,7 +29,7 @@
 </script>
 
 <div class="owner-entity">
-  <section class="oe-posture" aria-labelledby="oe-posture-h">
+  <section class="oe-posture" id="sec-operational-summary" data-toc="Operational summary" aria-labelledby="oe-posture-h">
     <h2 id="oe-posture-h" class="t-section-title">Operational summary</h2>
     <p class="oe-lead t-body-2">
       {sum.services ?? 0} {(sum.services ?? 0) === 1 ? 'service' : 'services'} ·

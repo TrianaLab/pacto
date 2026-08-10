@@ -138,7 +138,7 @@
     <!-- Readiness reported BY the runtime source for this target, which is a different
          statement from the readiness the revision's authors declared. When both exist
          they can legitimately disagree, so they are never merged. -->
-    <section class="te-readiness">
+    <section class="te-readiness" id="sec-reported-readiness" data-toc="Reported readiness">
       <div class="te-rr-head">
         <h2 class="t-section-title">Reported readiness</h2>
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />

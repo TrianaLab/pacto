@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { knowledgeLabel, knowledgeTone, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
-  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetEntityListUrl } from '../lib/router.ts';
+  import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
   import { ownershipSegments, readinessSegments } from '../lib/distributions.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -13,6 +13,7 @@
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import PageToc from '../components/PageToc.svelte';
   import PostureBars from '../components/viz/PostureBars.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
 
@@ -132,7 +133,10 @@
   {#if pageState.kind !== 'ready'}
     <ProductEmptyState state={pageState} noun="operational data" onRetry={load} />
   {:else}
-    <section class="band" aria-labelledby="ov-now">
+  <div class="page-toc-layout">
+    <PageToc />
+    <div class="page-toc-main">
+    <section class="band" id="sec-now" data-toc="Immediate situation" aria-labelledby="ov-now">
       <h2 id="ov-now" class="t-section-title">Immediate situation</h2>
 
       {#if knowledge.incomplete}
@@ -175,7 +179,7 @@
       <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
     </section>
 
-    <section class="band" aria-labelledby="ov-posture">
+    <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
       <h2 id="ov-posture" class="t-section-title">Operational posture</h2>
       <p class="ov-sub t-body-2">
         Over all {totalTargets} operational {totalTargets === 1 ? 'target' : 'targets'} the snapshot knows about.
@@ -187,8 +191,14 @@
       {/if}
     </section>
 
-    <section class="band" aria-labelledby="ov-org">
-      <h2 id="ov-org" class="t-section-title">Organization and contract</h2>
+    <section class="band" id="sec-org" data-toc="Organization and contract" aria-labelledby="ov-org">
+      <!-- Owners is a DIMENSION of the four primary destinations, not a fifth one, so it
+           is not in the nav. This is where a reader who has just been shown a fleet-wide
+           ownership gap goes to find out whose it is. -->
+      <div class="ov-head">
+        <h2 id="ov-org" class="t-section-title">Organization and contract</h2>
+        <a class="ov-viewall" href={fleetOwnersUrl()}>Browse owners</a>
+      </div>
       <p class="ov-sub t-body-2">
         Two things nobody can see from a single service page: whether ownership is declared at all, and whether anyone is assessing readiness.
         Neither is an operational failure — both are systemic, and both are counted over everything the snapshot holds.
@@ -213,9 +223,9 @@
       </div>
     </section>
 
-    <section class="ov-section">
+    <section class="ov-section" id="sec-attention" data-toc="Needs attention" aria-labelledby="ov-attention">
       <div class="ov-head">
-        <h2 class="t-section-title">Needs attention</h2>
+        <h2 id="ov-attention" class="t-section-title">Needs attention</h2>
         <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({attentionTotal})</a>
       </div>
       <!-- Triage dimensions, not destinations. Readiness lives here rather than in the
@@ -246,8 +256,8 @@
       {/if}
     </section>
 
-    <section class="ov-section">
-      <h2 class="t-section-title">Recent evidence</h2>
+    <section class="ov-section" id="sec-evidence" data-toc="Recent evidence" aria-labelledby="ov-evidence">
+      <h2 id="ov-evidence" class="t-section-title">Recent evidence</h2>
       {#if overview.recentEvidence.items.length}
         <ul class="evi-list">
           {#each overview.recentEvidence.items as ev}
@@ -261,6 +271,8 @@
         <p class="ov-none">No evidence arrived recently.</p>
       {/if}
     </section>
+    </div>
+  </div>
   {/if}
 </div>
 

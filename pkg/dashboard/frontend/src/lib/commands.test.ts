@@ -63,6 +63,18 @@ describe('buildCommands — capability-aware views (Part 1: one destination per 
     expect(found.map((v) => v.label)).toEqual(['Change analysis']);
   });
 
+  /**
+   * Readiness is not in the primary nav, so the palette is one of the few doors to it.
+   * It opens the contract revision inventory -- the whole assessed population. It used
+   * to open the Needs-attention readiness category, a triage cut that structurally
+   * cannot contain a passing revision: typing "readiness" showed only the failures and
+   * called them readiness.
+   */
+  it('sends Readiness to the whole revision population, not to the failure backlog', () => {
+    const views = buildCommands('readiness', [], true).find((g) => g.label === 'Views')?.items || [];
+    expect(views.map((v) => [v.label, v.href])).toEqual([['Readiness', '#/fleet/revisions']]);
+  });
+
   it('offers the LEGACY destinations on a non-Fleet host (its only UI)', () => {
     const hrefs = (buildCommands('', [], false).find((g) => g.label === 'Views')?.items || []).map((v) => v.href);
     expect(hrefs).toContain('#/');
