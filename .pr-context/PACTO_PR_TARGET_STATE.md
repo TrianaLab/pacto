@@ -191,6 +191,29 @@ A lock/reference entry must be attributable to the **specific declaration occurr
 
 Local relative references must include enough origin/base context so identical relative strings from different directories cannot collapse incorrectly.
 
+The occurrence representation must be **injective for every name the contract
+schema accepts**, including names containing `/`, `:` and arbitrary UTF-8. An
+unescaped delimiter-joined path over arbitrary names is not injective and is
+therefore not an acceptable occurrence identity.
+
+Three concepts must be distinguished explicitly, in the model and in the docs:
+
+- **declaring contract identity** — which immutable contract holds the
+  declaration;
+- **declaration identity** — which config/policy declaration inside that
+  contract;
+- **traversal provenance** — through which root -> ... path that declaring
+  contract was reached.
+
+The lock must model declaration identity cleanly. Traversal provenance may be
+represented separately when appropriate, but must not be silently substituted
+for declaration identity. A later MCP catalog must be able to preserve all paths
+without reinterpreting an ambiguous lock model.
+
+Changing the serialized meaning of an already-published lock version is not
+allowed silently: bump the version, or state the reduced guarantees of the older
+version explicitly, and document the compatibility matrix.
+
 ### Evidence identity
 
 Producer, sequence, subject/target and digest semantics remain explicit and deterministic.
@@ -209,9 +232,16 @@ Producer, sequence, subject/target and digest semantics remain explicit and dete
 - Needs attention
 - Owners
 - Data sources
-- Readiness through revision/attention context
+- Product-native revision Readiness insights
 
-There must be no visible legacy Fleet-host Readiness or Compare island.
+Primary navigation stays exactly four tabs. Owners and Readiness must NOT become
+fifth/sixth primary tabs. They are discoverable through Overview summaries,
+Services aggregate context, Attention filters, the command palette and entity
+contextual links.
+
+There must be no visible legacy Fleet-host Readiness or Compare island. The
+legacy `ReadinessView` must not be kept or re-enabled; a Product-native surface
+may reclaim `#/fleet/readiness` so old bookmarks land somewhere better.
 
 Legacy routes may canonicalize to Product routes for compatibility.
 
@@ -220,6 +250,85 @@ Legacy routes may canonicalize to Product routes for compatibility.
 Answers: **What is happening and what deserves attention?**
 
 It should combine concise metrics, useful visual summaries and drill-downs without becoming a wall of charts.
+
+The first screenful must quickly answer:
+
+- what requires action;
+- how trustworthy/current our knowledge is;
+- what the operational posture is;
+- whether ownership/readiness is a systemic problem.
+
+A restrained hierarchy is expected, for example: an IMMEDIATE SITUATION band
+(services needing attention, non-compliant targets, stale/no evidence,
+unresolved/ambiguous revision identity, observed-only relationships, degraded
+data sources), an OPERATIONAL POSTURE band (compliance, revision-match
+certainty, evidence freshness, reconciliation where a complete meaningful
+population exists) and an ORGANIZATION / CONTRACT band (ownership coverage,
+revision Readiness).
+
+These are semantic goals, not a mandated card count. Do not show six cards plus
+six bars merely because six metrics exist. The responsive grid must stay
+balanced — no huge orphan lead card above a half-empty row unless hierarchy
+genuinely warrants it.
+
+Every Overview fact needs a real population. For each visual state document and
+test: entity population, denominator, completeness semantics, source of
+authority and drill-down destination. A count may be global while a preview
+below it is bounded; those concepts stay separate. Global charts must never be
+derived from bounded previews, and a distribution that cannot be defined over
+one honest complete population must not be fabricated.
+
+### Services inventory intelligence
+
+Services must carry aggregate context over ALL services matching the committed
+filters, not only the rendered page.
+
+- the aggregate population uses the SAME semantic filters as the list (text,
+  owner, status, domain) and excludes pagination from the population
+  definition;
+- the aggregate is a backend-authoritative bounded Product query, not frontend
+  arithmetic over paged rows, and never pages all entities into the browser;
+- the complete population is evaluated server-side over the snapshot;
+- the response is finite/bounded, carries normal Product completeness metadata
+  and contains no raw `FleetSnapshot`;
+- the generated OpenAPI/SDK remains wire authority;
+- target/revision aggregate denominators are stated explicitly (naturally: all
+  targets/revisions belonging to matching services) and never mixed silently.
+
+Once a full-population aggregate exists, the older page-only compliance bar must
+be re-judged: if it becomes redundant or noisy it is removed or demoted rather
+than kept for backwards compatibility.
+
+### Ownership insights
+
+Ownership comprehension is Product-native and backend-defined. Evaluate at
+minimum: services with a consistent declared owner, genuinely unowned services,
+services with conflicting ownership declarations, services per owner/team,
+attention items per owner and operational targets per owner.
+
+- a service is not "cleanly owned" merely because one arbitrarily-derived
+  summary owner exists while its revisions disagree;
+- every bucket's ontology and exclusions are explicit;
+- if a ranked breakdown is not a partition of the service population, say so;
+- there is NO composite "owner health" score;
+- Owners remains a secondary/contextual workspace: aggregate insight above the
+  owner inventory, then drill down to Owner detail.
+
+### Readiness insights
+
+A secondary Product-native Readiness insights surface exists. Its unit is
+ALWAYS **Contract Revision**.
+
+- buckets are derived from the actual readiness model, not invented
+  Passing/Warning/Failing states;
+- useful questions: how many known revisions are assessed, how outcomes
+  distribute, readiness by service/revision, which checks fail most often,
+  which revisions need attention;
+- every item drills to canonical Revision / Service / Attention context;
+- it is never labelled Service readiness, fleet health, runtime readiness or
+  target readiness;
+- a Revision may be readiness-passing while one of its operational targets is
+  NonCompliant, and the UI must make that combination conceptually possible.
 
 ### Service
 
@@ -322,6 +431,46 @@ Zero undeclared global design tokens.
 
 Nesting should be understandable from typography, whitespace and grouping before the user reads the words.
 
+### Intra-page navigation
+
+One shared Product primitive gives genuinely long pages an "On this page"
+navigator: Contract Revision, Service, Operational Target and long Change
+analysis results. Owner and Data Source get it only when their actual final page
+length and section count justify it.
+
+- desktop: sticky left-side rail; mobile: compact disclosure/dropdown below the
+  `PageHeader`;
+- entries correspond to ACTUALLY RENDERED sections — no separately maintained
+  hard-coded copy of the page structure that can silently drift;
+- absent sections produce no entry;
+- the current section is indicated;
+- keyboard operable, touch operable, reduced-motion respected;
+- selecting a collapsed section opens it first, then scrolls to its heading;
+- the page title remains the document `h1` and section headings stay semantic.
+
+The application already uses `location.hash` as its ROUTER. Intra-page
+navigation must not append a second fragment concept, must not create fake
+Product routes, and must not corrupt Back/Forward. Interaction with
+per-history-entry scroll restoration, hard reload, Back/Forward and programmatic
+disclosure opening must be audited.
+
+### Workspace grammar
+
+Operational Graph and Change analysis are sibling primary workflows that both
+contain breadcrumbs, a page header, an intro, a search/action row, a main
+empty/result workspace and guidance cards.
+
+One shared workspace scaffold (or an equivalent single layout grammar) owns the
+common geometry: max-width, breadcrumb -> title spacing, title -> intro spacing,
+the intro slot, the search/action row, workspace/canvas starting position,
+workspace width, the guidance-card grid and the vertical rhythm.
+
+Per-page `margin-top` patches are not an acceptable fix. At a standard desktop
+viewport, switching tabs must keep the corresponding structural slots visually
+aligned; browser acceptance asserts sibling-workflow alignment from real
+computed bounding boxes with a small tolerance, never arbitrary absolute pixels.
+At narrow/mobile widths normal responsive wrapping may differ.
+
 ## 7. Visualization target
 
 Lists/tables are for precise inspection. Charts/visual summaries are for pattern recognition.
@@ -331,6 +480,23 @@ The Product should retain useful visual intelligence without recreating V1 dashb
 Visualizations must answer a real question faster than reading rows, use backend-authoritative aggregates, not pretend a paginated preview is the full population, show exact values/text equivalent, work light/dark and mobile, not rely only on color, and have meaningful drill-down where interactive.
 
 Candidate areas include target compliance posture, revision adoption, revision-link certainty, evidence freshness, findings/severity, source health, relationship differences and change impact.
+
+The dashboard requirement must not be met by turning every insight into another
+distribution bar. Use the right visual for the question: compact distributions
+for parts-of-whole, horizontal bars for ranked owners or failing checks, a
+matrix/heatmap for readiness across service x revision when both dimensions are
+meaningful, metric cards for immediate action counts.
+
+Do not add a heavyweight charting dependency unless clearly justified; prefer
+the current visualization primitives or small accessible SVG/CSS components.
+Every interactive chart element needs exact textual values, keyboard access,
+non-color meaning, drill-down, light/dark support and responsive behaviour.
+
+Density stays under control. For every page classify PRIMARY (immediately
+visible state/pattern/action), SECONDARY (expandable inspection) and DIAGNOSTIC
+(exact provenance/identity/debugging). Charts compress population information;
+disclosures defer detail. Do not delete supported information and do not hide
+critical failure or uncertainty.
 
 ## 8. Product API target
 
@@ -354,6 +520,15 @@ Large content such as Markdown/SBOM/OpenAPI material should use bounded/lazy sin
 The built WASM product must be exercised in real Chromium.
 
 Acceptance should cover novice journeys, rich Service/Revision/Target inspection, Markdown and Mermaid, reference navigation, search/autocomplete, same-name multi-domain identity, partial/stale/unavailable knowledge, ambiguous/unresolved identities, changed-query vs same-query SWR, scroll preservation and Back/Forward history, graph renderer, graph spatial persistence, graph semantic refresh, Change analysis, charts, keyboard, responsive 320/375px, light/dark, axe with contrast, rich/adversarial datasets, boundedness and reasonable rendering behavior.
+
+It must additionally cover: Overview aggregate truth and drill-down; the
+Services complete-filtered aggregate versus page pagination, with filters
+changing BOTH rows and aggregate to the same population; ownership aggregate and
+drill-down; readiness aggregate and Revision navigation; a readiness-passing
+Revision alongside a NonCompliant Target not being semantically collapsed;
+On-this-page on desktop and mobile; collapsed-section TOC navigation; TOC
+combined with Back/Forward and scroll restoration; and Graph/Change workspace
+geometry alignment measured from real computed bounding boxes.
 
 Required existing capability must not be hidden behind `test.fixme`.
 

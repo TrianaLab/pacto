@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`759845ca2236bfadbccf88b6156d45feee9cb0b9`
+`9e76b6bde5360b102b6c57a3d36f92d2034c998d`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,15 +25,26 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Latest Claude session reported these commits on top of `13810112`:
+Commits reviewed on top of the previous reviewed HEAD `759845ca`:
 
-- `fae36914` — immutable revision document bytes + authoritative reference destination work
-- `874946ec` — query-aware retained rows + history-entry scroll
-- `2fad1684` — demo lock correction
-- `5072ba64` — rebuilt dashboard bundle
-- `759845ca` — ledger/invariant documentation
+- `bf3e39d4` — lock reference identified by the contract that declared it
+- `a372ffed` — regenerated dashboard SDK for the reference occurrence field
+- `e19ee1eb` — one typography system + disclosure that loses nothing
+- `754e418e` — rebuilt dashboard UI bundle
+- `5468a650` — temporary PR coordination context added
+- `81829c55` — e2e lock read by occurrence rather than by label
+- `9e76b6bd` — Phase 6 re-closure documentation
 
-Note: that handoff said "4 commits" but listed 5. Treat handoff arithmetic as non-authoritative.
+Independently verified at this exact SHA:
+
+- the `9e76b6bd` PR workflows are green;
+- six review threads are unresolved and all six are generated/minified Mermaid
+  bundle findings;
+- zero unresolved authored-code threads.
+
+This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
+self-assessment and must not be re-closed by the session that implements against
+it.
 
 ## 2. Current phase status
 
@@ -47,42 +58,76 @@ Accepted identity/Product API foundations remain intact.
 
 ### Phase 3 — NARROWLY REOPENED
 
-Current blocker:
+Two narrow items remain.
 
-**authoritative reference occurrence identity**
+**1. Non-injective reference occurrence-path identity**
 
-The latest resolver correctly removed:
+The previous fix correctly proved that `kind + name` is insufficient in a
+transitive lock closure, and lock v2 added `Reference.From`, documenting
+`From + Kind + Name` as one unique reference occurrence.
 
-- OCI repository basename -> ServiceKey inference;
-- `ReferenceRef.Name` -> ServiceKey inference.
+That claim is still false.
 
-However, independent review found a deeper ambiguity:
-
-`pacto.lock` contains a transitive config/policy reference closure, while `Lock.Reference(kind, name)` returns the first matching kind/name without identifying which contract/revision occurrence declared it.
-
-Counterexample:
+`ReferencePath` is conceptually:
 
 ```text
-root app
-  config foo -> child-a
-  config settings -> bundle-y
-
-child-a
-  config settings -> bundle-x
+segment = kind + ":" + name
+path    = parent + "/" + segment
 ```
 
-The lock can contain two `config/settings` entries. Resolving root `settings` through `Lock.Reference("config","settings")` can select the child's digest.
+Configuration and policy names in the current Pacto v2 schema accept arbitrary
+non-empty strings, and `/` and `:` are legal. The serialized path is therefore
+not injective.
 
-The digest is authoritative for the wrong occurrence.
+Counterexample shape:
+
+```text
+root
+  config name "a/policy:b"   -> contract X
+  config name "a"            -> contract C
+
+contract C
+  policy name "b"            -> contract Y
+```
+
+The declaring-contract path of X is `config:a/policy:b`. The declaring-contract
+path of Y is also `config:a/policy:b`. If both X and Y then declare a config
+named `settings`, two distinct declarations serialize to the identical tuple
+`From = "config:a/policy:b"`, `Kind = "config"`, `Name = "settings"`.
+
+Nuance: `RootReference` is currently protected from this specific collision
+because it only accepts `From == ""`. The defect is NOT that the current
+root-only Fleet lookup necessarily returns the wrong destination. The defect is
+that the serialized lock ONTOLOGY cannot uniquely represent all the valid
+transitive occurrences it claims to identify.
+
+**2. Declaration identity vs traversal provenance is not explicit**
+
+Three concepts are currently conflated by using a traversal path as an
+occurrence's declaring identity:
+
+- A. declaring contract identity — which immutable contract holds the
+  declaration;
+- B. declaration identity — which config/policy declaration inside that
+  contract;
+- C. traversal provenance — through which root -> ... path that declaring
+  contract was reached.
+
+`buildReferenceClosure` deduplicates recursion by resolved bundle identity, so a
+contract reachable through two closure paths is recursed into only through
+whichever path arrives first. The ontology must state whether a declaration is
+one occurrence or several, and where plural provenance paths live.
 
 Required correction:
 
-- identify a lock reference by the specific declaring occurrence/origin;
-- do not use kind+name alone;
-- do not use slice/sort order;
-- audit local relative refs because identical `./config` strings under different parent directories may resolve to different resources;
-- legacy lock behavior must degrade honestly if occurrence identity cannot be proven;
-- preserve deterministic lock generation and cycle safety.
+- an occurrence representation that is injective for EVERY name the contract
+  schema accepts;
+- do not restrict legal names merely to save the current encoding;
+- an explicit, documented separation of declaration identity from traversal
+  provenance;
+- a proven duplicate-same-kind-name invariant;
+- a deliberate lock-version compatibility decision;
+- preserved deterministic lock generation and cycle safety.
 
 ### Phase 4 — COMPLETE
 
@@ -94,53 +139,34 @@ Do not reopen absent a concrete counterexample.
 
 ### Phase 5 — NARROWLY REOPENED
 
-Current user-observed/systemic presentation problems:
+The previous presentation blockers are RESOLVED and ACCEPTED:
 
-1. typography hierarchy is inconsistent;
-2. font sizes sometimes make nested sections look like peers or outrank parents;
-3. too much explanatory/detail text is simultaneously visible;
-4. Product needs progressive disclosure without losing information;
-5. overall UI must use one consistent presentation grammar.
+- the typography role system itself is ACCEPTED;
+- the progressive-disclosure primitive introduced in the previous session is
+  ACCEPTED.
 
-Independent code review found concrete design-system defects:
+Do not redesign either without a new concrete counterexample.
 
-- global tokens define `--text-xs`, `--text-sm`, `--text-base`, `--text-lg`, `--text-xl`;
-- Product components use undeclared `--text-md`;
-- `PreviewSection` tries to make h2/h3/h4/h5 share one visual size through `var(--text-md)`;
-- because the token is undeclared, the declaration is invalid and browser falls back to tag-level heading rules;
-- therefore the same visual component can render at different sizes solely because semantic heading level differs;
-- `--radius-md` is also used but absent from the inspected global token set;
-- `--c-accent-border` was also observed in Product CSS without being part of the inspected global palette;
-- entity pages have a visually-hidden semantic h1 while the visible `EntityIdentity` label is approximately body-size, allowing section headings to visually dominate the actual page title.
+Phase 5 is reopened only for the newly-authorized Product target:
 
-Required correction:
+1. a richer Operational Overview dashboard;
+2. complete-population Services inventory intelligence;
+3. Product-native Ownership aggregate insights;
+4. Product-native revision-scoped Readiness insights;
+5. a shared long-page "On this page" navigation primitive;
+6. a shared Operational Graph / Change analysis workspace geometry;
+7. correction of stale `Deployment` terminology in the current architecture
+   model.
 
-- complete global CSS custom-property audit;
-- zero undeclared global design tokens;
-- semantic visual typography roles independent of HTML heading level;
-- visible page title on every Product entity route;
-- consistent section/subsection/body hierarchy;
-- consistent spacing/nesting grammar;
-- one shared disclosure/help system;
-- progressive disclosure across rich pages;
-- no information removal;
-- no critical information hover-only;
-- real-browser computed-style/cognitive walkthrough.
+These are authorized Product requirements. The previous broad Product-design
+freeze must not be used to defer them.
 
 ### Phase 6 — NARROWLY REOPENED
 
-Must prove the Phase 3/5 corrections in real browser acceptance.
+Reopened for browser acceptance of the Phase-3 and Phase-5 work listed above.
 
-Specific required acceptance:
-
-- reference-occurrence adversarial cases where browser/Product behavior is relevant;
-- typography hierarchy from computed styles;
-- same role same visual treatment even across h2/h3;
-- page title > section title > body/meta;
-- nested subsection visually below parent;
-- progressive disclosure accessibility;
-- no required information lost;
-- all previous rich browser acceptance remains green.
+The previously accepted browser acceptance (typography computed styles,
+disclosure accessibility, rich journeys) remains accepted and must stay green.
 
 ### Phase 7 — NOT STARTED
 
@@ -363,102 +389,76 @@ Any future chart must:
 
 ## 7. Current high-priority blocker details
 
-### Blocker A — transitive lock reference occurrence identity
+### Blocker A — reference occurrence identity is not injective
 
-The current reference resolution is better than earlier heuristics but still potentially selects the wrong authoritative lock entry.
+Detailed in Phase 3 above. The lock now records a declaring path, but that path
+is a `/`- and `:`-joined string over names that may themselves contain `/` and
+`:`, so two distinct declarations can serialize to one tuple.
 
 Required next iteration:
 
-1. reproduce direct-vs-transitive same kind/name collision;
-2. fix lock occurrence identity;
-3. audit local relative reference dedupe identity;
-4. preserve deterministic lock generation;
-5. decide lock schema/version compatibility deliberately;
-6. test ReferencedBy;
-7. no frontend fix for backend identity problems.
+1. write the delimiter-collision counterexample BEFORE fixing it;
+2. make the occurrence representation injective for every schema-legal name;
+3. separate declaring-contract identity, declaration identity and traversal
+   provenance explicitly;
+4. audit multiple closure paths to one immutable contract;
+5. prove the duplicate-same-kind-name invariant instead of assuming the prose
+   description is enforcement;
+6. decide lock-version compatibility deliberately rather than silently
+   reinterpreting written v2 data;
+7. regenerate deliberate lock fixtures; second regeneration byte-identical;
+8. no frontend fix for backend identity problems.
 
-### Blocker B — design token integrity
+### Blocker B — Product target gap: aggregate intelligence
 
-Perform complete Product CSS variable audit.
+Overview, Services, Ownership and Readiness lack Product-native aggregate
+comprehension over honest complete populations. Detailed in the target-state
+deltas.
 
-Known suspicious/undefined tokens from independent review:
+### Blocker C — Product target gap: long-page navigation
 
-- `--text-md`
-- `--radius-md`
-- `--c-accent-border`
+Revision / Service / Operational Target remain long after progressive
+disclosure, with no intra-page navigation primitive.
 
-Do not assume this list is exhaustive.
+### Blocker D — Product target gap: workspace geometry
 
-Need architecture guard for undeclared global Product tokens.
+Operational Graph and Change analysis are sibling primary workflows that
+currently compose the same conceptual shape with different geometry.
 
-### Blocker C — typography hierarchy
+### Previously accepted and NOT reopened
 
-Need explicit visual roles:
-
-- Page title
-- Section title
-- Subsection title
-- Body
-- Secondary body
-- Label
-- Meta/caption
-- Metric
-- Code
-
-HTML heading level must not accidentally determine visual role.
-
-Entity pages need a visible dominant page title.
-
-### Blocker D — information density
-
-Do not delete recovered information.
-
-Introduce consistent progressive disclosure:
-
-**Primary**
-- understand now.
-
-**Secondary**
-- intentional inspection.
-
-**Diagnostic**
-- exact IDs, provenance, raw refs, limitations/debugging.
-
-Short conceptual help may use accessible tooltip/popover.
-
-Substantive detail should use disclosure/drawer/drill-down.
-
-Critical warnings must remain visible and must not be hover-only.
+- immutable Revision document semantics;
+- Markdown/Mermaid Product viewer;
+- Product information parity;
+- repository-basename reference heuristic removal;
+- `ReferenceRef.Name` heuristic removal;
+- query-aware stale-while-revalidate;
+- scroll restoration;
+- graph spatial persistence;
+- graph semantic refresh;
+- Services autocomplete;
+- Product API boundedness;
+- generated SDK as wire authority;
+- current typography role hierarchy;
+- current disclosure accessibility.
 
 ## 8. Latest verification snapshot
 
-Claude's latest handoff for `759845ca` reported:
+Independently verified at exact HEAD `9e76b6bd`:
 
-- gofmt clean;
-- go vet clean;
-- golangci-lint 0 issues;
-- gocyclo clean;
-- race/coverage gates at 100.0%;
-- examples pass;
-- demo contracts 24/24;
-- authored U+00A7 gate clean;
-- CLI docs current;
-- dashboard SDK drift clean;
-- deterministic second generation;
-- UI cold build reproducible;
-- `svelte-check`: 0 errors, 15 warnings, described as pre-existing;
-- Vitest: 1116 passed / 66 files;
-- Playwright: 167 passed, 0 failed / 18 specs;
-- 0 `test.fixme`;
-- 1 `test.skip` described as a data guard in headings;
-- exact-SHA CI reported green across required workflows;
-- PR review threads reported 132 total / 6 unresolved;
-- six unresolved threads reported as generated minified Mermaid vendor findings;
+- the PR workflows are green;
+- six review threads unresolved, all six generated/minified Mermaid bundle
+  findings;
 - zero unresolved authored-code threads.
+
+The previous Claude handoff for `759845ca` had reported gofmt/vet/lint/gocyclo
+clean, 100.0% coverage gates, `svelte-check` 0 errors + 15 pre-existing
+warnings, Vitest 1116 passed / 66 files, Playwright 167 passed / 18 specs, 0
+`test.fixme` and 1 data-guard `test.skip`.
 
 Important process rule:
 
-**Do not trust these counts blindly in a later chat. Re-verify exact final SHA, CI and review threads before accepting the next handoff.**
+**Do not trust reported counts blindly in a later chat. Re-verify exact final SHA, CI and review threads before accepting the next handoff.**
 
 ## 9. Historical constraint
 
@@ -472,19 +472,38 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
-The immediate next Claude session should be narrow:
+The immediate next Claude session should:
 
-1. fix authoritative reference occurrence identity;
-2. audit local relative reference closure identity;
-3. fix global design-token drift;
-4. introduce stable visual typography roles;
-5. make page titles visually dominant;
-6. apply consistent progressive disclosure;
-7. reduce permanent explanatory text without losing information;
-8. visually inspect all canonical Product routes;
-9. add computed-style and disclosure browser acceptance;
-10. re-close Phase 3/5/6 only when those counterexamples pass;
-11. do not begin Phase 7.
+1. reproduce the delimiter collision, then make reference occurrence identity
+   injective at the model level;
+2. make declaration identity vs traversal provenance explicit;
+3. prove the duplicate-declaration-name invariant;
+4. decide lock-version compatibility deliberately and regenerate fixtures
+   deterministically;
+5. correct stale `Deployment` wording in the current architecture model;
+6. build the richer Operational Overview over honest complete populations;
+7. add complete-filtered-population Services inventory intelligence backed by a
+   bounded Product aggregate query;
+8. restore Product-native Ownership aggregate insights without a fabricated
+   composite owner health score;
+9. add Product-native revision-scoped Readiness insights whose unit is always
+   Contract Revision;
+10. add one shared "On this page" primitive that cannot drift from the rendered
+    sections and cannot corrupt the hash router;
+11. unify Operational Graph and Change analysis onto one workspace scaffold;
+12. run the browser cognitive walkthrough and the full acceptance matrix;
+13. do not begin Phase 7.
+
+The design constraint is:
+
+```text
+fewer things competing simultaneously
+  + better visual summaries
+  + progressive disclosure
+  + direct drill-down
+```
+
+NOT `existing content + many more charts visible at once`.
 
 Once those re-close, freeze broad Product UI work again and proceed to Phase 7.
 
