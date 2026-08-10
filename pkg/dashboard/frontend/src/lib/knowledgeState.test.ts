@@ -78,8 +78,40 @@ describe('decideViewState', () => {
   const stale = snapshotKnowledge({ sources: [{ status: 'stale' }] });
   const unavailable = snapshotKnowledge({ sources: [{ status: 'unavailable' }] });
 
-  it('loading takes precedence', () => {
+  it('loading takes precedence when there is nothing to show yet', () => {
     expect(decideViewState({ loading: true, itemCount: 0 })).toEqual({ kind: 'loading' });
+  });
+
+  // Every product view is polled: App.loadGlobal() advances refreshTick on a timer and
+  // each view re-runs its query. If an in-flight refresh outranks the data already on
+  // screen, the whole page is replaced by a loading shell every few seconds -- the
+  // content disappears, the document shortens and the reader's scroll position is
+  // clamped toward the top. Data on hand outranks a request in flight.
+  it('a refresh in flight over data already on hand stays ready, never loading', () => {
+    const s = decideViewState({ loading: true, itemCount: 3, knowledge: complete });
+    expect(s.kind).toBe('ready');
+    if (s.kind === 'ready') expect(s.revalidating).toBe(true);
+  });
+
+  it('a FAILED refresh over data already on hand stays ready and reports the failure', () => {
+    const err = new ApiError(0, 'unreachable');
+    const s = decideViewState({ loading: false, itemCount: 3, error: err, knowledge: complete });
+    expect(s.kind).toBe('ready');
+    if (s.kind === 'ready') expect(s.refreshError).toBe(err);
+  });
+
+  it('a 404 on a refresh must not turn a page that HAS data into a not-found screen', () => {
+    const s = decideViewState({ loading: false, itemCount: 1, error: new ApiError(404, 'x'), knowledge: complete });
+    expect(s.kind).toBe('ready');
+  });
+
+  it('ready without a refresh in flight reports neither revalidating nor a refresh error', () => {
+    const s = decideViewState({ loading: false, itemCount: 3, knowledge: complete });
+    expect(s.kind).toBe('ready');
+    if (s.kind === 'ready') {
+      expect(s.revalidating).toBeFalsy();
+      expect(s.refreshError).toBeFalsy();
+    }
   });
 
   it('surfaces backend/schema/not-found errors distinctly', () => {

@@ -1,5 +1,7 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
+  import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { kindLabel } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetGraphFocusUrl, fleetChangesUrl, hashForHref } from '../lib/router.ts';
@@ -23,34 +25,33 @@
   // body is delegated to the per-kind component.
   let { kind = '', entityKey = '', refreshTick = 0 } = $props();
 
-  let detail = $state(null);
-  let loading = $state(true);
-  let error = $state(null);
-  let lastKey = '';
+  // Four lifecycle events, three behaviours -- the distinction this page used to lack.
+  //
+  //  * FIRST LOAD and a change of CANONICAL ENTITY IDENTITY are new questions. Nothing
+  //    on hand answers them, so they show a loading state.
+  //  * A BACKGROUND REFRESH of the SAME entity re-asks the SAME question. The last good
+  //    answer stays rendered until a newer one lands (or fails), because tearing the
+  //    body out every poll tick collapses the page and clamps the reader's scroll.
+  //  * A RETRY after no usable data re-runs the request under a fresh generation.
+  //
+  // `identity` is the question; `refreshTick` only re-asks it. The loader keeps the
+  // previous answer across a re-ask by design, and `dataTag` says which question the
+  // answer on hand belongs to -- so data for an entity the user has navigated AWAY from
+  // is never shown under the new entity's heading, even without a remount.
+  const identity = $derived(`${kind}@@${entityKey}`);
+  const loader = createProductLoader(() => api.fleetEntityDetail(kind, entityKey));
+  $effect(() => { loader.sync(`${identity}@@${refreshTick}`, identity); });
+  onDestroy(() => loader.destroy());
+  function load() { loader.refresh(); }
 
-  async function load() {
-    loading = true;
-    error = null;
-    detail = null;
-    try {
-      detail = await api.fleetEntityDetail(kind, entityKey);
-    } catch (e) {
-      error = e;
-    } finally {
-      loading = false;
-    }
-  }
-
-  $effect(() => {
-    const key = `${kind}@@${entityKey}@@${refreshTick}`;
-    if (key !== lastKey) {
-      lastKey = key;
-      load();
-    }
-  });
-
+  const detail = $derived(loader.dataTag === identity ? loader.data : null);
   const knowledge = $derived(snapshotKnowledge(detail?.meta));
-  const state = $derived(decideViewState({ loading, error, itemCount: detail ? 1 : 0, knowledge }));
+  const state = $derived(decideViewState({
+    loading: loader.loading, error: loader.error, itemCount: detail ? 1 : 0, knowledge,
+  }));
+  // A refresh that failed over a page we can still show. The page stays; the failure is
+  // stated rather than swallowed, so nobody reads a frozen page as a current one.
+  const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
 
   // Entity-relationship breadcrumbs from canonical DTO refs (requirement H); a minimal
   // trail while loading/erroring.
@@ -123,6 +124,13 @@
 
     <KnowledgeBanner {knowledge} noun="page" />
 
+    {#if refreshError}
+      <p class="ev-stale" role="status">
+        This page could not be refreshed, so you are reading the last answer we received.
+        <button type="button" class="ev-stale-retry" onclick={load}>Try again</button>
+      </p>
+    {/if}
+
     {#if actions.length}
       <div class="ev-actions">
         {#each actions as act}<a class="ev-action" href={act.href}>{act.label}</a>{/each}
@@ -150,6 +158,16 @@
   .ev-key { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-key-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
   .ev-key-hint { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  .ev-stale {
+    margin: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-left: 3px solid var(--c-warn);
+    border-radius: var(--radius-sm); background: var(--c-surface);
+    font-size: var(--text-sm); color: var(--c-text-2);
+  }
+  .ev-stale-retry {
+    font: inherit; color: var(--c-accent); background: none; border: none; padding: 0;
+    text-decoration: underline; cursor: pointer;
+  }
   .ev-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
   .ev-action {
     text-decoration: none; font-size: var(--text-sm); color: var(--c-accent);

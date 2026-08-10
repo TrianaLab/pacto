@@ -5,6 +5,7 @@
   import { toggleTheme } from './lib/theme.svelte.ts';
   import { initTooltipPlacement } from './lib/tooltips.ts';
   import { syncPageTitle } from './lib/pageTitle.ts';
+  import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
   import Navbar from './Navbar.svelte';
   import CommandPalette from './CommandPalette.svelte';
@@ -195,6 +196,9 @@
     // page's own h1, so a tab, a history entry and a screen reader all name the
     // page the user is on.
     const teardownTitle = syncPageTitle(mainEl);
+    // Async content means the browser's own scroll restoration always loses: it
+    // restores against an empty page. We own it instead.
+    const teardownScroll = initScrollRestore();
     loadGlobal();
     // Start with fast polling; loadGlobal adjusts interval based on discovery state
     if (!(globalThis).__PACTO_STATIC__) { reloadTimer = setInterval(loadGlobal, POLL_FAST); }
@@ -203,6 +207,7 @@
       window.removeEventListener('keydown', handlePaletteKeydown);
       teardownTips();
       teardownTitle();
+      teardownScroll();
       if (reloadTimer) clearInterval(reloadTimer);
     };
   });

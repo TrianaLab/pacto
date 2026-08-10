@@ -112,7 +112,10 @@ export type ViewState =
   // can STILL surface an incompleteness caveat: "no records match this filter" and
   // "knowledge is incomplete" are both true and neither may hide the other.
   | { kind: 'filtered-empty'; knowledge: SnapshotKnowledge }
-  | { kind: 'ready'; knowledge: SnapshotKnowledge }; // has data (possibly degraded)
+  // has data (possibly degraded). `revalidating` marks a refresh in flight OVER that
+  // data and `refreshError` a refresh that failed over it -- both are reported
+  // alongside the data rather than instead of it.
+  | { kind: 'ready'; knowledge: SnapshotKnowledge; revalidating?: boolean; refreshError?: unknown };
 
 export interface ViewStateInput {
   loading: boolean;
@@ -126,6 +129,30 @@ export interface ViewStateInput {
 
 /** decideViewState is the single list/detail state machine (requirement H). */
 export function decideViewState(input: ViewStateInput): ViewState {
+  const knowledge = input.knowledge ?? snapshotKnowledge(null);
+
+  // STALE-WHILE-REVALIDATE, decided once for every view.
+  //
+  // Every product view is polled: App.loadGlobal() advances refreshTick on a timer and
+  // each view re-runs its query against the SAME question. Ranking "a request is in
+  // flight" above "we already have the answer" is what made the entity body, the
+  // service list and the graph disappear every few seconds -- the content unmounts,
+  // the document shortens, and the browser clamps the reader's scroll position toward
+  // the top. A failed refresh was worse still: good data became a not-found or
+  // backend-error screen.
+  //
+  // Data on hand outranks a request in flight and outranks that request's failure.
+  // The caller is told both facts through `revalidating` / `refreshError` so it can
+  // say so honestly without throwing the page away. The caller is responsible for
+  // ensuring itemCount describes the CURRENT question -- data for a question the user
+  // has navigated away from must not be counted here.
+  if (input.itemCount > 0) {
+    const out: ViewState = { kind: 'ready', knowledge };
+    if (input.loading) out.revalidating = true;
+    if (input.error != null) out.refreshError = input.error;
+    return out;
+  }
+
   if (input.loading) return { kind: 'loading' };
   if (input.error != null) {
     const msg = input.error instanceof Error ? input.error.message : String(input.error);
@@ -135,18 +162,15 @@ export function decideViewState(input: ViewStateInput): ViewState {
       default: return { kind: 'backend-error', message: msg };
     }
   }
-  const knowledge = input.knowledge ?? snapshotKnowledge(null);
-  if (input.itemCount <= 0) {
-    // A filter matched nothing: distinct from an empty fleet, and it still carries the
-    // knowledge so an incompleteness caveat is not hidden by the filtered-empty state.
-    if (input.filtered) return { kind: 'filtered-empty', knowledge };
-    // The non-negotiable rule: no items under INCOMPLETE knowledge is not "empty",
-    // it is "nothing known that we can see" -- never an all-clear. A fully-understood
-    // empty snapshot (complete/empty knowledge) is a genuine empty-fleet.
-    if (knowledge.incomplete) return { kind: 'empty-unknown', knowledge };
-    return { kind: 'empty-fleet' };
-  }
-  return { kind: 'ready', knowledge };
+  // Nothing on hand, nothing in flight, no failure: the emptiness itself is the answer.
+  // A filter matched nothing: distinct from an empty fleet, and it still carries the
+  // knowledge so an incompleteness caveat is not hidden by the filtered-empty state.
+  if (input.filtered) return { kind: 'filtered-empty', knowledge };
+  // The non-negotiable rule: no items under INCOMPLETE knowledge is not "empty",
+  // it is "nothing known that we can see" -- never an all-clear. A fully-understood
+  // empty snapshot (complete/empty knowledge) is a genuine empty-fleet.
+  if (knowledge.incomplete) return { kind: 'empty-unknown', knowledge };
+  return { kind: 'empty-fleet' };
 }
 
 /**

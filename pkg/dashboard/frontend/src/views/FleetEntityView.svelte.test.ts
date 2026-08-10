@@ -7,7 +7,8 @@
  * It also proves the two identity dimensions render independently for a target.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, flushSync } from 'svelte';
+import { reactiveProps } from '../testkit.svelte.ts';
 
 const { detailFn } = vi.hoisted(() => ({ detailFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
@@ -141,6 +142,117 @@ describe('FleetEntityView — unified entity route', () => {
 
 // ── rich per-kind entity pages (D/E/F/G) ─────────────────────────────────────
 const ref = (kind: string, key: string, extra = {}) => ({ kind, key, label: key.split('/').pop(), href: `/fleet/${kind}s/${encodeURIComponent(key)}`, ...extra });
+
+/**
+ * Background refresh must not destroy the page the user is reading.
+ *
+ * App.loadGlobal() advances refreshTick on every poll, and the entity route consumes
+ * it. If a tick tears the entity body out of the DOM, the page collapses to a loading
+ * shell, the document shortens and the browser clamps the scroll position -- a user
+ * halfway down a revision page is thrown back to the top every few seconds, for no
+ * reason they can see. Stale-while-revalidate is the contract: the last good answer
+ * stays on screen until a newer one replaces it.
+ */
+describe('FleetEntityView — background refresh preserves the page (A)', () => {
+  beforeEach(() => detailFn.mockReset());
+
+  function svc(): Record<string, any> {
+    return {
+      meta, status: 'Compliant',
+      entity: ref('service', 'domain-a/payments', { domain: 'domain-a' }),
+      actions: ['open-graph'],
+      service: {
+        domain: 'domain-a',
+        revisions: { total: 1, count: 1, truncated: false, items: [ref('revision', 'domain-a/payments@1.0')] },
+        deployments: { total: 0, count: 0, truncated: false, items: [] },
+        dependencies: { total: 0, count: 0, truncated: false, items: [] },
+        dependents: { total: 0, count: 0, truncated: false, items: [] },
+        findings: { total: 0, count: 0, truncated: false, items: [] },
+        evidence: { total: 0, count: 0, truncated: false, items: [] },
+        limitations: { total: 0, count: 0, truncated: false, items: [] },
+      },
+    };
+  }
+
+  /** A promise plus its resolvers, so a test can hold a refresh mid-flight. */
+  function deferred<T>() {
+    let resolve!: (v: T) => void, reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  async function mountLive(props: Record<string, unknown>) {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetEntityView, { target, props });
+    await vi.waitFor(() => expect(target.querySelector('.ev-head')).toBeTruthy());
+    return { target, component };
+  }
+
+  it('keeps the entity body rendered while a same-entity refresh is in flight', async () => {
+    detailFn.mockResolvedValueOnce(svc());
+    const props = reactiveProps({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
+    const { target, component } = await mountLive(props);
+    await vi.waitFor(() => expect(target.textContent).toContain('Revisions'));
+
+    const pending = deferred<Record<string, any>>();
+    detailFn.mockReturnValueOnce(pending.promise);
+    props.refreshTick = 1;
+    flushSync();
+    await Promise.resolve();
+
+    // Mid-flight: the previous answer is still the best answer we have.
+    expect(target.querySelector('.ev-head'), 'the entity header vanished during a background refresh').toBeTruthy();
+    expect(target.textContent, 'the entity body vanished during a background refresh').toContain('Revisions');
+
+    pending.resolve(svc());
+    await vi.waitFor(() => expect(detailFn).toHaveBeenCalledTimes(2));
+    expect(target.textContent).toContain('Revisions');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('a failed background refresh keeps the good page and says the refresh failed', async () => {
+    detailFn.mockResolvedValueOnce(svc());
+    const props = reactiveProps({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
+    const { target, component } = await mountLive(props);
+    await vi.waitFor(() => expect(target.textContent).toContain('Revisions'));
+
+    detailFn.mockRejectedValueOnce(new Error('backend went away'));
+    props.refreshTick = 1;
+    flushSync();
+
+    await vi.waitFor(() => expect(target.querySelector('.ev-stale')).toBeTruthy());
+    // Good data must not decay into an error screen...
+    expect(target.textContent, 'a failed refresh emptied a page that had good data').toContain('Revisions');
+    // ...and the failure must not be swallowed either.
+    expect(target.querySelector('.ev-stale')?.textContent).toMatch(/could not be refreshed/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('navigating to a DIFFERENT entity never shows the previous entity under the new heading', async () => {
+    detailFn.mockResolvedValueOnce(svc());
+    const props = reactiveProps({ kind: 'service', entityKey: 'domain-a/payments', refreshTick: 0 });
+    const { target, component } = await mountLive(props);
+    await vi.waitFor(() => expect(target.textContent).toContain('payments'));
+
+    const pending = deferred<Record<string, any>>();
+    detailFn.mockReturnValueOnce(pending.promise);
+    props.entityKey = 'domain-b/ledger';
+    flushSync();
+    await Promise.resolve();
+
+    // A different question is being asked; the old answer is not an answer to it.
+    expect(target.querySelector('.ev-head'), 'the previous entity stayed on screen after navigating away').toBeNull();
+    const other = svc();
+    other.entity = ref('service', 'domain-b/ledger', { domain: 'domain-b' });
+    other.service.domain = 'domain-b';
+    other.service.revisions = { total: 1, count: 1, truncated: false, items: [ref('revision', 'domain-b/ledger@1.0')] };
+    pending.resolve(other);
+    await vi.waitFor(() => expect(target.textContent).toContain('ledger'));
+    expect(target.textContent).not.toContain('payments');
+    unmount(component); document.body.removeChild(target);
+  });
+});
 
 describe('FleetEntityView — rich service page (D)', () => {
   beforeEach(() => detailFn.mockReset());
