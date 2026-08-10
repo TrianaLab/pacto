@@ -1452,6 +1452,16 @@ directories resolving to two bundles, the same target twice recorded as two agre
 occurrences, a cycle terminating on resolved identity, and deterministic regeneration),
 plus the version and ordering tests in `pkg/lock/lock_test.go`.
 
+One gap is worth recording because it is structural rather than accidental: the registry
+e2e suite is behind a `//go:build e2e` tag, so `go build ./...`, `go vet ./...` and an
+untagged `go test ./...` all compile straight past it. It still called the removed
+`Lock.Reference`, and only CI found out. It is now read by occurrence -- `policy-q` AS
+DECLARED BY `policy-p`, plus an assertion that the root does not own it -- which proves
+the transitive walk from the lockfile itself rather than by elimination. Its hand-written
+round-trip fixture also moved to `lockVersion: 2`, since push verifies the lock and a v1
+lock is stale by definition now. `go vet -tags e2e ./...` is the cheap local check that
+would have caught it.
+
 ### Fourth correction pass: the presentation system
 
 The second of the two findings: **the Product had two typographic systems fighting each

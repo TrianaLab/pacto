@@ -27,6 +27,19 @@ func readLock(t *testing.T, dir string) *lock.Lock {
 	return l
 }
 
+// reference finds the entry for one declared reference OCCURRENCE: the (kind,
+// name) declared by the contract at closure path from ("" is the root).
+// lock.RootReference covers from == "" for production callers; a test that walks
+// deeper into the closure needs the general form.
+func reference(l *lock.Lock, from, kind, name string) (*lock.Reference, bool) {
+	for i := range l.References {
+		if r := &l.References[i]; r.From == from && r.Kind == kind && r.Name == name {
+			return r, true
+		}
+	}
+	return nil, false
+}
+
 // depServiceContract renders a leaf or intermediate service contract whose
 // optional single dependency points at another OCI bundle in the registry.
 // When depRef is empty the service is a leaf. The proto interface keeps the
@@ -248,8 +261,8 @@ func TestLockCapturesReferenceJumps(t *testing.T) {
 
 	l := readLock(t, rootDir)
 
-	// Direct reference: policy-p.
-	p, ok := l.Reference("policy", "p")
+	// Direct reference: policy-p, declared by the ROOT.
+	p, ok := l.RootReference("policy", "p")
 	if !ok {
 		t.Fatalf("expected policy-p reference in lock, got %+v", l.References)
 	}
@@ -257,10 +270,9 @@ func TestLockCapturesReferenceJumps(t *testing.T) {
 		t.Errorf("policy-p reference missing digest/version: %+v", p)
 	}
 
-	// The lock's References list is flat (no edge tracking). We prove the reference
-	// JUMP by elimination: the root declares only policy-p; policy-q is referenced
-	// solely by policy-p, so policy-q appearing in the lock means buildReferenceClosure
-	// walked p -> q.
+	// Each entry records the contract that DECLARED it, so the jump is proven
+	// directly rather than by elimination -- but the elimination still has to hold,
+	// or the "transitive" entry could be one the root declared itself.
 	rootYAML, err := os.ReadFile(filepath.Join(rootDir, "pacto.yaml"))
 	if err != nil {
 		t.Fatalf("read root pacto.yaml: %v", err)
@@ -269,15 +281,16 @@ func TestLockCapturesReferenceJumps(t *testing.T) {
 		t.Fatal("root must not reference policy-q directly; the test would not prove the jump")
 	}
 
-	// Transitive reference jump: policy-q must also be pinned. The closure is
-	// captured transitively by buildReferenceClosure; policy-q is declared under
-	// name "q" inside policy-p's contract.
-	q, ok := l.Reference("policy", "q")
+	// Transitive reference jump: policy-q must also be pinned, and it must be
+	// attributed to policy-p -- the occurrence it was reached through -- not to the
+	// root. `pacto lock` records that as From, so the walk is now verifiable from
+	// the lockfile alone.
+	q, ok := reference(l, lock.ReferencePath("", "policy", "p"), "policy", "q")
 	if !ok {
-		t.Fatalf("expected TRANSITIVE policy-q reference in lock (reference jump), got %+v", l.References)
+		t.Fatalf("expected TRANSITIVE policy-q reference declared by policy-p (reference jump), got %+v", l.References)
 	}
-	if q.Kind != "policy" {
-		t.Errorf("expected policy-q kind=policy, got %q", q.Kind)
+	if _, isRoots := l.RootReference("policy", "q"); isRoots {
+		t.Error("policy-q must not be attributed to the root: the root never declared it")
 	}
 	if q.Digest == "" || q.Version == "" {
 		t.Errorf("policy-q reference missing digest/version: %+v", q)
@@ -735,7 +748,9 @@ func TestLockEmbeddedInPushedBundle(t *testing.T) {
 	})
 
 	// Generate a valid pacto.lock for this bundle (empty dependencies, but valid).
-	lockContent := `lockVersion: 1
+	// It must be at the CURRENT schema version: push verifies the lock, and a lock
+	// written before reference-occurrence identity is stale by definition.
+	lockContent := `lockVersion: 2
 pacto:
   version: 1.4.0
 root:
