@@ -408,7 +408,9 @@ describe('product design system', () => {
     // inside a page.
     const PAGES = PRODUCT_SURFACES.filter((f) => /^views\/[^/]+\.svelte$/.test(f.rel));
     // Comments and `<svelte:*>` bindings render nothing, so they may precede the shell.
-    const ROOT = /<\/script>\s*(?:(?:<!--[\s\S]*?-->|<svelte:[^>]*>)\s*)*<div class="product-page">/;
+    // One alternative per character class, none of them overlapping and none nested in a
+    // second quantifier, so the prelude has a single parse instead of one per comment.
+    const ROOT = /<\/script>(?:\s|<!--(?:[^-]|-(?!->))*-->|<svelte:[^>]*>)*<div class="product-page">/;
     const offenders = PAGES.filter((f) => !ROOT.test(f.body)).map((f) => f.rel);
     expect(offenders, `a product page with a shell of its own:\n  ${offenders.join('\n  ')}`).toEqual([]);
     expect(PAGES.length, 'no product pages were scanned').toBeGreaterThan(6);
@@ -621,10 +623,18 @@ describe('product in-page navigation', () => {
   // A source scan reads comments too, and both rules below are about what the TEMPLATE
   // does -- a comment explaining why an `href="#anchor"` is forbidden must not read as
   // one. Comments are removed before matching, never from the file.
-  const code = (s: string) => s
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
+  //
+  // Each comment body is written as "anything but the terminator", so a run of adjacent
+  // comments has exactly one parse and the match is linear rather than exponential in
+  // the number of them. The strip repeats until it reaches a fixed point, because
+  // removing one comment can complete another around it.
+  const strip = (s: string, re: RegExp): string => {
+    for (let prev = ''; prev !== s; ) { prev = s; s = s.replace(re, ''); }
+    return s;
+  };
+  const code = (s: string) =>
+    strip(strip(s, /<!--(?:[^-]|-(?!->))*-->/g), /\/\*(?:[^*]|\*(?!\/))*\*\//g)
+      .replace(/^\s*\/\/.*$/gm, '');
 
   it('scans the product surfaces', () => {
     expect(PRODUCT_UI.length).toBeGreaterThanOrEqual(15);
