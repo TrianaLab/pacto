@@ -109,7 +109,7 @@ NEW concrete counterexample.
 
 ### Phase 6 — COMPLETE
 
-### Phase 7 — NOT STARTED at `7da2ad46`
+### Phase 7 — NOT STARTED at `7da2ad46`; CANDIDATE submitted at `6250ebe3`
 
 Target:
 
@@ -121,6 +121,18 @@ What is missing is a declarative, operator-managed way to package, configure and
 mount those observation sources, with stable Data Source identity that does not
 depend on list position. Phase 7 is that packaging — NOT an OTLP receiver, a
 Collector, a trace database or any live ingestion.
+
+Implementation submitted in `e150a548` + `6250ebe3` as a CANDIDATE only. This
+phase is NOT self-closed: independent review decides whether it is complete.
+The candidate's own statement of what it did and did not prove is in the
+iteration handoff, including one scoped deviation — the live Kind scenario
+asserts the observed edge under its declared identity and that it names the
+same pair the operator reconciled as declared, but not the snapshot's
+`reconciliation: "matched"` verdict, which needs a contract-REVISION source the
+operator-managed dashboard does not have in that scenario (the live Kubernetes
+source projects deployed targets, not revisions). That verdict over an
+observation source stays proven hermetically in `internal/app` and by
+`make demo-fleet`.
 
 ### Phase 8 — NOT STARTED
 
