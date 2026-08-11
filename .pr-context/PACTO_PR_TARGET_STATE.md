@@ -308,6 +308,14 @@ attention items per owner and operational targets per owner.
 
 - a service is not "cleanly owned" merely because one arbitrarily-derived
   summary owner exists while its revisions disagree;
+- ownership filtering and ownership aggregation answer the SAME question:
+  `owner=<x>` means at least one revision of the service declares or matches x,
+  never only the derived summary owner, and every owner-answering surface
+  (Services filter, per-owner ranking drill-down, Owner estate, Owner attention,
+  owner discovery, ownership conflicts) obeys that one rule;
+- consequently a ranked breakdown that means "consistently owned by x" must
+  drill down with BOTH `owner=<x>` and `ownership=consistent`, so a bar's count
+  and its own destination cannot disagree;
 - every bucket's ontology and exclusions are explicit;
 - if a ranked breakdown is not a partition of the service population, say so;
 - there is NO composite "owner health" score;

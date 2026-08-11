@@ -1,6 +1,6 @@
 # Pacto PR #291 — Current Implementation State
 
-**Snapshot date:** 2026-08-10  
+**Snapshot date:** 2026-08-11  
 **Repository:** `TrianaLab/pacto`  
 **PR:** `#291`  
 **Branch:** `feat/operational-graph-fleet`
@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`9e76b6bde5360b102b6c57a3d36f92d2034c998d`
+`ecb96d3cfdfee8aa7e444cbd9f7cc78e93782cd9`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,22 +25,41 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Commits reviewed on top of the previous reviewed HEAD `759845ca`:
+Commits reviewed on top of the previous reviewed HEAD `9e76b6bd`:
 
-- `bf3e39d4` — lock reference identified by the contract that declared it
-- `a372ffed` — regenerated dashboard SDK for the reference occurrence field
-- `e19ee1eb` — one typography system + disclosure that loses nothing
-- `754e418e` — rebuilt dashboard UI bundle
-- `5468a650` — temporary PR coordination context added
-- `81829c55` — e2e lock read by occurrence rather than by label
-- `9e76b6bd` — Phase 6 re-closure documentation
+- `969c165a` — reference occurrence identity made injective (lockVersion 3)
+- `2a54bcba` — one noun for an operational target, and the Knowledge control
+- `45a898d5` — backend-authoritative ownership and readiness inventory
+- `43adf209` — the whole question answered on Overview, Services and the inventories
+- `e2d25d17` — one shared "On this page" navigator, Owners reachable without a nav slot
+- `4f7349d1` — one page scaffold, so two workspaces stop drifting apart
+- `8ff4d8a8` — page scaffold measured in a browser
+- `e5552bca` — figures audited on every page that draws one
+- `5141117f` — a zero is an answer, and a number belongs beside its label
+- `fe41a5c1` — contents navigator measured in a browser
+- `3f64d63c` — the list a reader came for, above the analysis of it
+- `11798e20` — figures and rows proven to describe one population
+- `714ded1f` — the semantics a reader can rely on, as implemented
+- `ddbb7dfc` — the section sign spelled out, as the gate requires
+- `6bd5c76f` — rebuilt dashboard UI bundle
+- `68127659` — a comment run parsed once, not once per comment
+- `ecb96d3c` — e2e polls for the degraded store, like every other restart assertion
 
-Independently verified at this exact SHA:
+Independently verified at this exact SHA: the review of `ecb96d3c` accepted the
+substance of that work and reopened three narrow items only. The accepted set is
+recorded in section 3 and must not be redesigned:
 
-- the `9e76b6bd` PR workflows are green;
-- six review threads are unresolved and all six are generated/minified Mermaid
-  bundle findings;
-- zero unresolved authored-code threads.
+- the lock v3 content-identity occurrence model;
+- the delimiter-collision correction;
+- multiple-path fail-closed semantics;
+- the Overview three-band dashboard;
+- complete-filtered Services aggregates;
+- the revision-scoped Readiness model;
+- typography roles;
+- progressive disclosure;
+- graph spatial persistence;
+- Product information parity;
+- Graph / Change-analysis workspace geometry.
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -58,76 +77,45 @@ Accepted identity/Product API foundations remain intact.
 
 ### Phase 3 — NARROWLY REOPENED
 
-Two narrow items remain.
+The lock v3 content-identity occurrence model is ACCEPTED. The delimiter
+collision is fixed, the declaring identity is a content identity rather than a
+delimiter-joined traversal path, and multiple-path arrival fails closed.
 
-**1. Non-injective reference occurrence-path identity**
+One narrow item remains.
 
-The previous fix correctly proved that `kind + name` is insufficient in a
-transitive lock closure, and lock v2 added `Reference.From`, documenting
-`From + Kind + Name` as one unique reference occurrence.
+**Duplicate same-name declarations can still collapse in `pacto lock`**
 
-That claim is still false.
+Canonical cross-field validation rejects duplicate configuration and policy
+names (`DUPLICATE_CONFIGURATION_NAME`, `DUPLICATE_POLICY_NAME`), but `pacto lock`
+does not run that validation before building the reference closure. The closure
+guard in `buildReferenceClosure` treats a second arrival at the same occurrence
+tuple as a repeated traversal:
 
-`ReferencePath` is conceptually:
-
-```text
-segment = kind + ":" + name
-path    = parent + "/" + segment
+```go
+if prev, dup := seen[entry.Occurrence()]; dup {
+    if prev != entry { return &lock.AmbiguousError{...} }
+    continue // silently collapses two byte-identical DECLARATIONS
+}
 ```
 
-Configuration and policy names in the current Pacto v2 schema accept arbitrary
-non-empty strings, and `/` and `:` are legal. The serialized path is therefore
-not injective.
-
-Counterexample shape:
-
-```text
-root
-  config name "a/policy:b"   -> contract X
-  config name "a"            -> contract C
-
-contract C
-  policy name "b"            -> contract Y
-```
-
-The declaring-contract path of X is `config:a/policy:b`. The declaring-contract
-path of Y is also `config:a/policy:b`. If both X and Y then declare a config
-named `settings`, two distinct declarations serialize to the identical tuple
-`From = "config:a/policy:b"`, `Kind = "config"`, `Name = "settings"`.
-
-Nuance: `RootReference` is currently protected from this specific collision
-because it only accepts `From == ""`. The defect is NOT that the current
-root-only Fleet lookup necessarily returns the wrong destination. The defect is
-that the serialized lock ONTOLOGY cannot uniquely represent all the valid
-transitive occurrences it claims to identify.
-
-**2. Declaration identity vs traversal provenance is not explicit**
-
-Three concepts are currently conflated by using a traversal path as an
-occurrence's declaring identity:
-
-- A. declaring contract identity — which immutable contract holds the
-  declaration;
-- B. declaration identity — which config/policy declaration inside that
-  contract;
-- C. traversal provenance — through which root -> ... path that declaring
-  contract was reached.
-
-`buildReferenceClosure` deduplicates recursion by resolved bundle identity, so a
-contract reachable through two closure paths is recursed into only through
-whichever path arrives first. The ontology must state whether a declaration is
-one occurrence or several, and where plural provenance paths live.
+Two duplicate declarations of the same `(kind, name)` in ONE contract that
+happen to resolve to identical bytes therefore produce a single lock entry, which
+contradicts the v3 claim of one entry per declaration occurrence. The
+`AmbiguousError` doc already asserts the closure builder is the last gate for
+duplicate names; for identical bytes that assertion is currently untrue.
 
 Required correction:
 
-- an occurrence representation that is injective for EVERY name the contract
-  schema accepts;
-- do not restrict legal names merely to save the current encoding;
-- an explicit, documented separation of declaration identity from traversal
-  provenance;
-- a proven duplicate-same-kind-name invariant;
-- a deliberate lock-version compatibility decision;
-- preserved deterministic lock generation and cycle safety.
+- write the failing counterexample FIRST, for BOTH configuration and policy;
+- enforce that a declaring contract may contain at most one declaration for a
+  given `(kind, name)`;
+- reject a second declaration regardless of whether it happens to resolve to
+  identical bytes;
+- do not make `pacto lock` perform unrelated remote or full validation as a side
+  effect;
+- ordinary non-duplicate names keep working;
+- deterministic v3 regeneration stays byte-identical;
+- no lock-version bump unless the serialized wire actually changes.
 
 ### Phase 4 — COMPLETE
 
@@ -139,34 +127,76 @@ Do not reopen absent a concrete counterexample.
 
 ### Phase 5 — NARROWLY REOPENED
 
-The previous presentation blockers are RESOLVED and ACCEPTED:
+The Product target from the previous iteration is substantially ACCEPTED and must
+not be redesigned: the Overview three-band dashboard, complete-filtered Services
+aggregates, the revision-scoped Readiness model, typography roles, progressive
+disclosure, graph spatial persistence, Product information parity and the shared
+Graph / Change-analysis workspace geometry.
 
-- the typography role system itself is ACCEPTED;
-- the progressive-disclosure primitive introduced in the previous session is
-  ACCEPTED.
+Phase 5 is reopened for exactly three items.
 
-Do not redesign either without a new concrete counterexample.
+**1. PageToc has no active/current section**
 
-Phase 5 is reopened only for the newly-authorized Product target:
+`PageToc.svelte` discovers its entries from the rendered DOM and jumps correctly,
+but nothing tells the reader where they currently are. There is no active entry,
+no `aria-current`, and no scroll geometry at all. Requirements: the current
+section is identified as the reader scrolls; choosing an entry makes that section
+current; the current entry updates again on scrolling into the next section; the
+distinction is not carried by colour alone; the state is exposed accessibly
+(preferably `aria-current`); behaviour at section boundaries is deterministic; no
+hash or history mutation; no fighting a programmatic smooth scroll; no separate
+mobile implementation; disclosure semantics stay intact when the current section
+is inside a collapsed disclosure; sticky-header offsets are accounted for. One
+deterministic selection rule — not an observer whose current item oscillates
+because several sections intersect at once.
 
-1. a richer Operational Overview dashboard;
-2. complete-population Services inventory intelligence;
-3. Product-native Ownership aggregate insights;
-4. Product-native revision-scoped Readiness insights;
-5. a shared long-page "On this page" navigation primitive;
-6. a shared Operational Graph / Change analysis workspace geometry;
-7. correction of stale `Deployment` terminology in the current architecture
-   model.
+**2. Owners inventory has no aggregate ownership insight**
 
-These are authorized Product requirements. The previous broad Product-design
-freeze must not be used to defer them.
+`FleetOwnersView` is still search + paged list + pager. Above the inventory it
+needs: consistent ownership coverage; conflicting ownership; unowned services;
+and a bounded top-owner distribution with truthful remainder semantics. The
+populations must be backend-authoritative and complete — never derived from the
+current owner page — and must reuse the existing aggregate machinery rather than
+introduce a fourth ownership model. The owner list stays the primary inspection
+surface; every interactive aggregate drills into the exact population it counted.
+
+**3. Owner filtering and ownership aggregation disagree semantically**
+
+The Consistent / Conflicting / Unowned partition is accepted, but
+`EntityFilter.Owner` matches only `ServiceRecord.Owner`, which is a SUMMARY owner
+derived from the lowest-keyed revision. Counterexample: service `disputed`,
+revision A declares `team-x`, revision B declares `team-y`. The aggregate
+classifies it CONFLICTING and the per-owner ranking correctly excludes it, but a
+ranking row drills down with `owner=<team>` alone, so the service can reappear
+through its arbitrary summary owner — the bar count and its own drill-down
+disagree.
+
+Fix the ontology, not the symptom. Recommended semantics: `owner=<x>` means at
+least one revision of the service declares or matches x; a ranking that means
+"consistently-owned services for x" drills down with BOTH `owner=<x>` and
+`ownership=consistent`. Every owner-answering surface must obey one rule:
+Services owner filter, per-owner ranking drill-down, Owner entity
+service/revision/target estate, Owner attention links, owner discovery and
+ownership conflicts. `ServiceRecord.Owner` is not an authoritative substitute for
+the complete set of revision ownership declarations wherever the question is
+about ownership.
 
 ### Phase 6 — NARROWLY REOPENED
 
-Reopened for browser acceptance of the Phase-3 and Phase-5 work listed above.
+The existing browser suite is accepted and must stay green; it must not be
+weakened to accommodate the new work.
 
-The previously accepted browser acceptance (typography computed styles,
-disclosure accessibility, rich journeys) remains accepted and must stay green.
+Reopened because browser acceptance omitted the counterexamples above:
+
+- Page TOC: exactly one current entry on a long revision page; the current entry
+  changes on scrolling into a later section; choosing a different entry opens it
+  if necessary and makes it current; the route hash and history length are
+  unchanged; representative mobile behaviour.
+- Ownership: the Owners aggregate is complete-population and not page-scoped;
+  conflicting and unowned coverage drill into rows that match the bucket; a
+  top-owner row drills into a list whose total equals the row count; a conflicted
+  service proves the chosen owner-filter semantics; paging the owner list does
+  not alter the aggregate.
 
 ### Phase 7 — NOT STARTED
 
@@ -389,41 +419,40 @@ Any future chart must:
 
 ## 7. Current high-priority blocker details
 
-### Blocker A — reference occurrence identity is not injective
+### Blocker A — duplicate identical declarations collapse in `pacto lock`
 
-Detailed in Phase 3 above. The lock now records a declaring path, but that path
-is a `/`- and `:`-joined string over names that may themselves contain `/` and
-`:`, so two distinct declarations can serialize to one tuple.
+Detailed in Phase 3 above. Acceptance must prove all six:
 
-Required next iteration:
+1. a duplicate configuration name resolving to the SAME ref is rejected;
+2. a duplicate configuration name resolving to a DIFFERENT ref is rejected;
+3. a duplicate policy name resolving to the same ref is rejected;
+4. a duplicate policy name resolving to a different ref is rejected;
+5. ordinary non-duplicate names still lock;
+6. v3 deterministic regeneration remains byte-identical, with no lock-version
+   bump unless the serialized wire actually changes.
 
-1. write the delimiter-collision counterexample BEFORE fixing it;
-2. make the occurrence representation injective for every schema-legal name;
-3. separate declaring-contract identity, declaration identity and traversal
-   provenance explicitly;
-4. audit multiple closure paths to one immutable contract;
-5. prove the duplicate-same-kind-name invariant instead of assuming the prose
-   description is enforcement;
-6. decide lock-version compatibility deliberately rather than silently
-   reinterpreting written v2 data;
-7. regenerate deliberate lock fixtures; second regeneration byte-identical;
-8. no frontend fix for backend identity problems.
+### Blocker B — one ownership semantic model end to end
 
-### Blocker B — Product target gap: aggregate intelligence
+Detailed in Phase 5 item 3. Acceptance must prove all six:
 
-Overview, Services, Ownership and Readiness lack Product-native aggregate
-comprehension over honest complete populations. Detailed in the target-state
-deltas.
+1. `ownership=conflicting` contains the disputed service;
+2. `owner=team-x` can discover the disputed service;
+3. `owner=team-y` can discover the disputed service;
+4. `owner=team-x` + `ownership=consistent` excludes the disputed service;
+5. clicking a per-owner ranking produces a list whose total equals that ranking
+   count;
+6. reversing revision and source order cannot change any of these answers.
 
-### Blocker C — Product target gap: long-page navigation
+### Blocker C — Owners workspace has no aggregate insight
 
-Revision / Service / Operational Target remain long after progressive
-disclosure, with no intra-page navigation primitive.
+Detailed in Phase 5 item 2. Backend-authoritative complete populations, reusing
+the existing aggregate machinery; not a wall of charts; every interactive
+aggregate drills into the exact population it counted.
 
-### Blocker D — Product target gap: workspace geometry
+### Blocker D — PageToc has no active/current section
 
-Operational Graph and Change analysis are sibling primary workflows that
-currently compose the same conceptual shape with different geometry.
+Detailed in Phase 5 item 1. One deterministic selection rule, an accessible
+current state, a non-colour distinction, and no second mobile implementation.
 
 ### Previously accepted and NOT reopened
 
@@ -444,17 +473,15 @@ currently compose the same conceptual shape with different geometry.
 
 ## 8. Latest verification snapshot
 
-Independently verified at exact HEAD `9e76b6bd`:
+Reviewed at exact HEAD `ecb96d3c`. The currently-open review threads are
+generated/minified vendor bundle findings, not authored-product defects. The
+external CodeQL alert count must not be claimed as fixed or introduced without
+establishing its base/head provenance.
 
-- the PR workflows are green;
-- six review threads unresolved, all six generated/minified Mermaid bundle
-  findings;
-- zero unresolved authored-code threads.
-
-The previous Claude handoff for `759845ca` had reported gofmt/vet/lint/gocyclo
-clean, 100.0% coverage gates, `svelte-check` 0 errors + 15 pre-existing
-warnings, Vitest 1116 passed / 66 files, Playwright 167 passed / 18 specs, 0
-`test.fixme` and 1 data-guard `test.skip`.
+The previous Claude handoff for `9e76b6bd` had reported gofmt/vet/lint/gocyclo
+clean, 100.0% coverage gates, `svelte-check` 0 errors with pre-existing warnings
+only, the full Vitest suite green and a 171-test Playwright browser suite green
+across desktop and mobile.
 
 Important process rule:
 
@@ -472,27 +499,23 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
+This is a NARROW correction pass. The previous iteration is substantially
+accepted and must not be reopened or redesigned.
+
 The immediate next Claude session should:
 
-1. reproduce the delimiter collision, then make reference occurrence identity
-   injective at the model level;
-2. make declaration identity vs traversal provenance explicit;
-3. prove the duplicate-declaration-name invariant;
-4. decide lock-version compatibility deliberately and regenerate fixtures
-   deterministically;
-5. correct stale `Deployment` wording in the current architecture model;
-6. build the richer Operational Overview over honest complete populations;
-7. add complete-filtered-population Services inventory intelligence backed by a
-   bounded Product aggregate query;
-8. restore Product-native Ownership aggregate insights without a fabricated
-   composite owner health score;
-9. add Product-native revision-scoped Readiness insights whose unit is always
-   Contract Revision;
-10. add one shared "On this page" primitive that cannot drift from the rendered
-    sections and cannot corrupt the hash router;
-11. unify Operational Graph and Change analysis onto one workspace scaffold;
-12. run the browser cognitive walkthrough and the full acceptance matrix;
-13. do not begin Phase 7.
+1. write the duplicate-identical-declaration counterexample first, for BOTH
+   configuration and policy, then close the `pacto lock` hole;
+2. unify owner semantics end to end so filtering and aggregation answer the same
+   question, and prove it with the disputed-service counterexample;
+3. give the Owners workspace a backend-authoritative aggregate above the
+   inventory, drilling into the exact population it counted;
+4. give PageToc a deterministic active/current section with an accessible,
+   non-colour-only state;
+5. add the browser acceptance for both the TOC and the ownership counterexamples
+   without weakening the existing suite;
+6. run the full verification matrix and audit the review threads paginated;
+7. do not begin Phase 7.
 
 The design constraint is:
 
