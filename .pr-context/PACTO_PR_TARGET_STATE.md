@@ -159,6 +159,11 @@ Release-level invariants:
 - Declared-not-observed != confirmed absence.
 - Observed-only != invalid by definition.
 - Absence of evidence != evidence of absence.
+- Declared ownership != canonical Owner identity.
+- Owner contact point != Owner identity.
+- Selected Data Source health != Fleet knowledge completeness.
+- Direct source records != contributed Product entities.
+- An authoritative total of zero != an absent total.
 - Product discovery != authorization.
 - Product discovery != execution.
 - Contract intent != runtime truth.
@@ -214,6 +219,35 @@ Changing the serialized meaning of an already-published lock version is not
 allowed silently: bump the version, or state the reduced guarantees of the older
 version explicitly, and document the compatibility matrix.
 
+### Owner identity
+
+Canonical Owner identity is namespaced by the field that named the owner:
+`team/alice` and `dri/alice` are different owners, while one Team declared with
+different DRI or contact metadata remains one owner.
+
+Three ownership states must be representable and distinguishable everywhere
+ownership is presented:
+
+1. **no declared owner** — the contract declares no owner block;
+2. **declared with canonical identity** — a Team or DRI names the owner, so a
+   canonical Owner destination exists;
+3. **declared without canonical identity** — contact points only, so ownership
+   is real but no canonical Owner destination exists.
+
+State 3 must never be presented as state 1, and must never be repaired by
+inventing an identity from an email, Slack channel, URL or other contact point.
+Declared contact metadata stays reachable as contract material through
+progressive disclosure in the Contract Revision inspector.
+
+Owner equality must be defined once and hold in the docs, the implementation and
+the contract schema simultaneously. Whether the contact list is a set or an
+ordered multiset is a deliberate decision, not an accident of a length check;
+whichever is chosen, the schema must agree.
+
+Where owners are ranked, a row's visible identity must not depend on which rows
+survived ranking truncation. Two owners that share a display label must remain
+distinguishable whether both, one or neither is inside the visible top-N.
+
 ### Evidence identity
 
 Producer, sequence, subject/target and digest semantics remain explicit and deterministic.
@@ -260,11 +294,12 @@ The first screenful must quickly answer:
 
 A restrained hierarchy is expected, for example: an IMMEDIATE SITUATION band
 (services needing attention, non-compliant targets, stale/no evidence,
-unresolved/ambiguous revision identity, observed-only relationships, degraded
-data sources), an OPERATIONAL POSTURE band (compliance, revision-match
-certainty, evidence freshness, reconciliation where a complete meaningful
-population exists) and an ORGANIZATION / CONTRACT band (ownership coverage,
-revision Readiness).
+unresolved/ambiguous revision identity, observed-only relationships), an
+OPERATIONAL POSTURE band (compliance, revision-match certainty, evidence
+freshness, reconciliation where a complete meaningful population exists), an
+ORGANIZATION / CONTRACT band (ownership coverage, revision Readiness) and a DATA
+SOURCES band (where this knowledge came from, which sources are degraded, how to
+inspect them), followed by NEEDS ATTENTION and RECENT EVIDENCE.
 
 These are semantic goals, not a mandated card count. Do not show six cards plus
 six bars merely because six metrics exist. The responsive grid must stay
@@ -320,7 +355,10 @@ attention items per owner and operational targets per owner.
 - if a ranked breakdown is not a partition of the service population, say so;
 - there is NO composite "owner health" score;
 - Owners remains a secondary/contextual workspace: aggregate insight above the
-  owner inventory, then drill down to Owner detail.
+  owner inventory, then drill down to Owner detail;
+- every surface that presents ownership distinguishes the three states of the
+  Owner identity model, and one shared presentational primitive owns that logic
+  so Service, Revision and Operational Target cannot drift apart.
 
 ### Readiness insights
 
@@ -373,6 +411,73 @@ The page must be scannable through progressive disclosure instead of showing eve
 Canonical runtime/evidence inspector.
 
 Immediately communicate service, target identity, linked revision and match certainty, content retrievability where relevant, compliance, evidence freshness, important findings, supported observed runtime facts and observed relationships/drift.
+
+### Data source
+
+Canonical **provenance inspector**, not a debug record.
+
+It answers, in this order:
+
+1. what Data Source am I inspecting;
+2. is THIS source healthy and current;
+3. when was it last successfully synchronized;
+4. when was it last observed;
+5. how much raw knowledge did it supply;
+6. what Product entities are attributable to it;
+7. if it is degraded, what failed;
+8. what limitations remain.
+
+Primary plane: health, kind, last successful synchronization, observation
+freshness, contribution summary and any active failure of the selected source.
+Secondary plane: contributed entities, contribution breakdown, limitations,
+machine error code and exact diagnostic metadata. The canonical key stays in the
+existing identifier disclosure.
+
+It uses the accepted Product visual grammar. It does not invent a
+source-specific design system.
+
+**Direct records versus contributed Product entities**
+
+A source's direct record counts and the Product entities attributable to it are
+different populations and may legitimately differ. Direct records are the raw
+contract revisions and operational targets that source submitted. Contributed
+Product entities are the snapshot entities attributable to it, which include
+logical Services that no source records directly because they are derived from
+the revisions and targets that name them.
+
+The UI must teach that distinction rather than equalize the two numbers. Any
+whole-source total must come from the complete backend population, never from
+counting a bounded preview in the frontend.
+
+**Discoverability**
+
+Primary navigation stays exactly four tabs; Data sources must NOT become a fifth
+primary tab. Data sources is a recognizable Overview SECTION with its own
+semantic heading, present in the Overview `PageToc`, with visibly navigable
+named source chips that link to exact Source detail and one obvious
+section-level action into the complete inventory. There is exactly one source
+summary on Overview.
+
+The inventory keeps its search, health filter and paged list. Any inventory-level
+health summary must be backend-authoritative over the complete population, must
+drill down usefully, and must not become another heavyweight dashboard.
+
+Source detail must have an obvious route back to the inventory. Breadcrumbs
+remain `Overview > Data sources > source`.
+
+### Knowledge completeness scoping
+
+Selected-entity health and Fleet/snapshot knowledge completeness are different
+facts and must be scoped separately wherever both can appear.
+
+A Source page must never present an `Available` selected source as if that
+source were itself unavailable. When the selected source IS degraded, its health
+belongs in the page header, its source-specific error explains why, and global
+Fleet incompleteness stays separately scoped without repeating an ambiguous
+banner.
+
+Knowledge-state treatment for Service, Revision and Operational Target must not
+be weakened to achieve this.
 
 ### Operational Graph
 
@@ -487,6 +592,14 @@ The Product should retain useful visual intelligence without recreating V1 dashb
 
 Visualizations must answer a real question faster than reading rows, use backend-authoritative aggregates, not pretend a paginated preview is the full population, show exact values/text equivalent, work light/dark and mobile, not rely only on color, and have meaningful drill-down where interactive.
 
+An authoritative denominator holds in every direction. Segments summing BELOW it
+render the unclassified remainder; segments summing ABOVE it render an explicit
+inconsistency rather than a widened denominator or a comfortable 100 percent;
+and an authoritative total of zero alongside positive buckets stays zero, keeps
+the contradictory count visible and states that a percentage is not applicable
+rather than fabricating one. These behaviours belong in the shared primitive,
+never in a page-local special case.
+
 Candidate areas include target compliance posture, revision adoption, revision-link certainty, evidence freshness, findings/severity, source health, relationship differences and change impact.
 
 The dashboard requirement must not be met by turning every insight into another
@@ -537,6 +650,16 @@ Revision alongside a NonCompliant Target not being semantically collapsed;
 On-this-page on desktop and mobile; collapsed-section TOC navigation; TOC
 combined with Back/Forward and scroll restoration; and Graph/Change workspace
 geometry alignment measured from real computed bounding boxes.
+
+It must also cover the ownership and provenance counterexamples: contacts-only
+declared ownership never reading as unowned and never gaining a fabricated
+canonical link while its contact metadata stays reachable; two owners sharing a
+display label staying distinguishable across the ranking truncation boundary; an
+authoritative zero total with positive buckets; Data sources reachable as an
+Overview section and navigable to exact Source detail and to the inventory; an
+Available selected source under a degraded fleet; an unavailable selected
+source; and a fixture where direct source records genuinely differ from
+contributed Product entities.
 
 Required existing capability must not be hidden behind `test.fixme`.
 
