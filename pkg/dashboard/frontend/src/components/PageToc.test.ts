@@ -53,6 +53,32 @@ const labels = (t: HTMLElement) => links(t).map((b) => b.textContent?.trim());
 /** MutationObserver callbacks are microtasks; let the queue drain, then re-render. */
 const settle = async () => { await Promise.resolve(); await Promise.resolve(); flushSync(); };
 
+/** The entries marked current — as a LIST, so "exactly one" is part of every assertion. */
+const currentLabels = (t: HTMLElement) => links(t)
+  .filter((b) => b.getAttribute('aria-current') === 'true')
+  .map((b) => b.textContent?.trim());
+
+/**
+ * jsdom lays nothing out, so the sections are given the geometry the rule reads: a top
+ * edge each, or `null` for a section with no box at all — which is what a heading folded
+ * inside a closed disclosure looks like to `getClientRects`.
+ */
+function layout(tops: (number | null)[]) {
+  tops.forEach((top, i) => {
+    const el = document.getElementById(`sec-${i}`) as HTMLElement;
+    (el as any).getClientRects = () => (top === null ? [] : [{ top }]);
+    el.getBoundingClientRect = () => ({ top }) as DOMRect;
+  });
+}
+
+/** One scroll, then one animation frame — the component coalesces to exactly that. */
+const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
+async function scrolled() {
+  window.dispatchEvent(new Event('scroll'));
+  await nextFrame();
+  flushSync();
+}
+
 describe('PageToc', () => {
   let target: HTMLElement;
   let mq: Map<string, MQ>;
@@ -128,6 +154,91 @@ describe('PageToc', () => {
     expect(target.querySelector('a')).toBeNull();
     links(target)[1].click();
     expect(window.location.hash).toBe(before);
+    unmount(c);
+  });
+
+  /**
+   * WHERE AM I. One rule, one answer: the current section is the last one whose top edge
+   * has reached the reading line. Ordering by a single line cannot tie, so — unlike an
+   * intersection ratio over the several sections a desktop viewport holds at once — it
+   * cannot oscillate between two of them as the reader scrolls slowly.
+   */
+  it('marks the last section that has reached the reading line, and only that one', async () => {
+    body = page(['A', 'B', 'C']);
+    const c = mountToc();
+
+    layout([-400, -10, 300]); // A and B are past the line, C is still below it
+    await scrolled();
+    expect(currentLabels(target)).toEqual(['B']);
+    expect(target.querySelectorAll('.toc-link.current').length).toBe(1);
+
+    layout([-900, -520, -5]); // the reader scrolls C up over the line
+    await scrolled();
+    expect(currentLabels(target)).toEqual(['C']);
+    unmount(c);
+  });
+
+  /**
+   * The line is where a section COMES TO REST when it is scrolled to — its own
+   * scroll-margin-top, which exists so the heading clears the sticky app bar. Reading it
+   * from the CSS is what makes clicking an entry and scrolling to it agree: at the pixel
+   * the browser parks the section at, that section is the current one.
+   */
+  it('reads the reading line off the section’s own scroll-margin-top', async () => {
+    body = page(['A', 'B', 'C']);
+    const c = mountToc();
+    const real = window.getComputedStyle;
+    window.getComputedStyle = (() => ({ scrollMarginTop: '80px' })) as any;
+    try {
+      // B has cleared the app bar but not the viewport top: current under the CSS line,
+      // and NOT current if the line were hard-coded to zero here.
+      layout([-200, 40, 300]);
+      await scrolled();
+      expect(currentLabels(target)).toEqual(['B']);
+    } finally { window.getComputedStyle = real; }
+    unmount(c);
+  });
+
+  it('keeps a chosen entry current while the scroll travels, until the reader takes over', async () => {
+    body = page(['A', 'B', 'C']);
+    const c = mountToc();
+    layout([-400, -10, 300]);
+    await scrolled();
+    expect(currentLabels(target)).toEqual(['B']);
+
+    links(target)[2].click();
+    flushSync();
+    expect(currentLabels(target)).toEqual(['C']); // answered on the click, not on arrival
+
+    // The smooth scroll passes over the sections in between, and a short last section may
+    // never reach the line at all. Neither may undo what the reader asked for.
+    layout([-100, 200, 900]);
+    await scrolled();
+    expect(currentLabels(target)).toEqual(['C']);
+
+    // The reader driving is the signal that geometry is the truth again.
+    window.dispatchEvent(new Event('wheel'));
+    await nextFrame();
+    flushSync();
+    expect(currentLabels(target)).toEqual(['A']);
+    unmount(c);
+  });
+
+  it('never makes a section current that the page has not laid out', async () => {
+    body = page(['A', 'B', 'C']);
+    const c = mountToc();
+
+    // B is folded away. Its zeroed rect would read as "top: 0" and beat every real
+    // section, which is exactly the wrong answer: it is not on screen to be read.
+    layout([-400, null, 300]);
+    await scrolled();
+    expect(currentLabels(target)).toEqual(['A']);
+
+    // Above everything, the first rendered section is current — the reader is in the
+    // page's preamble, not nowhere.
+    layout([200, null, 600]);
+    await scrolled();
+    expect(currentLabels(target)).toEqual(['A']);
     unmount(c);
   });
 

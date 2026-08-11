@@ -16,6 +16,7 @@
 
   let entries = $state([]);
   let open = $state(false);
+  let current = $state('');
 
   // The rail is open by default; the mobile disclosure is closed by default, because
   // there it costs a screenful. After a reader touches it, their choice stands.
@@ -48,10 +49,78 @@
   }
 
   $effect(() => {
-    scan();
-    const mo = new MutationObserver(scan);
+    const rescan = () => { scan(); schedule(); };
+    rescan();
+    const mo = new MutationObserver(rescan);
     mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-toc', 'id'] });
     return () => mo.disconnect();
+  });
+
+  // WHICH entry is current: ONE rule, evaluated from geometry, with no intersection
+  // ratios and no ties to break.
+  //
+  //   the current section is the LAST one whose top edge has reached the reading line;
+  //   above the first section, the first section is current.
+  //
+  // The reading line is where a section COMES TO REST when it is scrolled to -- its own
+  // `scroll-margin-top`, which exists so a heading clears the sticky app bar. Reading it
+  // from the CSS rather than restating the offset here is what makes clicking an entry
+  // and scrolling to it agree: the pixel the browser parks the section at is the pixel
+  // that makes it current.
+  //
+  // The alternative -- an IntersectionObserver over the sections -- was rejected on
+  // purpose. Several sections intersect the viewport at once on any desktop page, so
+  // "which of the visible ones is THE one" needs a tie-break anyway, and a ratio-based
+  // one oscillates: a tall section and a short section crossing the same edge swap
+  // places frame by frame as the reader scrolls slowly. Ordering by a single line
+  // cannot tie, so it cannot oscillate.
+  function pick() {
+    // A pinned choice is the reader's own, made a moment ago by clicking an entry; the
+    // programmatic smooth scroll on its way there must not walk `current` through every
+    // section it passes, and a short last section that cannot reach the line must not
+    // undo the click at all.
+    if (pinned || typeof document === 'undefined' || entries.length === 0) return;
+    let line = 0;
+    let next = '';
+    for (const e of entries) {
+      const el = document.getElementById(e.id);
+      // No layout means the section is inside a collapsed disclosure (or otherwise not
+      // rendered). It stays in the list and stays clickable -- go() opens its ancestors
+      // -- but a box with no position on the page cannot be the one being read, and
+      // treating its zeroed rect as "top: 0" would make it beat every real section.
+      if (!el || el.getClientRects().length === 0) continue;
+      if (!next) {
+        next = e.id;
+        line = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+      }
+      if (el.getBoundingClientRect().top <= line + 1) next = e.id;
+    }
+    current = next;
+  }
+
+  // Coalesced to one evaluation per frame: a scroll fires far more often than the page
+  // can paint, and the answer cannot change between paints.
+  let frame = 0;
+  let pinned = false;
+  function schedule() {
+    if (frame || typeof requestAnimationFrame === 'undefined') return;
+    frame = requestAnimationFrame(() => { frame = 0; pick(); });
+  }
+
+  // The same three events scrollRestore treats as "the reader is driving now". Any of
+  // them releases a pinned choice, because from then on the geometry is the truth again.
+  const DRIVING = ['wheel', 'touchstart', 'keydown'];
+  $effect(() => {
+    const release = () => { pinned = false; schedule(); };
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    for (const t of DRIVING) window.addEventListener(t, release, { passive: true });
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      for (const t of DRIVING) window.removeEventListener(t, release);
+    };
   });
 
   // Open first, THEN scroll. A target inside a closed disclosure has no layout of its
@@ -61,6 +130,10 @@
     const el = document.getElementById(id);
     if (!el) return;
     for (let p = el; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+    // Answer the click immediately and hold that answer. The section is current because
+    // the reader chose it, not because a scroll animation eventually gets there.
+    current = id;
+    pinned = true;
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     el.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
     // Send the keyboard caret with the viewport, so the next Tab continues from the
@@ -86,7 +159,17 @@
            route, and Back would walk through jump targets instead of pages. -->
       <ul class="toc-list">
         {#each entries as e (e.id)}
-          <li><button type="button" class="toc-link" onclick={() => go(e.id)}>{e.label}</button></li>
+          <!-- aria-current is the state itself, not a description of it: a screen reader
+               announces "current" on the one entry, and it stays right when the list is
+               rebuilt. The visual cue is a left marker AND a heavier weight, so it does
+               not depend on telling accent from grey. -->
+          <li><button
+            type="button"
+            class="toc-link"
+            class:current={e.id === current}
+            aria-current={e.id === current ? 'true' : undefined}
+            onclick={() => go(e.id)}
+          >{e.label}</button></li>
         {/each}
       </ul>
     </details>
@@ -114,6 +197,9 @@
     color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer;
   }
   .toc-link:hover { color: var(--c-accent); background: var(--c-surface-hover); border-left-color: var(--c-accent); }
+  /* The marker APPEARS where there was none and the label thickens: both survive
+     greyscale, so "where am I" is never carried by hue alone. */
+  .toc-link.current { color: var(--c-text); font-weight: 600; border-left-color: var(--c-accent); }
 
   /* Wide viewports: the same control, parked beside the content. `align-self: start` on
      the grid item is what lets `sticky` do anything at all -- a stretched grid child is
