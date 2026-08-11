@@ -1,8 +1,0 @@
-[mcp_servers.repowise]
-command = "repowise"
-args = [
-    "mcp",
-    "/Users/eduardodiazasencio/repositories/trianalab/pacto",
-    "--transport",
-    "stdio",
-]
