@@ -4,7 +4,7 @@ service:
   version: 7.2.0
   owner:
     team: infra-data
-    dri: carlos.silva
+    dri: priya.raman
     contacts:
     - type: email
       value: infra-data@acme.com
@@ -12,9 +12,6 @@ service:
     - type: chat
       value: '#infra-data'
       purpose: support
-    - type: oncall
-      value: infra-data-oncall
-      purpose: oncall
 workload: service
 state:
   type: stateful

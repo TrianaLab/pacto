@@ -28,7 +28,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/email-provider
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:a5179e3070cb65a6d8bc4826dcf096d997ec0ca47d2dcbd4a12677f269d5b283
+      digest: sha256:31f12d0ba035a93bb4551c96ad606194b96f7b9ca6456f0df2c017c48eb4cb2a
     - name: fraud-service
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/fraud-service
@@ -84,7 +84,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/redis
       constraint: ^7.0.0
       version: 7.2.0
-      digest: sha256:d06edc980f34a7a24bbadce58305f9f8285bd863091c12de1e91cc1a6c704293
+      digest: sha256:f9485712de500349ab7afcd16927535963e69c1499ecb0482f3f5af3b207034a
     - name: stripe-api
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/stripe-api

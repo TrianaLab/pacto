@@ -3,8 +3,7 @@ service:
   name: settlement-service
   version: 1.4.0
   owner:
-    team: partner-integrations
-    dri: nadia.okoro
+    dri: partner-integrations
     contacts:
     - type: email
       value: partner-integrations@acme.com
@@ -24,7 +23,8 @@ metadata:
   category: payments
   criticality: high
   summary: Partner-domain settlement. Reads the partners domain's own platform-app-config,
-    not the core one that shares its name.
+    not the core one that shares its name. Owned by the partner-integrations on-call
+    rotation as a DRI, not by the partner-integrations team that owns that config.
   repo: github.com/trianalab/pacto-demo/partners-settlement-service
   tags:
   - partners

@@ -47,16 +47,23 @@ async function open(page: Page, hash: string, after?: (page: Page) => Promise<vo
   await expect(page.locator(FIGURES).first()).toBeVisible({ timeout: 30000 });
 }
 
-/** Canonical keys DISCOVERED from the Product API, so the sweep follows the fixture. */
+/**
+ * Canonical keys DISCOVERED from the Product API, so the sweep follows the fixture.
+ *
+ * The owner is the first one the fleet has RUNNING TARGETS for, not simply the first
+ * owner: an owner with nothing observed draws no distribution at all, and says so in
+ * words. That page is correct and this audit is about pages that do draw -- picking it
+ * would fail the sweep on an honest empty state.
+ */
 async function keys(page: Page): Promise<Record<string, string>> {
   await page.goto('/#/fleet');
   await page.waitForFunction(() => !document.body.textContent?.includes('Loading'), null, { timeout: 30000 });
   return page.evaluate(async () => {
-    const first = async (kind: string) => {
-      const r = await (await fetch(`/api/fleet/entities?kinds=${kind}&limit=1`)).json();
-      return (r.entities || [])[0]?.key || '';
-    };
-    return { service: 'payments-service', owner: await first('owner') };
+    const agg = await (await fetch('/api/fleet/entities?kinds=service&limit=1')).json();
+    const byOwner = (agg.aggregate?.byOwner || []) as Array<{ key: string; targets: number }>;
+    const first = await (await fetch('/api/fleet/entities?kinds=owner&limit=1')).json();
+    const owner = byOwner.find((o) => o.targets > 0)?.key || (first.entities || [])[0]?.key || '';
+    return { service: 'payments-service', owner };
   });
 }
 

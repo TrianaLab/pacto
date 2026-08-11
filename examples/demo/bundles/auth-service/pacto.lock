@@ -10,7 +10,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/redis
       constraint: ^7.0.0
       version: 7.2.0
-      digest: sha256:d06edc980f34a7a24bbadce58305f9f8285bd863091c12de1e91cc1a6c704293
+      digest: sha256:f9485712de500349ab7afcd16927535963e69c1499ecb0482f3f5af3b207034a
 references:
     - kind: config
       name: platform

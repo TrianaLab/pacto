@@ -105,14 +105,24 @@ function installScaleInterceptor(): void {
       // this fixture manufactured rather than one the product committed.
       const [compliant, nonCompliant, unknown, notEvaluated] = split(25000, 4);
       const [consistent, conflicting, unowned] = split(25000, 3);
+      // Canonical owner keys, exactly as the backend emits them: namespaced identity,
+      // authored label, and the namespace that tells two same-named owners apart.
+      const ownerRows = Array.from({ length: 10 }, (_, i) => {
+        const name = `team-${String(i).padStart(3, '0')}`;
+        return { key: `team:${name}`, label: name, kind: 'team', services: 500 - i * 10, targets: 1000 - i * 20 };
+      });
       doc.aggregate = {
         matched: 25000,
         serviceCompliance: { compliant, nonCompliant, unknown, notEvaluated },
         ownership: { consistent, conflicting, unowned },
-        byOwner: Array.from({ length: 10 }, (_, i) => ({
-          owner: `team-${String(i).padStart(3, '0')}`, services: 2000 - i * 100, targets: 4000 - i * 200,
-        })),
-        distinctOwners: 900, otherOwners: 10500,
+        byOwner: ownerRows,
+        // The ranking reconciles against the population it was carved out of:
+        // rows + beyondRanking + unidentifiedOwnership == consistent. A fixture that
+        // ranked more services than it said were owned would be testing the product
+        // against arithmetic the backend cannot produce.
+        distinctOwners: 900, rankedOwners: 900,
+        beyondRanking: Math.max(0, consistent - ownerRows.reduce((n, o) => n + o.services, 0)),
+        unidentifiedOwnership: 0,
       };
       return { status: res.status, body: JSON.stringify(doc), contentType: res.contentType };
     }
@@ -197,8 +207,9 @@ test.describe('Product lists stay bounded and honest at scale', () => {
     // And the per-owner ranking says how much of the population it leaves out, rather
     // than reading as a complete breakdown of 900 owners.
     await page.locator('.sv-inv-more summary').click();
-    await expect(page.getByText(/Top 10 of 900 declared owners by service count\./)).toBeVisible();
-    await expect(page.getByText(/The remaining 890 of 900 owners account for 10500 more services\./)).toBeVisible();
+    await expect(page.getByText(/Top 10 of 900 named owners by service count\./)).toBeVisible();
+    // 8334 consistently owned services, 4550 of them in the ten rows shown.
+    await expect(page.getByText(/The remaining 890 of 900 owners account for 3784 more services\./)).toBeVisible();
 
     // Paging forward is real navigation into the same bounded page size.
     await page.getByTestId('svc-next').click();

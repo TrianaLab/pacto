@@ -142,7 +142,7 @@ test('Services: ownership coverage is a distribution of services, and it drills 
   // The per-owner ranking answers the follow-up question ("who carries it") and says how
   // many distinct owners it is ranking, so the ten rows never read as the whole roster.
   const summary = (await page.locator('.sv-inv-more summary').textContent())!.replace(/\s+/g, ' ').trim();
-  expect(summary).toMatch(/Per-owner breakdown \d+ declared owners?/);
+  expect(summary).toMatch(/Per-owner breakdown \d+ named owners?/);
 
   // And the page offers the owners themselves as entities, not merely as a chart axis.
   await page.getByRole('link', { name: 'Browse owners' }).click();
@@ -229,12 +229,16 @@ test('Owners: a ranked owner opens exactly the services it counted, and says wha
   const rank = await ranking(page, 'Services per owner');
   expect(rank.buckets.length).toBeGreaterThan(0);
 
-  // The rows are a BOUND, not the roster, and the note reconciles the difference: the
-  // ranked owners plus the ones past the cut account for every consistently owned
-  // service, and the rest of the fleet belongs to no row here.
+  // The rows are a BOUND, not the roster, and the page reconciles the difference in
+  // full: the ranked owners, the ones past the cut, and the services whose ownership
+  // names nobody to rank account for every consistently owned service between them.
+  // Three populations, three separate sentences — adding them together silently would
+  // invent a fourth that is none of them.
   const other = Number(rank.scope.match(/account for (\d+) more services?/)?.[1] ?? 0);
-  expect(sum(rank.buckets) + other,
-    `${rank.buckets.length} ranked rows + ${other} others do not add up to the ${consistent.value} consistently owned services`)
+  const note = (await page.getByTestId('owners-unidentified').textContent().catch(() => null)) || '';
+  const nameless = Number(note.match(/^\s*(\d+) services?\b/)?.[1] ?? 0);
+  expect(sum(rank.buckets) + other + nameless,
+    `${rank.buckets.length} ranked rows + ${other} beyond the cut + ${nameless} naming nobody do not add up to the ${consistent.value} consistently owned services`)
     .toBe(consistent.value);
   expect(rank.scope).toContain('appear in no row here');
 
@@ -267,7 +271,7 @@ test('Owners: both teams disputing a service can find it, and neither owns it cl
     if (!svc) return null;
     const claimants: string[] = [];
     for (const o of await get('kinds=owner&limit=200')) {
-      const mine = await get(`kinds=service&owner=${encodeURIComponent(o.key)}&limit=200`);
+      const mine = await get(`kinds=service&ownerKey=${encodeURIComponent(o.key)}&limit=200`);
       if (mine.some((s: { key: string }) => s.key === svc.key)) claimants.push(o.key);
     }
     return { key: svc.key, label: svc.label || svc.key, claimants };
@@ -279,13 +283,14 @@ test('Owners: both teams disputing a service can find it, and neither owns it cl
 
   const rows = () => page.getByTestId('service-list').locator('> li').allTextContents();
   for (const owner of disputed!.claimants) {
-    // owner=x means "at least one revision of this service names x". Both teams find it.
-    await page.evaluate((o: string) => { location.hash = `/fleet/services?owner=${encodeURIComponent(o)}`; }, owner);
+    // ownerKey=x means "at least one revision of this service names exactly x" -- the
+    // canonical identity, not a name that might belong to a second owner. Both find it.
+    await page.evaluate((o: string) => { location.hash = `/fleet/services?ownerKey=${encodeURIComponent(o)}`; }, owner);
     await expect.poll(rows, { timeout: 30_000 }).toEqual(expect.arrayContaining([expect.stringContaining(disputed!.label)]));
 
     // Adding "consistently owned" is what narrows it, and it must exclude the disputed
     // service for BOTH claimants -- neither team owns it outright.
-    await page.evaluate((o: string) => { location.hash = `/fleet/services?owner=${encodeURIComponent(o)}&ownership=consistent`; }, owner);
+    await page.evaluate((o: string) => { location.hash = `/fleet/services?ownerKey=${encodeURIComponent(o)}&ownership=consistent`; }, owner);
     await expect.poll(rows, { timeout: 30_000 }).not.toEqual(expect.arrayContaining([expect.stringContaining(disputed!.label)]));
   }
 });

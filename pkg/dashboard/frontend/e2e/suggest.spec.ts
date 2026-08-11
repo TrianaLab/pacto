@@ -156,13 +156,15 @@ test.describe('WASM demo — Services search suggests what exists', () => {
   test('Owner suggests the owners the fleet actually has, and picking one filters', async ({ page }) => {
     await openServices(page);
     await page.getByTestId('svc-owner').fill('partner-integrations');
-    const opt = page.getByTestId('svc-owner-option').first();
+    // Two owners in this fleet answer to that name — a team and a DRI. The suggestion
+    // is picked by the canonical key, which is the only thing that tells them apart.
+    const opt = page.locator('[data-testid="svc-owner-option"][data-key="dri:partner-integrations"]');
     await expect(opt).toBeVisible({ timeout: T });
     await opt.click();
 
     // A suggestion is the backend's own owner key, so picking it asks the EXACT question
     // (`ownerKey`), not the substring search the box performs on what the reader types.
-    await expect(page).toHaveURL(/[?&]ownerKey=partner-integrations(&|$)/, { timeout: T });
+    await expect(page).toHaveURL(/[?&]ownerKey=dri%3Apartner-integrations(&|$)/, { timeout: T });
     await expect(page).not.toHaveURL(/[?&]owner=/);
     await expect(page.locator('[data-testid="service-list"] a[href$="/fleet/services/partners%2Fsettlement-service"]'))
       .toHaveCount(1, { timeout: T });

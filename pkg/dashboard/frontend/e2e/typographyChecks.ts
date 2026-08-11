@@ -111,15 +111,21 @@ export async function boot(page: Page, hash: string): Promise<void> {
  * it passes, having compared one heading against nothing. So this waits for the count
  * of role-classed elements to hold steady rather than for a fixed sleep, which is both
  * faster on the quick routes and honest on the slow ones.
+ *
+ * Zero is never settled. Under a parallel run every worker boots its own wasm engine,
+ * and a route whose data has not landed within one sample interval reads 0 twice in a
+ * row -- "stable", and empty. That measured nothing and passed, which is the failure
+ * mode this whole file exists to prevent, so an empty page keeps waiting for the full
+ * budget instead.
  */
 async function settle(page: Page): Promise<void> {
   const count = () => page.evaluate((roles: string[]) =>
     document.querySelectorAll(roles.map((r) => `main .${r}`).join(',')).length,
   ROLES as unknown as string[]);
   let prev = -1;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 120; i++) {
     const n = await count();
-    if (n === prev) return;
+    if (n > 0 && n === prev) return;
     prev = n;
     await page.waitForTimeout(250);
   }
