@@ -76,10 +76,10 @@ ci-e2e-kind-dashboard:
 	bash tests/e2e/kind/dashboard-modes.sh
 
 # Operator-managed OFFLINE observation packaging: a declared Helm observation
-# source becomes a read-only mount whose stable Data Source identity, observed
-# edge and reconciliation all show up in the live Product API — and a broken one
-# is explicit unavailable knowledge instead of a silently empty graph. Narrow by
-# design (no browser leg); the broad live journey is ci-e2e-kind-operational-graph.
+# source becomes a read-only mount whose stable Data Source identity and observed
+# edge both show up in the live Product API — and a broken one is explicit
+# unavailable knowledge instead of a silently empty graph. Narrow by design (no
+# browser leg); the broad live journey is ci-e2e-kind-operational-graph.
 ci-e2e-kind-observation:
 	bash tests/e2e/kind/observation.sh
 

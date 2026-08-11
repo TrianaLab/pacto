@@ -103,8 +103,8 @@ e2e-upgrade-kind: ci-e2e-kind-upgrade
 # Operator-managed offline observation packaging in a local kind cluster: an
 # externally managed PVC and a ConfigMap each carry a trace export, the operator
 # mounts them read-only under their declared names, and the live Product API is
-# asserted for identity, observed edges, reconciliation and failed-source
-# behavior. Same up/status/logs/down lifecycle as the operational-graph vertical.
+# asserted for identity, observed edges and failed-source behavior. Same
+# up/status/logs/down lifecycle as the operational-graph vertical.
 e2e-observation-kind: ci-e2e-kind-observation
 e2e-observation-kind-up:
 	KEEP_E2E_CLUSTER=1 bash tests/e2e/kind/observation.sh up
