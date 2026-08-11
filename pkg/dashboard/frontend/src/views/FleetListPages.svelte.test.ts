@@ -31,17 +31,22 @@ function listResp(entities: any[], opts: { total?: number; offset?: number; next
 
 // The backend's ownership aggregate over the COMPLETE service population: 40 services,
 // 5 declared owners of which the top 2 are ranked. Deliberately not a partition —
-// 18 + 12 ranked + 4 other == 34 consistent, and the 6 conflicting/unowned services
-// belong to no owner row.
+// 18 + 12 ranked + 4 beyond the bound == 34 consistent, and the 6 conflicting/unowned
+// services belong to no owner row. Owner rows carry the canonical KEY (`team:NAME`)
+// alongside the authored label, because that is what the backend emits and what a
+// link has to ask for.
 const SERVICE_AGG = {
   matched: 40, services: 40,
   ownership: { consistent: 34, conflicting: 2, unowned: 4 },
-  byOwner: [{ owner: 'team-a', services: 18, targets: 22 }, { owner: 'team-b', services: 12, targets: 9 }],
-  otherOwners: 4, distinctOwners: 5,
+  byOwner: [
+    { key: 'team:team-a', label: 'team-a', kind: 'team', services: 18, targets: 22 },
+    { key: 'team:team-b', label: 'team-b', kind: 'team', services: 12, targets: 9 },
+  ],
+  beyondRanking: 4, unidentifiedOwnership: 0, rankedOwners: 5, distinctOwners: 5,
 };
 
 const owners = (n: number) => Array.from({ length: n }, (_, i) => (
-  { kind: 'owner', key: `team-${i}`, label: `team-${i}`, href: `/fleet/owners/team-${i}` }));
+  { kind: 'owner', key: `team:team-${i}`, label: `team-${i}`, href: `/fleet/owners/team:team-${i}` }));
 
 /** Answers the owner inventory and the service aggregate as the two questions they are. */
 function respondByKind(ownerList: unknown, aggregate: unknown = SERVICE_AGG) {
@@ -74,19 +79,20 @@ describe('FleetOwnersView (G)', () => {
 
   it('consumes entities?kinds=owner and lists owners', async () => {
     entitiesFn.mockResolvedValue(listResp([
-      { kind: 'owner', key: 'team-a', label: 'team-a', href: '/fleet/owners/team-a' },
-      { kind: 'owner', key: 'team-b', label: 'team-b', href: '/fleet/owners/team-b' },
+      { kind: 'owner', key: 'team:team-a', label: 'team-a', secondary: 'Team', href: '/fleet/owners/team:team-a' },
+      { kind: 'owner', key: 'dri:team-a', label: 'team-a', secondary: 'DRI', href: '/fleet/owners/dri:team-a' },
     ], { total: 2 }));
     const { target, component } = mountView(FleetOwnersView);
     await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(2));
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], limit: 25 }));
-    const a = target.querySelector('.lv-item a.entity-link') as HTMLAnchorElement;
-    expect(a.getAttribute('href')).toBe('#/fleet/owners/team-a');
+    // Two owners called team-a — a team and a person — are two rows and two pages.
+    const hrefs = Array.from(target.querySelectorAll('.lv-item a.entity-link')).map((n) => n.getAttribute('href'));
+    expect(hrefs).toEqual(['#/fleet/owners/team:team-a', '#/fleet/owners/dri:team-a']);
     unmount(component); document.body.removeChild(target);
   });
 
   it('search commits into the URL and pagination carries the offset', async () => {
-    entitiesFn.mockResolvedValue(listResp([{ kind: 'owner', key: 'team-a', label: 'team-a', href: '/fleet/owners/team-a' }], { total: 60, nextOffset: 25 }));
+    entitiesFn.mockResolvedValue(listResp([{ kind: 'owner', key: 'team:team-a', label: 'team-a', href: '/fleet/owners/team:team-a' }], { total: 60, nextOffset: 25 }));
     const { target, component } = mountView(FleetOwnersView);
     await vi.waitFor(() => expect(target.querySelector('.lv-item')).toBeTruthy());
     const search = target.querySelector('input[type="search"]') as HTMLInputElement;
@@ -132,15 +138,72 @@ describe('FleetOwnersView (G)', () => {
       n.querySelector('.hb-label')?.textContent, n.querySelector('.hb-value')?.textContent,
       n.querySelector('a')?.getAttribute('href'),
     ])).toEqual([
-      ['team-a', '18 services', '#/fleet/services?ownerKey=team-a&ownership=consistent'],
-      ['team-b', '12 services', '#/fleet/services?ownerKey=team-b&ownership=consistent'],
+      ['team-a', '18 services', '#/fleet/services?ownerKey=team%3Ateam-a&ownership=consistent'],
+      ['team-b', '12 services', '#/fleet/services?ownerKey=team%3Ateam-b&ownership=consistent'],
     ]);
     // And it says what it is not: 18 + 12 + 4 == the 34 consistent services, so the six
     // conflicting and unowned ones are in no row here.
     const note = bars[0].querySelector('.hb-scope')?.textContent || '';
-    expect(note).toContain('Top 2 of 5 declared owners by service count.');
+    expect(note).toContain('Top 2 of 5 named owners by service count.');
     expect(note).toContain('The remaining 3 of 5 owners account for 4 more services.');
-    expect(note).toContain('Services with no owner, or whose revisions name different owners, appear in no row here.');
+    expect(note).toContain('Services with no declared owner, or whose revisions name different owners, appear in no row here.');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  /**
+   * A team and a person can carry the same name. They are two owners, two rows and two
+   * destinations, and the ranking has to be readable as such: two bars both labelled
+   * "alice" pointing at different pages is a chart that cannot be acted on.
+   */
+  it('tells two same-named owners apart in the ranking, and links each to its own', async () => {
+    respondByKind(listResp(owners(2), { total: 2 }), {
+      matched: 4, services: 4,
+      ownership: { consistent: 4, conflicting: 0, unowned: 0 },
+      byOwner: [
+        { key: 'team:alice', label: 'alice', kind: 'team', services: 3, targets: 3 },
+        { key: 'dri:alice', label: 'alice', kind: 'dri', services: 1, targets: 1 },
+      ],
+      beyondRanking: 0, unidentifiedOwnership: 0, rankedOwners: 2, distinctOwners: 2,
+    });
+    const { target, component } = mountView(FleetOwnersView);
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
+    const bars = Array.from(target.querySelectorAll('.ow-sum-grid .hbars'));
+    expect(Array.from(bars[0].querySelectorAll('.hb-row')).map((n) => [
+      n.querySelector('.hb-label')?.textContent, n.querySelector('a')?.getAttribute('href'),
+    ])).toEqual([
+      ['alice (Team)', '#/fleet/services?ownerKey=team%3Aalice&ownership=consistent'],
+      ['alice (DRI)', '#/fleet/services?ownerKey=dri%3Aalice&ownership=consistent'],
+    ]);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  /**
+   * An owner block of contacts alone declares ownership and names nobody. Those services
+   * are consistently owned, so they are inside `consistent` -- and they can never occupy
+   * an owner row, because there is no owner to link to. Folding them into the ranking's
+   * "the remaining owners" tail would invent owners that do not exist; leaving them out
+   * silently would lose 3 of the 34 owned services between two numbers on one screen.
+   */
+  it('states the consistently owned services that no owner row can hold', async () => {
+    respondByKind(listResp(owners(2), { total: 2 }), {
+      matched: 40, services: 40,
+      ownership: { consistent: 34, conflicting: 2, unowned: 4 },
+      byOwner: [
+        { key: 'team:team-a', label: 'team-a', kind: 'team', services: 18, targets: 22 },
+        { key: 'team:team-b', label: 'team-b', kind: 'team', services: 12, targets: 9 },
+      ],
+      beyondRanking: 1, unidentifiedOwnership: 3, rankedOwners: 3, distinctOwners: 3,
+    });
+    const { target, component } = mountView(FleetOwnersView);
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
+    // 18 + 12 rows + 1 beyond the bound + 3 with nobody named == the 34 consistent.
+    const note = target.querySelector('.ow-sum-grid .hb-scope')?.textContent || '';
+    expect(note).toContain('The remaining owner accounts for 1 more service.');
+    const un = target.querySelector('[data-testid="owners-unidentified"]')?.textContent || '';
+    expect(un).toContain('3 services');
+    expect(un).toContain('names no team or DRI');
+    // The tail and the unidentified remainder are two sentences about two populations.
+    expect(note).not.toContain('3 services');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -189,7 +252,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     // Not a picture drawn from nothing, and not silence either.
     expect(aggregateDrawn(target)).toBeFalsy();
     // The roster is untouched -- one failed question does not close the page.
-    expect(target.querySelector('.lv-item a.entity-link')?.getAttribute('href')).toBe('#/fleet/owners/team-0');
+    expect(target.querySelector('.lv-item a.entity-link')?.getAttribute('href')).toBe('#/fleet/owners/team:team-0');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -234,7 +297,7 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     respondByKind(listResp(owners(1), { total: 1 }), {
       matched: 10, services: 10,
       ownership: { consistent: 5, conflicting: 2, unowned: 1 },
-      byOwner: [], otherOwners: 0, distinctOwners: 0,
+      byOwner: [], beyondRanking: 0, unidentifiedOwnership: 0, rankedOwners: 0, distinctOwners: 0,
     });
     const { target, component } = mountView(FleetOwnersView);
     await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
@@ -248,6 +311,40 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
       ['Revisions name different owners', '2', '(20% of 10)'],
       ['No declared owner', '1', '(10% of 10)'],
       ['Unclassified', '2', '(20% of 10)'],
+    ]);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  /**
+   * And the other direction. Buckets that classify MORE services than exist cannot be
+   * drawn as a distribution at all: widening the denominator to their sum would erase
+   * the remainder, round every slice back to a clean 100%, and present impossible data
+   * as a complete picture. The authoritative count stays the denominator and the
+   * contradiction is stated in words, above the bar, before it has been believed.
+   */
+  it('refuses to draw an over-count as a complete distribution', async () => {
+    respondByKind(listResp(owners(1), { total: 1 }), {
+      matched: 8, services: 8,
+      ownership: { consistent: 6, conflicting: 3, unowned: 1 },
+      byOwner: [], beyondRanking: 0, unidentifiedOwnership: 0, rankedOwners: 0, distinctOwners: 0,
+    });
+    const { target, component } = mountView(FleetOwnersView);
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
+    const warn = aggregateOf(target)?.querySelector('[data-testid="dist-inconsistent"]');
+    expect(warn).toBeTruthy();
+    expect(warn?.getAttribute('role')).toBe('status');
+    // 6 + 3 + 1 == 10 buckets over a population of 8: the excess is named, not absorbed.
+    expect(warn?.textContent).toContain('account for 10 across a population of 8');
+    expect(warn?.textContent).toContain('2 more than there are');
+    const rows = Array.from(aggregateOf(target)?.querySelectorAll('.dist-item') ?? []).map((n) => [
+      n.querySelector('.dist-label')?.textContent, n.querySelector('.dist-pct')?.textContent,
+    ]);
+    // Still shares of 8 -- the denominator was not quietly moved to make them fit --
+    // and no Unclassified slice was invented to pad a bar that is already too full.
+    expect(rows).toEqual([
+      ['One declared owner', '(75% of 8)'],
+      ['Revisions name different owners', '(37.5% of 8)'],
+      ['No declared owner', '(12.5% of 8)'],
     ]);
     unmount(component); document.body.removeChild(target);
   });

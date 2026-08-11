@@ -72,6 +72,58 @@ describe('DistributionBar', () => {
     expect(legend).toContain('of 10');
   });
 
+  // THE counterexample: the buckets classify MORE than the population being
+  // classified. Widening the denominator to the bucket sum makes the contradiction
+  // vanish — no remainder, every slice a clean share, a bar full to the edge — and
+  // presents impossible data as a complete, healthy distribution.
+  it('refuses to hide an over-count by widening its own denominator', () => {
+    const over = [
+      { label: 'One declared owner', value: 6, tone: 'ok' },
+      { label: 'Revisions name different owners', value: 3, tone: 'err' },
+      { label: 'No declared owner', value: 1, tone: 'warn' },
+    ];
+    comp = mount(DistributionBar, { target, props: { title: 'Declared ownership', segments: over, total: 8 } });
+
+    // The authoritative total stays the denominator, so the percentages exceed 100
+    // and cannot be mistaken for a valid distribution.
+    const legend = target.querySelector('.dist-legend')?.textContent || '';
+    expect(legend).toContain('of 8');
+    expect(legend).not.toContain('of 10');
+    expect(legend).toContain('(75% of 8)');
+    // No fake completeness: nothing invents an Unclassified remainder to fill a gap
+    // that does not exist, and nothing reads as 100%.
+    expect(legend).not.toContain('Unclassified');
+
+    // The contradiction is stated in words, so it does not depend on noticing a
+    // colour, a border or the arithmetic.
+    const warn = target.querySelector('[data-testid="dist-inconsistent"]');
+    expect(warn).not.toBeNull();
+    const text = warn?.textContent || '';
+    expect(text).toContain('8');   // the authoritative population, still visible
+    expect(text).toContain('10');  // what the buckets actually account for
+    expect(text).toContain('2');   // by how much they over-count
+    // Announced, not merely drawn.
+    expect(warn?.getAttribute('role')).toBe('status');
+  });
+
+  it('says nothing about an over-count when the buckets exactly fill the total', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 7 } });
+    expect(target.querySelector('[data-testid="dist-inconsistent"]')).toBeNull();
+  });
+
+  it('says nothing about an over-count when the buckets fall short of the total', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 10 } });
+    expect(target.querySelector('[data-testid="dist-inconsistent"]')).toBeNull();
+    expect(target.querySelector('.dist-legend')?.textContent).toContain('Unclassified');
+  });
+
+  // A population of zero with buckets in it is the same contradiction at the edge:
+  // nothing exists, and yet three things have been classified.
+  it('flags buckets counted against a population of zero', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 0 } });
+    expect(target.querySelector('[data-testid="dist-inconsistent"]')?.textContent).toContain('7');
+  });
+
   it('falls back to the population sum when no total is given', () => {
     comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments } });
     expect(target.querySelector('.dist-legend')?.textContent).not.toContain('Unclassified');

@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
-  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, aggregateGraphByOwner, relatedSubgraph } from '../lib/format.ts';
+  import { statusClass, reasonLabel, reasonTooltip, reasonBadgeClass, isReasonActionable, ownerMatchesFilter, ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY, aggregateGraphByOwner, relatedSubgraph } from '../lib/format.ts';
   import GraphPanel from '../GraphPanel.svelte';
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
@@ -99,9 +99,15 @@
     return m;
   });
 
+  // Grouping is by canonical identity — a team and a person of the same name are
+  // two groups — but the group reads as the owner's name, with the namespace only
+  // where it is needed to tell two same-named groups apart.
   function ownerLabelOf(node) {
     if (node.status === 'external') return '(external)';
-    return ownerKey(ownerByService.get(node.serviceName)) || '(unowned)';
+    const key = ownerKey(ownerByService.get(node.serviceName));
+    if (!key) return UNOWNED_KEY;
+    const kind = ownerKeyKind(key);
+    return kind ? `${ownerKeyLabel(key)} (${kind})` : key;
   }
 
   // The per-owner aggregated tree (teams as nodes). Derived once and reused for

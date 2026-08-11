@@ -147,7 +147,10 @@
         <summary>
           <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
           <span>Per-owner breakdown</span>
-          <span class="ow-more-count t-meta">{rank.distinct} declared {rank.distinct === 1 ? 'owner' : 'owners'}</span>
+          <!-- The number names the population it counts: every canonical owner these
+               services declare, disputed ones included — not the rows below, which
+               are only the ones with a service of their own to rank by. -->
+          <span class="ow-more-count t-meta">{rank.distinct} named {rank.distinct === 1 ? 'owner' : 'owners'}</span>
         </summary>
         <div class="ow-sum-grid">
           <HorizontalBars
@@ -169,6 +172,12 @@
             emptyLabel="None of these owners has anything running yet."
           />
         </div>
+        {#if rank.unidentifiedNote}
+          <!-- Kept apart from the ranking's own tail on purpose. "More owners than
+               fit" and "ownership nobody is named for" are different facts, and
+               adding them together would invent a population that is neither. -->
+          <p class="ow-unidentified t-body-2" data-testid="owners-unidentified">{rank.unidentifiedNote}</p>
+        {/if}
       </details>
     {/if}
   </section>
@@ -201,6 +210,7 @@
   .ow-viewall:hover { text-decoration: underline; }
   .ow-sum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--sp-4); align-items: start; }
   .ow-more-count { color: var(--c-text-3); }
+  .ow-unidentified { margin: var(--sp-3) 0 0; color: var(--c-text-2); }
   .ow-sum-more[open] > .ow-sum-grid { margin-top: var(--sp-3); }
   .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }

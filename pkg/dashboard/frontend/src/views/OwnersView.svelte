@@ -1,6 +1,6 @@
 <script>
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
-  import { aggregateByOwner, complianceClass, statusClass, ownerKey, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast } from '../lib/format.ts';
+  import { aggregateByOwner, complianceClass, statusClass, ownerKey, UNOWNED_KEY, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import OwnersBarChart from '../components/OwnersBarChart.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
@@ -25,7 +25,7 @@
   // Services belonging to the expanded owner
   let expandedServices = $derived.by(() => {
     if (!expandedOwner) return [];
-    return services.filter((s) => (ownerKey(s.owner) || '(unowned)') === expandedOwner);
+    return services.filter((s) => (ownerKey(s.owner) || UNOWNED_KEY) === expandedOwner);
   });
 
   function toggleExpand(key) {
@@ -39,7 +39,7 @@
     // Text filter
     if (nameFilter) {
       const q = nameFilter.toLowerCase();
-      list = list.filter((o) => o.key.toLowerCase().includes(q));
+      list = list.filter((o) => o.label.toLowerCase().includes(q));
     }
 
     // Status filter
@@ -50,7 +50,7 @@
     // Sort
     const dir = sortAsc ? 1 : -1;
     return [...list].sort((a, b) => {
-      if (sortBy === 'key') return a.key.localeCompare(b.key) * dir;
+      if (sortBy === 'key') return (a.label.localeCompare(b.label) || a.key.localeCompare(b.key)) * dir;
       if (sortBy === 'services') return (a.services - b.services) * dir;
       if (sortBy === 'compliance') return compareScoresUnassessedLast(a.compliancePercent, b.compliancePercent, dir);
       if (sortBy === 'blast') return (a.totalBlast - b.totalBlast) * dir;
@@ -65,7 +65,7 @@
   let nameFilteredOwners = $derived.by(() => {
     if (!nameFilter) return allOwners;
     const q = nameFilter.toLowerCase();
-    return allOwners.filter((o) => o.key.toLowerCase().includes(q));
+    return allOwners.filter((o) => o.label.toLowerCase().includes(q));
   });
   let filterCounts = $derived.by(() => {
     let warnings = 0, nonCompliant = 0, compliant = 0;
@@ -192,9 +192,12 @@
               <td>
                 <button type="button" class="expand-icon" class:expanded={expandedOwner === row.key}
                   aria-expanded={expandedOwner === row.key} aria-controls="owner-detail-{i}"
-                  aria-label="Toggle services for {row.key}"
+                  aria-label="Toggle services for {row.label}{row.kind ? ` (${row.kind})` : ''}"
                   onclick={(e) => { e.stopPropagation(); toggleExpand(row.key); }}>›</button>
-                <a href={ownerUrl(row.key)} class="owner-name" onclick={(e) => e.stopPropagation()}>{row.key}</a>
+                <a href={ownerUrl(row.key)} class="owner-name" onclick={(e) => e.stopPropagation()}>{row.label}</a>
+                <!-- Two owners can share a name; the namespace is the only thing that
+                     tells the reader which row is which. -->
+                {#if row.kind}<span class="owner-kind">{row.kind}</span>{/if}
               </td>
               <td>{row.services}</td>
               <td>
@@ -354,6 +357,13 @@
     vertical-align: middle;
   }
   .owner-name:hover { text-decoration: underline; }
+
+  .owner-kind {
+    margin-left: var(--sp-2);
+    font-size: var(--text-xs);
+    color: var(--c-text-3);
+    vertical-align: middle;
+  }
 
   .conclusive-sub {
     display: block;

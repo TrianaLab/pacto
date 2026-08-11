@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS, ownerKeyLabel, ownerKeyKind } from '../lib/format.ts';
   import { fleetOverviewUrl, fleetServicesUrl, fleetOwnersUrl, hashForHref, fleetEntityUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import EntityCombobox from '../components/EntityCombobox.svelte';
@@ -115,15 +115,28 @@
   // put there. Picking a suggestion adopts its label into the input and the browser
   // then fires `change` on blur carrying that same text -- without ownerCommitted, that
   // echo would re-read the exact owner the user just chose as a substring search.
-  const ownerBox = $derived(ownerKey || owner);
+  // The box holds the owner's NAME, both when it came from a pick and when the
+  // reader typed it: `team:alice` is how the filter travels, not how anyone writes
+  // an owner. It has to match the label EntityCombobox adopts on select, or the
+  // blur echo re-reads the exact choice as a substring search and undoes it.
+  const ownerBox = $derived(ownerKey ? ownerKeyLabel(ownerKey) : owner);
+  // The chip names the owner the way the reader picked them, with the namespace
+  // that makes the choice unambiguous — never the raw `team:`/`dri:` wire form.
+  const ownerChipValue = $derived(
+    ownerKeyKind(ownerKey) ? `${ownerKeyLabel(ownerKey)} (${ownerKeyKind(ownerKey)})` : ownerKey,
+  );
   let ownerCommitted = $state('');
   $effect(() => { ownerCommitted = ownerBox; });
-  function pickOwner(ref) { ownerCommitted = ref.label ?? ''; apply({ ownerKey: ownerCommitted, owner: '' }); }
+  // ref.KEY, not ref.label: the label is the owner's name and two owners can share
+  // one, so filtering by it would hand back both estates as if they were one.
+  // ref.KEY decides who, ref.label decides what the box reads. Filtering on the
+  // label would hand back both estates when two owners share a name.
+  function pickOwner(ref) { ownerCommitted = ref.label ?? ''; apply({ ownerKey: ref.key ?? '', owner: '' }); }
   function searchOwner(v) { if (v !== ownerCommitted) { ownerCommitted = v; apply({ owner: v, ownerKey: '' }); } }
 
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
-    ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerKey } : null,
+    ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerChipValue } : null,
     // Named apart from the exact one on purpose: the two chips can both be present,
     // and a reader must be able to tell which of them is the loose one.
     owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
@@ -273,7 +286,7 @@
         <summary>
           <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
           <span>Per-owner breakdown</span>
-          <span class="sv-more-count t-meta">{distinctOwners} declared {distinctOwners === 1 ? 'owner' : 'owners'}</span>
+          <span class="sv-more-count t-meta">{distinctOwners} named {distinctOwners === 1 ? 'owner' : 'owners'}</span>
         </summary>
         <div class="sv-inv-grid">
           <HorizontalBars

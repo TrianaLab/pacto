@@ -1,4 +1,4 @@
-import { ownerKey } from './format';
+import { ownerKey, UNOWNED_KEY } from './format';
 
 /** Treemap data for blast-radius + status visualization. */
 export interface TreemapItem {
@@ -76,7 +76,8 @@ export function heatmapData(
   const categorySet = new Set<string>();
 
   for (const svc of services) {
-    const owner = ownerKey(svc.owner) || '(unowned)';
+    // Canonical identity, so a team and a person of the same name are two rows.
+    const owner = ownerKey(svc.owner) || UNOWNED_KEY;
     const checks = svc.readiness?.checks || [];
 
     if (checks.length === 0) continue;

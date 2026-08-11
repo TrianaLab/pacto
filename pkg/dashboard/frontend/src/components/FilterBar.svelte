@@ -1,7 +1,7 @@
 <script>
   import { getFilters, setFilter, clearFilters } from '../lib/filters.svelte.ts';
   import { filtersActive } from '../lib/filters.ts';
-  import { ownerKey, readinessBucket } from '../lib/format.ts';
+  import { ownerKey, ownerKeyLabel, ownerKeyKind, UNOWNED_KEY, readinessBucket } from '../lib/format.ts';
   import Select from './Select.svelte';
 
   // The UNFILTERED list for computing facet counts
@@ -14,7 +14,7 @@
   const ownerCounts = $derived.by(() => {
     const counts = new Map();
     for (const svc of services) {
-      const key = ownerKey(svc.owner) || '(unowned)';
+      const key = ownerKey(svc.owner) || UNOWNED_KEY;
       counts.set(key, (counts.get(key) || 0) + 1);
     }
     return counts;
@@ -65,7 +65,9 @@
     return counts;
   });
 
-  const ownerOptions = $derived(Array.from(ownerCounts.keys()).sort());
+  // Sorted by the name a reader scans for, not by the encoding, so `dri:z` does
+  // not sit above `team:a`.
+  const ownerOptions = $derived(Array.from(ownerCounts.keys()).sort((a, b) => ownerKeyLabel(a).localeCompare(ownerKeyLabel(b)) || a.localeCompare(b)));
   const categoryOptions = $derived(Array.from(categoryCounts.keys()).sort());
   const readinessStatusOptions = $derived(Array.from(readinessStatusCounts.keys()).sort());
   const contractStatusOptions = $derived(Array.from(contractStatusCounts.keys()).sort());
@@ -90,7 +92,7 @@
     <Select
       label="Owner"
       value={filters.owner}
-      options={[{ value: '', label: 'All' }, ...ownerOptions.map(o => ({ value: o, label: `${o} (${ownerCounts.get(o)})` }))]}
+      options={[{ value: '', label: 'All' }, ...ownerOptions.map(o => ({ value: o, label: `${ownerKeyLabel(o)}${ownerKeyKind(o) ? ` (${ownerKeyKind(o)})` : ''} (${ownerCounts.get(o)})` }))]}
       onchange={(e) => setFilter('owner', e.target.value)}
       ariaLabel="Filter by owner"
     />

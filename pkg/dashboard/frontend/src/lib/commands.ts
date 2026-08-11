@@ -4,7 +4,7 @@ import {
   fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetAttentionUrl, fleetChangesUrl, fleetEntityListUrl,
 } from './router';
-import { ownerKey, ownerMatchesFilter } from './format';
+import { ownerKey, ownerKeyLabel, ownerKeyKind, ownerMatchesFilter } from './format';
 
 export type CommandKind = 'view' | 'service' | 'owner' | 'action';
 
@@ -87,13 +87,19 @@ export function buildCommands(query: string, services: any[], fleet = false): Co
       .map((s) => ({ kind: 'service', label: s.name, hint: s.version || '', href: serviceUrl(s.name) }));
     if (svc.length) groups.push({ label: 'Services', items: svc });
 
+    // Matched on the owner's NAME and shown by it: the `team:`/`dri:` namespace is
+    // how the link is addressed, not something a reader types or reads. It still
+    // decides identity, so two owners of one name are two entries — told apart by
+    // the hint rather than merged into whichever came first.
     const seen = new Set<string>();
     const owners: Command[] = [];
     for (const s of services || []) {
       const key = ownerKey(s.owner);
-      if (!key || seen.has(key) || !key.toLowerCase().includes(q)) continue;
+      if (!key || seen.has(key)) continue;
+      const label = ownerKeyLabel(key);
+      if (!label.toLowerCase().includes(q)) continue;
       seen.add(key);
-      owners.push({ kind: 'owner', label: key, href: ownerUrl(key) });
+      owners.push({ kind: 'owner', label, hint: ownerKeyKind(key), href: ownerUrl(key) });
       if (owners.length >= 4) break;
     }
     if (owners.length) groups.push({ label: 'Owners', items: owners });

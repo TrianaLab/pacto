@@ -13,9 +13,24 @@
   //
   // `total` MUST be the backend-authoritative population, not the sum of whatever
   // buckets happened to be passed: a distribution whose denominator is a truncated
-  // preview would silently state a fleet-wide proportion it cannot know. When total
-  // exceeds the buckets given, the remainder is shown as an explicit unclassified
-  // slice rather than being absorbed into the last bucket.
+  // preview would silently state a fleet-wide proportion it cannot know.
+  //
+  // So when `total` is given it IS the denominator, in both directions:
+  //
+  //   sum < total  the shortfall is drawn as an explicit Unclassified slice, never
+  //                absorbed into the last bucket;
+  //   sum == total  the ordinary case;
+  //   sum > total  the buckets classify more than exists, which is contradictory
+  //                data. Raising the denominator to the bucket sum would make it
+  //                disappear: the remainder would vanish, every slice would sum to a
+  //                clean 100%, and the page would present an impossible distribution
+  //                as a complete one. The denominator stays put, the percentages go
+  //                over 100 where they are, and the contradiction is stated in
+  //                words — because a reader acting on "100% classified" when eight
+  //                services were classified ten times is acting on nothing.
+  //
+  // The inconsistency notice is TEXT, not a colour: this component's whole contract
+  // is that nothing is conveyed by colour or shape alone.
   let {
     title = '',
     level = 3,
@@ -27,8 +42,12 @@
   } = $props();
 
   const sum = $derived(segments.reduce((n, s) => n + (s.value || 0), 0));
-  const denom = $derived(typeof total === 'number' && total > sum ? total : sum);
+  const authoritative = $derived(typeof total === 'number' && total >= 0);
+  const denom = $derived(authoritative ? total : sum);
   const rest = $derived(Math.max(0, denom - sum));
+  // Over-classified: more counted than the population being counted. Never rendered
+  // away by widening the denominator.
+  const over = $derived(authoritative ? Math.max(0, sum - total) : 0);
   // Empty buckets are dropped here and KEPT in HorizontalBars, and the difference is the
   // difference between the two questions. These rows PARTITION a stated denominator, so
   // the rows that remain always reconcile to it and an empty bucket adds a legend entry
@@ -53,7 +72,20 @@
   {#if rows.length === 0}
     <p class="dist-empty">{emptyLabel}</p>
   {:else}
-    <div class="dist-bar" aria-hidden="true">
+    {#if over > 0}
+      <!-- Stated before the bar, not after it: by the time a reader has read the
+           slices they have already believed them. `role="status"` so it is announced
+           rather than only seen, and the numbers are spelled out so the notice does
+           not depend on being read next to the legend. -->
+      <p class="dist-warn" role="status" data-testid="dist-inconsistent">
+        <strong>These numbers do not add up.</strong>
+        The buckets below account for {sum} across a population of {denom}
+        — {over} more than {denom === 1 ? 'there is' : 'there are'}. Something is
+        being counted twice or against the wrong population, so read the percentages
+        as suspect: they are shares of {denom}, and they total more than 100%.
+      </p>
+    {/if}
+    <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true">
       {#each rows as r (r.label)}
         <span class="dist-seg tone-{r.tone || 'neutral'}" style="flex-grow: {r.value}"></span>
       {/each}
@@ -88,11 +120,24 @@
   .dist-desc, .dist-scope { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .dist-scope { font-style: italic; }
   .dist-empty { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
+  /* The notice carries the whole message on its own; the border and the hatching
+     below are redundant reinforcement, never the signal. */
+  .dist-warn {
+    margin: 0; font-size: var(--text-sm); color: var(--c-text);
+    border: 1px solid var(--c-warn); border-left-width: 3px;
+    border-radius: var(--radius-xs); padding: var(--sp-2) var(--sp-3);
+    background: var(--c-surface-inset);
+  }
   .dist-bar {
     display: flex; width: 100%; height: 12px; border-radius: var(--radius-xs);
     overflow: hidden; background: var(--c-surface-inset); border: 1px solid var(--c-border);
   }
+  /* A bar that fills edge to edge reads as a complete distribution. When the buckets
+     over-count it is not one, so it is drawn hatched — the notice above already says
+     so in words; this only stops the shape from contradicting it. */
+  .dist-bar-warn { border-color: var(--c-warn); border-style: dashed; }
   .dist-seg { display: block; min-width: 2px; background: var(--tone-c, var(--c-neutral)); transition: flex-grow 200ms ease; }
+  .dist-bar-warn .dist-seg { opacity: 0.55; }
   .dist-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
   .dist-item, .dist-item a {
     display: flex; align-items: baseline; gap: var(--sp-2);

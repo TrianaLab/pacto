@@ -49,13 +49,13 @@ describe('OwnerDetailView — readiness summary + services table', () => {
   });
 
   it('renders a SummaryBar for the owner services', () => {
-    const component = mount(OwnerDetailView, { target, props: { owner: 'core', services } });
+    const component = mount(OwnerDetailView, { target, props: { owner: 'team:core', services } });
     expect(target.querySelector('.summary-bar')).toBeTruthy();
     unmount(component);
   });
 
   it('renders a ServicesTable scoped to the owner (excludes other owners)', () => {
-    const component = mount(OwnerDetailView, { target, props: { owner: 'core', services } });
+    const component = mount(OwnerDetailView, { target, props: { owner: 'team:core', services } });
     const rows = target.querySelectorAll('tbody tr');
     // Two services belong to "core"; the unrelated one is excluded.
     expect(rows.length).toBe(2);
@@ -66,8 +66,24 @@ describe('OwnerDetailView — readiness summary + services table', () => {
     unmount(component);
   });
 
+  it('routes on the canonical key, so a DRI never inherits a same-named team', () => {
+    const named = [
+      ...services,
+      { name: 'oncall-notes', contractStatus: 'Compliant', complianceScore: 100, owner: { dri: 'core' } },
+    ];
+    const component = mount(OwnerDetailView, { target, props: { owner: 'dri:core', services: named } });
+    const rows = target.querySelectorAll('tbody tr');
+    expect(rows.length).toBe(1);
+    const text = target.textContent || '';
+    expect(text).toContain('oncall-notes');
+    expect(text).not.toContain('payments');
+    // The heading names the person and says which namespace they are.
+    expect(target.querySelector('.owner-kind-badge')?.textContent).toBe('DRI');
+    unmount(component);
+  });
+
   it('keeps the owner metadata (team / dri / contacts)', () => {
-    const component = mount(OwnerDetailView, { target, props: { owner: 'core', services } });
+    const component = mount(OwnerDetailView, { target, props: { owner: 'team:core', services } });
     const meta = target.querySelector('.owner-meta');
     expect(meta).toBeTruthy();
     const text = meta?.textContent || '';

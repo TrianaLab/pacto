@@ -495,6 +495,28 @@ describe('ownerUrl', () => {
   it('encodes special characters', () => {
     expect(ownerUrl('team/payments')).toBe('#/owners/team%2Fpayments');
   });
+
+  /**
+   * An owner key is namespaced (`team:NAME` / `dri:NAME`) so a team and a person of the
+   * same name are two owners with two pages. The separator is part of the identity, so
+   * the route must carry it through unharmed however the name is spelled -- including
+   * names that contain colons and slashes of their own.
+   */
+  it('round-trips a namespaced owner key, whatever the name contains', () => {
+    for (const key of [
+      'team:alice', 'dri:alice', 'team:team/payments', 'dri:a:b', 'team:acme co',
+      'dri:ops@example.com', 'team:x%2Fy', 'team::', 'dri:100%',
+    ]) {
+      expect(parseHash(ownerUrl(key))).toEqual({ view: 'owner-detail', params: { owner: key } });
+    }
+  });
+
+  // Go escapes the path with url.PathEscape, which leaves ':' alone; the browser's
+  // encodeURIComponent escapes it to %3A. Both are the same URL, and both decode to
+  // the same key -- so a link built by the backend and one built here agree.
+  it('reads the backend spelling of the same key identically', () => {
+    expect(parseHash('#/owners/team:alice')).toEqual(parseHash('#/owners/team%3Aalice'));
+  });
 });
 
 describe('navigate — routing-helper semantics agree with parseHash (A5)', () => {
@@ -536,7 +558,10 @@ describe('backend-href / frontend-router contract (A3)', () => {
     { cls: 'service detail', href: `/fleet/services/${k(svcKey)}`, view: 'fleet-entity', params: { kind: 'service', key: svcKey } },
     { cls: 'revision detail', href: `/fleet/revisions/${k(revKey)}`, view: 'fleet-entity', params: { kind: 'revision', key: revKey } },
     { cls: 'target detail', href: `/fleet/targets/${k(tgtKey)}`, view: 'fleet-entity', params: { kind: 'target', key: tgtKey } },
-    { cls: 'owner detail', href: `/fleet/owners/${k('team-a')}`, view: 'fleet-entity', params: { kind: 'owner', key: 'team-a' } },
+    { cls: 'owner detail', href: `/fleet/owners/${k('team:team-a')}`, view: 'fleet-entity', params: { kind: 'owner', key: 'team:team-a' } },
+    // Go's url.PathEscape leaves ':' unescaped, so this is the byte-for-byte href the
+    // backend actually emits for a namespaced owner key -- not just its equivalent.
+    { cls: 'owner detail as the backend spells it', href: '/fleet/owners/dri:team-a', view: 'fleet-entity', params: { kind: 'owner', key: 'dri:team-a' } },
     { cls: 'source detail', href: `/fleet/sources/${k('kubernetes')}`, view: 'fleet-entity', params: { kind: 'source', key: 'kubernetes' } },
     { cls: 'graph focus', href: `/fleet/graph/${k('target')}/${k(tgtKey)}`, view: 'fleet', params: { kind: 'target', sel: tgtKey } },
   ];

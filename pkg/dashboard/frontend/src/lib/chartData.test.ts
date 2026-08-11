@@ -36,9 +36,9 @@ describe('quadrantData', () => {
 describe('heatmapData', () => {
   it('aggregates score per owner × category', () => {
     const d = heatmapData(svcs);
-    expect(d.owners).toContain('team/x');
+    expect(d.owners).toContain('team:team/x');
     expect(d.categories).toEqual(['docs', 'test']); // sorted, unique
-    const docsX = d.cells.find(c => c.owner === 'team/x' && c.category === 'docs');
+    const docsX = d.cells.find(c => c.owner === 'team:team/x' && c.category === 'docs');
     expect(docsX).toMatchObject({ score: 50, n: 2 }); // 1 done of 2
   });
 

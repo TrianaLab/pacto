@@ -202,7 +202,12 @@ export function ownershipHrefs(url: (ownership: string) => string): Record<strin
 
 /** OwnerCount as emitted by the Product API (pkg/fleet/aggregate.go). */
 export interface OwnerCount {
-  owner?: string;
+  /** Canonical identity: `team:NAME` or `dri:NAME`. What a link and a filter carry. */
+  key?: string;
+  /** The owner's name as authored. What a reader reads. */
+  label?: string;
+  /** `team` or `dri` — the namespace that tells two same-named owners apart. */
+  kind?: string;
   services?: number;
   targets?: number;
 }
@@ -210,46 +215,101 @@ export interface OwnerCount {
 /** The ranking fields of an EntityAggregate. */
 export interface OwnerRankingTally {
   byOwner?: OwnerCount[];
-  otherOwners?: number;
+  /** Consistently owned services under canonical owners past the ranking bound. */
+  beyondRanking?: number;
+  /** Consistently owned services whose owner has no canonical identity at all. */
+  unidentifiedOwnership?: number;
+  /** Canonical owners with at least one consistently owned service — the rankable ones. */
+  rankedOwners?: number;
+  /** Every canonical owner named by the matched services, disputed ones included. */
   distinctOwners?: number;
+  /** The consistent/conflicting/unowned partition the ranking is carved out of. */
+  ownership?: OwnershipTally;
 }
 
 /**
  * The backend's top-owner ranking, in the one shape and the one wording every surface
  * shows it under.
  *
- * It is a RANKING, not a partition: the backend counts only CONSISTENTLY owned
- * services, so services with no owner and services whose revisions name different
- * owners are in no row, and the rows past the bound are in `otherOwners`. The note
- * says both, because rows that look like a breakdown and are not is how a page
- * quietly loses the services most in need of an owner.
+ * It is a RANKING, not a partition, and three separate populations sit outside it:
  *
- * `href` therefore has to reproduce what a row COUNTED, not merely who it names:
- * `owner=x` alone means "some revision of this service names x", which also selects
- * what x co-owns with somebody else. A caller passes an owner-plus-consistent URL, so
- * a bar and its own destination cannot disagree.
+ *  - services whose revisions name different owners, and services nobody claims —
+ *    counted in `ownership`, in no row, and the ones most in need of an owner;
+ *  - consistently owned services whose owner ranks past the bound (`beyondRanking`);
+ *  - consistently owned services whose owner has NO canonical identity at all
+ *    (`unidentifiedOwnership`) — an owner block of contacts alone is a real
+ *    declaration with nobody named in it, so there is no row it could ever occupy.
+ *
+ * The last two are never added together. A tail is "more owners than fit"; an
+ * unidentified remainder is "ownership we cannot file under anyone", and a reader who
+ * reads the second as the first goes looking for a page that does not exist.
+ *
+ * The counts reconcile exactly, and this note is where a reader can check it:
+ *   rows + beyondRanking + unidentifiedOwnership == ownership.consistent
+ *
+ * `href` reproduces what a row COUNTED, not merely who it names: `owner=x` alone
+ * means "some revision of this service names x", which also selects what x co-owns
+ * with somebody else. A caller passes a key-plus-consistent URL, so a bar and its own
+ * destination cannot disagree.
  */
-export function ownerRanking(agg: OwnerRankingTally | undefined, href: (owner: string) => string): {
+export function ownerRanking(agg: OwnerRankingTally | undefined, href: (ownerKey: string) => string): {
+  /** Every canonical owner in the population — what "N owners" must be worded as. */
   distinct: number;
+  /** Canonical owners that could rank. Never more than `distinct`. */
+  ranked: number;
   services: Segment[];
   targets: Segment[];
   note: string;
+  /** Consistently owned services with no canonical owner to file them under. */
+  unidentified: number;
+  /** The sentence stating that remainder, or '' when there is none. */
+  unidentifiedNote: string;
 } {
   const rows = agg?.byOwner ?? [];
   const distinct = n(agg?.distinctOwners);
-  const other = n(agg?.otherOwners);
+  const ranked = n(agg?.rankedOwners);
+  const beyond = n(agg?.beyondRanking);
+  const unidentified = n(agg?.unidentifiedOwnership);
   const shown = rows.length;
-  const row = (o: OwnerCount, value: number | undefined): Segment =>
-    ({ label: o.owner || '', value: n(value), tone: 'info', href: href(o.owner || '') });
-  const tail = other > 0
-    ? ` The remaining ${distinct - shown} of ${distinct} ${distinct - shown === 1 ? 'owner accounts' : 'owners account'} for ${other} more ${other === 1 ? 'service' : 'services'}.`
+  const svc = (v: number) => `${v} ${v === 1 ? 'service' : 'services'}`;
+  // The namespace is shown only where it is load-bearing — on the rows a reader
+  // could otherwise not tell apart. Two owners called alice must not be two
+  // identical bars; every other row reads as the name its owner authored.
+  const seen = new Map<string, number>();
+  for (const o of rows) seen.set(o.label || '', (seen.get(o.label || '') ?? 0) + 1);
+  const kindOf = (o: OwnerCount) => (o.kind === 'dri' ? 'DRI' : o.kind === 'team' ? 'Team' : '');
+  const rowLabel = (o: OwnerCount) => {
+    const label = o.label || o.key || '';
+    const kind = kindOf(o);
+    return (seen.get(o.label || '') ?? 0) > 1 && kind ? `${label} (${kind})` : label;
+  };
+  const row = (o: OwnerCount, value: number | undefined): Segment => ({
+    label: rowLabel(o),
+    value: n(value),
+    tone: 'info',
+    href: href(o.key || ''),
+  });
+  // "N owners" is a claim about a population, so it names which one. `distinct`
+  // includes owners that rank nowhere because every service naming them is disputed.
+  const scope = ranked === distinct
+    ? `Top ${shown} of ${ranked} named ${ranked === 1 ? 'owner' : 'owners'} by service count.`
+    : `Top ${shown} of ${ranked} rankable ${ranked === 1 ? 'owner' : 'owners'} by service count, out of ${distinct} named across these services — the other ${distinct - ranked} ${distinct - ranked === 1 ? 'is named only by services whose revisions disagree' : 'are named only by services whose revisions disagree'}.`;
+  const rest = ranked - shown;
+  const tail = beyond > 0
+    ? ` ${rest === 1 ? 'The remaining owner accounts' : `The remaining ${rest} of ${ranked} owners account`} for ${beyond} more ${beyond === 1 ? 'service' : 'services'}.`
+    : '';
+  const unidentifiedNote = unidentified > 0
+    ? `${svc(unidentified)} ${unidentified === 1 ? 'is' : 'are'} consistently owned by a declaration that names no team or DRI — contacts only. That is ownership, but there is nobody to rank or link to, so it appears in no row above.`
     : '';
   return {
     distinct,
+    ranked,
+    unidentified,
+    unidentifiedNote,
     services: rows.map((o) => row(o, o.services)),
     targets: rows.map((o) => row(o, o.targets)),
-    note: distinct
-      ? `Top ${shown} of ${distinct} declared ${distinct === 1 ? 'owner' : 'owners'} by service count.${tail} Services with no owner, or whose revisions name different owners, appear in no row here.`
+    note: shown
+      ? `${scope}${tail} Services with no declared owner, or whose revisions name different owners, appear in no row here.`
       : '',
   };
 }

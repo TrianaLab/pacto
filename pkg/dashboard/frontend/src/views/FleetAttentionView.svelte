@@ -6,7 +6,7 @@
   import {
     attentionCategoryLabel, ATTENTION_CATEGORIES, severityLabel,
   } from '../lib/entityLabels.ts';
-  import { statusLabel, STATUS_FILTER_OPTIONS } from '../lib/format.ts';
+  import { statusLabel, STATUS_FILTER_OPTIONS, ownerKeyLabel, ownerKeyKind } from '../lib/format.ts';
   import { fleetOverviewUrl, fleetAttentionUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -39,6 +39,11 @@
   const SEVERITIES = ['error', 'warning', 'info'];
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
   const isStale = $derived(staleOnly === '1');
+  // The name a reader reads, and — where two owners share one — which of them.
+  const ownerBox = $derived(ownerKey ? ownerKeyLabel(ownerKey) : owner);
+  const ownerChipValue = $derived(
+    ownerKeyKind(ownerKey) ? `${ownerKeyLabel(ownerKey)} (${ownerKeyKind(ownerKey)})` : ownerKey,
+  );
   const anyFilter = $derived(!!(category || severity || status || owner || ownerKey || source || service || isStale));
 
   // One reusable, race-safe loader (requirement E): the fetcher reads current filters
@@ -104,7 +109,7 @@
     category ? { key: 'category', label: 'Category', value: attentionCategoryLabel(category) } : null,
     severity ? { key: 'severity', label: 'Severity', value: severityLabel(severity) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
-    ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerKey } : null,
+    ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerChipValue } : null,
     owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
     source ? { key: 'source', label: 'Source', value: source } : null,
     // Scoping arrives by deep link from a service page's posture bars; it gets a chip
@@ -166,7 +171,10 @@
         </label>
         <label class="av-field">
           <span>Owner</span>
-          <input type="text" value={ownerKey || owner} placeholder="team or DRI" aria-label="Filter by owner" onchange={(e) => apply({ owner: e.currentTarget.value.trim(), ownerKey: '' })} />
+          <!-- Arriving here from an owner page carries the canonical `ownerKey`; the
+               box shows that owner's NAME, because `team:alice` is a wire form and
+               editing it would hand the reader a search for the encoding. -->
+          <input type="text" value={ownerBox} placeholder="team or DRI" aria-label="Filter by owner" onchange={(e) => apply({ owner: e.currentTarget.value.trim(), ownerKey: '' })} />
         </label>
         <label class="av-field">
           <span>Source</span>
