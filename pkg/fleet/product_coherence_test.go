@@ -199,6 +199,64 @@ func TestSourceDetail_CountsRawRecordsAndContributedEntitiesSeparately(t *testin
 	}
 }
 
+// FLEET-WIDE SOURCE HEALTH IS NOT THE HEALTH OF THE SOURCES THE META HAPPENED TO CARRY.
+//
+// Meta.Sources is capped, and past the cap it keeps the LEAST healthy first. Tallying
+// that slice would answer a question nobody asked: a fleet of 60 healthy sources and
+// one that is down would report every source it shows as degraded. The counts are
+// taken over the whole population, so a consumer can say "1 of 61 is unavailable"
+// while the list beside it shows only the worst 50.
+func TestProductMeta_SourceCountsSpanThePopulationTheListIsCutFrom(t *testing.T) {
+	snap := &FleetSnapshot{}
+	for i := 0; i < MaxMetaSources+11; i++ {
+		st := SourceAvailable
+		if i == 0 {
+			st = SourceUnavailable
+		}
+		snap.Sources = append(snap.Sources, SourceState{ID: fmt.Sprintf("src-%02d", i), Status: st})
+	}
+	m := NewQuery(snap).ProductMeta()
+	if !m.SourcesTruncated || len(m.Sources) != MaxMetaSources {
+		t.Fatalf("sources = %d carried / truncated=%v, want the cut this test exists to survive",
+			len(m.Sources), m.SourcesTruncated)
+	}
+	want := SourceCounts{Total: MaxMetaSources + 11, Available: MaxMetaSources + 10, Unavailable: 1}
+	if m.SourceCounts != want {
+		t.Errorf("sourceCounts = %+v, want %+v", m.SourceCounts, want)
+	}
+	var carriedUnavailable int
+	for _, s := range m.Sources {
+		if s.Status == SourceUnavailable {
+			carriedUnavailable++
+		}
+	}
+	if carriedUnavailable != m.SourceCounts.Unavailable {
+		// Not a contradiction to fix: it is the reason the field exists. Left as a
+		// guard so a future cap change that makes the two agree is noticed here.
+		t.Logf("the carried slice shows %d unavailable of %d, the population %d of %d",
+			carriedUnavailable, len(m.Sources), m.SourceCounts.Unavailable, m.SourceCounts.Total)
+	}
+}
+
+// A status the product does not recognize is left OUT of the four buckets rather
+// than swept into one, so Total stays above their sum and a consumer drawing a
+// distribution shows the shortfall instead of a clean, wrong 100%.
+func TestProductMeta_SourceCountsDoNotAbsorbAnUnknownStatus(t *testing.T) {
+	snap := &FleetSnapshot{Sources: []SourceState{
+		{ID: "a", Status: SourceAvailable},
+		{ID: "b", Status: SourceStale},
+		{ID: "c", Status: SourcePartial},
+		{ID: "d", Status: SourceStatus("quantum")},
+	}}
+	c := NewQuery(snap).ProductMeta().SourceCounts
+	if c.Total != 4 {
+		t.Fatalf("total = %d, want every source counted", c.Total)
+	}
+	if sum := c.Available + c.Partial + c.Stale + c.Unavailable; sum != 3 {
+		t.Errorf("buckets sum to %d, want the unrecognized status left unclassified", sum)
+	}
+}
+
 // The breakdown is counted over the complete attributable population, so a source
 // past the preview bound still reports its true totals rather than the 200 it
 // managed to carry.

@@ -76,6 +76,42 @@ type EntityRef struct {
 	Version string `json:"version,omitempty"`
 }
 
+// SourceCounts is the fleet's source population tallied by health, over EVERY
+// source the snapshot holds rather than the capped [ProductMeta.Sources] beside
+// it. It exists because that slice is bounded and, once bounded, is deliberately
+// biased towards the least-healthy sources: counting it would answer "how healthy
+// is the worst of them" while looking like an answer to "how healthy are they".
+//
+// Total is the complete population, so a status the product does not recognize
+// leaves Total above the sum of the four buckets rather than being folded into one
+// of them. A consumer rendering these as a distribution states Total as the
+// denominator and shows the shortfall as unclassified.
+type SourceCounts struct {
+	Total       int `json:"total"`
+	Available   int `json:"available"`
+	Partial     int `json:"partial"`
+	Stale       int `json:"stale"`
+	Unavailable int `json:"unavailable"`
+}
+
+// sourceCounts tallies the complete source population by health.
+func sourceCounts(ss []SourceState) SourceCounts {
+	c := SourceCounts{Total: len(ss)}
+	for _, s := range ss {
+		switch s.Status {
+		case SourceAvailable:
+			c.Available++
+		case SourcePartial:
+			c.Partial++
+		case SourceStale:
+			c.Stale++
+		case SourceUnavailable:
+			c.Unavailable++
+		}
+	}
+	return c
+}
+
 // ProductMeta is the completeness envelope on every product answer: the product
 // schema version plus the snapshot's identity, as-of time, completeness, source
 // health and limitations. A consumer never renders "all clear" without consulting
@@ -86,6 +122,10 @@ type ProductMeta struct {
 	AsOf          time.Time     `json:"asOf"`
 	Completeness  Completeness  `json:"completeness"`
 	Sources       []SourceState `json:"sources,omitempty"`
+	// SourceCounts tallies the COMPLETE source population by health, so a consumer
+	// can state fleet-wide source health without reading it off the bounded,
+	// least-healthy-first Sources slice.
+	SourceCounts SourceCounts `json:"sourceCounts"`
 	// SourcesTruncated reports that the snapshot has more sources than the meta
 	// carries (the meta keeps the least-healthy up to MaxMetaSources).
 	SourcesTruncated bool         `json:"sourcesTruncated,omitempty"`
@@ -107,6 +147,7 @@ func (q *Query) productMeta() ProductMeta {
 		AsOf:                 q.snap.GeneratedAt,
 		Completeness:         q.snap.Completeness,
 		Sources:              srcs,
+		SourceCounts:         sourceCounts(q.snap.Sources),
 		SourcesTruncated:     srcTrunc,
 		Limitations:          lims,
 		LimitationsTruncated: limTrunc,

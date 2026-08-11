@@ -1343,6 +1343,7 @@ export interface components {
             limitationsTruncated?: boolean;
             schemaVersion: string;
             snapshotId: string;
+            sourceCounts: components["schemas"]["Fleet.SourceCounts"];
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
             sourcesTruncated?: boolean;
         };
@@ -1560,6 +1561,18 @@ export interface components {
             services: number;
             /** Format: int64 */
             targets: number;
+        };
+        "Fleet.SourceCounts": {
+            /** Format: int64 */
+            available: number;
+            /** Format: int64 */
+            partial: number;
+            /** Format: int64 */
+            stale: number;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            unavailable: number;
         };
         "Fleet.SourceError": {
             code: string;
