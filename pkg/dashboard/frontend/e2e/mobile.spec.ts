@@ -97,6 +97,73 @@ test.describe('typography hierarchy on mobile', () => {
 });
 
 /**
+ * The "On this page" navigator on a phone.
+ *
+ * page-toc.spec.ts measures the desktop rail and the same control at 900px; neither is a
+ * phone. Two claims only exist here: the summary is a touch target on a 393px screen, and
+ * a chosen section lands BELOW the sticky header rather than underneath it. The second is
+ * the mobile-only failure -- `scrollIntoView({block: 'start'})` puts the section at
+ * viewport top, which on a page with a sticky navbar is behind it, and the reader is told
+ * they arrived at a heading they cannot see.
+ */
+test('the contents navigator is the same control on a phone, and lands clear of the header', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const k = await canonicalKeys(page);
+  await boot(page, `#/fleet/revisions/${encodeURIComponent(k.revision)}`);
+  const toc = page.locator('[data-testid="page-toc"]');
+  await expect(toc).toBeVisible({ timeout: 30_000 });
+
+  const closed = await page.evaluate(() => {
+    const nav = document.querySelector('[data-testid="page-toc"]')!;
+    const s = nav.querySelector('summary')!.getBoundingClientRect();
+    return {
+      open: (nav.querySelector('details') as HTMLDetailsElement).open,
+      height: Math.round(s.height),
+      right: Math.round(s.right),
+      width: window.innerWidth,
+      sticky: getComputedStyle(nav).position,
+      // Measured against the product's OWN declared minimum, not a number invented here.
+      // A tap target that meets a standard this product does not use, while the button
+      // beside it meets a different one, is not an accessible product -- it is two.
+      touchMin: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--touch-min')),
+    };
+  });
+  expect(closed.open, 'the contents list opened by default where it costs a screenful').toBe(false);
+  // WCAG 2.5.8 (AA) asks for 24x24 CSS px; the product declares more than that and this
+  // control has to honour what the product declared.
+  expect(closed.touchMin).toBeGreaterThanOrEqual(24);
+  expect(closed.height, `the contents summary is ${closed.height}px, under the product's own ${closed.touchMin}px minimum`)
+    .toBeGreaterThanOrEqual(closed.touchMin);
+  expect(closed.right).toBeLessThanOrEqual(closed.width);
+  expect(closed.sticky, 'a sticky rail on a phone would eat the column it sits in').not.toBe('sticky');
+
+  await toc.locator('summary').click();
+  const labels = (await toc.locator('.toc-link').allTextContents()).map((s) => s.trim());
+  expect(labels.length).toBeGreaterThanOrEqual(3);
+  // The LAST entry, so the jump has somewhere to go on a page this long.
+  const label = labels[labels.length - 1];
+  await page.getByRole('button', { name: label, exact: true }).click();
+
+  const after = await page.evaluate((wanted: string) => {
+    const el = [...document.querySelectorAll('[data-toc][id]')].find((e) => e.getAttribute('data-toc') === wanted)!;
+    const header = document.querySelector('header.navbar')!.getBoundingClientRect();
+    const b = el.getBoundingClientRect();
+    return {
+      collapsed: el.tagName === 'DETAILS' && !(el as HTMLDetailsElement).open,
+      top: Math.round(b.top),
+      headerBottom: Math.round(header.bottom),
+      viewport: window.innerHeight,
+    };
+  }, label);
+
+  expect(after.collapsed, `"${label}" was still closed after being chosen from the contents`).toBe(false);
+  expect(after.top, `"${label}" landed under the sticky header (${after.top} < ${after.headerBottom})`)
+    .toBeGreaterThanOrEqual(after.headerBottom);
+  expect(after.top).toBeLessThan(after.viewport);
+});
+
+/**
  * A ranked bar row is a label, its number, and a bar under both. At a narrow viewport
  * the bar drops to a line of its own, and grid auto-flow used to push the NUMBER down
  * with it onto a third line -- so every row was half again as tall and the value sat

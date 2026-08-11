@@ -112,6 +112,45 @@ test('the contents list is not a second kind of URL', async ({ page }) => {
   await expect(page.locator('[data-testid="page-title"]')).toHaveText('Contract revisions', { timeout: 30_000 });
 });
 
+test('a section jump is the place the product restores on Back and Forward', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const k = await canonicalKeys(page);
+  await boot(page, '#/fleet/revisions');
+  await page.evaluate((key: string) => { location.hash = `#/fleet/revisions/${encodeURIComponent(key)}`; }, k.revision);
+  await expect(page.locator(TOC)).toBeVisible({ timeout: 30_000 });
+
+  // Jump deep into the page. Because the rail pushes no history entry, this scroll
+  // belongs to the CURRENT entry -- so the product's place-keeping has to record it on
+  // the way out, or Back returns the reader to the top of a page they had left halfway.
+  const labels = await page.locator(`${TOC} .toc-link`).allTextContents();
+  await page.getByRole('button', { name: labels[labels.length - 1].trim(), exact: true }).click();
+  const jumped = await page.evaluate(() => Math.round(window.scrollY));
+  expect(jumped, 'the last section is at the top of the page, so this proves nothing').toBeGreaterThan(200);
+
+  // Leave, come back, go forward again. The revision page keeps the section the reader
+  // chose; the list it came from is still the list. (A revision's breadcrumb trail goes
+  // up to its service, not to the inventory, so the route is pushed directly -- through
+  // the same router the trail uses.)
+  await page.evaluate(() => { location.hash = '#/fleet/revisions'; });
+  await expect(page.locator('[data-testid="page-title"]')).toHaveText('Contract revisions', { timeout: 30_000 });
+  await page.goBack();
+  await expect(page.locator(TOC)).toBeVisible({ timeout: 30_000 });
+  // As far down as the returning document allows. Not "exactly where you were": the jump
+  // OPENED a disclosure, and a page rendered fresh from its default states is shorter than
+  // the one that was left, so the recorded offset can exceed the new maximum. Restoring to
+  // the bottom of a shorter page is the honest outcome; returning to the top is not.
+  await expect.poll(async () => page.evaluate((want: number) => {
+    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const y = Math.round(window.scrollY);
+    return y >= Math.min(want, max) - 8 ? 'restored' : `left at ${want}, came back to ${y} of a possible ${max}`;
+  }, jumped), { timeout: 15_000 }).toBe('restored');
+
+  await page.goForward();
+  await expect(page.locator('[data-testid="page-title"]')).toHaveText('Contract revisions', { timeout: 30_000 });
+  expect(await page.evaluate(() => location.hash)).toBe('#/fleet/revisions');
+});
+
 test('below the rail breakpoint it is the same control, closed, under the title', async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 900, height: 900 });
