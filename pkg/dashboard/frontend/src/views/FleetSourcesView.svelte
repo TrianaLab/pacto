@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { sourceHealthLabel } from '../lib/entityLabels.ts';
+  import { sourceHealthLabel, sourceHealthTallyParts } from '../lib/entityLabels.ts';
   import { fleetOverviewUrl, fleetSourcesUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -53,6 +53,17 @@
   const hasNext = $derived(list?.nextOffset != null);
   const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
 
+  // Fleet-wide source health over the COMPLETE population the backend counted, which
+  // is a different question from the page of rows below it and stays true while a
+  // filter is on. It answers the one thing the health <select> cannot: how many
+  // sources are in each state before you go looking. Each bucket is the filter that
+  // selects it, so the summary is also the way in.
+  //
+  // The population count deliberately stays out of it -- the page header already
+  // states the authoritative total, and a second total here would be a second claim
+  // to reconcile.
+  const tallyParts = $derived(sourceHealthTallyParts(list?.meta?.sourceCounts));
+
   function urlWith(patch, off = 0) {
     return fleetSourcesUrl({ text: patch.text ?? text, sourceHealth: patch.sourceHealth ?? sourceHealth, offset: off });
   }
@@ -75,6 +86,17 @@
     count={list ? `${total} data source${total === 1 ? '' : 's'}` : ''}
     subtitle="Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete — not zero."
   />
+
+  {#if tallyParts.length}
+    <p class="lv-tally t-body-2" data-testid="source-tally">
+      Across every data source:
+      {#each tallyParts as p, i (p.status || 'unclassified')}{#if i > 0}, {/if}{#if p.status}<a
+          href={urlWith({ sourceHealth: p.status })}
+          aria-current={sourceHealth === p.status ? 'true' : undefined}>{p.text}</a>{:else}<span
+          class="lv-unclassified"
+          title="A health state Pacto does not recognize, so it cannot be filtered on">{p.text}</span>{/if}{/each}.
+    </p>
+  {/if}
 
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
@@ -118,6 +140,12 @@
 </div>
 
 <style>
+  .lv-tally { margin: 0; }
+  /* Inline links inside a sentence, so they are underlined rather than only accent-
+     coloured -- the same rule the overview's "See all" follows (WCAG 1.4.1). */
+  .lv-tally a { color: var(--c-accent); text-decoration: underline; }
+  .lv-tally a[aria-current='true'] { font-weight: 700; }
+  .lv-unclassified { color: var(--c-text-3); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }

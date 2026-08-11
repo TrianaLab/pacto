@@ -29,6 +29,12 @@ function baseOverview(partial = false): any {
       sources: partial
         ? [{ id: 'oci', kind: 'oci', status: 'available' }, { id: 'k8s', kind: 'k8s', status: 'unavailable' }]
         : [{ id: 'oci', kind: 'oci', status: 'available' }],
+      // The complete-population tally, which is deliberately LARGER than the bounded
+      // `sources` list above it: the meta list is capped and least-healthy-biased, so
+      // counting it would answer a different question.
+      sourceCounts: partial
+        ? { total: 7, available: 5, partial: 1, unavailable: 1 }
+        : { total: 4, available: 4 },
     },
     summary: {
       services: 3, servicesNeedingAttention: 0, revisions: 6, targets: 5,
@@ -301,6 +307,70 @@ describe('FleetOverview — every band draws a complete population', () => {
     const org = sectionText(target, 'ov-org');
     expect(org).toContain('No services are tracked yet');
     expect(org).toContain('No contract revisions are tracked yet');
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+// SECTION 6: data sources are secondary, not hidden. They used to be an unlabeled
+// caption under the immediate-situation counters -- no heading, absent from the page
+// contents, and read as a footnote to the numbers above rather than as the answer to
+// "where did any of this come from". Promoting it to a section is NOT promoting it to
+// a fifth primary tab: the nav stays Overview / Services / Operational graph /
+// Change analysis.
+describe('FleetOverview — data sources are a findable section, not a caption', () => {
+  beforeEach(() => overviewFn.mockReset());
+
+  it('gives data sources their own heading, contents entry and way in', async () => {
+    overviewFn.mockResolvedValue(baseOverview(true));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-sources')).toBeTruthy());
+    const band = target.querySelector('#sec-sources') as HTMLElement;
+    // A real section: semantic heading, and the heading names the section.
+    expect(band.querySelector('h2')?.textContent?.trim()).toBe('Data sources');
+    expect(band.getAttribute('aria-labelledby')).toBe(band.querySelector('h2')?.id);
+    // Discoverable by the page contents, which builds itself from [data-toc][id].
+    expect(band.getAttribute('data-toc')).toBe('Data sources');
+    // One obvious action that opens the complete inventory.
+    const all = band.querySelector('a.ov-viewall') as HTMLAnchorElement;
+    expect(all.getAttribute('href')).toBe('#/fleet/sources');
+    expect(all.textContent?.trim()).toBe('View all data sources');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('states the complete source population, not the length of the capped chip list', async () => {
+    overviewFn.mockResolvedValue(baseOverview(true));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-sources')).toBeTruthy());
+    const band = target.querySelector('#sec-sources') as HTMLElement;
+    const text = (band.textContent || '').replace(/\s+/g, ' ');
+    // 7 sources exist; 2 chips are rendered. Reading "2 data sources" off the chips
+    // would be a smaller, wronger number in the one place a reader checks coverage.
+    expect(text).toContain('7 data sources — 1 unavailable, 1 partial, 5 available.');
+    expect(band.querySelectorAll('a.sh-chip')).toHaveLength(2);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('appears exactly once on the page', async () => {
+    // The old caption lived inside the immediate-situation band. Adding a section
+    // without removing it would have given one page two source summaries to reconcile.
+    overviewFn.mockResolvedValue(baseOverview(true));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-sources')).toBeTruthy());
+    expect(target.querySelectorAll('.source-health')).toHaveLength(1);
+    expect((target.textContent || '').match(/Where this knowledge came from/g)).toBeNull();
+    // ...and it did not become a fifth primary destination.
+    expect(target.querySelector('.op-nav, nav.primary')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says so plainly when every data source answered', async () => {
+    overviewFn.mockResolvedValue(baseOverview(false));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('#sec-sources')).toBeTruthy());
+    const text = ((target.querySelector('#sec-sources') as HTMLElement).textContent || '').replace(/\s+/g, ' ');
+    expect(text).toContain('4 data sources, all available.');
+    // A healthy fleet gets a sentence, never a row of zeroes to scan.
+    expect(text).not.toMatch(/0 (unavailable|stale|partial)/);
     unmount(component); document.body.removeChild(target);
   });
 });

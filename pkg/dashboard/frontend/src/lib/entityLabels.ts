@@ -215,3 +215,76 @@ export function sourceHealthTone(status: string | undefined): Tone {
     default: return 'neutral';
   }
 }
+/** The complete-population source tally (Fleet.SourceCounts). */
+export interface SourceCounts {
+  total?: number;
+  available?: number;
+  partial?: number;
+  stale?: number;
+  unavailable?: number;
+}
+/** One non-empty bucket of the fleet-wide source tally. `status` is the backend
+ *  health filter value, or '' for the unclassified remainder — which has no filter
+ *  value precisely because the product does not recognize what those sources are. */
+export interface SourceTallyPart { status: string; count: number; text: string }
+/**
+ * sourceHealthTallyParts breaks the COMPLETE source population into its non-empty
+ * health buckets — never the meta's source list, which is capped and, once capped,
+ * deliberately biased towards the least healthy.
+ *
+ * Least-healthy first, so the number that changes what a reader does is the first
+ * one they read. A status the product does not recognize is NOT folded into a
+ * bucket; it is named as unclassified, because the alternative is a tally that adds
+ * up perfectly and is wrong.
+ */
+export function sourceHealthTallyParts(c: SourceCounts | null | undefined): SourceTallyPart[] {
+  const parts: SourceTallyPart[] = [];
+  for (const [status, n] of [
+    ['unavailable', c?.unavailable ?? 0],
+    ['stale', c?.stale ?? 0],
+    ['partial', c?.partial ?? 0],
+    ['available', c?.available ?? 0],
+  ] as Array<[string, number]>) {
+    if (n > 0) parts.push({ status, count: n, text: `${n} ${status}` });
+  }
+  const classified = parts.reduce((n, p) => n + p.count, 0);
+  const total = c?.total ?? 0;
+  if (total > classified) {
+    parts.push({ status: '', count: total - classified, text: `${total - classified} unclassified` });
+  }
+  return parts;
+}
+/** sourceHealthTally is [sourceHealthTallyParts] as one sentence, for a surface with
+ *  no room (or no need) for a per-bucket drill-down. */
+export function sourceHealthTally(c: SourceCounts | null | undefined): string {
+  const total = c?.total ?? 0;
+  if (total === 0) return 'No data sources reported.';
+  const noun = `${total} data source${total === 1 ? '' : 's'}`;
+  const parts = sourceHealthTallyParts(c);
+  if (parts.length === 1 && parts[0].status === 'available') return `${noun}, all available.`;
+  return `${noun} — ${parts.map((p) => p.text).join(', ')}.`;
+}
+/**
+ * sourceHealthSentence says what a source's health MEANS for the records around it,
+ * in a sentence rather than a badge.
+ *
+ * A source page carries two health facts that are routinely different: this source's
+ * own status, and the snapshot's completeness. The snapshot caveat is a banner, so
+ * this one has to be more than a second badge repeating the header — a reader
+ * comparing two badges cannot tell which is about what. A sentence naming the
+ * consequence can only be read one way.
+ */
+export function sourceHealthSentence(status: string | undefined): string {
+  switch (status) {
+    case 'available':
+      return 'This data source answered in full, so everything it holds is in the snapshot.';
+    case 'partial':
+      return 'This data source answered only in part, so records it holds are missing from the snapshot rather than absent from the fleet.';
+    case 'stale':
+      return 'This data source last answered too long ago to be treated as current, so what it contributed to the snapshot may already have changed.';
+    case 'unavailable':
+      return 'This data source did not answer, so nothing it holds reached the snapshot.';
+    default:
+      return 'This data source reported a health state Pacto does not recognize, so how much of it reached the snapshot is unknown.';
+  }
+}

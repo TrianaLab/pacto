@@ -576,12 +576,23 @@ tr.clickable:active { background: var(--c-surface-inset); }
    content where there is not. One rule, so Overview and the entity pages cannot drift
    into two different column widths or two different breakpoints.
 
-   `align-items: start` is load-bearing: it is what lets the rail's `position: sticky`
-   do anything, since a stretched grid child is already the height of its row. */
-.page-toc-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+   `align-items: flex-start` is load-bearing: it is what lets the rail's `position:
+   sticky` do anything, since a stretched child is already the height of its row.
+
+   FLEX, not a two-column grid, and the difference is a page that has FEWER sections
+   than the navigator's minimum. PageToc renders nothing at all then -- and under a
+   `200px 1fr` grid the content, now the first child, was auto-placed into the 200px
+   rail track: a full page of prose squeezed into the gutter with the rest of the row
+   empty beside it. Reserving the track only when something occupies it is not
+   something a static grid template can express, and it is the default in flex. */
+.page-toc-layout { display: flex; flex-direction: column; gap: var(--sp-4); align-items: stretch; }
 .page-toc-main { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
 @media (min-width: 1100px) {
-  .page-toc-layout { grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-6); }
+  .page-toc-layout { flex-direction: row; gap: var(--sp-6); align-items: flex-start; }
+  /* The rail's width lives with the layout that reserves it, not in PageToc: the
+     navigator does not get to decide how much of the page it takes. */
+  .page-toc-layout > .toc { flex: 0 0 200px; }
+  .page-toc-layout > .page-toc-main { flex: 1 1 auto; }
 }
 /* Every navigable section clears the sticky app bar when it is scrolled to, rather than
    arriving with its own heading hidden underneath it. */

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { knowledgeLabel, knowledgeTone, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
+  import { knowledgeLabel, knowledgeTone, sourceHealthTally, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDate } from '../lib/dateFormat.ts';
@@ -62,6 +62,11 @@
 
   const knowledge = $derived(snapshotKnowledge(overview?.meta));
   const attentionTotal = $derived(overview?.attention?.total ?? 0);
+  // Band 4. Fleet-wide source health from the backend's complete-population tally, not
+  // from meta.sources -- that list is capped at MaxMetaSources and keeps the least
+  // healthy when it cuts, so counting it would report a fleet of sixty healthy sources
+  // and one outage as sixty-one problems.
+  const sourceTally = $derived(sourceHealthTally(overview?.meta?.sourceCounts));
   // Page-level state: loading/error gate the whole view; once loaded, the overview
   // always has a summary to render (itemCount 1).
   const pageState = $derived(decideViewState({ loading, error, itemCount: overview ? 1 : 0, knowledge }));
@@ -166,14 +171,6 @@
       {/if}
 
       <OperationalSummary summary={overview.summary} entryPoints={overview.entryPoints} {attentionTotal} />
-
-      <!-- "Can I trust what I just read" is part of the immediate situation, not a
-           footnote: every count on this page is bounded by which sources answered. -->
-      <div class="ov-head">
-        <h3 class="t-subsection-title">Where this knowledge came from</h3>
-        <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
-      </div>
-      <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
     </section>
 
     <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
@@ -218,6 +215,29 @@
           emptyLabel="No contract revisions are tracked yet, so there is no readiness picture."
         />
       </div>
+    </section>
+
+    <!-- Data sources are SECONDARY -- they are not one of the four primary destinations
+         and they are not a fifth tab -- but they are not a footnote either: every count
+         above this point is bounded by which sources answered. As a subheading inside
+         the immediate-situation band the whole subject was unfindable, absent from the
+         page contents and read as a caption for the counters above it. It is a section
+         now, with its own heading, its own place in the contents and one action that
+         opens the complete inventory. It appears ONCE on this page. -->
+    <section class="band" id="sec-sources" data-toc="Data sources" aria-labelledby="ov-sources">
+      <div class="ov-head">
+        <h2 id="ov-sources" class="t-section-title">Data sources</h2>
+        <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
+      </div>
+      <p class="ov-sub t-body-2">
+        Where everything above came from. A data source supplies records to the snapshot — when one is degraded the counts on this page are incomplete, not zero.
+      </p>
+      <!-- The tally is over the COMPLETE source population; the chips below it are the
+           bounded, least-healthy-first list from the meta. Stating both is what lets the
+           chips be a shortcut to the interesting sources rather than a claim to be all
+           of them. -->
+      <p class="ov-tally t-body-2">{sourceTally}</p>
+      <SourceHealth sources={overview.meta?.sources || []} truncated={overview.meta?.sourcesTruncated} />
     </section>
 
     <section class="ov-section" id="sec-attention" data-toc="Needs attention" aria-labelledby="ov-attention">
@@ -279,8 +299,9 @@
      card: three nested boxes on a page already inside a shell is chrome, not structure. */
   .band + .band, .band + .ov-section { padding-top: var(--sp-4); border-top: 1px solid var(--c-border); }
   .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
-  .ov-head h2, .ov-head h3, .band > h2, .ov-section > h2 { margin: 0; }
+  .ov-head h2, .band > h2, .ov-section > h2 { margin: 0; }
   .ov-sub, .ov-note { margin: 0; max-width: 80ch; }
+  .ov-tally { margin: 0; color: var(--c-text); }
   /* Two bars side by side where there is room; one on a phone. Same rule as the posture
      grid, so the two bands line up instead of each inventing a breakpoint. */
   .ov-org-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }

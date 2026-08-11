@@ -85,6 +85,40 @@ export function snapshotKnowledge(meta: MetaLike | null | undefined): SnapshotKn
 }
 
 /**
+ * degradedSourceSummary names WHICH sources are degraded and how many, as one
+ * clause a caveat sentence can be built around.
+ *
+ * It exists because the level label alone is scope-free. "Source unavailable"
+ * printed at the top of the page for a data source that is Available reads as a
+ * statement about THAT source, and no reader should have to know that the caveat
+ * is talking about the snapshot rather than the thing they navigated to. A count
+ * cannot be misread that way: "1 data source is unavailable" beside a source
+ * badged Available is plainly about somewhere else.
+ *
+ * Empty when no individual source is degraded — the snapshot is incomplete for a
+ * reason the source list does not explain (a declared-partial completeness, or a
+ * meta we never received), and the caller says so instead.
+ */
+export function degradedSourceSummary(k: SnapshotKnowledge): string {
+  const clauses: string[] = [];
+  for (const [n, word] of [
+    [k.unavailableSources, 'unavailable'],
+    [k.staleSources, 'stale'],
+    [k.degradedSources, 'partial'],
+  ] as Array<[number, string]>) {
+    if (n <= 0) continue;
+    const verb = n === 1 ? 'is' : 'are';
+    // The noun is stated ONCE, on the first clause, so a two-part caveat reads as a
+    // sentence rather than as a table: "2 data sources are stale and 1 is partial".
+    const subject = clauses.length === 0 ? `${n} data source${n === 1 ? '' : 's'}` : `${n}`;
+    clauses.push(`${subject} ${verb} ${word}`);
+  }
+  if (clauses.length <= 1) return clauses[0] ?? '';
+  // No serial comma: the last two clauses join with "and".
+  return `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]}`;
+}
+
+/**
  * classifyError maps a caught error to the honest failure kind. A 404 is a real
  * not-found; a schema/contract violation is a distinct incompatibility the user must
  * see (reload/upgrade); anything else transport-level is backend-unavailable.

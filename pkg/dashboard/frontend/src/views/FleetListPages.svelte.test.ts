@@ -415,4 +415,74 @@ describe('FleetSourcesView (G)', () => {
     expect(location.hash).toBe('#/fleet/sources?sourceHealth=unavailable');
     unmount(component); document.body.removeChild(target);
   });
+
+  // SECTION 10: the search + health filter + paged list is the accepted base and is
+  // NOT redesigned here. The one thing it could not answer is how many sources are in
+  // each state before you go looking, which is exactly the question that decides
+  // whether to open the filter at all. So: one line, backend-authoritative, and every
+  // bucket is the filter that selects it.
+  const sourceRows = (n: number) => Array.from({ length: n }, (_, i) => (
+    { kind: 'source', key: `src-${i}`, label: `src-${i}`, href: `/fleet/sources/src-${i}` }));
+
+  it('summarises source health over the complete population, with each bucket as its filter', async () => {
+    const resp = listResp(sourceRows(25), { total: 60, nextOffset: 25 });
+    resp.meta.sourceCounts = { total: 60, available: 50, partial: 4, stale: 5, unavailable: 1 };
+    entitiesFn.mockResolvedValue(resp);
+    const { target, component } = mountView(FleetSourcesView);
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
+    // Worst first, and about all 60 -- not the 25 rows on this page.
+    const links = Array.from(tally.querySelectorAll('a'));
+    expect(links.map((a) => a.textContent)).toEqual(['1 unavailable', '5 stale', '4 partial', '50 available']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+      '#/fleet/sources?sourceHealth=unavailable',
+      '#/fleet/sources?sourceHealth=stale',
+      '#/fleet/sources?sourceHealth=partial',
+      '#/fleet/sources?sourceHealth=available',
+    ]);
+    // No second population total to reconcile against the header's.
+    expect(tally.textContent).not.toContain('60');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('stays true, and marks which bucket you are in, while a filter is on', async () => {
+    location.hash = '#/fleet/sources?sourceHealth=stale';
+    const resp = listResp(sourceRows(5), { total: 5 });
+    resp.meta.sourceCounts = { total: 60, available: 50, partial: 4, stale: 5, unavailable: 1 };
+    entitiesFn.mockResolvedValue(resp);
+    const { target, component } = mountView(FleetSourcesView, { sourceHealth: 'stale' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
+    // The filtered page shows 5 rows; the tally still describes all 60 sources.
+    expect(tally.textContent).toContain('50 available');
+    const current = tally.querySelector('a[aria-current="true"]') as HTMLAnchorElement;
+    expect(current.textContent).toBe('5 stale');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('offers no filter link for a health state the backend cannot be asked about', async () => {
+    // total 60 against 59 classified: one source reported a status with no bucket. It
+    // is named rather than folded into "available", and it is NOT a link, because
+    // sourceHealth= has no value that would select it.
+    const resp = listResp(sourceRows(25), { total: 60, nextOffset: 25 });
+    resp.meta.sourceCounts = { total: 60, available: 59 };
+    entitiesFn.mockResolvedValue(resp);
+    const { target, component } = mountView(FleetSourcesView);
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+    const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
+    expect(tally.textContent).toContain('1 unclassified');
+    expect(Array.from(tally.querySelectorAll('a')).map((a) => a.textContent)).toEqual(['59 available']);
+    expect((tally.querySelector('.lv-unclassified') as HTMLElement).title).toContain('cannot be filtered');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says nothing at all when the backend sent no tally', async () => {
+    // An older server, or a snapshot with no sources: a summary line reading
+    // "Across every data source: ." is worse than no summary line.
+    entitiesFn.mockResolvedValue(listResp(sourceRows(2)));
+    const { target, component } = mountView(FleetSourcesView);
+    await vi.waitFor(() => expect(target.querySelector('.lv-item')).toBeTruthy());
+    expect(target.querySelector('[data-testid="source-tally"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
 });

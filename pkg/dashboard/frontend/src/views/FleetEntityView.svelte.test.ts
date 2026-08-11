@@ -564,25 +564,42 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  it('source page renders health, records and contributed entities', async () => {
+  // A source sent 20 records and the product owes it 25 entities, because the five
+  // services were DERIVED from the twelve revisions and were sent by nobody. Both
+  // numbers are true of the same source and neither is the other's total, so the page
+  // has to name them as different measurements rather than print them side by side and
+  // let a reader subtract. The fixture is deliberately NOT reconciled: making the two
+  // agree would delete the thing being tested.
+  it('a source distinguishes the records it sent from the product entities it contributed', async () => {
     detailFn.mockResolvedValue({
       // `status` mirrors the source's health, exactly as the backend emits it
       // (detail.go sets EntityDetail.Status from the source status). Health is badged
-      // ONCE, in the page header, so the body never restates it.
+      // ONCE, in the page header; the body explains what it COSTS instead of restating it.
       meta, entity: ref('source', 'kubernetes'), status: 'available',
       source: {
         kind: 'k8s', health: 'available', revisionCount: 12, targetCount: 8,
-        entities: { total: 20, count: 1, truncated: true, items: [ref('target', 'prod/k8s/a')] },
+        contributed: { services: 5, revisions: 12, targets: 8 },
+        entities: { total: 25, count: 1, truncated: true, items: [ref('target', 'prod/k8s/a')] },
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },
     });
     const { target, component } = await mountView('source', 'kubernetes');
-    await vi.waitFor(() => expect(target.textContent).toContain('Contributed entities'));
-    const text = target.textContent || '';
+    await vi.waitFor(() => expect(target.textContent).toContain('Product entities contributed'));
+    const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text.match(/Available/g)).toHaveLength(1); // header badge only, never restated
-    expect(text).toContain('12 revisions');
-    expect(text).toContain('1 of 20');   // contributed-entities preview honest count
+    // Health is answered in a sentence about consequences, not a second badge.
+    expect(text).toContain('everything it holds is in the snapshot');
+    // What it sent.
+    expect(text).toContain('12 contract revisions · 8 operational targets');
+    // What the product owes it: more, and counted differently, with the comparison stated.
+    expect(text).toContain('5 services · 12 contract revisions · 8 operational targets');
+    expect(text).toContain('from 20 records it sent');
+    expect(text).toContain('1 of 25'); // the preview is honest against the ENTITY total
+    expect(text).not.toContain('1 of 20'); // ...never against the record count
     expect(Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim())).toEqual(expect.arrayContaining(['Data sources']));
+    // And an obvious way back to the complete inventory, beyond the breadcrumb.
+    const all = Array.from(target.querySelectorAll('a')).find((a) => a.textContent?.trim() === 'All data sources') as HTMLAnchorElement;
+    expect(all.getAttribute('href')).toBe('#/fleet/sources');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -591,6 +608,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
       meta, entity: ref('source', 'edge-cluster'),
       source: {
         kind: 'k8s', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        contributed: { services: 0, revisions: 0, targets: 0 },
         error: { code: 'SOURCE_UNAVAILABLE', message: 'edge cluster unreachable' },
         entities: { total: 0, count: 0, truncated: false, items: [] },
         limitations: { total: 0, count: 0, truncated: false, items: [] },
@@ -598,10 +616,46 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     });
     const { target, component } = await mountView('source', 'edge-cluster');
     await vi.waitFor(() => expect(target.textContent).toContain('edge cluster unreachable'));
-    const banner = target.querySelector('.src-error') as HTMLElement;
+    const banner = target.querySelector('.se-error') as HTMLElement;
     // The sentence starts with words, not an enum -- but the exact code is still there.
     expect(banner.textContent?.trim().startsWith('edge cluster unreachable')).toBe(true);
-    expect(banner.querySelector('.src-error-code')?.textContent).toBe('SOURCE_UNAVAILABLE');
+    expect(banner.querySelector('.se-error-code')?.textContent).toBe('SOURCE_UNAVAILABLE');
+    // ...under a heading, so the failure is a section of the page rather than a stray
+    // red box, and the contents navigator can offer it.
+    expect(target.querySelector('#sec-reported-failure')?.getAttribute('data-toc')).toBe('Reported failure');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // THE SELECTED SOURCE'S HEALTH IS NOT THE FLEET'S KNOWLEDGE COMPLETENESS.
+  //
+  // `local` is Available. Another source is not. The page used to badge `local`
+  // Available and then, a line below, print "Source unavailable — this page may be
+  // incomplete": the same three words the header would have used for a source that was
+  // down, with nothing to say they were about somewhere else.
+  it('an available source is never described as unavailable by the fleet caveat', async () => {
+    detailFn.mockResolvedValue({
+      meta: { ...meta, completeness: 'partial', sources: [{ id: 'local', status: 'available' }, { id: 'edge', status: 'unavailable' }] },
+      entity: ref('source', 'local'), status: 'available',
+      source: {
+        kind: 'local', health: 'available', revisionCount: 4, targetCount: 2,
+        contributed: { services: 3, revisions: 4, targets: 2 },
+        entities: { total: 9, count: 0, truncated: false, items: [] },
+        limitations: { total: 0, count: 0, truncated: false, items: [] },
+      },
+    });
+    const { target, component } = await mountView('source', 'local');
+    await vi.waitFor(() => expect(target.querySelector('.knowledge')).toBeTruthy());
+    const caveat = (target.querySelector('.knowledge')?.textContent || '').replace(/\s+/g, ' ').trim();
+    // It names its own subject, and the subject is the snapshot.
+    expect(caveat).toContain('The fleet snapshot is missing data.');
+    // It attributes the outage to a COUNT of other sources, which cannot be read as a
+    // statement about the one on screen.
+    expect(caveat).toContain('1 data source is unavailable');
+    expect(caveat).toContain('this page may be incomplete');
+    // The old fragment, which was indistinguishable from a claim about `local`.
+    expect(caveat).not.toContain('Source unavailable');
+    // And the page still says, in its own words, that THIS source is fine.
+    expect(target.textContent).toContain('everything it holds is in the snapshot');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -618,7 +672,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
       },
     });
     const { target, component } = await mountView('source', 'edge-cluster');
-    await vi.waitFor(() => expect(target.textContent).toContain('Contributed entities'));
+    await vi.waitFor(() => expect(target.textContent).toContain('Product entities contributed'));
     const head = target.querySelector('.page-hd') as HTMLElement;
     expect(head.querySelector('.tag')?.textContent).toBe('Unavailable');
     expect(head.querySelector('.tag')?.className).toContain('tone-err');

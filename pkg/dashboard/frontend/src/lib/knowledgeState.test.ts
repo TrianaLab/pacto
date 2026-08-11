@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  snapshotKnowledge, classifyError, decideViewState, allClearAllowed,
+  snapshotKnowledge, classifyError, decideViewState, allClearAllowed, degradedSourceSummary,
 } from './knowledgeState.ts';
 import { ApiError, SchemaCompatibilityError, ApiContractError } from './api.ts';
 
@@ -172,5 +172,36 @@ describe('allClearAllowed (the non-negotiable rule)', () => {
   it('forbids all-clear under partial or unknown knowledge, even with zero attention', () => {
     expect(allClearAllowed(partial, 0)).toBe(false);
     expect(allClearAllowed(unknown, 0)).toBe(false);
+  });
+});
+
+describe('degradedSourceSummary (naming WHAT is missing, not just that something is)', () => {
+  const k = (sources: Array<{ status: string }>) => snapshotKnowledge({ completeness: 'partial', sources });
+
+  // The caveat this feeds used to read "Source unavailable -- this page may be
+  // incomplete" on a page whose own source was Available. Attributing the gap to a
+  // COUNT of sources is what makes it unreadable as a claim about the one on screen.
+  it('counts the degraded sources by state, worst first', () => {
+    expect(degradedSourceSummary(k([
+      { status: 'available' }, { status: 'unavailable' }, { status: 'stale' }, { status: 'partial' },
+    ]))).toBe('1 data source is unavailable, 1 is stale and 1 is partial');
+  });
+
+  it('says the noun once and agrees the verb with the count', () => {
+    expect(degradedSourceSummary(k([{ status: 'unavailable' }]))).toBe('1 data source is unavailable');
+    expect(degradedSourceSummary(k([{ status: 'stale' }, { status: 'stale' }])))
+      .toBe('2 data sources are stale');
+    // The noun is not repeated in the later clauses -- and no serial comma.
+    const two = degradedSourceSummary(k([{ status: 'unavailable' }, { status: 'partial' }, { status: 'partial' }]));
+    expect(two).toBe('1 data source is unavailable and 2 are partial');
+    expect(two.match(/data source/g)).toHaveLength(1);
+    expect(two).not.toContain(', and');
+  });
+
+  it('is empty when nothing about the SOURCES is degraded', () => {
+    // Completeness can be partial for reasons no source reported. The caller must then
+    // fall back to its own wording rather than print an empty accusation.
+    expect(degradedSourceSummary(k([{ status: 'available' }]))).toBe('');
+    expect(degradedSourceSummary(snapshotKnowledge(null))).toBe('');
   });
 });

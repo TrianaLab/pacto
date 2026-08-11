@@ -18,6 +18,8 @@ import SourceHealth from './SourceHealth.svelte';
 import OperationalSummary from './OperationalSummary.svelte';
 // @ts-expect-error
 import PreviewSection from './PreviewSection.svelte';
+// @ts-expect-error
+import KnowledgeBanner from './KnowledgeBanner.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -310,5 +312,44 @@ describe('PreviewSection — honest known vs unknown totals (requirement B)', ()
     expect(count(target)).toBe('20');
     expect((target.textContent || '')).not.toMatch(/\bof\b/);
     expect(target.querySelector('[data-testid="preview-more"]')).toBeNull();
+  });
+});
+
+// SECTION 7: this banner is the only place a product page admits its numbers are
+// short, and it sits on pages that ALSO badge a health state of their own. It used to
+// print the knowledge level -- "Source unavailable" -- which on a source page was the
+// same three words the header used, one line apart, about two different things.
+describe('KnowledgeBanner names its own subject', () => {
+  const k = (level: string, sources: Array<{ status: string }>) =>
+    snapshotKnowledge({ completeness: level, sources });
+
+  it('attributes the gap to a count of sources, never to a bare status word', () => {
+    comp = mount(KnowledgeBanner, {
+      target,
+      props: { knowledge: k('partial', [{ status: 'available' }, { status: 'unavailable' }]), noun: 'page' },
+    });
+    const text = (target.textContent || '').replace(/\s+/g, ' ').trim();
+    expect(text).toBe('The fleet snapshot is missing data. 1 data source is unavailable, so this page may be incomplete.');
+    // The old wording, which said nothing about WHOSE source.
+    expect(text).not.toContain('Source unavailable');
+  });
+
+  it('is announced, and does not signal by colour alone', () => {
+    comp = mount(KnowledgeBanner, { target, props: { knowledge: k('partial', [{ status: 'stale' }]), noun: 'list' } });
+    const el = target.querySelector('.knowledge') as HTMLElement;
+    expect(el.getAttribute('role')).toBe('status');
+    expect(el.className).toContain('tone-warn');
+    expect(el.textContent).toContain('1 data source is stale'); // the tone is never the only carrier
+  });
+
+  it('falls back to the snapshot\'s own words when no source reported a problem', () => {
+    // Completeness can be partial, or unstated, for reasons that belong to no single
+    // source. Blaming "0 data sources" would be worse than saying what we actually know.
+    comp = mount(KnowledgeBanner, { target, props: { knowledge: k('partial', [{ status: 'available' }]), noun: 'page' } });
+    expect((target.textContent || '').replace(/\s+/g, ' ')).toContain('It reports itself partial, so this page may be incomplete.');
+    unmount(comp); comp = null;
+
+    comp = mount(KnowledgeBanner, { target, props: { knowledge: snapshotKnowledge(null), noun: 'page' } });
+    expect((target.textContent || '').replace(/\s+/g, ' ')).toContain('It did not report how complete it is, so this page may be incomplete.');
   });
 });

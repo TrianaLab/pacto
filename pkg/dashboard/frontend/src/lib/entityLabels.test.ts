@@ -4,6 +4,7 @@ import {
   knowledgeLabel, knowledgeTone, sourceHealthLabel, sourceHealthTone,
   attentionCategoryLabel, ATTENTION_CATEGORIES,
   provenanceLabel, provenanceIsImplied,
+  sourceHealthTallyParts, sourceHealthTally, sourceHealthSentence,
 } from './entityLabels.ts';
 import { statusLabel } from './format.ts';
 
@@ -135,5 +136,69 @@ describe('one word per state across the product vocabularies', () => {
       expect(statusLabel(s)).not.toMatch(/-/);
       expect(statusLabel(s)).toMatch(/^[A-Z][a-z]*( [a-z]+)*$/);
     }
+  });
+});
+
+describe('the fleet-wide source health tally', () => {
+  it('names only the buckets that exist, least healthy first', () => {
+    // Least-healthy first is the point: the number that changes what a reader does
+    // must not be the last one they reach.
+    const parts = sourceHealthTallyParts({ total: 9, available: 5, partial: 1, stale: 2, unavailable: 1 });
+    expect(parts.map((p) => p.status)).toEqual(['unavailable', 'stale', 'partial', 'available']);
+    expect(parts.map((p) => p.text)).toEqual(['1 unavailable', '2 stale', '1 partial', '5 available']);
+    // Empty buckets are absent, not printed as "0 stale".
+    expect(sourceHealthTallyParts({ total: 5, available: 5 }).map((p) => p.status)).toEqual(['available']);
+  });
+
+  it('never invents a bucket from a missing count', () => {
+    expect(sourceHealthTallyParts(undefined)).toEqual([]);
+    expect(sourceHealthTallyParts(null)).toEqual([]);
+    expect(sourceHealthTallyParts({})).toEqual([]);
+    // A total with no breakdown is not silently dropped either: it is all unclassified.
+    expect(sourceHealthTallyParts({ total: 3 })).toEqual([{ status: '', count: 3, text: '3 unclassified' }]);
+  });
+
+  // THE COUNTERexAMPLE: the backend leaves `total` above the bucket sum when a source
+  // reports a status the product has no bucket for. Folding the remainder into
+  // "available" would produce a tally that adds up perfectly and lies about health.
+  it('surfaces a status it does not recognize instead of absorbing it', () => {
+    const parts = sourceHealthTallyParts({ total: 4, available: 3 });
+    expect(parts).toEqual([
+      { status: 'available', count: 3, text: '3 available' },
+      { status: '', count: 1, text: '1 unclassified' },
+    ]);
+    // '' is not a filter value -- the caller cannot render it as a working filter link
+    // for a state the backend cannot be asked about.
+    expect(parts[1].status).toBe('');
+    expect(sourceHealthTally({ total: 4, available: 3 })).toBe('4 data sources — 3 available, 1 unclassified.');
+  });
+
+  it('says the sentence form without a dash when there is nothing to break down', () => {
+    expect(sourceHealthTally({ total: 0 })).toBe('No data sources reported.');
+    expect(sourceHealthTally(undefined)).toBe('No data sources reported.');
+    expect(sourceHealthTally({ total: 1, available: 1 })).toBe('1 data source, all available.');
+    expect(sourceHealthTally({ total: 6, available: 6 })).toBe('6 data sources, all available.');
+    expect(sourceHealthTally({ total: 6, available: 5, stale: 1 })).toBe('6 data sources — 1 stale, 5 available.');
+    // "all available" is reserved for actually-all-available; one unclassified source
+    // is enough to lose it.
+    expect(sourceHealthTally({ total: 7, available: 6 })).not.toContain('all available');
+  });
+
+  it('states health as a consequence for the records, not as a second badge', () => {
+    // A source page already badges the status in its header. Repeating the word beside
+    // the snapshot's own knowledge caveat gives a reader two badges and no way to tell
+    // which is about which -- so this says what the status COSTS.
+    for (const s of ['available', 'partial', 'stale', 'unavailable', undefined]) {
+      const sentence = sourceHealthSentence(s);
+      expect(sentence.startsWith('This data source ')).toBe(true);
+      expect(sentence.endsWith('.')).toBe(true);
+      expect(sentence).toContain('snapshot');
+      // Never the bare badge word standing in for an explanation.
+      expect(sentence).not.toBe(sourceHealthLabel(s));
+    }
+    expect(sourceHealthSentence('unavailable')).toContain('nothing it holds reached the snapshot');
+    // Partial is the one that is easiest to misread as "the fleet has less in it".
+    expect(sourceHealthSentence('partial')).toContain('missing from the snapshot rather than absent from the fleet');
+    expect(sourceHealthSentence('nonsense')).toContain('does not recognize');
   });
 });
