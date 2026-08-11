@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`ecb96d3cfdfee8aa7e444cbd9f7cc78e93782cd9`
+`0a362da614f5f2f140d33d39c5cd6d2e6a1d354c`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,40 +25,41 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Commits reviewed on top of the previous reviewed HEAD `9e76b6bd`:
+Commits reviewed on top of the previous reviewed HEAD `ecb96d3c`:
 
-- `969c165a` — reference occurrence identity made injective (lockVersion 3)
-- `2a54bcba` — one noun for an operational target, and the Knowledge control
-- `45a898d5` — backend-authoritative ownership and readiness inventory
-- `43adf209` — the whole question answered on Overview, Services and the inventories
-- `e2d25d17` — one shared "On this page" navigator, Owners reachable without a nav slot
-- `4f7349d1` — one page scaffold, so two workspaces stop drifting apart
-- `8ff4d8a8` — page scaffold measured in a browser
-- `e5552bca` — figures audited on every page that draws one
-- `5141117f` — a zero is an answer, and a number belongs beside its label
-- `fe41a5c1` — contents navigator measured in a browser
-- `3f64d63c` — the list a reader came for, above the analysis of it
-- `11798e20` — figures and rows proven to describe one population
-- `714ded1f` — the semantics a reader can rely on, as implemented
-- `ddbb7dfc` — the section sign spelled out, as the gate requires
-- `6bd5c76f` — rebuilt dashboard UI bundle
-- `68127659` — a comment run parsed once, not once per comment
-- `ecb96d3c` — e2e polls for the degraded store, like every other restart assertion
+- `ea59982b` — persist the independently reviewed PR state at `ecb96d3c`
+- `fa6c7e49` — two declarations of one name are two declarations
+- `bdce8da0` — one ownership question, asked the same way everywhere
+- `7a9ffffb` — tell the reader whether the fleet is owned, not just who exists
+- `6ccefd62` — the contents list says where the reader is
+- `6b789e66` — the two claims only a browser can settle
+- `6d67b8b2` — rebuilt dashboard UI bundle
+- `1df6e159` — cover the duplicate-declaration rule where it is stated
+- `0a362da6` — let the page hear the jump before navigating away from it
 
-Independently verified at this exact SHA: the review of `ecb96d3c` accepted the
-substance of that work and reopened three narrow items only. The accepted set is
-recorded in section 3 and must not be redesigned:
+Independently verified at this exact SHA: the review of `0a362da6` accepted the
+substance of that work, closed Phase 3, and reopened Phase 5 and Phase 6 for
+narrow items only. The accepted set is recorded in section 3 and must not be
+redesigned:
 
 - the lock v3 content-identity occurrence model;
 - the delimiter-collision correction;
 - multiple-path fail-closed semantics;
-- the Overview three-band dashboard;
-- complete-filtered Services aggregates;
+- the duplicate-declaration correction — do not redesign lock v3,
+  `DuplicateDeclarations`, declaration occurrence identity or lock traversal
+  without a new concrete counterexample;
+- the Operational Overview structure;
+- complete-population Services aggregates;
 - the revision-scoped Readiness model;
+- the ownership consistent / conflicting / unowned classification itself;
+- that a conflicted service may be discovered by every owner that claims it;
+- per-owner ranking links carrying `ownership=consistent`;
+- the Owners aggregate concept and its placement on the page;
+- `PageToc` current-section behaviour in the normal product;
 - typography roles;
 - progressive disclosure;
-- graph spatial persistence;
-- Product information parity;
+- rich entity inspection;
+- graph state and Cytoscape behaviour;
 - Graph / Change-analysis workspace geometry.
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
@@ -75,47 +76,14 @@ No known reopen item.
 
 Accepted identity/Product API foundations remain intact.
 
-### Phase 3 — NARROWLY REOPENED
+### Phase 3 — COMPLETE
 
-The lock v3 content-identity occurrence model is ACCEPTED. The delimiter
-collision is fixed, the declaring identity is a content identity rather than a
-delimiter-joined traversal path, and multiple-path arrival fails closed.
+The lock v3 content-identity occurrence model, the delimiter-collision
+correction, multiple-path fail-closed semantics AND the duplicate-declaration
+correction are all accepted.
 
-One narrow item remains.
-
-**Duplicate same-name declarations can still collapse in `pacto lock`**
-
-Canonical cross-field validation rejects duplicate configuration and policy
-names (`DUPLICATE_CONFIGURATION_NAME`, `DUPLICATE_POLICY_NAME`), but `pacto lock`
-does not run that validation before building the reference closure. The closure
-guard in `buildReferenceClosure` treats a second arrival at the same occurrence
-tuple as a repeated traversal:
-
-```go
-if prev, dup := seen[entry.Occurrence()]; dup {
-    if prev != entry { return &lock.AmbiguousError{...} }
-    continue // silently collapses two byte-identical DECLARATIONS
-}
-```
-
-Two duplicate declarations of the same `(kind, name)` in ONE contract that
-happen to resolve to identical bytes therefore produce a single lock entry, which
-contradicts the v3 claim of one entry per declaration occurrence. The
-`AmbiguousError` doc already asserts the closure builder is the last gate for
-duplicate names; for identical bytes that assertion is currently untrue.
-
-Required correction:
-
-- write the failing counterexample FIRST, for BOTH configuration and policy;
-- enforce that a declaring contract may contain at most one declaration for a
-  given `(kind, name)`;
-- reject a second declaration regardless of whether it happens to resolve to
-  identical bytes;
-- do not make `pacto lock` perform unrelated remote or full validation as a side
-  effect;
-- ordinary non-duplicate names keep working;
-- deterministic v3 regeneration stays byte-identical;
-- no lock-version bump unless the serialized wire actually changes.
+Do not redesign lock v3, `DuplicateDeclarations`, declaration occurrence identity
+or lock traversal without a new concrete counterexample.
 
 ### Phase 4 — COMPLETE
 
@@ -127,80 +95,107 @@ Do not reopen absent a concrete counterexample.
 
 ### Phase 5 — NARROWLY REOPENED
 
-The Product target from the previous iteration is substantially ACCEPTED and must
-not be redesigned: the Overview three-band dashboard, complete-filtered Services
-aggregates, the revision-scoped Readiness model, typography roles, progressive
-disclosure, graph spatial persistence, Product information parity and the shared
-Graph / Change-analysis workspace geometry.
+The Product target from the previous iterations is substantially ACCEPTED and
+must not be redesigned: the Operational Overview structure, complete-population
+Services aggregates, the revision-scoped Readiness model, the ownership
+consistent / conflicting / unowned classification, the rule that a conflicted
+service may be discovered by every owner that claims it, per-owner ranking links
+carrying `ownership=consistent`, the Owners aggregate concept and page placement,
+`PageToc` current-section behaviour in the normal product, typography,
+progressive disclosure, rich entity inspection, graph state and Cytoscape
+behaviour, and the shared Graph / Change-analysis workspace geometry.
 
-Phase 5 is reopened for exactly three items.
+Phase 5 is reopened for exactly four items.
 
-**1. PageToc has no active/current section**
+**1. Canonical Owner identity disagrees with fuzzy owner filtering**
 
-`PageToc.svelte` discovers its entries from the rendered DOM and jumps correctly,
-but nothing tells the reader where they currently are. There is no active entry,
-no `aria-current`, and no scroll geometry at all. Requirements: the current
-section is identified as the reader scrolls; choosing an entry makes that section
-current; the current entry updates again on scrolling into the next section; the
-distinction is not carried by colour alone; the state is exposed accessibly
-(preferably `aria-current`); behaviour at section boundaries is deterministic; no
-hash or history mutation; no fighting a programmatic smooth scroll; no separate
-mobile implementation; disclosure semantics stay intact when the current section
-is inside a collapsed disclosure; sticky-header offsets are accounted for. One
-deterministic selection rule — not an observer whose current item oscillates
-because several sections intersect at once.
+Two different meanings hide behind one owner string. Canonical Owner detail
+resolves an owner by exact display key (`revision.Owner.DisplayString() == key`),
+while `EntityFilter.Owner` resolves by `Owner.MatchesFilter(owner)`, which is a
+case-insensitive SUBSTRING over team, DRI and contact values.
 
-**2. Owners inventory has no aggregate ownership insight**
+Counterexample: owners `team-a` and `team-a-platform`. A canonical action taken
+from `/fleet/owners/team-a` that navigates with `owner=team-a` may include
+services owned only by `team-a-platform`. The canonical Owner page and its own
+drill-down then disagree about what that Owner owns.
 
-`FleetOwnersView` is still search + paged list + pager. Above the inventory it
-needs: consistent ownership coverage; conflicting ownership; unowned services;
-and a bounded top-owner distribution with truthful remainder semantics. The
-populations must be backend-authoritative and complete — never derived from the
-current owner page — and must reuse the existing aggregate machinery rather than
-introduce a fourth ownership model. The owner list stays the primary inspection
-surface; every interactive aggregate drills into the exact population it counted.
+Required correction: separate canonical Owner identity from free-text owner
+matching. Useful fuzzy user search must NOT be removed. A reasonable design is an
+exact owner-key filter for canonical links/actions alongside the existing fuzzy
+owner query for user-entered search; the exact API shape is an implementation
+decision, but the ontology must be explicit.
 
-**3. Owner filtering and ownership aggregation disagree semantically**
+Every owner-scoped Product path must be audited: Owner detail; Owner service
+estate; revision estate; target estate; Owner attention links; the Services owner
+filter; ownership ranking drill-downs; owner discovery; global/free-text owner
+search.
 
-The Consistent / Conflicting / Unowned partition is accepted, but
-`EntityFilter.Owner` matches only `ServiceRecord.Owner`, which is a SUMMARY owner
-derived from the lowest-keyed revision. Counterexample: service `disputed`,
-revision A declares `team-x`, revision B declares `team-y`. The aggregate
-classifies it CONFLICTING and the per-owner ranking correctly excludes it, but a
-ranking row drills down with `owner=<team>` alone, so the service can reappear
-through its arbitrary summary owner — the bar count and its own drill-down
-disagree.
+The identity case must also be forced, not hand-waved as presentation: revision A
+declaring `{team: platform, dri: alice}` and revision B declaring
+`{team: platform, dri: bob}` are DIFFERENT under structured `Owner.Equal` but
+collapse to one `DisplayString` of `platform`. Either prove the canonical Owner
+identity intentionally includes the structured distinction, or document and test
+the intended normalization rule.
 
-Fix the ontology, not the symptom. Recommended semantics: `owner=<x>` means at
-least one revision of the service declares or matches x; a ranking that means
-"consistently-owned services for x" drills down with BOTH `owner=<x>` and
-`ownership=consistent`. Every owner-answering surface must obey one rule:
-Services owner filter, per-owner ranking drill-down, Owner entity
-service/revision/target estate, Owner attention links, owner discovery and
-ownership conflicts. `ServiceRecord.Owner` is not an authoritative substitute for
-the complete set of revision ownership declarations wherever the question is
-about ownership.
+**2. Owners aggregate load/refresh failures are silent**
+
+`FleetOwnersView` gives the ownership aggregate its own loader, whose failure
+state the page never surfaces.
+
+- Counterexample A: the owner roster succeeds and the aggregate fails on first
+  load. The page silently omits the whole-fleet ownership picture.
+- Counterexample B: a previous aggregate is on screen and the refresh fails. The
+  reader keeps reading a stale figure with no notice. Stale-while-revalidate is
+  only honest when the page visibly says the refresh failed.
+
+Required correction: explicit aggregate state — initial loading; ready;
+unavailable/error; stale data after a refresh failure — reusing the Product's
+existing stale/error semantics rather than a new mechanism. Failure of the
+aggregate must not unnecessarily destroy the usable Owner roster.
+
+**3. Owners ownership coverage suppresses the authoritative denominator**
+
+`DistributionBar` already renders the remainder as `Unclassified` when
+`total > sum(known buckets)`. `FleetOwnersView` defeats that safeguard by passing
+`total = segmentTotal(segments)`, so the bars are always drawn against their own
+sum and can never show a gap.
+
+The authoritative denominator is the aggregate's service count. Healthy data
+still satisfies `consistent + conflicting + unowned == services`; a wire
+violation must be exposed rather than normalized away. Do not special-case the
+Owners page around the shared `DistributionBar`.
+
+**4. `PageToc`'s documented per-section reading-line rule is not actually per-section**
+
+The comments and the handoff state that the reading line is each section's own
+`scroll-margin-top`. The implementation reads `scrollMarginTop` from the FIRST
+visible section and applies that single line to the whole scan, so sections with
+a different computed `scroll-margin-top` are judged against a line that is not
+theirs.
+
+Preferred correction: evaluate each visible section against that section's own
+`scroll-margin-top`. Alternatively, encode a single global reading line
+explicitly and change the comments and tests to match. Code and claimed algorithm
+must not disagree.
 
 ### Phase 6 — NARROWLY REOPENED
 
-The existing browser suite is accepted and must stay green; it must not be
-weakened to accommodate the new work.
+The existing browser suite is accepted and must stay green; no existing browser
+acceptance may be removed or weakened.
 
-Reopened because browser acceptance omitted the counterexamples above:
+Reopened because browser acceptance lacks the adversarial counterexamples above:
 
-- Page TOC: exactly one current entry on a long revision page; the current entry
-  changes on scrolling into a later section; choosing a different entry opens it
-  if necessary and makes it current; the route hash and history length are
-  unchanged; representative mobile behaviour.
-- Ownership: the Owners aggregate is complete-population and not page-scoped;
-  conflicting and unowned coverage drill into rows that match the bucket; a
-  top-owner row drills into a list whose total equals the row count; a conflicted
-  service proves the chosen owner-filter semantics; paging the owner list does
-  not alter the aggregate.
+- Owner identity: substring-colliding owners; a canonical drill-down that
+  excludes the collider; fuzzy search that still discovers both.
+- Aggregate failure: the aggregate request failing independently of the roster,
+  on first load AND on refresh.
+- Denominator: an inconsistent aggregate rendering an explicit remainder rather
+  than a fake 100 percent.
+- `PageToc`: sections whose computed `scroll-margin-top` values differ.
 
 ### Phase 7 — NOT STARTED
 
-Do not start until Phases 3/5/6 re-close.
+Do not start until Phases 5 and 6 re-close.
 
 Target:
 
@@ -419,40 +414,43 @@ Any future chart must:
 
 ## 7. Current high-priority blocker details
 
-### Blocker A — duplicate identical declarations collapse in `pacto lock`
+### Blocker A — canonical Owner identity vs fuzzy owner search
 
-Detailed in Phase 3 above. Acceptance must prove all six:
+Detailed in Phase 5 item 1. Acceptance must prove, with at least the colliding
+pair `team-a` / `team-a-platform`:
 
-1. a duplicate configuration name resolving to the SAME ref is rejected;
-2. a duplicate configuration name resolving to a DIFFERENT ref is rejected;
-3. a duplicate policy name resolving to the same ref is rejected;
-4. a duplicate policy name resolving to a different ref is rejected;
-5. ordinary non-duplicate names still lock;
-6. v3 deterministic regeneration remains byte-identical, with no lock-version
-   bump unless the serialized wire actually changes.
+1. each canonical Owner detail contains only its own estate;
+2. the canonical `team-a` service drill-down excludes services owned only by
+   `team-a-platform`;
+3. a fuzzy search for `team-a` may still discover both;
+4. ranking counts still equal their canonical destinations;
+5. attention links from one Owner do not broaden to a substring-colliding Owner;
+6. the same-team / different-structured-owner case is decided explicitly, either
+   as an intentional structured distinction or as a documented and tested
+   normalization rule.
 
-### Blocker B — one ownership semantic model end to end
+### Blocker B — Owners aggregate state is silent on failure
 
-Detailed in Phase 5 item 3. Acceptance must prove all six:
+Detailed in Phase 5 item 2. Acceptance must prove, with the aggregate request
+failing INDEPENDENTLY of the roster request:
 
-1. `ownership=conflicting` contains the disputed service;
-2. `owner=team-x` can discover the disputed service;
-3. `owner=team-y` can discover the disputed service;
-4. `owner=team-x` + `ownership=consistent` excludes the disputed service;
-5. clicking a per-owner ranking produces a list whose total equals that ranking
-   count;
-6. reversing revision and source order cannot change any of these answers.
+1. first-load aggregate failure is visible and does not silently omit the
+   ownership picture;
+2. refresh failure over a previously loaded aggregate is visibly reported;
+3. the Owner roster remains usable in both cases.
 
-### Blocker C — Owners workspace has no aggregate insight
+### Blocker C — Owners ownership coverage lacks the authoritative denominator
 
-Detailed in Phase 5 item 2. Backend-authoritative complete populations, reusing
-the existing aggregate machinery; not a wall of charts; every interactive
-aggregate drills into the exact population it counted.
+Detailed in Phase 5 item 3. Acceptance must prove that an aggregate reporting
+`services = 10` with buckets summing to 8 renders the 2-service remainder as
+`Unclassified`, through the shared `DistributionBar` and with no page-local
+special case.
 
-### Blocker D — PageToc has no active/current section
+### Blocker D — PageToc reading line is not per-section
 
-Detailed in Phase 5 item 1. One deterministic selection rule, an accessible
-current state, a non-colour distinction, and no second mobile implementation.
+Detailed in Phase 5 item 4. Acceptance must prove the chosen rule with at least
+two visible sections whose computed `scroll-margin-top` values differ, in a unit
+test and in the browser.
 
 ### Previously accepted and NOT reopened
 
@@ -473,15 +471,19 @@ current state, a non-colour distinction, and no second mobile implementation.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `ecb96d3c`. The currently-open review threads are
-generated/minified vendor bundle findings, not authored-product defects. The
-external CodeQL alert count must not be claimed as fixed or introduced without
-establishing its base/head provenance.
+Reviewed at exact HEAD `0a362da6`.
 
-The previous Claude handoff for `9e76b6bd` had reported gofmt/vet/lint/gocyclo
-clean, 100.0% coverage gates, `svelte-check` 0 errors with pre-existing warnings
-only, the full Vitest suite green and a 171-test Playwright browser suite green
-across desktop and mobile.
+Review-thread and CodeQL status must be re-established at the exact final SHA of
+the next pass, AFTER the final generated UI bundle is committed, and reported as
+three separate counts: unresolved authored threads; unresolved generated/minified
+vendor-bundle threads; threads resolved but outdated.
+
+The Security workflow's own status is a different claim from CodeQL alert
+attribution. Do not describe CodeQL alert provenance as independently established
+without inspecting the underlying alert records and their base/head evidence.
+
+The previous Claude handoff for `0a362da6` had reported the local gate matrix
+green. Counts in a handoff are not evidence.
 
 Important process rule:
 
@@ -499,22 +501,24 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
-This is a NARROW correction pass. The previous iteration is substantially
+This is a NARROW correction pass. The previous iterations are substantially
 accepted and must not be reopened or redesigned.
 
 The immediate next Claude session should:
 
-1. write the duplicate-identical-declaration counterexample first, for BOTH
-   configuration and policy, then close the `pacto lock` hole;
-2. unify owner semantics end to end so filtering and aggregation answer the same
-   question, and prove it with the disputed-service counterexample;
-3. give the Owners workspace a backend-authoritative aggregate above the
-   inventory, drilling into the exact population it counted;
-4. give PageToc a deterministic active/current section with an accessible,
-   non-colour-only state;
-5. add the browser acceptance for both the TOC and the ownership counterexamples
-   without weakening the existing suite;
-6. run the full verification matrix and audit the review threads paginated;
+1. separate canonical Owner identity from fuzzy owner search across every
+   owner-scoped Product path, writing the substring-collision counterexamples
+   FIRST, and decide the same-team / different-structured-owner case explicitly;
+2. give the Owners aggregate explicit loading / ready / unavailable / stale state
+   without destroying the roster;
+3. draw ownership coverage against the authoritative service count so a wire
+   inconsistency shows as an explicit remainder;
+4. make `PageToc` evaluate each visible section against its own reading line, or
+   state a single global line and correct the comments and tests;
+5. add browser acceptance for all four counterexamples without weakening the
+   existing suite;
+6. run the full verification matrix, rebuild the UI bundle cold, and audit the
+   review threads AFTER the final bundle commit;
 7. do not begin Phase 7.
 
 The design constraint is:
