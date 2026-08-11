@@ -29,6 +29,12 @@
   const sum = $derived(segments.reduce((n, s) => n + (s.value || 0), 0));
   const denom = $derived(typeof total === 'number' && total > sum ? total : sum);
   const rest = $derived(Math.max(0, denom - sum));
+  // Empty buckets are dropped here and KEPT in HorizontalBars, and the difference is the
+  // difference between the two questions. These rows PARTITION a stated denominator, so
+  // the rows that remain always reconcile to it and an empty bucket adds a legend entry
+  // beside a slice of zero width -- four of them on a posture bar, saying nothing. A
+  // ranked comparison has no denominator to reconcile against, so there a zero is the
+  // answer ("nothing is running for this owner") and dropping it deletes information.
   const rows = $derived([
     ...segments.map((s) => ({ ...s, value: s.value || 0 })),
     ...(rest > 0 ? [{ label: 'Unclassified', value: rest, tone: 'neutral' }] : []),

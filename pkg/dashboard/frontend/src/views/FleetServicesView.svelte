@@ -324,7 +324,12 @@
   .sv-viewall:hover { text-decoration: underline; }
   /* Same track rule as PostureBars: two charts side by side where there is room, one on
      a phone. Charts across the product line up instead of each picking a breakpoint. */
-  .sv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
+  /* TWO columns where there is room, never three. The four figures are two pairs -- two
+     distributions, then two per-owner rankings -- and at three columns the pairs split
+     across rows: a ten-row chart set the height of a row holding two four-row bars, and
+     the block opened with a screenful of empty space beside them. Two columns puts each
+     pair on its own row, where both members are the same height by construction. */
+  .sv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--sp-4); align-items: start; }
   .sv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .sv-item {
     display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;

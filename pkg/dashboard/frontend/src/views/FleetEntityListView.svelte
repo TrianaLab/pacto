@@ -3,7 +3,6 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { kindLabel } from '../lib/entityLabels.ts';
   import { statusLabel } from '../lib/format.ts';
   import { fleetOverviewUrl, fleetServicesUrl, fleetEntityUrl, fleetEntityListUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -35,6 +34,11 @@
   const readinessFilter = $derived(isRevisions ? readiness : '');
   const anyFilter = $derived(!!(text || status || scope || readinessFilter));
   const plural = $derived(kind === 'target' ? 'operational targets' : 'contract revisions');
+  // The page names the POPULATION, like every sibling list ("Services", "Owners",
+  // "Data sources"). It used to take the singular entity kind from kindLabel, so a
+  // page of twenty-six was headed "Revision" -- and headed it with the bare kind
+  // rather than the product noun the count underneath was already using.
+  const pluralTitle = $derived(plural[0].toUpperCase() + plural.slice(1));
 
   let textDraft = $state(text);
   $effect(() => { textDraft = text; });
@@ -77,8 +81,8 @@
   // The scope is a canonical ServiceKey, so the breadcrumb links straight back to that
   // service's page rather than to an unscoped inventory the user did not come from.
   const trail = $derived(service
-    ? [{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services', href: fleetServicesUrl() }, { label: service, href: fleetEntityUrl('service', service) }, { label: kindLabel(kind) }]
-    : [{ label: 'Overview', href: fleetOverviewUrl() }, { label: kindLabel(kind) }]);
+    ? [{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services', href: fleetServicesUrl() }, { label: service, href: fleetEntityUrl('service', service) }, { label: pluralTitle }]
+    : [{ label: 'Overview', href: fleetOverviewUrl() }, { label: pluralTitle }]);
 
   function urlWith(patch, off = 0) {
     return fleetEntityListUrl(kind, {
@@ -119,7 +123,7 @@
 <div class="product-page">
   <Breadcrumbs {trail} />
   <PageHeader
-    title={`${kindLabel(kind)}${service ? ` of ${service}` : ''}`}
+    title={`${pluralTitle}${service ? ` of ${service}` : ''}`}
     count={list ? `${total} ${total === 1 ? plural.replace(/s$/, '') : plural}` : ''}
     countTestid="entity-list-total"
     subtitle={kind === 'target'
@@ -186,7 +190,7 @@
         <li class="lv-item"><EntityLink {ref} showStatus={true} /></li>
       {/each}
     </ul>
-    <nav class="lv-pager" aria-label={`${kindLabel(kind)} pages`}>
+    <nav class="lv-pager" aria-label={`${pluralTitle} pages`}>
       <span class="lv-range">Showing {shownFrom}–{shownTo} of {total}</span>
       <div class="lv-pager-btns">
         {#if hasPrev}<a class="lv-page" href={urlWith({}, prevOffset)} data-testid="entity-list-prev" rel="prev">Previous</a>{:else}<span class="lv-page disabled" aria-disabled="true">Previous</span>{/if}

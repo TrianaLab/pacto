@@ -95,3 +95,32 @@ test.describe('typography hierarchy on mobile', () => {
     }
   });
 });
+
+/**
+ * A ranked bar row is a label, its number, and a bar under both. At a narrow viewport
+ * the bar drops to a line of its own, and grid auto-flow used to push the NUMBER down
+ * with it onto a third line -- so every row was half again as tall and the value sat
+ * separated from the label it belonged to by the bar between them.
+ */
+test('a ranked bar keeps its number beside its label at 393px', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page, '#/fleet/services');
+  await expect(page.locator('.hb-row .hb-inner').first()).toBeVisible();
+
+  const m = await page.evaluate(() => {
+    const row = document.querySelector('.hb-row .hb-inner')!;
+    const box = (sel: string) => {
+      const b = row.querySelector(sel)!.getBoundingClientRect();
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), width: Math.round(b.width) };
+    };
+    return { row: Math.round(row.getBoundingClientRect().width), label: box('.hb-label'), value: box('.hb-value'), track: box('.hb-track') };
+  });
+
+  // Same line, number to the right of the name.
+  expect(m.value.top, `label at y=${m.label.top}, value at y=${m.value.top}`).toBe(m.label.top);
+  expect(m.value.left).toBeGreaterThan(m.label.left);
+  // The bar is under both, and spans the row -- proving this ran at the narrow layout
+  // and not at the desktop one, where the track sits between label and value.
+  expect(m.track.top).toBeGreaterThanOrEqual(m.label.bottom);
+  expect(m.track.width).toBe(m.row);
+});

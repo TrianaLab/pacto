@@ -22,9 +22,16 @@
     emptyLabel = 'Nothing to show yet.',
   } = $props();
 
-  const rows = $derived(items.filter((i) => (i.value || 0) > 0));
+  // A zero is an ANSWER, not an absent row. Dropping zero-valued rows used to delete the
+  // most operationally interesting fact a chart like this can carry -- "this owner has
+  // four services and nothing running for any of them", "no consumer is breaking" -- and
+  // it silently broke the row-for-row alignment between two charts drawn over the same
+  // population. The caller decides which rows exist; this draws the ones it is given.
+  const rows = $derived(items);
   const max = $derived(rows.reduce((m, i) => Math.max(m, i.value || 0), 0));
-  const width = (v) => (max > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0);
+  // A zero gets NO bar. The 2% floor exists so a small non-zero value stays visible, and
+  // painting a stub for zero would say "a little" where the answer is "none".
+  const width = (v) => (max > 0 && v > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0);
   // A ranked chart is mostly small numbers, so "1 items" and "1 consumers" are the
   // common case, not the edge case. Callers give the singular; irregular nouns are not
   // guessed at by stripping an "s".
@@ -60,7 +67,11 @@
         </li>
       {/each}
     </ul>
-    <p class="hb-scale">Bar length is relative to the largest value shown ({max}).</p>
+    {#if max > 0}
+      <p class="hb-scale">Bar length is relative to the largest value shown ({max}).</p>
+    {:else}
+      <p class="hb-scale">Every row here is zero, so no bar is drawn.</p>
+    {/if}
   {/if}
 </figure>
 
@@ -90,10 +101,16 @@
   .tone-err { --tone-c: var(--c-err); }
   .tone-info { --tone-c: var(--c-info); }
   .tone-neutral { --tone-c: var(--c-neutral); }
-  /* 320px: the label column stops competing with the bar for room. */
+  /* 480px: the label column stops competing with the bar for room, so the bar drops to
+     a line of its own. Placement is EXPLICIT because auto-flow got it wrong: a track
+     spanning both columns takes the whole of row two, which pushed the value down to a
+     row three of its own -- three lines per row, with the number separated from the
+     label it belongs to by the bar. */
   @media (max-width: 30rem) {
     .hb-inner { grid-template-columns: 1fr auto; }
-    .hb-track { grid-column: 1 / -1; }
+    .hb-label { grid-area: 1 / 1 / 2 / 2; }
+    .hb-value { grid-area: 1 / 2 / 2 / 3; }
+    .hb-track { grid-area: 2 / 1 / 3 / -1; }
   }
   @media (prefers-reduced-motion: reduce) {
     .hb-fill { transition: none; }

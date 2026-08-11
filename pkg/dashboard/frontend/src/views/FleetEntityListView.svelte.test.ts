@@ -245,4 +245,18 @@ describe('FleetEntityListView (requirement 12)', () => {
     expect(target.querySelector('[data-testid="entity-list-total"]')?.textContent).toBe('1 contract revision');
     unmount(component);
   });
+
+  // The heading names the population, like "Services" and "Data sources" do. It used to
+  // be the singular entity kind, so twenty-six revisions arrived under "Revision".
+  it.each([
+    ['revision', 'Contract revisions'],
+    ['target', 'Operational targets'],
+  ])('heads a %s inventory with the plural product noun', async (kind, title) => {
+    entitiesFn.mockResolvedValue(listResp([], { total: 0 }));
+    const { target, component } = mountView({ kind });
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    expect(target.querySelector('[data-testid="page-title"]')?.textContent).toBe(title);
+    expect(target.querySelector('.breadcrumbs')?.textContent).toContain(title);
+    unmount(component);
+  });
 });

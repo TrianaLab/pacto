@@ -245,7 +245,12 @@
 </div>
 
 <style>
-  .av-shape { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
+  /* Side by side, and deliberately so. The severity distribution is three rows and the
+     category ranking is six, so the left column ends in white space -- but stacking
+     them costs ninety vertical pixels, which is the difference between arriving at this
+     page with triage items on screen and arriving at two charts. An empty corner hides
+     nothing; a fold that starts below the first item does. */
+  .av-shape { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); align-items: start; }
   .av-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .av-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); }
   .av-filters select, .av-filters input[type="text"] {

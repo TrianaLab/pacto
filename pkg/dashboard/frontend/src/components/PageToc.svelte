@@ -78,7 +78,7 @@
            tap. On <details> it would be a mouse listener on a non-interactive element. -->
       <summary class="toc-summary" onclick={() => { touched = true; }}>
         <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
-        <span class="toc-title t-meta">{label}</span>
+        <span class="toc-title t-label">{label}</span>
         <span class="toc-count t-meta">{entries.length}</span>
       </summary>
       <!-- Buttons, not links. An href="#section-id" would introduce a SECOND meaning for
@@ -99,7 +99,11 @@
   .toc { min-width: 0; }
   .toc-box { border: 1px solid var(--c-border); border-radius: var(--radius-md); background: var(--c-surface); }
   .toc-summary { padding: 0 var(--sp-3); list-style: none; }
-  .toc-title { font-weight: 600; }
+  /* The control's name is a LABEL naming what sits beside it, which is a role we
+     already have. It used to be t-meta re-weighted to 600 locally -- the one thing the
+     role system forbids, and enough on its own to make t-meta render at two weights
+     across the product. A role carries its own weight or it carries nothing. */
+  .toc-title { min-width: 0; }
   .toc-count { margin-left: auto; color: var(--c-text-3); }
 
   .toc-list { list-style: none; margin: 0; padding: 0 var(--sp-2) var(--sp-2); display: flex; flex-direction: column; }

@@ -142,10 +142,31 @@ describe('HorizontalBars', () => {
     expect(links[0].textContent).toContain('Non-compliant');
   });
 
-  it('drops a zero row rather than drawing a bar nobody is in', () => {
+  // A zero is an answer. "This owner has four services and nothing running" and "no
+  // consumer is breaking" are the most useful things these charts say, and dropping the
+  // row deleted them -- along with the row-for-row alignment between two charts drawn
+  // over the same population, which is the whole reason they sit side by side.
+  it('keeps a zero row, and gives it no bar', () => {
     comp = mount(HorizontalBars, { target, props: { title: 'By category', items: bars } });
+    expect(target.querySelectorAll('.hb-row')).toHaveLength(3);
+
+    const rows = Array.from(target.querySelectorAll('.hb-row'));
+    const zero = rows.find((r) => r.textContent?.includes('Readiness'));
+    expect(zero?.textContent).toContain('0');
+    // No stub. A 2% sliver would read as "a little" where the answer is "none".
+    expect((zero?.querySelector('.hb-fill') as HTMLElement).style.width).toBe('0%');
+    // And the non-zero rows still scale against the largest value, not against zero.
+    const six = rows.find((r) => r.textContent?.includes('Non-compliant'));
+    expect((six?.querySelector('.hb-fill') as HTMLElement).style.width).toBe('100%');
+  });
+
+  it('says so plainly when every row is zero, instead of a scale relative to nothing', () => {
+    comp = mount(HorizontalBars, {
+      target,
+      props: { title: 'By category', items: [{ label: 'A', value: 0 }, { label: 'B', value: 0 }] },
+    });
     expect(target.querySelectorAll('.hb-row')).toHaveLength(2);
-    expect(target.textContent).not.toContain('Readiness');
+    expect(target.querySelector('.hb-scale')?.textContent).toBe('Every row here is zero, so no bar is drawn.');
   });
 
   it('says so plainly when there is nothing to rank, and states no scale for it', () => {
