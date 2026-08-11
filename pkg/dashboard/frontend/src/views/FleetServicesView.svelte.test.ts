@@ -185,7 +185,7 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
   });
 
   /**
-   * The inventory (requirement A / §10). This page used to tally the 25 rendered rows:
+   * The inventory (requirement A / section 10). This page used to tally the 25 rendered rows:
    * honest about its scope in a caption and still the wrong chart to draw, because page
    * 1 of a 40-service fleet is a sample nobody chose. The aggregate is the backend's,
    * over every service the SAME filters select, with paging excluded.
