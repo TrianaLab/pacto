@@ -22,13 +22,17 @@ type EntityFilter struct {
 	// canonical.
 	Owner string
 	// OwnerKey is exact canonical owner IDENTITY: an entity matches when at least
-	// one contract revision behind it declares this owner, compared against
-	// [contract.Owner.DisplayString] (see [contract.Owner.IsKey]). It is the filter
-	// every canonical owner link carries — an owner page's estate, a per-owner
-	// ranking's destination, an owner-scoped attention link — so the population a
-	// figure counted and the population its link opens are the same one. Narrow to
-	// "consistently owned by this owner" by pairing it with Ownership:
-	// OwnershipConsistent.
+	// one contract revision behind it declares this owner, compared against the wire
+	// form of [contract.Owner.Key] (see [contract.Owner.IsKey]) — `team:platform`,
+	// `dri:alice`. It is the filter every canonical owner link carries — an owner
+	// page's estate, a per-owner ranking's destination, an owner-scoped attention
+	// link — so the population a figure counted and the population its link opens are
+	// the same one. Narrow to "consistently owned by this owner" by pairing it with
+	// Ownership: OwnershipConsistent.
+	//
+	// The namespace is required, and a bare name matches nothing: `alice` names a
+	// team and a DRI equally well, and answering it with either would hand a reader
+	// somebody else's estate under the right heading.
 	//
 	// OwnerKey and Owner compose (both must hold) rather than overriding each other:
 	// they are two different questions, and a consumer that asks both means both.
@@ -286,20 +290,23 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 	return refs
 }
 
-// owners returns the distinct, non-empty owner display strings across BOTH
-// services and revisions. Because a service's summary owner is only its
-// lowest-keyed revision's owner (see deriveOwner), a service with conflicting
-// revision owners has revision-only owners that a services-only scan would miss;
-// including revision owners makes every real owner discoverable.
+// owners returns the distinct canonical owner KEYS across BOTH services and
+// revisions. Because a service's summary owner is only its lowest-keyed revision's
+// owner (see deriveOwner), a service with conflicting revision owners has
+// revision-only owners that a services-only scan would miss; including revision
+// owners makes every real owner discoverable.
+//
+// The roster is keyed, not labelled: a team and a DRI who share a name are two
+// rows here, because they are two owners with two estates.
 func (q *Query) owners() []string {
 	seen := map[string]bool{}
 	for _, s := range q.snap.Services {
-		if o := s.Owner.DisplayString(); o != "" {
+		if o := s.Owner.KeyString(); o != "" {
 			seen[o] = true
 		}
 	}
 	for _, r := range q.snap.Revisions {
-		if o := r.Owner.DisplayString(); o != "" {
+		if o := r.Owner.KeyString(); o != "" {
 			seen[o] = true
 		}
 	}
@@ -432,9 +439,10 @@ func (q *Query) entityOwnedBy(r EntityRef, owner string) bool {
 	case KindTarget:
 		return q.matchOwner(q.snap.Services[ServiceKey(r.ParentService)], owner)
 	case KindOwner:
-		// An owner entity is identified only by its display string; match it with
-		// the same case-insensitive substring rule MatchesFilter applies.
-		return strings.Contains(strings.ToLower(r.Key), strings.ToLower(owner))
+		// An owner entity carries no contacts, so the search is over the NAME it was
+		// declared under — the label, not the canonical key, whose namespace prefix is
+		// identity rather than anything a reader typed.
+		return strings.Contains(strings.ToLower(ownerEntityRef(r.Key).Label), strings.ToLower(owner))
 	default:
 		return false
 	}

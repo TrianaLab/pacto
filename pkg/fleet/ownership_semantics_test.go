@@ -108,9 +108,9 @@ func TestByOwnerRanking_DrillsDownToExactlyWhatItCounted(t *testing.T) {
 	}
 	for _, row := range agg.ByOwner {
 		got := serviceKeys(t, q, EntityFilter{
-			Kinds: []EntityKind{KindService}, Owner: row.Owner, Ownership: OwnershipConsistent})
+			Kinds: []EntityKind{KindService}, OwnerKey: row.Key, Ownership: OwnershipConsistent})
 		if len(got) != row.Services {
-			t.Errorf("%s ranks %d services but its drill-down lists %d: %v", row.Owner, row.Services, len(got), got)
+			t.Errorf("%s ranks %d services but its drill-down lists %d: %v", row.Key, row.Services, len(got), got)
 		}
 		// And the targets it claims are the targets of exactly those services.
 		targets := 0
@@ -118,7 +118,7 @@ func TestByOwnerRanking_DrillsDownToExactlyWhatItCounted(t *testing.T) {
 			targets += len(q.snap.Services[ServiceKey(key)].Targets)
 		}
 		if targets != row.Targets {
-			t.Errorf("%s ranks %d targets but its %d services hold %d", row.Owner, row.Targets, len(got), targets)
+			t.Errorf("%s ranks %d targets but its %d services hold %d", row.Key, row.Targets, len(got), targets)
 		}
 	}
 }
@@ -153,7 +153,7 @@ func TestOwnerFilter_ReachesRevisionsAndTargetsOfADisputedService(t *testing.T) 
 // that service is being told two different things.
 func TestOwnerDetail_EstateIncludesEveryServiceARevisionClaims(t *testing.T) {
 	q := disputedFleet(t)
-	for _, owner := range []string{"team-x", "team-y"} {
+	for _, owner := range []string{"team:team-x", "team:team-y"} {
 		d, err := q.EntityDetail(KindOwner, owner)
 		if err != nil {
 			t.Fatalf("EntityDetail(owner, %s): %v", owner, err)
@@ -212,7 +212,7 @@ func TestAttentionOwnerFilter_ReachesACoOwnedService(t *testing.T) {
 // the reader never learns exists.
 func TestOwnerDiscovery_ListsBothClaimants(t *testing.T) {
 	got := serviceKeys(t, disputedFleet(t), EntityFilter{Kinds: []EntityKind{KindOwner}})
-	if fmt.Sprint(got) != "[team-x team-y]" {
+	if fmt.Sprint(got) != "[team:team-x team:team-y]" {
 		t.Errorf("owner discovery listed %v, want both claimants", got)
 	}
 }

@@ -131,7 +131,7 @@ func TestProductDetail_AllKindsHrefs(t *testing.T) {
 		{"service", "app"},
 		{"revision", appRevKey(t, q)},
 		{"target", string(fleet.NewTargetKey("prod", "k8s", "app-1"))},
-		{"owner", "team-a"},
+		{"owner", "team:team-a"},
 		{"source", "local"},
 	}
 	for _, c := range cases {
@@ -448,7 +448,9 @@ func TestRouteBuilder_EntityHrefShapes(t *testing.T) {
 		{fleet.KindService, "payments-domain/payments", "/fleet/services/payments-domain%2Fpayments"},
 		{fleet.KindRevision, "payments@sha256:abc", "/fleet/revisions/payments@sha256:abc"},
 		{fleet.KindTarget, "prod/k8s/payments", "/fleet/targets/prod%2Fk8s%2Fpayments"},
-		{fleet.KindOwner, "team-a", "/fleet/owners/team-a"},
+		// A canonical owner key is namespaced; the colon is legal unescaped in a path
+		// segment, exactly as a revision digest's already is.
+		{fleet.KindOwner, "team:team-a", "/fleet/owners/team:team-a"},
 		{fleet.KindSource, "kubernetes", "/fleet/sources/kubernetes"},
 	}
 	for _, c := range entities {

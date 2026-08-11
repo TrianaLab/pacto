@@ -46,7 +46,7 @@ func TestEntities_RevisionOnlyOwnerDiscoverable(t *testing.T) {
 	for _, e := range list.Entities {
 		owners[e.Key] = true
 	}
-	if !owners["team-x"] || !owners["team-y"] {
+	if !owners["team:team-x"] || !owners["team:team-y"] {
 		t.Errorf("both a service-summary owner and a revision-only owner must be discoverable, got %v", owners)
 	}
 

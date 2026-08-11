@@ -1066,16 +1066,18 @@ export interface components {
             title: string;
         };
         "Fleet.EntityAggregate": {
+            /** Format: int64 */
+            beyondRanking?: number;
             byOwner?: components["schemas"]["Fleet.OwnerCount"][] | null;
             /** Format: int64 */
             distinctOwners?: number;
             /** Format: int64 */
             matched: number;
             /** Format: int64 */
-            otherOwners?: number;
-            /** Format: int64 */
             owners: number;
             ownership: components["schemas"]["Fleet.OwnershipTally"];
+            /** Format: int64 */
+            rankedOwners?: number;
             readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             revisions: number;
@@ -1087,6 +1089,8 @@ export interface components {
             targetCompliance: components["schemas"]["Fleet.ComplianceTally"];
             /** Format: int64 */
             targets: number;
+            /** Format: int64 */
+            unidentifiedOwnership?: number;
         };
         "Fleet.EvidenceWindow": {
             /** Format: date-time */
@@ -1265,7 +1269,9 @@ export interface components {
             unresolvedTargetLinks: number;
         };
         "Fleet.OwnerCount": {
-            owner: string;
+            key: string;
+            kind: string;
+            label: string;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
@@ -2196,6 +2202,7 @@ export interface components {
         };
         ProductOwnership: {
             conflicts: components["schemas"]["Fleet.StringsPreview"];
+            declared: boolean;
             owner?: string;
             ref?: components["schemas"]["ProductRef"];
         };
@@ -2820,7 +2827,7 @@ export interface operations {
                 service?: string;
                 /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
-                /** @description Exact canonical owner IDENTITY: the owner display key, as canonical owner links carry it */
+                /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
                 ownerKey?: string;
                 source?: string;
                 severity?: "error" | "warning" | "info";
@@ -2865,7 +2872,7 @@ export interface operations {
                 kinds?: string;
                 /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
-                /** @description Exact canonical owner IDENTITY: the owner display key, as canonical owner links carry it */
+                /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
                 ownerKey?: string;
                 domain?: string;
                 scope?: string;

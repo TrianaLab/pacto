@@ -1232,17 +1232,24 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 // ownerClaimSet accumulates the DISTINCT owners a service's revisions declare,
 // under the one identity the product routes by.
 //
-// That identity is the canonical owner KEY ([contract.Owner.DisplayString]), not
-// the whole structured block. Two revisions declaring `{team: platform, dri:
-// alice}` and `{team: platform, dri: bob}` are one owner here, because the product
-// offers exactly one /fleet/owners/platform page and both revisions are on it:
-// calling that a conflict would report two teams arguing where one team has two
-// people, and would keep the service out of the only ranking row it belongs to.
-// The DRI still travels on each revision, where it was authored.
+// That identity is the canonical owner KEY ([contract.Owner.KeyString]) — the
+// namespace the name was declared in plus the name — and not the whole structured
+// block. Two revisions declaring `{team: platform, dri: alice}` and `{team:
+// platform, dri: bob}` are one owner here, because the product offers exactly one
+// owner page for `team:platform` and both revisions are on it: calling that a
+// conflict would report two teams arguing where one team has two people, and would
+// keep the service out of the only ranking row it belongs to. The DRI still
+// travels on each revision, where it was authored.
+//
+// Equally, the namespace is never dropped: a team named `alice` and a DRI named
+// `alice` print the same label and are two owners, so a service whose revisions
+// name each of them is a real dispute and must not be flattened into one claim by
+// a display string they happen to share.
 //
 // An owner that declares only contacts has no key to collapse onto, so those are
 // compared structurally instead — two different contact blocks are two claims,
-// because there is nothing that says they are the same team.
+// because there is nothing that says they are the same team. Contact list ORDER is
+// not part of that comparison (see [contract.Owner.Equal]).
 //
 // [Query.ownershipState] and [deriveOwner] both count through this set, which is
 // what makes the OWNER_CONFLICT limitation and the ownership tally incapable of
@@ -1256,7 +1263,7 @@ func (c *ownerClaimSet) add(o contract.Owner) {
 	if o.IsEmpty() {
 		return
 	}
-	if k := o.DisplayString(); k != "" {
+	if k := o.KeyString(); k != "" {
 		if !containsStr(c.keys, k) {
 			c.keys = append(c.keys, k)
 		}
@@ -1267,11 +1274,11 @@ func (c *ownerClaimSet) add(o contract.Owner) {
 	}
 }
 
-// len is the number of distinct claims; label is the one canonical key when the
+// len is the number of distinct claims; soleKey is the one canonical key when the
 // single claim has one, and empty when the sole claim is keyless.
 func (c *ownerClaimSet) len() int { return len(c.keys) + len(c.keyless) }
 
-func (c *ownerClaimSet) label() string {
+func (c *ownerClaimSet) soleKey() string {
 	if len(c.keys) == 1 && len(c.keyless) == 0 {
 		return c.keys[0]
 	}

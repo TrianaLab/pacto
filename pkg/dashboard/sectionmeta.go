@@ -82,8 +82,11 @@ func markRuntimeOverrides(result, contractBase, runtime *ServiceDetails) {
 	if runtime.Version != "" && contractBase.Version != "" && runtime.Version != contractBase.Version {
 		result.SectionMeta["version"] = SectionInfo{State: SectionPresent, Source: "k8s", OverriddenBy: "k8s"}
 	}
+	// Structurally, not by display string: two owners can share a label (a team and
+	// a person both called alice), and one owner can be authored with its contacts
+	// in either order. Neither is an override.
 	if !runtime.Owner.IsEmpty() && !contractBase.Owner.IsEmpty() &&
-		runtime.Owner.DisplayString() != contractBase.Owner.DisplayString() {
+		!runtime.Owner.Equal(contractBase.Owner) {
 		result.SectionMeta["owner"] = SectionInfo{State: SectionPresent, Source: "k8s", OverriddenBy: "k8s"}
 	}
 }

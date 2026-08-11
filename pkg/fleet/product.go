@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 )
 
@@ -152,9 +153,15 @@ func targetEntityRef(t *TargetRecord) EntityRef {
 	}
 }
 
-// ownerEntityRef builds a route-neutral reference to an owner.
-func ownerEntityRef(owner string) EntityRef {
-	return EntityRef{Kind: KindOwner, Key: owner, Label: owner}
+// ownerEntityRef builds a route-neutral reference to an owner from its canonical
+// key. The Key routes and the Label reads: two owners can share a Label, so
+// Secondary names the namespace that tells them apart on screen.
+func ownerEntityRef(key string) EntityRef {
+	ref := EntityRef{Kind: KindOwner, Key: key, Label: key}
+	if k, err := contract.ParseOwnerKey(key); err == nil {
+		ref.Label, ref.Secondary = k.Value, k.KindLabel()
+	}
+	return ref
 }
 
 // sourceEntityRef builds a route-neutral reference to a source.

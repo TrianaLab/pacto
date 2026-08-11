@@ -489,7 +489,7 @@ func TestEntityDetail_Immutable(t *testing.T) {
 		{KindService, "alpha"},
 		{KindRevision, revKeyOf(t, q, "alpha")},
 		{KindTarget, string(NewTargetKey("prod", "k8s", "alpha-app"))},
-		{KindOwner, "team-a"},
+		{KindOwner, "team:team-a"},
 		{KindSource, "local"},
 	}
 	for _, c := range cases {

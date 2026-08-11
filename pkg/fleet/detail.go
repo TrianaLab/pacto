@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
 	"github.com/trianalab/pacto/v3/pkg/semver"
 )
@@ -23,8 +24,18 @@ import (
 // service with a pathological number of differently-owned revisions can never
 // produce an unbounded ownership block.
 type OwnershipInfo struct {
-	Owner     string         `json:"owner,omitempty"`
-	Ref       *EntityRef     `json:"ref,omitempty"`
+	// Owner is the human LABEL and presentation only; Ref carries the identity. Two
+	// entities showing the same Owner may belong to two different owners.
+	Owner string `json:"owner,omitempty"`
+	// Ref is the canonical owner page. It is absent when the declaration carries no
+	// canonical identity — the contract permits an owner block of contacts alone,
+	// and there is no owner page for an email address.
+	Ref *EntityRef `json:"ref,omitempty"`
+	// Declared separates "ownership was declared, but not under a name the product
+	// can route to" from "nobody declared an owner". Without it a contacts-only
+	// owner renders as Unowned, which tells an operator to go and find a team that
+	// already wrote down how to reach them.
+	Declared  bool           `json:"declared"`
 	Conflicts StringsPreview `json:"conflicts"`
 }
 
@@ -990,17 +1001,16 @@ func (q *Query) entitiesFromSource(key string) []EntityRef {
 // serviceOwnership reports the service owner and a BOUNDED preview of per-revision
 // ownership conflicts (a revision whose owner differs from the service owner).
 func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo {
-	owner := s.Owner.DisplayString()
-	info := &OwnershipInfo{Owner: owner}
-	if owner != "" {
-		ref := ownerEntityRef(owner)
-		info.Ref = &ref
-	}
+	key := s.Owner.KeyString()
+	info := ownerInfo(s.Owner)
+	// A conflict is a disagreement of IDENTITY, and it is spelled out with the
+	// namespace: a revision owned by DRI `alice` disagreeing with a service owned by
+	// team `alice` would otherwise print as a revision disagreeing with itself.
 	var conflicts []string
 	for _, r := range revs {
-		ro := r.Owner.DisplayString()
-		if ro != "" && ro != owner {
-			conflicts = append(conflicts, string(r.Key)+": "+ro)
+		rk, ok := r.Owner.Key()
+		if ok && rk.String() != key {
+			conflicts = append(conflicts, string(r.Key)+": "+rk.Label())
 		}
 	}
 	info.Conflicts = stringsPreview(conflicts)
@@ -1013,7 +1023,7 @@ func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo
 // this team owns" simply stopped there. Per-revision conflicts are a SERVICE-level fact
 // (one revision cannot disagree with itself), so this carries no Conflicts preview.
 func revisionOwnership(rev *ContractRevision) *OwnershipInfo {
-	return ownerInfo(rev.Owner.DisplayString())
+	return ownerInfo(rev.Owner)
 }
 
 // targetOwnership reports the owner of the target's LOGICAL SERVICE. A target has
@@ -1024,15 +1034,17 @@ func targetOwnership(s *ServiceRecord) *OwnershipInfo {
 	if s == nil {
 		return nil
 	}
-	return ownerInfo(s.Owner.DisplayString())
+	return ownerInfo(s.Owner)
 }
 
 // ownerInfo builds the owner block with the owner ref, so the trail out to
-// "everything this team owns" is available from every entity that has an owner.
-func ownerInfo(owner string) *OwnershipInfo {
-	info := &OwnershipInfo{Owner: owner}
-	if owner != "" {
-		ref := ownerEntityRef(owner)
+// "everything this team owns" is available from every entity that has an owner —
+// and says that ownership was declared even when there is no canonical owner to
+// follow the trail to.
+func ownerInfo(o contract.Owner) *OwnershipInfo {
+	info := &OwnershipInfo{Owner: o.DisplayString(), Declared: !o.IsEmpty()}
+	if key := o.KeyString(); key != "" {
+		ref := ownerEntityRef(key)
 		info.Ref = &ref
 	}
 	return info

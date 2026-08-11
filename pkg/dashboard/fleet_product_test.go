@@ -427,10 +427,10 @@ func TestProductOwnerKey_IsAnExactFilterOverTheWire(t *testing.T) {
 		// The search is generous by design: team-a is a substring of team-a-platform.
 		{"kinds=service&owner=team-a", "[app lib]"},
 		// The identity is exact, and it is what an owner page's links carry.
-		{"kinds=service&ownerKey=team-a", "[app]"},
-		{"kinds=service&ownerKey=team-a-platform", "[lib]"},
+		{"kinds=service&ownerKey=team:team-a", "[app]"},
+		{"kinds=service&ownerKey=team:team-a-platform", "[lib]"},
 		// They compose rather than override: an exact owner narrowed by a search.
-		{"kinds=service&ownerKey=team-a&owner=platform", "[]"},
+		{"kinds=service&ownerKey=team:team-a&owner=platform", "[]"},
 	} {
 		var list fleet.EntityList
 		getJSON(t, base+"/api/fleet/entities?"+tc.query, http.StatusOK, &list)
@@ -447,7 +447,7 @@ func TestProductOwnerKey_IsAnExactFilterOverTheWire(t *testing.T) {
 	// "View all for this owner" and every posture bar land.
 	var fuzzy, exact fleet.AttentionList
 	getJSON(t, base+"/api/fleet/attention?owner=team-a", http.StatusOK, &fuzzy)
-	getJSON(t, base+"/api/fleet/attention?ownerKey=team-a", http.StatusOK, &exact)
+	getJSON(t, base+"/api/fleet/attention?ownerKey=team:team-a", http.StatusOK, &exact)
 	if fuzzy.Total == 0 || exact.Total == 0 || exact.Total >= fuzzy.Total {
 		t.Errorf("attention: ownerKey matched %d of the %d the search matched, want a strict subset",
 			exact.Total, fuzzy.Total)

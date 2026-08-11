@@ -353,7 +353,7 @@ func TestOwnerDetailAttentionTrueTotal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := NewQuery(snap).EntityDetail(KindOwner, "team-x")
+	d, err := NewQuery(snap).EntityDetail(KindOwner, "team:team-x")
 	if err != nil {
 		t.Fatal(err)
 	}

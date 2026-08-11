@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
@@ -229,8 +230,16 @@ func (r ReadinessTally) Total() int {
 // OwnerCount is one owner's share of a service population and the operational
 // targets those services carry. It is a RANKING row, not a partition bucket — see
 // [EntityAggregate.ByOwner] for what the ranking leaves out.
+//
+// Key and Label are separate because they answer different questions. Key is the
+// canonical owner identity ([contract.OwnerKey]) and is what a drill-down link
+// must carry; Label is the human name, and two rows can legitimately carry the
+// same one — a team and a DRI both named `alice` are two owners. Kind names the
+// namespace so a reader can tell those two rows apart.
 type OwnerCount struct {
-	Owner    string `json:"owner"`
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Kind     string `json:"kind"`
 	Services int    `json:"services"`
 	Targets  int    `json:"targets"`
 }
@@ -268,43 +277,77 @@ type EntityAggregate struct {
 	// Ownership partitions Services; Readiness partitions Revisions.
 	Ownership OwnershipTally `json:"ownership"`
 	Readiness ReadinessTally `json:"readiness"`
-	// ByOwner ranks the CONSISTENTLY OWNED matched services by owner, largest first,
-	// bounded to maxOwnerRanking. It is not a partition of Services and does not
-	// pretend to be: Ownership.Conflicting and Ownership.Unowned are excluded (they
-	// have no one owner to rank under), OtherOwners holds the services whose owner
-	// fell past the bound, and DistinctOwners says how many owners exist in total.
-	// So Sum(ByOwner.Services) + OtherOwners == Ownership.Consistent, and a consumer
-	// can state exactly what the ranking omits.
-	ByOwner        []OwnerCount `json:"byOwner,omitempty"`
-	OtherOwners    int          `json:"otherOwners,omitempty"`
-	DistinctOwners int          `json:"distinctOwners,omitempty"`
+	// ByOwner ranks the CONSISTENTLY OWNED matched services by canonical owner,
+	// largest first, bounded to maxOwnerRanking. It is not a partition of Services
+	// and does not pretend to be: Ownership.Conflicting and Ownership.Unowned are
+	// excluded, because a service two owners claim, or none, has no one owner to rank
+	// under.
+	//
+	// The three fields below account for every consistently owned service the ranking
+	// does NOT show, so a consumer can state the omission exactly rather than imply
+	// the rows are the whole:
+	//
+	//	Sum(ByOwner.Services) + BeyondRanking + UnidentifiedOwnership == Ownership.Consistent
+	//
+	// They are deliberately not one "other" bucket. A service left out because its
+	// owner placed eleventh is a display bound and a reader can go and find it; a
+	// service left out because its owner declared nothing but an email address is a
+	// gap in the fleet's ownership data and no amount of scrolling reveals a page for
+	// it. Mixing them would report a data gap as a pagination detail.
+	ByOwner []OwnerCount `json:"byOwner,omitempty"`
+	// BeyondRanking counts consistently owned services whose canonical owner exists
+	// but fell past maxOwnerRanking.
+	BeyondRanking int `json:"beyondRanking,omitempty"`
+	// UnidentifiedOwnership counts consistently owned services whose single owner
+	// declaration carries NO canonical identity — the contract permits an owner block
+	// of contacts alone, and an email address or a chat channel is a way to reach
+	// somebody, not a name to file the fleet under. Ownership is declared and there
+	// is nothing to navigate to.
+	UnidentifiedOwnership int `json:"unidentifiedOwnership,omitempty"`
+	// RankedOwners is the number of canonical owners the ranking is drawn from: those
+	// with at least one consistently owned service in the matched population. It is
+	// >= len(ByOwner), and the difference is the ranking tail.
+	RankedOwners int `json:"rankedOwners,omitempty"`
+	// DistinctOwners is every canonical owner identity the matched services declare,
+	// including owners that appear ONLY on services their revisions disagree about.
+	// It is therefore >= RankedOwners and is the honest answer to "how many owners
+	// are in this population" — an owner in a dispute is still an owner, and counting
+	// only the rankable ones would erase exactly the owners a reader is looking for.
+	DistinctOwners int `json:"distinctOwners,omitempty"`
 }
 
-// ownershipState classifies a service's declared ownership: how many DISTINCT
-// owners its revisions declare, and the display label when they declare exactly
-// one. The count is the classification (0 unowned, 1 consistent, more
-// conflicting); the label is only for ranking and linking, and it is empty for an
-// owner that carries contacts but neither a team nor a DRI. Such a service is
-// consistently owned and simply has nothing to rank under — which is why the count
-// and the label are returned separately rather than an empty label standing in for
-// "no owner".
-//
-// Distinctness is [ownerClaimSet]'s: the canonical owner key, the identity the
-// product routes by, so the same team declared with two different DRIs is one
-// owner and not a dispute.
-func (q *Query) ownershipState(s *ServiceRecord) (distinctOwners int, label string) {
+// ownerClaimsOf collects the DISTINCT owners a service's revisions declare, under
+// the canonical owner identity the product routes by (see [ownerClaimSet]). One
+// walk answers three questions that must never disagree: how the service is
+// partitioned, which owner it ranks under, and which owners are present at all.
+func (q *Query) ownerClaimsOf(s *ServiceRecord) ownerClaimSet {
 	var claims ownerClaimSet
 	for _, rk := range s.Revisions {
 		claims.add(q.snap.Revisions[rk].Owner)
 	}
-	return claims.len(), claims.label()
+	return claims
+}
+
+// ownershipState classifies a service's declared ownership: how many DISTINCT
+// owners its revisions declare, and the canonical owner KEY when they declare
+// exactly one. The count is the classification (0 unowned, 1 consistent, more
+// conflicting); the key is only for ranking and linking, and it is empty for an
+// owner that carries contacts but neither a team nor a DRI. Such a service is
+// consistently owned and simply has nothing to rank under — which is why the count
+// and the key are returned separately rather than an empty key standing in for
+// "no owner". [EntityAggregate.UnidentifiedOwnership] is where those services are
+// accounted for.
+func (q *Query) ownershipState(s *ServiceRecord) (distinctOwners int, ownerKey string) {
+	claims := q.ownerClaimsOf(s)
+	return claims.len(), claims.soleKey()
 }
 
 // addOwnership buckets one service into the ownership partition and returns the
-// label it is consistently owned by (empty when conflicted, unowned or unlabelled),
-// so a caller ranking owners classifies by the SAME rule the partition uses.
+// canonical key it is consistently owned by (empty when conflicted, unowned or
+// unidentified), so a caller ranking owners classifies by the SAME rule the
+// partition uses.
 func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
-	n, label := q.ownershipState(s)
+	n, key := q.ownershipState(s)
 	switch n {
 	case 0:
 		o.Unowned++
@@ -313,7 +356,7 @@ func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
 	default:
 		o.Conflicting++
 	}
-	return label
+	return key
 }
 
 // aggregate tallies the complete matched population. refs are the filtered
@@ -322,17 +365,37 @@ func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
 func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	agg := EntityAggregate{Matched: len(refs)}
 	byOwner := map[string]*OwnerCount{}
+	present := map[string]bool{}
 	for _, r := range refs {
 		switch r.Kind {
 		case KindService:
 			agg.Services++
 			s := q.snap.Services[ServiceKey(r.Key)]
 			agg.ServiceCompliance.add(s.Status)
-			if owner := q.addOwnership(&agg.Ownership, s); owner != "" {
-				c := byOwner[owner]
+			claims := q.ownerClaimsOf(s)
+			// Every canonical owner the service names is present in the population,
+			// including the two sides of a dispute — neither of which can rank.
+			for _, k := range claims.keys {
+				present[k] = true
+			}
+			switch n := claims.len(); {
+			case n == 0:
+				agg.Ownership.Unowned++
+			case n > 1:
+				agg.Ownership.Conflicting++
+			default:
+				agg.Ownership.Consistent++
+				key := claims.soleKey()
+				if key == "" {
+					// Consistently owned by an owner with no canonical identity. Counted
+					// here so the ranking's omission is stated rather than lost.
+					agg.UnidentifiedOwnership++
+					break
+				}
+				c := byOwner[key]
 				if c == nil {
-					c = &OwnerCount{Owner: owner}
-					byOwner[owner] = c
+					c = newOwnerCount(key)
+					byOwner[key] = c
 				}
 				c.Services++
 				c.Targets += len(s.Targets)
@@ -349,14 +412,28 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 			agg.Sources++
 		}
 	}
-	agg.DistinctOwners = len(byOwner)
-	agg.ByOwner, agg.OtherOwners = rankOwners(byOwner)
+	agg.RankedOwners = len(byOwner)
+	agg.DistinctOwners = len(present)
+	agg.ByOwner, agg.BeyondRanking = rankOwners(byOwner)
 	return agg
 }
 
-// rankOwners orders the owner buckets largest first (ties by owner label, so the
-// order is deterministic) and cuts the ranking at maxOwnerRanking, returning the
-// services the cut dropped rather than losing them.
+// newOwnerCount builds a ranking row from a canonical key, splitting the identity
+// back into the label and namespace a reader needs to tell two same-named owners
+// apart. A key that fails to parse cannot be produced by [contract.Owner.Key], so
+// it falls back to showing itself rather than inventing a nicer name.
+func newOwnerCount(key string) *OwnerCount {
+	c := &OwnerCount{Key: key, Label: key}
+	if k, err := contract.ParseOwnerKey(key); err == nil {
+		c.Label, c.Kind = k.Value, string(k.Kind)
+	}
+	return c
+}
+
+// rankOwners orders the owner buckets largest first (ties by canonical key, so the
+// order is deterministic even between two owners with the same label) and cuts the
+// ranking at maxOwnerRanking, returning the services the cut dropped rather than
+// losing them.
 func rankOwners(m map[string]*OwnerCount) ([]OwnerCount, int) {
 	out := make([]OwnerCount, 0, len(m))
 	for _, c := range m {
@@ -366,7 +443,7 @@ func rankOwners(m map[string]*OwnerCount) ([]OwnerCount, int) {
 		if out[i].Services != out[j].Services {
 			return out[i].Services > out[j].Services
 		}
-		return out[i].Owner < out[j].Owner
+		return out[i].Key < out[j].Key
 	})
 	if len(out) <= maxOwnerRanking {
 		return out, 0

@@ -11,7 +11,7 @@ import (
 // CANONICAL OWNER IDENTITY vs FREE-TEXT OWNER SEARCH.
 //
 // Two questions were hiding behind one owner string. "Which owner is this?" is an
-// identity: /fleet/owners/team-a is one row of the owner inventory, the estate the
+// identity: /fleet/owners/team:team-a is one row of the owner inventory, the estate the
 // owner page draws, the label a ranking row carries. "Which owners look like what
 // I typed?" is a search: a case-insensitive substring over team, DRI and every
 // contact value, and it is genuinely useful.
@@ -48,15 +48,15 @@ func TestOwnerKey_CanonicalDrillDownExcludesTheSubstringCollider(t *testing.T) {
 	}{
 		{KindService, "[checkout]"},
 		{KindRevision, "[checkout@sha256:rev0]"},
-		{KindOwner, "[team-a]"},
+		{KindOwner, "[team:team-a]"},
 	} {
-		got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{tc.kind}, OwnerKey: "team-a"})
+		got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{tc.kind}, OwnerKey: "team:team-a"})
 		if fmt.Sprint(got) != tc.want {
 			t.Errorf("ownerKey=team-a over %s listed %v, want %s", tc.kind, got, tc.want)
 		}
 	}
 	// A target's owner is its service's, so it narrows with the service.
-	list, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindTarget}, OwnerKey: "team-a"})
+	list, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindTarget}, OwnerKey: "team:team-a"})
 	if err != nil {
 		t.Fatalf("Entities: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestOwnerFilter_FuzzySearchStillDiscoversBothCollidingOwners(t *testing.T) 
 	if got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, Owner: "team-a"}); fmt.Sprint(got) != "[billing checkout]" {
 		t.Errorf("owner=team-a searched up %v, want both colliding owners' services", got)
 	}
-	if got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindOwner}, Owner: "TEAM-A"}); fmt.Sprint(got) != "[team-a team-a-platform]" {
+	if got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindOwner}, Owner: "TEAM-A"}); fmt.Sprint(got) != "[team:team-a team:team-a-platform]" {
 		t.Errorf("owner discovery for TEAM-A listed %v, want both owners", got)
 	}
 	// Free-text search reaches contacts; canonical identity never does.
@@ -98,7 +98,7 @@ func TestOwnerFilter_FuzzySearchStillDiscoversBothCollidingOwners(t *testing.T) 
 // backlog is wider than its own services tells a team to fix somebody else's work.
 func TestOwnerDetail_EstateAndBacklogContainOnlyItsOwnCanonicalOwner(t *testing.T) {
 	q := collidingFleet(t)
-	for owner, service := range map[string]string{"team-a": "checkout", "team-a-platform": "billing"} {
+	for owner, service := range map[string]string{"team:team-a": "checkout", "team:team-a-platform": "billing"} {
 		d, err := q.EntityDetail(KindOwner, owner)
 		if err != nil {
 			t.Fatalf("EntityDetail(owner, %s): %v", owner, err)
@@ -137,9 +137,9 @@ func TestOwnerDetail_EstateAndBacklogContainOnlyItsOwnCanonicalOwner(t *testing.
 // a count: the collider's item must not arrive in team-a's backlog.
 func TestAttentionOwnerKey_DoesNotBroadenToACollidingOwner(t *testing.T) {
 	q := collidingFleet(t)
-	exact, err := q.Attention(AttentionFilter{OwnerKey: "team-a"})
+	exact, err := q.Attention(AttentionFilter{OwnerKey: "team:team-a"})
 	if err != nil {
-		t.Fatalf("Attention(ownerKey=team-a): %v", err)
+		t.Fatalf("Attention(ownerKey=team:team-a): %v", err)
 	}
 	if exact.Total == 0 {
 		t.Fatal("the fixture raises no attention item, so this proves nothing")
@@ -172,15 +172,15 @@ func TestOwnerKeyRanking_CountsEqualTheirCanonicalDestinations(t *testing.T) {
 	}
 	for _, row := range agg.ByOwner {
 		got := serviceKeys(t, q, EntityFilter{
-			Kinds: []EntityKind{KindService}, OwnerKey: row.Owner, Ownership: OwnershipConsistent})
+			Kinds: []EntityKind{KindService}, OwnerKey: row.Key, Ownership: OwnershipConsistent})
 		if len(got) != row.Services {
 			t.Errorf("%s ranks %d services but its canonical drill-down lists %d: %v",
-				row.Owner, row.Services, len(got), got)
+				row.Key, row.Services, len(got), got)
 		}
 	}
 	// The shorter key is the one a substring filter would inflate; pin it.
 	for _, row := range agg.ByOwner {
-		if row.Owner == "team-a" && row.Services != 1 {
+		if row.Key == "team:team-a" && row.Services != 1 {
 			t.Errorf("team-a ranks %d services, want its own one", row.Services)
 		}
 	}
@@ -190,7 +190,7 @@ func TestOwnerKeyRanking_CountsEqualTheirCanonicalDestinations(t *testing.T) {
 //
 // `{team: platform, dri: alice}` and `{team: platform, dri: bob}` are different
 // structured owners and the SAME canonical owner: the product routes owners by
-// display key, so there is exactly one /fleet/owners/platform page and it owns both
+// canonical key, so there is exactly one /fleet/owners/team:platform page and it owns both
 // revisions. Classifying the service CONFLICTING would say two teams are arguing
 // over it when one team is, and would keep it out of a ranking whose only row it
 // belongs to. The normalization rule is therefore: the identity that partitions a
@@ -206,11 +206,11 @@ func TestOwnershipIdentity_SameTeamDifferentDRIIsOneCanonicalOwner(t *testing.T)
 	if want := (OwnershipTally{Consistent: 1}); agg.Ownership != want {
 		t.Errorf("ownership = %+v, want %+v: one team, two DRIs, no dispute", agg.Ownership, want)
 	}
-	if len(agg.ByOwner) != 1 || agg.ByOwner[0].Owner != "platform" || agg.ByOwner[0].Services != 1 {
+	if len(agg.ByOwner) != 1 || agg.ByOwner[0].Key != "team:platform" || agg.ByOwner[0].Services != 1 {
 		t.Errorf("ranking = %+v, want the one owner the product routes to", agg.ByOwner)
 	}
 	if got := serviceKeys(t, q, EntityFilter{
-		Kinds: []EntityKind{KindService}, OwnerKey: "platform", Ownership: OwnershipConsistent}); fmt.Sprint(got) != "[ledger]" {
+		Kinds: []EntityKind{KindService}, OwnerKey: "team:platform", Ownership: OwnershipConsistent}); fmt.Sprint(got) != "[ledger]" {
 		t.Errorf("the ranking row drills down to %v, want [ledger]", got)
 	}
 	// deriveOwner raises OWNER_CONFLICT by the SAME rule the tally partitions by --
@@ -221,9 +221,9 @@ func TestOwnershipIdentity_SameTeamDifferentDRIIsOneCanonicalOwner(t *testing.T)
 		}
 	}
 	// Both revisions belong to the one owner page.
-	d, err := q.EntityDetail(KindOwner, "platform")
+	d, err := q.EntityDetail(KindOwner, "team:platform")
 	if err != nil {
-		t.Fatalf("EntityDetail(owner, platform): %v", err)
+		t.Fatalf("EntityDetail(owner, team:platform): %v", err)
 	}
 	if d.Owner.Summary.Revisions != 2 {
 		t.Errorf("the platform page holds %d revisions, want both", d.Owner.Summary.Revisions)
@@ -264,7 +264,7 @@ func TestOwnershipIdentity_DifferentCanonicalOwnersStillConflict(t *testing.T) {
 	if agg.Ownership.Conflicting != 1 {
 		t.Errorf("ownership = %+v, want the disputed service still conflicting", agg.Ownership)
 	}
-	for _, owner := range []string{"team-x", "team-y"} {
+	for _, owner := range []string{"team:team-x", "team:team-y"} {
 		got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, OwnerKey: owner})
 		if !containsStr(got, "disputed") {
 			t.Errorf("ownerKey=%s lists %v, and a canonical claimant must still find what it declares", owner, got)
@@ -276,17 +276,17 @@ func TestOwnershipIdentity_DifferentCanonicalOwnersStillConflict(t *testing.T) {
 // an owner, and asking a source for one is a query error rather than an empty page.
 func TestOwnerKey_IsRejectedOnKindsThatHaveNoOwner(t *testing.T) {
 	q := collidingFleet(t)
-	if _, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource}, OwnerKey: "team-a"}); err == nil {
+	if _, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindSource}, OwnerKey: "team:team-a"}); err == nil {
 		t.Fatal("ownerKey on sources should be an InvalidQueryError")
 	}
 	for _, k := range []EntityKind{KindService, KindRevision, KindTarget, KindOwner} {
-		if _, err := q.Entities(EntityFilter{Kinds: []EntityKind{k}, OwnerKey: "team-a"}); err != nil {
+		if _, err := q.Entities(EntityFilter{Kinds: []EntityKind{k}, OwnerKey: "team:team-a"}); err != nil {
 			t.Errorf("ownerKey on %s: %v", k, err)
 		}
 	}
 	// Unrestricted, the filter still applies to every candidate: a source is not owned
 	// by anyone, so it drops out of an owner-scoped list rather than riding along in it.
-	all, err := q.Entities(EntityFilter{OwnerKey: "team-a", Limit: 100})
+	all, err := q.Entities(EntityFilter{OwnerKey: "team:team-a", Limit: 100})
 	if err != nil {
 		t.Fatalf("unrestricted ownerKey: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestOwnerKey_IsRejectedOnKindsThatHaveNoOwner(t *testing.T) {
 		}
 	}
 	// The two filters compose: an exact owner AND a search over the same population.
-	if got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, OwnerKey: "team-a", Owner: "team-a"}); fmt.Sprint(got) != "[checkout]" {
+	if got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, OwnerKey: "team:team-a", Owner: "team-a"}); fmt.Sprint(got) != "[checkout]" {
 		t.Errorf("ownerKey + owner listed %v, want the intersection [checkout]", got)
 	}
 }
@@ -313,7 +313,7 @@ func TestOwnerKeyAnswers_AreIndependentOfDeclarationOrder(t *testing.T) {
 	}
 	ask := func(q *Query) string {
 		var b []string
-		for _, key := range []string{"team-a", "team-a-platform", "platform"} {
+		for _, key := range []string{"team:team-a", "team:team-a-platform", "team:platform"} {
 			b = append(b, fmt.Sprint(serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, OwnerKey: key})))
 			d, err := q.EntityDetail(KindOwner, key)
 			if err != nil {

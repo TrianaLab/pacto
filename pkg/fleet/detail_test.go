@@ -208,7 +208,7 @@ func TestEntityDetail_TargetUnresolved(t *testing.T) {
 
 func TestEntityDetail_Owner(t *testing.T) {
 	q := productFleet(t)
-	d, err := q.EntityDetail(KindOwner, "team-a")
+	d, err := q.EntityDetail(KindOwner, "team:team-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestEntityDetail_Owner(t *testing.T) {
 		t.Errorf("owner revisions = %+v", d.Owner.Revisions)
 	}
 
-	if _, err := q.EntityDetail(KindOwner, "nobody"); err == nil {
+	if _, err := q.EntityDetail(KindOwner, "team:nobody"); err == nil {
 		t.Error("unknown owner must error")
 	}
 }

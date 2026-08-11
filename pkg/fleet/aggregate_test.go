@@ -148,7 +148,7 @@ func TestServiceSummary_CountsInvalidAndUnusedRevisions(t *testing.T) {
 // one service with two targets, one of them observed 48h ago.
 func TestOwnerSummary_CoversTheOwnersCompleteEstate(t *testing.T) {
 	q := productFleet(t)
-	d, err := q.EntityDetail(KindOwner, "team-a")
+	d, err := q.EntityDetail(KindOwner, "team:team-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestOwnerSummary_CoversTheOwnersCompleteEstate(t *testing.T) {
 // would send its reader to the fleet backlog to find their own drift.
 func TestOwnerSummary_TalliesFindingsAndInvalidRevisions(t *testing.T) {
 	q := productFleet(t)
-	d, err := q.EntityDetail(KindOwner, "team-b")
+	d, err := q.EntityDetail(KindOwner, "team:team-b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestOwnerSummary_TalliesFindingsAndInvalidRevisions(t *testing.T) {
 	}
 	// platform owns only the invalid revision and nothing running: the estate is real
 	// but every target-scoped population is empty, and "no evidence" is the answer.
-	p, err := q.EntityDetail(KindOwner, "platform")
+	p, err := q.EntityDetail(KindOwner, "team:platform")
 	if err != nil {
 		t.Fatal(err)
 	}

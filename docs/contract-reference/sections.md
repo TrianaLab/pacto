@@ -69,11 +69,28 @@ service:
 
 **Dashboard integration:**
 
-The dashboard uses a canonical owner key for aggregation and navigation:
-1. If owner has `team` → uses `team`
-2. If owner has `dri` (no team) → uses `dri`
+The dashboard aggregates and navigates by a canonical owner key that is **namespaced by
+which field named the owner**, written `kind:name`:
 
-This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering and dependency graph highlighting. See [Platform engineers — dashboard](../platform-engineers.md) for how the dashboard renders these views.
+1. If owner has `team` → `team:<team>`
+2. If owner has `dri` (no team) → `dri:<dri>`
+3. If owner has neither (contacts only) → no canonical key. The service is still owned,
+   and the dashboard counts it as such, but there is no owner to rank or link to.
+
+The namespace is part of the identity, not decoration: a team called `payments` and a DRI
+called `payments` are two different owners with two different estates, and `team:payments`
+never resolves to `dri:payments`. Only the name is shown on screen — the namespace is
+surfaced as a `Team` / `DRI` badge where two owners would otherwise be indistinguishable.
+
+Conversely, everything *except* team and DRI is metadata: two services declaring the same
+`team` are one owner even when they name different DRIs or different contacts.
+
+This key is used consistently across the owners view (`#/fleet/owners`), owner entity
+pages (`#/fleet/owners/team:payments`), the exact `ownerKey` service filter and dependency
+graph highlighting. The separate free-text `owner` filter is a human search over team, DRI
+and contacts — it is deliberately not an identity, and may match several owners at once.
+See [Platform engineers — dashboard](../platform-engineers.md) for how the dashboard
+renders these views.
 
 ---
 

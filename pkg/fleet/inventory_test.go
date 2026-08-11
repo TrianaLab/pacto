@@ -116,21 +116,26 @@ func TestOwnershipTally_PartitionsServicesByWhatTheirRevisionsDeclare(t *testing
 // absent from the ranking.
 func TestOwnershipTally_ContactsOnlyOwnerIsOwnedButUnrankable(t *testing.T) {
 	q := ownershipFleet(t)
-	n, label := q.ownershipState(q.snap.Services["contacts-only"])
-	if n != 1 || label != "" {
-		t.Errorf("ownershipState = (%d, %q), want (1, \"\") — owned, but nothing to rank under", n, label)
+	n, key := q.ownershipState(q.snap.Services["contacts-only"])
+	if n != 1 || key != "" {
+		t.Errorf("ownershipState = (%d, %q), want (1, \"\") — owned, but nothing to rank under", n, key)
 	}
 	agg := entityAggregateOf(t, q, EntityFilter{Kinds: []EntityKind{KindService}})
 	for _, c := range agg.ByOwner {
-		if c.Owner == "" {
-			t.Errorf("an empty owner label reached the ranking: %+v", agg.ByOwner)
+		if c.Key == "" {
+			t.Errorf("an empty owner key reached the ranking: %+v", agg.ByOwner)
 		}
+	}
+	// And it is accounted for rather than dropped: the ranking's own arithmetic says
+	// one consistently owned service belongs to no canonical owner.
+	if agg.UnidentifiedOwnership != 1 {
+		t.Errorf("unidentifiedOwnership = %d, want the contacts-only service", agg.UnidentifiedOwnership)
 	}
 }
 
 // The ranking is not a partition and must be able to say so arithmetically: the
-// ranked rows plus OtherOwners account for exactly the consistently owned services,
-// and DistinctOwners reports how many owners the cut left out.
+// ranked rows plus BeyondRanking account for exactly the consistently owned
+// services, and RankedOwners reports how many owners the cut left out.
 func TestByOwner_RankingIsBoundedAndAccountsForWhatItOmits(t *testing.T) {
 	var revs []inventoryRevision
 	// 12 owners, each owning a different number of services, so the cut at
@@ -149,10 +154,11 @@ func TestByOwner_RankingIsBoundedAndAccountsForWhatItOmits(t *testing.T) {
 	if len(agg.ByOwner) != maxOwnerRanking {
 		t.Fatalf("ranking holds %d rows, want the bound of %d", len(agg.ByOwner), maxOwnerRanking)
 	}
-	if agg.DistinctOwners != 12 {
-		t.Errorf("distinctOwners = %d, want 12 — the ranking must say how many owners it did not show", agg.DistinctOwners)
+	if agg.RankedOwners != 12 || agg.DistinctOwners != 12 {
+		t.Errorf("rankedOwners = %d / distinctOwners = %d, want 12 — the ranking must say how many owners it did not show",
+			agg.RankedOwners, agg.DistinctOwners)
 	}
-	if agg.ByOwner[0].Owner != "team-12" || agg.ByOwner[0].Services != 12 {
+	if agg.ByOwner[0].Key != "team:team-12" || agg.ByOwner[0].Label != "team-12" || agg.ByOwner[0].Services != 12 {
 		t.Errorf("ranking is not largest-first: %+v", agg.ByOwner[0])
 	}
 	ranked := 0
@@ -160,33 +166,34 @@ func TestByOwner_RankingIsBoundedAndAccountsForWhatItOmits(t *testing.T) {
 		ranked += c.Services
 	}
 	// team-01 and team-02 fell past the bound: 1 + 2 services.
-	if agg.OtherOwners != 3 {
-		t.Errorf("otherOwners = %d, want 3", agg.OtherOwners)
+	if agg.BeyondRanking != 3 {
+		t.Errorf("beyondRanking = %d, want 3", agg.BeyondRanking)
 	}
-	if ranked+agg.OtherOwners != agg.Ownership.Consistent {
-		t.Errorf("ranked %d + other %d != consistent %d — the ranking loses services",
-			ranked, agg.OtherOwners, agg.Ownership.Consistent)
+	if ranked+agg.BeyondRanking+agg.UnidentifiedOwnership != agg.Ownership.Consistent {
+		t.Errorf("ranked %d + beyond %d + unidentified %d != consistent %d — the ranking loses services",
+			ranked, agg.BeyondRanking, agg.UnidentifiedOwnership, agg.Ownership.Consistent)
 	}
 	if agg.Ownership.Unowned != 1 {
 		t.Errorf("the unowned service must stay out of the ranking and in its own bucket: %+v", agg.Ownership)
 	}
 }
 
-// Ties break on the owner label so two owners with equal estates always rank in the
-// same order: a ranking that reshuffles between two loads of the same page teaches
-// its reader nothing.
+// Ties break on the canonical KEY so two owners with equal estates always rank in
+// the same order: a ranking that reshuffles between two loads of the same page
+// teaches its reader nothing — and two owners with the same label would have no
+// stable order at all if the label were the tie-break.
 func TestRankOwners_TiesAreDeterministic(t *testing.T) {
 	got, other := rankOwners(map[string]*OwnerCount{
-		"zed":   {Owner: "zed", Services: 2},
-		"alpha": {Owner: "alpha", Services: 2},
-		"mid":   {Owner: "mid", Services: 5},
+		"team:zed":   {Key: "team:zed", Label: "zed", Kind: "team", Services: 2},
+		"team:alpha": {Key: "team:alpha", Label: "alpha", Kind: "team", Services: 2},
+		"team:mid":   {Key: "team:mid", Label: "mid", Kind: "team", Services: 5},
 	})
 	if other != 0 {
-		t.Errorf("otherOwners = %d, want 0 below the bound", other)
+		t.Errorf("beyondRanking = %d, want 0 below the bound", other)
 	}
-	want := []string{"mid", "alpha", "zed"}
+	want := []string{"team:mid", "team:alpha", "team:zed"}
 	for i, w := range want {
-		if got[i].Owner != w {
+		if got[i].Key != w {
 			t.Fatalf("ranking = %+v, want order %v", got, want)
 		}
 	}

@@ -86,7 +86,7 @@ type fleetEntitiesInput struct {
 	Text         string `query:"text"`
 	Kinds        string `query:"kinds" doc:"Comma-separated entity kinds (service,revision,target,owner,source)"`
 	Owner        string `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
-	OwnerKey     string `query:"ownerKey" doc:"Exact canonical owner IDENTITY: the owner display key, as canonical owner links carry it"`
+	OwnerKey     string `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
 	Domain       string `query:"domain"`
 	Scope        string `query:"scope"`
 	Status       string `query:"status" doc:"Compliance status filter (service/revision/target)"`
@@ -191,7 +191,7 @@ type fleetAttentionInput struct {
 	Key       string `query:"key"`
 	Service   string `query:"service"`
 	Owner     string `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
-	OwnerKey  string `query:"ownerKey" doc:"Exact canonical owner IDENTITY: the owner display key, as canonical owner links carry it"`
+	OwnerKey  string `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
 	Source    string `query:"source"`
 	Severity  string `query:"severity" enum:"error,warning,info"`
 	Status    string `query:"status"`
