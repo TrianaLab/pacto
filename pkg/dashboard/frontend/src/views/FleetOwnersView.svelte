@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
   import { fleetOverviewUrl, fleetOwnersUrl, fleetServicesUrl } from '../lib/router.ts';
-  import { ownershipSegments, ownershipHrefs, ownerRanking, segmentTotal } from '../lib/distributions.ts';
+  import { ownershipSegments, ownershipHrefs, ownerRanking } from '../lib/distributions.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
@@ -71,10 +71,26 @@
   // or paging and searching would each redraw the summary into a different fleet. One
   // row of the page (limit 1) is fetched because the aggregate is computed over the
   // complete matched population BEFORE paging -- the rows themselves are not wanted here.
+  //
+  // It is a SECOND request, so it has a second fate: the roster can arrive while the
+  // aggregate fails, and vice versa. Both are put through the one product state
+  // machine, so the summary loads, errors, and goes stale in exactly the language the
+  // rest of the product uses -- and a failure here never takes the usable owner roster
+  // down with it.
   const ownershipLoader = createProductLoader(() => api.fleetEntities({ kinds: ['service'], limit: 1 }));
   $effect(() => { ownershipLoader.sync(`ownership@@${refreshTick}`, 'ownership'); });
   onDestroy(() => ownershipLoader.destroy());
+  function loadOwnership() { ownershipLoader.refresh(); }
   const agg = $derived(ownershipLoader.data?.aggregate ?? null);
+  // itemCount is "do we have an aggregate to draw", which is what makes a failed
+  // refresh keep the previous picture (with a notice) instead of erasing it.
+  const aggState = $derived(decideViewState({
+    loading: ownershipLoader.loading,
+    error: ownershipLoader.error,
+    itemCount: agg ? 1 : 0,
+    knowledge: snapshotKnowledge(ownershipLoader.data?.meta),
+  }));
+  const aggRefreshError = $derived(aggState.kind === 'ready' ? aggState.refreshError : null);
   const services = $derived(agg?.services ?? 0);
   const ownershipOfFleet = $derived(ownershipSegments(agg?.ownership,
     ownershipHrefs((v) => fleetServicesUrl({ ownership: v }))));
@@ -86,10 +102,6 @@
   // ask the exact question. With the free-text filter the count and its destination
   // disagree the moment one owner's key is a substring of another's.
   const rank = $derived(ownerRanking(agg, (o) => fleetServicesUrl({ ownerKey: o, ownership: 'consistent' })));
-  // The bars' own denominator, never `services`: if the backend ever tallied a service
-  // into no bucket, a bar drawn against the service count would hide the gap in
-  // whitespace instead of showing it.
-  const ownershipTotal = $derived(segmentTotal(ownershipOfFleet));
 </script>
 
 <div class="product-page">
@@ -110,18 +122,26 @@
     <StaleRefreshNotice noun="owners list" onRetry={load} />
   {/if}
 
-  {#if ownershipTotal > 0}
-    <section class="ow-summary" aria-labelledby="ow-sum-h" data-testid="owners-aggregate">
-      <div class="ow-sum-head">
-        <h2 id="ow-sum-h" class="t-section-title">Ownership across every service</h2>
-        <a class="ow-viewall" href={fleetServicesUrl()}>Browse services</a>
-      </div>
+  <section class="ow-summary" aria-labelledby="ow-sum-h" data-testid="owners-aggregate">
+    <div class="ow-sum-head">
+      <h2 id="ow-sum-h" class="t-section-title">Ownership across every service</h2>
+      <a class="ow-viewall" href={fleetServicesUrl()}>Browse services</a>
+    </div>
+    {#if aggState.kind !== 'ready'}
+      <!-- The summary is a second question with a second answer; when only it fails,
+           only it says so, and the owner roster below stays usable. -->
+      <ProductEmptyState state={aggState} noun="ownership summary" level={3} onRetry={loadOwnership} />
+    {:else}
+      {#if aggRefreshError}
+        <StaleRefreshNotice noun="ownership summary" onRetry={loadOwnership} />
+      {/if}
       <DistributionBar
         title="Declared ownership"
         description="Ownership is authored on each contract revision, so a service is cleanly owned only when its revisions agree. A service nobody claims and a service two teams claim are opposite problems, and neither appears in the owner list below."
         scopeNote={`All ${services} ${services === 1 ? 'service' : 'services'} in the snapshot, whatever this page is filtered or paged to.`}
         segments={ownershipOfFleet}
-        total={ownershipTotal}
+        total={services}
+        emptyLabel="No services are tracked yet, so there is no ownership picture."
       />
       <details class="disclosure ow-sum-more">
         <summary>
@@ -150,8 +170,8 @@
           />
         </div>
       </details>
-    </section>
-  {/if}
+    {/if}
+  </section>
 
   {#if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="owners" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />

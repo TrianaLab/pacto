@@ -50,6 +50,9 @@ function respondByKind(ownerList: unknown, aggregate: unknown = SERVICE_AGG) {
 }
 
 const aggregateOf = (target: HTMLElement) => target.querySelector('[data-testid="owners-aggregate"]');
+// The summary section is always present -- it has its own loading, error and stale
+// states -- so "the aggregate arrived" is the drawn distribution, not the section.
+const aggregateDrawn = (target: HTMLElement) => aggregateOf(target)?.querySelector('.dist-legend');
 const legend = (target: HTMLElement) => Array.from(
   aggregateOf(target)?.querySelectorAll('.dist-legend a') ?? [],
 ).map((a) => [
@@ -102,7 +105,7 @@ describe('FleetOwnersView (G)', () => {
   it('summarizes ownership over the complete service population, not the owner page', async () => {
     respondByKind(listResp(owners(2), { total: 2 }));
     const { target, component } = mountView(FleetOwnersView);
-    await vi.waitFor(() => expect(aggregateOf(target)).toBeTruthy());
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['service'], limit: 1 }));
     // The buckets are the backend's 40 services, not the 2 owner rows below them.
     expect(legend(target)).toEqual([
@@ -123,7 +126,7 @@ describe('FleetOwnersView (G)', () => {
   it('ranks owners into the exact population each row counted', async () => {
     respondByKind(listResp(owners(2), { total: 2 }));
     const { target, component } = mountView(FleetOwnersView);
-    await vi.waitFor(() => expect(aggregateOf(target)).toBeTruthy());
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
     const bars = Array.from(target.querySelectorAll('.ow-sum-grid .hbars'));
     expect(Array.from(bars[0].querySelectorAll('.hb-row')).map((n) => [
       n.querySelector('.hb-label')?.textContent, n.querySelector('.hb-value')?.textContent,
@@ -148,11 +151,104 @@ describe('FleetOwnersView (G)', () => {
   it('keeps the ownership summary whole while the owner list is searched and paged', async () => {
     respondByKind(listResp(owners(1), { total: 60, offset: 25, nextOffset: 50 }));
     const { target, component } = mountView(FleetOwnersView, { text: 'team', offset: '25' });
-    await vi.waitFor(() => expect(aggregateOf(target)).toBeTruthy());
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
     // The owner question carries the search and the offset; the ownership question does not.
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['owner'], text: 'team', offset: 25 }));
     expect(entitiesFn).toHaveBeenCalledWith({ kinds: ['service'], limit: 1 });
     expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+/**
+ * The Owners page asks TWO backend questions, so it has two fates. The ownership
+ * summary is a separate request from the owner roster, and until now its failure had
+ * nowhere to appear: the section was drawn only when its buckets summed above zero, so
+ * a failed aggregate rendered as no section at all -- indistinguishable from a fleet
+ * with nothing to summarize, and, on a refresh, indistinguishable from a current
+ * picture that had simply stopped moving.
+ */
+describe('FleetOwnersView — the ownership summary has its own state', () => {
+  beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
+
+  /** Roster succeeds, aggregate fails: two answers, two fates, both stated. */
+  function rosterOkAggregateFails(err: Error) {
+    entitiesFn.mockImplementation((o: { kinds?: string[] }) => (
+      o?.kinds?.[0] === 'service' ? Promise.reject(err) : Promise.resolve(listResp(owners(2), { total: 2 }))));
+  }
+
+  it('says the summary is unavailable on first load, and keeps the owner roster usable', async () => {
+    rosterOkAggregateFails(new Error('aggregate down'));
+    const { target, component } = mountView(FleetOwnersView);
+    await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(2));
+    const section = aggregateOf(target) as HTMLElement;
+    // The heading stays: the question is still on the page, only the answer is missing.
+    expect(section.querySelector('h2')?.textContent).toBe('Ownership across every service');
+    expect(section.textContent).toContain('Can’t reach the Pacto backend');
+    expect(section.textContent).toContain('aggregate down');
+    // Not a picture drawn from nothing, and not silence either.
+    expect(aggregateDrawn(target)).toBeFalsy();
+    // The roster is untouched -- one failed question does not close the page.
+    expect(target.querySelector('.lv-item a.entity-link')?.getAttribute('href')).toBe('#/fleet/owners/team-0');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('retries only the summary from its own error state', async () => {
+    rosterOkAggregateFails(new Error('aggregate down'));
+    const { target, component } = mountView(FleetOwnersView);
+    await vi.waitFor(() => expect(aggregateOf(target)?.textContent).toContain('aggregate down'));
+    respondByKind(listResp(owners(2), { total: 2 }));
+    (aggregateOf(target)?.querySelector('button') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
+    expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps a previous summary through a failed refresh, and says the refresh failed', async () => {
+    respondByKind(listResp(owners(2), { total: 2 }));
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const props = $state({ refreshTick: 0 });
+    const component = mount(FleetOwnersView, { target, props });
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
+
+    rosterOkAggregateFails(new Error('poll failed'));
+    props.refreshTick = 1;
+    flushSync();
+    await vi.waitFor(() => expect(aggregateOf(target)?.querySelector('[data-testid="stale-refresh"]')).toBeTruthy());
+    // Stale-while-revalidate is only honest if the page says the revalidation failed.
+    expect(aggregateOf(target)?.querySelector('[data-testid="stale-refresh"]')?.textContent)
+      .toContain('This ownership summary could not be refreshed');
+    // And the last answer we did receive is still readable, rather than thrown away.
+    expect(legend(target)[0]).toEqual(['One declared owner', '34', '#/fleet/services?ownership=consistent']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  /**
+   * The denominator is the backend's service count, never the sum of the buckets it
+   * sent. If the two ever disagree, a bar drawn against its own sum reads as a complete
+   * partition and hides the gap in whitespace; drawn against the authoritative count,
+   * the gap is a visible slice.
+   */
+  it('draws ownership against the authoritative service count, so a gap is visible', async () => {
+    respondByKind(listResp(owners(1), { total: 1 }), {
+      matched: 10, services: 10,
+      ownership: { consistent: 5, conflicting: 2, unowned: 1 },
+      byOwner: [], otherOwners: 0, distinctOwners: 0,
+    });
+    const { target, component } = mountView(FleetOwnersView);
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
+    const rows = Array.from(aggregateOf(target)?.querySelectorAll('.dist-item') ?? []).map((n) => [
+      n.querySelector('.dist-label')?.textContent, n.querySelector('.dist-value')?.textContent,
+      n.querySelector('.dist-pct')?.textContent,
+    ]);
+    // 5 + 2 + 1 == 8 of 10: the missing two are a bucket, not rounding.
+    expect(rows).toEqual([
+      ['One declared owner', '5', '(50% of 10)'],
+      ['Revisions name different owners', '2', '(20% of 10)'],
+      ['No declared owner', '1', '(10% of 10)'],
+      ['Unclassified', '2', '(20% of 10)'],
+    ]);
     unmount(component); document.body.removeChild(target);
   });
 });
