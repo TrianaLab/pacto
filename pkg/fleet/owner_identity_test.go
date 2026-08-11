@@ -256,6 +256,43 @@ func TestOwnershipIdentity_KeylessOwnersAreStillComparedStructurally(t *testing.
 	}
 }
 
+// Structural comparison of a keyless owner is comparison of a SET of contact
+// points, so writing one of them twice is the same declaration written two ways. A
+// service whose revisions spell it each way is owned by one owner; reporting it as
+// disputed would put a service in the conflicting bucket over a repeated line in a
+// YAML file, with no second owner anywhere to be the other side of the argument.
+func TestOwnershipIdentity_ARepeatedContactPointIsNotASecondClaim(t *testing.T) {
+	pager := contract.OwnerContact{Type: "chat", Value: "#pager"}
+	mail := contract.OwnerContact{Type: "email", Value: "ops@acme.com"}
+	q := inventoryFleet(t,
+		inventoryRevision{service: "repeated", distinct: "1",
+			owner: contract.Owner{Contacts: []contract.OwnerContact{pager}}},
+		inventoryRevision{service: "repeated", distinct: "2",
+			owner: contract.Owner{Contacts: []contract.OwnerContact{pager, pager}}},
+		// The control: a genuinely extra contact point is still a second claim.
+		inventoryRevision{service: "extended", distinct: "1",
+			owner: contract.Owner{Contacts: []contract.OwnerContact{pager}}},
+		inventoryRevision{service: "extended", distinct: "2",
+			owner: contract.Owner{Contacts: []contract.OwnerContact{pager, mail}}},
+	)
+	agg := entityAggregateOf(t, q, EntityFilter{Kinds: []EntityKind{KindService}})
+	if want := (OwnershipTally{Consistent: 1, Conflicting: 1}); agg.Ownership != want {
+		t.Errorf("ownership = %+v, want %+v: repetition is not disagreement", agg.Ownership, want)
+	}
+	if got := serviceKeys(t, q, EntityFilter{Kinds: []EntityKind{KindService}, Ownership: OwnershipConflicting}); fmt.Sprint(got) != "[extended]" {
+		t.Errorf("ownership=conflicting listed %v, want [extended]", got)
+	}
+	conflicts := 0
+	for _, l := range q.snap.Limitations {
+		if l.Code == LimitationOwnerConflict {
+			conflicts++
+		}
+	}
+	if conflicts != 1 {
+		t.Errorf("%s raised %d times, want 1 — only `extended` disagrees", LimitationOwnerConflict, conflicts)
+	}
+}
+
 // The correction narrows canonical links; it must not narrow what a conflict IS.
 // Two different teams still conflict, and both still find the service.
 func TestOwnershipIdentity_DifferentCanonicalOwnersStillConflict(t *testing.T) {

@@ -2,6 +2,7 @@ package contract
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -168,15 +169,26 @@ func (o Owner) IsKey(key string) bool {
 
 // Equal reports semantic equality of the whole declaration.
 //
-// Contacts are compared as a SET. The schema gives list position no meaning: an
-// escalation email and a support channel are the same two contact points in
-// either order, so re-sorting the YAML must not turn one owner into two and
-// report a service as disputed by nobody.
+// Contacts are compared as a SET, in the full sense: neither position nor
+// multiplicity carries meaning. The schema gives list order none — an escalation
+// email and a support channel are the same two contact points either way round,
+// so re-sorting the YAML must not turn one owner into two and report a service as
+// disputed by nobody. Repetition names nothing new either: `[ops]` and
+// `[ops, ops]` are one contact point written twice, and a service whose revisions
+// spell it each way is owned, not disputed.
+//
+// The schema permits the repetition rather than rejecting it, because a duplicate
+// contact point is harmless noise in an authored file and not worth failing a
+// contract over. [Owner.ContactSet] is the normalized form this comparison and any
+// presentation of the block both read.
 func (o Owner) Equal(other Owner) bool {
-	if o.Team != other.Team || o.DRI != other.DRI || len(o.Contacts) != len(other.Contacts) {
+	if o.Team != other.Team || o.DRI != other.DRI {
 		return false
 	}
-	a, b := sortedContacts(o.Contacts), sortedContacts(other.Contacts)
+	a, b := o.ContactSet(), other.ContactSet()
+	if len(a) != len(b) {
+		return false
+	}
 	for i := range a {
 		if a[i] != b[i] {
 			return false
@@ -185,8 +197,11 @@ func (o Owner) Equal(other Owner) bool {
 	return true
 }
 
-func sortedContacts(in []OwnerContact) []OwnerContact {
-	out := append([]OwnerContact(nil), in...)
+// ContactSet returns the declared contact points as the set they are: ordered
+// deterministically by type, value then purpose, with exact duplicates removed.
+// Two contact points differing in any of those three fields are two members.
+func (o Owner) ContactSet() []OwnerContact {
+	out := append([]OwnerContact(nil), o.Contacts...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Type != out[j].Type {
 			return out[i].Type < out[j].Type
@@ -196,7 +211,7 @@ func sortedContacts(in []OwnerContact) []OwnerContact {
 		}
 		return out[i].Purpose < out[j].Purpose
 	})
-	return out
+	return slices.Compact(out)
 }
 
 // MatchesFilter reports whether the query matches team, DRI, or any contact value.

@@ -1248,8 +1248,10 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 //
 // An owner that declares only contacts has no key to collapse onto, so those are
 // compared structurally instead — two different contact blocks are two claims,
-// because there is nothing that says they are the same team. Contact list ORDER is
-// not part of that comparison (see [contract.Owner.Equal]).
+// because there is nothing that says they are the same team. Neither contact list
+// ORDER nor a repeated contact point is part of that comparison: the block is a set
+// of contact points, so `[ops]` and `[ops, ops]` are one claim written two ways
+// (see [contract.Owner.Equal]).
 //
 // [Query.ownershipState] and [deriveOwner] both count through this set, which is
 // what makes the OWNER_CONFLICT limitation and the ownership tally incapable of

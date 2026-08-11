@@ -72,6 +72,43 @@ func TestOwner_EqualComparesContactsAsASet(t *testing.T) {
 	}
 }
 
+// A set has no multiplicity. Listing one contact point twice names the same one
+// contact point twice, so `[ops]` and `[ops, ops]` are one declaration written two
+// ways — and a service whose revisions spell it each way is owned by one owner, not
+// disputed between an owner and itself.
+//
+// The schema permits the repetition and says so (the `contacts` array in
+// schema/pacto-v2.0.schema.json), the docs call the comparison a set, and this is
+// where the three are made to agree.
+func TestOwner_EqualNormalizesDuplicateContacts(t *testing.T) {
+	mail := OwnerContact{Type: "email", Value: "ops@acme.com"}
+	chat := OwnerContact{Type: "chat", Value: "#ops"}
+
+	once := Owner{Contacts: []OwnerContact{mail}}
+	twice := Owner{Contacts: []OwnerContact{mail, mail}}
+	if !once.Equal(twice) {
+		t.Fatal("saying one contact point twice does not create a second owner")
+	}
+	if !twice.Equal(once) {
+		t.Fatal("equality must be symmetric")
+	}
+
+	// Repetition anywhere in the list, in any order, is still the same set.
+	if !(Owner{Contacts: []OwnerContact{mail, chat, mail}}).Equal(Owner{Contacts: []OwnerContact{chat, mail}}) {
+		t.Fatal("a repeated contact point does not add a member to the set")
+	}
+
+	// Normalizing duplicates away must not normalize a real difference away.
+	if (Owner{Contacts: []OwnerContact{mail, mail}}).Equal(Owner{Contacts: []OwnerContact{mail, chat}}) {
+		t.Fatal("a distinct contact point is still a distinct member")
+	}
+	// Purpose is part of the contact point, so two purposes are two members.
+	withPurpose := OwnerContact{Type: "email", Value: "ops@acme.com", Purpose: "escalation"}
+	if (Owner{Contacts: []OwnerContact{mail, mail}}).Equal(Owner{Contacts: []OwnerContact{mail, withPurpose}}) {
+		t.Fatal("purpose distinguishes two contact points")
+	}
+}
+
 // THE collision this key exists to close: a team named `alice` and a DRI named
 // `alice` are two owners. The old identity was the display label, so they were
 // one — one owner page, one ranking row, and a service whose two revisions named
