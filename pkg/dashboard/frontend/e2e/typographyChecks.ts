@@ -117,15 +117,24 @@ export async function boot(page: Page, hash: string): Promise<void> {
  * row -- "stable", and empty. That measured nothing and passed, which is the failure
  * mode this whole file exists to prevent, so an empty page keeps waiting for the full
  * budget instead.
+ *
+ * Nor is a page that is still LOADING settled, even though it is not empty. A product
+ * page paints its header before its data lands and the loading shell underneath carries
+ * role classes of its own, so the count reaches a small stable number with not one
+ * section title on screen. Under a parallel run that is exactly what a slow worker sees,
+ * and a sweep measuring it compares the page title against nothing. `.state-box` is
+ * ProductEmptyState -- the one element every not-ready view state renders -- so its
+ * presence means the page has not finished becoming itself yet.
  */
 async function settle(page: Page): Promise<void> {
-  const count = () => page.evaluate((roles: string[]) =>
-    document.querySelectorAll(roles.map((r) => `main .${r}`).join(',')).length,
-  ROLES as unknown as string[]);
+  const sample = () => page.evaluate((roles: string[]) => ({
+    n: document.querySelectorAll(roles.map((r) => `main .${r}`).join(',')).length,
+    pending: !!document.querySelector('main .state-box'),
+  }), ROLES as unknown as string[]);
   let prev = -1;
   for (let i = 0; i < 120; i++) {
-    const n = await count();
-    if (n > 0 && n === prev) return;
+    const { n, pending } = await sample();
+    if (n > 0 && n === prev && !pending) return;
     prev = n;
     await page.waitForTimeout(250);
   }
