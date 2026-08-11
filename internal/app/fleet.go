@@ -45,10 +45,11 @@ type FleetOptions struct {
 	// Graph contribution is consumed over HTTP; each becomes a fleet source of
 	// external targets without touching the server's durable bucket.
 	EvidenceURLs []string
-	// TraceFiles are OTLP/JSON trace files supplying runtime-observed dependency
-	// edges; each becomes an observation source whose edges Build folds into the
-	// snapshot as domain-qualified observed relationships.
-	TraceFiles []string
+	// ObservationSources are offline OTLP/JSON trace files supplying
+	// runtime-observed dependency edges; each becomes an observation source whose
+	// edges Build folds into the snapshot as domain-qualified observed
+	// relationships.
+	ObservationSources []ObservationSourceSpec
 	// OCIRefs are registry references to include as published-baseline revisions.
 	// Requires a configured BundleStore.
 	OCIRefs []string
@@ -93,9 +94,8 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		id := sourceID("evidence-http", i, len(opts.EvidenceURLs))
 		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(id, url))
 	}
-	for i, path := range opts.TraceFiles {
-		id := sourceID("observation", i, len(opts.TraceFiles))
-		sources = append(sources, fleetsrc.NewObservationSource(id, path))
+	for _, spec := range opts.ObservationSources {
+		sources = append(sources, fleetsrc.NewObservationSource(spec.ID, spec.Path))
 	}
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {
@@ -131,6 +131,37 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		Concurrency:     opts.Concurrency,
 		DisallowPartial: opts.DisallowPartial,
 	}, sources...)
+}
+
+// ObservationSourceSpec is one offline OTLP/JSON trace file contributed as an
+// observation source under an EXPLICIT provenance id.
+//
+// The id, not the file path and not the position in a list, is the identity
+// consumers see (the fleet [fleet.SourceState] id, and through it the Product
+// Data Source). Keeping the two apart is what makes a declarative configuration
+// safe: reordering entries never renames a source, and two sources whose files
+// happen to share a basename never merge. The path is configuration — where the
+// bytes happen to live right now.
+type ObservationSourceSpec struct {
+	ID   string
+	Path string
+}
+
+// TraceFileSources adapts path-only trace inputs (the ad-hoc `--traces`
+// convenience) to observation sources with the positional ids `observation`,
+// `observation-1`, ... Positional ids are honest for a one-off command line and
+// nowhere else: anything declarative — notably the operator-managed dashboard —
+// must carry explicit ids, because reordering its entries must not rewrite
+// Data Source identity.
+func TraceFileSources(paths []string) []ObservationSourceSpec {
+	if len(paths) == 0 {
+		return nil
+	}
+	specs := make([]ObservationSourceSpec, 0, len(paths))
+	for i, p := range paths {
+		specs = append(specs, ObservationSourceSpec{ID: sourceID("observation", i, len(paths)), Path: p})
+	}
+	return specs
 }
 
 // sourceID returns a stable provenance id, suffixing the index only when more

@@ -60,6 +60,13 @@ type Config struct {
 	// no evidence source is configured (the dashboard reports it as unconfigured,
 	// not unavailable).
 	EvidenceSourceURL string
+
+	// Observation declares offline OTLP/JSON trace files to mount read-only into
+	// the dashboard, each under a stable Data Source name. Pacto reads exactly the
+	// declared files and never scans the mount; the trace exports themselves are
+	// produced and rotated by whoever owns their storage. This configures OFFLINE
+	// input only — Pacto ships no OTLP receiver and no collector.
+	Observation []ObservationSource
 }
 
 // EffectiveOCISecrets returns the resolved list of OCI secret names.
@@ -151,7 +158,7 @@ func (c Config) Validate() error {
 	if err := c.Resources.Validate(); err != nil {
 		return err
 	}
-	return nil
+	return c.validateObservation()
 }
 
 func hasLatestTag(image string) bool {

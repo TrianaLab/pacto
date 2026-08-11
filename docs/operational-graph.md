@@ -458,6 +458,85 @@ trace files with `pacto dashboard --traces <file>` (repeatable) or the
 `PACTO_DASHBOARD_TRACES` environment variable; the observed capability the UI
 advertises is derived from the published snapshot, never a hardcoded flag.
 
+### Named observation sources
+
+`--traces <file>` is the ad-hoc form: it names its sources by position
+(`observation`, `observation-1`, ...), which is honest for a one-off command line
+and wrong for anything written down. A configuration that is written down uses
+`pacto dashboard --trace-source NAME=PATH` (repeatable, or
+`PACTO_DASHBOARD_TRACE_SOURCES`), where `NAME` is the source's **identity**: it is
+what the fleet, the API and the Product's Data Source list call it.
+
+Identity and location are deliberately separate. Reordering the configuration
+never renames a source; moving the file never renames it either; and two sources
+whose files happen to share a basename stay two sources. Two entries claiming the
+same name is a configuration error, not something to merge — an identity two
+sources share is not an identity.
+
+### Operator-managed observation sources
+
+The operator-managed dashboard declares its sources in Helm values:
+
+```yaml
+dashboard:
+  enabled: true
+  observation:
+    sources:
+      - name: orders            # the stable Data Source identity
+        file: traces.json       # relative to this source's mount
+        existingClaim: orders-trace-export
+```
+
+The operator mounts each declared backing **read-only** at
+`/var/lib/pacto/observation/<name>/` and configures the dashboard to read exactly
+`<mount>/<file>` under the name `<name>`. Nothing is scanned: Pacto opens the
+files you declared and no others, never recursively, and never writes to them.
+Changing a source changes the pod template, so Kubernetes rolls the dashboard;
+reordering the list does not, because order is not identity.
+
+Exactly one backing supplies each source:
+
+| Backing | Use for | Limits |
+|---|---|---|
+| `existingClaim` | Real exports. Some other workload writes the file into a PVC; the dashboard only reads it. | The claim must exist; a missing PVC blocks pod scheduling, as it would for any workload. |
+| `configMap` | Small, static exports — fixtures and deterministic tests. | A ConfigMap caps near 1 MiB. Mounted optional, so a missing ConfigMap degrades that Data Source instead of wedging the pod. |
+
+Storage ownership stays outside Pacto. Whoever owns the claim or the ConfigMap
+owns producing, sizing, rotating and deleting the trace export; Pacto is a reader
+with no retention policy and no opinion about how the file got there.
+
+This is configuration of **offline** input. Pacto still ships **no live OTLP
+receiver**: nothing listens on 4317 or 4318, there is no `/v1/traces` endpoint,
+and no collector is deployed as part of the dashboard. If you need live
+collection, run a Collector you own and point one of these sources at whatever
+file it exports. Two architecture gates hold the line —
+`TestOTelObserverStaysOffline` on the analyzer and
+`TestOperatorObservationPackagingStaysOffline` on the packaging.
+
+### Source health is not evidence freshness
+
+A configured trace source is a Data Source like any other, and it answers two
+independent questions:
+
+- **Source health** — could Pacto read and parse the file? A missing file, an
+  unreadable mount or malformed OTLP/JSON makes that source explicitly
+  `unavailable`, with a `SOURCE_UNAVAILABLE` limitation naming it. It is never
+  silently absent, and a failing source never takes the dashboard down: the k8s,
+  OCI, local and evidence sources keep answering, and any other healthy trace
+  source keeps contributing.
+- **Evidence freshness** — how recent is what the file witnessed? A perfectly
+  readable export of last month's traffic is an **available** source carrying
+  **stale** evidence; the observed edges carry the window they were seen in.
+
+Keeping the two apart is what stops the two most tempting wrong readings: that a
+source Pacto cannot read means "no dependencies were observed", and that an old
+export proves a dependency has gone away. Neither is knowledge Pacto has.
+
+The Evidence Server is a **different** concept and stays separate: it is a
+durable, write-once store of signed evidence envelopes the dashboard consumes
+read-only over HTTP. Trace exports do not travel through it, and its bucket is
+never mounted into the dashboard.
+
 ---
 
 ## Why the fleet is not a new contract kind

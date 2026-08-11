@@ -17,6 +17,8 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
         e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
+        e2e-observation-kind e2e-observation-kind-up e2e-observation-kind-status \
+        e2e-observation-kind-logs e2e-observation-kind-down \
         e2e-dashboard-kind-browser e2e-all-operational-graph \
         generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift
 
@@ -97,6 +99,21 @@ e2e-dashboard-kind: ci-e2e-kind-dashboard
 e2e-evidence-kind: ci-e2e-kind-evidence
 e2e-reconcile-kind: ci-e2e-kind-reconcile
 e2e-upgrade-kind: ci-e2e-kind-upgrade
+
+# Operator-managed offline observation packaging in a local kind cluster: an
+# externally managed PVC and a ConfigMap each carry a trace export, the operator
+# mounts them read-only under their declared names, and the live Product API is
+# asserted for identity, observed edges, reconciliation and failed-source
+# behavior. Same up/status/logs/down lifecycle as the operational-graph vertical.
+e2e-observation-kind: ci-e2e-kind-observation
+e2e-observation-kind-up:
+	KEEP_E2E_CLUSTER=1 bash tests/e2e/kind/observation.sh up
+e2e-observation-kind-status:
+	bash tests/e2e/kind/observation.sh status
+e2e-observation-kind-logs:
+	bash tests/e2e/kind/observation.sh logs
+e2e-observation-kind-down:
+	bash tests/e2e/kind/observation.sh down
 
 # ── Operational-graph story acceptances (section M) ─────────────────────────
 # Observed relationships end to end in a real browser: the demo folds observed

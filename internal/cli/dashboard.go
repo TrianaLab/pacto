@@ -82,8 +82,17 @@ Services are grouped by name across sources and merged using priority rules:
 			diagnostics := v.GetBool("dashboard.diagnostics")
 			corsOrigin := v.GetString("dashboard.cors-origin")
 			traces := v.GetStringSlice("dashboard.traces")
+			traceSources := v.GetStringSlice("dashboard.trace-sources")
 
 			dir, repos, err := parseDashboardArgs(args)
+			if err != nil {
+				return err
+			}
+
+			// Resolve the observation sources before anything is started: a
+			// configuration that cannot name its Data Sources unambiguously is a
+			// startup error, not something to discover halfway through a snapshot.
+			observation, err := observationSources(traces, traceSources)
 			if err != nil {
 				return err
 			}
@@ -170,7 +179,7 @@ Services are grouped by name across sources and merged using priority rules:
 			// freshness and completeness semantics itself. A single snapshot
 			// Manager serves many requests from one coherent, atomically-refreshed
 			// snapshot instead of rebuilding per request.
-			if fopts, ok := dashboardFleetOptions(dir, repos, namespace, traces, detectResult); ok {
+			if fopts, ok := dashboardFleetOptions(dir, repos, namespace, observation, detectResult); ok {
 				mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
 					return svc.Fleet(ctx, fopts)
 				}, fleet.ManagerOptions{})
@@ -233,6 +242,7 @@ Services are grouped by name across sources and merged using priority rules:
 	cmd.Flags().Bool("diagnostics", false, "enable source diagnostics panel in the dashboard UI")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
+	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
@@ -241,6 +251,7 @@ Services are grouped by name across sources and merged using priority rules:
 	_ = v.BindPFlag("dashboard.diagnostics", cmd.Flags().Lookup("diagnostics"))
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
+	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 
 	return cmd
 }
@@ -494,22 +505,50 @@ func impactProviderForFleet(svc *app.Service, mgr *fleet.Manager) func(ctx conte
 	}
 }
 
+// observationSources resolves the dashboard's two ways of naming offline trace
+// input into one identified list: `--traces PATH` keeps the ad-hoc positional
+// id, while `--trace-source NAME=PATH` carries an explicit id that survives
+// reordering — the form a declarative configuration (the operator-managed
+// dashboard) uses. Ids are rejected as duplicates here rather than collapsed
+// downstream: an identity two configured sources share is not an identity.
+func observationSources(traces, named []string) ([]app.ObservationSourceSpec, error) {
+	specs := app.TraceFileSources(traces)
+	for _, raw := range named {
+		// Cut on the FIRST "=", so a path may contain one and a name may not.
+		name, path, found := strings.Cut(raw, "=")
+		if !found || name == "" || path == "" {
+			return nil, fmt.Errorf("invalid --trace-source %q: want NAME=PATH", raw)
+		}
+		specs = append(specs, app.ObservationSourceSpec{ID: name, Path: path})
+	}
+	seen := make(map[string]struct{}, len(specs))
+	for _, s := range specs {
+		if _, dup := seen[s.ID]; dup {
+			return nil, fmt.Errorf("duplicate observation source name %q: each trace source needs its own stable identity", s.ID)
+		}
+		seen[s.ID] = struct{}{}
+	}
+	return specs, nil
+}
+
 // dashboardFleetOptions builds fleet source options from everything the
 // dashboard detected, so the operational-graph endpoints span the whole fleet.
 // The second return is false when no source is active (fleet stays disabled).
-func dashboardFleetOptions(dir string, repos []string, namespace string, traces []string, dr *dashboard.DetectResult) (app.FleetOptions, bool) {
+func dashboardFleetOptions(dir string, repos []string, namespace string, observation []app.ObservationSourceSpec, dr *dashboard.DetectResult) (app.FleetOptions, bool) {
 	var fopts app.FleetOptions
 	ok := false
 	if dr.Local != nil && dir != "" {
 		fopts.LocalRoots = []string{dir}
 		ok = true
 	}
-	// Offline OTLP/JSON trace files become an observation source, so the normal
+	// Offline OTLP/JSON trace files become observation sources, so the normal
 	// dashboard's Operational Graph, reconciliation and Impact see observed
-	// dependencies. Configurable via --traces or PACTO_DASHBOARD_TRACES; the
-	// operator-managed dashboard sets the env after mounting the files.
-	if len(traces) > 0 {
-		fopts.TraceFiles = traces
+	// dependencies. They come from --traces / PACTO_DASHBOARD_TRACES (ad-hoc,
+	// positional ids) or --trace-source / PACTO_DASHBOARD_TRACE_SOURCES (explicit,
+	// stable ids — what the operator-managed dashboard is configured with after
+	// mounting each file read-only).
+	if len(observation) > 0 {
+		fopts.ObservationSources = observation
 		ok = true
 	}
 	if dr.OCI != nil && len(repos) > 0 {

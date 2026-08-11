@@ -18,6 +18,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-memory-request` | `string` |  | Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default. |
 | `-dashboard-oci-secret` | `string` |  | Optional: name of a Secret in the operator namespace containing OCI registry credentials. Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. Ignored when --dashboard-oci-secrets is set. |
 | `-dashboard-oci-secrets` | `string` |  | Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. Takes precedence over --dashboard-oci-secret. |
+| `-dashboard-trace-source` | `value` |  | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
 | `-enable-dashboard` | `bool` |  | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
 | `-enable-http2` | `bool` |  | If set, HTTP/2 will be enabled for the metrics and webhook servers |

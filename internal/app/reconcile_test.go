@@ -113,8 +113,8 @@ func TestFleet_TraceFilesFoldObserved(t *testing.T) {
 	}
 
 	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
-		LocalRoots: []string{root},
-		TraceFiles: []string{tf},
+		LocalRoots:         []string{root},
+		ObservationSources: TraceFileSources([]string{tf}),
 	})
 	if err != nil {
 		t.Fatalf("Fleet: %v", err)
@@ -127,6 +127,110 @@ func TestFleet_TraceFilesFoldObserved(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected an observed web->payments relationship folded from --traces, got %+v", snap.Relationships)
+	}
+}
+
+// staleTrace is the same web->payments edge as reconcileTrace, but with an
+// explicit span window from 2021 — a perfectly readable export of old evidence.
+const staleTrace = `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"web"}}]},
+  "scopeSpans":[{"spans":[
+    {"kind":3,"startTimeUnixNano":"1609459200000000000","endTimeUnixNano":"1609459201000000000",
+     "attributes":[{"key":"peer.service","value":{"stringValue":"payments"}}]}
+  ]}]}]}`
+
+// observationFailureSnapshot builds ONE snapshot over four configured trace
+// sources under explicit ids — healthy, readable but old, malformed and missing —
+// so the two acceptances below assert different properties of the same run.
+func observationFailureSnapshot(t *testing.T) *fleet.FleetSnapshot {
+	t.Helper()
+	root := t.TempDir()
+	writeLocalBundleWithDeps(t, filepath.Join(root, "web"), "web")
+	writeLocalBundleWithDeps(t, filepath.Join(root, "payments"), "payments")
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
+		LocalRoots: []string{root},
+		ObservationSources: []ObservationSourceSpec{
+			{ID: "gateway-traces", Path: write("gateway.json", reconcileTrace)},
+			{ID: "archive-traces", Path: write("archive.json", staleTrace)},
+			{ID: "broken-traces", Path: write("broken.json", "{not json")},
+			{ID: "absent-traces", Path: filepath.Join(dir, "absent.json")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	return snap
+}
+
+// TestFleet_ObservationSourceFailureIsKnowledge: a malformed or missing trace file
+// is an explicitly unavailable Data Source with a stated limitation, never a source
+// that quietly contributes nothing. A readable OLD export is a healthy source —
+// evidence age is a property of the edge, not of source health.
+func TestFleet_ObservationSourceFailureIsKnowledge(t *testing.T) {
+	snap := observationFailureSnapshot(t)
+
+	status := map[string]fleet.SourceStatus{}
+	for _, s := range snap.Sources {
+		status[s.ID] = s.Status
+	}
+	for id, want := range map[string]fleet.SourceStatus{
+		"gateway-traces": fleet.SourceAvailable,
+		"archive-traces": fleet.SourceAvailable, // readable old evidence is not a sick source
+		"broken-traces":  fleet.SourceUnavailable,
+		"absent-traces":  fleet.SourceUnavailable,
+	} {
+		if status[id] != want {
+			t.Errorf("source %q status = %q, want %q", id, status[id], want)
+		}
+	}
+	unavailable := map[string]bool{}
+	for _, l := range snap.Limitations {
+		if l.Code == fleet.LimitationSourceUnavailable {
+			unavailable[l.Source] = true
+		}
+	}
+	if !unavailable["broken-traces"] || !unavailable["absent-traces"] {
+		t.Errorf("expected SOURCE_UNAVAILABLE for the malformed and missing sources, got %+v", snap.Limitations)
+	}
+}
+
+// TestFleet_ObservedEdgeNamesItsConfiguredSource: two failed sources do not stop
+// the healthy ones from contributing, each observed contribution names the id its
+// configuration declared (never a path, a basename or a list position), and the
+// old export keeps its old window instead of being read as current truth.
+func TestFleet_ObservedEdgeNamesItsConfiguredSource(t *testing.T) {
+	snap := observationFailureSnapshot(t)
+
+	var edge *fleet.Relationship
+	for i, r := range snap.Relationships {
+		if r.Provenance == fleet.ProvenanceObserved && string(r.FromService) == "web" && string(r.ToService) == "payments" {
+			edge = &snap.Relationships[i]
+		}
+	}
+	if edge == nil {
+		t.Fatalf("expected an observed web->payments relationship despite two failed sources, got %+v", snap.Relationships)
+	}
+	byID := map[string]fleet.ObservedSourceStat{}
+	for _, s := range edge.ObservedSources {
+		byID[s.Source] = s
+	}
+	if _, ok := byID["gateway-traces"]; !ok {
+		t.Errorf("observed edge sources = %+v, want a gateway-traces contribution", edge.ObservedSources)
+	}
+	archive, ok := byID["archive-traces"]
+	if !ok {
+		t.Fatalf("observed edge sources = %+v, want an archive-traces contribution", edge.ObservedSources)
+	}
+	if archive.LastSeen == nil || archive.LastSeen.Year() != 2021 {
+		t.Errorf("archive-traces LastSeen = %v, want the 2021 window that makes the evidence, not the source, the stale thing", archive.LastSeen)
 	}
 }
 
@@ -163,7 +267,7 @@ const reconcileTraceABC = `{"resourceSpans":[{"resource":{"attributes":[{"key":"
   ]}]}]}`
 
 // End-to-end guard for the S2 contamination: when the snapshot itself is built
-// with an observation source (opts.Fleet.TraceFiles), its observed edges are
+// with an observation source (opts.Fleet.ObservationSources), its observed edges are
 // folded into snap.Relationships. Reconciliation must still treat only the
 // contract-declared edge (a->b) as declared, so the observed-only edge a->c is
 // reported observed-not-declared, never a match.
@@ -178,7 +282,7 @@ func TestService_Reconcile_ObservedInSnapshotStaysUndeclared(t *testing.T) {
 	}
 
 	rep, err := NewService(nil, nil).Reconcile(context.Background(), ReconcileOptions{
-		Fleet:  FleetOptions{LocalRoots: []string{root}, TraceFiles: []string{tf}},
+		Fleet:  FleetOptions{LocalRoots: []string{root}, ObservationSources: TraceFileSources([]string{tf})},
 		Traces: []byte(reconcileTraceABC),
 	})
 	if err != nil {

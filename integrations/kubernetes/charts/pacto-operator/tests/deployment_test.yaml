@@ -136,3 +136,61 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secret=old-secret"
 
+
+  - it: should include no trace-source arg by default
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "--dashboard-trace-source"
+
+  - it: should include a PVC-backed observation source arg
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: traces.json
+          existingClaim: orders-trace-export
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=orders,file=traces.json,existingClaim=orders-trace-export"
+
+  - it: should include a ConfigMap-backed observation source arg
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: fixture
+          file: sub/traces.json
+          configMap: fixture-traces
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=fixture,file=sub/traces.json,configMap=fixture-traces"
+
+  - it: should pass every declared observation source through
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: traces.json
+          existingClaim: orders-trace-export
+        - name: checkout
+          file: traces.json
+          configMap: checkout-traces
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=orders,file=traces.json,existingClaim=orders-trace-export"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=checkout,file=traces.json,configMap=checkout-traces"
+
+  - it: should drop the trace-source args when the dashboard is disabled
+    set:
+      dashboard.enabled: false
+      dashboard.observation.sources:
+        - name: orders
+          file: traces.json
+          existingClaim: orders-trace-export
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "--dashboard-trace-source"

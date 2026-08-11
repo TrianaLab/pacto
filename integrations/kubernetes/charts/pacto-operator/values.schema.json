@@ -214,6 +214,63 @@
             "type": "string"
           }
         },
+        "observation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. Not an OTLP receiver and not a collector.",
+          "properties": {
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "file"
+                ],
+                "oneOf": [
+                  {
+                    "required": [
+                      "existingClaim"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "configMap"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Stable Data Source identity; reordering the list never renames a source.",
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                    "maxLength": 59
+                  },
+                  "file": {
+                    "type": "string",
+                    "description": "Trace file path relative to this source's mount directory.",
+                    "minLength": 1,
+                    "pattern": "^[^/\\s][^\\s]*$",
+                    "not": {
+                      "pattern": "(^|/)\\.\\.(/|$)"
+                    }
+                  },
+                  "existingClaim": {
+                    "type": "string",
+                    "description": "Existing PVC holding the trace export.",
+                    "minLength": 1
+                  },
+                  "configMap": {
+                    "type": "string",
+                    "description": "ConfigMap holding a small, static trace export.",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
         "service": {
           "type": "object",
           "additionalProperties": false,

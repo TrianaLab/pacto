@@ -272,6 +272,23 @@ Sources (local, Kubernetes, OCI) are auto-detected at startup and merged per ser
 
 See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for flags (`--host`, `--port`, `--namespace`, `--no-cache`, `--diagnostics`, `--cors-origin`) and environment variables. Pass OCI repositories as positional `oci://` arguments or via the `PACTO_DASHBOARD_REPO` env var.
 
+### Feeding the Operational Graph observed dependencies
+
+The Operational Graph compares declared dependencies against observed ones, and the observed half comes from **offline OTLP/JSON trace exports** — files, not a live feed. Pacto ships no OTLP receiver and deploys no collector; if you run a Collector, you own it, and you point Pacto at whatever file it exports.
+
+Ad hoc, `pacto dashboard --trace-source orders=/path/traces.json` names a source explicitly (`--traces <file>` still works and names sources by position). For the operator-managed dashboard, declare them in Helm values instead:
+
+```yaml
+dashboard:
+  observation:
+    sources:
+      - name: orders
+        file: traces.json
+        existingClaim: orders-trace-export
+```
+
+The operator mounts the claim read-only, reads only the file you declared, and exposes the source under the name you gave it. That name is the identity users see, so reordering the list or relocating the file never renames a Data Source. Storage lifecycle stays yours: Pacto reads, never writes, and never rotates. A source it cannot read or parse becomes an explicitly unavailable Data Source rather than a silent gap — and an old-but-readable export is a healthy source carrying stale evidence, not a claim that a dependency disappeared. See [Observed dependencies and reconciliation](operational-graph.md#observed-dependencies-and-reconciliation) for the full model.
+
 ---
 
 ## Tips

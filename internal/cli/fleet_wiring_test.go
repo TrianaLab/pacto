@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/internal/app"
@@ -172,14 +174,108 @@ func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
 
 // TestDashboardFleetOptions_Traces proves --traces / PACTO_DASHBOARD_TRACES wires
 // an observation source into the normal dashboard and enables the fleet alone.
+// The path-only form keeps its ad-hoc positional ids — that compatibility is the
+// point, so a one-off command line never has to invent persistent identities.
 func TestDashboardFleetOptions_Traces(t *testing.T) {
 	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
-	fopts, ok := dashboardFleetOptions("", nil, "", []string{"/tmp/a.json", "/tmp/b.json"}, &dashboard.DetectResult{})
+	obs, err := observationSources([]string{"/tmp/a.json", "/tmp/b.json"}, nil)
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	fopts, ok := dashboardFleetOptions("", nil, "", obs, &dashboard.DetectResult{})
 	if !ok {
 		t.Fatal("expected fleet enabled by trace files alone")
 	}
-	if len(fopts.TraceFiles) != 2 || fopts.TraceFiles[0] != "/tmp/a.json" {
-		t.Errorf("TraceFiles = %v", fopts.TraceFiles)
+	want := []app.ObservationSourceSpec{
+		{ID: "observation-1", Path: "/tmp/a.json"},
+		{ID: "observation-2", Path: "/tmp/b.json"},
+	}
+	if !reflect.DeepEqual(fopts.ObservationSources, want) {
+		t.Errorf("ObservationSources = %+v, want %+v", fopts.ObservationSources, want)
+	}
+}
+
+// TestObservationSources_IdentitySurvivesReordering is the identity counterexample
+// a declarative configuration must not fail: two named trace sources swap places
+// and keep their ids, because the id is declared, not derived from list position.
+func TestObservationSources_IdentitySurvivesReordering(t *testing.T) {
+	forward, err := observationSources(nil, []string{"a=/mnt/a/traces.json", "b=/mnt/b/traces.json"})
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	reversed, err := observationSources(nil, []string{"b=/mnt/b/traces.json", "a=/mnt/a/traces.json"})
+	if err != nil {
+		t.Fatalf("observationSources reversed: %v", err)
+	}
+	byID := func(specs []app.ObservationSourceSpec) map[string]string {
+		m := map[string]string{}
+		for _, s := range specs {
+			m[s.ID] = s.Path
+		}
+		return m
+	}
+	if !reflect.DeepEqual(byID(forward), byID(reversed)) {
+		t.Errorf("reordering rewrote identity: %+v vs %+v", forward, reversed)
+	}
+	if got := byID(forward)["a"]; got != "/mnt/a/traces.json" {
+		t.Errorf("source a = %q", got)
+	}
+}
+
+// TestObservationSources_SameBasenameStaysTwoSources proves identity does not come
+// from the filesystem: two sources whose files share a basename are two Data
+// Sources, not one.
+func TestObservationSources_SameBasenameStaysTwoSources(t *testing.T) {
+	got, err := observationSources(nil, []string{"eu=/mnt/eu/traces.json", "us=/mnt/us/traces.json"})
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	want := []app.ObservationSourceSpec{
+		{ID: "eu", Path: "/mnt/eu/traces.json"},
+		{ID: "us", Path: "/mnt/us/traces.json"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("sources = %+v, want %+v", got, want)
+	}
+}
+
+// TestObservationSources_Rejects covers the configuration counterexamples: a
+// duplicate identity (including one colliding with a positional --traces id) and
+// the malformed NAME=PATH forms. None of them may be silently repaired.
+func TestObservationSources_Rejects(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		traces []string
+		named  []string
+		want   string
+	}{
+		{"duplicate named", nil, []string{"a=/x.json", "a=/y.json"}, `duplicate observation source name "a"`},
+		{"collides with positional", []string{"/x.json"}, []string{"observation=/y.json"}, `duplicate observation source name "observation"`},
+		{"no separator", nil, []string{"/x.json"}, `invalid --trace-source "/x.json"`},
+		{"empty name", nil, []string{"=/x.json"}, `invalid --trace-source "=/x.json"`},
+		{"empty path", nil, []string{"a="}, `invalid --trace-source "a="`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := observationSources(tc.traces, tc.named)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestObservationSources_PathMayContainEquals proves the NAME=PATH split is on the
+// FIRST separator, so a path carrying an "=" is configuration, not a parse error.
+func TestObservationSources_PathMayContainEquals(t *testing.T) {
+	got, err := observationSources(nil, []string{"a=/mnt/x=y/traces.json"})
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	if len(got) != 1 || got[0].Path != "/mnt/x=y/traces.json" {
+		t.Errorf("sources = %+v", got)
 	}
 }
 

@@ -81,6 +81,7 @@ func main() {
 	var dashboardOCISecrets string
 	var dashboardCPURequest, dashboardCPULimit string
 	var dashboardMemoryRequest, dashboardMemoryLimit string
+	var dashboardObservation []dashboard.ObservationSource
 	var enableEvidence bool
 	var evidenceBucketURL, evidencePrefix, evidenceTrustSecret string
 	var evidenceCPURequest, evidenceCPULimit string
@@ -130,6 +131,18 @@ func main() {
 		"Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default.")
 	flag.StringVar(&dashboardMemoryLimit, "dashboard-memory-limit", "",
 		"Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default.")
+	flag.Func("dashboard-trace-source",
+		"Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as "+
+			"name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source "+
+			"identity. Configures offline input only; Pacto runs no OTLP receiver.",
+		func(spec string) error {
+			src, err := dashboard.ParseObservationSource(spec)
+			if err != nil {
+				return err
+			}
+			dashboardObservation = append(dashboardObservation, src)
+			return nil
+		})
 	flag.BoolVar(&enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
 	flag.StringVar(&evidenceBucketURL, "evidence-bucket-url", "file:///var/lib/pacto/evidence",
@@ -366,6 +379,7 @@ func main() {
 		OCISecrets:        parsedOCISecrets,
 		OwnerRef:          ownerRef,
 		EvidenceSourceURL: evidenceSourceURL,
+		Observation:       dashboardObservation,
 		Resources: dashboard.ResourcesConfig{
 			CPURequest:    dashboardCPURequest,
 			CPULimit:      dashboardCPULimit,

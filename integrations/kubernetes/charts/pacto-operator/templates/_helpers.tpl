@@ -102,6 +102,13 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- with .Values.dashboard.observation }}
+{{- range .sources }}
+{{- $backing := "" }}
+{{- if .existingClaim }}{{ $backing = printf "existingClaim=%s" .existingClaim }}{{ else if .configMap }}{{ $backing = printf "configMap=%s" .configMap }}{{ end }}
+- --dashboard-trace-source=name={{ required "each dashboard.observation.sources entry needs a name" .name }},file={{ required "each dashboard.observation.sources entry needs a file" .file }},{{ required "each dashboard.observation.sources entry needs exactly one of existingClaim or configMap" $backing }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- if .Values.evidence.enabled }}
 - --enable-evidence-server

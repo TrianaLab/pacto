@@ -73,12 +73,35 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	if cfg.EvidenceSourceURL != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_EVIDENCE_SOURCE_URL").WithValue(cfg.EvidenceSourceURL))
 	}
+	if obs := cfg.ObservationEnv(); obs != "" {
+		env = append(env, corev1ac.EnvVar().WithName(ObservationEnvVar).WithValue(obs))
+	}
 
 	volumeMounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().WithName("cache").WithMountPath("/home/pacto/.cache/pacto"),
 	}
 	volumes := []*corev1ac.VolumeApplyConfiguration{
 		corev1ac.Volume().WithName("cache").WithEmptyDir(corev1ac.EmptyDirVolumeSource()),
+	}
+
+	// Observation sources mount read-only: the dashboard is a reader of someone
+	// else's trace export, never its owner.
+	for _, o := range cfg.SortedObservationSources() {
+		volumeMounts = append(volumeMounts,
+			corev1ac.VolumeMount().WithName(o.VolumeName()).WithMountPath(o.MountPath()).WithReadOnly(true),
+		)
+		vol := corev1ac.Volume().WithName(o.VolumeName())
+		if o.ConfigMap != "" {
+			// Optional: a ConfigMap that has not been created yet must degrade the
+			// Data Source, not wedge the pod in ContainerCreating. A missing PVC
+			// still blocks scheduling — that is Kubernetes' call, not ours.
+			vol.WithConfigMap(corev1ac.ConfigMapVolumeSource().WithName(o.ConfigMap).WithOptional(true))
+		} else {
+			vol.WithPersistentVolumeClaim(
+				corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName(o.ExistingClaim).WithReadOnly(true),
+			)
+		}
+		volumes = append(volumes, vol)
 	}
 
 	if len(cfg.EffectiveOCISecrets()) > 0 {

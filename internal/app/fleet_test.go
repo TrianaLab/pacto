@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -409,6 +410,27 @@ func TestService_Fleet_IncludeK8s_ClientError(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected SOURCE_UNAVAILABLE for k8s, got %+v", snap.Limitations)
+	}
+}
+
+// TestTraceFileSources covers the ad-hoc path-only convenience: no paths means no
+// sources, and the positional ids stay exactly what the CLI has always produced.
+// Identity here is a function of position by construction — which is precisely why
+// declarative configuration carries explicit ids instead.
+func TestTraceFileSources(t *testing.T) {
+	if got := TraceFileSources(nil); got != nil {
+		t.Errorf("TraceFileSources(nil) = %+v, want nil", got)
+	}
+	if got := TraceFileSources([]string{"a.json"}); len(got) != 1 || got[0].ID != "observation" {
+		t.Errorf("single source = %+v", got)
+	}
+	got := TraceFileSources([]string{"a.json", "b.json"})
+	want := []ObservationSourceSpec{
+		{ID: "observation-1", Path: "a.json"},
+		{ID: "observation-2", Path: "b.json"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("two sources = %+v, want %+v", got, want)
 	}
 }
 

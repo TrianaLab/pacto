@@ -60,16 +60,16 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	namespace, _ := cmd.Flags().GetString("namespace")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	return app.FleetOptions{
-		LocalRoots:       local,
-		TargetStateFiles: targetState,
-		EvidenceStores:   evidenceStores,
-		EvidenceURLs:     evidenceURLs,
-		TraceFiles:       traceFiles,
-		OCIRefs:          ociRefs,
-		IncludeCache:     includeCache,
-		IncludeK8s:       includeK8s,
-		K8sNamespace:     namespace,
-		FreshnessWindow:  freshness,
+		LocalRoots:         local,
+		TargetStateFiles:   targetState,
+		EvidenceStores:     evidenceStores,
+		EvidenceURLs:       evidenceURLs,
+		ObservationSources: app.TraceFileSources(traceFiles),
+		OCIRefs:            ociRefs,
+		IncludeCache:       includeCache,
+		IncludeK8s:         includeK8s,
+		K8sNamespace:       namespace,
+		FreshnessWindow:    freshness,
 	}
 }
 
