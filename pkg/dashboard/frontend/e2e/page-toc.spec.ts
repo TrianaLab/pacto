@@ -219,6 +219,13 @@ test('a section jump is the place the product restores on Back and Forward', asy
   const jumped = await page.evaluate(() => Math.round(window.scrollY));
   expect(jumped, 'the last section is at the top of the page, so this proves nothing').toBeGreaterThan(200);
 
+  // The product learns where the reader is from a scroll EVENT, which the browser
+  // dispatches on the next rendered frame -- not from the scroll position itself. A
+  // test that navigates away in the same frame as the jump measures a place the page
+  // was never told about. One frame is the product's own precondition, not a grace
+  // period: a reader cannot leave a page faster than it repaints.
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+
   // Leave, come back, go forward again. The revision page keeps the section the reader
   // chose; the list it came from is still the list. (A revision's breadcrumb trail goes
   // up to its service, not to the inventory, so the route is pushed directly -- through
