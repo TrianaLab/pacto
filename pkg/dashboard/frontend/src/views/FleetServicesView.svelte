@@ -14,7 +14,7 @@
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
-  import { complianceSegments, ownershipSegments, statusHrefs, bucketLabel, OWNERSHIP_STATES } from '../lib/distributions.ts';
+  import { complianceSegments, ownershipSegments, ownershipHrefs, ownerRanking, statusHrefs, bucketLabel, OWNERSHIP_STATES } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
 
   // The product Services list (requirement C / A3). It is the canonical destination of
@@ -126,39 +126,17 @@
     : `All ${matched} ${matched === 1 ? 'service' : 'services'} in the snapshot.`);
   const complianceOfMatch = $derived(complianceSegments(agg?.serviceCompliance,
     statusHrefs((s) => urlWith({ status: s }))));
-  const ownershipOfMatch = $derived(ownershipSegments(agg?.ownership, Object.fromEntries(
-    OWNERSHIP_STATES.map((s) => [s.field, urlWith({ ownership: s.value })]),
-  )));
-  // A ranking, NOT a partition: it is the backend's top owners by service count, so the
-  // rows do not add up to the matched population and are never drawn as if they did.
-  // Each row narrows THIS query by that owner rather than jumping to the owner page, so
-  // the filters the reader already set survive the click.
-  //
-  // It counts only CONSISTENTLY owned services, so the drill-down carries ownership as
-  // well as the owner. `owner=x` alone means "some revision names x", which also selects
-  // the services x co-owns with somebody else -- a destination bigger than the bar that
-  // sent the reader there.
-  const rankHref = (o) => urlWith({ owner: o.owner, ownership: 'consistent' });
-  const ranked = $derived((agg?.byOwner ?? []).map((o) => ({
-    label: o.owner, value: o.services, tone: 'info', href: rankHref(o),
-  })));
-  const rankedTargets = $derived((agg?.byOwner ?? []).map((o) => ({
-    label: o.owner, value: o.targets, tone: 'info', href: rankHref(o),
-  })));
-  const distinctOwners = $derived(agg?.distinctOwners ?? 0);
-  const rankNote = $derived.by(() => {
-    const other = agg?.otherOwners ?? 0;
-    const distinct = agg?.distinctOwners ?? 0;
-    const shown = ranked.length;
-    if (!distinct) return '';
-    const tail = other > 0
-      ? ` The remaining ${distinct - shown} of ${distinct} ${distinct - shown === 1 ? 'owner accounts' : 'owners account'} for ${other} more ${other === 1 ? 'service' : 'services'}.`
-      : '';
-    // Services with no declared owner, and services whose revisions disagree, are in
-    // none of these rows -- they have no single owner to rank under. Saying so is the
-    // difference between a ranking and a partition that quietly loses rows.
-    return `Top ${shown} of ${distinct} declared ${distinct === 1 ? 'owner' : 'owners'} by service count.${tail} Services with no owner, or whose revisions name different owners, appear in no row here.`;
-  });
+  const ownershipOfMatch = $derived(ownershipSegments(agg?.ownership,
+    ownershipHrefs((v) => urlWith({ ownership: v }))));
+  // A ranking, NOT a partition -- see ownerRanking for what the rows leave out and why
+  // the destination carries `ownership` as well as `owner`. Each row narrows THIS query
+  // rather than jumping to the owner page, so the filters the reader already set survive
+  // the click.
+  const rank = $derived(ownerRanking(agg, (o) => urlWith({ owner: o, ownership: 'consistent' })));
+  const ranked = $derived(rank.services);
+  const rankedTargets = $derived(rank.targets);
+  const distinctOwners = $derived(rank.distinct);
+  const rankNote = $derived(rank.note);
 
   function removeChip(key) { apply({ [key]: '' }); }
 </script>

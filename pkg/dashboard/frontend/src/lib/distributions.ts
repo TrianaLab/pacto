@@ -192,6 +192,69 @@ export function ownershipSegments(t: OwnershipTally | undefined, hrefs: Record<s
 }
 
 /**
+ * ownershipHrefs builds the drill-down for all three ownership buckets from one
+ * `ownership` URL builder — the counterpart of `statusHrefs`. Every bucket IS a real
+ * filter, so unlike compliance there is nothing here to leave out.
+ */
+export function ownershipHrefs(url: (ownership: string) => string): Record<string, string> {
+  return Object.fromEntries(OWNERSHIP_STATES.map((s) => [s.field, url(s.value)]));
+}
+
+/** OwnerCount as emitted by the Product API (pkg/fleet/aggregate.go). */
+export interface OwnerCount {
+  owner?: string;
+  services?: number;
+  targets?: number;
+}
+
+/** The ranking fields of an EntityAggregate. */
+export interface OwnerRankingTally {
+  byOwner?: OwnerCount[];
+  otherOwners?: number;
+  distinctOwners?: number;
+}
+
+/**
+ * The backend's top-owner ranking, in the one shape and the one wording every surface
+ * shows it under.
+ *
+ * It is a RANKING, not a partition: the backend counts only CONSISTENTLY owned
+ * services, so services with no owner and services whose revisions name different
+ * owners are in no row, and the rows past the bound are in `otherOwners`. The note
+ * says both, because rows that look like a breakdown and are not is how a page
+ * quietly loses the services most in need of an owner.
+ *
+ * `href` therefore has to reproduce what a row COUNTED, not merely who it names:
+ * `owner=x` alone means "some revision of this service names x", which also selects
+ * what x co-owns with somebody else. A caller passes an owner-plus-consistent URL, so
+ * a bar and its own destination cannot disagree.
+ */
+export function ownerRanking(agg: OwnerRankingTally | undefined, href: (owner: string) => string): {
+  distinct: number;
+  services: Segment[];
+  targets: Segment[];
+  note: string;
+} {
+  const rows = agg?.byOwner ?? [];
+  const distinct = n(agg?.distinctOwners);
+  const other = n(agg?.otherOwners);
+  const shown = rows.length;
+  const row = (o: OwnerCount, value: number | undefined): Segment =>
+    ({ label: o.owner || '', value: n(value), tone: 'info', href: href(o.owner || '') });
+  const tail = other > 0
+    ? ` The remaining ${distinct - shown} of ${distinct} ${distinct - shown === 1 ? 'owner accounts' : 'owners account'} for ${other} more ${other === 1 ? 'service' : 'services'}.`
+    : '';
+  return {
+    distinct,
+    services: rows.map((o) => row(o, o.services)),
+    targets: rows.map((o) => row(o, o.targets)),
+    note: distinct
+      ? `Top ${shown} of ${distinct} declared ${distinct === 1 ? 'owner' : 'owners'} by service count.${tail} Services with no owner, or whose revisions name different owners, appear in no row here.`
+      : '',
+  };
+}
+
+/**
  * Declared readiness across a CONTRACT REVISION population.
  *
  * The four buckets are exactly the states the readiness engine computes, so nothing

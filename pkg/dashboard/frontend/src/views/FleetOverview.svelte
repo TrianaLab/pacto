@@ -4,7 +4,7 @@
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { knowledgeLabel, knowledgeTone, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
-  import { ownershipSegments, readinessSegments } from '../lib/distributions.ts';
+  import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import OperationalSummary from '../components/OperationalSummary.svelte';
@@ -113,11 +113,8 @@
   // every contract revision) -- never over the bounded attention or evidence previews
   // further down this page. Each bucket drills into the SAME filter the backend
   // classified it by, so the list a reader lands on is exactly the slice they clicked.
-  const ownership = $derived(ownershipSegments(s.ownership, {
-    conflicting: fleetServicesUrl({ ownership: 'conflicting' }),
-    unowned: fleetServicesUrl({ ownership: 'unowned' }),
-    consistent: fleetServicesUrl({ ownership: 'consistent' }),
-  }));
+  const ownership = $derived(ownershipSegments(s.ownership,
+    ownershipHrefs((v) => fleetServicesUrl({ ownership: v }))));
   const readiness = $derived(readinessSegments(s.readiness, {
     passing: fleetEntityListUrl('revision', { readiness: 'passing' }),
     belowThreshold: fleetEntityListUrl('revision', { readiness: 'below-threshold' }),

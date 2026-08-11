@@ -3,13 +3,16 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
-  import { fleetOverviewUrl, fleetOwnersUrl } from '../lib/router.ts';
+  import { fleetOverviewUrl, fleetOwnersUrl, fleetServicesUrl } from '../lib/router.ts';
+  import { ownershipSegments, ownershipHrefs, ownerRanking, segmentTotal } from '../lib/distributions.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
+  import DistributionBar from '../components/viz/DistributionBar.svelte';
+  import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import PageHeader from '../components/PageHeader.svelte';
 
   // The product Owners list (requirement G): owner discovery through
@@ -53,6 +56,37 @@
   function submitSearch(e) { e.preventDefault(); location.hash = fleetOwnersUrl({ text: textDraft }); }
   function clearAll() { location.hash = fleetOwnersUrl(); }
   const chips = $derived(text ? [{ key: 'text', label: 'Search', value: text }] : []);
+
+  // The ownership picture above the inventory.
+  //
+  // A list of owners answers "who exists", never "is this fleet owned" -- the two
+  // failures a reader opens this page about, a service nobody claims and a service two
+  // teams claim, are both INVISIBLE in a list of owners, because neither has an owner
+  // row to appear under. So the page asks the backend a second, separate question: the
+  // ownership aggregate over every SERVICE, which is the population ownership is a
+  // property of.
+  //
+  // It is a fleet-scoped question deliberately. The search box filters the owner
+  // inventory; it does not narrow what "the fleet's ownership" means, and it must not,
+  // or paging and searching would each redraw the summary into a different fleet. One
+  // row of the page (limit 1) is fetched because the aggregate is computed over the
+  // complete matched population BEFORE paging -- the rows themselves are not wanted here.
+  const ownershipLoader = createProductLoader(() => api.fleetEntities({ kinds: ['service'], limit: 1 }));
+  $effect(() => { ownershipLoader.sync(`ownership@@${refreshTick}`, 'ownership'); });
+  onDestroy(() => ownershipLoader.destroy());
+  const agg = $derived(ownershipLoader.data?.aggregate ?? null);
+  const services = $derived(agg?.services ?? 0);
+  const ownershipOfFleet = $derived(ownershipSegments(agg?.ownership,
+    ownershipHrefs((v) => fleetServicesUrl({ ownership: v }))));
+  // Each row counts the services CONSISTENTLY owned by that team, so it drills into both
+  // -- see ownerRanking. The destination is the Services list, which is where a
+  // population of services can be read; the owner page beside it is one owner's estate,
+  // a different question with a different total.
+  const rank = $derived(ownerRanking(agg, (o) => fleetServicesUrl({ owner: o, ownership: 'consistent' })));
+  // The bars' own denominator, never `services`: if the backend ever tallied a service
+  // into no bucket, a bar drawn against the service count would hide the gap in
+  // whitespace instead of showing it.
+  const ownershipTotal = $derived(segmentTotal(ownershipOfFleet));
 </script>
 
 <div class="product-page">
@@ -71,6 +105,49 @@
 
   {#if refreshError}
     <StaleRefreshNotice noun="owners list" onRetry={load} />
+  {/if}
+
+  {#if ownershipTotal > 0}
+    <section class="ow-summary" aria-labelledby="ow-sum-h" data-testid="owners-aggregate">
+      <div class="ow-sum-head">
+        <h2 id="ow-sum-h" class="t-section-title">Ownership across every service</h2>
+        <a class="ow-viewall" href={fleetServicesUrl()}>Browse services</a>
+      </div>
+      <DistributionBar
+        title="Declared ownership"
+        description="Ownership is authored on each contract revision, so a service is cleanly owned only when its revisions agree. A service nobody claims and a service two teams claim are opposite problems, and neither appears in the owner list below."
+        scopeNote={`All ${services} ${services === 1 ? 'service' : 'services'} in the snapshot, whatever this page is filtered or paged to.`}
+        segments={ownershipOfFleet}
+        total={ownershipTotal}
+      />
+      <details class="disclosure ow-sum-more">
+        <summary>
+          <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+          <span>Per-owner breakdown</span>
+          <span class="ow-more-count t-meta">{rank.distinct} declared {rank.distinct === 1 ? 'owner' : 'owners'}</span>
+        </summary>
+        <div class="ow-sum-grid">
+          <HorizontalBars
+            title="Services per owner"
+            description="Who carries the most services."
+            scopeNote={rank.note}
+            items={rank.services}
+            unit="services"
+            unitOne="service"
+            emptyLabel="No service has a single declared owner to rank by."
+          />
+          <HorizontalBars
+            title="Operational targets per owner"
+            description="How much is actually running behind each of those owners."
+            scopeNote="Same owners, in the same service-count order as above — this is not a ranking by target count."
+            items={rank.targets}
+            unit="targets"
+            unitOne="target"
+            emptyLabel="None of these owners has anything running yet."
+          />
+        </div>
+      </details>
+    </section>
   {/if}
 
   {#if state.kind !== 'ready'}
@@ -92,6 +169,16 @@
 </div>
 
 <style>
+  /* Same card, same grid and same disclosure as the Services inventory: the two pages
+     ask one question in one visual language, one scope apart. */
+  .ow-summary { display: flex; flex-direction: column; gap: var(--sp-3); padding-bottom: var(--sp-3); border-bottom: 1px solid var(--c-border); }
+  .ow-sum-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+  .ow-sum-head h2 { margin: 0; }
+  .ow-viewall { font-size: var(--text-sm); color: var(--c-accent); text-decoration: none; }
+  .ow-viewall:hover { text-decoration: underline; }
+  .ow-sum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--sp-4); align-items: start; }
+  .ow-more-count { color: var(--c-text-3); }
+  .ow-sum-more[open] > .ow-sum-grid { margin-top: var(--sp-3); }
   .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; }
   .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
   /* The Search control is the shared .btn from styles/components.css. Each list view
