@@ -1759,10 +1759,17 @@ never from the primary nav on a Fleet host):
   on any service / revision / target.
 - Data sources — `#/fleet/sources`, reached from the Overview source-health
   strip.
-- Readiness — NOT a destination. It is the `readiness` attention category and a
-  section on a Revision: an attention dimension and a revision dimension, which
-  are the two definitions that already existed. `#/readiness` canonicalizes into
-  the attention view on a Fleet host.
+- Contract revisions and Operational targets — `#/fleet/revisions` and
+  `#/fleet/targets`, the scoped inventories, reached from any bounded preview
+  that caps its list and from the Overview.
+- Readiness — NOT a destination of its own, and not a second definition. It is
+  the `readiness` attention category, a `readiness` filter on the revision
+  inventory, and a section on a Revision. `#/readiness` canonicalizes to
+  `#/fleet/revisions` on a Fleet host: readiness is declared BY a contract
+  revision and assessed against the threshold that revision set for itself, so
+  the population it describes is the revisions. It used to land on the attention
+  backlog's readiness category, which holds only the revisions that FAIL — an
+  old bookmark for "how ready is the estate" answered with the failures alone.
 
 **Canonical change workspace:** `#/fleet/changes/:serviceKey`. Comparison and
 impact are ONE workspace, RevisionKey-based end to end.
@@ -1771,13 +1778,11 @@ Stable routes (hash-router encoding, canonical + reversible):
 
 - `/fleet` (overview)
 - `/fleet/services` and `/fleet/services/:serviceKey`
-- `/fleet/revisions/:revisionKey`
-- `/fleet/targets/:targetKey`
+- `/fleet/revisions` and `/fleet/revisions/:revisionKey`
+- `/fleet/targets` and `/fleet/targets/:targetKey`
 - `/fleet/owners` and `/fleet/owners/:ownerKey`
 - `/fleet/sources` and `/fleet/sources/:sourceId`
 - `/fleet/attention`
-- `/fleet/entities/:kind` (scoped inventory: the bounded Entities endpoint by
-  canonical key, so a capped preview always has somewhere complete to send you)
 - `/fleet/graph` and `/fleet/graph/:entityKind/:entityKey`
 - `/fleet/changes` and `/fleet/changes/:serviceKey`
 

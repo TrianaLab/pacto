@@ -17,11 +17,15 @@ It showcases the full UI against a realistic set of services:
 - **Change analysis** — `payments-service` spans five versions; the
   `v1.2.0 → v2.0.0` step is a breaking change that removes the `/charges` API,
   and the same screen shows which consumers that break reaches.
-- **Readiness** — surfaced as a *Needs attention* category and on the revision
-  itself, never as a separate screen. `payments-service` 2.1.0 declares a
-  readiness gate that fails:
-  a required check (the LLM-safety eval suite) is `not-done`, dropping its score
-  to 70, below the required 80 — while `orders-service` 1.2.0 passes.
+- **Readiness** — never a separate screen, because readiness is declared by a
+  contract revision about itself. It is a *Needs attention* category, a
+  distribution over every revision in the snapshot on the **Contract revisions**
+  inventory (with a filter for each of its buckets) and a section on the revision
+  itself. `payments-service` 2.1.0 declares a readiness gate that fails: a
+  required check (the LLM-safety eval suite) is `not-done`, dropping its score to
+  70, below the required 80 — while `orders-service` 1.2.0 passes, and still runs
+  on a target observed to be non-compliant, which is the difference between
+  declared preparedness and observed behaviour on one screen.
 
 The source and build harness live in
 [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo).

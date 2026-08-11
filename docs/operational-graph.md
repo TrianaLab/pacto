@@ -162,6 +162,66 @@ matches.
 
 ---
 
+## Aggregates: what a bounded list can still tell you about the whole
+
+Every list answer is bounded, so the rows a consumer receives are one slice of the
+population its filter matched. Alongside them the read model returns an
+**aggregate computed over the complete matched population, before paging**. A
+distribution drawn from the rows would present the first page as the fleet; this
+is the reason the aggregate is computed in the backend and not in a client.
+
+The matched population is heterogeneous by design — one query can match services,
+revisions and targets at once — so **every tally names the population it
+partitions** instead of sharing one denominator, and the per-kind counts are
+reported rather than derived by summing buckets, so a disagreement between a
+denominator and its buckets stays visible.
+
+| Tally | Partitions | Buckets |
+|-------|-----------|---------|
+| **serviceCompliance** | matched services | the compliance states, rolled up from each service's targets |
+| **targetCompliance** | matched operational targets | the compliance states as observed per target |
+| **ownership** | matched services | `consistent` · `conflicting` · `unowned` |
+| **readiness** | matched contract revisions | `passing` · `belowThreshold` · `expired` · `notDeclared` |
+
+`serviceCompliance` and `targetCompliance` are never summed: a service status is
+already a roll-up of its targets, so adding them counts the same operational
+reality twice.
+
+**Ownership** is a property of revisions agreeing, not of one field somebody set —
+`service.owner` is authored on each contract revision. A service is `consistent`
+when every revision that declares an owner declares the *same* one; a revision
+that declares none is silence, not a contradiction. `conflicting` is never folded
+into `unowned`: "two teams claim this" and "nobody claims this" need opposite
+fixes. Neither is folded into `consistent`, because the owner shown on a service
+is a documented tie-break, and counting a conflicted service as owned would
+present that tie-break as agreement.
+
+Beside the partition, an aggregate carries a **bounded ranking** of the
+consistently owned services by owner (`byOwner`), largest first. It is explicitly
+not a partition: conflicted and unowned services have no single owner to rank
+under, `otherOwners` holds the services whose owner fell past the bound and
+`distinctOwners` says how many owners exist in total — so
+`sum(byOwner.services) + otherOwners == ownership.consistent`, and a consumer can
+state exactly what the ranking omits.
+
+**Readiness** is bucketed per contract revision and never per service, per target
+or per fleet: readiness is the authored preparedness of one immutable contract,
+assessed against the threshold that contract set for itself. It is orthogonal to
+compliance — a revision whose readiness passes can be running on a target observed
+to violate its contract, and a revision nobody assessed can be running perfectly.
+`notDeclared` is its own bucket because "nobody wrote an assessment" is not the
+same answer as "the assessment does not pass", and `expired` is its own bucket
+because an assessment past its `expires` date earns no weight and cannot be read
+as current.
+
+The overview carries the same two tallies over the whole snapshot rather than over
+a filtered population. They sit there, and not in the attention backlog, because
+neither is an operational failure: "is ownership declared at all" and "is anyone
+assessing readiness" are systemic questions about how the fleet is organized and
+authored, and no per-entity page can answer them.
+
+---
+
 ## Who consumes it
 
 The read model is one thing with several front doors. A human portal and an agent
@@ -201,7 +261,10 @@ flowchart LR
   Differences). The Operational targets perspective is honest about what it can
   know: an operational target links to the dependency **service** it depends on,
   never to each peer target — a full target-to-target mesh would assert runtime
-  routing the snapshot never observed, so it is never drawn.
+  routing the snapshot never observed, so it is never drawn. Its overview and its
+  list pages draw every figure from the aggregate above, so a figure and the rows
+  beneath it always describe the same population: narrowing the filter narrows
+  both, and a bucket of a figure is a link to the rows it counted.
 - **CLI (`pacto fleet …`)** — the five queries on the command line:
   `pacto fleet search`, `pacto fleet get`, `pacto fleet graph`, `pacto fleet
   status`, `pacto fleet explain`, plus `pacto fleet reconcile` (declared vs
