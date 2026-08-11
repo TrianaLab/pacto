@@ -685,11 +685,13 @@ Includes final design-system consistency, hierarchy and progressive disclosure.
 ### Phase 6 — WASM/browser/product acceptance
 Includes rich/adversarial/stress acceptance of the finished Product UI.
 
-### Phase 7 — operator-managed observed/trace-source packaging/config
-Make observed/trace input an operationally managed capability rather than only an ad-hoc local file path, without turning Pacto into an observability backend.
+### Phase 7 — operator-managed OFFLINE observation/trace-source configuration
+The offline pipeline (OTLP/JSON trace file, offline observer, observed edges, Fleet observation source, reconciliation, Change analysis) already exists and is accepted; it is configured ad hoc through `--traces` / `PACTO_DASHBOARD_TRACES`. Phase 7 makes those observation sources declaratively configurable and packageable by the operator, with an explicit stable Data Source identity that does not depend on list position, read-only mounts from externally managed Kubernetes storage, and configured-source failure expressed as Product knowledge.
 
-### Phase 8 — live Kind product vertical
-Prove the complete real Product journey against live operator/Evidence Server/runtime data.
+Out of scope, permanently: an OTLP receiver, a listener/port, a Collector or collector sidecar, an observability backend, a trace database, live trace ingestion, a telemetry proxy. The offline architecture gate stays.
+
+### Phase 8 — live Kind Product acceptance breadth
+The branch ALREADY contains a substantial live Kind vertical (operator, dashboard, Evidence Server, in-cluster registry, reconciled Pacto CRs, ingested signed evidence) whose browser leg deliberately calls itself a SMOKE check. Phase 8 UPGRADES that existing browser leg into representative live Product acceptance; it does not build the vertical from scratch.
 
 ### Phase 9 — real MkDocs browser E2E
 Test the actual built MkDocs site in a browser, including relevant diagrams, not only docs rendered inside the dashboard.
@@ -698,9 +700,9 @@ Test the actual built MkDocs site in a browser, including relevant diagrams, not
 Close the local Kind path where Docker Desktop/containerd image-store behavior differs from CI/classic `kind load`.
 
 ### Phase 11 — MCP catalog core
-Implement bounded multi-root catalog semantics over arbitrary Pacto contract roots.
+Implement bounded multi-root catalog semantics over arbitrary Pacto contract roots. This is the CATALOG model over arbitrary roots — distinct from the operational Fleet MCP tools (`pacto_fleet_*`) this branch already ships, which stay as they are.
 
-### Phase 12 — MCP discovery server/CLI/E2E/docs
+### Phase 12 — MCP catalog discovery server/CLI/E2E/docs
 Expose the catalog through a small read-only discovery interface.
 
 ### Phase 13 — normative invariants

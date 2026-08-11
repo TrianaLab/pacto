@@ -1,6 +1,6 @@
 # Pacto PR #291 — Current Implementation State
 
-**Snapshot date:** 2026-08-11  
+**Snapshot date:** 2026-08-12  
 **Repository:** `TrianaLab/pacto`  
 **PR:** `#291`  
 **Branch:** `feat/operational-graph-fleet`
@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`ea73e8e8390b410e16ecc515401c446e65542b9d`
+`7da2ad4640c7f84d7123fc20a2c6154f63765f5d`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,18 +25,15 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Commits reviewed on top of the previous reviewed HEAD `d0dbad91`:
+Commits reviewed on top of the previous reviewed HEAD `ea73e8e8`:
 
-- `b5239869` — persist the independently reviewed PR state at `d0dbad91`
-- `acbd0e67` — saying a contact point twice does not create a second owner
-- `904b8d74` — the fleet carries contacts, keeps namespaces and counts twice over
-- `9b6dc4d3` — declaring an owner nobody can name is not the same as declaring nobody
-- `244d51b1` — count the sources the list was cut from
-- `30a029b9` — a data source is a place you can go, not a caption
-- `3ea5ea7c` — walk the data sources in a real browser
-- `a8b4a101` — records sent, entities contributed, and an owner nobody can name
-- `42a1df00` — rebuild the UI bundle
-- `ea73e8e8` — a page that is still loading is not a settled page
+- `e090fe73` — persist the independently reviewed PR state at `ea73e8e8`
+- `03ab3c10` — the caveat counts the fleet, not the fifty it was shown
+- `ef67f494` — stop tracking one workstation's agent tooling
+- `fffd9a39` — drop seventeen module hashes nothing in this branch needs
+- `ccf2ae0e` — stop tracking a 47MB build output
+- `9f407503` — rebuild the UI bundle
+- `7da2ad46` — a bucket is not released while it is still being read
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -87,9 +84,16 @@ NEW concrete counterexample.
 
 - lock v3.
 
+**Knowledge population**
+
+- `ProductMeta.SourceCounts` is the authoritative complete population for
+  source-health arithmetic; `ProductMeta.Sources` is a bounded named preview.
+  The Product renders one answer for one snapshot, at every level (Data Sources
+  tally, `KnowledgeBanner`, knowledge severity).
+
 **Phases**
 
-- Phase 1 through Phase 4 are closed.
+- Phase 1 through Phase 6 are closed.
 
 ## 2. Current phase status
 
@@ -101,86 +105,27 @@ NEW concrete counterexample.
 
 ### Phase 4 — COMPLETE
 
-### Phase 5 — NARROWLY REOPENED
+### Phase 5 — COMPLETE
 
-Exactly one Product-semantic blocker remains.
+### Phase 6 — COMPLETE
 
-**Knowledge state does not use the complete source population**
-
-The backend now correctly publishes `ProductMeta.SourceCounts` over EVERY source
-in the snapshot. It exists because `ProductMeta.Sources` is bounded to
-`MaxMetaSources` and is explicitly only a preview, and the backend carries a
-regression proving those populations differ.
-
-Frontend `snapshotKnowledge()` still derives `degradedSources`, `staleSources`
-and `unavailableSources` by iterating only `meta.sources`. Its structural
-`MetaLike` does not consume `sourceCounts`. The Product therefore has TWO
-answers to the same source-health population.
-
-Counterexample:
-
-```text
-61 sources total
-60 unavailable
- 1 available
-
-backend           sourceCounts.total = 61, sourceCounts.unavailable = 60
-bounded preview   50 entries, all unavailable
-
-Data Sources tally    60 unavailable
-KnowledgeBanner       50 data sources are unavailable
-```
-
-The level is still `unavailable`, but the quantified explanation is false.
-
-Required invariant:
-
-```text
-ProductMeta.SourceCounts = authoritative complete population for source-health arithmetic
-ProductMeta.Sources      = bounded named preview for inspection/navigation
-```
-
-When `sourceCounts` is present the complete counts drive
-`degradedSourceSummary` / `KnowledgeBanner` and the strictest source-health
-level. When it is absent an explicit compatibility fallback to `meta.sources`
-remains, and that fallback must NOT be presented as complete when
-`sourcesTruncated` is known true.
-
-The existing Go `SourceCounts` test uses 1 unavailable and 60 available. Because
-the bounded preview prioritizes least-healthy sources, the single unavailable
-source survives the cut, so that fixture cannot expose the frontend defect. A
-discriminating fixture needs at least one health bucket that itself exceeds
-`MaxMetaSources`.
-
-### Phase 6 — NARROWLY REOPENED
-
-The existing browser suite is accepted and must stay green; no existing browser
-acceptance may be removed or weakened.
-
-Reopened only for the missing acceptance counterexample: one discriminating
-built-WASM/browser or controlled Product-API case where `sourceCounts` differs
-from the counts derivable from `meta.sources` because the source preview is
-capped, proving on the SAME rendered Product state that the Data Sources
-complete-population tally, the global `KnowledgeBanner` and the knowledge
-severity all describe the same authoritative population.
-
-The Product must never render simultaneously `60 unavailable` and
-`50 data sources are unavailable` for the same Fleet snapshot. The test must not
-be made to pass by shrinking the source population below the cap.
-
-### Phase 7 — NOT STARTED
-
-Do not start until Phases 5 and 6 re-close.
+### Phase 7 — NOT STARTED at `7da2ad46`
 
 Target:
 
-**operator-managed observed/trace-source packaging/config**
+**operator-managed OFFLINE observation/trace-source configuration**
 
-Current observed trace ingestion is still conceptually an offline/ad-hoc trace-file capability in important paths. Phase 7 should make it operationally manageable without turning Pacto into an observability backend.
+The offline pipeline (OTLP/JSON trace file, offline `pkg/otelobserver`, observed
+edges, Fleet observation source, reconciliation) already exists and is accepted.
+What is missing is a declarative, operator-managed way to package, configure and
+mount those observation sources, with stable Data Source identity that does not
+depend on list position. Phase 7 is that packaging — NOT an OTLP receiver, a
+Collector, a trace database or any live ingestion.
 
 ### Phase 8 — NOT STARTED
 
-Live Kind product vertical breadth.
+Upgrade the EXISTING live Kind vertical's browser leg from a deliberate smoke
+check into representative live Product acceptance.
 
 ### Phase 9 — NOT STARTED
 
@@ -192,11 +137,13 @@ Docker Desktop/containerd/local-registry Kind path.
 
 ### Phase 11 — NOT STARTED
 
-MCP catalog core.
+MCP catalog core: bounded multi-root catalog semantics over arbitrary Pacto
+contract roots. Distinct from the operational Fleet MCP tools this branch
+already ships.
 
 ### Phase 12 — NOT STARTED
 
-MCP discovery server/CLI/E2E/docs.
+MCP catalog discovery server/CLI/E2E/docs.
 
 ### Phase 13 — NOT STARTED
 
@@ -206,36 +153,16 @@ Normative invariants finalization.
 
 Finalization, final ontology audit, repository hygiene, PR body, exact SHA, readiness.
 
-## 3. Branch-hygiene regression
+## 3. Branch-hygiene regression — CLOSED
 
-Independent review found that commit `acbd0e67` accidentally added files
-unrelated to the requested Product work:
+The four local-agent tooling files (`.claude/CLAUDE.md`, `.codex/config.toml`,
+`.mcp.json`, `AGENTS.md`) were untracked by the append-only commit `ef67f494`
+and remain locally as untracked tooling. The incidental `go.work.sum` entries
+were reverted by `fffd9a39`, and the 47MB tracked build output by `ccf2ae0e`.
+No history was rewritten.
 
-```text
-.claude/CLAUDE.md
-.codex/config.toml
-.mcp.json
-AGENTS.md
-```
-
-They were not reported in the handoff as intentional repository changes. They
-are Repowise / Claude / Codex local-agent tooling: the config files include a
-workstation-specific absolute path, and the generated instruction files contain
-tool-specific guidance tied to an old Repowise index snapshot.
-
-They MUST NOT remain tracked by this PR. They must be removed with a normal
-append-only cleanup commit — `acbd0e67` must not be rewritten. Local copies may
-be preserved as UNTRACKED local tooling. Their contents must not be moved into
-public docs, and repository policy must not be broadened merely to justify their
-presence.
-
-The same commit also added `go.work.sum` entries even though that iteration made
-no corresponding dependency-declaration change. The preferred proof is to
-restore `go.work.sum` to the `d0dbad91` state, run the clean deterministic
-repository commands/gates that legitimately own workspace dependency state, and
-observe whether they regenerate the entries. If nothing deterministic requires
-them, they stay reverted. Accumulated workstation module state is not retained
-merely because it is harmless.
+The rule stands for every later phase: local/agent tooling, caches, plans and
+workstation paths must never become tracked files of this PR.
 
 ## 4. Accepted Product architecture
 
@@ -374,14 +301,16 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `ea73e8e8`.
+Reviewed at exact HEAD `7da2ad46`.
 
 Review threads at that SHA:
 
 - 0 unresolved authored-product threads;
-- 6 unresolved, CURRENT, non-outdated `github-code-quality` threads on the
-  generated asset `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7--EkgrGfx.js`;
-- older `D5F8W3En` threads are resolved/outdated.
+- the remaining unresolved `github-code-quality` threads are on GENERATED
+  minified UI assets under `pkg/dashboard/ui/assets/`, not authored code.
+
+Re-verify both populations at the exact final SHA of every later pass; the
+generated asset path changes whenever the UI bundle is rebuilt.
 
 Generated Mermaid/minified assets must not be hand-edited. After the FINAL
 generated bundle of a pass is committed, review threads must be queried again
@@ -411,28 +340,28 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
-This is a VERY NARROW correction/cleanup pass. Everything in section 1 is
-accepted and must not be reopened or redesigned.
+Phase 7 — operator-managed OFFLINE observation/trace-source configuration.
+Everything in section 1 is accepted and must not be reopened or redesigned.
 
 The immediate next Claude session should:
 
-1. fix the epistemic boundary so `ProductMeta.SourceCounts` is the authoritative
-   complete population for source-health arithmetic and `ProductMeta.Sources`
-   stays a bounded named preview;
-2. keep an explicit, small compatibility fallback for an absent `sourceCounts`,
-   and stop that fallback from claiming completeness when `sourcesTruncated` is
-   known true;
-3. add a discriminating unit fixture where a health bucket itself exceeds
-   `MaxMetaSources`;
-4. add one Product acceptance counterexample on a capped source population;
-5. remove the four local/agent tooling files from tracking with an append-only
-   commit, preserving them locally as untracked;
-6. audit and decide the incidental `go.work.sum` change with deterministic
-   evidence;
-7. verify the `d0dbad91...HEAD` diff carries no workstation/local artifacts;
-8. run the full verification matrix, rebuild the UI bundle cold, and re-audit
-   review threads AFTER the final bundle commit;
-9. not begin Phase 7.
+1. give an observation source an EXPLICIT, stable identity that survives
+   reordering and reaches the Product Data Source, replacing list-position ids
+   for declaratively configured sources;
+2. add the smallest coherent operator-managed model for mounting offline trace
+   files read-only from externally managed Kubernetes storage;
+3. wire it end to end: Helm values, values schema, controller flags, dashboard
+   config, Deployment volumes/mounts/env, Fleet observation sources;
+4. keep configured-source failure as Product knowledge (a degraded/unavailable
+   Data Source), never a dashboard crash or a silently absent source;
+5. keep source health and observed-evidence freshness distinct;
+6. prove the packaging with a FOCUSED live Kind scenario, including one forced
+   source failure — not the broad Product journey reserved for Phase 8;
+7. keep and strengthen the offline architecture gate: no OTLP receiver, no
+   listener, no collector sidecar;
+8. document the boundary honestly and correct any comment that got ahead of the
+   implementation;
+9. not begin Phase 8.
 
 ## 11. Final-phase requirements already agreed
 
