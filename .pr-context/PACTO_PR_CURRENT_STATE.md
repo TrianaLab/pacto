@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`d0dbad91752a15ffac7e56b8cbc5945e705620cb`
+`ea73e8e8390b410e16ecc515401c446e65542b9d`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,16 +25,18 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Commits reviewed on top of the previous reviewed HEAD `41455305`:
+Commits reviewed on top of the previous reviewed HEAD `d0dbad91`:
 
-- `93594427` — an owner label is not an owner identity
-- `2cef0ebb` — the fleet says who, and says who it could not file
-- `43b807c5` — the demo fleet can spell one name two ways
-- `4b5cd985` — rebuild the UI bundle
-- `d0dbad91` — persist the independently reviewed PR state at `41455305`
-
-Independently verified at this exact SHA: the review of `d0dbad91` accepted the
-substance of that work and reopened Phase 5 and Phase 6 for narrow items only.
+- `b5239869` — persist the independently reviewed PR state at `d0dbad91`
+- `acbd0e67` — saying a contact point twice does not create a second owner
+- `904b8d74` — the fleet carries contacts, keeps namespaces and counts twice over
+- `9b6dc4d3` — declaring an owner nobody can name is not the same as declaring nobody
+- `244d51b1` — count the sources the list was cut from
+- `30a029b9` — a data source is a place you can go, not a caption
+- `3ea5ea7c` — walk the data sources in a real browser
+- `a8b4a101` — records sent, entities contributed, and an owner nobody can name
+- `42a1df00` — rebuild the UI bundle
+- `ea73e8e8` — a page that is still loading is not a settled page
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -43,173 +45,128 @@ it.
 ### Accepted at this review — do NOT reopen
 
 The following are settled. Do not redesign them, and do not "improve" them as a
-side effect of the narrow items in section 2:
+side effect of the narrow items in section 2. Reopening any of them requires a
+NEW concrete counterexample.
 
 **Ownership identity and discovery**
 
-- `OwnerKey` as a namespaced Team/DRI identity — `team/alice` and `dri/alice`
-  are DIFFERENT owners;
-- `{team: platform, dri: alice}` and `{team: platform, dri: bob}` remain the
-  SAME owner: extra fields are metadata about an owner, not identity;
-- Team taking canonical precedence over DRI;
-- `ownerKey` as the exact canonical filter every canonical link must use;
-- `owner` as the fuzzy human-entered search;
-- contacts-only ownership having NO fabricated canonical Owner identity;
-- the ownership consistent / conflicting / unowned classification;
-- owner ranking population semantics generally;
-- `unidentifiedOwnership` as a concept separate from the ranking tail;
-- the Owners aggregate's independent loading / error / stale-refresh behaviour;
-- the injective round-trippable canonical transport encoding and its
-  fail-closed handling of raw legacy keys.
+- `OwnerKey` and the exact-versus-fuzzy owner semantics;
+- contacts-only ownership without a fabricated canonical identity;
+- the shared `OwnershipFact` presentation across Service, Revision and
+  Operational Target detail;
+- Revision contact inspection;
+- contact-order and exact-duplicate normalization (`Owner.ContactSet`);
+- owner ranking namespace ambiguity;
+- the ownership aggregate semantics.
 
-**Presentation and structure**
+**Distribution primitive**
 
-- `PageToc` current-section behaviour and its per-section `scroll-margin-top`;
+- `DistributionBar` under-count behaviour;
+- `DistributionBar` ordinary over-count behaviour;
+- `DistributionBar` authoritative-zero behaviour.
+
+**Product surfaces**
+
 - the Operational Overview dashboard generally;
-- Services aggregate intelligence over the complete filtered population;
-- revision-scoped Readiness;
-- typography roles;
+- Data Sources as a secondary Product surface (four primary tabs unchanged);
+- the Data Sources Overview section and its `PageToc` integration;
+- source chips as exact links;
+- the Data Sources inventory;
+- selected-source health versus Fleet knowledge as distinct concepts;
+- the Source-detail Product hierarchy;
+- raw source records versus contributed Product entities;
+- `SourceContribution` complete-population semantics;
+- `PageToc`;
+- Services aggregates;
+- Readiness;
+- typography;
 - progressive disclosure;
-- Graph / Change-analysis workspace geometry;
-- graph state and Cytoscape behaviour.
+- Graph / Change-analysis geometry.
 
 **Model**
 
-- lock v3 content-identity occurrence model, the delimiter-collision
-  correction, multiple-path fail-closed semantics and the
-  duplicate-declaration correction;
-- the authoritative denominator holding downward (`Unclassified` remainder)
-  and upward (explicit inconsistency when segments sum ABOVE the total).
+- lock v3.
 
 **Phases**
 
-- Phase 3 and Phase 4 are closed. Do not reopen absent a new concrete
-  counterexample.
+- Phase 1 through Phase 4 are closed.
 
 ## 2. Current phase status
 
 ### Phase 1 — COMPLETE
 
-No known reopen item.
-
 ### Phase 2 — COMPLETE
-
-Accepted identity/Product API foundations remain intact.
 
 ### Phase 3 — COMPLETE
 
-Lock v3 content-identity occurrence model, delimiter-collision correction,
-multiple-path fail-closed semantics and the duplicate-declaration correction are
-all accepted.
-
 ### Phase 4 — COMPLETE
-
-Operational Graph, real Cytoscape rendering, projection semantics,
-target/revision/service identity, declared/observed distinction, graph controls,
-Product graph route, visual browser gate, graph spatial persistence and semantic
-refresh without full layout reset are all accepted.
 
 ### Phase 5 — NARROWLY REOPENED
 
-The Product target from the previous iterations is substantially ACCEPTED and
-must not be redesigned. See section 1 for the accepted set.
+Exactly one Product-semantic blocker remains.
 
-Phase 5 is reopened for exactly five items.
+**Knowledge state does not use the complete source population**
 
-**1. Contacts-only declared ownership is still rendered "Unowned" on entity detail**
+The backend now correctly publishes `ProductMeta.SourceCounts` over EVERY source
+in the snapshot. It exists because `ProductMeta.Sources` is bounded to
+`MaxMetaSources` and is explicitly only a preview, and the backend carries a
+regression proving those populations differ.
 
-The backend already distinguishes a declared owner block from an absent one
-(`OwnershipInfo.Declared`), and the aggregate already counts contacts-only
-ownership as declared. Entity detail does not: Service, Revision and Operational
-Target detail still render the canonical Owner link when a canonical identity
-exists and the literal word `Unowned` otherwise. A contract that declares an
-owner through contact points only therefore reads as having no owner at all, and
-the Owners aggregate and the entity page contradict each other on the same
-fleet.
+Frontend `snapshotKnowledge()` still derives `degradedSources`, `staleSources`
+and `unavailableSources` by iterating only `meta.sources`. Its structural
+`MetaLike` does not consume `sourceCounts`. The Product therefore has TWO
+answers to the same source-health population.
 
-The three required display states are: no declared owner; declared with a
-canonical Owner identity; declared with NO canonical Team or DRI identity.
+Counterexample:
 
-No canonical Owner identity may be invented from an email, Slack channel, URL or
-other contact point.
+```text
+61 sources total
+60 unavailable
+ 1 available
 
-**2. `DistributionBar` mishandles an authoritative total of 0 with positive buckets**
+backend           sourceCounts.total = 61, sourceCounts.unavailable = 60
+bounded preview   50 entries, all unavailable
 
-The under-count and over-count directions are accepted. The remaining edge is an
-authoritative `total = 0` reported alongside a positive bucket sum: the shared
-primitive currently renders `3 (0% of 0)`, which reads as a valid distribution
-over an empty population. Zero must remain authoritative, the contradictory
-positive count must stay visible, and the percentage must be explicitly
-unavailable rather than fabricated.
+Data Sources tally    60 unavailable
+KnowledgeBanner       50 data sources are unavailable
+```
 
-**3. Data Sources discoverability**
+The level is still `unavailable`, but the quantified explanation is false.
 
-Data sources are a first-class Product concept with their own inventory and
-entity pages, but on Overview they are a sub-heading buried inside the immediate
-situation band. They have no semantic section of their own, so they do not
-appear in the Overview `PageToc`, and the path from "a source is degraded" to
-"inspect that source" is not obvious to a novice.
+Required invariant:
 
-Primary navigation stays exactly four tabs. Data sources must NOT become a fifth
-primary tab.
+```text
+ProductMeta.SourceCounts = authoritative complete population for source-health arithmetic
+ProductMeta.Sources      = bounded named preview for inspection/navigation
+```
 
-**4. Selected-source health versus global Fleet knowledge completeness**
+When `sourceCounts` is present the complete counts drive
+`degradedSourceSummary` / `KnowledgeBanner` and the strictest source-health
+level. When it is absent an explicit compatibility fallback to `meta.sources`
+remains, and that fallback must NOT be presented as complete when
+`sourcesTruncated` is known true.
 
-Source detail can currently render a healthy `Available` source in the page
-header and, directly beneath it, the global knowledge banner reading
-`Source unavailable — this page may be incomplete`. On a Source page that
-sentence reads as a claim about the source being inspected. Selected-source
-health and Fleet/snapshot knowledge completeness are different facts and must be
-scoped separately without weakening the knowledge treatment on Service, Revision
-and Target pages.
-
-**5. Source-detail information hierarchy and contribution semantics**
-
-Source detail is currently a compact debug record rather than a Product
-inspector. It does not answer, in order: what am I inspecting; is THIS source
-healthy and current; when did it last successfully synchronize; when was it last
-observed; how much raw knowledge did it supply; what Product entities are
-attributable to it; if degraded, what failed; what limitations remain.
-
-Related: `SourceState.RevisionCount` / `SourceState.TargetCount` count DIRECT
-records submitted by the source, while `entitiesFromSource` returns Product
-entities ATTRIBUTABLE to it (Services are derived, not directly recorded). The
-two totals can legitimately differ, and the UI currently gives a reader no way to
-know that. The distinction must be defined and taught, not equalized for
-presentation.
+The existing Go `SourceCounts` test uses 1 unavailable and 60 available. Because
+the bounded preview prioritizes least-healthy sources, the single unavailable
+source survives the cut, so that fixture cannot expose the frontend defect. A
+discriminating fixture needs at least one health bucket that itself exceeds
+`MaxMetaSources`.
 
 ### Phase 6 — NARROWLY REOPENED
 
 The existing browser suite is accepted and must stay green; no existing browser
 acceptance may be removed or weakened.
 
-Reopened because browser acceptance lacks the exact counterexamples for the five
-Phase 5 items:
+Reopened only for the missing acceptance counterexample: one discriminating
+built-WASM/browser or controlled Product-API case where `sourceCounts` differs
+from the counts derivable from `meta.sources` because the source preview is
+capped, proving on the SAME rendered Product state that the Data Sources
+complete-population tally, the global `KnowledgeBanner` and the knowledge
+severity all describe the same authoritative population.
 
-- contacts-only ownership: the aggregate says declared/consistent while entity
-  detail must NOT say `Unowned`, must NOT fabricate a canonical Owner link, and
-  must still let a reader reach the declared contact information;
-- contact-set semantics: `[A]` versus `[A, A]` resolved deliberately, with the
-  counterexample written first;
-- ranking namespace: same-display Team and DRI owners where only ONE is inside
-  the visible top-N, proving visible identity does not depend on the truncation
-  boundary;
-- distribution zero total: authoritative `total = 0` with a positive bucket
-  rendering an explicit inconsistency, a visible positive count, no `0% of 0`
-  and nothing resembling a valid distribution;
-- Data sources on Overview: a semantic section, present in the `PageToc`,
-  visibly navigable named source chips, chip to exact Source detail and a
-  section-level action into the complete inventory;
-- an Available selected source under a degraded fleet;
-- an Unavailable selected source;
-- contribution semantics on a fixture where direct record counts genuinely
-  differ from the contributed Product entity total — the test must not be made
-  to pass by equalizing the fixture;
-- Source-detail layout at desktop and mobile, and Back/Forward navigation
-  through the complete Data Sources flow.
-
-Tests must be discriminating: at least the essential counterexample must be
-demonstrated to fail against pre-fix code.
+The Product must never render simultaneously `60 unavailable` and
+`50 data sources are unavailable` for the same Fleet snapshot. The test must not
+be made to pass by shrinking the source population below the cap.
 
 ### Phase 7 — NOT STARTED
 
@@ -249,7 +206,38 @@ Normative invariants finalization.
 
 Finalization, final ontology audit, repository hygiene, PR body, exact SHA, readiness.
 
-## 3. Accepted Product architecture
+## 3. Branch-hygiene regression
+
+Independent review found that commit `acbd0e67` accidentally added files
+unrelated to the requested Product work:
+
+```text
+.claude/CLAUDE.md
+.codex/config.toml
+.mcp.json
+AGENTS.md
+```
+
+They were not reported in the handoff as intentional repository changes. They
+are Repowise / Claude / Codex local-agent tooling: the config files include a
+workstation-specific absolute path, and the generated instruction files contain
+tool-specific guidance tied to an old Repowise index snapshot.
+
+They MUST NOT remain tracked by this PR. They must be removed with a normal
+append-only cleanup commit — `acbd0e67` must not be rewritten. Local copies may
+be preserved as UNTRACKED local tooling. Their contents must not be moved into
+public docs, and repository policy must not be broadened merely to justify their
+presence.
+
+The same commit also added `go.work.sum` entries even though that iteration made
+no corresponding dependency-declaration change. The preferred proof is to
+restore `go.work.sum` to the `d0dbad91` state, run the clean deterministic
+repository commands/gates that legitimately own workspace dependency state, and
+observe whether they regenerate the entries. If nothing deterministic requires
+them, they stay reverted. Accumulated workstation module state is not retained
+merely because it is harmless.
+
+## 4. Accepted Product architecture
 
 Do not reopen these decisions without a new concrete counterexample.
 
@@ -310,7 +298,7 @@ One canonical Product workspace answers what changed and what it affects. Detail
 - provenance inspector: what this source is, whether it is healthy and current,
   what it supplied and what is attributable to it.
 
-## 4. Accepted information-parity work
+## 5. Accepted information-parity work
 
 Earlier Product migration accidentally lost significant V1 inspection capability.
 
@@ -332,12 +320,9 @@ Supported information is reachable for:
 - SBOM/software inventory;
 - validation;
 - identity/provenance;
+- declared owner contact metadata;
 - revision history;
 - Change analysis entry.
-
-Declared owner CONTACT metadata is part of the contract material a Revision
-declares. It must remain reachable in the Revision inspector without being
-promoted into a canonical Owner identity.
 
 ### Markdown
 
@@ -356,150 +341,57 @@ Current accepted architecture:
 
 ### Immutable document correction
 
-The prior lazy read incorrectly used a live `os.DirFS`, allowing the same RevisionKey to return changed bytes after Build.
-
-Latest accepted correction:
-
 - Build records SHA-256 fingerprint for listed document content;
 - lazy read verifies bytes against fingerprint;
 - changed/deleted/unreadable body becomes explicit unavailable;
 - 512 KiB bound remains;
 - source conflicts do not silently pick arbitrary bytes.
 
-Do not reopen absent a new counterexample.
+## 6. Accepted UI/interaction corrections
 
-## 5. Accepted UI/interaction corrections
+- Services search autocomplete: debounced, bounded, canonical identity,
+  same-name domain disambiguation, keyboard/pointer, stale-response protection.
+- Same-query stale-while-revalidate: first load / changed identity may load;
+  same-query refresh retains last valid data; refresh failure retains stale data
+  with an honest notice; a changed query never presents old rows as the answer.
+- Scroll restoration: scroll belongs to a history entry, not only a URL; push
+  starts fresh; Back/Forward restores the exact entry; hard reload restores the
+  current entry; canonical replace preserves the entry; state is bounded; user
+  scroll input can cancel pending restoration.
+- Graph spatial state: same-query refresh preserves layout; reload restores
+  spatial state; query identities isolate state; semantic data still refreshes;
+  `Fit` and `Reset layout` are different.
 
-### Search autocomplete
-
-Services search has Product-backed suggestions.
-
-Expected behavior:
-
-- debounced;
-- bounded;
-- canonical identity;
-- same-name domain disambiguation;
-- keyboard/pointer;
-- stale-response protection.
-
-### Same-query SWR
-
-Accepted model:
-
-- first load / changed identity may load;
-- same-query refresh retains last valid data;
-- refresh failure retains stale data with honest notice;
-- changed query must not present old rows as if they answered the new query.
-
-### Scroll restoration
-
-Accepted model:
-
-- scroll belongs to a history entry, not only URL;
-- same URL in different history entries remains independent;
-- push starts fresh;
-- Back/Forward restores exact entry;
-- hard reload restores current entry;
-- canonical replace preserves entry;
-- state bounded;
-- user scroll input can cancel pending restoration.
-
-### Graph spatial state
-
-Accepted from prior review:
-
-- same-query refresh preserves layout;
-- reload restores graph spatial state;
-- query identities isolate graph state;
-- semantic data still refreshes;
-- `Fit` and `Reset layout` are different.
-
-## 6. Accepted visualization direction
-
-The redesign initially became too list/table-heavy.
+## 7. Accepted visualization direction
 
 Accepted principle:
 
 > lists/tables for exact inspection; visualizations for system comprehension.
 
-Useful visual summaries were added/evolved across Product surfaces.
-
-Do not restore V1 dashboards mechanically.
-
-Any future chart must:
-
-- answer a real question;
-- use authoritative aggregate data;
-- not infer global truth from a page;
-- preserve exact values;
-- expose uncertainty/completeness;
-- remain accessible/mobile/light/dark.
-
-## 7. Current high-priority blocker details
-
-### Blocker A — contacts-only ownership reads as "Unowned"
-
-Detailed in Phase 5 item 1. Acceptance must prove, in the browser and against
-the real fleet:
-
-1. a service whose only owner declaration is contact points is NOT presented as
-   unowned on Service, Revision or Operational Target detail;
-2. no canonical Owner link is fabricated for it;
-3. the declared contact information remains reachable in the Revision inspector
-   through progressive disclosure;
-4. a service with a genuinely absent owner block is still presented as having no
-   declared owner;
-5. existing canonical Owner links do not regress.
-
-### Blocker B — the authoritative denominator and an authoritative zero
-
-Detailed in Phase 5 item 2. Acceptance must prove that an aggregate reporting a
-total of `0` with buckets summing above zero renders an explicit inconsistency
-with the positive count intact and no fabricated percentage, through the shared
-primitive, in a component test AND on a real browser page.
-
-### Blocker C — data-source comprehension
-
-Detailed in Phase 5 items 3, 4 and 5. Acceptance must prove that a novice can
-answer, without searching: which source is degraded; can I inspect it; what does
-it contribute. It must also prove that an `Available` selected source is never
-presented as if it were itself unavailable.
-
-### Previously accepted and NOT reopened
-
-- namespaced canonical `OwnerKey`;
-- fuzzy `owner` search versus exact `ownerKey` filter;
-- `unidentifiedOwnership` as its own population;
-- ownership classification;
-- immutable Revision document semantics;
-- Markdown/Mermaid Product viewer;
-- Product information parity;
-- repository-basename reference heuristic removal;
-- `ReferenceRef.Name` heuristic removal;
-- query-aware stale-while-revalidate;
-- scroll restoration;
-- graph spatial persistence;
-- graph semantic refresh;
-- Services autocomplete;
-- Product API boundedness;
-- generated SDK as wire authority;
-- current typography role hierarchy;
-- current disclosure accessibility;
-- `PageToc` behaviour.
+Any chart must answer a real question, use authoritative aggregate data, not
+infer global truth from a page, preserve exact values, expose
+uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `d0dbad91`.
+Reviewed at exact HEAD `ea73e8e8`.
 
-Review-thread and CodeQL status must be re-established at the exact final SHA of
-the next pass, AFTER the final generated UI bundle is committed, and reported as
-three separate counts: unresolved authored threads; unresolved generated/minified
-vendor-bundle threads; threads resolved but outdated.
+Review threads at that SHA:
+
+- 0 unresolved authored-product threads;
+- 6 unresolved, CURRENT, non-outdated `github-code-quality` threads on the
+  generated asset `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7--EkgrGfx.js`;
+- older `D5F8W3En` threads are resolved/outdated.
+
+Generated Mermaid/minified assets must not be hand-edited. After the FINAL
+generated bundle of a pass is committed, review threads must be queried again
+and reported as unresolved authored / unresolved generated / current versus
+outdated, with the exact current generated path.
 
 The Security workflow's own status is a different claim from CodeQL alert
-attribution. Do not describe CodeQL alert provenance as independently established
-without inspecting the underlying alert records and their base/head evidence.
+attribution. Do not describe CodeQL alert provenance as independently
+established without inspecting the underlying alert records and their base/head
+evidence.
 
 Counts in a handoff are not evidence.
 
@@ -519,46 +411,28 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
-This is a NARROW Product-coherence pass. The previous iterations are
-substantially accepted and must not be reopened or redesigned.
+This is a VERY NARROW correction/cleanup pass. Everything in section 1 is
+accepted and must not be reopened or redesigned.
 
 The immediate next Claude session should:
 
-1. make contacts-only declared ownership readable on Service, Revision and
-   Operational Target detail through one shared ownership presentational
-   primitive, without fabricating a canonical Owner identity;
-2. keep the declared contact information reachable in the Revision inspector
-   through progressive disclosure;
-3. close contact-set semantics deliberately, with the counterexample written
-   first, so docs, implementation and schema agree;
-4. make a ranked owner row's visible identity independent of the ranking
-   truncation boundary;
-5. make an authoritative total of `0` with positive buckets render an explicit
-   inconsistency in the shared primitive;
-6. promote Data sources to a recognizable Overview section without adding a
-   fifth primary tab;
-7. separate selected-source health from Fleet knowledge completeness;
-8. rebuild Source detail as a Product inspector inside the existing visual
-   grammar, and define direct source records versus contributed Product
-   entities;
-9. add the browser counterexamples for all of the above without weakening the
-   existing suite;
-10. run the full verification matrix, rebuild the UI bundle cold, and audit the
-    review threads AFTER the final bundle commit;
-11. do not begin Phase 7.
-
-The design constraint is:
-
-```text
-fewer things competing simultaneously
-  + better visual summaries
-  + progressive disclosure
-  + direct drill-down
-```
-
-NOT `existing content + many more charts visible at once`.
-
-Once those re-close, freeze broad Product UI work again and proceed to Phase 7.
+1. fix the epistemic boundary so `ProductMeta.SourceCounts` is the authoritative
+   complete population for source-health arithmetic and `ProductMeta.Sources`
+   stays a bounded named preview;
+2. keep an explicit, small compatibility fallback for an absent `sourceCounts`,
+   and stop that fallback from claiming completeness when `sourcesTruncated` is
+   known true;
+3. add a discriminating unit fixture where a health bucket itself exceeds
+   `MaxMetaSources`;
+4. add one Product acceptance counterexample on a capped source population;
+5. remove the four local/agent tooling files from tracking with an append-only
+   commit, preserving them locally as untracked;
+6. audit and decide the incidental `go.work.sum` change with deterministic
+   evidence;
+7. verify the `d0dbad91...HEAD` diff carries no workstation/local artifacts;
+8. run the full verification matrix, rebuild the UI bundle cold, and re-audit
+   review threads AFTER the final bundle commit;
+9. not begin Phase 7.
 
 ## 11. Final-phase requirements already agreed
 
