@@ -97,6 +97,22 @@ test.describe('WCAG A/AA axe gate over product states', () => {
     await audit(page, ti);
   });
 
+  // A degraded data source: the source-health tones, the two landmarks in the page
+  // (contents rail and the health chip strip), and an error box drawn in the err
+  // palette -- the highest contrast risk on the page and the one a reader most needs
+  // to be able to read.
+  test('Data source detail (degraded)', async ({ page }, ti) => {
+    await page.goto('/#/fleet/sources/edge-cluster');
+    await expect(page.getByRole('heading', { level: 2, name: 'Reported failure' })).toBeVisible({ timeout: 20_000 });
+    await audit(page, ti);
+  });
+
+  test('Data sources inventory (health tally + filters)', async ({ page }, ti) => {
+    await page.goto('/#/fleet/sources');
+    await expect(page.getByTestId('source-tally')).toBeVisible({ timeout: 20_000 });
+    await audit(page, ti);
+  });
+
   // ── Light theme (reopen section 11.1: BOTH themes must clear AA contrast) ──
   // The badge/score/accent-heavy states are the highest contrast risk in light mode.
   test('LIGHT: Operational Overview', async ({ page }, ti) => {
@@ -117,6 +133,16 @@ test.describe('WCAG A/AA axe gate over product states', () => {
     await lightTheme(page);
     await page.goto('/#/fleet/services');
     await expect(page.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: 20_000 });
+    await audit(page, ti);
+  });
+
+  test('LIGHT: Data source detail (degraded) + inventory tally', async ({ page }, ti) => {
+    await lightTheme(page);
+    await page.goto('/#/fleet/sources/edge-cluster');
+    await expect(page.getByRole('heading', { level: 2, name: 'Reported failure' })).toBeVisible({ timeout: 20_000 });
+    await audit(page, ti);
+    await page.goto('/#/fleet/sources');
+    await expect(page.getByTestId('source-tally')).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });
 

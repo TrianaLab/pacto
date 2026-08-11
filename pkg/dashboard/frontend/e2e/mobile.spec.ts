@@ -221,3 +221,50 @@ test('a ranked bar keeps its number beside its label at 393px', async ({ page })
   expect(m.track.top).toBeGreaterThanOrEqual(m.label.bottom);
   expect(m.track.width).toBe(m.row);
 });
+
+/**
+ * The data source page at 393px.
+ *
+ * Its facts are a definition list that was, in an earlier shape, four items on one row:
+ * fine at 1440px and, on a phone, a Records label pushed off the right edge. And the
+ * contents rail is the other half of the same claim: at this width it is not a rail at
+ * all, it stacks above the body, and the body takes the whole viewport rather than the
+ * 200px column the desktop layout reserves for it.
+ */
+test('a data source fits the phone: facts stack, and nothing sits in a gutter', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page, '#/fleet/sources/edge-cluster'); // three sections: the rail's own minimum
+  // PageToc builds itself from the DOM through a MutationObserver, so it lands a beat
+  // after the sections do. Measuring before it exists reads a body that has the row to
+  // itself for a reason this test is not about.
+  await expect(page.locator('.toc')).toBeVisible();
+
+  const m = await page.evaluate(() => {
+    const rect = (el: Element) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), left: Math.round(b.left), right: Math.round(b.right), width: Math.round(b.width) }; };
+    const facts = [...document.querySelectorAll('.se-fact')].map((f) => ({
+      ...rect(f), label: f.querySelector('.se-k')!.textContent!.trim(),
+    }));
+    const main = document.querySelector('.page-toc-main')!;
+    return {
+      facts,
+      viewport: window.innerWidth,
+      main: rect(main),
+      rail: document.querySelector('.toc') ? rect(document.querySelector('.toc')!) : null,
+      overflow: document.documentElement.scrollWidth,
+    };
+  });
+
+  // Every fact is on its own row, in order, and none of them runs off the screen.
+  expect(m.facts.length).toBeGreaterThanOrEqual(3);
+  for (let i = 1; i < m.facts.length; i++) {
+    expect(m.facts[i].top, `"${m.facts[i].label}" beside "${m.facts[i - 1].label}"`).toBeGreaterThan(m.facts[i - 1].top);
+  }
+  for (const f of m.facts) expect(f.right, `"${f.label}" right edge`).toBeLessThanOrEqual(m.viewport);
+  expect(m.overflow, 'the page scrolls sideways').toBeLessThanOrEqual(m.viewport);
+
+  // The rail stacks ABOVE the body at this width rather than beside it, and the body
+  // gets the full column -- not the 200px track a desktop grid reserves.
+  expect(m.rail!.top).toBeLessThan(m.main.top);
+  expect(m.main.width).toBeGreaterThan(m.viewport * 0.85);
+  expect(m.main.width).toBeGreaterThan(m.rail!.width * 0.9);
+});
