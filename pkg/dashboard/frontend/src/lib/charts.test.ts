@@ -228,8 +228,8 @@ describe('renderOwnerBars', () => {
 
   it('widens the left margin so a long owner label fits without clipping', () => {
     const container = document.createElement('div');
-    // "platform-foundations" is the longest demo owner key (20 chars).
-    const longKey = 'platform-foundations';
+    // "platform-foundations-security" is the longest demo owner key (29 chars).
+    const longKey = 'platform-foundations-security';
     const data = [{ key: longKey, services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
 
     renderOwnerBars(container, data);
@@ -241,7 +241,7 @@ describe('renderOwnerBars', () => {
     const m = transform.match(/translate\(([\d.]+),/);
     expect(m).not.toBeNull();
     const marginLeft = parseFloat(m![1]);
-    // 20 chars * 7px + 16px padding = 156px, well above the old fixed 120.
+    // 29 chars * 7px + 16px padding = 219px, well above the old fixed 120.
     expect(marginLeft).toBeGreaterThanOrEqual(longKey.length * 7);
 
     // The viewBox width must include that wider margin.

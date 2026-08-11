@@ -122,7 +122,9 @@ test.describe('WASM demo — Phase-3 product pages', () => {
   test('L17: an owner navigates to one of its services', async ({ page }) => {
     await boot(page);
     await page.goto('/#/fleet/owners');
-    await expect(page.getByRole('heading', { name: 'Owners' })).toBeVisible({ timeout: T });
+    // Exact: the ownership summary's own heading starts with "Ownership", which a
+    // substring name match reads as this page's title too.
+    await expect(page.getByRole('heading', { name: 'Owners', exact: true })).toBeVisible({ timeout: T });
     const owner = page.locator('.lv-item a.entity-link').first();
     await expect(owner).toBeVisible({ timeout: T });
     await owner.click();

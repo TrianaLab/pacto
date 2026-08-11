@@ -160,7 +160,10 @@ test.describe('WASM demo — Services search suggests what exists', () => {
     await expect(opt).toBeVisible({ timeout: T });
     await opt.click();
 
-    await expect(page).toHaveURL(/owner=partner-integrations/, { timeout: T });
+    // A suggestion is the backend's own owner key, so picking it asks the EXACT question
+    // (`ownerKey`), not the substring search the box performs on what the reader types.
+    await expect(page).toHaveURL(/[?&]ownerKey=partner-integrations(&|$)/, { timeout: T });
+    await expect(page).not.toHaveURL(/[?&]owner=/);
     await expect(page.locator('[data-testid="service-list"] a[href$="/fleet/services/partners%2Fsettlement-service"]'))
       .toHaveCount(1, { timeout: T });
   });

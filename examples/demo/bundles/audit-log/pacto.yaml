@@ -3,14 +3,14 @@ service:
   name: audit-log
   version: 1.0.0
   owner:
-    team: platform-security
+    team: platform-foundations-security
     dri: nadia.osei
     contacts:
     - type: email
-      value: platform-security@acme.com
+      value: platform-foundations-security@acme.com
       purpose: escalation
     - type: chat
-      value: '#platform-security'
+      value: '#platform-foundations-security'
       purpose: support
 interfaces:
 - name: events

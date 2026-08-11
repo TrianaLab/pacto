@@ -144,6 +144,39 @@ test('the contents list says which section the reader is in', async ({ page }) =
   expect(cue.marker[0]).not.toBe(cue.marker[1]);
 });
 
+test('a section that parks lower than the rest is still the one the reader is in', async ({ page }) => {
+  test.setTimeout(240_000);
+  await revisionPage(page);
+
+  // Sections share a default scroll-margin-top today, and nothing makes them: one
+  // parking under a sticky sub-header clears more than a top-level section under the app
+  // bar. Give one section its own line, which is the case a single shared line gets wrong.
+  const chosen = (await page.locator(`${TOC} .toc-link`).allTextContents())[1].trim();
+  const id = await page.evaluate((wanted: string) =>
+    [...document.querySelectorAll('[data-toc][id]')].find((e) => e.getAttribute('data-toc') === wanted)!.id, chosen);
+  await page.addStyleTag({ content: `#${id} { scroll-margin-top: 320px; }` });
+
+  // The reader SCROLLS to it rather than clicking the entry: a click pins its own answer,
+  // which would let this pass on the pin instead of on the rule. Nothing is pinned here,
+  // so the marker is whatever the geometry rule computes at this scroll position.
+  expect(await scrollPast(page, chosen), `the page is too short to scroll "${chosen}" to its own line`).toBe(true);
+  const m = await page.evaluate((secId: string) => {
+    const first = document.querySelector('[data-toc][id]')!;
+    return {
+      top: Math.round(document.getElementById(secId)!.getBoundingClientRect().top),
+      shared: parseFloat(getComputedStyle(first).scrollMarginTop) || 0,
+    };
+  }, id);
+  // Where it came to rest has to be BELOW the line the page's other sections are
+  // measured against, or the two rules would agree here and this would prove nothing.
+  // Against one shared line taken from the first visible section this section reads as
+  // "not reached yet", and the marker sits on the section above it.
+  expect(m.top, `"${chosen}" rests at ${m.top}, above the shared line at ${m.shared}`)
+    .toBeGreaterThan(m.shared + 1);
+
+  await expect.poll(() => currentEntries(page), { timeout: 15_000 }).toEqual([chosen]);
+});
+
 test('choosing a section makes it current at once, and holds until the reader drives', async ({ page }) => {
   test.setTimeout(240_000);
   // Deliberately NOT reduced motion: the smooth scroll is the hazard being measured.
