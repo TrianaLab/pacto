@@ -476,6 +476,44 @@ describe('FleetSourcesView (G)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // ONE RENDERED PAGE, ONE POPULATION.
+  //
+  // This is the page that shows both answers at once: the tally is computed from
+  // meta.sourceCounts and the caveat above the list from the snapshot's knowledge. If
+  // the knowledge is derived by counting meta.sources -- which the backend caps at 50
+  // and sorts least-healthy-first -- then a fleet with 60 sources down renders "60
+  // unavailable" and "50 data sources are unavailable" in the same viewport, and a
+  // reader has no way to tell which number is the fleet's.
+  //
+  // The unit tests prove the function; only mounting the real view proves the two
+  // numbers on the page come from the same place.
+  it('the tally and the caveat above it cannot report different outages', async () => {
+    const resp = listResp(sourceRows(25), { total: 61, nextOffset: 25 });
+    resp.meta.completeness = 'partial';
+    // What the backend had room for: the 50 worst, all down. The one healthy source
+    // did not make the cut, and neither did ten of the outages.
+    resp.meta.sources = Array.from({ length: 50 }, (_, i) => ({ id: `src-${i}`, status: 'unavailable' }));
+    resp.meta.sourcesTruncated = true;
+    resp.meta.sourceCounts = { total: 61, available: 1, partial: 0, stale: 0, unavailable: 60 };
+    entitiesFn.mockResolvedValue(resp);
+    const { target, component } = mountView(FleetSourcesView);
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="source-tally"]')).toBeTruthy());
+
+    const tally = target.querySelector('[data-testid="source-tally"]') as HTMLElement;
+    expect(Array.from(tally.querySelectorAll('a')).map((a) => a.textContent))
+      .toEqual(['60 unavailable', '1 available']);
+
+    const banner = target.querySelector('.knowledge') as HTMLElement;
+    const caveat = (banner.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(caveat).toBe('The fleet snapshot is missing data. 60 data sources are unavailable, so this list may be incomplete.');
+    // The size of the preview is nowhere on the page, in either sentence.
+    expect(caveat).not.toContain('50');
+    expect(tally.textContent).not.toContain('50');
+    // ...and the severity is read off the same population: an outage, not a warning.
+    expect(banner.className).toContain('tone-err');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('says nothing at all when the backend sent no tally', async () => {
     // An older server, or a snapshot with no sources: a summary line reading
     // "Across every data source: ." is worse than no summary line.

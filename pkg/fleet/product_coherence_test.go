@@ -238,6 +238,56 @@ func TestProductMeta_SourceCountsSpanThePopulationTheListIsCutFrom(t *testing.T)
 	}
 }
 
+// ...AND THE CAP IS WHAT MAKES THAT TRUE, not the shape of the fixture.
+//
+// The test above is satisfied by a population whose unhealthy sources all fit inside
+// the cap: with one source down, the preview carries that one source and a consumer
+// counting the preview gets the right answer for the wrong reason. The counts only
+// become load-bearing when a single BUCKET outgrows the cut. Sixty sources down out
+// of sixty-one, and the preview is fifty unavailable sources -- counting it under-
+// reports the outage by ten and loses the one healthy source completely.
+//
+// So this fixture asserts the disagreement rather than tolerating it. If a future cap
+// or ordering change ever makes the preview agree with the population here, this test
+// fails and the frontend's reason for reading SourceCounts has to be re-argued.
+func TestProductMeta_SourceCountsSurviveAHealthBucketLargerThanTheCap(t *testing.T) {
+	const down = MaxMetaSources + 10
+	snap := &FleetSnapshot{Sources: []SourceState{{ID: "src-up", Status: SourceAvailable}}}
+	for i := 0; i < down; i++ {
+		snap.Sources = append(snap.Sources, SourceState{ID: fmt.Sprintf("src-%02d", i), Status: SourceUnavailable})
+	}
+	m := NewQuery(snap).ProductMeta()
+
+	want := SourceCounts{Total: down + 1, Available: 1, Unavailable: down}
+	if m.SourceCounts != want {
+		t.Errorf("sourceCounts = %+v, want %+v", m.SourceCounts, want)
+	}
+	if !m.SourcesTruncated || len(m.Sources) != MaxMetaSources {
+		t.Fatalf("sources = %d carried / truncated=%v, want the cut this test exists to survive",
+			len(m.Sources), m.SourcesTruncated)
+	}
+	var previewUnavailable, previewAvailable int
+	for _, s := range m.Sources {
+		switch s.Status {
+		case SourceUnavailable:
+			previewUnavailable++
+		case SourceAvailable:
+			previewAvailable++
+		}
+	}
+	// The preview is a floor on the outage and says nothing at all about health.
+	if previewUnavailable != MaxMetaSources || previewUnavailable >= m.SourceCounts.Unavailable {
+		t.Errorf("preview shows %d unavailable of %d carried; the population holds %d -- the "+
+			"fixture no longer discriminates a preview count from a population count",
+			previewUnavailable, len(m.Sources), m.SourceCounts.Unavailable)
+	}
+	if previewAvailable != 0 || m.SourceCounts.Available == 0 {
+		t.Errorf("preview shows %d available and the population %d, want the healthy source "+
+			"cut from the preview and still counted in the population",
+			previewAvailable, m.SourceCounts.Available)
+	}
+}
+
 // A status the product does not recognize is left OUT of the four buckets rather
 // than swept into one, so Total stays above their sum and a consumer drawing a
 // distribution shows the shortfall instead of a clean, wrong 100%.

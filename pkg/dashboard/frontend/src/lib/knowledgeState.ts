@@ -13,6 +13,7 @@
  */
 
 import { ApiError, SchemaCompatibilityError, ApiContractError } from './api.ts';
+import type { SourceCounts } from './entityLabels.ts';
 
 /**
  * CompletenessLevel is the worst knowledge level a snapshot's sources imply.
@@ -36,13 +37,23 @@ export interface SnapshotKnowledge {
    *  fully-understood empty snapshot (`empty`) is COMPLETE knowledge, so it is NOT
    *  incomplete. */
   incomplete: boolean;
+  /** countsBounded is true when the three counters above were read off a source list
+   *  the backend had already CUT, so each is a floor and not a total. Callers that
+   *  print the numbers must say so. */
+  countsBounded: boolean;
 }
 
 /** A minimal structural view of a product meta envelope (ProductMeta). */
 interface MetaLike {
   completeness?: string;
+  /** A bounded PREVIEW of the sources, capped by the backend at MaxMetaSources and
+   *  ordered least-healthy-first. Never a population to count. */
   sources?: Array<{ status?: string } | null> | null;
   sourcesTruncated?: boolean;
+  /** The tally over EVERY source in the snapshot (ProductMeta.SourceCounts), which is
+   *  what the counters here are for. Same type the Data sources tally reads, so the
+   *  caveat and the tally cannot drift apart. */
+  sourceCounts?: SourceCounts | null;
 }
 
 /**
@@ -51,18 +62,35 @@ interface MetaLike {
  * stale or unavailable makes knowledge incomplete even if `completeness` says
  * otherwise, so the strictest signal wins. A missing meta is `unknown` (we cannot
  * assert completeness we never received) and therefore incomplete.
+ *
+ * The health counters come from `sourceCounts`, the backend's tally over the whole
+ * source population -- NOT from `sources`, which is a preview the backend caps at
+ * MaxMetaSources after sorting the least healthy to the front. Counting the preview
+ * is right until a single health bucket outgrows the cap, and then it silently
+ * becomes a count of the worst 50 wearing the words "data sources are unavailable".
+ * On a fleet of 61 sources with 60 down, the Data sources tally reads 60 and the
+ * caveat directly above it used to read 50.
+ *
+ * `sources` is still counted when no tally arrives, because an uncut preview IS the
+ * population -- but if that preview was cut, the result is marked bounded so the
+ * wording can stop claiming a total it does not have.
  */
 export function snapshotKnowledge(meta: MetaLike | null | undefined): SnapshotKnowledge {
   if (!meta) {
-    return { level: 'unknown', degradedSources: 0, staleSources: 0, unavailableSources: 0, incomplete: true };
+    return { level: 'unknown', degradedSources: 0, staleSources: 0, unavailableSources: 0, incomplete: true, countsBounded: false };
   }
-  let degraded = 0, stale = 0, unavailable = 0;
-  for (const s of meta.sources ?? []) {
-    switch (s?.status) {
-      case 'partial': degraded++; break;
-      case 'stale': stale++; break;
-      case 'unavailable': unavailable++; break;
+  let degraded = 0, stale = 0, unavailable = 0, countsBounded = false;
+  if (meta.sourceCounts) {
+    ({ partial: degraded = 0, stale = 0, unavailable = 0 } = meta.sourceCounts);
+  } else {
+    for (const s of meta.sources ?? []) {
+      switch (s?.status) {
+        case 'partial': degraded++; break;
+        case 'stale': stale++; break;
+        case 'unavailable': unavailable++; break;
+      }
     }
+    countsBounded = meta.sourcesTruncated === true;
   }
   // Strictest-first: an unavailable source is the worst, then stale, then partial.
   // A degraded source ALWAYS wins over the declared completeness (so a source that
@@ -80,7 +108,7 @@ export function snapshotKnowledge(meta: MetaLike | null | undefined): SnapshotKn
   else level = 'unknown';
   return {
     level, degradedSources: degraded, staleSources: stale, unavailableSources: unavailable,
-    incomplete: level !== 'complete' && level !== 'empty',
+    incomplete: level !== 'complete' && level !== 'empty', countsBounded,
   };
 }
 
@@ -98,6 +126,10 @@ export function snapshotKnowledge(meta: MetaLike | null | undefined): SnapshotKn
  * Empty when no individual source is degraded — the snapshot is incomplete for a
  * reason the source list does not explain (a declared-partial completeness, or a
  * meta we never received), and the caller says so instead.
+ *
+ * When the counts are bounded (an old backend that sent a CUT source list and no
+ * tally) the sentence is prefixed with "at least", because the honest thing to do
+ * with a floor is to present it as one.
  */
 export function degradedSourceSummary(k: SnapshotKnowledge): string {
   const clauses: string[] = [];
@@ -113,9 +145,12 @@ export function degradedSourceSummary(k: SnapshotKnowledge): string {
     const subject = clauses.length === 0 ? `${n} data source${n === 1 ? '' : 's'}` : `${n}`;
     clauses.push(`${subject} ${verb} ${word}`);
   }
-  if (clauses.length <= 1) return clauses[0] ?? '';
+  if (clauses.length === 0) return '';
   // No serial comma: the last two clauses join with "and".
-  return `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]}`;
+  const sentence = clauses.length === 1
+    ? clauses[0]
+    : `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]}`;
+  return k.countsBounded ? `at least ${sentence}` : sentence;
 }
 
 /**

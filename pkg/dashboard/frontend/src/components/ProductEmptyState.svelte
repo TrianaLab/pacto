@@ -1,6 +1,7 @@
 <script>
   import EmptyState from './EmptyState.svelte';
   import { knowledgeLabel } from '../lib/entityLabels.ts';
+  import { degradedSourceSummary } from '../lib/knowledgeState.ts';
 
   // Renders a knowledgeState.ViewState honestly (requirement H). It NEVER renders a
   // blanket "all clear": an empty result under incomplete knowledge is shown as
@@ -48,9 +49,9 @@
     <svelte:element this={`h${level}`}>No {noun} known</svelte:element>
     <p>Knowledge is incomplete, so this is not a clean bill of health.</p>
     <span class="ps-knowledge">{knowledgeLabel(state.knowledge.level)}</span>
-    {#if state.knowledge.unavailableSources > 0}<p class="ps-detail">{state.knowledge.unavailableSources} source(s) unavailable.</p>{/if}
-    {#if state.knowledge.staleSources > 0}<p class="ps-detail">{state.knowledge.staleSources} source(s) stale.</p>{/if}
-    {#if state.knowledge.degradedSources > 0}<p class="ps-detail">{state.knowledge.degradedSources} source(s) partial.</p>{/if}
+    <!-- One sentence from the ONE place that words these counts, so this screen and
+         the KnowledgeBanner cannot describe different populations. -->
+    {#if degradedSourceSummary(state.knowledge)}<p class="ps-detail">{degradedSourceSummary(state.knowledge)}.</p>{/if}
     {#if onRetry}<button type="button" class="ps-btn" onclick={onRetry}>Retry</button>{/if}
   </div>
 {:else if state.kind === 'empty-fleet'}
@@ -74,6 +75,9 @@
     padding: 2px 8px; border-radius: var(--radius-xs);
   }
   .ps-detail { font-size: var(--text-sm); margin: 0; }
+  /* The sentence is built for mid-caveat use ("...at least 50 data sources are
+     unavailable, so..."); standing alone it starts a paragraph. */
+  .ps-detail::first-letter { text-transform: uppercase; }
   .ps-btn {
     margin-top: var(--sp-2); background: none; border: 1px solid var(--c-border);
     border-radius: var(--radius-xs); color: var(--c-accent); font: inherit;
