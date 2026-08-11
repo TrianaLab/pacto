@@ -282,7 +282,19 @@ echo "== a semantically-corrupt immutable record surfaces a degraded store =="
 kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'set -e; d=$(find /var/lib/pacto/evidence -type d -name envelopes | head -1); [ -n "$d" ]; printf "{not-a-record}" > "$d/zzzz-corrupt.json"'
 kubectl -n "$NS" rollout restart deployment/pacto-evidence >/dev/null
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
-kubectl -n "$NS" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>/dev/null | grep -qiE 'degraded|corrupt' \
+# Poll, like every other post-restart assertion here: `rollout status` returns when the
+# new pod is Ready, and readiness is gated on recovery having STARTED, so a single shot
+# can read the store a moment before the scan reaches the corrupt object -- and `exec
+# deploy/...` can still pick the terminating pod. The claim is that the store surfaces
+# the corruption, not that it does so within one round trip.
+degraded=false
+for _ in $(seq 1 30); do
+  if kubectl -n "$NS" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>/dev/null | grep -qiE 'degraded|corrupt'; then
+    degraded=true; break
+  fi
+  sleep 2
+done
+[ "$degraded" = true ] \
   && pass "store reports degraded with the corrupt record surfaced (usable records retained)" \
   || fail "store did not surface the corrupt record as degraded"
 kill "$EV_PF_PID" "$DASH_PF_PID" 2>/dev/null || true
