@@ -390,6 +390,38 @@ describe('product design system', () => {
   });
 
   /**
+   * Requirement 17: ONE page scaffold, in ONE place.
+   *
+   * The Operational graph and Change analysis sat at different distances from the app
+   * bar. The cause was not a missing margin on one page: every product view carried a
+   * PRIVATE copy of the same shell rule, the copies had drifted to two different gap
+   * values, and one view had no shell at all and inherited whatever its first child
+   * brought. Eight near-identical rules cannot stay identical.
+   *
+   * `workspace-geometry.spec.ts` measures the result in the browser, which is the real
+   * acceptance. This is the cheap source-level companion: it names the file that opened
+   * a ninth copy, in the unit run, before anything is built.
+   */
+  it('roots every product page on the one shared page scaffold', () => {
+    // Pages, not page CONTENTS: `views/entity/*` are the per-kind bodies rendered
+    // inside the entity page, and a body that opened its own shell would be a page
+    // inside a page.
+    const PAGES = PRODUCT_SURFACES.filter((f) => /^views\/[^/]+\.svelte$/.test(f.rel));
+    // Comments and `<svelte:*>` bindings render nothing, so they may precede the shell.
+    const ROOT = /<\/script>\s*(?:(?:<!--[\s\S]*?-->|<svelte:[^>]*>)\s*)*<div class="product-page">/;
+    const offenders = PAGES.filter((f) => !ROOT.test(f.body)).map((f) => f.rel);
+    expect(offenders, `a product page with a shell of its own:\n  ${offenders.join('\n  ')}`).toEqual([]);
+    expect(PAGES.length, 'no product pages were scanned').toBeGreaterThan(6);
+
+    // The scaffold itself lives in the shared stylesheet, once, and lays the page out.
+    // Without this the rule above would be satisfiable by a class nobody styles.
+    expect(globalCss, 'the shared page scaffold must be declared once, globally')
+      .toMatch(/\.product-page\s*\{[^}]*flex-direction:\s*column[^}]*gap:/);
+    expect(PAGES.filter((f) => /\.product-page\s*\{/.test(f.body)).map((f) => f.rel),
+      'a product page redeclaring the shared scaffold').toEqual([]);
+  });
+
+  /**
    * A role class only wins if nothing outranks it. `.section-title` is the legacy V1
    * uppercase micro-label at --text-sm; put it on the same element as a role class and
    * the cascade picks the legacy rule, so a subsection title rendered a step SMALLER

@@ -126,7 +126,7 @@
   }));
 </script>
 
-<div class="overview">
+<div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview' }]} />
   <PageHeader title="Operational overview" />
 
@@ -277,7 +277,6 @@
 </div>
 
 <style>
-  .overview { display: flex; flex-direction: column; gap: var(--sp-5); }
   .band, .ov-section { display: flex; flex-direction: column; gap: var(--sp-3); }
   /* A band is a question, so it is separated by space and a hairline rather than by a
      card: three nested boxes on a page already inside a shell is chrome, not structure. */
