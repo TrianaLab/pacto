@@ -74,9 +74,14 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
       .getByRole('link', { name: 'Readiness gate' }).click();
     await expect(page).toHaveURL(/#\/fleet\/attention\?category=readiness/, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: T });
-    // The old bookmark lands in the same place rather than mounting a second definition.
+    // The old bookmark lands on the revision inventory rather than mounting a second
+    // definition. Readiness is declared BY a contract revision and assessed against the
+    // threshold that revision set for itself, so the population it describes is the
+    // revisions -- the attention list is the queue of things to do about them, which is
+    // a different question and was the wrong home for the word.
     await page.goto('/#/readiness');
-    await expect(page).toHaveURL(/#\/fleet\/attention\?category=readiness$/, { timeout: T });
+    await expect(page).toHaveURL(/#\/fleet\/revisions$/, { timeout: T });
+    await expect(page.getByRole('heading', { level: 1, name: 'Contract revisions' })).toBeVisible({ timeout: T });
     await expectNoLegacyScreen(page);
   });
 
@@ -224,7 +229,9 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
       ['/#/services', /#\/fleet\/services$/],
       ['/#/graph', /#\/fleet\/graph$/],
       ['/#/owners', /#\/fleet\/owners$/],
-      ['/#/readiness', /#\/fleet\/attention\?category=readiness$/],
+      // Readiness is a property of a contract revision, so the legacy screen's URL
+      // canonicalizes onto the revision inventory that carries the readiness figure.
+      ['/#/readiness', /#\/fleet\/revisions$/],
       ['/#/diff', /#\/fleet\/changes/],
       ['/#/fleet/impact/payments-service', /#\/fleet\/changes\//],
     ] as [string, RegExp][]) {

@@ -63,7 +63,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   test('Live Demo entry: the no-hash demo URL lands on the Operational Overview', async ({ page }) => {
     await page.goto('/'); // the real no-hash demo entry, NOT a manually appended hash
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 }); // canonicalized to the fleet home
-    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 }); // Operational Overview is the first product screen
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 }); // Operational Overview is the first product screen
   });
 
   test('Live Demo entry: an explicit deep link is preserved (not canonicalized)', async ({ page }) => {
@@ -75,9 +75,10 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page).toHaveURL(/#\/fleet\/services$/, { timeout: 20_000 });
     // A legacy route WITHOUT a product equivalent is preserved verbatim; one WITH a
     // product equivalent canonicalizes instead of mounting a second UI. Readiness has
-    // one (it is triaged as a Needs-attention category), so it canonicalizes.
+    // one -- the contract revision inventory, which is the population readiness is
+    // declared over -- so it canonicalizes there.
     await page.goto('/#/readiness');
-    await expect(page).toHaveURL(/#\/fleet\/attention\?category=readiness$/, { timeout: 20_000 });
+    await expect(page).toHaveURL(/#\/fleet\/revisions$/, { timeout: 20_000 });
   });
 
   test('the embedded fleet loads (product service list)', async ({ page }) => {
@@ -92,7 +93,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   test('M1: /demo/#/ canonicalizes to the operational overview', async ({ page }) => {
     await page.goto('/#/');
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: 20_000 });
-    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
   });
 
   test('M2: the legacy Services list canonicalizes to the product Services list (no legacy view)', async ({ page }) => {
@@ -301,12 +302,12 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByRole('link', { name: 'Services' }).first()).toHaveAttribute('href', '#/fleet/services', { timeout: 20_000 });
     await page.locator('.navbar-brand').first().click();
     await expect(page).toHaveURL(/#\/fleet$/); // the canonical fleet home, not the legacy #/
-    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
   });
 
   test('honesty: a healthy status report is never a blanket "all clear" when items exist', async ({ page }) => {
     await page.goto('/#/fleet');
-    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
   });
 
   test('workflow: a legacy Compare bookmark lands in Change analysis, not a legacy screen', async ({ page }) => {

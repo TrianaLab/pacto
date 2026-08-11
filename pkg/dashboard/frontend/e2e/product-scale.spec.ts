@@ -98,6 +98,22 @@ function installScaleInterceptor(): void {
       doc.entities = entities;
       doc.total = 25000; doc.count = entities.length; doc.offset = offset; doc.limit = limit;
       doc.truncated = true; doc.nextOffset = offset + limit;
+      // The inventory figures are computed by the BACKEND over the whole matching
+      // population, so they are part of this response and must describe the same 25,000
+      // services the rest of it describes. Leaving the demo's real aggregate here would
+      // put an 18-service distribution beside a 25,000-service total -- a contradiction
+      // this fixture manufactured rather than one the product committed.
+      const [compliant, nonCompliant, unknown, notEvaluated] = split(25000, 4);
+      const [consistent, conflicting, unowned] = split(25000, 3);
+      doc.aggregate = {
+        matched: 25000,
+        serviceCompliance: { compliant, nonCompliant, unknown, notEvaluated },
+        ownership: { consistent, conflicting, unowned },
+        byOwner: Array.from({ length: 10 }, (_, i) => ({
+          owner: `team-${String(i).padStart(3, '0')}`, services: 2000 - i * 100, targets: 4000 - i * 200,
+        })),
+        distinctOwners: 900, otherOwners: 10500,
+      };
       return { status: res.status, body: JSON.stringify(doc), contentType: res.contentType };
     }
 
@@ -172,10 +188,17 @@ test.describe('Product lists stay bounded and honest at scale', () => {
 
     // Both truths, and neither standing in for the other: what exists, and what is shown.
     await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25000/)).toBeVisible();
-    // The one chart on this page counts the 25 rendered rows, so it must SAY it is a page
-    // -- a page distribution read as a fleet distribution is the exact lie requirement 8
-    // exists to prevent.
-    await expect(page.getByText(/This page only\s+[—-]\s+25 of 25000/)).toBeVisible();
+    // The figures on this page describe the POPULATION, not the 25 rendered rows, and they
+    // say which -- a page distribution read as a fleet distribution is the exact lie
+    // requirement 8 exists to prevent. The denominator is 25,000 and the legend adds up
+    // to it, on a screen showing 25 services.
+    await expect(page.getByText('All 25000 services in the snapshot.').first()).toBeVisible();
+    await expect(page.getByText('(25% of 25000)').first()).toBeVisible();
+    // And the per-owner ranking says how much of the population it leaves out, rather
+    // than reading as a complete breakdown of 900 owners.
+    await page.locator('.sv-inv-more summary').click();
+    await expect(page.getByText(/Top 10 of 900 declared owners by service count\./)).toBeVisible();
+    await expect(page.getByText(/The remaining 890 of 900 owners account for 10500 more services\./)).toBeVisible();
 
     // Paging forward is real navigation into the same bounded page size.
     await page.getByTestId('svc-next').click();

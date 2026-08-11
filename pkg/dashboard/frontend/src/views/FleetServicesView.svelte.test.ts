@@ -260,6 +260,29 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  /**
+   * The two distributions describe the whole selection and stay on the page; the two
+   * per-owner rankings answer the follow-up and cost ten touch-sized rows each, so they
+   * sit behind the shared disclosure. Open, the four figures put the service list two
+   * and a half screens down on a phone -- on the page a reader opens to find a service.
+   */
+  it('keeps the distributions in view and the per-owner rankings one disclosure away', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 40, aggregate: AGG }));
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const more = target.querySelector('.sv-inv-more') as HTMLDetailsElement;
+    expect(more.open).toBe(false);
+    // Named, counted, and nothing deleted: both rankings are inside it.
+    expect(more.querySelector('summary')?.textContent?.replace(/\s+/g, ' ').trim())
+      .toContain('Per-owner breakdown 5 declared owners');
+    expect(Array.from(more.querySelectorAll('.hb-title')).map((n) => n.textContent))
+      .toEqual(['Services per owner', 'Operational targets per owner']);
+    // And the distributions are NOT behind it.
+    expect(Array.from(target.querySelectorAll('.sv-inventory > .sv-inv-grid .dist-title')).map((n) => n.textContent))
+      .toEqual(['Compliance', 'Declared ownership']);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('draws no inventory when the filters select nothing to aggregate', async () => {
     entitiesFn.mockResolvedValue(listResp([svc('a')], { total: 1, aggregate: { ...AGG, matched: 0 } }));
     const { target, component } = mountView();

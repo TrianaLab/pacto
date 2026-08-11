@@ -105,6 +105,9 @@ test.describe('typography hierarchy on mobile', () => {
 test('a ranked bar keeps its number beside its label at 393px', async ({ page }) => {
   test.setTimeout(240_000);
   await boot(page, '#/fleet/services');
+  // The rankings sit behind the per-owner disclosure, which is where a figure that costs
+  // ten touch-sized rows belongs on a phone.
+  await page.locator('.sv-inv-more summary').click();
   await expect(page.locator('.hb-row .hb-inner').first()).toBeVisible();
 
   const m = await page.evaluate(() => {

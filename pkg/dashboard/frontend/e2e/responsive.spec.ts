@@ -9,7 +9,7 @@ const WIDTHS = [320, 375];
 // Product routes reachable by hash. Target detail shares the FleetEntityView layout with
 // service detail (the same component), so service detail exercises the entity-page layout.
 const ROUTES: Array<{ hash: string; ready: (p: Page) => Promise<unknown> }> = [
-  { hash: '#/fleet', ready: (p) => expect(p.getByText('Needs attention')).toBeVisible({ timeout: 20_000 }) },
+  { hash: '#/fleet', ready: (p) => expect(p.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/services', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/attention', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: 20_000 }) },
   { hash: '#/fleet/owners', ready: (p) => expect(p.getByRole('heading', { level: 1, name: 'Owners' })).toBeVisible({ timeout: 20_000 }) },
@@ -77,7 +77,7 @@ for (const w of WIDTHS) {
 
     test('the mobile navigation menu opens within the body', async ({ page }) => {
       await page.goto('/#/fleet');
-      await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
       const hamburger = page.getByRole('button', { name: 'Menu' });
       if (await hamburger.isVisible()) {
         await hamburger.click();

@@ -44,7 +44,7 @@ test.describe('WCAG A/AA axe gate over product states', () => {
   test('Operational Overview', async ({ page }, ti) => {
     await ready(page);
     await page.goto('/#/fleet');
-    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });
 
@@ -102,7 +102,7 @@ test.describe('WCAG A/AA axe gate over product states', () => {
   test('LIGHT: Operational Overview', async ({ page }, ti) => {
     await lightTheme(page);
     await page.goto('/#/fleet');
-    await expect(page.getByText('Needs attention')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });
 

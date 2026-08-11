@@ -139,6 +139,7 @@
   const rankedTargets = $derived((agg?.byOwner ?? []).map((o) => ({
     label: o.owner, value: o.targets, tone: 'info', href: urlWith({ owner: o.owner }),
   })));
+  const distinctOwners = $derived(agg?.distinctOwners ?? 0);
   const rankNote = $derived.by(() => {
     const other = agg?.otherOwners ?? 0;
     const distinct = agg?.distinctOwners ?? 0;
@@ -253,25 +254,42 @@
           segments={ownershipOfMatch}
           total={matched}
         />
-        <HorizontalBars
-          title="Services per owner"
-          description="Who carries the most of this selection."
-          scopeNote={rankNote}
-          items={ranked}
-          unit="services"
-          unitOne="service"
-          emptyLabel="Nothing here has a single declared owner to rank by."
-        />
-        <HorizontalBars
-          title="Operational targets per owner"
-          description="How much is actually running behind each of those owners."
-          scopeNote="Same owners, in the same service-count order as above — this is not a ranking by target count."
-          items={rankedTargets}
-          unit="targets"
-          unitOne="target"
-          emptyLabel="None of these owners has anything running yet."
-        />
       </div>
+      <!-- The two per-owner rankings are one disclosure away, and the two distributions
+           above are not. Both answer questions this page owes the reader, but only the
+           distributions answer them about the population as a whole -- the rankings ask
+           a follow-up ("who carries it"), and they cost ten touch-sized rows each. Open,
+           the four figures pushed the service list to 1180px on a desktop and 2346px on
+           a phone: two and a half screens of analysis in front of the list a reader came
+           here to search. Nothing is deleted, the count is on the summary, and the state
+           is native. -->
+      <details class="disclosure sv-inv-more">
+        <summary>
+          <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+          <span>Per-owner breakdown</span>
+          <span class="sv-more-count t-meta">{distinctOwners} declared {distinctOwners === 1 ? 'owner' : 'owners'}</span>
+        </summary>
+        <div class="sv-inv-grid">
+          <HorizontalBars
+            title="Services per owner"
+            description="Who carries the most of this selection."
+            scopeNote={rankNote}
+            items={ranked}
+            unit="services"
+            unitOne="service"
+            emptyLabel="Nothing here has a single declared owner to rank by."
+          />
+          <HorizontalBars
+            title="Operational targets per owner"
+            description="How much is actually running behind each of those owners."
+            scopeNote="Same owners, in the same service-count order as above — this is not a ranking by target count."
+            items={rankedTargets}
+            unit="targets"
+            unitOne="target"
+            emptyLabel="None of these owners has anything running yet."
+          />
+        </div>
+      </details>
     </section>
   {/if}
 
@@ -324,12 +342,14 @@
   .sv-viewall:hover { text-decoration: underline; }
   /* Same track rule as PostureBars: two charts side by side where there is room, one on
      a phone. Charts across the product line up instead of each picking a breakpoint. */
-  /* TWO columns where there is room, never three. The four figures are two pairs -- two
-     distributions, then two per-owner rankings -- and at three columns the pairs split
-     across rows: a ten-row chart set the height of a row holding two four-row bars, and
-     the block opened with a screenful of empty space beside them. Two columns puts each
-     pair on its own row, where both members are the same height by construction. */
+  /* TWO columns where there is room, never three. The figures come in pairs -- the two
+     distributions, then the two per-owner rankings -- and at three columns the pairs
+     split across rows: a ten-row chart set the height of a row holding two four-row
+     bars, and the block opened with a screenful of empty space beside them. A grid per
+     pair puts each on its own row, where both members are the same height. */
   .sv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--sp-4); align-items: start; }
+  .sv-more-count { color: var(--c-text-3); }
+  .sv-inv-more[open] > .sv-inv-grid { margin-top: var(--sp-3); }
   .sv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .sv-item {
     display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
