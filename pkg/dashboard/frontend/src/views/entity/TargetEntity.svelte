@@ -4,6 +4,7 @@
   } from '../../lib/entityLabels.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
+  import OwnershipFact from '../../components/OwnershipFact.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import FindingList from '../../components/FindingList.svelte';
@@ -100,7 +101,7 @@
     {#if d.ownership}
       <div class="te-fact">
         <span class="te-k">Owner</span>
-        {#if d.ownership.ref}<EntityLink ref={d.ownership.ref} showStatus={false} showKind={false} />{:else}<span>{d.ownership.owner || 'Unowned'}</span>{/if}
+        <OwnershipFact ownership={d.ownership} />
       </div>
     {/if}
   </section>

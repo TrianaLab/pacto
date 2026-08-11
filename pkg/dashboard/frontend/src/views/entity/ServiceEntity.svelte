@@ -3,6 +3,7 @@
   import { abbreviateDigests } from '../../lib/format.ts';
   import { formatDate } from '../../lib/dateFormat.ts';
   import EntityLink from '../../components/EntityLink.svelte';
+  import OwnershipFact from '../../components/OwnershipFact.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
   import EntityRefList from '../../components/EntityRefList.svelte';
   import RelationshipList from '../../components/RelationshipList.svelte';
@@ -69,7 +70,7 @@
     {#if d.ownership}
       <div class="se-fact">
         <span class="se-k">Owner</span>
-        {#if d.ownership.ref}<EntityLink ref={d.ownership.ref} showStatus={false} showKind={false} />{:else}<span>{d.ownership.owner || 'Unowned'}</span>{/if}
+        <OwnershipFact ownership={d.ownership} />
       </div>
     {/if}
   </section>

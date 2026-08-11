@@ -49,7 +49,12 @@
     <p class="hb-empty">{emptyLabel}</p>
   {:else}
     <ul class="hb-list">
-      {#each rows as r (r.label)}
+      <!-- Keyed on the DESTINATION, not the label. A ranked comparison of owners can
+           legitimately hold two rows reading `alice` (a team and a DRI), and a label
+           key turns that into a crash rather than two bars. The href is the row's
+           canonical identity wherever it has one; the index keeps rows without a
+           destination distinct. -->
+      {#each rows as r, i (r.href || `${r.label}#${i}`)}
         <li class="hb-row tone-{r.tone || 'info'}">
           {#if r.href}
             <a class="hb-inner" href={r.href}>

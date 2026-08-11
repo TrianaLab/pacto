@@ -118,10 +118,39 @@ describe('DistributionBar', () => {
   });
 
   // A population of zero with buckets in it is the same contradiction at the edge:
-  // nothing exists, and yet three things have been classified.
-  it('flags buckets counted against a population of zero', () => {
+  // nothing exists, and yet seven things have been classified. It is the one case
+  // where the denominator cannot carry a percentage, and "0% of 0" is not the
+  // degenerate version of a share — it is a measurement of a quantity that does not
+  // exist, and it reads as the reassuring one.
+  it('shows the counts without inventing a share of a population of zero', () => {
     comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 0 } });
-    expect(target.querySelector('[data-testid="dist-inconsistent"]')?.textContent).toContain('7');
+
+    const warn = target.querySelector('[data-testid="dist-inconsistent"]');
+    expect(warn).not.toBeNull();
+    expect(warn?.getAttribute('role')).toBe('status');
+    const text = warn?.textContent || '';
+    expect(text).toContain('7');            // what the buckets account for
+    expect(text).toContain('population of 0');  // the authoritative denominator, unmoved
+    expect(text).toContain('no population to take a share of');
+
+    const legend = target.querySelector('.dist-legend')?.textContent || '';
+    // Every contradicting count stays visible — the buckets are not suppressed for
+    // disagreeing with the total.
+    for (const s of segments) {
+      expect(legend).toContain(s.label);
+      expect(legend).toContain(String(s.value));
+    }
+    // No fabricated percentage, in either direction: not a plausible zero, and not a
+    // valid-looking distribution rescaled onto the bucket sum.
+    expect(legend).not.toContain('% of 0');
+    expect(legend).not.toContain('0%');
+    expect(legend).not.toContain('100%');
+    expect(legend).not.toContain('of 7');
+    expect(legend).toContain('(share unavailable)');
+    // And no Unclassified remainder invented to make zero look accounted for.
+    expect(legend).not.toContain('Unclassified');
+    // The bar is marked inconsistent too, so the shape does not contradict the words.
+    expect(target.querySelector('.dist-bar')?.classList.contains('dist-bar-warn')).toBe(true);
   });
 
   it('falls back to the population sum when no total is given', () => {

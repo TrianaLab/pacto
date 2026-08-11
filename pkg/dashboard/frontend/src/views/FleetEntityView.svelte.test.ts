@@ -91,7 +91,7 @@ describe('FleetEntityView — unified entity route', () => {
     // "SERVICE [SERVICE] app" and "OWNER [OWNER] team/platform" is what makes a page
     // read like a form. The caption names the relation; the chip is then redundant.
     const d = targetDetail();
-    d.target.ownership = { owner: 'team/platform', ref: { kind: 'owner', key: 'team/platform', label: 'team/platform', href: '/fleet/owners/team%2Fplatform' } };
+    d.target.ownership = { owner: 'team/platform', declared: true, ref: { kind: 'owner', key: 'team/platform', label: 'team/platform', href: '/fleet/owners/team%2Fplatform' } };
     detailFn.mockResolvedValue(d);
     const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.textContent).toContain('team/platform'));
@@ -263,7 +263,7 @@ describe('FleetEntityView — rich service page (D)', () => {
       actions: ['open-graph', 'compare', 'impact'],
       service: {
         domain: 'domain-a',
-        ownership: { owner: 'team-a', ref: ref('owner', 'team-a'), conflicts: { total: 2, count: 2, truncated: false, items: ['team-a', 'team-b'] } },
+        ownership: { owner: 'team-a', declared: true, ref: ref('owner', 'team-a'), conflicts: { total: 2, count: 2, truncated: false, items: ['team-a', 'team-b'] } },
         revisions: { total: 5, count: 2, truncated: true, items: [ref('revision', 'domain-a/payments@1.0'), ref('revision', 'domain-a/payments@2.0')] },
         deployments: { total: 1, count: 1, truncated: false, items: [ref('target', 'prod/k8s/payments')] },
         dependencies: { total: 3, count: 1, truncated: true, items: [ref('service', 'domain-b/ledger')] },
@@ -323,6 +323,7 @@ describe('FleetEntityView — rich service page (D)', () => {
     const d = serviceDetail();
     d.service.ownership = {
       owner: 'team-a',
+      declared: true,
       ref: ref('owner', 'team-a'),
       conflicts: { total: 3, count: 1, truncated: true, items: [`domain-a/payments@${digest}: team-b`] },
     };
@@ -457,7 +458,7 @@ describe('FleetEntityView — rich revision page (E)', () => {
     // The backend emits the owner ref for both, so the trail out to "everything this
     // team owns" does not dead-end on the revision page.
     const d = revisionDetail();
-    d.revision.ownership = { owner: 'team-a', ref: ref('owner', 'team-a') };
+    d.revision.ownership = { owner: 'team-a', declared: true, ref: ref('owner', 'team-a') };
     detailFn.mockResolvedValue(d);
     const { target, component } = await mountView('revision', 'domain-a/payments@2.1.0');
     await vi.waitFor(() => expect(target.textContent).toContain('team-a'));
@@ -661,7 +662,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
       revision: {
         service: ref('service', 'domain-a/app'), version: '1.2.3', valid: true,
         identity: { retrievable: true, identityClass: 'exact', digest: 'sha256:1' },
-        ownership: { owner: 'platform', ref: ref('owner', 'platform'), conflicts: { total: 0, count: 0, truncated: false, items: [] } },
+        ownership: { owner: 'platform', declared: true, ref: ref('owner', 'platform'), conflicts: { total: 0, count: 0, truncated: false, items: [] } },
         readiness: {
           score: 80, minScore: 70, doneCount: 3, partialCount: 1, notDoneCount: 1, deferredCount: 0, passing: true, expired: false,
           checks: { total: 5, count: 2, truncated: true, items: [

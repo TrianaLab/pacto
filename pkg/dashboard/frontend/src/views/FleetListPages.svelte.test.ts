@@ -160,8 +160,8 @@ describe('FleetOwnersView (G)', () => {
       matched: 4, services: 4,
       ownership: { consistent: 4, conflicting: 0, unowned: 0 },
       byOwner: [
-        { key: 'team:alice', label: 'alice', kind: 'team', services: 3, targets: 3 },
-        { key: 'dri:alice', label: 'alice', kind: 'dri', services: 1, targets: 1 },
+        { key: 'team:alice', label: 'alice', kind: 'team', ambiguous: true, services: 3, targets: 3 },
+        { key: 'dri:alice', label: 'alice', kind: 'dri', ambiguous: true, services: 1, targets: 1 },
       ],
       beyondRanking: 0, unidentifiedOwnership: 0, rankedOwners: 2, distinctOwners: 2,
     });
@@ -174,6 +174,49 @@ describe('FleetOwnersView (G)', () => {
       ['alice (Team)', '#/fleet/services?ownerKey=team%3Aalice&ownership=consistent'],
       ['alice (DRI)', '#/fleet/services?ownerKey=dri%3Aalice&ownership=consistent'],
     ]);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  /**
+   * THE counterexample the visible rows cannot answer. `team:alice` ranks; `dri:alice`
+   * places one past the bound and is counted in `beyondRanking` instead. Deciding
+   * whether to qualify a label by looking at the rows on screen sees exactly one alice
+   * and prints it bare — so the row's identity would depend on how many owners happened
+   * to fit, and the same owner would read differently on two pages of the same fleet.
+   * The backend decides it over the whole population, and the row obeys.
+   */
+  it('keeps the namespace on a label whose collider fell past the ranking bound', async () => {
+    respondByKind(listResp(owners(2), { total: 2 }), {
+      matched: 4, services: 4,
+      ownership: { consistent: 4, conflicting: 0, unowned: 0 },
+      byOwner: [
+        { key: 'team:alice', label: 'alice', kind: 'team', ambiguous: true, services: 3, targets: 3 },
+      ],
+      beyondRanking: 1, unidentifiedOwnership: 0, rankedOwners: 2, distinctOwners: 2,
+    });
+    const { target, component } = mountView(FleetOwnersView);
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
+    const bars = Array.from(target.querySelectorAll('.ow-sum-grid .hbars'));
+    const rows = Array.from(bars[0].querySelectorAll('.hb-row'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector('.hb-label')?.textContent).toBe('alice (Team)');
+    expect(rows[0].querySelector('a')?.getAttribute('href'))
+      .toBe('#/fleet/services?ownerKey=team%3Aalice&ownership=consistent');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  /** And the other half: nothing collides, so nothing is qualified. */
+  it('leaves an uncontested owner label unqualified', async () => {
+    respondByKind(listResp(owners(2), { total: 2 }), {
+      matched: 4, services: 4,
+      ownership: { consistent: 4, conflicting: 0, unowned: 0 },
+      byOwner: [{ key: 'team:alice', label: 'alice', kind: 'team', services: 4, targets: 4 }],
+      beyondRanking: 0, unidentifiedOwnership: 0, rankedOwners: 1, distinctOwners: 1,
+    });
+    const { target, component } = mountView(FleetOwnersView);
+    await vi.waitFor(() => expect(aggregateDrawn(target)).toBeTruthy());
+    const bars = Array.from(target.querySelectorAll('.ow-sum-grid .hbars'));
+    expect(bars[0].querySelector('.hb-label')?.textContent).toBe('alice');
     unmount(component); document.body.removeChild(target);
   });
 

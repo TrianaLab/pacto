@@ -1,6 +1,7 @@
 <script>
   import { retrievabilityLabel, retrievabilityTone } from '../../lib/entityLabels.ts';
   import EntityLink from '../../components/EntityLink.svelte';
+  import OwnershipFact from '../../components/OwnershipFact.svelte';
   import CopyableIdentifier from '../../components/CopyableIdentifier.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
   import PreviewSection from '../../components/PreviewSection.svelte';
@@ -71,7 +72,7 @@
     {#if o}
       <div class="re-fact">
         <span class="re-k">Owner</span>
-        {#if o.ref}<EntityLink ref={o.ref} showStatus={false} showKind={false} />{:else}<span>{o.owner || 'Unowned'}</span>{/if}
+        <OwnershipFact ownership={o} />
       </div>
     {/if}
   </section>
@@ -89,6 +90,33 @@
         {#if id.resolvedRef}<div class="re-idrow"><span class="re-k">Resolved ref</span><CopyableIdentifier value={id.resolvedRef} /></div>{/if}
         {#if id.requestedRef && id.requestedRef !== id.resolvedRef}<div class="re-idrow"><span class="re-k">Requested ref</span><CopyableIdentifier value={id.requestedRef} /></div>{/if}
       </div>
+    </details>
+  {/if}
+
+  {#if o?.contacts?.count}
+    <!-- The declared contact block, on the entity that declared it. The facts strip
+         above answers WHO owns this (or says there is no identity to route to); this
+         answers HOW to reach whoever that is, which for a contacts-only owner is the
+         entire declaration and was previously unreadable anywhere in the product.
+         It stays a disclosure and stays text: a contact point is metadata, never an
+         owner identity, so nothing here links to an owner page. -->
+    <details class="re-contacts disclosure">
+      <summary>
+        <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+        Declared contacts ({o.contacts.total})
+      </summary>
+      <ul class="re-contactrows">
+        {#each o.contacts.items as c, i (`${c.type}:${c.value}:${c.purpose ?? ''}:${i}`)}
+          <li class="re-contactrow">
+            <span class="re-k">{c.type || 'contact'}</span>
+            <CopyableIdentifier value={c.value} />
+            {#if c.purpose}<span class="re-cpurpose">{c.purpose}</span>{/if}
+          </li>
+        {/each}
+      </ul>
+      {#if o.contacts.truncated}
+        <p class="re-ctrunc t-body-2">Showing {o.contacts.count} of {o.contacts.total} declared contact points.</p>
+      {/if}
     </details>
   {/if}
 
@@ -452,6 +480,10 @@
   .re-facts, .re-idrows, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .re-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .re-contactrows { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  .re-contactrow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+  .re-cpurpose { font-size: var(--text-sm); color: var(--c-text-3); }
+  .re-ctrunc { margin: var(--sp-2) 0 0; color: var(--c-text-3); }
   .re-readiness, .re-sbom { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   .re-readiness { display: flex; flex-direction: column; gap: var(--sp-3); }
   .rr-head { display: flex; align-items: baseline; gap: var(--sp-3); }

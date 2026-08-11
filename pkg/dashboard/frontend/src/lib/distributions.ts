@@ -208,6 +208,13 @@ export interface OwnerCount {
   label?: string;
   /** `team` or `dri` — the namespace that tells two same-named owners apart. */
   kind?: string;
+  /**
+   * Another canonical owner ANYWHERE in the matched population carries this same
+   * label, so the row has to show its namespace to name one owner. Decided over the
+   * whole population, not the ranked rows: the colliding owner may be the one the
+   * ranking cut off.
+   */
+  ambiguous?: boolean;
   services?: number;
   targets?: number;
 }
@@ -275,13 +282,18 @@ export function ownerRanking(agg: OwnerRankingTally | undefined, href: (ownerKey
   // The namespace is shown only where it is load-bearing — on the rows a reader
   // could otherwise not tell apart. Two owners called alice must not be two
   // identical bars; every other row reads as the name its owner authored.
-  const seen = new Map<string, number>();
-  for (const o of rows) seen.set(o.label || '', (seen.get(o.label || '') ?? 0) + 1);
+  //
+  // Which rows those are is the BACKEND's answer (`ambiguous`), computed over the
+  // whole population, and deliberately not recomputed from the rows on screen. With
+  // `team:alice` ranked first and `dri:alice` one place past the bound, the visible
+  // rows contain exactly one alice, so counting them would print an unqualified
+  // `alice` — a label whose meaning changed because of how many owners happened to
+  // fit. Identity cannot depend on the truncation boundary.
   const kindOf = (o: OwnerCount) => (o.kind === 'dri' ? 'DRI' : o.kind === 'team' ? 'Team' : '');
   const rowLabel = (o: OwnerCount) => {
     const label = o.label || o.key || '';
     const kind = kindOf(o);
-    return (seen.get(o.label || '') ?? 0) > 1 && kind ? `${label} (${kind})` : label;
+    return o.ambiguous && kind ? `${label} (${kind})` : label;
   };
   const row = (o: OwnerCount, value: number | undefined): Segment => ({
     label: rowLabel(o),

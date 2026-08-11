@@ -29,6 +29,14 @@
   //                words — because a reader acting on "100% classified" when eight
   //                services were classified ten times is acting on nothing.
   //
+  // The limit of that last case is total == 0 with buckets that counted something.
+  // The denominator still does not move — 0 is an authoritative answer, and the
+  // contradiction is the point — but a SHARE of an empty population does not exist.
+  // Printing "3 (0% of 0)" states a measurement: it says three of nothing is nought
+  // percent, which is not a smaller version of the truth but a different claim. So
+  // the counts stay, the over-count stays, and the percentage is withdrawn and said
+  // to be unavailable rather than rendered as a plausible zero.
+  //
   // The inconsistency notice is TEXT, not a colour: this component's whole contract
   // is that nothing is conveyed by colour or shape alone.
   let {
@@ -58,8 +66,13 @@
     ...segments.map((s) => ({ ...s, value: s.value || 0 })),
     ...(rest > 0 ? [{ label: 'Unclassified', value: rest, tone: 'neutral' }] : []),
   ].filter((s) => s.value > 0));
+  // An authoritative population of zero that the buckets nonetheless counted against.
+  // Distinct from "nothing to show": there IS something on screen, and it contradicts
+  // the denominator.
+  const emptyPopulation = $derived(denom === 0 && rows.length > 0);
   // One decimal, and only as a companion to the exact count -- never as a replacement.
-  const pct = (v) => (denom > 0 ? Math.round((v / denom) * 1000) / 10 : 0);
+  // With no population there is no share to be a companion to, so the row says so.
+  const pctLabel = (v) => (denom > 0 ? `(${Math.round((v / denom) * 1000) / 10}% of ${denom})` : '(share unavailable)');
 </script>
 
 <figure class="dist">
@@ -81,8 +94,14 @@
         <strong>These numbers do not add up.</strong>
         The buckets below account for {sum} across a population of {denom}
         — {over} more than {denom === 1 ? 'there is' : 'there are'}. Something is
-        being counted twice or against the wrong population, so read the percentages
-        as suspect: they are shares of {denom}, and they total more than 100%.
+        being counted twice or against the wrong population,
+        {#if emptyPopulation}
+          and there is no population to take a share of, so the counts below are shown
+          without percentages rather than as shares of zero.
+        {:else}
+          so read the percentages as suspect: they are shares of {denom}, and they
+          total more than 100%.
+        {/if}
       </p>
     {/if}
     <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true">
@@ -98,13 +117,13 @@
               <span class="dist-swatch" aria-hidden="true"></span>
               <span class="dist-label">{r.label}</span>
               <span class="dist-value">{r.value}</span>
-              <span class="dist-pct">({pct(r.value)}% of {denom})</span>
+              <span class="dist-pct">{pctLabel(r.value)}</span>
             </a>
           {:else}
             <span class="dist-swatch" aria-hidden="true"></span>
             <span class="dist-label">{r.label}</span>
             <span class="dist-value">{r.value}</span>
-            <span class="dist-pct">({pct(r.value)}% of {denom})</span>
+            <span class="dist-pct">{pctLabel(r.value)}</span>
           {/if}
         </li>
       {/each}
