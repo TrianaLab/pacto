@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // Result-bounding defaults. Queries are bounded so an agent or UI can never be
@@ -132,16 +134,16 @@ func (e *AmbiguousError) Error() string {
 // SearchFilter constrains a service search. The zero value matches everything
 // (subject to the default result bound).
 //
-// Predicates fall into two groups. SERVICE-LEVEL predicates (Text, Owner,
-// Status, Source) and REVISION-EXISTENTIAL predicates (Workload, HasCapability,
+// Predicates fall into two groups. SERVICE-LEVEL predicates (Status, Source) and
+// REVISION-EXISTENTIAL predicates (Text, Owner, Workload, HasCapability,
 // HasDependency) match when ANY revision of the service qualifies — there is no
 // hidden "representative"/latest revision. TARGET-CORRELATED predicates
 // (Labels, Scope, Compliance, and — when a target predicate is present —
 // ReadyOnly/NotReady) must all hold for the SAME target and its LINKED revision,
 // so "production" and "not ready" can never come from two different targets.
 type SearchFilter struct {
-	Text          string            // substring over service name and owner
-	Owner         string            // matches team, DRI, or a contact value
+	Text          string            // substring over service name and any declared owner
+	Owner         string            // any revision's owner matches this team, DRI or contact value
 	Labels        map[string]string // all pairs must match one target's labels
 	Scope         string            // a target of the service has this scope
 	Status        string            // service aggregate status (canonical value)
@@ -268,8 +270,8 @@ func cloneStringMap(m map[string]string) map[string]string {
 // the same target and its linked revision.
 func (q *Query) serviceMatches(s *ServiceRecord, f SearchFilter) bool {
 	checks := []bool{
-		matchText(s, f.Text),
-		matchOwner(s, f.Owner),
+		q.matchText(s, f.Text),
+		q.matchOwner(s, f.Owner),
 		matchEq(f.Status, s.Status),
 		matchSource(s, f.Source),
 		q.anyRevisionWorkload(s, f.Workload),
@@ -316,16 +318,30 @@ func (q *Query) matchTargetCorrelated(s *ServiceRecord, f SearchFilter) bool {
 	return false
 }
 
-func matchText(s *ServiceRecord, text string) bool {
+func (q *Query) matchText(s *ServiceRecord, text string) bool {
 	if text == "" {
 		return true
 	}
-	text = strings.ToLower(text)
-	return strings.Contains(strings.ToLower(s.Name), text) || s.Owner.MatchesFilter(text)
+	return strings.Contains(strings.ToLower(s.Name), strings.ToLower(text)) || q.matchOwner(s, text)
 }
 
-func matchOwner(s *ServiceRecord, owner string) bool {
-	return owner == "" || s.Owner.MatchesFilter(owner)
+func (q *Query) matchOwner(s *ServiceRecord, owner string) bool {
+	return owner == "" || q.ownerClaims(s, func(o contract.Owner) bool { return o.MatchesFilter(owner) })
+}
+
+// ownerClaims is THE ownership question, asked once and answered the same way by
+// every surface that filters, aggregates or drills down by owner: a service is
+// associated with an owner when AT LEAST ONE of its revisions declares one that
+// satisfies pred. Ownership is authored per revision; ServiceRecord.Owner is only
+// the summary deriveOwner reads off the lowest-keyed revision, so asking it
+// instead answers a different question — it hands a service the two teams
+// dispute to whichever of them the revision key order happened to favour, and
+// hides it from the other. "Consistently owned by x" is this predicate plus
+// OwnershipConsistent, never a narrower reading of the predicate itself.
+func (q *Query) ownerClaims(s *ServiceRecord, pred func(contract.Owner) bool) bool {
+	return s != nil && q.anyRevision(s, func(r *ContractRevision) bool {
+		return r != nil && pred(r.Owner)
+	})
 }
 
 func matchEq(want, have string) bool { return want == "" || want == have }

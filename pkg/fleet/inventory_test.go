@@ -28,21 +28,25 @@ func readinessSection(status, expires string) *contract.Readiness {
 }
 
 // inventoryRevision is one contract in the inventory fixture: a service name, the
-// owner its revision declares and the readiness it declares.
+// owner its revision declares, the readiness it declares and, optionally, the
+// scope of one operational target running it.
 type inventoryRevision struct {
 	service  string
 	owner    contract.Owner
 	ready    *contract.Readiness
 	distinct string // content that makes two same-version revisions distinct
+	target   string // scope of one target running this revision, if any
 }
 
-// inventoryFleet builds a snapshot from revision declarations alone: no targets, no
-// sources beyond the one local collection. Ownership and readiness are properties of
-// what was AUTHORED, so a fixture that declares nothing else keeps each assertion
-// about the authored facts rather than about runtime.
+// inventoryFleet builds a snapshot from revision declarations, plus whatever
+// targets those declarations asked for, from a single local collection. Ownership
+// and readiness are properties of what was AUTHORED, so a fixture that declares
+// little else keeps each assertion about the authored facts rather than about
+// runtime.
 func inventoryFleet(t *testing.T, revs ...inventoryRevision) *Query {
 	t.Helper()
 	raw := make([]RawRevision, 0, len(revs))
+	var targets []RawTarget
 	for i, r := range revs {
 		c := &contract.Contract{
 			PactoVersion: "2.0",
@@ -50,12 +54,19 @@ func inventoryFleet(t *testing.T, revs ...inventoryRevision) *Query {
 			Readiness:    r.ready,
 		}
 		fsys := fstest.MapFS{"note.txt": {Data: []byte(r.distinct)}}
+		digest := fmt.Sprintf("sha256:rev%d", i)
 		raw = append(raw, RawRevision{
 			Bundle: &contract.Bundle{Contract: c, FS: fsys},
-			Digest: fmt.Sprintf("sha256:rev%d", i),
+			Digest: digest,
 		})
+		if r.target != "" {
+			targets = append(targets, RawTarget{
+				Scope: r.target, Kind: "k8s", Name: r.service, Service: r.service,
+				Digest: digest, Compliance: StatusCompliant, EvidenceAt: ptrTime(fixedNow()),
+			})
+		}
 	}
-	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: raw}))
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", &Collection{Revisions: raw, Targets: targets}))
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

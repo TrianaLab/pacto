@@ -251,7 +251,13 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     expect(note).toContain('Top 2 of 5 declared owners by service count.');
     expect(note).toContain('The remaining 3 of 5 owners account for 4 more services.');
     expect(note).toContain('Services with no owner, or whose revisions name different owners, appear in no row here.');
-    expect(services.querySelector('.hb-row a')?.getAttribute('href')).toBe('#/fleet/services?owner=team-a');
+    // A row counts team-a's CONSISTENTLY owned services, so its destination carries
+    // ownership too: owner=team-a alone also selects what team-a co-owns, which is a
+    // longer list than the bar the reader clicked.
+    expect(services.querySelector('.hb-row a')?.getAttribute('href'))
+      .toBe('#/fleet/services?owner=team-a&ownership=consistent');
+    expect(targets.querySelector('.hb-row a')?.getAttribute('href'))
+      .toBe('#/fleet/services?owner=team-a&ownership=consistent');
     // Targets per owner keeps the service-count order and says so, rather than
     // re-sorting a top-N-by-services list and presenting it as a target ranking.
     expect(Array.from(targets.querySelectorAll('.hb-label')).map((n) => n.textContent)).toEqual(['team-a', 'team-b']);

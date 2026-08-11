@@ -608,8 +608,25 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	// The aggregate is accumulated in the SAME walk that builds the previews, over the
 	// same records, so the summary and the lists can never describe two populations.
 	var sum OwnerSummary
-	for _, s := range q.snap.Services {
-		if s.Owner.DisplayString() != key {
+	// The estate is read off the DECLARATIONS, in one walk over the revisions: a
+	// service belongs here when any of its revisions names this owner, which is the
+	// same rule [Query.ownerClaims] applies to every owner filter. Reading it off
+	// ServiceRecord.Owner instead would show an owner one revision of a disputed
+	// service and none of the service that revision belongs to.
+	claimed := map[ServiceKey]bool{}
+	for _, r := range q.snap.Revisions {
+		if r.Owner.DisplayString() == key {
+			claimed[r.ServiceKey] = true
+			revisions = append(revisions, revisionEntityRef(r))
+			// Read validity from the authoritative snapshot record: revisionStatus knows
+			// the difference between "validated and invalid" and "never validated".
+			if revisionStatus(r) == StatusInvalid {
+				sum.InvalidRevisions++
+			}
+		}
+	}
+	for sk, s := range q.snap.Services {
+		if !claimed[sk] {
 			continue
 		}
 		services = append(services, serviceEntityRef(s))
@@ -617,16 +634,6 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 			if t := q.snap.Targets[tk]; t != nil {
 				deployments = append(deployments, targetEntityRef(t))
 				sum.addTarget(t)
-			}
-		}
-	}
-	for _, r := range q.snap.Revisions {
-		if r.Owner.DisplayString() == key {
-			revisions = append(revisions, revisionEntityRef(r))
-			// Read validity from the authoritative snapshot record: revisionStatus knows
-			// the difference between "validated and invalid" and "never validated".
-			if revisionStatus(r) == StatusInvalid {
-				sum.InvalidRevisions++
 			}
 		}
 	}

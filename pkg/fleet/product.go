@@ -735,10 +735,11 @@ func (q *Query) attentionMatches(it AttentionItem, f AttentionFilter) bool {
 // optEq reports whether an optional filter value (empty means unset) matches have.
 func optEq(want, have string) bool { return want == "" || want == have }
 
-// serviceOwnedBy reports whether the service identified by key is owned by owner.
+// serviceOwnedBy reports whether the service identified by key is owned by owner,
+// through the one rule in [Query.ownerClaims] — a team that co-owns a service must
+// see that service's attention items, not be told they are somebody else's problem.
 func (q *Query) serviceOwnedBy(key, owner string) bool {
-	s := q.snap.Services[ServiceKey(key)]
-	return s != nil && s.Owner.MatchesFilter(owner)
+	return q.matchOwner(q.snap.Services[ServiceKey(key)], owner)
 }
 
 // sortAttention orders items by severity, then category, then label, so the most

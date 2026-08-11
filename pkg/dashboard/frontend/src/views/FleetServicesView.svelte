@@ -133,11 +133,17 @@
   // rows do not add up to the matched population and are never drawn as if they did.
   // Each row narrows THIS query by that owner rather than jumping to the owner page, so
   // the filters the reader already set survive the click.
+  //
+  // It counts only CONSISTENTLY owned services, so the drill-down carries ownership as
+  // well as the owner. `owner=x` alone means "some revision names x", which also selects
+  // the services x co-owns with somebody else -- a destination bigger than the bar that
+  // sent the reader there.
+  const rankHref = (o) => urlWith({ owner: o.owner, ownership: 'consistent' });
   const ranked = $derived((agg?.byOwner ?? []).map((o) => ({
-    label: o.owner, value: o.services, tone: 'info', href: urlWith({ owner: o.owner }),
+    label: o.owner, value: o.services, tone: 'info', href: rankHref(o),
   })));
   const rankedTargets = $derived((agg?.byOwner ?? []).map((o) => ({
-    label: o.owner, value: o.targets, tone: 'info', href: urlWith({ owner: o.owner }),
+    label: o.owner, value: o.targets, tone: 'info', href: rankHref(o),
   })));
   const distinctOwners = $derived(agg?.distinctOwners ?? 0);
   const rankNote = $derived.by(() => {

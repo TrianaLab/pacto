@@ -9,8 +9,12 @@ import (
 // EntityFilter constrains a global entity search (requirement 2.2). The zero
 // value matches every entity of every kind, bounded by the default limit.
 type EntityFilter struct {
-	Text   string
-	Kinds  []EntityKind // empty means every kind
+	Text  string
+	Kinds []EntityKind // empty means every kind
+	// Owner matches an entity when AT LEAST ONE contract revision behind it
+	// declares an owner matching the filter — see [Query.ownerClaims]. Both teams
+	// disputing a service therefore find it. Narrow to "consistently owned by this
+	// team" by pairing Owner with Ownership: OwnershipConsistent.
 	Owner  string
 	Domain string
 	Scope  string
@@ -396,17 +400,18 @@ func matchEntityText(r EntityRef, text string) bool {
 // using the same structured [contract.Owner.MatchesFilter] semantics (a
 // case-insensitive substring over team, DRI and contacts) that attention and the
 // rest of the product layer use - never a bare exact display-string comparison.
-// A source has no owner and never matches. Every reference here comes from
-// [candidateRefs], so its key maps to a real record.
+// A service (and the targets that belong to it) is asked through [Query.ownerClaims],
+// so both co-owners of a disputed service can find it; a revision declares its
+// own owner and is asked directly. A source has no owner and never matches.
+// Every reference here comes from [candidateRefs], so its key maps to a real record.
 func (q *Query) entityOwnedBy(r EntityRef, owner string) bool {
 	switch r.Kind {
 	case KindService:
-		return q.snap.Services[ServiceKey(r.Key)].Owner.MatchesFilter(owner)
+		return q.matchOwner(q.snap.Services[ServiceKey(r.Key)], owner)
 	case KindRevision:
 		return q.snap.Revisions[RevisionKey(r.Key)].Owner.MatchesFilter(owner)
 	case KindTarget:
-		s := q.snap.Services[ServiceKey(r.ParentService)]
-		return s != nil && s.Owner.MatchesFilter(owner)
+		return q.matchOwner(q.snap.Services[ServiceKey(r.ParentService)], owner)
 	case KindOwner:
 		// An owner entity is identified only by its display string; match it with
 		// the same case-insensitive substring rule MatchesFilter applies.
