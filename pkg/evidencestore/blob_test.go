@@ -47,6 +47,48 @@ func TestCommit_DuringRecovery_BlocksThenSeesReady(t *testing.T) {
 	}
 }
 
+// Close must not release the bucket out from under an operation still reading it.
+// The ingestion host recovers in the BACKGROUND, so a serve that fails at once
+// closes the store while the scan is still running; blob.ReadAll read-locks the
+// bucket for itself and again for the reader it opens, so a Close arriving between
+// the two locks parks the writer behind a reader parked behind the writer and
+// shutdown never returns. Close waits for the current operation instead, exactly
+// as Commit does.
+func TestClose_DuringRecovery_WaitsForTheScanToFinish(t *testing.T) {
+	ctx := context.Background()
+	s := driftStore(t, []byte(`{"records":1}`))
+
+	midScan := make(chan struct{})
+	release := make(chan struct{})
+	orig := readAll
+	var once sync.Once
+	readAll = func(ctx context.Context, bucket *blob.Bucket, key string) ([]byte, error) {
+		once.Do(func() { close(midScan); <-release })
+		return orig(ctx, bucket, key)
+	}
+	t.Cleanup(func() { readAll = orig })
+
+	recovered := make(chan error, 1)
+	go func() { _, err := s.Recover(ctx); recovered <- err }()
+	<-midScan // recovery now holds b.mu mid-scan
+
+	closed := make(chan error, 1)
+	go func() { closed <- s.Close() }()
+	select {
+	case err := <-closed:
+		t.Fatalf("Close released the bucket while recovery was still reading it (err=%v)", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	if err := <-recovered; err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if err := <-closed; err != nil {
+		t.Errorf("close once the scan is done: %v", err)
+	}
+}
+
 func fixedClock() func() time.Time {
 	t := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	return func() time.Time { return t }

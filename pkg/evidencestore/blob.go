@@ -553,8 +553,19 @@ func bucketScheme(url string) string {
 	return strings.SplitN(url, "://", 2)[0]
 }
 
-// Close releases the underlying bucket.
-func (b *BlobStore) Close() error { return b.bucket.Close() }
+// Close releases the underlying bucket, under mu so it can never land in the
+// middle of an operation still using it. Recovery runs in the background behind
+// the ingestion host, so a store that fails to start closes while its recovery
+// scan is still reading: blob.Bucket.ReadAll read-locks the bucket for itself and
+// again for the reader it opens, and a Close arriving between the two parks the
+// writer behind a reader that is parked behind the writer. Shutdown then never
+// returns. Taking mu makes the release wait for the current operation instead,
+// which is what "release the bucket" has to mean for every caller.
+func (b *BlobStore) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.bucket.Close()
+}
 
 // immutableKey builds the immutable record key: producer and envelope ids are
 // hashed so arbitrary characters never escape the layout, and the sequence is
