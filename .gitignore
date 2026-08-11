@@ -1,5 +1,8 @@
 # Built binary (root only; do not ignore the cmd/pacto source directory)
 /pacto
+# ...and wherever a local GOBIN puts it. `make build` writes to $(GOBIN), which is
+# ./bin on some setups, and a 49MB Mach-O once reached a branch that way.
+/bin/
 
 # IDE
 .idea/
