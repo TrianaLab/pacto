@@ -44,6 +44,27 @@ async function figure(page: Page, title: string): Promise<Figure> {
 
 const sum = (b: Bucket[]) => b.reduce((n, x) => n + x.value, 0);
 
+/** Reads a rendered HorizontalBars ranking by its caption, as a reader sees it. */
+async function ranking(page: Page, title: string): Promise<Figure> {
+  const f = await page.evaluate((t: string) => {
+    const cap = [...document.querySelectorAll('.hb-title')].find((h) => h.textContent!.trim() === t);
+    if (!cap) return null;
+    const fig = cap.closest('figure')!;
+    const text = (sel: string) => fig.querySelector(sel)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    return {
+      scope: text('.hb-scope'),
+      description: text('.hb-desc'),
+      buckets: [...fig.querySelectorAll('.hb-row')].map((li) => ({
+        label: li.querySelector('.hb-label')!.textContent!.trim(),
+        value: Number(li.querySelector('.hb-value')!.textContent!.trim().split(/\s+/)[0]),
+        href: li.querySelector('a')?.getAttribute('href') ?? '',
+      })),
+    };
+  }, title);
+  expect(f, `no ranking titled "${title}" on this page`).not.toBeNull();
+  return f!;
+}
+
 /** The pager's own count of the population, which is the rows' side of the claim. */
 async function pagerTotal(page: Page, sel: string): Promise<number> {
   const text = (await page.locator(sel).first().textContent()) ?? '';
@@ -127,6 +148,146 @@ test('Services: ownership coverage is a distribution of services, and it drills 
   await page.getByRole('link', { name: 'Browse owners' }).click();
   await expect(page).toHaveURL(/#\/fleet\/owners/, { timeout: 30_000 });
   await expect(page.getByRole('heading', { level: 1, name: 'Owners' })).toBeVisible({ timeout: 30_000 });
+});
+
+/**
+ * OWNERS. The page's inventory answers "who exists"; the summary above it answers "is
+ * this fleet owned", which is a question about SERVICES and cannot be read off a roster
+ * of owners at all -- a service nobody claims has no row there, and a service two teams
+ * claim has two.
+ *
+ * So the summary is deliberately not the page's own population, and the tests below are
+ * about exactly that seam: it must stay whole while the roster underneath it is searched
+ * and paged, and every bucket it draws must open the population it counted.
+ */
+test('Owners: the ownership picture is the whole fleet, whatever the roster underneath is showing', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page, '#/fleet/owners');
+  await expect(page.getByTestId('owner-list')).toBeVisible({ timeout: 30_000 });
+
+  const roster = await pagerTotal(page, '.lv-range');
+  const f = await figure(page, 'Declared ownership');
+  const services = Number(f.scope.match(/^All (\d+) services/)?.[1]);
+  expect(services, `the summary does not say what it counted: "${f.scope}"`).toBeGreaterThan(0);
+  expect(f.scope).toContain('whatever this page is filtered or paged to');
+  // Two populations, two numbers. If these were ever equal by construction the summary
+  // would be a second rendering of the roster rather than a second question.
+  expect(services).not.toBe(roster);
+  expect(sum(f.buckets), 'the coverage buckets do not add up to the service population').toBe(services);
+
+  // Search the roster down. The picture above it must not move: paging an inventory
+  // cannot be allowed to redraw what "this fleet's ownership" means.
+  // One owner's own name -- taken from the row's href, because the visible label carries
+  // the entity kind in front of it. A term guaranteed to select fewer rows than the roster.
+  const href = (await page.getByTestId('owner-list').locator('li a').first().getAttribute('href'))!;
+  const term = decodeURIComponent(href.split('/').pop()!);
+  await page.evaluate((t: string) => { location.hash = `/fleet/owners?text=${encodeURIComponent(t)}`; }, term);
+  await expect.poll(() => pagerTotal(page, '.lv-range'), { timeout: 30_000 }).toBeLessThan(roster);
+  expect(await figure(page, 'Declared ownership')).toEqual(f);
+
+  // And page it, to the second owner onward -- a different set of rows, the same fleet.
+  await page.evaluate(() => { location.hash = '/fleet/owners?offset=1'; });
+  await expect(page.locator('.lv-range')).toHaveText(/^Showing 2/, { timeout: 30_000 });
+  expect(await pagerTotal(page, '.lv-range')).toBe(roster);
+  expect(await figure(page, 'Declared ownership')).toEqual(f);
+});
+
+test('Owners: a coverage bucket opens exactly the services it counted', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page, '#/fleet/owners');
+  await expect(page.getByTestId('owner-list')).toBeVisible({ timeout: 30_000 });
+
+  const f = await figure(page, 'Declared ownership');
+  const populated = f.buckets.filter((b) => b.value > 0);
+  // More than one, or the drill-down would be trivially the whole fleet. The demo fleet
+  // has services whose revisions disagree about who owns them, on purpose.
+  expect(populated.length, `only one populated bucket: ${JSON.stringify(f.buckets)}`).toBeGreaterThan(1);
+
+  for (const b of populated) {
+    await follow(page, b);
+    await expect(page.locator('.sv-range')).toContainText(`of ${b.value}`, { timeout: 30_000 });
+    expect(await page.getByTestId('service-list').locator('> li').count(),
+      `"${b.label}" selected ${b.value} services and rendered none of them`).toBeGreaterThan(0);
+    // The destination's own coverage figure is that one bucket and nothing else, which
+    // is only true if both sides mean the same thing by it.
+    const dest = await figure(page, 'Declared ownership');
+    expect(dest.buckets.map((x) => x.label), `"${b.label}" landed on a list that is not that bucket`).toEqual([b.label]);
+    expect(dest.buckets[0].value).toBe(b.value);
+    await page.goBack();
+    await expect(page.getByTestId('owner-list')).toBeVisible({ timeout: 30_000 });
+  }
+});
+
+test('Owners: a ranked owner opens exactly the services it counted, and says what it left out', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page, '#/fleet/owners');
+  await expect(page.getByTestId('owner-list')).toBeVisible({ timeout: 30_000 });
+
+  const consistent = (await figure(page, 'Declared ownership')).buckets
+    .find((b) => b.label === 'One declared owner')!;
+  await page.locator('.ow-sum-more summary').click();
+  const rank = await ranking(page, 'Services per owner');
+  expect(rank.buckets.length).toBeGreaterThan(0);
+
+  // The rows are a BOUND, not the roster, and the note reconciles the difference: the
+  // ranked owners plus the ones past the cut account for every consistently owned
+  // service, and the rest of the fleet belongs to no row here.
+  const other = Number(rank.scope.match(/account for (\d+) more services?/)?.[1] ?? 0);
+  expect(sum(rank.buckets) + other,
+    `${rank.buckets.length} ranked rows + ${other} others do not add up to the ${consistent.value} consistently owned services`)
+    .toBe(consistent.value);
+  expect(rank.scope).toContain('appear in no row here');
+
+  // A row counts the services CONSISTENTLY owned by that team, so its destination has to
+  // say both -- owner alone would open a longer list than the row the reader clicked.
+  const top = rank.buckets[0];
+  expect(top.href).toMatch(/[?&]ownership=consistent(&|$)/);
+  await follow(page, top);
+  await expect(page.locator('.sv-range')).toContainText(`of ${top.value}`, { timeout: 30_000 });
+  expect(await pagerTotal(page, '.sv-range'), `"${top.label}" ranked ${top.value} services and opened a different number`)
+    .toBe(top.value);
+});
+
+/**
+ * The counterexample the ownership model is built around: ownership is authored on each
+ * contract REVISION, so a service whose revisions name different teams is claimed by
+ * both and cleanly owned by neither. Every surface has to answer that the same way, or a
+ * bar and its own drill-down disagree.
+ */
+test('Owners: both teams disputing a service can find it, and neither owns it cleanly', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page, '#/fleet/services?ownership=conflicting');
+  await expect(page.getByTestId('service-list')).toBeVisible({ timeout: 30_000 });
+
+  // Discovered from the product API, so this follows the fixture rather than pinning a
+  // service name: a disputed service, and every owner who can reach it by name.
+  const disputed = await page.evaluate(async () => {
+    const get = async (q: string) => (await (await fetch(`/api/fleet/entities?${q}`)).json()).entities || [];
+    const svc = (await get('kinds=service&ownership=conflicting&limit=1'))[0];
+    if (!svc) return null;
+    const claimants: string[] = [];
+    for (const o of await get('kinds=owner&limit=200')) {
+      const mine = await get(`kinds=service&owner=${encodeURIComponent(o.key)}&limit=200`);
+      if (mine.some((s: { key: string }) => s.key === svc.key)) claimants.push(o.key);
+    }
+    return { key: svc.key, label: svc.label || svc.key, claimants };
+  });
+  expect(disputed, 'the demo fleet has no service whose revisions disagree about its owner').not.toBeNull();
+  // Both of them, not just whichever revision the summary happened to pick.
+  expect(disputed!.claimants.length, `only ${JSON.stringify(disputed!.claimants)} can see ${disputed!.key}`)
+    .toBeGreaterThanOrEqual(2);
+
+  const rows = () => page.getByTestId('service-list').locator('> li').allTextContents();
+  for (const owner of disputed!.claimants) {
+    // owner=x means "at least one revision of this service names x". Both teams find it.
+    await page.evaluate((o: string) => { location.hash = `/fleet/services?owner=${encodeURIComponent(o)}`; }, owner);
+    await expect.poll(rows, { timeout: 30_000 }).toEqual(expect.arrayContaining([expect.stringContaining(disputed!.label)]));
+
+    // Adding "consistently owned" is what narrows it, and it must exclude the disputed
+    // service for BOTH claimants -- neither team owns it outright.
+    await page.evaluate((o: string) => { location.hash = `/fleet/services?owner=${encodeURIComponent(o)}&ownership=consistent`; }, owner);
+    await expect.poll(rows, { timeout: 30_000 }).not.toEqual(expect.arrayContaining([expect.stringContaining(disputed!.label)]));
+  }
 });
 
 test('Revisions: the readiness figure covers every revision, and a bucket opens the revisions in it', async ({ page }) => {

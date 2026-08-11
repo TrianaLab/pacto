@@ -14,7 +14,10 @@ import { boot, canonicalKeys } from './typographyChecks';
  *     and tells them they arrived somewhere they cannot see;
  *   * the list is not a second meaning for the URL fragment. This is a hash-routed
  *     product: an `href="#section-id"` would leave the route, and Back would then walk
- *     through jump targets instead of pages.
+ *     through jump targets instead of pages;
+ *   * and WHICH entry is current, which is a question about scroll position and about
+ *     nothing else -- jsdom has no layout, so the rule can only be exercised there
+ *     against rects the test itself invented.
  */
 
 const TOC = '[data-testid="page-toc"]';
@@ -23,6 +26,27 @@ async function revisionPage(page: Page): Promise<void> {
   const k = await canonicalKeys(page);
   await boot(page, `#/fleet/revisions/${encodeURIComponent(k.revision)}`);
   await expect(page.locator(TOC)).toBeVisible({ timeout: 30_000 });
+}
+
+/** The entries marked current -- as a LIST, so "exactly one" is part of every assertion. */
+function currentEntries(page: Page): Promise<string[]> {
+  return page.$$eval(`${TOC} .toc-link[aria-current="true"]`, (n) => n.map((b) => b.textContent!.trim()));
+}
+
+/**
+ * Scrolls until `label`'s section is just past the reading line it is measured against,
+ * the way a reader arrives at it -- not scrollIntoView, which is the gesture the contents
+ * list itself performs and would prove nothing about scrolling.
+ */
+async function scrollPast(page: Page, label: string): Promise<boolean> {
+  return page.evaluate((wanted: string) => {
+    const el = [...document.querySelectorAll('[data-toc][id]')].find((e) => e.getAttribute('data-toc') === wanted)!;
+    const line = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+    window.scrollTo(0, window.scrollY + el.getBoundingClientRect().top - line + 4);
+    // The page can run out before its last section reaches the line. Say so rather than
+    // asserting against a scroll the browser clamped.
+    return el.getBoundingClientRect().top <= line + 1;
+  }, label);
 }
 
 test('a long revision page says what is on it before the reader scrolls', async ({ page }) => {
@@ -86,6 +110,73 @@ test('choosing a collapsed section opens it, rather than scrolling to a closed r
   // The keyboard caret travels with the viewport, so the next Tab continues from the
   // section the reader asked for and not from the next entry in the rail.
   expect(after.focused).toBe(true);
+});
+
+test('the contents list says which section the reader is in', async ({ page }) => {
+  test.setTimeout(240_000);
+  await revisionPage(page);
+  const labels = (await page.locator(`${TOC} .toc-link`).allTextContents()).map((s) => s.trim());
+  expect(labels.length).toBeGreaterThanOrEqual(3);
+
+  // At the top of the page the reader is in its first section, not in none of them.
+  await expect.poll(() => currentEntries(page), { timeout: 15_000 }).toEqual([labels[0]]);
+
+  // And the marker travels with them. Every section is stepped through in turn, so a rule
+  // that sticks on the first, skips two at a time, or marks several at once fails here
+  // rather than being averaged away by only checking the last one.
+  let moved = 0;
+  for (const label of labels.slice(1)) {
+    if (!await scrollPast(page, label)) break; // the page ran out before this section did
+    await expect.poll(() => currentEntries(page), { timeout: 15_000 }).toEqual([label]);
+    moved++;
+  }
+  expect(moved, 'the page was too short to scroll between sections, so this proved nothing').toBeGreaterThanOrEqual(2);
+
+  // The distinction is not carried by hue: the current entry is heavier and gains a
+  // marker, both of which survive greyscale and a colour-blind reader.
+  const cue = await page.evaluate(() => {
+    const cur = document.querySelector('.toc-link[aria-current="true"]')!;
+    const other = [...document.querySelectorAll('.toc-link')].find((b) => b !== cur)!;
+    const [a, b] = [getComputedStyle(cur), getComputedStyle(other)];
+    return { weight: [Number(a.fontWeight), Number(b.fontWeight)], marker: [a.borderLeftColor, b.borderLeftColor] };
+  });
+  expect(cue.weight[0], `current entry weighs ${cue.weight[0]}, the others ${cue.weight[1]}`).toBeGreaterThan(cue.weight[1]);
+  expect(cue.marker[0]).not.toBe(cue.marker[1]);
+});
+
+test('choosing a section makes it current at once, and holds until the reader drives', async ({ page }) => {
+  test.setTimeout(240_000);
+  // Deliberately NOT reduced motion: the smooth scroll is the hazard being measured.
+  await revisionPage(page);
+  const labels = (await page.locator(`${TOC} .toc-link`).allTextContents()).map((s) => s.trim());
+  const before = await page.evaluate(() => ({ hash: location.hash, entries: history.length }));
+
+  // The last entry: furthest to travel, most sections to cross on the way, and the one
+  // most likely to be too short to ever reach the reading line on arrival.
+  const chosen = labels[labels.length - 1];
+  await page.getByRole('button', { name: chosen, exact: true }).click();
+  expect(await currentEntries(page), 'the choice was not answered until the scroll arrived').toEqual([chosen]);
+
+  await page.waitForTimeout(1500); // the animation lands, having crossed every section
+  expect(await currentEntries(page), 'the scroll walked the marker off the chosen section').toEqual([chosen]);
+
+  // Current is somewhere the reader can actually see: opened, if it arrived collapsed.
+  expect(await page.evaluate((wanted: string) => {
+    const el = [...document.querySelectorAll('[data-toc][id]')].find((e) => e.getAttribute('data-toc') === wanted)!;
+    return el.tagName !== 'DETAILS' || (el as HTMLDetailsElement).open;
+  }, chosen)).toBe(true);
+
+  // None of it touched the route. In a hash-routed product that is the whole reason
+  // these are buttons.
+  expect(await page.evaluate(() => ({ hash: location.hash, entries: history.length }))).toEqual(before);
+
+  // Once the reader takes the scroll back, geometry answers again -- at the top of the
+  // page, that is the first section.
+  for (let i = 0; i < 20 && await page.evaluate(() => window.scrollY) > 0; i++) {
+    await page.mouse.wheel(0, -4000);
+  }
+  expect(await page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+  await expect.poll(() => currentEntries(page), { timeout: 15_000 }).toEqual([labels[0]]);
 });
 
 test('the contents list is not a second kind of URL', async ({ page }) => {

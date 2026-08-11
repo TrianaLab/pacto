@@ -100,11 +100,13 @@ test.describe('typography hierarchy on mobile', () => {
  * The "On this page" navigator on a phone.
  *
  * page-toc.spec.ts measures the desktop rail and the same control at 900px; neither is a
- * phone. Two claims only exist here: the summary is a touch target on a 393px screen, and
- * a chosen section lands BELOW the sticky header rather than underneath it. The second is
- * the mobile-only failure -- `scrollIntoView({block: 'start'})` puts the section at
- * viewport top, which on a page with a sticky navbar is behind it, and the reader is told
- * they arrived at a heading they cannot see.
+ * phone. Three claims only exist here: the summary is a touch target on a 393px screen, a
+ * chosen section lands BELOW the sticky header rather than underneath it, and the marker
+ * saying where the reader is answers a TOUCH scroll. The second is the mobile-only
+ * failure -- `scrollIntoView({block: 'start'})` puts the section at viewport top, which on
+ * a page with a sticky navbar is behind it, and the reader is told they arrived at a
+ * heading they cannot see. The third is mobile-only because a finger, not a wheel, is what
+ * hands the answer back from a chosen entry to the page's own geometry.
  */
 test('the contents navigator is the same control on a phone, and lands clear of the header', async ({ page }) => {
   test.setTimeout(240_000);
@@ -161,6 +163,31 @@ test('the contents navigator is the same control on a phone, and lands clear of 
   expect(after.top, `"${label}" landed under the sticky header (${after.top} < ${after.headerBottom})`)
     .toBeGreaterThanOrEqual(after.headerBottom);
   expect(after.top).toBeLessThan(after.viewport);
+
+  // The same one control also says where the reader is, on the same one implementation:
+  // the section they chose, marked exactly once.
+  const current = () => toc.locator('.toc-link[aria-current="true"]').allTextContents();
+  expect((await current()).map((s) => s.trim())).toEqual([label]);
+
+  // And a finger releases it. `touchstart` is the phone's "I am driving now" signal --
+  // without it the marker would stay on the chosen entry for the rest of the session,
+  // which on a phone is the only way most readers ever scroll.
+  const spot = await page.evaluate(() => {
+    // An inert pixel, found rather than guessed: a tap that happens to land on a link
+    // would navigate, and this test would then be measuring a different page.
+    for (let y = 120; y < window.innerHeight - 20; y += 20) {
+      const el = document.elementFromPoint(8, y);
+      if (el && !el.closest('a,button,summary,input,select,[role="button"]')) return { x: 8, y };
+    }
+    return null;
+  });
+  expect(spot, 'no inert pixel on this screen to tap').not.toBeNull();
+  await page.touchscreen.tap(spot!.x, spot!.y);
+  for (let i = 0; i < 20 && await page.evaluate(() => window.scrollY) > 0; i++) {
+    await page.mouse.wheel(0, -4000);
+  }
+  expect(await page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+  await expect.poll(async () => (await current()).map((s) => s.trim()), { timeout: 15_000 }).toEqual([labels[0]]);
 });
 
 /**
