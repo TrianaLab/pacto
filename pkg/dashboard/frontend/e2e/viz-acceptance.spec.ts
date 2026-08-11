@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { runAnalysis } from './typographyChecks';
 
 // Phase 6 browser acceptance for the visualization system (requirements 10 and 24).
 //
@@ -14,7 +15,15 @@ import { test, expect, type Page } from '@playwright/test';
 // narrowest phone. Auditing every figure found on a page rather than a hand-listed set is
 // deliberate -- a chart added later is covered the day it ships, without editing this file.
 
-/** The product surfaces that draw something. Each is visited at every width and theme. */
+/**
+ * The product surfaces that draw something at a FIXED route. Each is visited at every
+ * width and theme.
+ *
+ * The routes that need a canonical key discovered from the API -- the entity pages and
+ * the analysis workspace, which draw the same figures over a narrower population -- are
+ * swept in one test below rather than parametrised here, because the key is only known
+ * at run time.
+ */
 const SURFACES = [
   { hash: '#/fleet', name: 'Operational Overview' },
   { hash: '#/fleet/services', name: 'Services list' },
@@ -24,10 +33,31 @@ const SURFACES = [
 /** A figure is "a visualization" if it carries one of the shared viz roots. */
 const FIGURES = 'main figure.dist, main figure.hbars';
 
-async function open(page: Page, hash: string) {
+/**
+ * open loads a route and waits until it is actually drawing.
+ *
+ * `after` runs between "the route has loaded" and "a figure is on screen": the analysis
+ * workspace opens on a revision picker and draws nothing until the comparison is run, so
+ * waiting for a figure first would time out on the honest idle state.
+ */
+async function open(page: Page, hash: string, after?: (page: Page) => Promise<void>) {
   await page.goto(`/${hash}`);
   await page.waitForFunction(() => !document.body.textContent?.includes('Loading'), null, { timeout: 30000 });
+  if (after) await after(page);
   await expect(page.locator(FIGURES).first()).toBeVisible({ timeout: 30000 });
+}
+
+/** Canonical keys DISCOVERED from the Product API, so the sweep follows the fixture. */
+async function keys(page: Page): Promise<Record<string, string>> {
+  await page.goto('/#/fleet');
+  await page.waitForFunction(() => !document.body.textContent?.includes('Loading'), null, { timeout: 30000 });
+  return page.evaluate(async () => {
+    const first = async (kind: string) => {
+      const r = await (await fetch(`/api/fleet/entities?kinds=${kind}&limit=1`)).json();
+      return (r.entities || [])[0]?.key || '';
+    };
+    return { service: 'payments-service', owner: await first('owner') };
+  });
 }
 
 const lightTheme = (page: Page) =>
@@ -87,6 +117,27 @@ test.describe('Every product visualization is named, textual and keyboard-operab
       expect(await auditFigures(page)).toBeGreaterThan(0);
     });
   }
+
+  test('the entity pages and the analysis workspace obey the same rule', async ({ page }) => {
+    test.setTimeout(300_000);
+    // The same primitives, over a population of one service, one owner or one comparison.
+    // These surfaces were outside the audit while it listed only the three fleet-wide
+    // pages -- and they are where a figure is most likely to be handed a bounded preview
+    // instead of an aggregate, because the population is small enough to look complete.
+    const k = await keys(page);
+    const e = encodeURIComponent;
+    const routes: Array<[string, string]> = [
+      ['Service detail', `#/fleet/services/${e(k.service)}`],
+      ['Owner detail', `#/fleet/owners/${e(k.owner)}`],
+      ['Revisions list', '#/fleet/revisions'],
+      ['Change analysis', `#/fleet/changes/${e(k.service)}`],
+    ];
+
+    for (const [name, hash] of routes) {
+      await open(page, hash, name === 'Change analysis' ? runAnalysis : undefined);
+      expect(await auditFigures(page), `${name} rendered no figure at all`).toBeGreaterThan(0);
+    }
+  });
 
   test('a legend drill-down is reachable and activated by keyboard alone', async ({ page }) => {
     await open(page, '#/fleet');
