@@ -43,17 +43,34 @@ func (e *UnresolvedError) Error() string {
 	return fmt.Sprintf("LOCK_UNRESOLVED: cannot resolve %s: %s", e.Ref, e.Reason)
 }
 
-// AmbiguousError: one reference occurrence would have to hold two different
-// resolutions, so the lock cannot record both. Two closures reach it:
+// DuplicateDeclarationError: one contract declares the same configuration or
+// policy name twice, so it holds two declarations that share an occurrence
+// identity — and a lock records one entry per declaration.
 //
-//   - Duplicate configuration or policy names in one contract. Canonical
-//     validation rejects these (DUPLICATE_CONFIGURATION_NAME /
-//     DUPLICATE_POLICY_NAME), but `pacto lock` resolves the closure without
-//     validating it, so the closure builder is the last gate.
-//   - Two byte-identical local bundle directories in different places, each
-//     resolving the same relative ref to a different sibling. They are one
-//     contract by content, and a declaration is identified by the contract that
-//     contains it, so the pair is genuinely outside what the lock can express.
+// Canonical validation already rejects this (DUPLICATE_CONFIGURATION_NAME /
+// DUPLICATE_POLICY_NAME), but `pacto lock` resolves the closure without
+// validating it, so the closure walk enforces the same rule over the contract's
+// declarations rather than over the refs it happens to resolve. Comparing
+// RESOLUTIONS is not enough: two duplicates pointing at the same bytes are still
+// two declarations, and collapsing them writes a lock that claims the contract
+// declared one.
+type DuplicateDeclarationError struct{ Occurrence Occurrence }
+
+// Error formats a LOCK_DUPLICATE_DECLARATION message naming the repeated declaration.
+func (e *DuplicateDeclarationError) Error() string {
+	return fmt.Sprintf("LOCK_DUPLICATE_DECLARATION: %s more than once; a name is unique within its kind in one contract, and a lock has no way to tell two declarations of it apart",
+		e.Occurrence)
+}
+
+// AmbiguousError: one reference occurrence would have to hold two different
+// resolutions, so the lock cannot record both.
+//
+// Duplicate names in one contract are NOT this: they are rejected earlier, by
+// *DuplicateDeclarationError, whether or not they resolve alike. What reaches
+// here is two byte-identical local bundle directories in different places, each
+// resolving the same relative ref to a different sibling. They are one contract
+// by content, and a declaration is identified by the contract that contains it,
+// so the pair is genuinely outside what the lock can express.
 //
 // Either way this fails the lock rather than silently pinning one of the two.
 type AmbiguousError struct {

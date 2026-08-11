@@ -106,9 +106,11 @@ func referenceBaseDir(ref string) string {
 //     depend on which route the walk took first, and the routes are recoverable
 //     from the entries anyway (see lock.Reference.DestinationID).
 //
-// It fails closed with *lock.AmbiguousError when one identity would have to hold
-// two different resolutions, which is the only way the closure can outgrow what
-// the lock can represent.
+// It fails closed twice over. *lock.DuplicateDeclarationError when a contract in
+// the closure declares one (kind, name) twice, so it holds two declarations the
+// lock could not tell apart; and *lock.AmbiguousError when one identity would
+// have to hold two different resolutions. Those are the only two ways the
+// closure can outgrow what the lock can represent.
 func (s *Service) buildReferenceClosure(ctx context.Context, root *contract.Contract, baseDir string) ([]lock.Reference, error) {
 	walked := map[string]bool{}            // resolved bundle identity -> already recursed into
 	resolved := map[string]refResolution{} // (dir, ref text) -> resolution, so a repeat costs no fetch
@@ -116,6 +118,15 @@ func (s *Service) buildReferenceClosure(ctx context.Context, root *contract.Cont
 	var out []lock.Reference
 	var walk func(c *contract.Contract, dir, from string) error
 	walk = func(c *contract.Contract, dir, from string) error {
+		// Asked of the contract's DECLARATIONS, before resolving anything. A
+		// duplicate is a property of the contract, not of what its refs happen to
+		// resolve to: two duplicates pointing at the same bytes are still two
+		// declarations, and one of them carrying an inline schema instead of a ref
+		// hides the pair from the walk below entirely.
+		if dups := c.DuplicateDeclarations(); len(dups) > 0 {
+			return &lock.DuplicateDeclarationError{Occurrence: lock.Occurrence{
+				From: from, Kind: dups[0].Kind, Name: dups[0].Name}}
+		}
 		for _, d := range c.ReferenceRefs() {
 			memo, ok := resolved[dir+"\x00"+d.Ref]
 			if !ok {

@@ -281,25 +281,10 @@ func TestReferenceOccurrence_DeclarationOrderDoesNotChangeTheLock(t *testing.T) 
 	}
 }
 
-// Duplicate declaration names are rejected by canonical validation, but
-// `pacto lock` never validates, so the closure builder is the last gate. Two
-// declarations that claim one identity and disagree must fail closed rather than
-// let one silently win.
-func TestReferenceClosure_DuplicateDeclarationNameFailsClosed(t *testing.T) {
-	store := refStore(map[string]*contract.Contract{"mike": cfg("mike"), "november": cfg("november")})
-	root := cfg("app",
-		[2]string{"settings", "oci://r/mike"},
-		[2]string{"settings", "oci://r/november"},
-	)
-	_, err := NewService(store, nil).buildReferenceClosure(context.Background(), root, "")
-	var amb *lock.AmbiguousError
-	if !errors.As(err, &amb) {
-		t.Fatalf("want *lock.AmbiguousError, got %v", err)
-	}
-	if !strings.Contains(amb.Error(), "settings") {
-		t.Errorf("the error must name the ambiguous declaration: %v", amb)
-	}
-}
+// Duplicate declaration names are rejected before any of this, by the
+// declaration-uniqueness gate at the top of the walk, whether or not the two
+// declarations resolve alike -- see lock_duplicate_test.go. What remains here is
+// the case that only a RESOLUTION can reveal.
 
 // Two byte-identical local bundle directories, each resolving the same relative
 // ref to a different sibling:

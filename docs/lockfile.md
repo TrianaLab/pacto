@@ -77,6 +77,7 @@ If any resolved dependency or reference produces a digest that does not match th
 | `LOCK_UNRESOLVED` | A ref in the lockfile could not be resolved (network error, registry unreachable, bundle deleted) |
 | `LOCK_MISSING` | `pacto lock --check` was run but no `pacto.lock` file exists (the verification commands treat a missing lock as a no-op) |
 | `LOCK_AMBIGUOUS_REFERENCE` | One declared reference would have to be pinned to two different destinations, so the lock cannot record it (see [Reference identity](#reference-identity)) |
+| `LOCK_DUPLICATE_DECLARATION` | A contract in the closure declares the same configuration or policy name twice, so it holds two declarations the lock cannot tell apart (see [Reference identity](#reference-identity)) |
 
 Because push enforces the lock, a stale lock blocks publishing — an automatic supply-chain gate.
 
@@ -146,7 +147,9 @@ Because the closure is transitive, `kind` and `name` alone do not identify an en
 - **The declaration.** `from`, `kind` and `name` together name exactly one declared reference — one scope, written once, inside one immutable contract. This is what tools match on when they associate a contract's own reference with its pinned destination.
 - **How the walk got there.** Not a field. A bundle reachable by several paths is still one bundle holding one set of declarations, so each is pinned once, and the route is not part of what a pin means. The entries form a graph rooted at the empty `from`, so every path through the closure is recoverable by following `from` back through the destinations — without any one path being written down as *the* path.
 
-Names are `{"type": "string", "minLength": 1}`: any non-empty string, including one containing `/` or `:`. So the identity is the three fields, never a single string built by joining them — a scope legitimately named `a/policy:b` would forge any such joined form. Configuration and policy names must be unique within a contract (`DUPLICATE_CONFIGURATION_NAME`, `DUPLICATE_POLICY_NAME`), but `pacto lock` resolves the closure without validating it, so the lock itself refuses any declaration that would need two pins with `LOCK_AMBIGUOUS_REFERENCE` rather than silently recording one of them.
+Names are `{"type": "string", "minLength": 1}`: any non-empty string, including one containing `/` or `:`. So the identity is the three fields, never a single string built by joining them — a scope legitimately named `a/policy:b` would forge any such joined form.
+
+Configuration and policy names must be unique within a contract (`DUPLICATE_CONFIGURATION_NAME`, `DUPLICATE_POLICY_NAME`), and `pacto lock` resolves the closure without validating it, so the lock enforces the same rule itself: every contract it walks — the root and every bundle it references — is refused with `LOCK_DUPLICATE_DECLARATION` if it declares one `(kind, name)` twice. That is asked of the declarations, not of what they resolve to. Two duplicates pointing at the same bytes are still two declarations, and a name declared once with an inline schema and once with a ref is still declared twice. Uniqueness is per kind: a `config` and a `policy` may share a name, because they are looked up under different kinds. A declaration that survives that rule and still needs two pins — two byte-identical local bundles resolving one relative ref to different siblings — is refused with `LOCK_AMBIGUOUS_REFERENCE` rather than silently recording one of them.
 
 ### Schema compatibility
 

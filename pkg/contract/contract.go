@@ -207,6 +207,50 @@ func (c *Contract) ReferenceRefs() []ReferenceRef {
 	return out
 }
 
+// Duplicate is one configuration or policy name a contract declares more than
+// once: the kind it was declared under, the name, the index of the repeat and
+// the index of the declaration it repeats.
+type Duplicate struct {
+	Kind  string
+	Name  string
+	Index int
+	First int
+}
+
+// DuplicateDeclarations returns every configuration or policy name this contract
+// declares more than once, policies first and then configurations, in
+// declaration order. Uniqueness is per kind: a configuration and a policy may
+// share a name, because they are looked up under different kinds.
+//
+// This is the single statement of the rule, and it is stated over the DECLARED
+// entries rather than over ReferenceRefs: a name declared once with an inline
+// schema and once with a ref is still declared twice, and the ref half of that
+// pair is the only half a reference walk can see.
+//
+// Two callers read it. Canonical validation reports the duplicates as
+// DUPLICATE_POLICY_NAME / DUPLICATE_CONFIGURATION_NAME; `pacto lock` refuses to
+// build a closure over such a contract, because a lock entry is identified by
+// (declaring contract, kind, name) and two declarations of one name are
+// indistinguishable in it.
+func (c *Contract) DuplicateDeclarations() []Duplicate {
+	var out []Duplicate
+	seen := make(map[string]int, len(c.Policies))
+	for i := range c.Policies {
+		if prev, dup := seen[c.Policies[i].Name]; dup {
+			out = append(out, Duplicate{Kind: ReferenceKindPolicy, Name: c.Policies[i].Name, Index: i, First: prev})
+		}
+		seen[c.Policies[i].Name] = i
+	}
+	clear(seen)
+	for i := range c.Configurations {
+		if prev, dup := seen[c.Configurations[i].Name]; dup {
+			out = append(out, Duplicate{Kind: ReferenceKindConfig, Name: c.Configurations[i].Name, Index: i, First: prev})
+		}
+		seen[c.Configurations[i].Name] = i
+	}
+	return out
+}
+
 // Workload type constants.
 const (
 	WorkloadService   = "service"

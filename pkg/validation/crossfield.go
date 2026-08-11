@@ -152,31 +152,32 @@ func validateInterfaceNamesUnique(c *contract.Contract, result *ValidationResult
 	}
 }
 
+// The declaration-uniqueness rule itself lives on the contract
+// (contract.DuplicateDeclarations), because `pacto lock` enforces the same rule
+// without running validation. Reporting it is this layer's half.
 func validateConfigurationNamesUnique(c *contract.Contract, result *ValidationResult) {
-	seen := make(map[string]int)
-	for i, cfg := range c.Configurations {
-		if prev, exists := seen[cfg.Name]; exists {
-			result.AddError(
-				fmt.Sprintf("configurations[%d].name", i),
-				"DUPLICATE_CONFIGURATION_NAME",
-				fmt.Sprintf("configuration name %q is already declared at configurations[%d]", cfg.Name, prev),
-			)
+	for _, d := range c.DuplicateDeclarations() {
+		if d.Kind != contract.ReferenceKindConfig {
+			continue
 		}
-		seen[cfg.Name] = i
+		result.AddError(
+			fmt.Sprintf("configurations[%d].name", d.Index),
+			"DUPLICATE_CONFIGURATION_NAME",
+			fmt.Sprintf("configuration name %q is already declared at configurations[%d]", d.Name, d.First),
+		)
 	}
 }
 
 func validatePolicyNamesUnique(c *contract.Contract, result *ValidationResult) {
-	seen := make(map[string]int)
-	for i, pol := range c.Policies {
-		if prev, exists := seen[pol.Name]; exists {
-			result.AddError(
-				fmt.Sprintf("policies[%d].name", i),
-				"DUPLICATE_POLICY_NAME",
-				fmt.Sprintf("policy name %q is already declared at policies[%d]", pol.Name, prev),
-			)
+	for _, d := range c.DuplicateDeclarations() {
+		if d.Kind != contract.ReferenceKindPolicy {
+			continue
 		}
-		seen[pol.Name] = i
+		result.AddError(
+			fmt.Sprintf("policies[%d].name", d.Index),
+			"DUPLICATE_POLICY_NAME",
+			fmt.Sprintf("policy name %q is already declared at policies[%d]", d.Name, d.First),
+		)
 	}
 }
 
