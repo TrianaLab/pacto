@@ -199,6 +199,29 @@ describe('PageToc', () => {
     unmount(c);
   });
 
+  /**
+   * And EACH section against its own line, not the first one's. `[data-toc]` carries a
+   * shared default, but nothing forces a section to keep it — one parking under a sticky
+   * sub-header clears more — and measuring every section against one section's margin
+   * answers for a pixel the browser does not park the others at.
+   */
+  it('measures every visible section against its own line, not the first one’s', async () => {
+    body = page(['A', 'B', 'C']);
+    const c = mountToc();
+    const real = window.getComputedStyle;
+    window.getComputedStyle = ((el: Element) =>
+      ({ scrollMarginTop: el.id === 'sec-2' ? '160px' : '0px' })) as any;
+    try {
+      // C has come to rest at ITS line (100 <= 160); A and B are past theirs. Under one
+      // shared line taken from A, C reads as "still below" and B stays current — the
+      // section the reader is actually looking at would not be the marked one.
+      layout([-400, -10, 100]);
+      await scrolled();
+      expect(currentLabels(target)).toEqual(['C']);
+    } finally { window.getComputedStyle = real; }
+    unmount(c);
+  });
+
   it('keeps a chosen entry current while the scroll travels, until the reader takes over', async () => {
     body = page(['A', 'B', 'C']);
     const c = mountToc();

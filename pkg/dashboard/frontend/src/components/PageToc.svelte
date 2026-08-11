@@ -80,7 +80,6 @@
     // section it passes, and a short last section that cannot reach the line must not
     // undo the click at all.
     if (pinned || typeof document === 'undefined' || entries.length === 0) return;
-    let line = 0;
     let next = '';
     for (const e of entries) {
       const el = document.getElementById(e.id);
@@ -89,11 +88,12 @@
       // -- but a box with no position on the page cannot be the one being read, and
       // treating its zeroed rect as "top: 0" would make it beat every real section.
       if (!el || el.getClientRects().length === 0) continue;
-      if (!next) {
-        next = e.id;
-        line = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
-      }
-      if (el.getBoundingClientRect().top <= line + 1) next = e.id;
+      // EACH section against its OWN line. There is a shared default for `[data-toc]`,
+      // but nothing forces a section to keep it -- one under a sticky sub-header parks
+      // lower -- and measuring every section against the FIRST visible one's margin
+      // answers for a pixel the browser does not park the others at.
+      const line = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+      if (!next || el.getBoundingClientRect().top <= line + 1) next = e.id;
     }
     current = next;
   }
