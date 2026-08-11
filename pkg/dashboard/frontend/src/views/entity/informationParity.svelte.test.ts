@@ -440,7 +440,7 @@ describe('owner detail answers the posture question (requirement 6)', () => {
     const drill = Array.from(target.querySelectorAll('a[href*="attention"]'))
       .map((a) => a.getAttribute('href') || '');
     expect(drill.length).toBeGreaterThan(0);
-    expect(drill.every((h) => h.includes('owner=team%2Fpayments'))).toBe(true);
+    expect(drill.every((h) => h.includes('ownerKey=team%2Fpayments'))).toBe(true);
     expect(drill.some((h) => h.includes('category=non-compliant'))).toBe(true);
     unmount(component); target.remove();
   });

@@ -2818,7 +2818,10 @@ export interface operations {
                 kind?: string;
                 key?: string;
                 service?: string;
+                /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
+                /** @description Exact canonical owner IDENTITY: the owner display key, as canonical owner links carry it */
+                ownerKey?: string;
                 source?: string;
                 severity?: "error" | "warning" | "info";
                 status?: string;
@@ -2860,7 +2863,10 @@ export interface operations {
                 text?: string;
                 /** @description Comma-separated entity kinds (service,revision,target,owner,source) */
                 kinds?: string;
+                /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
+                /** @description Exact canonical owner IDENTITY: the owner display key, as canonical owner links carry it */
+                ownerKey?: string;
                 domain?: string;
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */

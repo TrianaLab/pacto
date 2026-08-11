@@ -474,11 +474,16 @@ var severityOrder = map[string]int{severityError: 0, severityWarning: 1, severit
 // AttentionFilter constrains an attention query. The zero value returns the
 // first page (bounded by the default limit) of every item. Offset walks pages.
 type AttentionFilter struct {
-	Category  string
-	Kind      string
-	Key       string
-	Service   string
+	Category string
+	Kind     string
+	Key      string
+	Service  string
+	// Owner is free-text owner SEARCH and OwnerKey is exact canonical owner
+	// IDENTITY, exactly as on [EntityFilter]: a backlog opened from an owner page
+	// carries OwnerKey, so it holds that owner's estate and not every owner whose
+	// name contains theirs. They compose.
 	Owner     string
+	OwnerKey  string
 	Source    string
 	Severity  string
 	Status    string
@@ -729,17 +734,24 @@ func (q *Query) attentionMatches(it AttentionItem, f AttentionFilter) bool {
 	if f.StaleOnly && it.Code != "STALE_EVIDENCE" {
 		return false
 	}
-	return f.Owner == "" || q.serviceOwnedBy(it.Service, f.Owner)
+	return (f.Owner == "" || q.serviceOwnedBy(it.Service, f.Owner)) &&
+		(f.OwnerKey == "" || q.serviceOwnedByKey(it.Service, f.OwnerKey))
 }
 
 // optEq reports whether an optional filter value (empty means unset) matches have.
 func optEq(want, have string) bool { return want == "" || want == have }
 
-// serviceOwnedBy reports whether the service identified by key is owned by owner,
-// through the one rule in [Query.ownerClaims] — a team that co-owns a service must
-// see that service's attention items, not be told they are somebody else's problem.
+// serviceOwnedBy searches a service's owner declarations and serviceOwnedByKey
+// identifies them, through the one rule in [Query.ownerClaims] — a team that
+// co-owns a service must see that service's attention items, not be told they are
+// somebody else's problem, and a team must not be handed the backlog of an owner
+// whose name merely contains theirs.
 func (q *Query) serviceOwnedBy(key, owner string) bool {
 	return q.matchOwner(q.snap.Services[ServiceKey(key)], owner)
+}
+
+func (q *Query) serviceOwnedByKey(key, ownerKey string) bool {
+	return q.matchOwnerKey(q.snap.Services[ServiceKey(key)], ownerKey)
 }
 
 // sortAttention orders items by severity, then category, then label, so the most

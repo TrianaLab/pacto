@@ -157,7 +157,9 @@ function parseFleet(path: string, query: string): Route {
     const qs = new URLSearchParams(query);
     // Category and offset (and the section-I triage filters) live in the URL so the
     // attention list is deep-linkable and back/forward restores the exact page.
-    for (const k of ['category', 'offset', 'owner', 'source', 'service', 'severity', 'status', 'staleOnly']) {
+    // `owner` is what the reader typed and `ownerKey` is the canonical owner an
+    // owner-page link carried; they are two different questions, so both travel.
+    for (const k of ['category', 'offset', 'owner', 'ownerKey', 'source', 'service', 'severity', 'status', 'staleOnly']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -193,7 +195,7 @@ function parseFleet(path: string, query: string): Route {
     // URL params no view consumed, so they are not parsed here (requirement F1).
     // `ownership` is a real Entities filter over services (consistent/conflicting/
     // unowned), and it is what makes "12 services have no declared owner" a link.
-    for (const k of ['text', 'owner', 'ownership', 'status', 'domain', 'offset']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'offset']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -390,11 +392,17 @@ export function fleetOverviewUrl(): string {
 // target-only Entities filter and source was never wired into the Services list, so
 // carrying them would be an inert URL filter (requirement F1).
 export function fleetServicesUrl(opts: {
-  text?: string; owner?: string; ownership?: string; status?: string; domain?: string; offset?: number;
+  text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string; offset?: number;
 } = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
+  // Two owner questions, two params. `owner` is free-text SEARCH (a substring over
+  // team, DRI and contacts, so `team-a` finds `team-a-platform` too) and `ownerKey`
+  // is exact canonical IDENTITY. A link built FROM an owner -- an owner page action,
+  // a per-owner ranking row -- carries the key, or it lands on a wider population
+  // than the number the reader clicked.
   if (opts.owner) qs.set('owner', opts.owner);
+  if (opts.ownerKey) qs.set('ownerKey', opts.ownerKey);
   // Who owns it (a name) and whether ownership is declared at all (a state) are two
   // different questions, and both are real Entities filters, so they compose.
   if (opts.ownership) qs.set('ownership', opts.ownership);
@@ -504,12 +512,14 @@ export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphS
 // and the section-I triage filters in the URL so a filtered page is deep-linkable and
 // restored by refresh/back/forward. A zero/absent offset is omitted (canonical page 1).
 export function fleetAttentionUrl(opts: {
-  category?: string; offset?: number; owner?: string; source?: string; service?: string;
+  category?: string; offset?: number; owner?: string; ownerKey?: string; source?: string; service?: string;
   severity?: string; status?: string; staleOnly?: boolean;
 } = {}): string {
   const qs = new URLSearchParams();
   if (opts.category) qs.set('category', opts.category);
+  // Free-text owner SEARCH and exact canonical owner IDENTITY -- see fleetServicesUrl.
   if (opts.owner) qs.set('owner', opts.owner);
+  if (opts.ownerKey) qs.set('ownerKey', opts.ownerKey);
   if (opts.source) qs.set('source', opts.source);
   // A canonical ServiceKey, never a display name: this is the same scoping the
   // Product attention filter applies, so a service page can send the user to its OWN

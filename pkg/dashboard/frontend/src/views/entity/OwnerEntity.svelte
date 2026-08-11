@@ -22,10 +22,14 @@
   // The owner filter/action is built from the CANONICAL owner key, never the display
   // label (requirement F3): the key is the stable identity the backend owner filter
   // matches; a label is presentation and may not round-trip.
+  //
+  // And it travels as `ownerKey`, the EXACT filter, not as the free-text `owner`
+  // search: `team-a` as a search also matches `team-a-platform`, so an action leaving
+  // this page would land on a list holding services this owner does not own.
   const owner = $derived(detail.entity?.key || detail.entity?.label || '');
-  const attnHref = $derived(fleetAttentionUrl({ owner }));
+  const attnHref = $derived(fleetAttentionUrl({ ownerKey: owner }));
   // Every posture bucket drills into THIS owner's backlog, not the fleet's.
-  const attentionUrl = $derived((category) => fleetAttentionUrl({ owner, category }));
+  const attentionUrl = $derived((category) => fleetAttentionUrl({ ownerKey: owner, category }));
 </script>
 
 <div class="owner-entity">

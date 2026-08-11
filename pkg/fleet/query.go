@@ -325,8 +325,17 @@ func (q *Query) matchText(s *ServiceRecord, text string) bool {
 	return strings.Contains(strings.ToLower(s.Name), strings.ToLower(text)) || q.matchOwner(s, text)
 }
 
+// matchOwner is free-text owner SEARCH over a service's declarations;
+// matchOwnerKey is exact canonical owner IDENTITY. They share one walk
+// ([Query.ownerClaims]) and differ only in the predicate, which is the whole point:
+// with owners `team-a` and `team-a-platform` in one fleet the two questions have
+// different answers, and every surface has to be explicit about which it is asking.
 func (q *Query) matchOwner(s *ServiceRecord, owner string) bool {
 	return owner == "" || q.ownerClaims(s, func(o contract.Owner) bool { return o.MatchesFilter(owner) })
+}
+
+func (q *Query) matchOwnerKey(s *ServiceRecord, key string) bool {
+	return key == "" || q.ownerClaims(s, func(o contract.Owner) bool { return o.IsKey(key) })
 }
 
 // ownerClaims is THE ownership question, asked once and answered the same way by

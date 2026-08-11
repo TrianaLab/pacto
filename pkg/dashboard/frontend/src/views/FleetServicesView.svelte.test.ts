@@ -252,12 +252,13 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     expect(note).toContain('The remaining 3 of 5 owners account for 4 more services.');
     expect(note).toContain('Services with no owner, or whose revisions name different owners, appear in no row here.');
     // A row counts team-a's CONSISTENTLY owned services, so its destination carries
-    // ownership too: owner=team-a alone also selects what team-a co-owns, which is a
-    // longer list than the bar the reader clicked.
+    // ownership too: ownerKey=team-a alone also selects what team-a co-owns, which is a
+    // longer list than the bar the reader clicked. And it is ownerKey, the exact owner,
+    // not the free-text owner search that would also pull in team-a-platform.
     expect(services.querySelector('.hb-row a')?.getAttribute('href'))
-      .toBe('#/fleet/services?owner=team-a&ownership=consistent');
+      .toBe('#/fleet/services?ownerKey=team-a&ownership=consistent');
     expect(targets.querySelector('.hb-row a')?.getAttribute('href'))
-      .toBe('#/fleet/services?owner=team-a&ownership=consistent');
+      .toBe('#/fleet/services?ownerKey=team-a&ownership=consistent');
     // Targets per owner keeps the service-count order and says so, rather than
     // re-sorting a top-N-by-services list and presenting it as a target ranking.
     expect(Array.from(targets.querySelectorAll('.hb-label')).map((n) => n.textContent)).toEqual(['team-a', 'team-b']);
@@ -303,6 +304,79 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     await vi.waitFor(() => expect(target.querySelector('.chip')).toBeTruthy());
     (target.querySelector('.chip-clear') as HTMLButtonElement).click();
     expect(location.hash).toBe('#/fleet/services');
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
+/**
+ * Owner SEARCH and owner IDENTITY are two different questions and the product asks
+ * them with two different parameters. The counterexample this pins down: owners
+ * `team-a` and `team-a-platform` both exist, so a canonical action carrying the
+ * free-text `owner=team-a` would land on a list holding services `team-a` does not
+ * own. Canonical actions carry `ownerKey` (exact); the box the user types in keeps
+ * carrying `owner` (substring over team, DRI and contacts), because losing generous
+ * search would be a worse product than the bug.
+ */
+describe('FleetServicesView — owner search vs owner identity', () => {
+  beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
+
+  // Owner suggestions and the service list share the mocked Entities endpoint; the
+  // owner query is the one asking for kind `owner`.
+  function twoCollidingOwners() {
+    entitiesFn.mockImplementation((q: { kinds?: string[] }) => Promise.resolve(
+      q.kinds?.[0] === 'owner'
+        ? listResp([
+          { kind: 'owner', key: 'team-a', label: 'team-a', href: '/fleet/owners/team-a' },
+          { kind: 'owner', key: 'team-a-platform', label: 'team-a-platform', href: '/fleet/owners/team-a-platform' },
+        ], { total: 2 })
+        : listResp([svc('domain-a')], { total: 1 }),
+    ));
+  }
+
+  it('picking an owner suggestion commits the exact owner, and blur does not downgrade it', async () => {
+    twoCollidingOwners();
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const box = target.querySelector('input[aria-label="Filter by owner"]') as HTMLInputElement;
+    box.value = 'team-a';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    const opts = await vi.waitFor(() => {
+      const found = Array.from(target.querySelectorAll('[data-testid="svc-owner-option"]'));
+      expect(found.length).toBe(2);
+      return found as HTMLElement[];
+    });
+    // The fuzzy suggestion list legitimately offers both; choosing one means THAT one.
+    (opts[0] as HTMLButtonElement).click();
+    flushSync();
+    expect(location.hash).toBe('#/fleet/services?ownerKey=team-a');
+    // The browser fires `change` on blur right after a pick, carrying the adopted
+    // label. That must not re-read the exact choice as a substring search.
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/services?ownerKey=team-a');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('typing an owner keeps the generous search, and replaces an exact owner rather than adding to it', async () => {
+    twoCollidingOwners();
+    const { target, component } = mountView({ ownerKey: 'team-a' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const box = target.querySelector('input[aria-label="Filter by owner"]') as HTMLInputElement;
+    // Arriving with an exact owner, the box shows it -- the filter in force is legible.
+    expect(box.value).toBe('team-a');
+    box.value = 'team';
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/services?owner=team');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('sends both owner questions to the backend and labels their chips apart', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')], { total: 1 }));
+    const { target, component } = mountView({ owner: 'team', ownerKey: 'team-a' });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ owner: 'team', ownerKey: 'team-a' }));
+    // Two chips, distinguishable: a reader must be able to tell which one is loose.
+    expect(Array.from(target.querySelectorAll('.chip')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim()))
+      .toEqual(['Owner: team-a ×', 'Owner search: team ×']);
     unmount(component); document.body.removeChild(target);
   });
 });

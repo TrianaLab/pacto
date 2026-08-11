@@ -212,3 +212,35 @@ describe('FleetAttentionView — triage filters (I)', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+/**
+ * An owner page's "View all for this owner" and its posture bars are CANONICAL owner
+ * actions: they carry `ownerKey`, matched exactly, so the backlog of `team-a` cannot
+ * quietly include `team-a-platform`'s items. The advanced Owner box stays a search.
+ */
+describe('FleetAttentionView — owner search vs owner identity', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+
+  it('asks the backend the exact owner question a canonical owner link carried', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ ownerKey: 'team-a' });
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    expect(attentionFn).toHaveBeenCalledWith(expect.objectContaining({ ownerKey: 'team-a' }));
+    expect(attentionFn).toHaveBeenCalledWith(expect.not.objectContaining({ owner: 'team-a' }));
+    // The filter in force is legible, and named as the exact one.
+    expect(Array.from(target.querySelectorAll('.chip')).map((c) => c.textContent?.replace(/\s+/g, ' ').trim()))
+      .toEqual(['Owner: team-a ×']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('typing in the Owner box widens back to a search, replacing the exact owner', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ ownerKey: 'team-a' });
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    const box = target.querySelector('input[aria-label="Filter by owner"]') as HTMLInputElement;
+    expect(box.value).toBe('team-a');
+    box.value = 'team'; box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/attention?owner=team');
+    unmount(component); document.body.removeChild(target);
+  });
+});

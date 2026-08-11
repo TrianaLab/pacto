@@ -4,7 +4,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
@@ -166,8 +165,10 @@ func (e *EvidenceWindow) add(t *TargetRecord) {
 // service's ownership is a property of its revisions agreeing rather than of one
 // field somebody set. A service is Consistent when every revision that declares an
 // owner declares the SAME one; a revision that declares none is silence, not a
-// contradiction. That is exactly the rule [deriveOwner] raises OWNER_CONFLICT by,
-// so the tally and the limitation can never disagree.
+// contradiction. "The same one" is [ownerClaimSet]'s identity — the canonical owner
+// key, the one the product routes by — so a team declared with two different DRIs
+// is one owner. Both this tally and the OWNER_CONFLICT limitation [deriveOwner]
+// raises count through that set, so they can never disagree.
 //
 // Conflicting is never folded into Unowned. "Two teams claim this" and "nobody
 // claims this" are different answers to "who do I page", and they need opposite
@@ -287,19 +288,16 @@ type EntityAggregate struct {
 // consistently owned and simply has nothing to rank under — which is why the count
 // and the label are returned separately rather than an empty label standing in for
 // "no owner".
+//
+// Distinctness is [ownerClaimSet]'s: the canonical owner key, the identity the
+// product routes by, so the same team declared with two different DRIs is one
+// owner and not a dispute.
 func (q *Query) ownershipState(s *ServiceRecord) (distinctOwners int, label string) {
-	var distinct []contract.Owner
+	var claims ownerClaimSet
 	for _, rk := range s.Revisions {
-		o := q.snap.Revisions[rk].Owner
-		if o.IsEmpty() || ownerSeen(distinct, o) {
-			continue
-		}
-		distinct = append(distinct, o)
+		claims.add(q.snap.Revisions[rk].Owner)
 	}
-	if len(distinct) == 1 {
-		return 1, distinct[0].DisplayString()
-	}
-	return len(distinct), ""
+	return claims.len(), claims.label()
 }
 
 // addOwnership buckets one service into the ownership partition and returns the

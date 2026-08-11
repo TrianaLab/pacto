@@ -1209,7 +1209,7 @@ func aggregateServices(snap *FleetSnapshot) {
 func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 	keys := append([]RevisionKey(nil), s.Revisions...)
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	var distinct []contract.Owner
+	var claims ownerClaimSet
 	for _, rk := range keys {
 		o := snap.Revisions[rk].Owner
 		if o.IsEmpty() {
@@ -1218,17 +1218,64 @@ func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
 		if s.Owner.IsEmpty() {
 			s.Owner = o
 		}
-		if !ownerSeen(distinct, o) {
-			distinct = append(distinct, o)
-		}
+		claims.add(o)
 	}
-	if len(distinct) > 1 {
+	if claims.len() > 1 {
 		return []Limitation{{
 			Code: LimitationOwnerConflict, Source: "fleet",
 			Message: "revisions of " + s.Name + " declare different owners; the service owner is a summary (see per-revision ownership)",
 		}}
 	}
 	return nil
+}
+
+// ownerClaimSet accumulates the DISTINCT owners a service's revisions declare,
+// under the one identity the product routes by.
+//
+// That identity is the canonical owner KEY ([contract.Owner.DisplayString]), not
+// the whole structured block. Two revisions declaring `{team: platform, dri:
+// alice}` and `{team: platform, dri: bob}` are one owner here, because the product
+// offers exactly one /fleet/owners/platform page and both revisions are on it:
+// calling that a conflict would report two teams arguing where one team has two
+// people, and would keep the service out of the only ranking row it belongs to.
+// The DRI still travels on each revision, where it was authored.
+//
+// An owner that declares only contacts has no key to collapse onto, so those are
+// compared structurally instead — two different contact blocks are two claims,
+// because there is nothing that says they are the same team.
+//
+// [Query.ownershipState] and [deriveOwner] both count through this set, which is
+// what makes the OWNER_CONFLICT limitation and the ownership tally incapable of
+// disagreeing (see [OwnershipTally]).
+type ownerClaimSet struct {
+	keys    []string
+	keyless []contract.Owner
+}
+
+func (c *ownerClaimSet) add(o contract.Owner) {
+	if o.IsEmpty() {
+		return
+	}
+	if k := o.DisplayString(); k != "" {
+		if !containsStr(c.keys, k) {
+			c.keys = append(c.keys, k)
+		}
+		return
+	}
+	if !ownerSeen(c.keyless, o) {
+		c.keyless = append(c.keyless, o)
+	}
+}
+
+// len is the number of distinct claims; label is the one canonical key when the
+// single claim has one, and empty when the sole claim is keyless.
+func (c *ownerClaimSet) len() int { return len(c.keys) + len(c.keyless) }
+
+func (c *ownerClaimSet) label() string {
+	if len(c.keys) == 1 && len(c.keyless) == 0 {
+		return c.keys[0]
+	}
+	return ""
 }
 
 func ownerSeen(seen []contract.Owner, o contract.Owner) bool {

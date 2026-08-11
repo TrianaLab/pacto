@@ -82,7 +82,10 @@
   // -- see ownerRanking. The destination is the Services list, which is where a
   // population of services can be read; the owner page beside it is one owner's estate,
   // a different question with a different total.
-  const rank = $derived(ownerRanking(agg, (o) => fleetServicesUrl({ owner: o, ownership: 'consistent' })));
+  // ownerKey, not owner: the row counts an EXACT canonical owner, so its link has to
+  // ask the exact question. With the free-text filter the count and its destination
+  // disagree the moment one owner's key is a substring of another's.
+  const rank = $derived(ownerRanking(agg, (o) => fleetServicesUrl({ ownerKey: o, ownership: 'consistent' })));
   // The bars' own denominator, never `services`: if the backend ever tallied a service
   // into no bucket, a bar drawn against the service count would hide the gap in
   // whitespace instead of showing it.

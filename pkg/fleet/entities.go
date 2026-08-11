@@ -11,13 +11,30 @@ import (
 type EntityFilter struct {
 	Text  string
 	Kinds []EntityKind // empty means every kind
-	// Owner matches an entity when AT LEAST ONE contract revision behind it
-	// declares an owner matching the filter — see [Query.ownerClaims]. Both teams
-	// disputing a service therefore find it. Narrow to "consistently owned by this
-	// team" by pairing Owner with Ownership: OwnershipConsistent.
-	Owner  string
-	Domain string
-	Scope  string
+	// Owner is free-text owner SEARCH: an entity matches when at least one contract
+	// revision behind it declares an owner whose team, DRI or any contact value
+	// contains the query, case-insensitively (see [contract.Owner.MatchesFilter] and
+	// [Query.ownerClaims]). Both teams disputing a service therefore find it. It is
+	// what a reader typed, and it is deliberately generous.
+	//
+	// It is NOT owner identity: with owners `team-a` and `team-a-platform` in one
+	// fleet, Owner: "team-a" matches both. Use OwnerKey wherever the answer is
+	// canonical.
+	Owner string
+	// OwnerKey is exact canonical owner IDENTITY: an entity matches when at least
+	// one contract revision behind it declares this owner, compared against
+	// [contract.Owner.DisplayString] (see [contract.Owner.IsKey]). It is the filter
+	// every canonical owner link carries — an owner page's estate, a per-owner
+	// ranking's destination, an owner-scoped attention link — so the population a
+	// figure counted and the population its link opens are the same one. Narrow to
+	// "consistently owned by this owner" by pairing it with Ownership:
+	// OwnershipConsistent.
+	//
+	// OwnerKey and Owner compose (both must hold) rather than overriding each other:
+	// they are two different questions, and a consumer that asks both means both.
+	OwnerKey string
+	Domain   string
+	Scope    string
 	// Status filters compliance-bearing entities (service/revision/target) by
 	// their canonical compliance status. Source health is a separate axis.
 	Status string
@@ -207,6 +224,7 @@ func validateFilterCombos(f EntityFilter) error {
 		kinds        []EntityKind
 	}{
 		{"owner", f.Owner, []EntityKind{KindService, KindRevision, KindTarget, KindOwner}},
+		{"ownerKey", f.OwnerKey, []EntityKind{KindService, KindRevision, KindTarget, KindOwner}},
 		{"status", f.Status, []EntityKind{KindService, KindRevision, KindTarget}},
 		{"sourceHealth", f.SourceHealth, []EntityKind{KindSource}},
 		{"scope", f.Scope, []EntityKind{KindTarget}},
@@ -300,6 +318,7 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 	return matchScalarFields(r, f) &&
 		matchEntityText(r, f.Text) &&
 		(f.Owner == "" || q.entityOwnedBy(r, f.Owner)) &&
+		(f.OwnerKey == "" || q.entityOwnedByKey(r, f.OwnerKey)) &&
 		(f.Source == "" || q.entityFromSource(r, f.Source)) &&
 		(f.Ownership == "" || q.matchOwnershipState(r, f.Ownership)) &&
 		(f.Readiness == "" || q.matchReadinessState(r, f.Readiness))
@@ -416,6 +435,26 @@ func (q *Query) entityOwnedBy(r EntityRef, owner string) bool {
 		// An owner entity is identified only by its display string; match it with
 		// the same case-insensitive substring rule MatchesFilter applies.
 		return strings.Contains(strings.ToLower(r.Key), strings.ToLower(owner))
+	default:
+		return false
+	}
+}
+
+// entityOwnedByKey is [Query.entityOwnedBy]'s identity twin: the same walk over the
+// same declarations, asked with [contract.Owner.IsKey] instead of the substring
+// search, so a canonical owner link opens exactly the estate the owner page draws.
+// The two differ ONLY in the predicate; anything else would be a second ownership
+// model. An owner entity IS its key, so it is compared directly.
+func (q *Query) entityOwnedByKey(r EntityRef, key string) bool {
+	switch r.Kind {
+	case KindService:
+		return q.matchOwnerKey(q.snap.Services[ServiceKey(r.Key)], key)
+	case KindRevision:
+		return q.snap.Revisions[RevisionKey(r.Key)].Owner.IsKey(key)
+	case KindTarget:
+		return q.matchOwnerKey(q.snap.Services[ServiceKey(r.ParentService)], key)
+	case KindOwner:
+		return r.Key == key
 	default:
 		return false
 	}

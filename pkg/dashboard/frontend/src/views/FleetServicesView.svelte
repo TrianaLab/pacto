@@ -23,11 +23,17 @@
   // through the generated SDK facade -- NEVER the legacy preloaded /api/services list
   // and never a FleetSnapshot reconstruction. Filters and the page offset live in the
   // URL, so the filtered/paged list is deep-linkable and back/forward-restorable.
-  let { text = '', owner = '', ownership = '', status = '', domain = '', offset = '', refreshTick = 0 } = $props();
+  //
+  // `owner` and `ownerKey` are the two owner questions the backend distinguishes:
+  // `owner` is free-text SEARCH (a substring over team, DRI and contacts, so typing
+  // `team-a` finds `team-a-platform` too) and `ownerKey` is exact canonical IDENTITY.
+  // The text box writes the first; picking a suggestion, or arriving from an owner
+  // page or a per-owner ranking row, writes the second.
+  let { text = '', owner = '', ownerKey = '', ownership = '', status = '', domain = '', offset = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
-  const anyFilter = $derived(!!(text || owner || ownership || status || domain));
+  const anyFilter = $derived(!!(text || owner || ownerKey || ownership || status || domain));
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
@@ -43,6 +49,7 @@
     kinds: ['service'],
     text: text || undefined,
     owner: owner || undefined,
+    ownerKey: ownerKey || undefined,
     ownership: ownership || undefined,
     status: status || undefined,
     domain: domain || undefined,
@@ -54,7 +61,7 @@
   // poll still fires. Retaining rows across a refresh is stale-while-revalidate;
   // retaining them across a filter or page change would be showing one query's answer
   // under another query's heading, so `list` is gated on the tag matching.
-  const queryIdentity = $derived(`${text}@@${owner}@@${ownership}@@${status}@@${domain}@@${pageOffset}`);
+  const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${pageOffset}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -82,6 +89,7 @@
     return fleetServicesUrl({
       text: patch.text ?? text,
       owner: patch.owner ?? owner,
+      ownerKey: patch.ownerKey ?? ownerKey,
       ownership: patch.ownership ?? ownership,
       status: patch.status ?? status,
       domain: patch.domain ?? domain,
@@ -98,13 +106,27 @@
   function openSuggestion(ref) {
     location.hash = ref.href ? hashForHref(ref.href) : fleetEntityUrl(ref.kind, ref.key);
   }
-  // An owner suggestion is a filter, not a destination: it commits the owner the
-  // backend actually knows, spelled exactly as the snapshot spells it.
-  function pickOwner(ref) { apply({ owner: ref.label ?? '' }); }
+  // An owner suggestion is a filter, not a destination, and picking one from the
+  // backend's own owner inventory is an IDENTITY: it commits ownerKey and drops any
+  // free text, so `team-a` means team-a and not every owner whose name contains it.
+  // Typing into the box instead keeps the generous search.
+  //
+  // ownerBox is what the field stands for; ownerCommitted is the text the last commit
+  // put there. Picking a suggestion adopts its label into the input and the browser
+  // then fires `change` on blur carrying that same text -- without ownerCommitted, that
+  // echo would re-read the exact owner the user just chose as a substring search.
+  const ownerBox = $derived(ownerKey || owner);
+  let ownerCommitted = $state('');
+  $effect(() => { ownerCommitted = ownerBox; });
+  function pickOwner(ref) { ownerCommitted = ref.label ?? ''; apply({ ownerKey: ownerCommitted, owner: '' }); }
+  function searchOwner(v) { if (v !== ownerCommitted) { ownerCommitted = v; apply({ owner: v, ownerKey: '' }); } }
 
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
-    owner ? { key: 'owner', label: 'Owner', value: owner } : null,
+    ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerKey } : null,
+    // Named apart from the exact one on purpose: the two chips can both be present,
+    // and a reader must be able to tell which of them is the loose one.
+    owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
     ownership ? { key: 'ownership', label: 'Ownership', value: bucketLabel(OWNERSHIP_STATES, ownership) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
     domain ? { key: 'domain', label: 'Domain', value: domain } : null,
@@ -132,7 +154,7 @@
   // the destination carries `ownership` as well as `owner`. Each row narrows THIS query
   // rather than jumping to the owner page, so the filters the reader already set survive
   // the click.
-  const rank = $derived(ownerRanking(agg, (o) => urlWith({ owner: o, ownership: 'consistent' })));
+  const rank = $derived(ownerRanking(agg, (o) => urlWith({ ownerKey: o, owner: '', ownership: 'consistent' })));
   const ranked = $derived(rank.services);
   const rankedTargets = $derived(rank.targets);
   const distinctOwners = $derived(rank.distinct);
@@ -172,13 +194,13 @@
            off the 25 rows on screen would quietly present a page as the fleet. -->
       <EntityCombobox
         id="svc-owner"
-        value={owner}
+        value={ownerBox}
         kinds={['owner']}
         placeholder="team or DRI"
         label="Filter by owner"
         testid="svc-owner"
         onselect={pickOwner}
-        oncommit={(v) => { if (v !== owner) apply({ owner: v }); }}
+        oncommit={searchOwner}
       />
     </div>
     <!-- Who owns it (a name, above) and whether ownership is declared at all (a state)

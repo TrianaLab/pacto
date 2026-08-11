@@ -85,7 +85,8 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 type fleetEntitiesInput struct {
 	Text         string `query:"text"`
 	Kinds        string `query:"kinds" doc:"Comma-separated entity kinds (service,revision,target,owner,source)"`
-	Owner        string `query:"owner"`
+	Owner        string `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
+	OwnerKey     string `query:"ownerKey" doc:"Exact canonical owner IDENTITY: the owner display key, as canonical owner links carry it"`
 	Domain       string `query:"domain"`
 	Scope        string `query:"scope"`
 	Status       string `query:"status" doc:"Compliance status filter (service/revision/target)"`
@@ -106,7 +107,7 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
 	res, err := q.Entities(fleet.EntityFilter{
-		Text: in.Text, Kinds: parseKinds(in.Kinds), Owner: in.Owner, Domain: in.Domain,
+		Text: in.Text, Kinds: parseKinds(in.Kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
 		Ownership: in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Limit: in.Limit, Offset: in.Offset,
@@ -189,7 +190,8 @@ type fleetAttentionInput struct {
 	Kind      string `query:"kind"`
 	Key       string `query:"key"`
 	Service   string `query:"service"`
-	Owner     string `query:"owner"`
+	Owner     string `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
+	OwnerKey  string `query:"ownerKey" doc:"Exact canonical owner IDENTITY: the owner display key, as canonical owner links carry it"`
 	Source    string `query:"source"`
 	Severity  string `query:"severity" enum:"error,warning,info"`
 	Status    string `query:"status"`
@@ -206,8 +208,8 @@ func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
 	res, err := q.Attention(fleet.AttentionFilter{
-		Category: in.Category, Kind: in.Kind, Key: in.Key, Service: in.Service, Owner: in.Owner,
-		Source: in.Source, Severity: in.Severity, Status: in.Status, StaleOnly: in.StaleOnly,
+		Category: in.Category, Kind: in.Kind, Key: in.Key, Service: in.Service,
+		Owner: in.Owner, OwnerKey: in.OwnerKey, Source: in.Source, Severity: in.Severity, Status: in.Status, StaleOnly: in.StaleOnly,
 		Limit: in.Limit, Offset: in.Offset,
 	})
 	if err != nil {

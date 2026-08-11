@@ -307,6 +307,7 @@
     <FleetServicesView
       text={route.params.text || ''}
       owner={route.params.owner || ''}
+      ownerKey={route.params.ownerKey || ''}
       ownership={route.params.ownership || ''}
       status={route.params.status || ''}
       domain={route.params.domain || ''}
@@ -343,6 +344,7 @@
       severity={route.params.severity || ''}
       status={route.params.status || ''}
       owner={route.params.owner || ''}
+      ownerKey={route.params.ownerKey || ''}
       source={route.params.source || ''}
       service={route.params.service || ''}
       staleOnly={route.params.staleOnly || ''}

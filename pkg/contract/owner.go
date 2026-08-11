@@ -29,6 +29,20 @@ func (o Owner) DisplayString() string {
 	return o.DRI
 }
 
+// IsKey reports whether this owner IS the named canonical owner: an exact
+// comparison against [Owner.DisplayString], the identity the product routes and
+// groups owners by. It is the identity question, and [Owner.MatchesFilter] beside
+// it is the search question — with owners `team-a` and `team-a-platform` in one
+// fleet, a substring search matches both and only one of them is `team-a`. Use
+// this wherever the answer is canonical (an owner's estate, a link taken from an
+// owner page, a ranking row's destination); use MatchesFilter for what a reader
+// typed. An owner declaring only contacts has no canonical key and matches none,
+// including the empty one.
+func (o Owner) IsKey(key string) bool {
+	k := o.DisplayString()
+	return k != "" && k == key
+}
+
 // Equal reports semantic equality.
 func (o Owner) Equal(other Owner) bool {
 	if o.Team != other.Team || o.DRI != other.DRI || len(o.Contacts) != len(other.Contacts) {

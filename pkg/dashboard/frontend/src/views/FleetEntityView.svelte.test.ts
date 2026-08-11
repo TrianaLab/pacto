@@ -558,7 +558,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     const { target, component } = await mountView('owner', 'team:platform');
     await vi.waitFor(() => expect(target.textContent).toContain('Needs attention'));
     const viewAll = Array.from(target.querySelectorAll('a')).find((a) => a.textContent?.includes('View all for this owner')) as HTMLAnchorElement;
-    expect(viewAll.getAttribute('href')).toBe(`#/fleet/attention?owner=${encodeURIComponent('team:platform')}`);
+    expect(viewAll.getAttribute('href')).toBe(`#/fleet/attention?ownerKey=${encodeURIComponent('team:platform')}`);
     expect(viewAll.getAttribute('href')).not.toContain('Platform'); // never the display label
     unmount(component); document.body.removeChild(target);
   });

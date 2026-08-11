@@ -371,6 +371,26 @@ describe('parseHash — fleet product IA (Phase 2)', () => {
     });
   });
 
+  // Owner SEARCH and owner IDENTITY are two questions, so they are two params and both
+  // survive the round-trip. A canonical owner link carries `ownerKey`, which the
+  // backend matches exactly: with only the free-text `owner`, a link built for owner
+  // `team-a` would also select the services of `team-a-platform`.
+  it('carries the exact owner and the free-text owner search as separate route state', () => {
+    expect(fleetServicesUrl({ ownerKey: 'team-a', ownership: 'consistent' }))
+      .toBe('#/fleet/services?ownerKey=team-a&ownership=consistent');
+    expect(fleetAttentionUrl({ ownerKey: 'team:platform' }))
+      .toBe('#/fleet/attention?ownerKey=team%3Aplatform');
+    // They compose rather than override: a reader can narrow a search to one owner.
+    const url = fleetServicesUrl({ owner: 'team', ownerKey: 'team-a' });
+    expect(url).toBe('#/fleet/services?owner=team&ownerKey=team-a');
+    expect(parseHash(url)).toEqual({
+      view: 'fleet-services', params: { owner: 'team', ownerKey: 'team-a' },
+    });
+    expect(parseHash('#/fleet/attention?ownerKey=team-a&category=stale')).toEqual({
+      view: 'fleet-attention', params: { ownerKey: 'team-a', category: 'stale' },
+    });
+  });
+
   it('a bare /fleet/services must NOT be shadowed by service detail (regression A3)', () => {
     // /fleet/services is the LIST; /fleet/services/:key is one service. The list must
     // never fall through to the entity route (which needs a key) or the overview.

@@ -613,9 +613,13 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	// same rule [Query.ownerClaims] applies to every owner filter. Reading it off
 	// ServiceRecord.Owner instead would show an owner one revision of a disputed
 	// service and none of the service that revision belongs to.
+	//
+	// The comparison is IDENTITY ([contract.Owner.IsKey]), never the free-text owner
+	// search: this page IS one canonical owner, and a substring rule would hand
+	// `team-a` the estate of `team-a-platform`.
 	claimed := map[ServiceKey]bool{}
 	for _, r := range q.snap.Revisions {
-		if r.Owner.DisplayString() == key {
+		if r.Owner.IsKey(key) {
 			claimed[r.ServiceKey] = true
 			revisions = append(revisions, revisionEntityRef(r))
 			// Read validity from the authoritative snapshot record: revisionStatus knows
@@ -644,11 +648,12 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 	sortEntityRefs(services)
 	sortEntityRefs(deployments)
 	sortEntityRefs(revisions)
-	// A constant, valid filter (owner only) never errors; ignore it deliberately.
+	// A constant, valid filter (owner key only) never errors; ignore it deliberately.
 	// Attention is ALREADY offset-paged; build the preview from the list (not just
 	// its Items) so the owner detail reports the TRUE matched total and truncation,
-	// never a double-truncated page count.
-	ownerAttention, _ := q.Attention(AttentionFilter{Owner: key})
+	// never a double-truncated page count. The key is the same identity the estate
+	// above was walked with, so the backlog and the estate describe one owner.
+	ownerAttention, _ := q.Attention(AttentionFilter{OwnerKey: key})
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: ownerEntityRef(key),
 		Owner: &OwnerDetailData{

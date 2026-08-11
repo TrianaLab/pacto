@@ -26,8 +26,11 @@
   // URL, so a triage view is deep-linkable and back/forward-restorable. Each item
   // answers what is affected, why, how severe, what evidence/source supports it and
   // what to inspect next (the backend-provided nextStep, never invented remediation).
+  // `owner` is free-text SEARCH over team, DRI and contacts; `ownerKey` is the exact
+  // canonical owner IDENTITY that owner pages and per-owner rankings link with, so a
+  // canonical backlog for `team-a` never quietly includes `team-a-platform`.
   let {
-    category = '', severity = '', status = '', owner = '', source = '', service = '',
+    category = '', severity = '', status = '', owner = '', ownerKey = '', source = '', service = '',
     staleOnly = '', offset = '', refreshTick = 0,
   } = $props();
 
@@ -36,7 +39,7 @@
   const SEVERITIES = ['error', 'warning', 'info'];
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
   const isStale = $derived(staleOnly === '1');
-  const anyFilter = $derived(!!(category || severity || status || owner || source || service || isStale));
+  const anyFilter = $derived(!!(category || severity || status || owner || ownerKey || source || service || isStale));
 
   // One reusable, race-safe loader (requirement E): the fetcher reads current filters
   // at request time; sync(key) dedupes the initial load and the generation guard stops
@@ -48,6 +51,7 @@
     severity: severity || undefined,
     status: status || undefined,
     owner: owner || undefined,
+    ownerKey: ownerKey || undefined,
     source: source || undefined,
     service: service || undefined,
     staleOnly: isStale ? true : undefined,
@@ -56,7 +60,7 @@
   }));
   // queryIdentity is the QUESTION (filters + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived([category, severity, status, owner, source, service, staleOnly, pageOffset].join('@@'));
+  const queryIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly, pageOffset].join('@@'));
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -79,6 +83,7 @@
       severity: patch.severity ?? severity,
       status: patch.status ?? status,
       owner: patch.owner ?? owner,
+      ownerKey: patch.ownerKey ?? ownerKey,
       source: patch.source ?? source,
       service: patch.service ?? service,
       staleOnly: stale || undefined,
@@ -99,7 +104,8 @@
     category ? { key: 'category', label: 'Category', value: attentionCategoryLabel(category) } : null,
     severity ? { key: 'severity', label: 'Severity', value: severityLabel(severity) } : null,
     status ? { key: 'status', label: 'Status', value: statusLabel(status) } : null,
-    owner ? { key: 'owner', label: 'Owner', value: owner } : null,
+    ownerKey ? { key: 'ownerKey', label: 'Owner', value: ownerKey } : null,
+    owner ? { key: 'owner', label: 'Owner search', value: owner } : null,
     source ? { key: 'source', label: 'Source', value: source } : null,
     // Scoping arrives by deep link from a service page's posture bars; it gets a chip
     // like every other filter so the user can see they are in one service's backlog
@@ -160,7 +166,7 @@
         </label>
         <label class="av-field">
           <span>Owner</span>
-          <input type="text" value={owner} placeholder="team or DRI" aria-label="Filter by owner" onchange={(e) => apply({ owner: e.currentTarget.value.trim() })} />
+          <input type="text" value={ownerKey || owner} placeholder="team or DRI" aria-label="Filter by owner" onchange={(e) => apply({ owner: e.currentTarget.value.trim(), ownerKey: '' })} />
         </label>
         <label class="av-field">
           <span>Source</span>

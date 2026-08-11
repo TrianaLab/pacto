@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/fstest"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/impact"
 	"github.com/trianalab/pacto/v3/pkg/oci"
@@ -380,6 +382,79 @@ func postJSON(t *testing.T, url string, body any, wantStatus int, into any) {
 	if into != nil {
 		if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
 			t.Fatalf("decode %s: %v", url, err)
+		}
+	}
+}
+
+// ownerCollisionQuery builds a two-service fleet whose owner keys collide as
+// substrings: team-a owns app, team-a-platform owns lib. Both services have a
+// non-compliant target, so each also owns a share of the attention backlog.
+func ownerCollisionQuery(t *testing.T) *fleet.Query {
+	t.Helper()
+	bundle := func(name, team string) *contract.Bundle {
+		return &contract.Bundle{Contract: &contract.Contract{
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}},
+		}, RawYAML: []byte(name), FS: fstest.MapFS{}}
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
+		fleet.NewMemorySource("local", "local", &fleet.Collection{
+			Revisions: []fleet.RawRevision{
+				{Bundle: bundle("app", "team-a"), ResolvedRef: "oci://x/app@" + validDigest("a"), Digest: validDigest("a")},
+				{Bundle: bundle("lib", "team-a-platform"), ResolvedRef: "oci://x/lib@" + validDigest("b"), Digest: validDigest("b")},
+			},
+			Targets: []fleet.RawTarget{
+				{Scope: "prod", Kind: "k8s", Name: "app-1", Service: "app", Compliance: fleet.StatusNonCompliant},
+				{Scope: "prod", Kind: "k8s", Name: "lib-1", Service: "lib", Compliance: fleet.StatusNonCompliant},
+			},
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fleet.NewQuery(snap)
+}
+
+// Owner SEARCH and owner IDENTITY are two different questions, and the transport has
+// to carry both or the distinction dies at the wire: a canonical owner link sends
+// ownerKey, and if the server dropped it the reply would be the UNFILTERED list --
+// the failure mode that reads as "team-a owns all of this".
+func TestProductOwnerKey_IsAnExactFilterOverTheWire(t *testing.T) {
+	q := ownerCollisionQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+
+	for _, tc := range []struct{ query, want string }{
+		// The search is generous by design: team-a is a substring of team-a-platform.
+		{"kinds=service&owner=team-a", "[app lib]"},
+		// The identity is exact, and it is what an owner page's links carry.
+		{"kinds=service&ownerKey=team-a", "[app]"},
+		{"kinds=service&ownerKey=team-a-platform", "[lib]"},
+		// They compose rather than override: an exact owner narrowed by a search.
+		{"kinds=service&ownerKey=team-a&owner=platform", "[]"},
+	} {
+		var list fleet.EntityList
+		getJSON(t, base+"/api/fleet/entities?"+tc.query, http.StatusOK, &list)
+		keys := []string{}
+		for _, e := range list.Entities {
+			keys = append(keys, e.Key)
+		}
+		if got := fmt.Sprint(keys); got != tc.want {
+			t.Errorf("%s listed %s, want %s", tc.query, got, tc.want)
+		}
+	}
+
+	// The same two questions on the attention backlog, where an owner page's
+	// "View all for this owner" and every posture bar land.
+	var fuzzy, exact fleet.AttentionList
+	getJSON(t, base+"/api/fleet/attention?owner=team-a", http.StatusOK, &fuzzy)
+	getJSON(t, base+"/api/fleet/attention?ownerKey=team-a", http.StatusOK, &exact)
+	if fuzzy.Total == 0 || exact.Total == 0 || exact.Total >= fuzzy.Total {
+		t.Errorf("attention: ownerKey matched %d of the %d the search matched, want a strict subset",
+			exact.Total, fuzzy.Total)
+	}
+	for _, it := range exact.Items {
+		if it.Service != "app" {
+			t.Errorf("ownerKey=team-a returned an item for %s, which team-a does not own", it.Service)
 		}
 	}
 }

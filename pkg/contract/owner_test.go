@@ -58,6 +58,40 @@ func TestOwner_MatchesFilter(t *testing.T) {
 	}
 }
 
+// IsKey and MatchesFilter answer two different questions, and the pair `team-a` /
+// `team-a-platform` is where the difference stops being academic: a substring
+// query matches both, and only one of them IS `team-a`.
+func TestOwner_IsKeyIsExactCanonicalIdentity(t *testing.T) {
+	a := Owner{Team: "team-a"}
+	collider := Owner{Team: "team-a-platform"}
+	if !a.IsKey("team-a") {
+		t.Fatal("an owner must be its own canonical key")
+	}
+	if collider.IsKey("team-a") {
+		t.Fatal("team-a-platform is a different owner from team-a")
+	}
+	if !collider.MatchesFilter("team-a") {
+		t.Fatal("free-text owner search must still discover the substring collider")
+	}
+	// Case and contacts belong to search, never to identity: a key is compared as
+	// the snapshot spells it, and a contact value is not an owner name.
+	if a.IsKey("Team-A") {
+		t.Fatal("canonical identity is not case-insensitive")
+	}
+	paged := Owner{Contacts: []OwnerContact{{Type: "chat", Value: "#team-a"}}}
+	if paged.IsKey("#team-a") {
+		t.Fatal("a contact value is not a canonical owner key")
+	}
+	if (Owner{}).IsKey("") {
+		t.Fatal("an undeclared owner has no canonical key, so it matches none")
+	}
+	// The DRI fallback is the canonical key when no team is declared, exactly as
+	// DisplayString reports it.
+	if !(Owner{DRI: "alice"}).IsKey("alice") {
+		t.Fatal("the DRI fallback is the canonical key when no team is declared")
+	}
+}
+
 func TestOwner_YAMLRoundTrip(t *testing.T) {
 	in := []byte("team: team/payments\ndri: eduardo.diaz\ncontacts:\n  - type: email\n    value: pay@acme.com\n    purpose: ownership\n")
 	var o Owner

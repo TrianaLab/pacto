@@ -117,7 +117,7 @@ describe('FleetOwnersView (G)', () => {
 
   /**
    * A ranking row counts the services CONSISTENTLY owned by that team, so its
-   * destination has to say so. `owner=team-a` alone also selects what team-a co-owns
+   * destination has to say so. `ownerKey=team-a` alone also selects what team-a co-owns
    * with somebody else -- a longer list than the row the reader clicked.
    */
   it('ranks owners into the exact population each row counted', async () => {
@@ -129,8 +129,8 @@ describe('FleetOwnersView (G)', () => {
       n.querySelector('.hb-label')?.textContent, n.querySelector('.hb-value')?.textContent,
       n.querySelector('a')?.getAttribute('href'),
     ])).toEqual([
-      ['team-a', '18 services', '#/fleet/services?owner=team-a&ownership=consistent'],
-      ['team-b', '12 services', '#/fleet/services?owner=team-b&ownership=consistent'],
+      ['team-a', '18 services', '#/fleet/services?ownerKey=team-a&ownership=consistent'],
+      ['team-b', '12 services', '#/fleet/services?ownerKey=team-b&ownership=consistent'],
     ]);
     // And it says what it is not: 18 + 12 + 4 == the 34 consistent services, so the six
     // conflicting and unowned ones are in no row here.
