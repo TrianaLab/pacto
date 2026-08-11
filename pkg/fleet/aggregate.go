@@ -237,11 +237,19 @@ func (r ReadinessTally) Total() int {
 // same one — a team and a DRI both named `alice` are two owners. Kind names the
 // namespace so a reader can tell those two rows apart.
 type OwnerCount struct {
-	Key      string `json:"key"`
-	Label    string `json:"label"`
-	Kind     string `json:"kind"`
-	Services int    `json:"services"`
-	Targets  int    `json:"targets"`
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
+	// Ambiguous reports that another canonical owner ANYWHERE in the matched
+	// population shares this Label, so the namespace has to be shown for the row to
+	// name one owner. It is computed over the complete population rather than the
+	// rows that survived the ranking cut, because a reader cannot see which owners
+	// were cut: with `team:alice` ranked first and `dri:alice` eleventh, deciding
+	// from the visible rows alone would print an unqualified `alice` that means a
+	// different owner depending on how many owners happened to fit.
+	Ambiguous bool `json:"ambiguous,omitempty"`
+	Services  int  `json:"services"`
+	Targets   int  `json:"targets"`
 }
 
 // maxOwnerRanking bounds the owner ranking on an entity aggregate. A fleet may
@@ -414,8 +422,37 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 	}
 	agg.RankedOwners = len(byOwner)
 	agg.DistinctOwners = len(present)
+	markAmbiguousLabels(byOwner, present)
 	agg.ByOwner, agg.BeyondRanking = rankOwners(byOwner)
 	return agg
+}
+
+// markAmbiguousLabels flags every ranking row whose human label is shared by
+// another canonical owner in the population — the whole population, not the ranked
+// subset, so the flag cannot flip as rows cross the ranking cut. `present` is every
+// canonical owner the matched services name, including owners that only appear in a
+// dispute: `alice` is no less ambiguous because the other alice happens to own
+// nothing consistently.
+func markAmbiguousLabels(byOwner map[string]*OwnerCount, present map[string]bool) {
+	labels := make(map[string]int, len(present))
+	for key := range present {
+		labels[ownerLabelOf(key)]++
+	}
+	for _, c := range byOwner {
+		if labels[c.Label] > 1 {
+			c.Ambiguous = true
+		}
+	}
+}
+
+// ownerLabelOf is the human label a canonical key presents as, matching
+// [newOwnerCount] so the two never disagree about what is ambiguous with what.
+func ownerLabelOf(key string) string {
+	label := key
+	if k, err := contract.ParseOwnerKey(key); err == nil {
+		label = k.Value
+	}
+	return label
 }
 
 // newOwnerCount builds a ranking row from a canonical key, splitting the identity
@@ -423,9 +460,9 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 // apart. A key that fails to parse cannot be produced by [contract.Owner.Key], so
 // it falls back to showing itself rather than inventing a nicer name.
 func newOwnerCount(key string) *OwnerCount {
-	c := &OwnerCount{Key: key, Label: key}
+	c := &OwnerCount{Key: key, Label: ownerLabelOf(key)}
 	if k, err := contract.ParseOwnerKey(key); err == nil {
-		c.Label, c.Kind = k.Value, string(k.Kind)
+		c.Kind = string(k.Kind)
 	}
 	return c
 }

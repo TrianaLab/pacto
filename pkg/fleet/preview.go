@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
@@ -375,6 +376,36 @@ func readinessChecksPreview(cs []readiness.CheckResult) ReadinessChecksPreview {
 	}
 	it, total, trunc := boundSlice(out, MaxDetailPreview)
 	return ReadinessChecksPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
+}
+
+// OwnerContactPoint is one declared way to reach an owner. It is contact
+// METADATA, never identity: an email address or a chat channel names a route, not
+// an owner the product can file a service under (see [contract.OwnerKey]). Nothing
+// downstream may derive a key, a link or a ranking row from it.
+type OwnerContactPoint struct {
+	Type    string `json:"type,omitempty"`
+	Value   string `json:"value,omitempty"`
+	Purpose string `json:"purpose,omitempty"`
+}
+
+// ContactsPreview is a bounded preview of an owner's declared contact points, in
+// the normalized set order [contract.Owner.ContactSet] defines — so the same
+// declaration presents identically however the YAML was written, and a contact
+// point repeated in the file appears once.
+type ContactsPreview struct {
+	Total     int                 `json:"total"`
+	Count     int                 `json:"count"`
+	Truncated bool                `json:"truncated"`
+	Items     []OwnerContactPoint `json:"items"`
+}
+
+func contactsPreview(cs []contract.OwnerContact) ContactsPreview {
+	out := make([]OwnerContactPoint, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, OwnerContactPoint{Type: c.Type, Value: c.Value, Purpose: c.Purpose})
+	}
+	it, total, trunc := boundSlice(out, MaxDetailPreview)
+	return ContactsPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
 // RuntimeFact is one flattened observed-runtime leaf: a dotted key path

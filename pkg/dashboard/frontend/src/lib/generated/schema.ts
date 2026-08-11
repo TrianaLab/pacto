@@ -996,6 +996,14 @@ export interface components {
             /** Format: int64 */
             warning: number;
         };
+        "Fleet.ContactsPreview": {
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Fleet.OwnerContactPoint"][] | null;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
         "Fleet.ContractRevision": {
             contract?: components["schemas"]["Contract.Contract"];
             digest?: string;
@@ -1268,7 +1276,13 @@ export interface components {
             /** Format: int64 */
             unresolvedTargetLinks: number;
         };
+        "Fleet.OwnerContactPoint": {
+            purpose?: string;
+            type?: string;
+            value?: string;
+        };
         "Fleet.OwnerCount": {
+            ambiguous?: boolean;
             key: string;
             kind: string;
             label: string;
@@ -1538,6 +1552,14 @@ export interface components {
             unknown: number;
             /** Format: int64 */
             warnings: number;
+        };
+        "Fleet.SourceContribution": {
+            /** Format: int64 */
+            revisions: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            targets: number;
         };
         "Fleet.SourceError": {
             code: string;
@@ -2202,6 +2224,7 @@ export interface components {
         };
         ProductOwnership: {
             conflicts: components["schemas"]["Fleet.StringsPreview"];
+            contacts?: components["schemas"]["Fleet.ContactsPreview"];
             declared: boolean;
             owner?: string;
             ref?: components["schemas"]["ProductRef"];
@@ -2313,6 +2336,7 @@ export interface components {
             summary: components["schemas"]["Fleet.ServiceSummary"];
         };
         ProductSourceDetail: {
+            contributed: components["schemas"]["Fleet.SourceContribution"];
             entities: components["schemas"]["ProductRefPreview"];
             error?: components["schemas"]["Fleet.SourceError"];
             /** @enum {string} */

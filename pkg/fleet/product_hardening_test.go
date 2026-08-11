@@ -396,6 +396,12 @@ func mutateRevisionDetail(r *RevisionDetailData) {
 	for i := range r.Docs.Items {
 		r.Docs.Items[i].Title = "hacked"
 	}
+	if r.Ownership != nil && r.Ownership.Contacts != nil {
+		r.Ownership.Owner = "hacked"
+		for i := range r.Ownership.Contacts.Items {
+			r.Ownership.Contacts.Items[i].Value = "hacked"
+		}
+	}
 	mutateRefPreview(&r.ExactTargets)
 	mutateRefPreview(&r.InferredTargets)
 	for i := range r.Dependencies.Items {
@@ -445,6 +451,7 @@ func mutateSourceDetail(src *SourceDetailData) {
 	mutateTimePtr(src.LastSuccessfulSync)
 	mutateTimePtr(src.ObservedAt)
 	mutateRefPreview(&src.Entities)
+	src.Contributed.Services, src.Contributed.Revisions, src.Contributed.Targets = -1, -1, -1
 	for i := range src.Limitations.Items {
 		src.Limitations.Items[i].Code = "hacked"
 	}

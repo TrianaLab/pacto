@@ -35,8 +35,20 @@ type OwnershipInfo struct {
 	// can route to" from "nobody declared an owner". Without it a contacts-only
 	// owner renders as Unowned, which tells an operator to go and find a team that
 	// already wrote down how to reach them.
-	Declared  bool           `json:"declared"`
-	Conflicts StringsPreview `json:"conflicts"`
+	Declared bool `json:"declared"`
+	// Contacts is the declared contact block, and it is present ONLY where the
+	// ownership shown IS the entity's own declaration — that is, on a contract
+	// revision. A service or a target shows a DERIVED owner (one revision's
+	// declaration standing in for the service, or the service's standing in for the
+	// target), and printing that revision's contact points beside them would present
+	// one arbitrary revision's escalation route as the entity's own. Absent therefore
+	// means "not carried here", never "no contacts declared"; the revision page is
+	// where the declaration is inspected.
+	//
+	// It is contact metadata and never identity: Ref stays absent for a contacts-only
+	// owner however many contact points this carries.
+	Contacts  *ContactsPreview `json:"contacts,omitempty"`
+	Conflicts StringsPreview   `json:"conflicts"`
 }
 
 // RevisionIdentity describes how a revision (or a target's contract reference)
@@ -423,19 +435,53 @@ type OwnerDetailData struct {
 	Attention   AttentionPreview `json:"attention"`
 }
 
+// SourceContribution counts the DISTINCT product entities attributable to one
+// source, per kind, over the COMPLETE attributable population — never over the
+// bounded [SourceDetailData.Entities] preview.
+//
+// It is a different measurement from the raw record counts beside it
+// ([SourceDetailData.RevisionCount] / [SourceDetailData.TargetCount]) and the two
+// legitimately disagree, so they are reported separately rather than reconciled:
+//
+//   - Records are per source, per RAW RECORD: a revision two sources both reported
+//     is one record in each of their counts, and a source that reported the same
+//     revision twice counted it twice.
+//   - Contribution is per DISTINCT ENTITY: those two sources contribute one shared
+//     revision entity each, and the repeat contributes one.
+//   - Services are DERIVED, never reported: no source sends a service record, and a
+//     service is attributable to every source that reported one of its revisions or
+//     one of its targets. So Services is nonzero for a source whose record counts
+//     are entirely revisions, and the same service is attributable to several
+//     sources at once.
+//
+// Sum(Services, Revisions, Targets) is exactly [SourceDetailData.Entities].Total.
+// The source entity ITSELF is not attributable to itself and is not counted here;
+// [Query.Entities] with a source filter does include it, because that filter answers
+// "what does this source scope contain", not "what did it contribute".
+type SourceContribution struct {
+	Services  int `json:"services"`
+	Revisions int `json:"revisions"`
+	Targets   int `json:"targets"`
+}
+
 // SourceDetailData is the source-kind payload: kind, health, sync/observation
-// timestamps, record counts, a bounded preview of contributed entities, the
-// sanitized source error, and the source's own limitations.
+// timestamps, raw record counts, the per-kind contributed-entity breakdown, a
+// bounded preview of those entities, the sanitized source error, and the source's
+// own limitations.
 type SourceDetailData struct {
-	Kind               string             `json:"kind,omitempty"`
-	Health             string             `json:"health" enum:"available,partial,stale,unavailable"`
-	LastSuccessfulSync *time.Time         `json:"lastSuccessfulSync,omitempty"`
-	ObservedAt         *time.Time         `json:"observedAt,omitempty"`
-	RevisionCount      int                `json:"revisionCount"`
-	TargetCount        int                `json:"targetCount"`
-	Entities           RefPreview         `json:"entities"`
-	Error              *SourceError       `json:"error,omitempty"`
-	Limitations        LimitationsPreview `json:"limitations"`
+	Kind               string     `json:"kind,omitempty"`
+	Health             string     `json:"health" enum:"available,partial,stale,unavailable"`
+	LastSuccessfulSync *time.Time `json:"lastSuccessfulSync,omitempty"`
+	ObservedAt         *time.Time `json:"observedAt,omitempty"`
+	// RevisionCount and TargetCount are RAW RECORDS this source supplied, counted as
+	// ingested — see [SourceContribution] for why they are not the contributed-entity
+	// totals and must not be presented as them.
+	RevisionCount int                `json:"revisionCount"`
+	TargetCount   int                `json:"targetCount"`
+	Contributed   SourceContribution `json:"contributed"`
+	Entities      RefPreview         `json:"entities"`
+	Error         *SourceError       `json:"error,omitempty"`
+	Limitations   LimitationsPreview `json:"limitations"`
 }
 
 // EntityDetail is the common, versioned, discriminated envelope for any entity's
@@ -694,6 +740,20 @@ func (q *Query) sourceDetail(key string) (*EntityDetail, error) {
 			lims = append(lims, l)
 		}
 	}
+	// Counted over the COMPLETE attributable population, before the preview bounds it:
+	// a source past MaxDetailPreview must still report its true breakdown.
+	entities := q.entitiesFromSource(key)
+	var contributed SourceContribution
+	for _, e := range entities {
+		switch e.Kind {
+		case KindService:
+			contributed.Services++
+		case KindRevision:
+			contributed.Revisions++
+		case KindTarget:
+			contributed.Targets++
+		}
+	}
 	return &EntityDetail{
 		Meta: q.productMeta(), Entity: sourceEntityRef(*st), Status: string(st.Status),
 		Source: &SourceDetailData{
@@ -703,7 +763,8 @@ func (q *Query) sourceDetail(key string) (*EntityDetail, error) {
 			ObservedAt:         st.ObservedAt,
 			RevisionCount:      st.RevisionCount,
 			TargetCount:        st.TargetCount,
-			Entities:           refPreview(q.entitiesFromSource(key)),
+			Contributed:        contributed,
+			Entities:           refPreview(entities),
 			Error:              st.Error,
 			Limitations:        limitationsPreview(lims),
 		},
@@ -976,7 +1037,12 @@ func evidenceForTargets(targets []*TargetRecord) []EvidenceItem {
 	return out
 }
 
-// entitiesFromSource returns every entity contributed by the named source.
+// entitiesFromSource returns every DISTINCT product entity attributable to the
+// named source: the revisions and targets it reported, plus the services derived
+// from them. Attribution is not exclusive — an entity two sources both reported is
+// attributable to both — and it is not the source's raw record count; see
+// [SourceContribution]. The source entity itself is excluded: a source does not
+// contribute itself.
 func (q *Query) entitiesFromSource(key string) []EntityRef {
 	var out []EntityRef
 	for _, s := range q.snap.Services {
@@ -1022,8 +1088,16 @@ func serviceOwnership(s *ServiceRecord, revs []*ContractRevision) *OwnershipInfo
 // page and dead text on the revision page, so the trail out of a revision to "everything
 // this team owns" simply stopped there. Per-revision conflicts are a SERVICE-level fact
 // (one revision cannot disagree with itself), so this carries no Conflicts preview.
+//
+// The revision is the contract inspector, so it is the one entity that carries the
+// declared contact points (see [OwnershipInfo.Contacts]) — including for an owner
+// block of contacts alone, whose whole content would otherwise be unreachable
+// anywhere in the product.
 func revisionOwnership(rev *ContractRevision) *OwnershipInfo {
-	return ownerInfo(rev.Owner)
+	info := ownerInfo(rev.Owner)
+	c := contactsPreview(rev.Owner.ContactSet())
+	info.Contacts = &c
+	return info
 }
 
 // targetOwnership reports the owner of the target's LOGICAL SERVICE. A target has
