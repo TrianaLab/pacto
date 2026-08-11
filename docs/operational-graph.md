@@ -88,6 +88,18 @@ into the graph: a Kubernetes-backed source, an OCI-backed source, a local source
 and the dashboard adapter each implement the same small interface, so the read
 model stays free of Kubernetes, MCP and dashboard code.
 
+**What a source sent is not what it contributed.** A source's record counts
+(`revisionCount`, `targetCount`) are the raw records it supplied, counted as
+ingested. The product entities attributable to it (`contributed`, broken down by
+kind) are a different and usually larger set, so the two are reported side by side
+and never reconciled into one number. A revision that two sources both reported is
+one record in each of their counts and one shared entity contributed by both. A
+*service* is derived from the revisions and targets a source reported — no source
+ever sends a service record — so a source whose records are entirely revisions
+still contributes services, and the same service is attributable to several
+sources at once. Both counts are computed over the complete population, never over
+the bounded entity preview beside them.
+
 ---
 
 ## Freshness and completeness
@@ -120,6 +132,14 @@ The dashboard uses a matching per-section vocabulary — `present`, `empty`,
 *why* it is blank. When a source fails, its error is sanitized to a category code
 (`AUTH_FAILED`, `NOT_FOUND`, `UNAVAILABLE`, `CANCELLED`) and a generic message, so
 credentials, tokens and host names never leak to a consumer.
+
+The list of sources on a query answer's `meta` is bounded, so the answer also
+carries `sourceCounts`: every source in the snapshot tallied by health state, over
+the complete population that list was cut from. Counting the sources a consumer
+received would understate the fleet precisely when it matters, because the capped
+list is deliberately biased toward the least healthy. A status the read model does
+not recognize is never folded into a bucket — `total` simply stays above the sum
+of the buckets, rather than the tally adding up perfectly and being wrong.
 
 ---
 
@@ -199,10 +219,30 @@ present that tie-break as agreement.
 Beside the partition, an aggregate carries a **bounded ranking** of the
 consistently owned services by owner (`byOwner`), largest first. It is explicitly
 not a partition: conflicted and unowned services have no single owner to rank
-under, `otherOwners` holds the services whose owner fell past the bound and
-`distinctOwners` says how many owners exist in total — so
-`sum(byOwner.services) + otherOwners == ownership.consistent`, and a consumer can
-state exactly what the ranking omits.
+under, `beyondRanking` holds the services whose owner fell past the bound,
+`unidentifiedOwnership` holds the consistently owned services whose declared owner
+resolves to no canonical identity and `distinctOwners` says how many owners exist
+in total — so
+`sum(byOwner.services) + beyondRanking + unidentifiedOwnership == ownership.consistent`,
+and a consumer can state exactly what the ranking omits.
+
+An owner identity is **namespaced**: `team:payments` and `dri:payments` are two
+owners that happen to print the same word. A ranking row whose human label is
+shared by an owner of the other kind is flagged `ambiguous`, and a consumer must
+show the namespace for it. Ambiguity is decided over the complete population of
+distinct owner keys, never over the rows that survived the ranking cut — otherwise
+the same owner would read one way when its collider ranked second and another way
+when it ranked two hundredth, and a canonical identity would depend on where the
+bound happened to fall.
+
+A revision's declared **contact points** — an email address, a chat channel or a
+URL — travel with its ownership as bounded metadata and are never identity: no owner
+key, no link and no ranking row is derivable from one. That is what
+`unidentifiedOwnership` exists to count. A contract naming a mailing list but no
+Team or DRI *has* declared an owner, so folding it into `unowned` would report a
+governance gap the team already closed, and minting an owner key out of the
+address would invent an identity nobody authored. The contacts preview is a
+pointer: its absence means "not carried here", never "none declared".
 
 **Readiness** is bucketed per contract revision and never per service, per target
 or per fleet: readiness is the authored preparedness of one immutable contract,
@@ -264,7 +304,12 @@ flowchart LR
   routing the snapshot never observed, so it is never drawn. Its overview and its
   list pages draw every figure from the aggregate above, so a figure and the rows
   beneath it always describe the same population: narrowing the filter narrows
-  both, and a bucket of a figure is a link to the rows it counted.
+  both, and a bucket of a figure is a link to the rows it counted. The **data
+  sources** everything above was built from are a product surface of their own
+  rather than a diagnostic panel: the overview carries them as a section with the
+  fleet-wide health tally, and each source has a page saying what it is, whether
+  it is healthy, when it last synced, how many records it sent and which product
+  entities are attributable to it.
 - **CLI (`pacto fleet …`)** — the five queries on the command line:
   `pacto fleet search`, `pacto fleet get`, `pacto fleet graph`, `pacto fleet
   status`, `pacto fleet explain`, plus `pacto fleet reconcile` (declared vs
