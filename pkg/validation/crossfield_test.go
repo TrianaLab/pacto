@@ -60,35 +60,49 @@ func TestValidateInterfaceNamesUnique_Duplicate(t *testing.T) {
 	}
 }
 
-func TestValidateConfigurationNamesUnique_Duplicate(t *testing.T) {
+// Both validators read the one contract-level rule, which reports duplicates of
+// BOTH kinds. So each is given a contract that repeats a configuration name AND a
+// policy name, and each has to report only its own kind: a configuration
+// duplicate reported as a policy duplicate would point the reader at the wrong
+// list, under the wrong index.
+func duplicatesOfBothKinds() *contract.Contract {
 	c := validV20Contract()
 	c.Configurations = []contract.Configuration{
 		{Name: "app", Schema: "config/app.json"},
 		{Name: "app", Schema: "config/app2.json"},
 	}
+	c.Policies = []contract.Policy{
+		{Name: "security", Schema: "policy/sec.json"},
+		{Name: "security", Schema: "policy/sec2.json"},
+	}
+	return c
+}
+
+func TestValidateConfigurationNamesUnique_Duplicate(t *testing.T) {
 	var result ValidationResult
-	validateConfigurationNamesUnique(c, &result)
+	validateConfigurationNamesUnique(duplicatesOfBothKinds(), &result)
 	if result.IsValid() {
 		t.Error("expected error for duplicate config names")
 	}
 	if !hasErrorCode(result, "DUPLICATE_CONFIGURATION_NAME") {
 		t.Errorf("expected DUPLICATE_CONFIGURATION_NAME, got %+v", result.Errors)
 	}
+	if hasErrorCode(result, "DUPLICATE_POLICY_NAME") {
+		t.Errorf("configuration validator reported a policy duplicate: %+v", result.Errors)
+	}
 }
 
 func TestValidatePolicyNamesUnique_Duplicate(t *testing.T) {
-	c := validV20Contract()
-	c.Policies = []contract.Policy{
-		{Name: "security", Schema: "policy/sec.json"},
-		{Name: "security", Schema: "policy/sec2.json"},
-	}
 	var result ValidationResult
-	validatePolicyNamesUnique(c, &result)
+	validatePolicyNamesUnique(duplicatesOfBothKinds(), &result)
 	if result.IsValid() {
 		t.Error("expected error for duplicate policy names")
 	}
 	if !hasErrorCode(result, "DUPLICATE_POLICY_NAME") {
 		t.Errorf("expected DUPLICATE_POLICY_NAME, got %+v", result.Errors)
+	}
+	if hasErrorCode(result, "DUPLICATE_CONFIGURATION_NAME") {
+		t.Errorf("policy validator reported a configuration duplicate: %+v", result.Errors)
 	}
 }
 

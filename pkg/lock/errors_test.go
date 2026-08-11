@@ -17,6 +17,7 @@ func TestErrorsCarryCodes(t *testing.T) {
 		{&UnresolvedError{Ref: "oci://r/x", Reason: "not found"}, "LOCK_UNRESOLVED"},
 		{&MissingError{Path: "pacto.lock"}, "LOCK_MISSING"},
 		{&AmbiguousError{Occurrence: Occurrence{Kind: "config", Name: "settings"}, First: "a", Second: "b"}, "LOCK_AMBIGUOUS_REFERENCE"},
+		{&DuplicateDeclarationError{Occurrence: Occurrence{Kind: "config", Name: "settings"}}, "LOCK_DUPLICATE_DECLARATION"},
 	}
 	for _, c := range cases {
 		if !strings.HasPrefix(c.err.Error(), c.code) {
