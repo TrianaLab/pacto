@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`5f3d4ebb06c3b1559622c151556a4e537eeb28fe`
+`eedab3f7c1eaebf2d008abadf5d9ca623cda7dba`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,14 +25,14 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Commits reviewed on top of the previous reviewed HEAD `7da2ad46` — all four of
+Commits reviewed on top of the previous reviewed HEAD `5f3d4ebb` — all five of
 them:
 
-- `780a207a` — persist the independently reviewed PR state at `7da2ad46`
-- `e150a548` — the operator can mount an offline trace export as a named source
-- `6250ebe3` — the kind scenario asserts the reconciliation half a live cluster
-  can actually hold
-- `5f3d4ebb` — record Phase 7 as a submitted candidate, not a closed phase
+- `d098044b` — persist the independently reviewed PR state at `5f3d4ebb`
+- `8b0f26b0` — a data source is exactly the one thing it declares itself to be
+- `fa76b69a` — every value the chart accepts survives the trip to the dashboard
+- `ae29a13d` — the source boundary is written down, and Kind proves it
+- `eedab3f7` — the escaping source gets its own claim
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -120,7 +120,7 @@ NEW concrete counterexample.
 
 ### Phase 6 — COMPLETE
 
-### Phase 7 — NARROWLY REOPENED at `5f3d4ebb`
+### Phase 7 — NARROWLY REOPENED at `eedab3f7`
 
 Target:
 
@@ -134,64 +134,60 @@ depend on list position. Phase 7 is that packaging — NOT an OTLP receiver, a
 Collector, a trace database or any live ingestion.
 
 The candidate submitted in `e150a548` + `6250ebe3` was reviewed and its DESIGN
-was accepted. Three specific defects reopened the phase. Everything else about
-Phase 7 stays closed and must not be redesigned without a new counterexample:
-the offline analyzer boundary, the operator-managed observation-source concept,
-PVC + ConfigMap as the only backings, read-only mounts, no `hostPath`,
-deterministic sorting, reordering changing neither identity nor pod template,
-complete removal, source failure as explicit Fleet/Product knowledge, source
-health separate from observation freshness, the retained ad-hoc
-`pacto dashboard --traces`, the focused Kind observation-packaging scenario
-(which need NOT manufacture `relationship.reconciliation == "matched"`), and the
-existing architecture gates.
+was accepted. Everything about Phase 7 stays closed and must not be redesigned
+without a new counterexample: the offline analyzer boundary, the operator-managed
+observation-source concept, PVC + ConfigMap as the only backings, read-only
+mounts, no `hostPath`, deterministic sorting, reordering changing neither
+identity nor pod template, complete removal, source failure as explicit
+Fleet/Product knowledge, source health separate from observation freshness, the
+retained ad-hoc `pacto dashboard --traces`, the focused Kind
+observation-packaging scenario (which need NOT manufacture
+`relationship.reconciliation == "matched"`), and the existing architecture gates.
 
-#### Blocker A — a Data Source identity was only unique among observation sources
+#### Blockers A, B and C — independently CLOSED at `eedab3f7`
 
-An observation source named `k8s` collides with the in-pod live Kubernetes
-source, whose id falls back to `k8s` when the pod has no kubeconfig context.
-`fleet.Build` emitted `DUPLICATE_SOURCE_ID` and continued, so the Product
-published one Data Source key owned by two semantic sources and
-`sourceDetail("k8s")` answered with whichever came first — one physical source
-unaddressable.
+The three defects that reopened Phase 7 at `5f3d4ebb` were independently
+reviewed at `eedab3f7` and are accepted. They must NOT be reopened, and the
+implementations behind them must NOT be redesigned:
 
-Required invariant: **one Product Data Source key -> exactly one semantic Data
-Source**, across the WHOLE configured Fleet namespace (live Kubernetes including
-the `k8s` fallback, OCI, cache, local, evidence store, evidence HTTP,
-target-state, ad-hoc positional observation ids, and every other enabled source
-kind). Fail closed before publishing ambiguous Product identity; never silently
-rename either source.
+- **A — whole-Fleet Data Source identity uniqueness.** `checkSourceIDsAreUnique`
+  over the FINAL assembled source set, failing closed in `Service.Fleet` before
+  `fleet.Build`, so no ambiguous Product Data Source key is ever published.
+- **B — rooted observation-file reads / symlink escape prevention.**
+  `os.OpenRoot` / `Root.ReadFile` against the declared source root, the
+  single-segment managed file contract, projected-ConfigMap internal symlinks
+  still working, no Kubernetes dependency in the offline parser.
+- **C — Helm values -> operator flag -> parser configuration-wire fidelity.**
+  The restricted lexical space, `ParseObservationSource`, the backing-name
+  validation, and the Helm-rendering test that parses the ACTUAL rendered
+  argument.
 
-#### Blocker B — lexical path validation does not stop a symlink escape
+#### The one remaining Phase-7 blocker — a public-docs claim overstates the failure semantics
 
-A PVC containing
-`/var/lib/pacto/observation/orders/traces.json -> /var/run/secrets/kubernetes.io/serviceaccount/token`
-passed validation (`file: traces.json` is lexically innocent) and `os.ReadFile`
-followed the symlink out of the mount.
+The new public documentation says, in at least `docs/operational-graph.md` and
+`docs/platform-engineers.md`, that on a Data Source identity collision
+"Pacto refuses to start".
 
-Required invariant: **a user-controlled path or backing must never make Pacto
-read outside its declared source root.** The mechanism must be a real rooted-open
-semantic, not hand-written string canonicalization. The invariant is NOT "reject
-every symlink": a projected Kubernetes ConfigMap volume is built out of internal
-symlinks (`..data` -> `..<timestamp>`) and must keep working. The
-framework-independent observation parser must not gain Kubernetes dependencies,
-and the ad-hoc CLI must keep working.
+That is not the implemented operator-managed dashboard behavior, and the runtime
+behavior is NOT to be changed to make the prose true. The implemented and
+accepted lifecycle is:
 
-#### Blocker C — the Helm values and the operator flag wire disagreed
+- `Service.Fleet` detects duplicate source ids and returns an error BEFORE
+  `fleet.Build`, so no ambiguous `FleetSnapshot` is ever published;
+- `fleet.Manager.Start` performs `Refresh`, and a refresh failure is not
+  process-fatal: the last good snapshot is retained when one exists, there is no
+  snapshot when the first refresh has never succeeded, and the manager keeps
+  running and can retry;
+- the dashboard HTTP host itself stays alive.
 
-`file: exports/trace,part.json` was legal under `values.schema.json`, but the
-controller's comma-delimited `--dashboard-trace-source` value
-(`name=orders,file=exports/trace,part.json,configMap=orders-traces`) made
-`ParseObservationSource` read `part.json` as a malformed field.
+"The process failed to start" is not equivalent to "an ambiguous Product identity
+was refused publication". The second is the invariant Phase 7 requires and
+implements.
 
-Required invariant: **every value accepted by `values.schema.json` and Helm
-rendering must be representable and parseable by the operator into the same
-semantic `ObservationSource`.** Either make the wire injective/escaped, or
-deliberately restrict the lexical space and reject the delimiter consistently in
-Go validation, `values.schema.json`, the Helm tests and the docs — the simpler
-durable contract, not the cleverest encoding. Separately, `existingClaim` and
-`configMap` must be validated against the appropriate Kubernetes naming rule
-before a Deployment is created, rather than accepting a value that can only fail
-later at API admission.
+Required correction: fix the prose, in every authored Phase-7 doc that carries
+equivalent wording (not only the two known files) — concise where the audience is
+not the Operational Graph reference, precise lifecycle semantics in the canonical
+Operational Graph documentation. Generated documentation must not be hand-edited.
 
 #### Accepted scoped deviation — still intentional
 
@@ -383,13 +379,34 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `5f3d4ebb`.
+Reviewed at exact HEAD `eedab3f7`.
 
 Review threads at that SHA:
 
 - 0 unresolved authored-product threads;
 - the remaining unresolved `github-code-quality` threads are on GENERATED
   minified UI assets under `pkg/dashboard/ui/assets/`, not authored code.
+
+### Cross-cutting PRE-MERGE SECURITY item — OPEN, not Phase-7 scope
+
+Claude reports open CodeQL alerts on `refs/pull/291/head` rather than on `main`.
+
+The exact inventory is **NOT** independently verified: the reviewing GitHub
+integration cannot reach the code-scanning alerts API. The current source
+inspection makes the reported false-positive explanation plausible, but plausible
+is not resolved.
+
+Therefore:
+
+- do not describe these alerts as resolved;
+- do not describe them as main-lineage;
+- the Security workflow's own green status is a DIFFERENT claim from CodeQL alert
+  attribution and does not close this;
+- the alerts must remain visible and must be independently triaged, fixed or
+  explicitly dismissed with evidence before Phase 14 readiness.
+
+This item is cross-cutting. It must not be pulled into Phase-7 scope, and Phase 7
+must not be blocked on it.
 
 Re-verify both populations at the exact final SHA of every later pass; the
 generated asset path changes whenever the UI bundle is rebuilt.
@@ -422,27 +439,30 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
-Phase 7 remediation, and nothing else. The three blockers in section 2 are the
-whole scope. The accepted Phase-7 design, and Phases 1 through 6, must not be
-reopened or redesigned as a side effect.
+The single remaining Phase-7 blocker in section 2, and nothing else: the public
+documentation claims a failure mode the implementation deliberately does not
+have. Blockers A, B and C are closed. The accepted Phase-7 implementation, and
+Phases 1 through 6, must not be reopened or redesigned as a side effect.
 
 The immediate next Claude session should:
 
-1. make Data Source identity unique across the WHOLE configured Fleet source
-   namespace, failing closed before a Product is published — the smallest
-   coherent fix, not a redesign of `fleet.Build` duplicate-source semantics, and
-   with one shared rule rather than a second reserved-name list in Helm and Go;
-2. make an observation read rooted at its declared mount, using a real
-   rooted-open semantic, without banning the internal symlinks a projected
-   ConfigMap volume needs and without giving the offline parser Kubernetes
-   dependencies;
-3. make the chart's accepted lexical space and the operator's flag wire agree,
-   proved by a test that actually parses the RENDERED argument rather than by
-   separate tests that each re-encode the grammar, and validate backing names
-   before a Deployment is created;
-4. keep every accepted Phase-7 behaviour intact, including the scoped Kind
-   reconciliation deviation;
-5. not begin Phase 8.
+1. correct every authored public sentence that claims Pacto refuses to start on a
+   Data Source identity collision, to state what is actually implemented: one
+   identity namespace across all assembled Data Sources, a collision rejected
+   before an ambiguous snapshot can be published, no arbitrary winner and no
+   silent rename, a long-running dashboard that is not killed by a failed
+   refresh, normal Manager refresh-failure semantics over a last-good snapshot,
+   and no Product Fleet snapshot to serve when none has ever succeeded;
+2. audit ALL authored Phase-7 docs for equivalent wording, not only
+   `docs/operational-graph.md` and `docs/platform-engineers.md`, and leave
+   generated documentation to its generator;
+3. keep the concise statement in audience-facing pages and the precise lifecycle
+   in the canonical Operational Graph documentation;
+4. add a durable executable test ONLY if the four load-bearing semantics are not
+   already directly tested — a grep test banning one English phrase is not
+   acceptable;
+5. change no runtime behaviour, keep every accepted Phase-7 behaviour intact
+   including the scoped Kind reconciliation deviation, and not begin Phase 8.
 
 ## 11. Final-phase requirements already agreed
 
