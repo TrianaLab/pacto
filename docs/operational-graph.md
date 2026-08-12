@@ -477,9 +477,20 @@ sources, local bundle roots, target-state fixtures, evidence stores and Evidence
 Servers all claim names in the same namespace — so a trace source called `k8s`,
 `local` or `oci` collides with one of them, and inside a pod (where there is no
 kubeconfig context to name the cluster) the live Kubernetes source is called
-exactly `k8s`. Pacto refuses to start on a collision and names both claimants.
-It does not rename either one: an identity two sources share is not an identity,
-and picking a winner would make the Product's answer depend on assembly order.
+exactly `k8s`. A collision is refused **before a snapshot is built**, with an
+error naming both claimants. Neither source is renamed: an identity two sources
+share is not an identity, and picking a winner would make the Product's answer
+depend on assembly order.
+
+What that refusal costs depends on who asked for the snapshot. A command that
+builds one and exits fails with that error. The long-running dashboard is not
+killed by it — the HTTP host keeps serving, and the refused build is an ordinary
+refresh failure: a snapshot that was already published stays published and served
+while the failure is recorded as degraded, and if no build has ever succeeded
+there is no snapshot to serve, so the operational-graph endpoints answer with the
+collision error until the names are distinct and a refresh succeeds. The one
+outcome that never happens is the ambiguous snapshot: no Product ever publishes a
+Data Source key owned by two sources.
 
 A named source may read **only inside the directory its file sits in**. That
 directory is the source's root, and the read is resolved through it, so a symlink

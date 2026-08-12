@@ -70,7 +70,11 @@ the dashboard reads exactly `<mount>/<file>` — no directory scanning, no write
 Use `existingClaim` for real exports (some other workload writes into the PVC) or
 `configMap` for small static exports; exactly one of the two per source. The
 `name` is the identity the API and UI show, so reordering the list never renames a
-source, and two entries claiming the same name are rejected at startup.
+source. Two entries claiming the same name are rejected by the operator when it
+reads its configuration; a name that collides with one of the dashboard's *other*
+data sources — the live cluster, OCI, the disk cache — is refused by the dashboard
+before a snapshot is built, rather than published as one name owned by two sources
+(see [Named observation sources](../../operational-graph.md#named-observation-sources)).
 
 Whoever owns that storage owns producing and rotating the exports. Pacto ships
 **no OTLP receiver** and deploys no collector: nothing listens on 4317 or 4318. If
