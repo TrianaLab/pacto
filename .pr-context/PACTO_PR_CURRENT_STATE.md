@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`7da2ad4640c7f84d7123fc20a2c6154f63765f5d`
+`5f3d4ebb06c3b1559622c151556a4e537eeb28fe`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,19 +25,30 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Commits reviewed on top of the previous reviewed HEAD `ea73e8e8`:
+Commits reviewed on top of the previous reviewed HEAD `7da2ad46` — all four of
+them:
 
-- `e090fe73` — persist the independently reviewed PR state at `ea73e8e8`
-- `03ab3c10` — the caveat counts the fleet, not the fifty it was shown
-- `ef67f494` — stop tracking one workstation's agent tooling
-- `fffd9a39` — drop seventeen module hashes nothing in this branch needs
-- `ccf2ae0e` — stop tracking a 47MB build output
-- `9f407503` — rebuild the UI bundle
-- `7da2ad46` — a bucket is not released while it is still being read
+- `780a207a` — persist the independently reviewed PR state at `7da2ad46`
+- `e150a548` — the operator can mount an offline trace export as a named source
+- `6250ebe3` — the kind scenario asserts the reconciliation half a live cluster
+  can actually hold
+- `5f3d4ebb` — record Phase 7 as a submitted candidate, not a closed phase
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
 it.
+
+### Handoff discipline — corrected
+
+The handoff that accompanied `5f3d4ebb` enumerated only three commits after
+`7da2ad46`; there were four. Omitting the coordination-state commit made the
+appended range unverifiable from the handoff alone, which is the one thing the
+enumeration exists for.
+
+Every later handoff MUST enumerate EVERY commit between the reviewed starting
+SHA and the final SHA of the iteration, including coordination-state and
+generated-bundle commits. A commit that only touches `.pr-context/` is still a
+commit an independent reviewer has to account for.
 
 ### Accepted at this review — do NOT reopen
 
@@ -109,7 +120,7 @@ NEW concrete counterexample.
 
 ### Phase 6 — COMPLETE
 
-### Phase 7 — NOT STARTED at `7da2ad46`; CANDIDATE submitted at `6250ebe3`
+### Phase 7 — NARROWLY REOPENED at `5f3d4ebb`
 
 Target:
 
@@ -122,17 +133,76 @@ mount those observation sources, with stable Data Source identity that does not
 depend on list position. Phase 7 is that packaging — NOT an OTLP receiver, a
 Collector, a trace database or any live ingestion.
 
-Implementation submitted in `e150a548` + `6250ebe3` as a CANDIDATE only. This
-phase is NOT self-closed: independent review decides whether it is complete.
-The candidate's own statement of what it did and did not prove is in the
-iteration handoff, including one scoped deviation — the live Kind scenario
-asserts the observed edge under its declared identity and that it names the
-same pair the operator reconciled as declared, but not the snapshot's
-`reconciliation: "matched"` verdict, which needs a contract-REVISION source the
-operator-managed dashboard does not have in that scenario (the live Kubernetes
-source projects deployed targets, not revisions). That verdict over an
+The candidate submitted in `e150a548` + `6250ebe3` was reviewed and its DESIGN
+was accepted. Three specific defects reopened the phase. Everything else about
+Phase 7 stays closed and must not be redesigned without a new counterexample:
+the offline analyzer boundary, the operator-managed observation-source concept,
+PVC + ConfigMap as the only backings, read-only mounts, no `hostPath`,
+deterministic sorting, reordering changing neither identity nor pod template,
+complete removal, source failure as explicit Fleet/Product knowledge, source
+health separate from observation freshness, the retained ad-hoc
+`pacto dashboard --traces`, the focused Kind observation-packaging scenario
+(which need NOT manufacture `relationship.reconciliation == "matched"`), and the
+existing architecture gates.
+
+#### Blocker A — a Data Source identity was only unique among observation sources
+
+An observation source named `k8s` collides with the in-pod live Kubernetes
+source, whose id falls back to `k8s` when the pod has no kubeconfig context.
+`fleet.Build` emitted `DUPLICATE_SOURCE_ID` and continued, so the Product
+published one Data Source key owned by two semantic sources and
+`sourceDetail("k8s")` answered with whichever came first — one physical source
+unaddressable.
+
+Required invariant: **one Product Data Source key -> exactly one semantic Data
+Source**, across the WHOLE configured Fleet namespace (live Kubernetes including
+the `k8s` fallback, OCI, cache, local, evidence store, evidence HTTP,
+target-state, ad-hoc positional observation ids, and every other enabled source
+kind). Fail closed before publishing ambiguous Product identity; never silently
+rename either source.
+
+#### Blocker B — lexical path validation does not stop a symlink escape
+
+A PVC containing
+`/var/lib/pacto/observation/orders/traces.json -> /var/run/secrets/kubernetes.io/serviceaccount/token`
+passed validation (`file: traces.json` is lexically innocent) and `os.ReadFile`
+followed the symlink out of the mount.
+
+Required invariant: **a user-controlled path or backing must never make Pacto
+read outside its declared source root.** The mechanism must be a real rooted-open
+semantic, not hand-written string canonicalization. The invariant is NOT "reject
+every symlink": a projected Kubernetes ConfigMap volume is built out of internal
+symlinks (`..data` -> `..<timestamp>`) and must keep working. The
+framework-independent observation parser must not gain Kubernetes dependencies,
+and the ad-hoc CLI must keep working.
+
+#### Blocker C — the Helm values and the operator flag wire disagreed
+
+`file: exports/trace,part.json` was legal under `values.schema.json`, but the
+controller's comma-delimited `--dashboard-trace-source` value
+(`name=orders,file=exports/trace,part.json,configMap=orders-traces`) made
+`ParseObservationSource` read `part.json` as a malformed field.
+
+Required invariant: **every value accepted by `values.schema.json` and Helm
+rendering must be representable and parseable by the operator into the same
+semantic `ObservationSource`.** Either make the wire injective/escaped, or
+deliberately restrict the lexical space and reject the delimiter consistently in
+Go validation, `values.schema.json`, the Helm tests and the docs — the simpler
+durable contract, not the cleverest encoding. Separately, `existingClaim` and
+`configMap` must be validated against the appropriate Kubernetes naming rule
+before a Deployment is created, rather than accepting a value that can only fail
+later at API admission.
+
+#### Accepted scoped deviation — still intentional
+
+The live Kind scenario asserts the observed edge under its declared identity and
+that it names the same pair the operator reconciled as declared, but not the
+snapshot's `reconciliation: "matched"` verdict, which needs a contract-REVISION
+source the operator-managed dashboard does not have in that scenario (the live
+Kubernetes source projects deployed targets, not revisions). That verdict over an
 observation source stays proven hermetically in `internal/app` and by
-`make demo-fleet`.
+`make demo-fleet`. The fully live declared+observed Product reconciliation is
+Phase 8 work.
 
 ### Phase 8 — NOT STARTED
 
@@ -313,7 +383,7 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `7da2ad46`.
+Reviewed at exact HEAD `5f3d4ebb`.
 
 Review threads at that SHA:
 
@@ -352,28 +422,27 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
-Phase 7 — operator-managed OFFLINE observation/trace-source configuration.
-Everything in section 1 is accepted and must not be reopened or redesigned.
+Phase 7 remediation, and nothing else. The three blockers in section 2 are the
+whole scope. The accepted Phase-7 design, and Phases 1 through 6, must not be
+reopened or redesigned as a side effect.
 
 The immediate next Claude session should:
 
-1. give an observation source an EXPLICIT, stable identity that survives
-   reordering and reaches the Product Data Source, replacing list-position ids
-   for declaratively configured sources;
-2. add the smallest coherent operator-managed model for mounting offline trace
-   files read-only from externally managed Kubernetes storage;
-3. wire it end to end: Helm values, values schema, controller flags, dashboard
-   config, Deployment volumes/mounts/env, Fleet observation sources;
-4. keep configured-source failure as Product knowledge (a degraded/unavailable
-   Data Source), never a dashboard crash or a silently absent source;
-5. keep source health and observed-evidence freshness distinct;
-6. prove the packaging with a FOCUSED live Kind scenario, including one forced
-   source failure — not the broad Product journey reserved for Phase 8;
-7. keep and strengthen the offline architecture gate: no OTLP receiver, no
-   listener, no collector sidecar;
-8. document the boundary honestly and correct any comment that got ahead of the
-   implementation;
-9. not begin Phase 8.
+1. make Data Source identity unique across the WHOLE configured Fleet source
+   namespace, failing closed before a Product is published — the smallest
+   coherent fix, not a redesign of `fleet.Build` duplicate-source semantics, and
+   with one shared rule rather than a second reserved-name list in Helm and Go;
+2. make an observation read rooted at its declared mount, using a real
+   rooted-open semantic, without banning the internal symlinks a projected
+   ConfigMap volume needs and without giving the offline parser Kubernetes
+   dependencies;
+3. make the chart's accepted lexical space and the operator's flag wire agree,
+   proved by a test that actually parses the RENDERED argument rather than by
+   separate tests that each re-encode the grammar, and validate backing names
+   before a Deployment is created;
+4. keep every accepted Phase-7 behaviour intact, including the scoped Kind
+   reconciliation deviation;
+5. not begin Phase 8.
 
 ## 11. Final-phase requirements already agreed
 
