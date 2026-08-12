@@ -52,6 +52,11 @@ func WithInsecureRegistries(hosts ...string) ClientOption {
 var (
 	buildImageFn  = bundleToImage
 	imageDigestFn = func(img v1.Image) (v1.Hash, error) { return img.Digest() }
+	// remoteListFn is the seam that lets a test observe the repository tag
+	// listing is asked about — including the scheme it would be reached over,
+	// which no loopback test registry can exercise (go-containerregistry treats
+	// loopback as plain HTTP whether or not the allowance was applied).
+	remoteListFn = remote.List
 )
 
 // Client implements BundleStore using go-containerregistry.
@@ -220,17 +225,28 @@ func (c *Client) Resolve(ctx context.Context, ref string) (string, error) {
 }
 
 // ListTags returns all tags available for the given repository.
+//
+// The repository is parsed through parseRef, so the per-host plain-HTTP
+// allowance decides how this host is reached exactly as it does for a pull. A
+// separate name.NewRepository parse silently skipped it, and only for
+// REPOSITORY questions: an in-cluster registry named by a service FQDN (not
+// localhost, so https by default) could be pulled from by digest yet never
+// asked which versions it holds — so resolving a semver constraint and
+// discovering the newest published revision failed on a registry the client was
+// explicitly told to reach over HTTP. A reference carries a tag or digest the
+// repository does not; only its Context() (the repository) is used here.
 func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
-	r, err := name.NewRepository(repo, c.nameOpts...)
+	ref, err := c.parseRef(repo)
 	if err != nil {
-		return nil, &InvalidRefError{Ref: repo, Err: err}
+		return nil, err
 	}
+	r := ref.Context()
 
 	logging.LoggerFromContext(ctx).Debug("listing tags", "repo", repo)
 	var tags []string
 	if err := c.doWithAuth(ctx, r, repo, func(opts []remote.Option) error {
 		var opErr error
-		tags, opErr = remote.List(r, opts...)
+		tags, opErr = remoteListFn(r, opts...)
 		return opErr
 	}); err != nil {
 		return nil, err
