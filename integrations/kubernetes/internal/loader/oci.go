@@ -49,7 +49,7 @@ const InsecureRegistriesEnvVar = "PACTO_INSECURE_REGISTRIES"
 // or blank list yields no options at all.
 func InsecureClientOptions(hosts string) []oci.ClientOption {
 	var parsed []string
-	for _, h := range strings.Split(hosts, ",") {
+	for h := range strings.SplitSeq(hosts, ",") {
 		if s := strings.TrimSpace(h); s != "" {
 			parsed = append(parsed, s)
 		}
