@@ -240,6 +240,12 @@ for svc in checkout orders; do
 done
 kubectl -n "$DEMO_NS" rollout status deployment/checkout --timeout=90s
 kubectl -n "$DEMO_NS" rollout status deployment/orders --timeout=90s
+# checkout's contract declares a public interface, and interface availability is
+# ALWAYS a required assertion. Without a Service and a binding the operator has
+# nothing to observe it against, so the only honest answer it can give is Unknown.
+# A real install binds the interface to the port that serves it; the fixture does
+# the same, so checkout's Compliant verdict below is observed, not assumed.
+kubectl -n "$DEMO_NS" expose deployment checkout --name=checkout --port=8080 >/dev/null 2>&1 || true
 kubectl apply -f - >/dev/null <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
@@ -248,7 +254,10 @@ spec:
   checkIntervalSeconds: 30
   contractRef:
     oci: ${REG_HOST}/demo/checkout@${CHECKOUT_A}
-  target: {workloadRef: {name: checkout, kind: Deployment}}
+  target:
+    serviceName: checkout
+    workloadRef: {name: checkout, kind: Deployment}
+    interfaceBindings: [ {interface: api, servicePort: 8080} ]
 ---
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto

@@ -28,6 +28,11 @@ dump_diag() {
   kubectl get events -n "$ns" --sort-by=.lastTimestamp || true
   echo "--- deployments ($ns) ---"
   kubectl describe deploy -n "$ns" || true
+  # The Pacto CRs carry the verdict AND the findings that produced it. Without
+  # them a status that never reaches Compliant is only diagnosable by reading
+  # operator logs backwards, which is how this dump earned its place.
+  echo "--- pacto CRs (all namespaces) ---"
+  kubectl get pactos -A -o yaml || true
   for d in "${_PACTO_DEPLOYS[@]}"; do
     echo "--- logs deploy/$d ($ns) ---"
     kubectl logs -n "$ns" "deploy/$d" --all-containers --tail=200 || true
