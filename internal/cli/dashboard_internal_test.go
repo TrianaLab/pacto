@@ -82,6 +82,27 @@ func TestNewDashboardCommand_NoSources(t *testing.T) {
 	}
 }
 
+// TestNewDashboardCommand_RejectsMalformedTraceSource proves an unusable
+// observation configuration stops the command before anything is detected or
+// served, rather than starting a dashboard that silently lacks a Data Source.
+func TestNewDashboardCommand_RejectsMalformedTraceSource(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	v := viper.New()
+	cmd := newDashboardCommand(svc, v, "test")
+	cmd.SetArgs([]string{t.TempDir(), "--port", "0", "--trace-source", "/no/name.json"})
+	var outBuf, errBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetErr(&errBuf)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected the malformed --trace-source to fail startup")
+	}
+	if !strings.Contains(err.Error(), `invalid --trace-source "/no/name.json"`) {
+		t.Errorf("error = %v, want it to name the malformed value", err)
+	}
+}
+
 func TestNewDashboardCommand_WithLocalSource(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"

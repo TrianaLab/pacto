@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v3/internal/fleetsrc"
@@ -95,7 +97,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		sources = append(sources, fleetsrc.NewEvidenceHTTPSource(id, url))
 	}
 	for _, spec := range opts.ObservationSources {
-		sources = append(sources, fleetsrc.NewObservationSource(spec.ID, spec.Path))
+		sources = append(sources, fleetsrc.NewObservationSource(spec.ID, spec.Root, spec.Path))
 	}
 	if len(opts.OCIRefs) > 0 {
 		if s.BundleStore != nil {
@@ -125,12 +127,63 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 			sources = append(sources, fleetsrc.NewK8sSource(id, client, opts.K8sNamespace))
 		}
 	}
+	if err := checkSourceIDsAreUnique(sources); err != nil {
+		return nil, err
+	}
 	return fleet.Build(ctx, fleet.BuildOptions{
 		Now:             opts.Now,
 		FreshnessWindow: opts.FreshnessWindow,
 		Concurrency:     opts.Concurrency,
 		DisallowPartial: opts.DisallowPartial,
 	}, sources...)
+}
+
+// checkSourceIDsAreUnique refuses to build a snapshot whose sources do not have
+// one id each.
+//
+// A source id is not decoration: it is the Data Source key the Product publishes,
+// and everything a source contributed is attributed to it under that key. Two
+// sources sharing one key means one of them is unaddressable — a detail lookup
+// answers with whichever the snapshot happens to hold first — while their
+// attribution and their limitations pile up under a single identity that belongs
+// to neither. There is no honest repair: renaming one silently makes the
+// configuration mean something the operator did not write, and serving both makes
+// the Product's answer depend on assembly order.
+//
+// The check lives here, over the FINAL assembled set, because that is the only
+// place the whole namespace is known. Ids come from four different places — a
+// declared observation name, a positional suffix, a fixed kind name, and the
+// ambient kubeconfig context (which in a pod with no context falls back to
+// "k8s", exactly where a source declared "k8s" would land on top of it). A rule
+// written anywhere earlier would be a guess about the other sources.
+//
+// [fleet.Build] keeps reporting a duplicate as a DUPLICATE_SOURCE_ID limitation
+// for callers that assemble their own sources; the difference is that a Pacto
+// configuration is something we can refuse to run, so it never reaches a Product.
+func checkSourceIDsAreUnique(sources []fleet.Source) error {
+	kinds := make(map[string][]string, len(sources))
+	var collided []string
+	for _, src := range sources {
+		id := src.ID()
+		if len(kinds[id]) == 1 {
+			collided = append(collided, id)
+		}
+		kinds[id] = append(kinds[id], src.Kind())
+	}
+	if len(collided) == 0 {
+		return nil
+	}
+	// Sorted, so the same misconfiguration reports the same error however its
+	// entries were ordered.
+	slices.Sort(collided)
+	details := make([]string, 0, len(collided))
+	for _, id := range collided {
+		details = append(details, fmt.Sprintf("%q is claimed by %s", id, strings.Join(kinds[id], " and ")))
+	}
+	return fmt.Errorf(
+		"configured data sources do not have one identity each: %s; rename a source so every data source has its own name",
+		strings.Join(details, "; "),
+	)
 }
 
 // ObservationSourceSpec is one offline OTLP/JSON trace file contributed as an
@@ -145,6 +198,12 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 type ObservationSourceSpec struct {
 	ID   string
 	Path string
+	// Root is the directory this source is allowed to read inside, with Path
+	// resolved relative to it. Set for a source whose storage Pacto does not own —
+	// the operator-managed dashboard's read-only mount — so nothing the volume
+	// contains can point the read at the container's own filesystem. Empty for the
+	// ad-hoc command line, where Path is read as given.
+	Root string
 }
 
 // TraceFileSources adapts path-only trace inputs (the ad-hoc `--traces`

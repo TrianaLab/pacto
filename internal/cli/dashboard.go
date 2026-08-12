@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -511,15 +512,23 @@ func impactProviderForFleet(svc *app.Service, mgr *fleet.Manager) func(ctx conte
 // reordering — the form a declarative configuration (the operator-managed
 // dashboard) uses. Ids are rejected as duplicates here rather than collapsed
 // downstream: an identity two configured sources share is not an identity.
+//
+// A named source also declares a read root: the file's own directory, which it
+// may not read outside of. That is what makes the declarative form safe over
+// storage Pacto does not own — the operator mounts each source at its own
+// directory with the export directly inside it, so the file's parent IS the
+// mount, and a symlink placed in the volume cannot walk out of it.
 func observationSources(traces, named []string) ([]app.ObservationSourceSpec, error) {
 	specs := app.TraceFileSources(traces)
 	for _, raw := range named {
 		// Cut on the FIRST "=", so a path may contain one and a name may not.
-		name, path, found := strings.Cut(raw, "=")
-		if !found || name == "" || path == "" {
+		name, p, found := strings.Cut(raw, "=")
+		if !found || name == "" || p == "" {
 			return nil, fmt.Errorf("invalid --trace-source %q: want NAME=PATH", raw)
 		}
-		specs = append(specs, app.ObservationSourceSpec{ID: name, Path: path})
+		specs = append(specs, app.ObservationSourceSpec{
+			ID: name, Root: filepath.Dir(p), Path: filepath.Base(p),
+		})
 	}
 	seen := make(map[string]struct{}, len(specs))
 	for _, s := range specs {

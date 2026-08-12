@@ -210,7 +210,7 @@ func TestObservationSources_IdentitySurvivesReordering(t *testing.T) {
 	byID := func(specs []app.ObservationSourceSpec) map[string]string {
 		m := map[string]string{}
 		for _, s := range specs {
-			m[s.ID] = s.Path
+			m[s.ID] = filepath.Join(s.Root, s.Path)
 		}
 		return m
 	}
@@ -230,12 +230,49 @@ func TestObservationSources_SameBasenameStaysTwoSources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observationSources: %v", err)
 	}
+	// Each source reads inside its own mount, so the two identical file names stay
+	// two sources rather than one path shared by both.
 	want := []app.ObservationSourceSpec{
-		{ID: "eu", Path: "/mnt/eu/traces.json"},
-		{ID: "us", Path: "/mnt/us/traces.json"},
+		{ID: "eu", Root: "/mnt/eu", Path: "traces.json"},
+		{ID: "us", Root: "/mnt/us", Path: "traces.json"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("sources = %+v, want %+v", got, want)
+	}
+}
+
+// TestObservationSources_DeclaresTheFilesOwnDirectoryAsItsRoot pins the rule the
+// operator's mount layout depends on: a named source may read inside the
+// directory its file sits in, and the root plus the file recompose exactly the
+// path that was configured. Nothing else in the container is reachable, whatever
+// the mounted volume happens to contain.
+func TestObservationSources_DeclaresTheFilesOwnDirectoryAsItsRoot(t *testing.T) {
+	const path = "/var/lib/pacto/observation/orders/traces.json"
+	got, err := observationSources(nil, []string{"orders=" + path})
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("sources = %+v, want 1", got)
+	}
+	if got[0].Root != "/var/lib/pacto/observation/orders" {
+		t.Errorf("root = %q, want the file's own mount directory", got[0].Root)
+	}
+	if joined := filepath.Join(got[0].Root, got[0].Path); joined != path {
+		t.Errorf("root+path = %q, want the configured %q", joined, path)
+	}
+}
+
+// TestObservationSources_AdHocTracesDeclareNoRoot keeps the command line working
+// as a command line: a path a person typed names whatever it names, including a
+// symlink, because there is no declared mount for it to escape from.
+func TestObservationSources_AdHocTracesDeclareNoRoot(t *testing.T) {
+	got, err := observationSources([]string{"/tmp/a.json"}, nil)
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	if len(got) != 1 || got[0].Root != "" || got[0].Path != "/tmp/a.json" {
+		t.Errorf("sources = %+v, want an unrooted /tmp/a.json", got)
 	}
 }
 
@@ -274,7 +311,7 @@ func TestObservationSources_PathMayContainEquals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observationSources: %v", err)
 	}
-	if len(got) != 1 || got[0].Path != "/mnt/x=y/traces.json" {
+	if len(got) != 1 || got[0].Root != "/mnt/x=y" || got[0].Path != "traces.json" {
 		t.Errorf("sources = %+v", got)
 	}
 }
