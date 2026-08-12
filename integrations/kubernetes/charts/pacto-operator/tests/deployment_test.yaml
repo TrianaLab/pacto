@@ -159,12 +159,58 @@ tests:
       dashboard.enabled: true
       dashboard.observation.sources:
         - name: fixture
-          file: sub/traces.json
+          file: traces.json
           configMap: fixture-traces
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
-          content: "--dashboard-trace-source=name=fixture,file=sub/traces.json,configMap=fixture-traces"
+          content: "--dashboard-trace-source=name=fixture,file=traces.json,configMap=fixture-traces"
+
+  # An "=" in the file name survives the wire: only the FIRST "=" of a field
+  # separates key from value, so the parser reads this back as one file name.
+  - it: should carry an = in the file name through unescaped
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: trace=export.json
+          existingClaim: orders-trace-export
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=orders,file=trace=export.json,existingClaim=orders-trace-export"
+
+  # The counterexample the wire cannot represent. Rejecting it in the schema is
+  # what keeps every value the chart accepts parseable by the controller.
+  - it: should reject a file name containing the flag's field separator
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: trace,part.json
+          existingClaim: orders-trace-export
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject a nested file path
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: exports/traces.json
+          existingClaim: orders-trace-export
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject a backing name that is not a Kubernetes object name
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: traces.json
+          existingClaim: Orders_Trace_Export
+    asserts:
+      - failedTemplate: {}
 
   - it: should pass every declared observation source through
     set:

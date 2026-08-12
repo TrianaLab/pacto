@@ -9,6 +9,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"path"
 	"strings"
 	"testing"
 
@@ -41,6 +42,18 @@ func TestObservationSource_Validate(t *testing.T) {
 		{"escaping file", ObservationSource{Name: "orders", File: "../../etc/passwd", ConfigMap: "cm"}, "relative path inside its mount"},
 		{"escaping mid-path", ObservationSource{Name: "orders", File: "a/../../b.json", ConfigMap: "cm"}, "relative path inside its mount"},
 		{"whitespace in file", ObservationSource{Name: "orders", File: "my traces.json", ConfigMap: "cm"}, "must not contain whitespace"},
+		{"nested file", ObservationSource{Name: "orders", File: "exports/traces.json", ConfigMap: "cm"}, "not a nested path"},
+		{"comma in file", ObservationSource{Name: "orders", File: "trace,part.json", ConfigMap: "cm"}, "separates fields"},
+		{
+			"claim is not an object name",
+			ObservationSource{Name: "orders", File: "t.json", ExistingClaim: "Orders_Trace_Export"},
+			"not a valid Kubernetes object name",
+		},
+		{
+			"configMap is not an object name",
+			ObservationSource{Name: "orders", File: "t.json", ConfigMap: "orders traces"},
+			"not a valid Kubernetes object name",
+		},
 		{
 			"two backings",
 			ObservationSource{Name: "orders", File: "t.json", ConfigMap: "cm", ExistingClaim: "pvc"},
@@ -74,6 +87,13 @@ func TestObservationSource_Paths(t *testing.T) {
 	if eu.VolumeName() != "obs-eu" {
 		t.Errorf("eu VolumeName = %q", eu.VolumeName())
 	}
+	// The dashboard is handed FilePath() and nothing else, and roots its read at
+	// that path's parent. If the parent were ever anything but the declared mount,
+	// the read root would sit below the mount and a symlink in the volume would
+	// have a directory to escape through.
+	if got := path.Dir(eu.FilePath()); got != eu.MountPath() {
+		t.Errorf("the file's parent is %q, but the declared mount is %q", got, eu.MountPath())
+	}
 }
 
 // TestConfig_ValidateObservation_DuplicateName rejects the one collision the
@@ -106,9 +126,9 @@ func TestConfig_ValidateObservation_InvalidSource(t *testing.T) {
 func TestConfig_ObservationEnv(t *testing.T) {
 	cfg := Config{Observation: []ObservationSource{
 		{Name: "orders", File: "traces.json", ExistingClaim: "orders-traces"},
-		{Name: "checkout", File: "sub/dir/traces.json", ConfigMap: "checkout-traces"},
+		{Name: "checkout", File: "checkout-traces.json", ConfigMap: "checkout-traces"},
 	}}
-	want := "checkout=/var/lib/pacto/observation/checkout/sub/dir/traces.json " +
+	want := "checkout=/var/lib/pacto/observation/checkout/checkout-traces.json " +
 		"orders=/var/lib/pacto/observation/orders/traces.json"
 	if got := cfg.ObservationEnv(); got != want {
 		t.Errorf("ObservationEnv() = %q, want %q", got, want)
@@ -131,13 +151,20 @@ func TestParseObservationSource(t *testing.T) {
 		cm.ConfigMap != "traces" {
 		t.Errorf("configMap backing = %+v, %v", cm, err)
 	}
+	// Only the first "=" of a field separates key from value, so a file name may
+	// carry one. That is the only lexical freedom the flat wire keeps.
+	if eq, err := ParseObservationSource("name=orders,file=trace=export.json,configMap=cm"); err != nil ||
+		eq.File != "trace=export.json" {
+		t.Errorf("file with an equals sign = %+v, %v", eq, err)
+	}
 	for _, spec := range []string{
-		"name=orders,file",                      // not key=value
-		"name=orders,file=t.json,claim=pvc",     // unknown field
-		"name=orders,file=t.json",               // no backing (Validate)
-		"name=Orders,file=t.json,configMap=cm",  // not a label (Validate)
-		"name=orders,file=/abs,configMap=cm",    // escaping path (Validate)
-		"name=orders,file=t.json,configMap=cm,", // trailing separator
+		"name=orders,file",                              // not key=value
+		"name=orders,file=t.json,claim=pvc",             // unknown field
+		"name=orders,file=t.json",                       // no backing (Validate)
+		"name=Orders,file=t.json,configMap=cm",          // not a label (Validate)
+		"name=orders,file=/abs,configMap=cm",            // escaping path (Validate)
+		"name=orders,file=t.json,configMap=cm,",         // trailing separator
+		"name=orders,file=trace,part.json,configMap=cm", // the comma counterexample: "part.json" is not key=value
 	} {
 		if _, err := ParseObservationSource(spec); err == nil {
 			t.Errorf("ParseObservationSource(%q) = nil error, want a rejection", spec)

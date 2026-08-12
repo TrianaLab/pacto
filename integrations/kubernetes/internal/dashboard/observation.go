@@ -32,6 +32,11 @@ const ObservationEnvVar = "PACTO_DASHBOARD_TRACE_SOURCES"
 // collision-free against the dashboard's other volumes (cache, oci-creds).
 const observationVolumePrefix = "obs-"
 
+// fieldSep separates the fields of one --dashboard-trace-source flag value. It is
+// the one character no field may contain, which is what makes the flat wire
+// injective: every value the chart accepts parses back to the same source.
+const fieldSep = ","
+
 // maxObservationNameLength is what remains of a 63-character Kubernetes name once
 // the volume prefix is spent. Names are length-checked against it rather than
 // truncated: two long names truncated to the same volume name would be two Data
@@ -52,7 +57,13 @@ type ObservationSource struct {
 	// Name is the stable Data Source identity (a DNS-1123 label).
 	Name string
 
-	// File is the trace file's path RELATIVE to this source's mount directory.
+	// File is the trace file's name DIRECTLY inside this source's mount
+	// directory — a single path segment, never a nested path. Two things depend
+	// on that: the dashboard derives the source's read root from the file's
+	// parent directory, which is only the declared mount when nothing sits
+	// between them (see [ObservationSource.FilePath]); and a nested path would
+	// need directory separators the flat flag wire has no reason to carry. Mount
+	// a claim whose export already sits at the top of its own directory.
 	File string
 
 	// ExistingClaim is the name of an existing PersistentVolumeClaim holding the
@@ -88,14 +99,44 @@ func (o ObservationSource) Validate() error {
 	if !filepath.IsLocal(o.File) {
 		return fmt.Errorf("observation source %q file %q must be a relative path inside its mount", o.Name, o.File)
 	}
+	if strings.Contains(o.File, "/") {
+		return fmt.Errorf("observation source %q file %q must be a plain file name directly inside its mount, not a nested path", o.Name, o.File)
+	}
 	if strings.ContainsAny(o.File, " \t\n") {
 		return fmt.Errorf("observation source %q file %q must not contain whitespace", o.Name, o.File)
+	}
+	// The controller flag that carries this source is comma-delimited, so a comma
+	// in any field would split one source into two malformed ones. Rejecting the
+	// delimiter is the whole restriction: escaping it would put a second grammar
+	// in the Helm template, where it could only ever drift from this parser.
+	if strings.Contains(o.File, fieldSep) {
+		return fmt.Errorf("observation source %q file %q must not contain %q, which separates fields on the controller's trace-source flag", o.Name, o.File, fieldSep)
 	}
 	switch {
 	case o.ExistingClaim != "" && o.ConfigMap != "":
 		return fmt.Errorf("observation source %q sets both existingClaim and configMap; exactly one backing is allowed", o.Name)
 	case o.ExistingClaim == "" && o.ConfigMap == "":
 		return fmt.Errorf("observation source %q must set exactly one of existingClaim or configMap", o.Name)
+	}
+	// The backing is a Kubernetes object name, and the Deployment references it by
+	// name. Checking it here fails the controller's own configuration parsing with
+	// a message naming the source, instead of shipping a Deployment the API server
+	// rejects later for a reason nothing connects back to this value.
+	if err := validateBackingName(o, "existingClaim", o.ExistingClaim); err != nil {
+		return err
+	}
+	return validateBackingName(o, "configMap", o.ConfigMap)
+}
+
+// validateBackingName checks a non-empty backing reference is a legal Kubernetes
+// object name. Also rejects the flag delimiter by construction: a DNS-1123
+// subdomain has no comma.
+func validateBackingName(o ObservationSource, field, value string) error {
+	if value == "" {
+		return nil
+	}
+	if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
+		return fmt.Errorf("observation source %q %s %q is not a valid Kubernetes object name: %s", o.Name, field, value, strings.Join(errs, "; "))
 	}
 	return nil
 }
@@ -107,8 +148,14 @@ func (o ObservationSource) VolumeName() string { return observationVolumePrefix 
 func (o ObservationSource) MountPath() string { return path.Join(ObservationMountRoot, o.Name) }
 
 // FilePath is the absolute in-container path of the trace file.
+//
+// Because File is a single path segment, the file's parent directory IS
+// [ObservationSource.MountPath]. That equality is load-bearing beyond this
+// package: the dashboard is told only this path, and roots its read at the
+// path's parent, so a nested file would silently move the read root below the
+// mount and hand a symlink inside the volume a directory to escape through.
 func (o ObservationSource) FilePath() string {
-	return path.Join(o.MountPath(), filepath.ToSlash(o.File))
+	return path.Join(o.MountPath(), o.File)
 }
 
 // SortedObservationSources returns the configured sources ordered by name, so the
@@ -153,9 +200,14 @@ func (c Config) validateObservation() error {
 // "name=orders,file=traces.json,existingClaim=orders-traces". The flat form keeps
 // the controller's wire greppable in a Deployment spec and free of the quoting
 // hazards an embedded JSON document would carry through Helm.
+//
+// The grammar is injective over everything [ObservationSource.Validate] accepts:
+// no field may contain [fieldSep], and only the FIRST "=" of a field separates
+// key from value, so a value may contain one. Chart values and this parser agree
+// because the chart's schema rejects exactly what Validate rejects.
 func ParseObservationSource(spec string) (ObservationSource, error) {
 	var o ObservationSource
-	for field := range strings.SplitSeq(spec, ",") {
+	for field := range strings.SplitSeq(spec, fieldSep) {
 		key, value, found := strings.Cut(field, "=")
 		if !found {
 			return ObservationSource{}, fmt.Errorf("invalid trace source %q: field %q is not key=value", spec, field)

@@ -249,22 +249,26 @@
                   },
                   "file": {
                     "type": "string",
-                    "description": "Trace file path relative to this source's mount directory.",
+                    "description": "Trace file name directly inside this source's mount directory. A single path segment: no directory separator, no whitespace, and no comma (the operator's trace-source flag is comma-delimited).",
                     "minLength": 1,
-                    "pattern": "^[^/\\s][^\\s]*$",
+                    "pattern": "^[^/,\\s]+$",
                     "not": {
-                      "pattern": "(^|/)\\.\\.(/|$)"
+                      "pattern": "^\\.\\.?$"
                     }
                   },
                   "existingClaim": {
                     "type": "string",
-                    "description": "Existing PVC holding the trace export.",
-                    "minLength": 1
+                    "description": "Existing PVC holding the trace export. A Kubernetes object name (DNS-1123 subdomain).",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
                   },
                   "configMap": {
                     "type": "string",
-                    "description": "ConfigMap holding a small, static trace export.",
-                    "minLength": 1
+                    "description": "ConfigMap holding a small, static trace export. A Kubernetes object name (DNS-1123 subdomain).",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
                   }
                 }
               }
