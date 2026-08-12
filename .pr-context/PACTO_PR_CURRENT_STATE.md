@@ -204,7 +204,7 @@ target preserved.
 
 Not another Kind vertical. Not a test-architecture refactor. Not Phase 8B.
 
-Implemented at `7ffdf884`. This is a Claude self-report and closes nothing: the
+Implemented at `d18ca70e`. This is a Claude self-report and closes nothing: the
 phase is a CANDIDATE until an independent review says otherwise.
 
 What the live cluster now proves, in the cluster and in the browser:
@@ -219,7 +219,24 @@ What the live cluster now proves, in the cluster and in the browser:
   re-checked every round against the live Product API, and emits the keys it
   DISCOVERED as `PW_FIXTURE`, so no browser journey constructs an identity;
 - eight live Product journeys (A–H) in `pkg/dashboard/frontend/e2e-live/`, all
-  passing on the Kind `operational-graph` shard at `7ffdf884`.
+  passing on the Kind `operational-graph` shard at `d18ca70e`.
+
+Shell classification, as section 12 of the commission requires. Every shell
+change in Phase 8 is thin orchestration; none of it parses JSON, decides
+ontology or owns retry semantics — those live in `tests/e2e/kind/productready`
+(Go) and in the Playwright specs:
+
+- the fixture bring-up added to `tests/e2e/kind/operational-graph.sh` (four real
+  `pacto push` invocations, two Pacto CRs, one ConfigMap, Helm values) is a
+  sequence of real CLI calls;
+- `pf` moved to `tests/e2e/kind/lib.sh` at `d18ca70e` and now waits for the
+  forward to answer instead of sleeping two seconds. This is a bug fix, not the
+  Phase 8B consolidation: `pf` was the one helper duplicated verbatim in three
+  scripts AND the direct cause of a shard failure, so it was fixed at the root
+  rather than patched in the one script that happened to fail. The rest of the
+  duplicated lifecycle named in TARGET section 10 — cluster setup, Helm
+  invocation, eventually-helpers, cleanup, diagnostics — is UNTOUCHED and remains
+  Phase 8B's inventory to do properly.
 
 Disclosed, NOT fixed, and NOT in Phase 8 scope — for independent triage:
 
@@ -427,13 +444,16 @@ Review threads at that SHA:
 - the remaining unresolved `github-code-quality` threads are on GENERATED
   minified UI assets under `pkg/dashboard/ui/assets/`, not authored code.
 
-### Phase-8 candidate verification — self-reported at `7ffdf884`
+### Phase-8 candidate verification — self-reported at `d18ca70e`
 
 Not an independent review. Re-verify at the exact SHA before accepting it.
 
-- GitHub CI run `31609010350`: every job green, including `required` and all six
-  Kind shards (`dashboard`, `evidence`, `observation`, `operational-graph`,
-  `reconcile`, `upgrade`), `release-dry-run` and `artifact-drift`.
+- GitHub CI run `31612913647` at `d18ca70e`: every job green, including
+  `ci-gates`, `ci-static`, `ci-engine`, `ci-oci`, `ci-dashboard`,
+  `ci-e2e-envtest`, `ci-integration-kubernetes`, `dashboard-e2e`,
+  `operator-build`, `artifact-drift`, `release-version-test`,
+  `release-dry-run` and all six Kind shards (`dashboard`, `evidence`,
+  `observation`, `operational-graph`, `reconcile`, `upgrade`).
 - Security, Docs check, Pacto Contract CI, Repowise and Validate PR title: green
   at the same SHA. `CodeQL` reports fail — that is the carried-forward item
   below, unchanged.
@@ -443,14 +463,24 @@ Not an independent review. Re-verify at the exact SHA before accepting it.
   15 warnings across 799 files, Vitest 1232 passed in 67 files, offline WASM
   Playwright 219 passed.
 - The committed UI bundle was rebuilt COLD via `make ui-build` and committed as
-  `b8424175`; `ci-ui-drift` is clean at `7ffdf884`.
-- PR at `7ffdf884`: open, DRAFT, mergeable, no history rewrite, no force-push.
-- Review threads re-queried at `7ffdf884` (paginated, 2 pages, 190 threads): 184
+  `b8424175`; `ci-ui-drift` is clean at `d18ca70e` and the tree is unchanged by
+  a rebuild.
+- PR at `d18ca70e`: open, DRAFT, mergeable, no history rewrite, no force-push.
+- Review threads re-queried at `d18ca70e` (paginated, 190 threads): 184
   resolved, 6 unresolved. All 6 are `github-code-quality` bot comments on the
   GENERATED minified Mermaid chunk
   `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, all CURRENT (not
   outdated) because the bundle rebuild moved the path. 0 unresolved authored
   threads. Generated assets are not hand-edited.
+
+One earlier candidate SHA, the docs-only `2c5034d8`, failed its
+`operational-graph` shard. That was a harness defect, not a product one, and it
+is the defect `d18ca70e` fixes: `pf` slept two seconds instead of waiting for the
+port-forward, and the registry push piped its output into `grep`, so under
+`set -o pipefail` the script died at a push that had nothing to connect to, with
+the error text already eaten by the pipe and no `FAIL:` line printed at all. A
+green run before that flake is not what this section reports; `d18ca70e` is a
+full matrix on the fixed harness.
 
 ### Cross-cutting PRE-MERGE SECURITY item — OPEN, carried forward
 
@@ -491,7 +521,7 @@ evidence.
 
 Counts in a handoff are not evidence.
 
-Re-queried at `7ffdf884` (still a Claude report, still NOT independently
+Re-queried at `d18ca70e` (still a Claude report, still NOT independently
 verified, still OPEN): 8 open alerts on `refs/pull/291/head`, unchanged in
 population — 7 `go/path-injection` (`internal/app/resolve.go` 35, 43, 57, 67;
 `pkg/oci/cache.go` 230, 250, 254) and 1 `py/incomplete-url-substring-sanitization`
