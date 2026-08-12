@@ -349,3 +349,59 @@ func TestManagerFleetProvider(t *testing.T) {
 		t.Fatal("cancelled first build should return an error")
 	}
 }
+
+// TestClusterContractRefs proves the callback exists only when a cluster was
+// detected: with no Kubernetes source there is nothing to ask.
+func TestClusterContractRefs(t *testing.T) {
+	if got := clusterContractRefs(&dashboard.DetectResult{}); got != nil {
+		t.Error("expected no callback without a Kubernetes source")
+	}
+	if got := clusterContractRefs(&dashboard.DetectResult{K8s: &dashboard.K8sSource{}}); got == nil {
+		t.Error("expected a callback when a Kubernetes source was detected")
+	}
+}
+
+// TestWithClusterContractRefs proves each refresh asks the cluster again and
+// merges what it reports behind the explicitly configured refs, without
+// duplicating a ref both already name.
+func TestWithClusterContractRefs(t *testing.T) {
+	base := app.FleetOptions{OCIRefs: []string{"ghcr.io/x/a", "reg.svc:5000/demo/orders"}}
+	ctx := context.Background()
+
+	// No callback at all, and a cluster that reports nothing, both leave the
+	// configured refs exactly as they are.
+	for name, discover := range map[string]func(context.Context) []string{
+		"no cluster":    nil,
+		"empty cluster": func(context.Context) []string { return nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := withClusterContractRefs(ctx, base, discover)
+			if !reflect.DeepEqual(got.OCIRefs, base.OCIRefs) {
+				t.Errorf("OCIRefs = %v, want %v", got.OCIRefs, base.OCIRefs)
+			}
+		})
+	}
+
+	calls := 0
+	discover := func(context.Context) []string {
+		calls++
+		return []string{"reg.svc:5000/demo/orders", "reg.svc:5000/demo/checkout@sha256:abc"}
+	}
+	got := withClusterContractRefs(ctx, base, discover)
+	want := []string{
+		"ghcr.io/x/a",
+		"reg.svc:5000/demo/orders",
+		"reg.svc:5000/demo/checkout@sha256:abc",
+	}
+	if !reflect.DeepEqual(got.OCIRefs, want) {
+		t.Errorf("OCIRefs = %v, want %v", got.OCIRefs, want)
+	}
+	if base.OCIRefs[0] != "ghcr.io/x/a" || len(base.OCIRefs) != 2 {
+		t.Errorf("the configured options were mutated: %v", base.OCIRefs)
+	}
+	// A second refresh re-asks rather than reusing the first answer.
+	withClusterContractRefs(ctx, base, discover)
+	if calls != 2 {
+		t.Errorf("discover called %d times, want 2", calls)
+	}
+}

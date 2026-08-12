@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -181,8 +182,9 @@ Services are grouped by name across sources and merged using priority rules:
 			// Manager serves many requests from one coherent, atomically-refreshed
 			// snapshot instead of rebuilding per request.
 			if fopts, ok := dashboardFleetOptions(dir, repos, namespace, observation, detectResult); ok {
+				discover := clusterContractRefs(detectResult)
 				mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
-					return svc.Fleet(ctx, fopts)
+					return svc.Fleet(ctx, withClusterContractRefs(ctx, fopts, discover))
 				}, fleet.ManagerOptions{})
 				go mgr.Start(cmd.Context(), fleetRefreshInterval)
 				server.SetFleetProvider(managerFleetProvider(mgr))
@@ -538,6 +540,53 @@ func observationSources(traces, named []string) ([]app.ObservationSourceSpec, er
 		seen[s.ID] = struct{}{}
 	}
 	return specs, nil
+}
+
+// clusterContractRefs returns the callback that reads the contract references
+// the live cluster attributes to its services, or nil when no Kubernetes source
+// was detected. The source is captured once, at detection: a cluster that later
+// becomes unreadable contributes no references, which is what the callback
+// already reports.
+func clusterContractRefs(dr *dashboard.DetectResult) func(context.Context) []string {
+	if dr.K8s == nil {
+		return nil
+	}
+	return dashboard.ContractRefProviderFromSource(dr.K8s)
+}
+
+// withClusterContractRefs returns the snapshot options for ONE refresh: the
+// configured sources plus whatever contract references the cluster reports right
+// now.
+//
+// The refresh, not startup, is the only honest place to ask. An operator-managed
+// dashboard is created by the operator BEFORE any Pacto CR has been reconciled,
+// so a set of references read once at startup is the empty set — permanently,
+// for the life of the pod. The Product would then show runtime targets with no
+// contract revision behind them: no declared dependencies, no reconciliation
+// against what was observed, and no change analysis, on a cluster where the
+// operator had resolved every one of those contracts.
+//
+// Explicit `oci://` arguments still win their place in the list; discovery adds
+// to what the operator configured rather than replacing it.
+func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discover func(context.Context) []string) app.FleetOptions {
+	if discover == nil {
+		return opts
+	}
+	found := discover(ctx)
+	if len(found) == 0 {
+		return opts
+	}
+	seen := make(map[string]struct{}, len(opts.OCIRefs)+len(found))
+	merged := make([]string, 0, len(opts.OCIRefs)+len(found))
+	for _, ref := range slices.Concat(opts.OCIRefs, found) {
+		if _, dup := seen[ref]; dup {
+			continue
+		}
+		seen[ref] = struct{}{}
+		merged = append(merged, ref)
+	}
+	opts.OCIRefs = merged
+	return opts
 }
 
 // dashboardFleetOptions builds fleet source options from everything the
