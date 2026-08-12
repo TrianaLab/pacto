@@ -90,7 +90,22 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		bundle, err := resolver.Resolve(ctx, ref, mode)
+		// The digest lookup below is a HEAD against the reference AS WRITTEN, and a
+		// bare repository ("registry/org/svc") parses as ":latest" — a tag a registry
+		// need not have. So a repository reference resolved fine (the resolver picks
+		// the highest semver tag) yet came back with no digest and a mutable
+		// ResolvedRef: content the Product then had to call non-retrievable and refuse
+		// to analyze, even though it had just read it. Pin the concrete tag FIRST and
+		// ask about that. An already-explicit tag or digest costs nothing (ResolveRef
+		// returns it unchanged, no round trip); the oci:// spelling is stripped because
+		// the registry client parses a bare reference, unlike the resolver.
+		concrete := strings.TrimPrefix(ref, "oci://")
+		if mode == oci.RemoteAllowed {
+			if pinned, rerr := oci.ResolveRef(ctx, store, concrete, ""); rerr == nil {
+				concrete = pinned
+			}
+		}
+		bundle, err := resolver.Resolve(ctx, concrete, mode)
 		if err != nil {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
 				Code: fleet.LimitationSourceRecordInvalid, Source: id,
@@ -98,7 +113,8 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 			})
 			continue
 		}
-		rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: ref}
+		// RequestedRef stays what the caller asked for; only the resolution moves.
+		rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: concrete}
 		// The requested ref may be a MUTABLE tag; the resolved digest is the
 		// immutable identity. Pin ResolvedRef to the digest so a Product Impact
 		// request by canonical revision key analyzes exactly the content the
@@ -112,9 +128,9 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// the whole dashboard hanging with nothing rendered. Offline we keep the
 		// mutable tag, which is honest -- we cannot know the digest without asking.
 		if mode == oci.RemoteAllowed {
-			if digest, derr := store.Resolve(ctx, ref); derr == nil {
+			if digest, derr := store.Resolve(ctx, concrete); derr == nil {
 				rev.Digest = digest
-				rev.ResolvedRef = pinRefToDigest(ref, digest)
+				rev.ResolvedRef = pinRefToDigest(concrete, digest)
 			}
 		}
 		col.Revisions = append(col.Revisions, rev)

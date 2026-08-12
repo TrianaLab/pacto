@@ -21,6 +21,8 @@ type fakeStore struct {
 	bundles map[string]*contract.Bundle
 	pullErr map[string]error
 	digest  map[string]string
+	// tags maps a repository to its published tags, for the untagged-reference path.
+	tags map[string][]string
 	// resolves counts digest resolutions, which are registry round trips.
 	resolves int
 }
@@ -39,7 +41,9 @@ func validDigest(fill string) string {
 }
 
 func (f *fakeStore) Push(context.Context, string, *contract.Bundle) (string, error) { return "", nil }
-func (f *fakeStore) ListTags(context.Context, string) ([]string, error)             { return nil, nil }
+func (f *fakeStore) ListTags(_ context.Context, repo string) ([]string, error) {
+	return f.tags[repo], nil
+}
 func (f *fakeStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
 	if e := f.pullErr[ref]; e != nil {
 		return nil, e
@@ -108,6 +112,47 @@ func TestOCISource_Collect(t *testing.T) {
 	}
 	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid {
 		t.Errorf("expected 1 record-invalid limitation, got %+v", col.Limitations)
+	}
+}
+
+// TestOCISource_Collect_UntaggedRepositoryIsPinned covers the reference shape a
+// LIVE cluster contributes: alongside each digest-pinned running ref, the
+// discovery callback reports the bare REPOSITORY, which is the only way the newest
+// published revision — the one nothing is running yet — enters the snapshot at all.
+//
+// That revision has to be exact retrievable content, or change analysis against it
+// is refused. The digest lookup is a HEAD against the reference as written, and a
+// bare repository parses as ":latest", so asking about the reference as given
+// returned nothing and left the newest revision holding a mutable tag. The
+// resolution is pinned to the concrete tag first, so the digest is asked about
+// exactly the revision that was read.
+func TestOCISource_Collect_UntaggedRepositoryIsPinned(t *testing.T) {
+	dgst := validDigest("c")
+	const repo = "reg.internal:5000/demo/checkout"
+	store := &fakeStore{
+		// Only the highest tag is pullable, so resolving anything else fails loudly.
+		bundles: map[string]*contract.Bundle{repo + ":1.1.0": bundleFor("checkout")},
+		digest:  map[string]string{repo + ":1.1.0": dgst},
+		tags:    map[string][]string{repo: {"1.0.0", "1.1.0"}},
+	}
+	col, err := NewOCISource("oci", store, []string{"oci://" + repo}).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %d (%+v), want 1", len(col.Revisions), col.Limitations)
+	}
+	rev := col.Revisions[0]
+	// RequestedRef is still what was asked for: only the resolution moved.
+	if rev.RequestedRef != "oci://"+repo {
+		t.Errorf("RequestedRef = %q, want the repository as requested", rev.RequestedRef)
+	}
+	if rev.Digest != dgst || rev.ResolvedRef != "oci://"+repo+"@"+dgst {
+		t.Errorf("ResolvedRef/Digest = %q/%q, want the canonical pinned form", rev.ResolvedRef, rev.Digest)
+	}
+	// The product consequence, not just the string: this revision is analyzable.
+	if !fleet.ClassifyContentIdentity(rev.ResolvedRef, rev.Digest).Retrievable() {
+		t.Error("a discovered repository's newest revision must be exact retrievable content")
 	}
 }
 
