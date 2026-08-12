@@ -133,7 +133,11 @@
            in full -- but it is ontology a first-time user has no use for, so it is one
            disclosure away instead of the second thing on the page (requirement 9). Nothing
            is lost: the value is unchanged and still copyable. -->
-      <details class="ev-ident disclosure">
+      <!-- A <details> maps to role=group, which takes its accessible name from the
+           author only — never from its summary — so the canonical test id is the one
+           stable handle a test has on this disclosure, exactly as for the software
+           inventory and the graph's text alternative. -->
+      <details class="ev-ident disclosure" data-testid="entity-identifier">
         <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Identifier</summary>
         <div class="ev-key">
           <span class="ev-key-label">Canonical key</span>

@@ -37,15 +37,27 @@ function factValue(scope: Page | Locator, label: string): Locator {
   return scope.getByText(label, { exact: true }).locator('xpath=following-sibling::*[1]');
 }
 
-// openDisclosure expands a <details> by its summary and returns it. Assertions run
-// against expanded content only: text hidden inside a closed disclosure is not
-// something the user was shown.
-async function openDisclosure(scope: Page | Locator, name: string): Promise<Locator> {
-  const d = scope.getByRole('group', { name });
+// copyValue reads an EXACT identifier out of a copyable fact. The copy control renders
+// the value and a copy button side by side, so the fact's own text is the identifier
+// with the button glyph glued onto it; the <code> is the identifier itself, which is
+// what "this digest, exactly" has to be asserted against.
+function copyValue(scope: Page | Locator, label: string): Locator {
+  return factValue(scope, label).getByRole('code');
+}
+
+// openDisclosure expands a <details> by its canonical test id and returns it. It is a
+// test id and not an accessible name because a <details> maps to role=group, whose name
+// comes from the author only — a summary a reader can see is not a name a role query
+// can match. Assertions run against expanded content only: text hidden inside a closed
+// disclosure is not something the user was shown. Closed, the element IS its summary,
+// so clicking it is clicking the control the reader clicks.
+async function openDisclosure(scope: Page | Locator, testid: string): Promise<Locator> {
+  const d = scope.getByTestId(testid);
   await expect(d).toBeVisible();
   if (!(await d.evaluate((el) => (el as HTMLDetailsElement).open))) {
-    await d.getByText(name, { exact: true }).click();
+    await d.click();
   }
+  await expect(d).toHaveJSProperty('open', true);
   return d;
 }
 
@@ -63,15 +75,22 @@ function escapeRe(s: string): string {
 
 // expectEntityPage asserts WHICH entity is on screen: the heading names the kind and
 // the entity (the h1 carries a visually-hidden kind prefix), and the page's own
-// Identifier disclosure carries the canonical key the fixture discovered. Comparing
-// URLs instead would compare escaping schemes, not identity.
+// Identifier disclosure carries — exactly — the canonical key the fixture discovered.
+// Comparing URLs instead would compare escaping schemes, not identity.
 async function expectEntityPage(page: Page, kind: string, label: RegExp | string, key: string) {
   const name = typeof label === 'string' ? escapeRe(label) : label.source;
   await expect(page.getByTestId('page-title')).toHaveAccessibleName(
     new RegExp(`^${escapeRe(kind)}:\\s+${name}$`),
   );
-  const ident = await openDisclosure(page, 'Identifier');
-  await expect(ident).toContainText(key);
+  const ident = await openDisclosure(page, 'entity-identifier');
+  await expect(copyValue(ident, 'Canonical key')).toHaveText(key);
+}
+
+// revisionLabel is how the product names a revision: its service and its version. The
+// page header prints exactly this, so a journey that expected a bare version number
+// would be asserting about a label the product never writes.
+function revisionLabel(service: string, version: string): string {
+  return `${service} ${version}`;
 }
 
 // A — the overview states where its knowledge came from, and routes to the sources.
@@ -139,14 +158,16 @@ test('C: the orders revision carries real OCI content identity and its declarati
     .getByRole('link')
     .click();
 
-  await expectEntityPage(page, 'Revision', fixture.ordersVersion, fixture.ordersRevision);
+  await expectEntityPage(
+    page, 'Revision', revisionLabel(fixture.ordersName, fixture.ordersVersion), fixture.ordersRevision,
+  );
   await expect(page.getByText('Retrievable content')).toBeVisible();
 
-  const identity = await openDisclosure(page, 'Content identity');
-  await expect(factValue(identity, 'Digest')).toHaveText(/^sha256:[0-9a-f]{64}$/);
+  const identity = await openDisclosure(page, 'revision-identity');
+  await expect(copyValue(identity, 'Digest')).toHaveText(/^sha256:[0-9a-f]{64}$/);
   // The resolved ref is pinned to the digest under the registry the fixture published
   // to: this content is addressable again, not a name that may move.
-  await expect(factValue(identity, 'Resolved ref')).toHaveText(
+  await expect(copyValue(identity, 'Resolved ref')).toHaveText(
     new RegExp(`^oci://${escapeRe(fixture.domain)}/${escapeRe(fixture.ordersName)}@sha256:[0-9a-f]{64}$`),
   );
 
@@ -179,7 +200,9 @@ test('D: the checkout target is a distinct entity matched to the running revisio
   // The revision it runs is a DIFFERENT entity with its own canonical key — the
   // published revision A, not a copy of the target.
   await factValue(page, 'Running revision').click();
-  await expectEntityPage(page, 'Revision', fixture.checkoutVersionA, fixture.checkoutRevisionA);
+  await expectEntityPage(
+    page, 'Revision', revisionLabel(fixture.checkoutName, fixture.checkoutVersionA), fixture.checkoutRevisionA,
+  );
 });
 
 // E — the graph draws real topology for orders. An honest empty state would be a
@@ -205,7 +228,7 @@ test('E: the operational graph draws the orders neighborhood with its matched ed
   await expect(page.getByTestId('graph-empty')).toHaveCount(0);
   await expect(page.getByTestId('graph-render-error')).toHaveCount(0);
 
-  await openDisclosure(page, 'Relationships (text)');
+  await openDisclosure(page, 'graph-textalt');
   const dep = page
     .getByTestId('graph-edge')
     .filter({ hasText: fixture.ordersName })
@@ -250,7 +273,9 @@ test('G: change analysis compares the two published checkout revisions', async (
   const all = section(page, 'All revisions');
   await expandSection(all, 'All revisions'); // collapsed while B is published but not running
   await all.getByRole('listitem').filter({ hasText: fixture.checkoutVersionB }).first().getByRole('link').click();
-  await expectEntityPage(page, 'Revision', fixture.checkoutVersionB, fixture.checkoutRevisionB);
+  await expectEntityPage(
+    page, 'Revision', revisionLabel(fixture.checkoutName, fixture.checkoutVersionB), fixture.checkoutRevisionB,
+  );
 
   // The action carries this revision over as the LATER side; the earlier side is chosen
   // by canonical key, so the comparison is of content, not of a version string.

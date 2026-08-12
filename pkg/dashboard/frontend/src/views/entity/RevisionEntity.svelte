@@ -83,7 +83,7 @@
          page and the first thing every reader scrolled past; the badge in the facts
          strip above already says whether that content is retrievable, which is the part
          that changes what you do next. -->
-    <details class="re-identity disclosure">
+    <details class="re-identity disclosure" data-testid="revision-identity">
       <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Content identity</summary>
       <div class="re-idrows">
         {#if id.digest}<div class="re-idrow"><span class="re-k">Digest</span><CopyableIdentifier value={id.digest} /></div>{/if}
