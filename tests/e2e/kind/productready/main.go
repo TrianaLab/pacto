@@ -22,12 +22,23 @@
 // re-checks EVERY fact and accumulates all outstanding failures, so a timeout
 // reports the complete list of what never became true rather than the first thing
 // that happened to be missing.
+//
+// A round is also ONE SNAPSHOT. The Manager can swap the snapshot between any two
+// requests, so a round that reads its service list from one snapshot and its
+// neighborhood from the next has proved nothing about either: it has spliced two
+// system views and called the result coherent. Every Product response carries the
+// id of the snapshot that answered it; the FIRST response of a round adopts that
+// id and every later response must repeat it, or the whole round is discarded and
+// retried. The id handed to the browser journeys is therefore the id that proved
+// every fact, not an id read afterwards from a request that could have landed on a
+// different snapshot entirely.
 package main
 
 import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -56,16 +67,23 @@ func main() {
 		evService = flag.String("evidence-service", "payments", "service whose target arrives via the Evidence Server")
 		timeout   = flag.Duration("timeout", 6*time.Minute, "how long to wait for the fixture to become true")
 		interval  = flag.Duration("interval", 5*time.Second, "poll interval")
+		snapshots = flag.Int("snapshots", 1, "how many DISTINCT snapshots must each prove the whole fixture")
 		outPath   = flag.String("out", "", "write the discovered canonical keys here as JSON")
 	)
 	flag.Parse()
 	if *domain == "" {
 		exit("-domain is required (the registry host + org the fixture publishes to)")
 	}
+	if *snapshots < 1 {
+		exit("-snapshots must be at least 1")
+	}
 
 	p := &prober{
-		base: strings.TrimSuffix(*base, "/"),
-		http: &http.Client{Timeout: 20 * time.Second},
+		base:      strings.TrimSuffix(*base, "/"),
+		http:      &http.Client{Timeout: 20 * time.Second},
+		interval:  *interval,
+		timeout:   *timeout,
+		snapshots: *snapshots,
 		want: fixture{
 			Domain: *domain, Checkout: *checkout, Orders: *orders,
 			CheckoutA: *revA, CheckoutB: *revB, OrdersVersion: *ordersRev,
@@ -74,30 +92,62 @@ func main() {
 		},
 	}
 
-	deadline := time.Now().Add(*timeout)
+	keys, problems := p.run(os.Stdout)
+	if len(problems) > 0 {
+		fmt.Fprintf(os.Stderr, "the live Product API never proved the fixture within %s:\n", *timeout)
+		for _, pr := range problems {
+			fmt.Fprintf(os.Stderr, "  - %s\n", pr)
+		}
+		os.Exit(1)
+	}
+	emit(keys, *outPath)
+}
+
+// run polls until the fixture is proven, and returns the keys of the LAST
+// snapshot that proved it. A non-empty problem list means nothing was proven and
+// the caller must not emit keys: a round that failed for any reason — including
+// having read its facts from two different snapshots — has no fixture to hand on.
+//
+// With -snapshots N, N DISTINCT snapshots must each prove the whole fixture. That
+// is how the vertical reaches a state a single refresh cannot show: the first
+// dashboard refresh is what populates the pod's OCI cache, so only a LATER
+// snapshot has both the registry source and the now-populated cache source
+// contributing the same published artifacts. Requiring a second proven snapshot
+// waits for that state by observing it, not by sleeping and hoping.
+func (p *prober) run(w io.Writer) (discovered, []string) {
+	deadline := time.Now().Add(p.timeout)
+	proven := map[string]bool{}
+	var last discovered
 	for round := 1; ; round++ {
 		keys, problems := p.probe()
 		if len(problems) == 0 {
-			fmt.Printf("  PASS: the live Product API proves the fixture (%d facts, round %d)\n", factCount, round)
-			emit(keys, *outPath)
-			return
+			last = keys
+			if !proven[keys.SnapshotID] {
+				proven[keys.SnapshotID] = true
+				_, _ = fmt.Fprintf(w, "  PASS: snapshot %s proves the fixture (%d facts, round %d; %d of %d distinct snapshots)\n",
+					keys.SnapshotID, factCount, round, len(proven), p.snapshots)
+			}
+			if len(proven) >= p.snapshots {
+				return last, nil
+			}
+			problems = []string{fmt.Sprintf(
+				"only %d of %d distinct snapshots have proved the fixture; waiting for the next dashboard refresh",
+				len(proven), p.snapshots)}
 		}
 		if !time.Now().Before(deadline) {
-			fmt.Fprintf(os.Stderr, "the live Product API never proved the fixture within %s:\n", *timeout)
-			for _, pr := range problems {
-				fmt.Fprintf(os.Stderr, "  - %s\n", pr)
-			}
-			os.Exit(1)
+			return discovered{}, problems
 		}
-		fmt.Printf("  waiting: %d of %d facts outstanding (first: %s)\n", len(problems), factCount, problems[0])
-		time.Sleep(*interval)
+		_, _ = fmt.Fprintf(w, "  waiting: %d of %d facts outstanding (first: %s)\n", len(problems), factCount, problems[0])
+		time.Sleep(p.interval)
 	}
 }
 
 // factCount is the number of facts section 8 requires the gate to prove. It is a
 // constant so the progress line reports a denominator that cannot drift silently
-// with the number of failures a round happens to produce.
-const factCount = 12
+// with the number of failures a round happens to produce. Fact 13 is the round's
+// snapshot coherence: the other twelve are only facts about the fleet if one
+// snapshot answered all of them.
+const factCount = 13
 
 func exit(msg string) {
 	fmt.Fprintln(os.Stderr, "productready:", msg)
@@ -155,17 +205,29 @@ type discovered struct {
 }
 
 type prober struct {
-	base string
-	http *http.Client
-	want fixture
+	base      string
+	http      *http.Client
+	want      fixture
+	interval  time.Duration
+	timeout   time.Duration
+	snapshots int
 
 	// problems accumulates every unmet fact of the current round.
 	problems []string
+	// snapshotID is the id this round adopted from its first Product response;
+	// mixed records that some response of this round disagreed with it.
+	snapshotID string
+	mixed      bool
 }
 
 func (p *prober) failf(format string, a ...any) {
 	p.problems = append(p.problems, fmt.Sprintf(format, a...))
 }
+
+// maxBody bounds one Product response. The gate reads a payload twice (once for
+// its snapshot id, once for its content), so the body is buffered; a runaway
+// response must not become a runaway allocation in the harness.
+const maxBody = 32 << 20
 
 func (p *prober) get(path string, q url.Values, out any) error {
 	u := p.base + path
@@ -180,7 +242,50 @@ func (p *prober) get(path string, q url.Values, out any) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET %s: %s", u, resp.Status)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		return fmt.Errorf("GET %s: reading the body: %w", u, err)
+	}
+	// Every Product response carries the meta of the snapshot that answered it.
+	// Decoding it separately keeps the coherence rule in ONE place instead of
+	// asking each of the six typed decode targets to surface its own meta.
+	var env struct {
+		Meta fleet.ProductMeta `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return fmt.Errorf("GET %s: decoding the product meta: %w", u, err)
+	}
+	if err := p.adopt(env.Meta.SnapshotID, u); err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
+}
+
+// adopt binds the round to exactly one snapshot.
+//
+// The dashboard Manager replaces its snapshot on a refresh interval, and every
+// request is served by whichever snapshot is current when it arrives. Reading a
+// dozen facts across a dozen requests therefore proves the fixture only if one
+// snapshot answered all of them; otherwise the gate can pass on a system view
+// that never existed — the service list from before a refresh, the neighborhood
+// from after it. The first response of a round fixes the id; every later response
+// must match it. An answer with NO id is equally fatal: an unidentified snapshot
+// cannot be shown to be the same one.
+func (p *prober) adopt(id, u string) error {
+	if id == "" {
+		p.mixed = true
+		return fmt.Errorf("GET %s carries no snapshot id; a fact from an unidentified snapshot proves nothing", u)
+	}
+	if p.snapshotID == "" {
+		p.snapshotID = id
+		return nil
+	}
+	if id != p.snapshotID {
+		p.mixed = true
+		return fmt.Errorf("GET %s was answered by snapshot %s, but this round adopted %s; the dashboard refreshed mid-round, so these facts are not one system view",
+			u, id, p.snapshotID)
+	}
+	return nil
 }
 
 // list pages one entity kind, optionally scoped to a parent service.
@@ -208,6 +313,8 @@ func (p *prober) detail(kind, key string) *fleet.EntityDetail {
 
 func (p *prober) probe() (discovered, []string) {
 	p.problems = nil
+	p.snapshotID = ""
+	p.mixed = false
 	got := discovered{
 		Domain: p.want.Domain, CheckoutName: p.want.Checkout, OrdersName: p.want.Orders,
 		CheckoutVersionA: p.want.CheckoutA, CheckoutVersionB: p.want.CheckoutB,
@@ -248,19 +355,20 @@ func (p *prober) probe() (discovered, []string) {
 	// Fact 12: the external target still arrives over the Evidence Server.
 	got.EvidenceTarget = p.evidenceTarget(got.EvidenceService)
 
-	got.SnapshotID = p.snapshotID()
-	return got, p.problems
-}
-
-// snapshotID reads the product-answer snapshot id so the handoff records WHICH
-// snapshot proved the fixture.
-func (p *prober) snapshotID() string {
-	var ov fleet.Overview
-	if err := p.get("/api/fleet/overview", nil, &ov); err != nil {
-		p.failf("reading the product overview: %v", err)
-		return ""
+	// Fact 13: all twelve came out of ONE snapshot. Each mismatching response has
+	// already reported itself, but the verdict is stated over the round as a whole
+	// so a splice can never be reduced to a single recoverable-looking read — and
+	// so a round that somehow swallowed the per-request error still fails here.
+	switch {
+	case p.snapshotID == "":
+		p.failf("no product response identified the snapshot it came from; the round proves nothing")
+	case p.mixed:
+		p.failf("the round read its facts from more than one snapshot (adopted %s); discarding it and retrying", p.snapshotID)
 	}
-	return ov.Meta.SnapshotID
+	// The id handed on is the one that proved every fact above — never one read
+	// afterwards, which could come from a snapshot none of the facts were read from.
+	got.SnapshotID = p.snapshotID
+	return got, p.problems
 }
 
 func (p *prober) usableSource(sources []fleet.EntityRef, id string) string {
@@ -309,33 +417,50 @@ func (p *prober) serviceKey(services []fleet.EntityRef, name, domain string) str
 // revisionKey finds one version of one service and proves its identity is the
 // canonical, immutable, retrievable one — the whole point of publishing the
 // fixture through a real registry rather than inline in a CR.
+//
+// EXACTLY ONE revision may carry the version. The fixture publishes each version
+// once, so a second revision at the same version is not an alternative to pick
+// between: it is one published artifact that entered the fleet under two
+// identities — the shape the dashboard produced when the registry source and the
+// disk-cache source disagreed about what a cached bundle was. Scanning for the
+// first retrievable match would step over exactly that record and pass.
 func (p *prober) revisionKey(serviceKey, version string) string {
 	if serviceKey == "" {
 		return ""
 	}
 	revs := p.list("revision", serviceKey)
+	var hits []fleet.EntityRef
 	for _, r := range revs {
-		if r.Version != version {
-			continue
+		if r.Version == version {
+			hits = append(hits, r)
 		}
-		d := p.detail("revision", r.Key)
-		if d == nil || d.Revision == nil {
-			p.failf("revision %s %s has no revision detail", serviceKey, version)
-			return ""
-		}
-		id := d.Revision.Identity
-		if id.IdentityClass != "exact" {
-			p.failf("revision %s %s has identity class %q, not exact (resolvedRef %q)", serviceKey, version, id.IdentityClass, id.ResolvedRef)
-			return ""
-		}
-		if !id.Retrievable {
-			p.failf("revision %s %s is not retrievable", serviceKey, version)
-			return ""
-		}
-		return r.Key
 	}
-	p.failf("service %s has no revision %s (present: %s)", serviceKey, version, versionsOf(revs))
-	return ""
+	switch len(hits) {
+	case 1:
+	case 0:
+		p.failf("service %s has no revision %s (present: %s)", serviceKey, version, versionsOf(revs))
+		return ""
+	default:
+		p.failf("service %s has %d revisions at version %s (%s); one published artifact must be one canonical revision",
+			serviceKey, len(hits), version, keysOf(hits))
+		return ""
+	}
+	r := hits[0]
+	d := p.detail("revision", r.Key)
+	if d == nil || d.Revision == nil {
+		p.failf("revision %s %s has no revision detail", serviceKey, version)
+		return ""
+	}
+	id := d.Revision.Identity
+	if id.IdentityClass != "exact" {
+		p.failf("revision %s %s has identity class %q, not exact (resolvedRef %q)", serviceKey, version, id.IdentityClass, id.ResolvedRef)
+		return ""
+	}
+	if !id.Retrievable {
+		p.failf("revision %s %s is not retrievable", serviceKey, version)
+		return ""
+	}
+	return r.Key
 }
 
 // runningTarget proves the service has exactly one operational target and that it

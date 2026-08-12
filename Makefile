@@ -34,6 +34,10 @@ test:
 
 e2e:
 	go test -tags e2e ./tests/e2e/ -v -count=1 -parallel 16 -timeout 120s
+	# The kind acceptance gate is a Go program with its own tests, and it lives
+	# under /tests/ — which ci-test excludes. Without this line the gate that
+	# decides whether the live vertical passed is itself never tested.
+	go test ./tests/e2e/kind/productready/ -count=1 -timeout 120s
 
 # Hermetic operational-graph acceptance (no cluster): builds pacto and drives the
 # whole fleet story end to end against local fixtures (graph, signed evidence

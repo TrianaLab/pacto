@@ -304,12 +304,23 @@ echo "== the live Product API proves the fixture is ready =="
 # revision retrievability, target linkage, the declared and observed edges and
 # their reconciliation, and the external evidence target. It also emits the keys
 # it DISCOVERED, so nothing downstream has to construct one.
+#
+# -snapshots 2 is what puts the dashboard in its POST-CACHE state before anything
+# downstream looks at it. The pod's OCI cache starts empty; the first refresh's
+# registry pulls are what fill it, so only a LATER snapshot has both the registry
+# source and the now-populated cache source contributing the same published
+# artifacts — the pairing that used to publish one artifact as two revisions. The
+# gate reaches that state by requiring two DISTINCT snapshots to each prove the
+# whole fixture, so the wait is an observation, not a sleep. (A pod restart would
+# be the wrong lever: the operator mounts the cache as an emptyDir, so restarting
+# ERASES the state under test.)
 DASH_PF="$(pf 8080 svc/pacto-dashboard 3000)"
 FIXTURE_JSON="$(mktemp)"
 ( cd "$ROOT" && go run ./tests/e2e/kind/productready \
     -base "http://127.0.0.1:8080" -domain "${REG_HOST}/demo" \
-    -checkout-a 1.0.0 -checkout-b 1.1.0 -out "$FIXTURE_JSON" ) \
-  && pass "the live Product API proves the fixture" || fail "the live Product API never proved the fixture"
+    -checkout-a 1.0.0 -checkout-b 1.1.0 -snapshots 2 -out "$FIXTURE_JSON" ) \
+  && pass "the live Product API proves the fixture, twice, across a refresh" \
+  || fail "the live Product API never proved the fixture on two distinct snapshots"
 
 # Browser acceptance: drive the LIVE dashboard in Chromium via Playwright, proving
 # the real frontend bundle + real HTTP API + real operator data render together —
