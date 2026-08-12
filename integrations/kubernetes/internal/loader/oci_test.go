@@ -114,3 +114,34 @@ func TestNormalizeOCIRef(t *testing.T) {
 		}
 	}
 }
+
+func TestInsecureClientOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name, hosts string
+		want        int
+	}{
+		{"empty", "", 0},
+		{"blank entries only", " , ,", 0},
+		{"one host", "reg.svc:5000", 1},
+		{"trimmed list", " a.svc:5000 , b.svc:5000 ", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := len(InsecureClientOptions(tc.hosts)); got != tc.want {
+				t.Errorf("options = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// A puller built with no allowance must leave every registry on https; the
+// option list is what carries the exception into the OCI client.
+func TestNewOCIPuller_NoInsecureAllowanceByDefault(t *testing.T) {
+	t.Setenv("PACTO_INSECURE_REGISTRIES", "")
+	if got := NewOCIPuller().clientOpts; got != nil {
+		t.Errorf("clientOpts = %v, want nil", got)
+	}
+	t.Setenv("PACTO_INSECURE_REGISTRIES", "reg.svc:5000")
+	if got := NewOCIPuller().clientOpts; len(got) != 1 {
+		t.Errorf("clientOpts = %d entries, want 1", len(got))
+	}
+}

@@ -401,6 +401,7 @@ cosign verify \
 | image.repository | string | `"ghcr.io/trianalab/pacto/operator"` | Controller image repository |
 | image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |
 | imagePullSecrets | list | `[]` | Image pull secrets for private registries |
+| insecureRegistries | list | `[]` | Registry hosts (`host:port`) to reach over plain HTTP instead of HTTPS, for a controlled in-cluster registry. Scoped per host, so every other registry stays HTTPS-only. The controller, the managed dashboard and the managed Evidence Server all inherit it — each resolves contract refs itself. |
 | leaderElection.enabled | bool | `true` | Enable leader election for HA deployments |
 | metrics.enabled | bool | `true` | Enable the metrics endpoint |
 | metrics.secure | bool | `true` | Serve metrics over HTTPS |

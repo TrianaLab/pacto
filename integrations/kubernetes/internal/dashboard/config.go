@@ -61,6 +61,13 @@ type Config struct {
 	// not unavailable).
 	EvidenceSourceURL string
 
+	// InsecureRegistries is the comma-separated list of registry hosts the
+	// dashboard may reach over plain HTTP, inherited verbatim from the operator's
+	// own environment. The dashboard resolves contract revisions itself, so a
+	// controlled in-cluster registry has to be reachable by the workload, not just
+	// by the controller. Empty means every registry is https-only.
+	InsecureRegistries string
+
 	// Observation declares offline OTLP/JSON trace files to mount read-only into
 	// the dashboard, each under a stable Data Source name. Pacto reads exactly the
 	// declared files and never scans the mount; the trace exports themselves are

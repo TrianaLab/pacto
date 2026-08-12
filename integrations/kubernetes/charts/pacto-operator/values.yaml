@@ -16,6 +16,12 @@ nameOverride: ""
 # -- Override the full release name
 fullnameOverride: ""
 
+# -- Registry hosts (`host:port`) to reach over plain HTTP instead of HTTPS, for a
+# controlled in-cluster registry. Scoped per host, so every other registry stays
+# HTTPS-only. The controller, the managed dashboard and the managed Evidence
+# Server all inherit it — each resolves contract refs itself.
+insecureRegistries: []
+
 serviceAccount:
   # -- Create a ServiceAccount for the controller
   create: true

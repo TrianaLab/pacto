@@ -44,6 +44,13 @@
     "fullnameOverride": {
       "type": "string"
     },
+    "insecureRegistries": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "serviceAccount": {
       "type": "object",
       "additionalProperties": false,

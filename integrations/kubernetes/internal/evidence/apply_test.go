@@ -10,6 +10,7 @@ package evidence
 import (
 	"testing"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
 	"k8s.io/apimachinery/pkg/types"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
@@ -257,5 +258,33 @@ func TestPvcAC_CustomAccessModesSizeAndClass(t *testing.T) {
 	}
 	if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != "fast" {
 		t.Errorf("expected storage class fast, got %v", pvc.Spec.StorageClassName)
+	}
+}
+
+// The Evidence Server resolves the contract ref an envelope names, so the
+// plain-HTTP allowance has to reach the managed workload too.
+func TestDeploymentAC_InsecureRegistries(t *testing.T) {
+	for _, tc := range []struct {
+		name, configured, want string
+	}{
+		{"configured", "reg.pacto-system.svc:5000", "reg.pacto-system.svc:5000"},
+		{"unset", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", InsecureRegistries: tc.configured}
+			deploy, ok := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+			if !ok {
+				t.Fatal("expected *DeploymentApplyConfiguration")
+			}
+			var got string
+			for _, env := range deploy.Spec.Template.Spec.Containers[0].Env {
+				if *env.Name == loader.InsecureRegistriesEnvVar {
+					got = *env.Value
+				}
+			}
+			if got != tc.want {
+				t.Errorf("%s=%q, want %q", loader.InsecureRegistriesEnvVar, got, tc.want)
+			}
+		})
 	}
 }

@@ -240,3 +240,20 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "--dashboard-trace-source"
+
+  - it: should not declare a plain-HTTP registry allowance by default
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "PACTO_INSECURE_REGISTRIES"
+
+  - it: should pass the plain-HTTP registry hosts to the controller environment
+    set:
+      insecureRegistries:
+        - pacto-registry.pacto-system.svc.cluster.local:5000
+        - other.svc:5000
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PACTO_INSECURE_REGISTRIES
+            value: "pacto-registry.pacto-system.svc.cluster.local:5000,other.svc:5000"

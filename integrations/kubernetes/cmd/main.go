@@ -370,16 +370,22 @@ func main() {
 		evidenceSourceURL = fmt.Sprintf("http://%s.%s.svc:%d", evidence.Name, dashboardNamespace, evidence.EvidencePort)
 	}
 
+	// The controller and the workloads it manages resolve contract refs against
+	// the same registries, so the plain-HTTP allowance is inherited from the
+	// operator's own environment rather than configured three times.
+	insecureRegistries := os.Getenv(loader.InsecureRegistriesEnvVar)
+
 	dashCfg := dashboard.Config{
-		Enabled:           enableDashboard,
-		Image:             dashboardImage,
-		Namespace:         dashboardNamespace,
-		WatchNamespace:    watchNamespace,
-		OCISecret:         dashboardOCISecret,
-		OCISecrets:        parsedOCISecrets,
-		OwnerRef:          ownerRef,
-		EvidenceSourceURL: evidenceSourceURL,
-		Observation:       dashboardObservation,
+		Enabled:            enableDashboard,
+		Image:              dashboardImage,
+		Namespace:          dashboardNamespace,
+		WatchNamespace:     watchNamespace,
+		OCISecret:          dashboardOCISecret,
+		OCISecrets:         parsedOCISecrets,
+		OwnerRef:           ownerRef,
+		EvidenceSourceURL:  evidenceSourceURL,
+		InsecureRegistries: insecureRegistries,
+		Observation:        dashboardObservation,
 		Resources: dashboard.ResourcesConfig{
 			CPURequest:    dashboardCPURequest,
 			CPULimit:      dashboardCPULimit,
@@ -407,12 +413,13 @@ func main() {
 	}
 
 	evidenceCfg := evidence.Config{
-		Enabled:     enableEvidence,
-		Image:       dashboardImage, // the runtime image runs `pacto evidence serve`
-		Namespace:   dashboardNamespace,
-		BucketURL:   evidenceBucketURL,
-		Prefix:      evidencePrefix,
-		TrustSecret: evidenceTrustSecret,
+		Enabled:            enableEvidence,
+		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
+		Namespace:          dashboardNamespace,
+		BucketURL:          evidenceBucketURL,
+		Prefix:             evidencePrefix,
+		TrustSecret:        evidenceTrustSecret,
+		InsecureRegistries: insecureRegistries,
 		Persistence: evidence.PersistenceConfig{
 			Enabled:       evidencePersistenceEnabled,
 			ExistingClaim: evidenceExistingClaim,

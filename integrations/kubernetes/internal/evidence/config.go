@@ -43,6 +43,13 @@ type Config struct {
 	// read-only. Signature verification is mandatory, so it is required.
 	TrustSecret string
 
+	// InsecureRegistries is the comma-separated list of registry hosts the
+	// Evidence Server may reach over plain HTTP, inherited verbatim from the
+	// operator's own environment. It resolves the contract ref an envelope names,
+	// so a controlled in-cluster registry has to be reachable by the workload.
+	// Empty means every registry is https-only.
+	InsecureRegistries string
+
 	// Persistence configures the PVC backing a file:// bucket.
 	Persistence PersistenceConfig
 

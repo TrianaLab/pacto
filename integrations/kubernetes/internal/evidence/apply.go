@@ -10,6 +10,7 @@ package evidence
 import (
 	"strings"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -63,6 +64,14 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		)
 	}
 
+	// Only set when configured: an empty list leaves the container env unset
+	// rather than declaring an empty one.
+	var env []*corev1ac.EnvVarApplyConfiguration
+	if cfg.InsecureRegistries != "" {
+		env = append(env, corev1ac.EnvVar().
+			WithName(loader.InsecureRegistriesEnvVar).WithValue(cfg.InsecureRegistries))
+	}
+
 	res := cfg.Resources.BuildResources()
 
 	container := corev1ac.Container().
@@ -70,6 +79,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		WithImage(cfg.Image).
 		WithCommand("pacto").
 		WithArgs(args...).
+		WithEnv(env...).
 		WithPorts(
 			corev1ac.ContainerPort().WithName("http").WithContainerPort(EvidencePort).WithProtocol(corev1.ProtocolTCP),
 		).

@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -72,6 +73,9 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	}
 	if cfg.EvidenceSourceURL != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_EVIDENCE_SOURCE_URL").WithValue(cfg.EvidenceSourceURL))
+	}
+	if cfg.InsecureRegistries != "" {
+		env = append(env, corev1ac.EnvVar().WithName(loader.InsecureRegistriesEnvVar).WithValue(cfg.InsecureRegistries))
 	}
 	if obs := cfg.ObservationEnv(); obs != "" {
 		env = append(env, corev1ac.EnvVar().WithName(ObservationEnvVar).WithValue(obs))
