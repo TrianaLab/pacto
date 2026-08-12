@@ -693,11 +693,65 @@ Out of scope, permanently: an OTLP receiver, a listener/port, a Collector or col
 ### Phase 8 — live Kind Product acceptance breadth
 The branch ALREADY contains a substantial live Kind vertical (operator, dashboard, Evidence Server, in-cluster registry, reconciled Pacto CRs, ingested signed evidence) whose browser leg deliberately calls itself a SMOKE check. Phase 8 UPGRADES that existing browser leg into representative live Product acceptance; it does not build the vertical from scratch.
 
+Phase 8 is CANONICAL LIVE KIND PRODUCT ACCEPTANCE. It is not another Kind vertical, not a reproduction of every deterministic WASM test against a live cluster, not a UI redesign, not a new Fleet model, not a test-architecture refactor, not Docker Desktop portability and not MkDocs E2E. It makes the EXISTING vertical rich enough that a representative live Product journey has actual topology, revisions, targets, observed evidence and reconciliation.
+
+Required substance:
+
+- **Real contract revisions.** The live fixture publishes immutable contract revisions to the existing in-cluster registry: at minimum checkout revision A, checkout revision B and an orders revision. The running checkout target resolves to revision A and the running orders target resolves to the orders revision, both under immutable resolved OCI identities. The orders contract declares a dependency on checkout. The operator's Pacto status carries the real resolved contract identity, and the dashboard's existing Kubernetes -> OCI discovery path makes those revisions available through the normal Product. No fixture-only Product shortcut.
+- **Real Change analysis.** Checkout A and B differ by one deterministic, meaningful semantic change that the existing diff engine classifies deterministically. B need not be deployed. The live Product compares A -> B, identifies what changed and that orders is an affected consumer, through the real published live Fleet snapshot.
+- **The Phase-7 managed observation source in the same vertical.** A stable named observation source (`orders-traces`) configured through the real Phase-7 chart values in the SAME operator-managed dashboard, whose trace export contains a real observed `orders -> checkout` relationship, appearing as a real Product Data Source under its declared identity. The ad-hoc positional `--traces` path is not the canonical Phase-8 proof.
+- **Live declared + observed reconciliation.** For `orders -> checkout`, one live snapshot carries the real orders Contract Revision, its declared checkout dependency, the managed observation source and the observed edge; backend canonical reconciliation is therefore `matched`, proven against the real Product API, and the live browser presents the same relationship consistently. Reconciliation is never re-derived in the browser.
+- **The external-evidence vertical preserved.** The remote/external payments signed-evidence target stays. The final vertical simultaneously contains Kubernetes runtime, OCI contracts, operator-managed offline observation and Evidence Server external evidence. No manufactured all-healthy single-source environment.
+- **Deterministic live preconditions.** The suite waits until the live Product API proves the fixture ready — sources usable, services present, all three revisions retrievable, targets linked with expected match certainty, declared and observed edges present, reconciliation `matched`, external payments target present — with structured checks, never an arbitrary sleep as the correctness condition.
+- **Representative Product journeys, not a duplicated WASM suite.** Overview/Knowledge/Data Sources; Services -> Service; Service -> Contract Revision; Service -> Operational Target; Operational Graph with REQUIRED real topology (graph-empty is not an acceptable outcome); Data Source detail for exactly `orders-traces`; Change analysis over the canonical A/B revisions; and external payments evidence provenance.
+
+Phase-8 harness discipline: no new large `.sh` acceptance harness, no copy/paste of Kind lifecycle helpers, no semantic JSON parsing in shell. Substantial non-browser assertions and helpers belong in Go; user-visible live Product workflows belong in Playwright; shell stays thin orchestration over the existing vertical. Every shell addition is classified in the handoff as thin orchestration or as debt explicitly deferred to Phase 8B.
+
+### Phase 8B — test architecture and harness consolidation
+Phase 8B comes IMMEDIATELY after Phase 8 and MUST close before Phase 9 or Phase 10 add their new acceptance harnesses. Its goal is to make the test architecture correspond to the semantic boundaries of the system before the MkDocs and Docker Desktop surfaces add more of it.
+
+**Canonical test taxonomy.** Every test belongs to exactly one level, and the level is a semantic claim about what the test proves:
+
+- unit;
+- integration;
+- architecture / invariant;
+- local acceptance (cluster-free);
+- Kind / system acceptance;
+- browser acceptance (deterministic built product);
+- live-browser acceptance (real cluster);
+- release verification.
+
+**Implementation-language policy.**
+
+- Go is the DEFAULT for substantial non-browser test logic and acceptance harnesses.
+- Playwright/TypeScript remains the correct browser automation layer.
+- Shell is allowed only where it is genuinely THIN process orchestration.
+- Do NOT mass-rewrite shell merely for language uniformity. A shell harness that owns substantial state, retry logic, lifecycle, semantic parsing, assertions, branching, cleanup or failure diagnostics IS a candidate for structured Go; a short sequence of real CLI invocations is not.
+- A Go harness MAY intentionally exec the real `kind`, `helm`, `kubectl` and `docker` CLIs through `exec.CommandContext` when that preserves the real external boundary the test exists to prove. Executing the real tool is the point; hand-rolling its API is not.
+
+**Inventory before rewrite.** Before moving or rewriting anything, inventory every root-level test and harness across these columns: semantic responsibility; test level; permanent regression proved; overlap with other tests; permanent value; current location; correct location; current language; appropriate language; and the disposition — keep, move, merge, rewrite or delete. The inventory is the deliverable that justifies each change; a change without an inventory row is out of scope.
+
+**Relocation and reclassification.**
+
+- Reclassify the in-process Go `tests/e2e` suite as integration where integration is what it actually proves.
+- Keep browser automation in Playwright.
+- Audit each large Kind shell harness INDIVIDUALLY. There is no blanket verdict; each one is judged on the taxonomy and the language policy.
+
+**Shared harness consolidation.** Consolidate the logic that is currently duplicated across harnesses: lifecycle, process execution, timeout/eventually helpers, cleanup, cluster setup, Helm invocation, port-forwarding and failure diagnostics. One implementation per concern, used by every harness that needs it.
+
+**Removal discipline.** Remove duplicate, orphan and temporary tests and fixtures ONLY when their invariant is duplicated, obsolete or replaced. Retain large historical fixtures that have a permanent compatibility purpose, with that provenance documented next to the fixture. A fixture is not dead weight because it is large.
+
+**Naming.** Simplify Make and CI nomenclature so the semantic test LEVEL is inferable from the target name. Feature-history-based aliases are not names.
+
+**Documentation.** Add a short, durable testing-architecture document: the taxonomy, where each level lives, which language each level uses and why, and the explicit boundary between the deterministic WASM browser suite and the live-browser suite.
+
+**Invariant.** Semantic coverage is preserved or increased. Phase 8B is a reorganization, not a reduction; any test removed must have its invariant demonstrably still proved somewhere.
+
 ### Phase 9 — real MkDocs browser E2E
-Test the actual built MkDocs site in a browser, including relevant diagrams, not only docs rendered inside the dashboard.
+Test the actual built MkDocs site in a browser, including relevant diagrams, not only docs rendered inside the dashboard. Blocked on Phase 8B: its new acceptance harness must be added into the consolidated test architecture, not alongside it.
 
 ### Phase 10 — Docker Desktop/local-registry Kind
-Close the local Kind path where Docker Desktop/containerd image-store behavior differs from CI/classic `kind load`.
+Close the local Kind path where Docker Desktop/containerd image-store behavior differs from CI/classic `kind load`. Blocked on Phase 8B: its new acceptance harness must be added into the consolidated test architecture, not alongside it.
 
 ### Phase 11 — MCP catalog core
 Implement bounded multi-root catalog semantics over arbitrary Pacto contract roots. This is the CATALOG model over arbitrary roots — distinct from the operational Fleet MCP tools (`pacto_fleet_*`) this branch already ships, which stay as they are.

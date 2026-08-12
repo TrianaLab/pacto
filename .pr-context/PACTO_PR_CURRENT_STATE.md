@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`eedab3f7c1eaebf2d008abadf5d9ca623cda7dba`
+`b3075ece40963bceaa640725583924aaf2bacfe9`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,36 +25,37 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Commits reviewed on top of the previous reviewed HEAD `5f3d4ebb` — all five of
-them:
+Commits reviewed on top of the previous reviewed HEAD `eedab3f7` — both of them:
+
+- `4ba54a13` — persist the independently reviewed PR state at `eedab3f7`
+- `b3075ece` — a refused identity is not a process that failed to start
+
+For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 
 - `d098044b` — persist the independently reviewed PR state at `5f3d4ebb`
 - `8b0f26b0` — a data source is exactly the one thing it declares itself to be
 - `fa76b69a` — every value the chart accepts survives the trip to the dashboard
 - `ae29a13d` — the source boundary is written down, and Kind proves it
 - `eedab3f7` — the escaping source gets its own claim
+- `4ba54a13` — persist the independently reviewed PR state at `eedab3f7`
+- `b3075ece` — a refused identity is not a process that failed to start
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
 it.
 
-### Handoff discipline — corrected
+### Handoff discipline — still in force
 
-The handoff that accompanied `5f3d4ebb` enumerated only three commits after
-`7da2ad46`; there were four. Omitting the coordination-state commit made the
-appended range unverifiable from the handoff alone, which is the one thing the
-enumeration exists for.
-
-Every later handoff MUST enumerate EVERY commit between the reviewed starting
-SHA and the final SHA of the iteration, including coordination-state and
+Every handoff MUST enumerate EVERY commit between the reviewed starting SHA and
+the final SHA of the iteration, including coordination-state and
 generated-bundle commits. A commit that only touches `.pr-context/` is still a
 commit an independent reviewer has to account for.
 
 ### Accepted at this review — do NOT reopen
 
 The following are settled. Do not redesign them, and do not "improve" them as a
-side effect of the narrow items in section 2. Reopening any of them requires a
-NEW concrete counterexample.
+side effect of the current phase. Reopening any of them requires a NEW concrete
+counterexample.
 
 **Ownership identity and discovery**
 
@@ -104,7 +105,7 @@ NEW concrete counterexample.
 
 **Phases**
 
-- Phase 1 through Phase 6 are closed.
+- Phase 1 through Phase 7 are closed.
 
 ## 2. Current phase status
 
@@ -120,29 +121,27 @@ NEW concrete counterexample.
 
 ### Phase 6 — COMPLETE
 
-### Phase 7 — NARROWLY REOPENED at `eedab3f7`
+### Phase 7 — COMPLETE
 
-Target:
+Target delivered:
 
 **operator-managed OFFLINE observation/trace-source configuration**
 
 The offline pipeline (OTLP/JSON trace file, offline `pkg/otelobserver`, observed
-edges, Fleet observation source, reconciliation) already exists and is accepted.
-What is missing is a declarative, operator-managed way to package, configure and
+edges, Fleet observation source, reconciliation) pre-existed and is accepted.
+Phase 7 added the declarative, operator-managed way to package, configure and
 mount those observation sources, with stable Data Source identity that does not
-depend on list position. Phase 7 is that packaging — NOT an OTLP receiver, a
-Collector, a trace database or any live ingestion.
+depend on list position. Phase 7 was NOT an OTLP receiver, a Collector, a trace
+database or any live ingestion.
 
-The candidate submitted in `e150a548` + `6250ebe3` was reviewed and its DESIGN
-was accepted. Everything about Phase 7 stays closed and must not be redesigned
-without a new counterexample: the offline analyzer boundary, the operator-managed
+Everything about Phase 7 is closed and must not be redesigned without a new
+counterexample: the offline analyzer boundary, the operator-managed
 observation-source concept, PVC + ConfigMap as the only backings, read-only
 mounts, no `hostPath`, deterministic sorting, reordering changing neither
 identity nor pod template, complete removal, source failure as explicit
 Fleet/Product knowledge, source health separate from observation freshness, the
 retained ad-hoc `pacto dashboard --traces`, the focused Kind
-observation-packaging scenario (which need NOT manufacture
-`relationship.reconciliation == "matched"`), and the existing architecture gates.
+observation-packaging scenario, and the existing architecture gates.
 
 #### Blockers A, B and C — independently CLOSED at `eedab3f7`
 
@@ -162,15 +161,12 @@ implementations behind them must NOT be redesigned:
   validation, and the Helm-rendering test that parses the ACTUAL rendered
   argument.
 
-#### The one remaining Phase-7 blocker — a public-docs claim overstates the failure semantics
+#### Final Phase-7 blocker — CLOSED at `b3075ece`
 
-The new public documentation says, in at least `docs/operational-graph.md` and
-`docs/platform-engineers.md`, that on a Data Source identity collision
-"Pacto refuses to start".
-
-That is not the implemented operator-managed dashboard behavior, and the runtime
-behavior is NOT to be changed to make the prose true. The implemented and
-accepted lifecycle is:
+The public documentation claimed that on a Data Source identity collision
+"Pacto refuses to start". That was never the implemented behavior, and the
+runtime behavior was correctly NOT changed to make the prose true. The prose was
+corrected to the implemented and accepted lifecycle:
 
 - `Service.Fleet` detects duplicate source ids and returns an error BEFORE
   `fleet.Build`, so no ambiguous `FleetSnapshot` is ever published;
@@ -182,28 +178,35 @@ accepted lifecycle is:
 
 "The process failed to start" is not equivalent to "an ambiguous Product identity
 was refused publication". The second is the invariant Phase 7 requires and
-implements.
+implements, and it is what the documentation now says.
 
-Required correction: fix the prose, in every authored Phase-7 doc that carries
-equivalent wording (not only the two known files) — concise where the audience is
-not the Operational Graph reference, precise lifecycle semantics in the canonical
-Operational Graph documentation. Generated documentation must not be hand-edited.
+#### Accepted scoped deviation — carried into Phase 8
 
-#### Accepted scoped deviation — still intentional
-
-The live Kind scenario asserts the observed edge under its declared identity and
-that it names the same pair the operator reconciled as declared, but not the
-snapshot's `reconciliation: "matched"` verdict, which needs a contract-REVISION
-source the operator-managed dashboard does not have in that scenario (the live
-Kubernetes source projects deployed targets, not revisions). That verdict over an
-observation source stays proven hermetically in `internal/app` and by
-`make demo-fleet`. The fully live declared+observed Product reconciliation is
-Phase 8 work.
+The live Kind observation scenario asserts the observed edge under its declared
+identity and that it names the same pair the operator reconciled as declared,
+but not the snapshot's `reconciliation: "matched"` verdict, which needs a
+contract-REVISION source the operator-managed dashboard does not have in that
+scenario (the live Kubernetes source projects deployed targets, not revisions).
+That verdict over an observation source stays proven hermetically in
+`internal/app` and by `make demo-fleet`. The fully live declared+observed
+Product reconciliation is **Phase 8 work**.
 
 ### Phase 8 — NOT STARTED
 
-Upgrade the EXISTING live Kind vertical's browser leg from a deliberate smoke
-check into representative live Product acceptance.
+Canonical LIVE Kind PRODUCT acceptance. Upgrade the EXISTING live Kind vertical
+from a deliberate browser SMOKE check into representative live Product
+acceptance: real OCI contract revisions published to the in-cluster registry,
+digest-pinned operator resolution, a managed observation source in the SAME
+operator-managed dashboard, live declared+observed reconciliation reaching
+`matched` against the real Product API, real Change analysis over two canonical
+revisions, and the existing external signed-evidence target preserved.
+
+Not another Kind vertical. Not a test-architecture refactor. Not Phase 8B.
+
+### Phase 8B — NOT STARTED
+
+Test architecture & harness consolidation. See TARGET section 10. Phase 8B MUST
+close before Phase 9 or Phase 10 add their new acceptance harnesses.
 
 ### Phase 9 — NOT STARTED
 
@@ -379,7 +382,7 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `eedab3f7`.
+Reviewed at exact HEAD `b3075ece`.
 
 Review threads at that SHA:
 
@@ -387,9 +390,10 @@ Review threads at that SHA:
 - the remaining unresolved `github-code-quality` threads are on GENERATED
   minified UI assets under `pkg/dashboard/ui/assets/`, not authored code.
 
-### Cross-cutting PRE-MERGE SECURITY item — OPEN, not Phase-7 scope
+### Cross-cutting PRE-MERGE SECURITY item — OPEN, carried forward
 
-Claude reports open CodeQL alerts on `refs/pull/291/head` rather than on `main`.
+Claude reports open CodeQL alerts on `refs/pull/291/head` rather than on `main`:
+seven Go path-injection alerts plus one Python alert also present on `main`.
 
 The exact inventory is **NOT** independently verified: the reviewing GitHub
 integration cannot reach the code-scanning alerts API. The current source
@@ -403,10 +407,12 @@ Therefore:
 - the Security workflow's own green status is a DIFFERENT claim from CodeQL alert
   attribution and does not close this;
 - the alerts must remain visible and must be independently triaged, fixed or
-  explicitly dismissed with evidence before Phase 14 readiness.
+  explicitly dismissed with evidence before Phase 14 readiness;
+- do NOT make unrelated security-code changes in an intervening phase unless a
+  NEW real counterexample proves the current explanation false.
 
-This item is cross-cutting. It must not be pulled into Phase-7 scope, and Phase 7
-must not be blocked on it.
+This item is cross-cutting. It must not be pulled into a feature phase's scope,
+and no feature phase must be blocked on it.
 
 Re-verify both populations at the exact final SHA of every later pass; the
 generated asset path changes whenever the UI bundle is rebuilt.
@@ -439,30 +445,27 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
-The single remaining Phase-7 blocker in section 2, and nothing else: the public
-documentation claims a failure mode the implementation deliberately does not
-have. Blockers A, B and C are closed. The accepted Phase-7 implementation, and
-Phases 1 through 6, must not be reopened or redesigned as a side effect.
+**Phase 8 — canonical live Kind Product acceptance.** The branch already carries
+a full live vertical (operator, dashboard, Evidence Server, in-cluster OCI
+registry, reconciled Pacto CRs, external signed evidence, live HTTP Product API,
+Playwright over Chromium). Phase 8 makes that EXISTING vertical rich enough that
+a representative live Product journey has actual topology, revisions, targets,
+observed evidence and reconciliation. Its detailed target is TARGET section 10,
+"Phase 8 — live Kind Product acceptance breadth".
 
-The immediate next Claude session should:
+Hard boundaries for the Phase-8 session:
 
-1. correct every authored public sentence that claims Pacto refuses to start on a
-   Data Source identity collision, to state what is actually implemented: one
-   identity namespace across all assembled Data Sources, a collision rejected
-   before an ambiguous snapshot can be published, no arbitrary winner and no
-   silent rename, a long-running dashboard that is not killed by a failed
-   refresh, normal Manager refresh-failure semantics over a last-good snapshot,
-   and no Product Fleet snapshot to serve when none has ever succeeded;
-2. audit ALL authored Phase-7 docs for equivalent wording, not only
-   `docs/operational-graph.md` and `docs/platform-engineers.md`, and leave
-   generated documentation to its generator;
-3. keep the concise statement in audience-facing pages and the precise lifecycle
-   in the canonical Operational Graph documentation;
-4. add a durable executable test ONLY if the four load-bearing semantics are not
-   already directly tested — a grep test banning one English phrase is not
-   acceptable;
-5. change no runtime behaviour, keep every accepted Phase-7 behaviour intact
-   including the scoped Kind reconciliation deviation, and not begin Phase 8.
+1. do NOT create a new large `.sh` acceptance harness; extend the existing
+   `tests/e2e/kind/operational-graph.sh` vertical and classify every shell
+   addition as thin orchestration or explicitly deferred Phase-8B debt;
+2. do NOT begin Phase 8B; its target is persisted in TARGET section 10 and must
+   not be implemented in the Phase-8 pass;
+3. do NOT add a fixture-only Product shortcut; the dashboard must discover OCI
+   revisions through the actual operator status path;
+4. do NOT re-derive reconciliation in Playwright; the backend value is
+   authoritative and the browser proves consistent presentation;
+5. do NOT erase the open CodeQL item in section 8;
+6. Phases 1 through 7 must not be reopened or redesigned as a side effect.
 
 ## 11. Final-phase requirements already agreed
 
