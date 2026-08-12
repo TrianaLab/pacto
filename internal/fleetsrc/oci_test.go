@@ -14,6 +14,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // fakeStore is an oci.BundleStore for the source tests.
@@ -295,6 +296,122 @@ func TestCacheSource_Collect_WalkError(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := NewCacheSource("cache", dir, &fakeStore{}).Collect(context.Background()); err == nil {
 		t.Fatal("expected walk error")
+	}
+}
+
+func TestCacheSource_Collect_SidecarIsTheIdentity(t *testing.T) {
+	dir := t.TempDir()
+	dgst := validDigest("d")
+	// A port-carrying registry is the case the PATH cannot represent: the cache
+	// spells ':' as '/', so "localhost:5000/demo/checkout" and
+	// "localhost/5000/demo/checkout" are the same directory. Reconstructing from
+	// the path invents the domain "localhost/5000/demo" and knows no digest — a
+	// SECOND service and a SECOND revision for one published artifact. The
+	// sidecar the cache wrote at pull time says what it actually is.
+	entry := "localhost/5000/demo/checkout/1.0.0"
+	mustCacheFile(t, dir, entry+"/bundle.tar.gz")
+	mustSidecar(t, filepath.Join(dir, filepath.FromSlash(entry)),
+		`{"ref":"localhost:5000/demo/checkout:1.0.0","digest":"`+dgst+`"}`)
+
+	store := &fakeStore{
+		bundles: map[string]*contract.Bundle{"localhost:5000/demo/checkout:1.0.0": bundleFor("checkout")},
+	}
+	col, err := NewCacheSource("cache", dir, store).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %+v", col.Revisions)
+	}
+	rev := col.Revisions[0]
+	if rev.RequestedRef != "localhost:5000/demo/checkout:1.0.0" {
+		t.Errorf("RequestedRef = %q, want the exact pulled ref", rev.RequestedRef)
+	}
+	if rev.Domain != "localhost:5000/demo" {
+		t.Errorf("Domain = %q, want localhost:5000/demo", rev.Domain)
+	}
+	// The recorded digest is what makes the cached record key to the SAME
+	// canonical revision as the registry record for the same artifact.
+	if rev.Digest != dgst || rev.ResolvedRef != "oci://localhost:5000/demo/checkout@"+dgst {
+		t.Errorf("revision = ref %q digest %q, want the digest-pinned canonical form", rev.ResolvedRef, rev.Digest)
+	}
+	// And it stays the offline source: recorded, not asked for.
+	if store.resolves != 0 {
+		t.Errorf("cache source made %d registry lookups, want 0", store.resolves)
+	}
+}
+
+func TestCacheSource_Collect_SidecarWithoutDigestStaysApproximate(t *testing.T) {
+	dir := t.TempDir()
+	entry := "ghcr.io/org/svc/2.0.0"
+	mustCacheFile(t, dir, entry+"/bundle.tar.gz")
+	// The registry would not state a digest at pull time, so the sidecar records
+	// the ref alone. That is still better than the path (no lossy ':'), but the
+	// identity remains the mutable tag and says so.
+	mustSidecar(t, filepath.Join(dir, filepath.FromSlash(entry)), `{"ref":"ghcr.io/org/svc:2.0.0"}`)
+
+	store := &fakeStore{
+		bundles: map[string]*contract.Bundle{"ghcr.io/org/svc:2.0.0": bundleFor("svc")},
+		digest:  map[string]string{"ghcr.io/org/svc:2.0.0": validDigest("e")},
+	}
+	col, err := NewCacheSource("cache", dir, store).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 || col.Revisions[0].Digest != "" ||
+		col.Revisions[0].ResolvedRef != "ghcr.io/org/svc:2.0.0" {
+		t.Fatalf("revisions = %+v, want one unpinned mutable-tag revision", col.Revisions)
+	}
+	if store.resolves != 0 {
+		t.Errorf("cache source made %d registry lookups, want 0", store.resolves)
+	}
+}
+
+func TestCacheSource_Collect_UnusableSidecarFallsBackToPath(t *testing.T) {
+	dir := t.TempDir()
+	entry := "ghcr.io/org/svc/1.0.0"
+	mustCacheFile(t, dir, entry+"/bundle.tar.gz")
+	mustSidecar(t, filepath.Join(dir, filepath.FromSlash(entry)), "{not json")
+
+	store := &fakeStore{bundles: map[string]*contract.Bundle{"ghcr.io/org/svc:1.0.0": bundleFor("svc")}}
+	col, err := NewCacheSource("cache", dir, store).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 || col.Revisions[0].RequestedRef != "ghcr.io/org/svc:1.0.0" {
+		t.Fatalf("revisions = %+v, want the path-reconstructed ref", col.Revisions)
+	}
+}
+
+func TestCacheSource_Collect_OrderIsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	// A directory walk visits in name order, so a sidecar that renames an entry
+	// can reorder it. Snapshots are compared across refreshes; the order must
+	// come from the refs, not from where they happened to sit on disk.
+	mustCacheFile(t, dir, "ghcr.io/org/aaa/1.0.0/bundle.tar.gz")
+	mustSidecar(t, filepath.Join(dir, filepath.FromSlash("ghcr.io/org/aaa/1.0.0")),
+		`{"ref":"ghcr.io/org/zzz:1.0.0"}`)
+	mustCacheFile(t, dir, "ghcr.io/org/bbb/1.0.0/bundle.tar.gz")
+
+	store := &fakeStore{bundles: map[string]*contract.Bundle{
+		"ghcr.io/org/zzz:1.0.0": bundleFor("zzz"),
+		"ghcr.io/org/bbb:1.0.0": bundleFor("bbb"),
+	}}
+	col, err := NewCacheSource("cache", dir, store).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 2 ||
+		col.Revisions[0].RequestedRef != "ghcr.io/org/bbb:1.0.0" ||
+		col.Revisions[1].RequestedRef != "ghcr.io/org/zzz:1.0.0" {
+		t.Fatalf("revisions = %+v, want bbb then zzz", col.Revisions)
+	}
+}
+
+func mustSidecar(t *testing.T, dir, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, oci.CachedRefFile), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -681,3 +681,101 @@ func TestCachedStore_Pull_AllFilesSurviveDiskCache(t *testing.T) {
 		}
 	}
 }
+
+// resolveErrStore is a countingStore whose registry refuses to state a digest.
+type resolveErrStore struct{ countingStore }
+
+func (s *resolveErrStore) Resolve(context.Context, string) (string, error) {
+	return "", errors.New("registry says no")
+}
+
+// cachedDir is where the store writes ref's bundle and its sidecar. It mirrors
+// the unexported cachePath rule: every ':' becomes a path separator.
+func cachedDir(store *oci.CachedStore, ref string) string {
+	return filepath.Join(store.CacheDir(), filepath.FromSlash(strings.ReplaceAll(ref, ":", "/")))
+}
+
+func TestCachedStore_Pull_WritesRefSidecar(t *testing.T) {
+	store, inner := newCachedStoreWithTempDir(t)
+	ref := "localhost:5000/demo/checkout:1.0.0"
+
+	if _, err := store.Pull(context.Background(), ref); err != nil {
+		t.Fatalf("Pull() error: %v", err)
+	}
+
+	// The PATH cannot say what this is: ':' is spelled '/', so the port and the
+	// tag are indistinguishable from path segments. The sidecar can, and must —
+	// otherwise the same published artifact enters the fleet a second time under
+	// a guessed domain and a derived content digest.
+	rec, ok := oci.ReadCachedRef(cachedDir(store, ref))
+	if !ok {
+		t.Fatal("no ref sidecar beside the cached bundle")
+	}
+	if rec.Ref != ref {
+		t.Errorf("sidecar ref = %q, want the exact pulled ref %q", rec.Ref, ref)
+	}
+	if rec.Digest != "sha256:abc123" {
+		t.Errorf("sidecar digest = %q, want the manifest digest the registry reported", rec.Digest)
+	}
+	if inner.pullCount.Load() != 1 {
+		t.Errorf("expected 1 inner pull, got %d", inner.pullCount.Load())
+	}
+}
+
+func TestCachedStore_Pull_SidecarTakesDigestFromPinnedRef(t *testing.T) {
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
+
+	// A digest-pinned ref already carries its own identity, so recording it costs
+	// no round trip — this store's Resolve would have reported a different digest.
+	inner := &resolveErrStore{countingStore{bundle: newTestBundle()}}
+	store := oci.NewCachedStore(inner)
+	ref := "ghcr.io/x/svc@sha256:deadbeef"
+
+	if _, err := store.Pull(context.Background(), ref); err != nil {
+		t.Fatalf("Pull() error: %v", err)
+	}
+	rec, ok := oci.ReadCachedRef(cachedDir(store, ref))
+	if !ok || rec.Digest != "sha256:deadbeef" {
+		t.Errorf("sidecar = %+v (ok=%v), want the digest the ref already pins", rec, ok)
+	}
+}
+
+func TestCachedStore_Pull_SidecarDigestUnknownWhenRegistryWontSay(t *testing.T) {
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
+
+	inner := &resolveErrStore{countingStore{bundle: newTestBundle()}}
+	store := oci.NewCachedStore(inner)
+	ref := "ghcr.io/x/svc:1.0.0"
+
+	if _, err := store.Pull(context.Background(), ref); err != nil {
+		t.Fatalf("Pull() error: %v", err)
+	}
+	// Unknown, not guessed: the reader reports an approximate identity rather
+	// than inventing an immutable one.
+	rec, ok := oci.ReadCachedRef(cachedDir(store, ref))
+	if !ok || rec.Ref != ref || rec.Digest != "" {
+		t.Errorf("sidecar = %+v (ok=%v), want the ref with no digest", rec, ok)
+	}
+}
+
+func TestReadCachedRef_Unusable(t *testing.T) {
+	dir := t.TempDir()
+	if _, ok := oci.ReadCachedRef(dir); ok {
+		t.Error("absent sidecar reported as usable")
+	}
+	for name, body := range map[string]string{
+		"corrupt":   "{not json",
+		"empty ref": `{"digest":"sha256:abc"}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, oci.CachedRefFile), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := oci.ReadCachedRef(dir); ok {
+			t.Errorf("%s sidecar reported as usable", name)
+		}
+	}
+}

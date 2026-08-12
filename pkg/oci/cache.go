@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"container/list"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,10 +193,80 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 
 	c.storePull(ref, bundle)
 	if c.cacheDir != "" {
-		_ = c.saveToCache(c.cachePath(ref), bundle)
+		path := c.cachePath(ref)
+		// The sidecar goes down FIRST. A cache walker keys on bundle.tar.gz, so
+		// recording what the bundle is BEFORE the bundle appears means a concurrent
+		// reader can never find an artifact whose identity is still missing — which
+		// is the same reader, in the same process, when a fleet refresh runs its
+		// registry source and its cache source side by side.
+		c.saveRefRecord(ctx, filepath.Dir(path), ref)
+		_ = c.saveToCache(path, bundle)
 	}
 
 	return bundle, nil
+}
+
+// CachedRefFile is the sidecar written beside every cached bundle.
+const CachedRefFile = "ref.json"
+
+// CachedRef is what a cached bundle IS: the reference it was pulled under,
+// spelled exactly as the registry was asked, plus the manifest digest of the
+// artifact that answered (empty when the registry would not say).
+type CachedRef struct {
+	Ref    string `json:"ref"`
+	Digest string `json:"digest,omitempty"`
+}
+
+// ReadCachedRef reads the sidecar beside a cached bundle. The second result is
+// false when the entry predates the sidecar or the file is unusable, and the
+// caller must then fall back to reconstructing an approximate ref from the path.
+func ReadCachedRef(dir string) (CachedRef, bool) {
+	b, err := os.ReadFile(filepath.Join(dir, CachedRefFile))
+	if err != nil {
+		return CachedRef{}, false
+	}
+	var rec CachedRef
+	if err := json.Unmarshal(b, &rec); err != nil || rec.Ref == "" {
+		return CachedRef{}, false
+	}
+	return rec, true
+}
+
+// saveRefRecord records what the bundle just written to dir actually is.
+//
+// The cache PATH cannot carry that. cachePath maps every ':' to '/', so
+// "reg:5000/demo/svc@sha256:abc" and "reg/5000/demo/svc@sha256/abc" name the
+// same directory: a reader walking the cache cannot tell a registry port from a
+// path segment, nor a digest from a tag. Reconstructing a ref from the path
+// therefore invents a different service domain AND has no manifest digest — so
+// the same published artifact enters the fleet twice, once under its immutable
+// registry identity and once under a derived content identity. The sidecar
+// removes the guess, and removes it OFFLINE: the disconnected reader gets the
+// exact identity from disk without dialing anything.
+func (c *CachedStore) saveRefRecord(ctx context.Context, dir, ref string) {
+	rec := CachedRef{Ref: ref, Digest: digestFromRef(ref)}
+	if rec.Digest == "" {
+		// A tag pull fetched the content but was never told its manifest digest.
+		// One HEAD, on the path that has just performed a FULL pull, is what lets
+		// the offline reader agree with the registry about identity; a cache hit
+		// never reaches here, so it costs once per artifact. Best effort: a
+		// registry that will not answer leaves the digest unknown, which is
+		// precisely what the reader then reports.
+		if d, err := c.inner.Resolve(ctx, ref); err == nil {
+			rec.Digest = d
+		}
+	}
+	b, _ := json.Marshal(rec) // two string fields; marshalling cannot fail
+	_ = os.MkdirAll(dir, 0755)
+	_ = os.WriteFile(filepath.Join(dir, CachedRefFile), b, 0o600)
+}
+
+// digestFromRef returns the manifest digest a reference already pins, else "".
+func digestFromRef(ref string) string {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		return ref[i+1:]
+	}
+	return ""
 }
 
 func (c *CachedStore) storePull(ref string, bundle *contract.Bundle) {
