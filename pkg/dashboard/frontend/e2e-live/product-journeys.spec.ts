@@ -191,9 +191,18 @@ test('D: the checkout target is a distinct entity matched to the running revisio
     /^(Compliant|Not compliant|Warning|Invalid|Unknown|Not evaluated)$/,
   );
 
+  // The target states BOTH identity dimensions, and states them independently. The
+  // operator pins this workload to a digest, so the revision match is exact. It writes
+  // that pin into status.contract.resolvedRef WITHOUT the oci:// scheme, and a
+  // scheme-less ref is not something Pacto's resolver can retrieve content through --
+  // so the content dimension is honestly "local", not retrievable. Exact match over
+  // non-retrievable content is the documented, deliberate pair (pkg/fleet/ref.go, and
+  // TestTargetIdentity_ExactMatch_NonRetrievable pins this exact operator shape); the
+  // whole region is asserted so a third claim could not appear between them unnoticed.
   const identity = page.getByRole('region', { name: 'Operational target identity' });
-  await expect(identity).toContainText('Exact revision match');
-  await expect(identity).toContainText('Retrievable content');
+  await expect(identity).toHaveText(
+    'Revision match Exact revision match Content Local reference (not retrievable)',
+  );
   await expect(factValue(page, 'Service')).toContainText(fixture.checkoutName);
   await expect(factValue(page, 'Data source')).toHaveText(/\S/);
 
@@ -202,6 +211,13 @@ test('D: the checkout target is a distinct entity matched to the running revisio
   await factValue(page, 'Running revision').click();
   await expectEntityPage(
     page, 'Revision', revisionLabel(fixture.checkoutName, fixture.checkoutVersionA), fixture.checkoutRevisionA,
+  );
+  // And THAT revision is the immutable OCI content the operator's digest pin resolved
+  // to. This is the K8s -> OCI path closing on itself: the exact match above is a match
+  // to content that is addressable again, under the registry the fixture published to.
+  const revIdentity = await openDisclosure(page, 'revision-identity');
+  await expect(copyValue(revIdentity, 'Resolved ref')).toHaveText(
+    new RegExp(`^oci://${escapeRe(fixture.domain)}/${escapeRe(fixture.checkoutName)}@sha256:[0-9a-f]{64}$`),
   );
 });
 
