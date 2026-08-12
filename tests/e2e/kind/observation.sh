@@ -16,7 +16,12 @@
 #   4. the healthy source's observed edge reaches the fleet attributed to that
 #      name, naming the same pair the operator reconciled as declared,
 #   5. a malformed source is explicit unavailable knowledge, not a silent gap,
-#   6. changing sources rolls the dashboard and leaves no orphaned wiring, and a
+#   6. a source whose export storage contains a symlink pointing OUT of its mount
+#      reads nothing — in a real kubelet-managed container, where the thing a
+#      symlink can reach is the service-account token,
+#   7. a ConfigMap-backed source with valid content is available, so the internal
+#      symlink chain a projected volume is built from still resolves,
+#   8. changing sources rolls the dashboard and leaves no orphaned wiring, and a
 #      source that goes unreadable leaves the dashboard alive with its other
 #      sources still answering.
 #
@@ -133,6 +138,14 @@ spec:
            "scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"checkout"}}]}]}]}]}
           JSON
           chmod 0644 /data/traces.json
+          # Whoever writes the export can also write a symlink into it. This one
+          # leaves the mount it will be read through, which is the same
+          # resolution step that reaches
+          # /var/run/secrets/kubernetes.io/serviceaccount/token — but it points
+          # at a file that IS a valid export, so an unrooted read would succeed
+          # and be visible in the snapshot instead of failing for its own
+          # reasons. Pacto must read nothing.
+          ln -sf ../orders-traces/traces.json /data/escape.json
         volumeMounts: [ { name: export, mountPath: /data } ]
       volumes:
       - name: export
@@ -141,11 +154,16 @@ YAML
 kubectl -n "$NS" wait --for=condition=complete job/trace-writer --timeout=180s >/dev/null \
   && pass "trace export written to the externally managed PVC" || fail "the trace writer did not complete"
 
-echo "== a second source, ConfigMap-backed, carrying a MALFORMED export =="
+echo "== two ConfigMap-backed sources: one MALFORMED, one valid =="
 kubectl -n "$NS" create configmap broken-trace-export --from-literal=traces.json='{not json' \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# A projected ConfigMap volume is a directory of symlinks into a versioned
+# "..data" directory, itself a symlink. Reading through a root must not break
+# that, so this source carries VALID content and has to come back available.
+kubectl -n "$NS" create configmap fixture-trace-export --from-literal=traces.json='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"orders"}}]}]}]}]}' \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-echo "== install the operator with two declared observation sources =="
+echo "== install the operator with four declared observation sources =="
 helm install pacto-operator "$CHART" -n "$NS" \
   --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=true \
@@ -155,6 +173,12 @@ helm install pacto-operator "$CHART" -n "$NS" \
   --set 'dashboard.observation.sources[1].name=broken-traces' \
   --set 'dashboard.observation.sources[1].file=traces.json' \
   --set 'dashboard.observation.sources[1].configMap=broken-trace-export' \
+  --set 'dashboard.observation.sources[2].name=fixture-traces' \
+  --set 'dashboard.observation.sources[2].file=traces.json' \
+  --set 'dashboard.observation.sources[2].configMap=fixture-trace-export' \
+  --set 'dashboard.observation.sources[3].name=escaping-traces' \
+  --set 'dashboard.observation.sources[3].file=escape.json' \
+  --set 'dashboard.observation.sources[3].existingClaim=orders-trace-export' \
   --wait --timeout 240s
 wait_ready pacto-dashboard
 
@@ -173,20 +197,23 @@ if not pvc or pvc.get("claimName")!="orders-trace-export":
     errs.append("obs-orders-traces is not backed by the declared PVC")
 elif not pvc.get("readOnly"):
     errs.append("the PVC volume is not readOnly")
-cm=vols.get("obs-broken-traces",{}).get("configMap")
-if not cm or cm.get("name")!="broken-trace-export":
-    errs.append("obs-broken-traces is not backed by the declared ConfigMap")
-for n in ("obs-orders-traces","obs-broken-traces"):
+for vol,cmname in (("obs-broken-traces","broken-trace-export"),("obs-fixture-traces","fixture-trace-export")):
+    cm=vols.get(vol,{}).get("configMap")
+    if not cm or cm.get("name")!=cmname:
+        errs.append(vol+" is not backed by the declared ConfigMap")
+for n in ("obs-orders-traces","obs-broken-traces","obs-fixture-traces","obs-escaping-traces"):
     m=mounts.get(n)
     if not m: errs.append("missing mount "+n)
     elif not m.get("readOnly"): errs.append(n+" is mounted writable")
     elif m.get("mountPath")!=root+"/"+n[4:]: errs.append(n+" mounted at "+str(m.get("mountPath")))
-want="broken-traces=%s/broken-traces/traces.json orders-traces=%s/orders-traces/traces.json"%(root,root)
+want=" ".join("%s=%s/%s/%s"%(n,root,n,f) for n,f in (
+    ("broken-traces","traces.json"),("escaping-traces","escape.json"),
+    ("fixture-traces","traces.json"),("orders-traces","traces.json")))
 if env.get("PACTO_DASHBOARD_TRACE_SOURCES")!=want:
     errs.append("PACTO_DASHBOARD_TRACE_SOURCES="+repr(env.get("PACTO_DASHBOARD_TRACE_SOURCES")))
 print("\n".join(errs))
 sys.exit(1 if errs else 0)
-' && pass "both sources mounted read-only under their declared names, and configured" \
+' && pass "every source mounted read-only under its declared name, and configured" \
   || fail "the deployment wiring is wrong (see above)"
 
 echo "== declared services: orders declares a dependency on checkout =="
@@ -245,16 +272,31 @@ src={x["id"]:x for x in s.get("sources",[])}
 errs=[]
 if src.get("orders-traces",{}).get("status")!="available":
     errs.append("orders-traces status="+repr(src.get("orders-traces",{}).get("status")))
-if src.get("broken-traces",{}).get("status")!="unavailable":
-    errs.append("broken-traces status="+repr(src.get("broken-traces",{}).get("status")))
-if not any(l.get("code")=="SOURCE_UNAVAILABLE" and l.get("source")=="broken-traces" for l in s.get("limitations",[])):
-    errs.append("no SOURCE_UNAVAILABLE limitation naming broken-traces")
+# A projected ConfigMap volume resolves its own internal symlinks, so a rooted
+# read must NOT break it: valid content in, available source out.
+if src.get("fixture-traces",{}).get("status")!="available":
+    errs.append("fixture-traces status="+repr(src.get("fixture-traces",{}).get("status")))
+for bad in ("broken-traces","escaping-traces"):
+    if src.get(bad,{}).get("status")!="unavailable":
+        errs.append(bad+" status="+repr(src.get(bad,{}).get("status")))
+    if not any(l.get("code")=="SOURCE_UNAVAILABLE" and l.get("source")==bad for l in s.get("limitations",[])):
+        errs.append("no SOURCE_UNAVAILABLE limitation naming "+bad)
 obs=[r for r in s.get("relationships",[]) if r.get("provenance")=="observed"
      and r.get("fromService","").endswith("orders") and r.get("toService","").endswith("checkout")]
 if not obs:
     errs.append("no observed orders->checkout edge reached the fleet")
-elif not any(st.get("source")=="orders-traces" for st in obs[0].get("observedSources",[])):
-    errs.append("the observed edge is not attributed to orders-traces: "+json.dumps(obs[0].get("observedSources")))
+else:
+    attributed={st.get("source") for st in obs[0].get("observedSources",[])}
+    if "orders-traces" not in attributed:
+        errs.append("the observed edge is not attributed to orders-traces: "+json.dumps(obs[0].get("observedSources")))
+    # The escaping source read nothing, so it witnessed nothing. Had the symlink
+    # been followed it would have read the very export this edge came from and
+    # would be counted here alongside orders-traces.
+    if "escaping-traces" in attributed:
+        errs.append("the escaping source read outside its mount: "+json.dumps(obs[0].get("observedSources")))
+if any(st.get("source")=="escaping-traces"
+       for r in s.get("relationships",[]) for st in r.get("observedSources",[])):
+    errs.append("the escaping source contributed evidence to the snapshot")
 if not any(v.get("name")=="checkout" for v in s.get("services",{}).values()):
     errs.append("the reconciled services are not in the snapshot yet")
 print("\n".join(errs))
@@ -262,7 +304,7 @@ sys.exit(1 if errs else 0)
 ' >/tmp/pacto-obs-assert.txt 2>&1 && { OK=1; break; }
   sleep 3
 done
-[ -n "$OK" ] && pass "the mounted export's observed edge is attributed to orders-traces; the malformed source is explicitly unavailable" \
+[ -n "$OK" ] && pass "the mounted export's observed edge is attributed to orders-traces; the projected ConfigMap source is available; the malformed and the escaping sources are explicitly unavailable and contributed nothing" \
   || { cat /tmp/pacto-obs-assert.txt; fail "the fleet did not report the configured sources correctly (see above)"; }
 
 # The observed half above and the declared half the operator reconciled name the
@@ -282,6 +324,8 @@ curl -fsS "$BASE/api/fleet/entities/source?key=orders-traces" >/dev/null \
   && pass "orders-traces is a first-class Product Data Source" || fail "orders-traces is not addressable as a Product entity"
 curl -fsS "$BASE/api/fleet/entities/source?key=broken-traces" >/dev/null \
   && pass "broken-traces stays addressable while unavailable" || fail "a failed source disappeared from the Product API"
+curl -fsS "$BASE/api/fleet/entities/source?key=escaping-traces" >/dev/null \
+  && pass "escaping-traces stays addressable while unavailable" || fail "the refused source disappeared from the Product API"
 kill "$DASH_PF" 2>/dev/null || true
 
 echo "== force a configured source to fail: drop one source, repoint the other =="
@@ -308,8 +352,9 @@ spec=json.load(sys.stdin)["spec"]["template"]["spec"]
 names={v["name"] for v in spec["volumes"]} | {m["name"] for m in spec["containers"][0]["volumeMounts"]}
 env={e["name"]:e.get("value","") for e in spec["containers"][0]["env"]}
 errs=[]
-if "obs-broken-traces" in names: errs.append("the removed source left orphaned volume/mount wiring behind")
-if "broken-traces" in env.get("PACTO_DASHBOARD_TRACE_SOURCES",""): errs.append("the removed source is still configured")
+for gone in ("broken-traces","fixture-traces","escaping-traces"):
+    if "obs-"+gone in names: errs.append(gone+" left orphaned volume/mount wiring behind")
+    if gone in env.get("PACTO_DASHBOARD_TRACE_SOURCES",""): errs.append(gone+" is still configured")
 print("\n".join(errs))
 sys.exit(1 if errs else 0)
 ' && pass "removing a source removed its mount and its configuration" || fail "removal left wiring behind (see above)"

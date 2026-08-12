@@ -287,7 +287,9 @@ dashboard:
         existingClaim: orders-trace-export
 ```
 
-The operator mounts the claim read-only, reads only the file you declared, and exposes the source under the name you gave it. That name is the identity users see, so reordering the list or relocating the file never renames a Data Source. Storage lifecycle stays yours: Pacto reads, never writes, and never rotates. A source it cannot read or parse becomes an explicitly unavailable Data Source rather than a silent gap — and an old-but-readable export is a healthy source carrying stale evidence, not a claim that a dependency disappeared. See [Observed dependencies and reconciliation](operational-graph.md#observed-dependencies-and-reconciliation) for the full model.
+The operator mounts the claim read-only, reads only the file you declared, and exposes the source under the name you gave it. That name is the identity users see, so reordering the list or relocating the file never renames a Data Source. It has to be unique against every *other* Data Source too — `k8s` is the live cluster source's name inside a pod, and `local`, `oci` and `cache` are taken as well — and Pacto refuses to start on a collision rather than publishing one name owned by two sources. `file` is a plain file name inside that source's own mount, and the read is rooted there, so a symlink someone leaves in the export storage cannot reach the rest of the container.
+
+Storage lifecycle stays yours: Pacto reads, never writes, and never rotates. A source it cannot read or parse becomes an explicitly unavailable Data Source rather than a silent gap — and an old-but-readable export is a healthy source carrying stale evidence, not a claim that a dependency disappeared. See [Observed dependencies and reconciliation](operational-graph.md#observed-dependencies-and-reconciliation) for the full model.
 
 ---
 
