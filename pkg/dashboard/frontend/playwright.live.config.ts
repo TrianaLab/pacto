@@ -13,11 +13,15 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // No retries, here or in CI: these journeys assert facts the live fixture has
+  // already been proven to hold (tests/e2e/kind/productready gates on them), so a
+  // second attempt could only ever paper over a race in the product or in the test.
+  retries: 0,
   reporter: [['list']],
   use: {
     baseURL: BASE,
-    trace: 'on-first-retry',
+    // Artifacts land in the gitignored test-results/ directory, never in the tree.
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   projects: [{ name: 'live', use: { ...devices['Desktop Chrome'] } }],
