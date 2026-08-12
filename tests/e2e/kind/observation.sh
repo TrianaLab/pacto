@@ -105,14 +105,21 @@ KUBECONFIG="$(mktemp)"; export KUBECONFIG; kind get kubeconfig --name "$CLUSTER"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "== an externally managed PVC holds the trace export (Pacto never writes it) =="
-# The writer Job stands in for whatever really produces the export: it is the
-# PVC's first consumer (kind's local-path provisioner binds on first use), writes
-# one OTLP/JSON file and exits. Pacto only ever reads it, read-only. Reusing the
+# The writer Job stands in for whatever really produces the exports: it is both
+# PVCs' first consumer (kind's local-path provisioner binds on first use), writes
+# what each holds and exits. Pacto only ever reads them, read-only. Reusing the
 # already-loaded dashboard image keeps this hermetic — no extra registry pull.
 kubectl -n "$NS" apply -f - >/dev/null <<YAML
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata: { name: orders-trace-export }
+spec:
+  accessModes: [ ReadWriteOnce ]
+  resources: { requests: { storage: 64Mi } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: escaping-trace-export }
 spec:
   accessModes: [ ReadWriteOnce ]
   resources: { requests: { storage: 64Mi } }
@@ -138,18 +145,25 @@ spec:
            "scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"checkout"}}]}]}]}]}
           JSON
           chmod 0644 /data/traces.json
-          # Whoever writes the export can also write a symlink into it. This one
+          # Whoever writes an export can also write a symlink into it. This one
           # leaves the mount it will be read through, which is the same
           # resolution step that reaches
           # /var/run/secrets/kubernetes.io/serviceaccount/token — but it points
           # at a file that IS a valid export, so an unrooted read would succeed
           # and be visible in the snapshot instead of failing for its own
           # reasons. Pacto must read nothing.
-          ln -sf ../orders-traces/traces.json /data/escape.json
-        volumeMounts: [ { name: export, mountPath: /data } ]
+          #
+          # It gets its own claim: two volumes in one pod referencing the same
+          # ReadWriteOnce PVC is a kubelet coin flip, not a property of Pacto.
+          ln -sf ../orders-traces/traces.json /escaping/escape.json
+        volumeMounts:
+        - { name: export, mountPath: /data }
+        - { name: escaping, mountPath: /escaping }
       volumes:
       - name: export
         persistentVolumeClaim: { claimName: orders-trace-export }
+      - name: escaping
+        persistentVolumeClaim: { claimName: escaping-trace-export }
 YAML
 kubectl -n "$NS" wait --for=condition=complete job/trace-writer --timeout=180s >/dev/null \
   && pass "trace export written to the externally managed PVC" || fail "the trace writer did not complete"
@@ -178,7 +192,7 @@ helm install pacto-operator "$CHART" -n "$NS" \
   --set 'dashboard.observation.sources[2].configMap=fixture-trace-export' \
   --set 'dashboard.observation.sources[3].name=escaping-traces' \
   --set 'dashboard.observation.sources[3].file=escape.json' \
-  --set 'dashboard.observation.sources[3].existingClaim=orders-trace-export' \
+  --set 'dashboard.observation.sources[3].existingClaim=escaping-trace-export' \
   --wait --timeout 240s
 wait_ready pacto-dashboard
 
@@ -192,11 +206,12 @@ mounts={m["name"]:m for m in c["volumeMounts"]}
 env={e["name"]:e.get("value","") for e in c["env"]}
 root="'"$MOUNT_ROOT"'"
 errs=[]
-pvc=vols.get("obs-orders-traces",{}).get("persistentVolumeClaim")
-if not pvc or pvc.get("claimName")!="orders-trace-export":
-    errs.append("obs-orders-traces is not backed by the declared PVC")
-elif not pvc.get("readOnly"):
-    errs.append("the PVC volume is not readOnly")
+for vol,claim in (("obs-orders-traces","orders-trace-export"),("obs-escaping-traces","escaping-trace-export")):
+    pvc=vols.get(vol,{}).get("persistentVolumeClaim")
+    if not pvc or pvc.get("claimName")!=claim:
+        errs.append(vol+" is not backed by the declared PVC")
+    elif not pvc.get("readOnly"):
+        errs.append(vol+" is not readOnly")
 for vol,cmname in (("obs-broken-traces","broken-trace-export"),("obs-fixture-traces","fixture-trace-export")):
     cm=vols.get(vol,{}).get("configMap")
     if not cm or cm.get("name")!=cmname:
