@@ -632,8 +632,8 @@ func ContractRefProviderFromSource(src DataSource) func(ctx context.Context) []s
 		if err != nil {
 			return nil
 		}
-		refs := make([]string, 0, len(resolved)*2)
-		seen := make(map[string]bool, len(resolved)*2)
+		refs := make([]string, 0, len(resolved))
+		seen := make(map[string]bool, len(resolved))
 		for _, ref := range resolved {
 			for _, candidate := range []string{ref, stripTag(ref)} {
 				if candidate != "" && !seen[candidate] {
