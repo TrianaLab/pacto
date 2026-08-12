@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`b3075ece40963bceaa640725583924aaf2bacfe9`
+`6750c95921e60969d54859a10d8f8c287eefb58c`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,10 +25,16 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-Commits reviewed on top of the previous reviewed HEAD `eedab3f7` — both of them:
+That review NARROWLY REOPENED Phase 8 on two counterexamples (blockers A and B
+in section 2) and left every other Phase-8 acceptance frozen.
 
-- `4ba54a13` — persist the independently reviewed PR state at `eedab3f7`
-- `b3075ece` — a refused identity is not a process that failed to start
+Commits appended on top of the reviewed HEAD `6750c959`, oldest first:
+
+- `d8ef5d5a` — one published artifact is one revision, whatever found it
+  (blocker B)
+- `0cf0c69b` — a round of facts is only a fact if one snapshot answered all of it
+  (blocker A)
+- this document's own commit — persist the Phase-8 state after blockers A and B
 
 For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 
@@ -39,6 +45,27 @@ For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 - `eedab3f7` — the escaping source gets its own claim
 - `4ba54a13` — persist the independently reviewed PR state at `eedab3f7`
 - `b3075ece` — a refused identity is not a process that failed to start
+- `de13fb2a` — the roadmap names the test-architecture debt before it grows
+- `1a79ec32` — the fleet sees the contract revisions the cluster resolved
+- `59632e22` — a controlled plain-HTTP registry is reachable by what the operator
+  manages
+- `0c67164d` — the newest published revision is content the product can analyze
+- `f0cf50a6` — the live vertical publishes the revisions the product must reason
+  about
+- `731b9692` — the browser proves the product, not that a page rendered
+- `a6755934` — the insecure-registry list iterates without materializing a slice
+- `cfeebce8` — the generated helm reference names the insecure-registry value
+- `3405d762` — a declared interface needs something to be observed against
+- `2a622eb3` — the reference provider sizes its buffers without arithmetic
+- `9bdab0b0` — a plain-HTTP registry answers which versions it holds
+- `b5be4f4e` — a disclosure has no accessible name, so the test id is its handle
+- `b8424175` — rebuild the UI bundle (generated)
+- `7ffdf884` — an exact revision match over a scheme-less pin is not retrievable
+  content
+- `2c5034d8` — persist the Phase 8 candidate state and what it does not close
+- `d18ca70e` — a port-forward is ready when it answers, not two seconds later
+- `6750c959` — the Phase-8 candidate is verified on the fixed harness
+- `d8ef5d5a`, `0cf0c69b` and this document's commit, as listed above
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -204,8 +231,81 @@ target preserved.
 
 Not another Kind vertical. Not a test-architecture refactor. Not Phase 8B.
 
-Implemented at `d18ca70e`. This is a Claude self-report and closes nothing: the
-phase is a CANDIDATE until an independent review says otherwise.
+Implemented at `d18ca70e`, NARROWLY REOPENED by the independent review at
+`6750c959` on two counterexamples, and re-implemented at `0cf0c69b`. This is a
+Claude self-report and closes nothing: the phase is a CANDIDATE until an
+independent review says otherwise.
+
+#### Narrow reopen at `6750c959` — blockers A and B, closed at `0cf0c69b`
+
+Everything else accepted in Phase 8 was FROZEN for this pass and is unchanged:
+the real checkout A/B, orders and payments bundles; the digest-pinned Pacto CRs;
+per-refresh Kubernetes-to-OCI discovery; the controlled insecure-registry
+plumbing; the real checkout interface binding; the named managed observation
+source; backend-authoritative matched reconciliation; the real checkout A-to-B
+Change analysis and orders impact; the external Evidence Server target; the
+Go/Playwright responsibility split; journeys A-H; and the shared port-forward
+readiness fix.
+
+**Blocker A — `productready` did not prove ONE coherent snapshot.** The prober
+made a dozen Product requests, discarded every response's `Meta.SnapshotID` and
+read an Overview id only after the semantic checks were already done. A Manager
+refresh between any two requests spliced facts from different snapshots, the
+gate passed on a fleet that never existed, and `PW_FIXTURE.snapshotId` named a
+snapshot that had proved nothing.
+
+Closed at `0cf0c69b`. A round now ADOPTS the id of its first response, and every
+later response in that round must repeat it; a different id, or no id at all,
+discards the whole round and retries, and a discarded round cannot emit fixture
+keys. Snapshot coherence is fact 13 of 13. The invariant is pinned by adversarial
+Go tests over a controlled Product server in
+`tests/e2e/kind/productready/main_test.go`: one coherent id passes; a changed id
+on a list, on a detail, and on the neighborhood each fail; a response naming no
+snapshot fails; a first-response outlier fails; a spliced round fails even when
+every individual fact holds; and a failed mixed round emits no keys. No sleep and
+no timing assumption is part of the invariant.
+
+**Blocker B — `IncludeCache` plus OCI published two identities for one real
+revision.** Once a registry pull had populated the pod cache, `CacheSource`
+reconstructed a reference from the cache PATH — and `cachePath` maps every `:`
+to `/`, so the path cannot say where a registry host ends, nor whether `:1.0.0`
+is a tag. The reconstruction invented a domain and carried no manifest digest,
+so `fleet.revisionFrom` keyed it by a derived content digest while `OCISource`
+supplied the SAME published artifact under its manifest digest: two
+`RevisionKey`s, the second an unresolved shadow.
+
+Closed at `0cf0c69b`. Identity is RECORDED at pull time in a `ref.json` sidecar
+beside the bundle (`oci.CachedRef`), so the cache reader agrees with the registry
+instead of guessing from a filename, and both sources emit one `RevisionKey`
+whose `Sources` union names both. The sidecar is written BEFORE `bundle.tar.gz`,
+because a cache walker keys on the bundle: an artifact can never be visible
+before the record of what it is. Offline stays offline — the digest is read from
+disk, and a disconnected build makes zero registry calls. Nothing is collapsed by
+service and version: two genuinely different immutable digests declaring the same
+version remain two revisions, because that is a re-published tag, not a
+collision. Pinned by production-level tests in
+`tests/e2e/fleet_cache_identity_test.go` (real registry, real `pacto push`, real
+`CachedStore`, real `app.Service.Fleet`): a cold build plants no shadow, a warm
+cache-plus-OCI build yields exactly one canonical revision per artifact with both
+sources and an `oci://...@sha256:` pinned ref, two distinct digests at one version
+stay two revisions, and a cache-only build is available, network-free and still
+digest-exact.
+
+The gate enforces the same invariant live: each fixture service/version must
+resolve to EXACTLY ONE revision, which must then be `exact` and retrievable. Two
+revisions fail the round; the gate never picks the first retrievable match.
+
+The Kind vertical now runs `productready -snapshots 2`, so the browser layer only
+starts after TWO DISTINCT snapshots have each proved all thirteen facts. The pod's
+OCI cache starts empty and the first refresh's pulls are what fill it, so only a
+later snapshot has the registry and the now-populated cache contributing the same
+artifacts — the post-cache state blocker B lives in. It is reached by observing
+it, not by sleeping. A pod restart would be the wrong lever: the operator mounts
+the dashboard cache as an `emptyDir`, so restarting ERASES the state under test.
+
+One CI-reachability defect was fixed with them: the gate is a Go program under
+`/tests/`, which the coverage leg excludes and the e2e leg did not match, so its
+tests never ran anywhere. `make e2e` runs them now.
 
 What the live cluster now proves, in the cluster and in the browser:
 
@@ -215,11 +315,13 @@ What the live cluster now proves, in the cluster and in the browser:
 - both Pacto CRs resolve `contractRef.oci` at a digest, so the operator's
   `status.contract.resolvedRef` is a real resolved contract identity and the
   dashboard reaches the SAME content back through the registry;
-- `tests/e2e/kind/productready` (Go) gates the browser layer on twelve facts
-  re-checked every round against the live Product API, and emits the keys it
+- `tests/e2e/kind/productready` (Go) gates the browser layer on thirteen facts
+  re-checked every round against the live Product API — and, since `0cf0c69b`,
+  on TWO distinct snapshots each proving all of them — and emits the keys it
   DISCOVERED as `PW_FIXTURE`, so no browser journey constructs an identity;
 - eight live Product journeys (A–H) in `pkg/dashboard/frontend/e2e-live/`, all
-  passing on the Kind `operational-graph` shard at `d18ca70e`.
+  passing on the Kind `operational-graph` shard at `d18ca70e` and again at
+  `0cf0c69b`, where they run only after the post-cache snapshot.
 
 Shell classification, as section 12 of the commission requires. Every shell
 change in Phase 8 is thin orchestration; none of it parses JSON, decides
@@ -254,8 +356,12 @@ Disclosed, NOT fixed, and NOT in Phase 8 scope — for independent triage:
   there surfaces only when Playwright transpiles it inside a Kind shard.
 - `helm-docs-check` rewrites `charts/pacto-dev-gateway/README.md` as a side
   effect of running; the file must be restored before committing.
-- after a dashboard pod restart, `IncludeCache` plus the OCI source can mint a
-  second `RevisionKey` for the same content.
+
+The fourth disclosure carried at `d18ca70e` — `IncludeCache` plus the OCI source
+minting a second `RevisionKey` for the same content — became blocker B of the
+narrow reopen and is closed above. The shell classification is unchanged by this
+pass: `tests/e2e/kind/operational-graph.sh` gained one flag and a comment, still
+thin orchestration, and no new harness was created.
 
 ### Phase 8B — NOT STARTED
 
@@ -436,13 +542,58 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `b3075ece`.
+Reviewed at exact HEAD `6750c959`. That review reopened Phase 8 narrowly; see
+section 2.
 
-Review threads at that SHA:
+### Post-reopen verification — self-reported at `0cf0c69b`
 
-- 0 unresolved authored-product threads;
-- the remaining unresolved `github-code-quality` threads are on GENERATED
-  minified UI assets under `pkg/dashboard/ui/assets/`, not authored code.
+Not an independent review. Re-verify at the exact SHA before accepting it.
+
+- GitHub CI run `31625253138` at `0cf0c69b`: every job green, including
+  `ci-gates`, `ci-static`, `ci-engine`, `ci-oci`, `ci-dashboard`,
+  `ci-e2e-envtest`, `ci-integration-kubernetes`, `dashboard-e2e`,
+  `operator-build`, `artifact-drift`, `release-version-test`,
+  `release-dry-run`, and all six Kind shards — `reconcile`, `dashboard`,
+  `upgrade`, `evidence`, `observation` and `operational-graph`.
+- `ci-e2e-envtest`, `ci-integration-kubernetes` and the `bundle` job of Pacto
+  Contract CI (run `31625253128`) each failed on the FIRST attempt with a
+  `503 Service Unavailable` from `github.com/.../releases` while downloading a
+  third-party binary (envtest 1.36.2, helm-unittest, syft 1.42.3). None of the
+  three touches the changed packages. `gh run rerun --failed` on both runs made
+  them green with no code change; both runs are green at `0cf0c69b`.
+- Other workflows at `0cf0c69b`: Security, Docs check, Repowise, Validate PR
+  title and Pacto Contract CI all green. `CodeQL` reports fail — the
+  carried-forward item below, with two new alerts from this pass, disclosed
+  there.
+- The `operational-graph` shard (job `94209933398`) shows the post-cache state
+  reached by observation: snapshot `sha256:24bad63f...` proved 13 facts on round
+  4, then snapshot `sha256:2ef5f486...` proved all 13 again on round 10 — a
+  second, distinct snapshot after a dashboard refresh, whose facts include
+  exactly one canonical, exact, retrievable revision for each of checkout 1.0.0,
+  checkout 1.1.0 and orders 1.0.0 with the cache already populated. The eight
+  live Chromium journeys (A–H) then passed against that state.
+- Locally at the same tree: `ci-static-engine` (fmt, vet, gocyclo, lint,
+  check-section, CLI-docs drift, UI-build drift, dashboard-SDK drift) clean;
+  `ci-test` 100.0% total coverage with the race detector; `ci-gates`;
+  `make e2e` (the engine e2e suite, including the three new
+  `fleet_cache_identity` production tests, plus the productready gate's own
+  tests, which `make e2e` now runs at all); `make demo-fleet` (cluster-free
+  operational-graph acceptance, all sections PASS); `ci-ui` — Vitest 1232 passed
+  in 67 files.
+- No authored frontend input changed in this pass, so the committed UI bundle
+  was NOT rebuilt; `ci-ui-drift` and `check-dashboard-sdk-drift` are clean
+  against the existing bundle.
+- PR at `0cf0c69b`: open, DRAFT, mergeable. No rebase, no amend, no history
+  rewrite, no force-push: `d8ef5d5a` and `0cf0c69b` are appends on top of
+  `6750c959`, and this document's commit appends on top of them.
+- Review threads re-queried at `0cf0c69b` (paginated, 192 threads): 184
+  resolved, 8 unresolved, all CURRENT (none outdated). Six are
+  `github-code-quality` comments on the GENERATED minified Mermaid chunk
+  `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, unchanged because
+  the bundle was not rebuilt. Two are NEW `github-advanced-security` CodeQL
+  comments on AUTHORED code — `pkg/oci/cache.go` lines 260 and 261, the sidecar
+  write added by blocker B's fix — and are recorded in the carried CodeQL item
+  below. So: 2 unresolved authored, 6 unresolved generated.
 
 ### Phase-8 candidate verification — self-reported at `d18ca70e`
 
@@ -528,6 +679,30 @@ population — 7 `go/path-injection` (`internal/app/resolve.go` 35, 43, 57, 67;
 (`release/scripts/docs_check.py:197`). No security-code changes were made in
 Phase 8; none of these are described as resolved, dismissed or main-lineage.
 
+Re-queried again at `0cf0c69b` (same caveats, still OPEN): 10 open alerts on
+`refs/pull/291/head` — 9 `go/path-injection` and the same 1 Python alert. The
+population GREW BY TWO in this pass, and that growth is disclosed here rather
+than folded into the existing item:
+
+- alerts 40, 41, 42, 43 (`internal/app/resolve.go` 35, 43, 57, 67) — unchanged;
+- alerts 45, 46, 47 (`pkg/oci/cache.go` 301, 321, 325) — the same three
+  previously reported at 230, 250, 254; the lines moved because blocker B's fix
+  inserted code above them, and no security code was changed;
+- alerts 56, 57 (`pkg/oci/cache.go` 260, 261) — NEW, on the `MkdirAll` and
+  `WriteFile` of the `ref.json` sidecar that blocker B's fix added;
+- alert 38 (`release/scripts/docs_check.py:197`) — unchanged.
+
+The two new alerts are the SAME family, behind the same barrier, as 45/46/47:
+their path is `filepath.Dir(c.cachePath(ref))`, and `cachePath` already contains
+the result to the cache directory with an explicit `filepath.Rel` plus `..`
+check, returning a fixed `_invalid` path otherwise. CodeQL does not model that
+barrier. That explanation is PLAUSIBLE, NOT VERIFIED, and it is exactly the
+explanation this item refuses to accept without inspecting the alert records. So:
+the two new alerts are OPEN, are not described as resolved, dismissed or
+main-lineage, and are added to the population that must be independently triaged
+before Phase 14 readiness. No attempt was made to silence them, and no unrelated
+security code was touched.
+
 Important process rule:
 
 **Do not trust reported counts blindly in a later chat. Re-verify exact final SHA, CI and review threads before accepting the next handoff.**
@@ -551,6 +726,11 @@ Playwright over Chromium). Phase 8 makes that EXISTING vertical rich enough that
 a representative live Product journey has actual topology, revisions, targets,
 observed evidence and reconciliation. Its detailed target is TARGET section 10,
 "Phase 8 — live Kind Product acceptance breadth".
+
+At `0cf0c69b` that vertical exists and the two counterexamples the review raised
+against it are closed (section 2). The next iteration objective is therefore the
+INDEPENDENT REVIEW of the Phase-8 candidate at its exact final SHA — not new
+Phase-8 breadth, and not Phase 8B, which remains NOT STARTED.
 
 Hard boundaries for the Phase-8 session:
 
