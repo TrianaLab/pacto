@@ -191,17 +191,54 @@ That verdict over an observation source stays proven hermetically in
 `internal/app` and by `make demo-fleet`. The fully live declared+observed
 Product reconciliation is **Phase 8 work**.
 
-### Phase 8 — NOT STARTED
+### Phase 8 — CANDIDATE, NOT independently reviewed
 
-Canonical LIVE Kind PRODUCT acceptance. Upgrade the EXISTING live Kind vertical
-from a deliberate browser SMOKE check into representative live Product
-acceptance: real OCI contract revisions published to the in-cluster registry,
-digest-pinned operator resolution, a managed observation source in the SAME
-operator-managed dashboard, live declared+observed reconciliation reaching
-`matched` against the real Product API, real Change analysis over two canonical
-revisions, and the existing external signed-evidence target preserved.
+Scope as commissioned: canonical LIVE Kind PRODUCT acceptance. Upgrade the
+EXISTING live Kind vertical from a deliberate browser SMOKE check into
+representative live Product acceptance: real OCI contract revisions published to
+the in-cluster registry, digest-pinned operator resolution, a managed observation
+source in the SAME operator-managed dashboard, live declared+observed
+reconciliation reaching `matched` against the real Product API, real Change
+analysis over two canonical revisions, and the existing external signed-evidence
+target preserved.
 
 Not another Kind vertical. Not a test-architecture refactor. Not Phase 8B.
+
+Implemented at `7ffdf884`. This is a Claude self-report and closes nothing: the
+phase is a CANDIDATE until an independent review says otherwise.
+
+What the live cluster now proves, in the cluster and in the browser:
+
+- four bundles published to the in-cluster registry through the real `pacto push`
+  (payments, checkout 1.0.0, checkout 1.1.0, orders), each resolved to an
+  immutable manifest digest;
+- both Pacto CRs resolve `contractRef.oci` at a digest, so the operator's
+  `status.contract.resolvedRef` is a real resolved contract identity and the
+  dashboard reaches the SAME content back through the registry;
+- `tests/e2e/kind/productready` (Go) gates the browser layer on twelve facts
+  re-checked every round against the live Product API, and emits the keys it
+  DISCOVERED as `PW_FIXTURE`, so no browser journey constructs an identity;
+- eight live Product journeys (A–H) in `pkg/dashboard/frontend/e2e-live/`, all
+  passing on the Kind `operational-graph` shard at `7ffdf884`.
+
+Disclosed, NOT fixed, and NOT in Phase 8 scope — for independent triage:
+
+- every Kubernetes target's Content badge reads `Local reference (not
+  retrievable)` even when the operator pinned a digest, because the operator
+  writes `status.contract.resolvedRef` WITHOUT the `oci://` scheme and
+  `classifyOCIRef` will not read a scheme-less string as a canonical ref. The
+  revision-match dimension is unaffected (`exact`), the pairing is documented in
+  `pkg/fleet/ref.go` and pinned by `TestTargetIdentity_ExactMatch_NonRetrievable`
+  with that exact operator shape, and journey D now asserts the true live state.
+  Whether the operator SHOULD emit a canonical `oci://` ref is a product question,
+  not a Phase-8 change.
+- `pkg/dashboard/frontend/e2e-live/` is NOT type-checked: `tsconfig.json`
+  `include` is `src/**`, so `npm run lint` never sees the live specs. A type error
+  there surfaces only when Playwright transpiles it inside a Kind shard.
+- `helm-docs-check` rewrites `charts/pacto-dev-gateway/README.md` as a side
+  effect of running; the file must be restored before committing.
+- after a dashboard pod restart, `IncludeCache` plus the OCI source can mint a
+  second `RevisionKey` for the same content.
 
 ### Phase 8B — NOT STARTED
 
@@ -390,6 +427,31 @@ Review threads at that SHA:
 - the remaining unresolved `github-code-quality` threads are on GENERATED
   minified UI assets under `pkg/dashboard/ui/assets/`, not authored code.
 
+### Phase-8 candidate verification — self-reported at `7ffdf884`
+
+Not an independent review. Re-verify at the exact SHA before accepting it.
+
+- GitHub CI run `31609010350`: every job green, including `required` and all six
+  Kind shards (`dashboard`, `evidence`, `observation`, `operational-graph`,
+  `reconcile`, `upgrade`), `release-dry-run` and `artifact-drift`.
+- Security, Docs check, Pacto Contract CI, Repowise and Validate PR title: green
+  at the same SHA. `CodeQL` reports fail — that is the carried-forward item
+  below, unchanged.
+- Locally at the same tree: `ci-static-engine` (fmt, vet, gocyclo, lint,
+  check-section, CLI-docs drift, UI-build drift, dashboard-SDK drift),
+  `ci-engine`, `ci-gates`, `ci-dashboard`; frontend `svelte-check` 0 errors /
+  15 warnings across 799 files, Vitest 1232 passed in 67 files, offline WASM
+  Playwright 219 passed.
+- The committed UI bundle was rebuilt COLD via `make ui-build` and committed as
+  `b8424175`; `ci-ui-drift` is clean at `7ffdf884`.
+- PR at `7ffdf884`: open, DRAFT, mergeable, no history rewrite, no force-push.
+- Review threads re-queried at `7ffdf884` (paginated, 2 pages, 190 threads): 184
+  resolved, 6 unresolved. All 6 are `github-code-quality` bot comments on the
+  GENERATED minified Mermaid chunk
+  `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, all CURRENT (not
+  outdated) because the bundle rebuild moved the path. 0 unresolved authored
+  threads. Generated assets are not hand-edited.
+
 ### Cross-cutting PRE-MERGE SECURITY item — OPEN, carried forward
 
 Claude reports open CodeQL alerts on `refs/pull/291/head` rather than on `main`:
@@ -428,6 +490,13 @@ established without inspecting the underlying alert records and their base/head
 evidence.
 
 Counts in a handoff are not evidence.
+
+Re-queried at `7ffdf884` (still a Claude report, still NOT independently
+verified, still OPEN): 8 open alerts on `refs/pull/291/head`, unchanged in
+population — 7 `go/path-injection` (`internal/app/resolve.go` 35, 43, 57, 67;
+`pkg/oci/cache.go` 230, 250, 254) and 1 `py/incomplete-url-substring-sanitization`
+(`release/scripts/docs_check.py:197`). No security-code changes were made in
+Phase 8; none of these are described as resolved, dismissed or main-lineage.
 
 Important process rule:
 
