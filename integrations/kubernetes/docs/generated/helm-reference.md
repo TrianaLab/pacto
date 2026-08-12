@@ -65,6 +65,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `image.repository` | `ghcr.io/trianalab/pacto/operator` | Controller image repository |
 | `image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
 | `imagePullSecrets` | `[]` | Image pull secrets for private registries |
+| `insecureRegistries` | `[]` | Registry hosts (`host:port`) to reach over plain HTTP instead of HTTPS, for a controlled in-cluster registry. Scoped per host, so every other registry stays HTTPS-only. The controller, the managed dashboard and the managed Evidence Server all inherit it — each resolves contract refs itself. |
 | `leaderElection.enabled` | `true` | Enable leader election for HA deployments |
 | `metrics.enabled` | `true` | Enable the metrics endpoint |
 | `metrics.secure` | `true` | Serve metrics over HTTPS |
