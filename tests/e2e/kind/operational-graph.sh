@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Bring up the FULL Pacto operational-graph vertical in a local kind cluster: the
 # operator, the dashboard, the Evidence Server and an in-cluster OCI registry —
-# with real declared services (Pacto CRs the operator reconciles), a declared
-# dependency edge, reconciled runtime targets, and a signed EvidenceEnvelope
-# ingested from a "remote" environment as an external target. This script asserts
-# the vertical at the API level (/api/fleet/snapshot, the Evidence source, the
-# CLI); the `browser` subcommand adds a Playwright SMOKE check that the live
-# dashboard renders and a seeded service is navigable — it is NOT a full
-# product-acceptance suite (see the spec for exactly what it asserts).
+# with real published contract revisions, real declared services (Pacto CRs the
+# operator reconciles from those revisions), a declared dependency edge, an
+# operator-managed observation source carrying the matching observed edge,
+# reconciled runtime targets, and a signed EvidenceEnvelope ingested from a
+# "remote" environment as an external target.
+#
+# This script is THIN ORCHESTRATION only: it builds images, publishes bundles,
+# installs the chart, applies CRs and forwards ports. Every semantic claim about
+# the result is made elsewhere, against the real Product API —
+# `tests/e2e/kind/productready` (Go) proves the fixture is ready and emits the
+# discovered keys, and the `browser` subcommand then runs the live Product
+# journeys in `pkg/dashboard/frontend/e2e-live/` against the same dashboard.
 #
 # Subcommands (driven by the Makefile aliases):
 #   (default) / up   build + provision + assert, then keep or tear down
@@ -127,35 +132,108 @@ KEYDIR="$(mktemp -d)"; "$PACTO_BIN" evidence keygen --out "$KEYDIR" --key-id dem
 kubectl -n "$NS" create secret generic pacto-evidence-trust --from-file=demo.pub="$KEYDIR/demo.pub" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-echo "== push a contract revision to the in-cluster registry (over the forwarded port) =="
-BDIR="$(mktemp -d)"
-cat > "$BDIR/pacto.yaml" <<'YAML'
+echo "== publish the fixture's contract revisions to the in-cluster registry =="
+# Everything the Product reasons about downstream is REAL published content, not a
+# synthesized shortcut: the external-evidence subject (payments), TWO checkout
+# revisions that differ by exactly one deterministic semantic change, and an orders
+# revision that DECLARES the checkout dependency. The refs the cluster later stores
+# are the in-cluster ones; only this push hop goes through a forwarded port.
+BDIR="$(mktemp -d)"; mkdir -p "$BDIR"/{payments,checkout-a,checkout-b,orders}
+
+cat > "$BDIR/payments/pacto.yaml" <<'YAML'
 pactoVersion: "2.0"
 service: { name: payments, version: "1.0.0" }
 interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
 workload: service
 state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
 YAML
-printf 'openapi: "3.0.0"\ninfo: { title: payments, version: "1.0.0" }\npaths: {}\n' > "$BDIR/openapi.yaml"
+printf 'openapi: "3.0.0"\ninfo: { title: payments, version: "1.0.0" }\npaths: {}\n' > "$BDIR/payments/openapi.yaml"
+
+cat > "$BDIR/checkout-a/pacto.yaml" <<'YAML'
+pactoVersion: "2.0"
+service: { name: checkout, version: "1.0.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
+interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
+workload: service
+state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
+YAML
+cat > "$BDIR/checkout-a/openapi.yaml" <<'YAML'
+openapi: "3.0.0"
+info: { title: checkout, version: "1.0.0" }
+paths:
+  /checkout: { post: { responses: { "200": { description: ok } } } }
+  /cart: { get: { responses: { "200": { description: ok } } } }
+YAML
+
+# Revision B is revision A with ONE change: the /cart path is gone. Both files are
+# written out in full rather than derived from A, so the change under analysis is
+# readable here instead of hidden in a sed. The real diff engine classifies a
+# removed OpenAPI path as Breaking; nothing else about the service moves.
+cat > "$BDIR/checkout-b/pacto.yaml" <<'YAML'
+pactoVersion: "2.0"
+service: { name: checkout, version: "1.1.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
+interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
+workload: service
+state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
+YAML
+cat > "$BDIR/checkout-b/openapi.yaml" <<'YAML'
+openapi: "3.0.0"
+info: { title: checkout, version: "1.1.0" }
+paths:
+  /checkout: { post: { responses: { "200": { description: ok } } } }
+YAML
+
+cat > "$BDIR/orders/pacto.yaml" <<YAML
+pactoVersion: "2.0"
+service: { name: orders, version: "1.0.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
+workload: service
+state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
+dependencies: [ { name: checkout, ref: 'oci://${REG_HOST}/demo/checkout', required: false, compatibility: '^1.0.0' } ]
+YAML
+
 REG_PF="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
-DIGEST="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:${LOCAL_REG_PORT}" \
-  "$PACTO_BIN" push "oci://127.0.0.1:${LOCAL_REG_PORT}/demo/payments:1.0.0" -p "$BDIR" 2>&1 | grep -oE 'sha256:[0-9a-f]{64}' | head -1)"
+push_bundle() { # <dir> <repo:tag> -> prints the resolved manifest digest
+  PACTO_INSECURE_REGISTRIES="127.0.0.1:${LOCAL_REG_PORT}" \
+    "$PACTO_BIN" push "oci://127.0.0.1:${LOCAL_REG_PORT}/demo/$2" -p "$1" 2>&1 | grep -oE 'sha256:[0-9a-f]{64}' | head -1
+}
+DIGEST="$(push_bundle "$BDIR/payments" payments:1.0.0)"
+CHECKOUT_A="$(push_bundle "$BDIR/checkout-a" checkout:1.0.0)"
+CHECKOUT_B="$(push_bundle "$BDIR/checkout-b" checkout:1.1.0)"
+ORDERS_DIGEST="$(push_bundle "$BDIR/orders" orders:1.0.0)"
 kill "$REG_PF" 2>/dev/null || true
-[ -n "$DIGEST" ] && pass "pushed payments revision $DIGEST" || fail "could not push/resolve the contract digest"
+for d in "$DIGEST" "$CHECKOUT_A" "$CHECKOUT_B" "$ORDERS_DIGEST"; do
+  [ -n "$d" ] || fail "could not push/resolve every contract digest"
+done
+pass "published payments, checkout 1.0.0, checkout 1.1.0 and orders"
 CONTRACT_REF="oci://${REG_HOST}/demo/payments@${DIGEST}"
+
+echo "== a managed observation source: the orders -> checkout call, exported offline =="
+# The declarative Phase-7 form: a named source the OPERATOR mounts read-only into
+# the dashboard it manages. Not the ad-hoc positional --traces path — the Product
+# has to show this as a Data Source with the stable identity 'orders-traces'.
+kubectl -n "$NS" create configmap pacto-orders-traces --dry-run=client -o yaml \
+  --from-literal=traces.json='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"orders"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"checkout"}}]}]}]}]}' \
+  | kubectl apply -f - >/dev/null
 
 common_sets=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
              --set dashboard.enabled=true --set evidence.enabled=true
-             --set evidence.trust.existingSecret=pacto-evidence-trust)
+             --set evidence.trust.existingSecret=pacto-evidence-trust
+             --set "insecureRegistries[0]=${REG_HOST}"
+             --set 'dashboard.observation.sources[0].name=orders-traces'
+             --set 'dashboard.observation.sources[0].file=traces.json'
+             --set 'dashboard.observation.sources[0].configMap=pacto-orders-traces')
 
 echo "== install the operator with the dashboard + Evidence Server enabled =="
 helm install pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeout 240s
 for _ in $(seq 1 40); do kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=10s >/dev/null 2>&1 && break; sleep 3; done
 wait_ready pacto-dashboard
-kubectl -n "$NS" set env deployment/pacto-evidence "PACTO_INSECURE_REGISTRIES=${REG_HOST}" >/dev/null
 wait_ready pacto-evidence
 
-echo "== declared services: two Pacto CRs the operator reconciles (checkout <- orders) =="
+echo "== declared services: two Pacto CRs the operator resolves FROM THE REGISTRY =="
+# Both CRs point at an immutable digest, so the operator publishes a real resolved
+# contract identity in status and the dashboard reaches the same content back
+# through the registry. The running checkout is pinned to revision A while B is
+# published but deployed nowhere — which is what makes the A -> B change analysis
+# a real question about the fleet rather than a fixture.
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 for svc in checkout orders; do
   kubectl -n "$DEMO_NS" create deployment "$svc" --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
@@ -169,11 +247,7 @@ metadata: { name: checkout, namespace: ${DEMO_NS} }
 spec:
   checkIntervalSeconds: 30
   contractRef:
-    inline: |
-      pactoVersion: '2.0'
-      service: {name: checkout, version: 1.0.0, owner: {team: commerce, dri: d, contacts: [{type: email, value: a@e.com, purpose: escalation}]}}
-      workload: service
-      state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}
+    oci: ${REG_HOST}/demo/checkout@${CHECKOUT_A}
   target: {workloadRef: {name: checkout, kind: Deployment}}
 ---
 apiVersion: pacto.trianalab.io/v1alpha1
@@ -182,12 +256,7 @@ metadata: { name: orders, namespace: ${DEMO_NS} }
 spec:
   checkIntervalSeconds: 30
   contractRef:
-    inline: |
-      pactoVersion: '2.0'
-      service: {name: orders, version: 1.0.0, owner: {team: commerce, dri: d, contacts: [{type: email, value: a@e.com, purpose: escalation}]}}
-      workload: service
-      state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}
-      dependencies: [{name: checkout, ref: 'oci://${REG_HOST}/demo/checkout', required: false, compatibility: '^1.0.0'}]
+    oci: ${REG_HOST}/demo/orders@${ORDERS_DIGEST}
   target: {workloadRef: {name: orders, kind: Deployment}}
 YAML
 wait_status() { for _ in $(seq 1 60); do [ "$(kubectl -n "$DEMO_NS" get pacto "$1" -o jsonpath='{.status.contractStatus}' 2>/dev/null||true)" = "$2" ] && return 0; sleep 3; done; return 1; }
@@ -214,35 +283,37 @@ EV_PF="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"
   && pass "payments evidence accepted" || fail "payments evidence not accepted"
 kill "$EV_PF" 2>/dev/null || true
 
-echo "== the dashboard's operational graph shows the declared services AND the external evidence target =="
+echo "== the live Product API proves the fixture is ready =="
+# The dashboard serves a periodically-refreshed snapshot, so the vertical is not
+# ready the moment the last kubectl returns. Waiting is delegated to a Go program
+# that re-checks EVERY fact each round against the real Product endpoints and
+# reports all outstanding ones together: source usability, service identity,
+# revision retrievability, target linkage, the declared and observed edges and
+# their reconciliation, and the external evidence target. It also emits the keys
+# it DISCOVERED, so nothing downstream has to construct one.
 DASH_PF="$(pf 8080 svc/pacto-dashboard 3000)"; sleep 2
-# The dashboard serves a periodically-refreshed snapshot (30s), so poll until the
-# reconciled services AND the just-ingested evidence target all appear, rather than
-# racing the first build.
-SNAP=""
-for _ in $(seq 1 24); do
-  SNAP="$(curl -fsS http://127.0.0.1:8080/api/fleet/snapshot 2>/dev/null || true)"
-  if echo "$SNAP" | grep -q checkout && echo "$SNAP" | grep -q orders && echo "$SNAP" | grep -q payments; then break; fi
-  sleep 3
-done
-echo "$SNAP" | grep -q checkout && echo "$SNAP" | grep -q orders && pass "declared services present in the graph" || fail "declared services missing"
-echo "$SNAP" | grep -q payments && pass "external evidence target present in the graph" || fail "evidence target missing"
-kill "$DASH_PF" 2>/dev/null || true
+FIXTURE_JSON="$(mktemp)"
+( cd "$ROOT" && go run ./tests/e2e/kind/productready \
+    -base "http://127.0.0.1:8080" -domain "${REG_HOST}/demo" \
+    -checkout-a 1.0.0 -checkout-b 1.1.0 -out "$FIXTURE_JSON" ) \
+  && pass "the live Product API proves the fixture" || fail "the live Product API never proved the fixture"
 
-# Browser acceptance (section I): drive the LIVE dashboard in Chromium via Playwright,
-# proving the real frontend bundle + real HTTP API + real operator data render
-# together — not just that the JSON API answers. Opt-in (the `browser` subcommand)
-# so the default vertical run stays dependency-light.
+# Browser acceptance: drive the LIVE dashboard in Chromium via Playwright, proving
+# the real frontend bundle + real HTTP API + real operator data render together —
+# not just that the JSON API answers. This is the ONLY live-browser layer; the
+# offline WASM suite in `e2e/` covers the same frontend against a seeded in-browser
+# backend and deliberately does not duplicate these journeys. Opt-in (the `browser`
+# subcommand) so the default vertical run stays dependency-light.
 if [ -n "${RUN_BROWSER:-}" ]; then
-  echo "== browser acceptance against the LIVE dashboard (Playwright/Chromium) =="
-  BR_PF="$(pf 8080 svc/pacto-dashboard 3000)"; sleep 2
+  echo "== live Product journeys against the LIVE dashboard (Playwright/Chromium) =="
   ( cd "$ROOT/pkg/dashboard/frontend" \
     && npm ci --ignore-scripts >/dev/null 2>&1 \
     && npx playwright install --with-deps chromium >/dev/null 2>&1 \
-    && PW_BASE_URL="http://127.0.0.1:8080/" npx playwright test --config playwright.live.config.ts ) \
-    && pass "live dashboard browser acceptance" || fail "live dashboard browser acceptance failed"
-  kill "$BR_PF" 2>/dev/null || true
+    && PW_BASE_URL="http://127.0.0.1:8080/" PW_FIXTURE="$(cat "$FIXTURE_JSON")" \
+       npx playwright test --config playwright.live.config.ts ) \
+    && pass "live dashboard product journeys" || fail "live dashboard product journeys failed"
 fi
+kill "$DASH_PF" 2>/dev/null || true
 
 echo
 echo "== the full operational-graph vertical is UP =="
