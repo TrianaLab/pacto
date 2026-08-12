@@ -43,20 +43,6 @@ wait_evidence_ready() {
   return 1
 }
 
-# pf PORT SVC: background a port-forward to an in-cluster service, wait for it.
-pf() {
-  local lport="$1" target="$2" rport="$3"
-  kubectl -n "$NS" port-forward "$target" "${lport}:${rport}" >/dev/null 2>&1 &
-  local pid=$!
-  for _ in $(seq 1 20); do
-    if curl -fsS "http://127.0.0.1:${lport}/" >/dev/null 2>&1 || nc -z 127.0.0.1 "$lport" 2>/dev/null; then
-      echo "$pid"; return 0
-    fi
-    sleep 0.5
-  done
-  echo "$pid"
-}
-
 echo "== build dashboard + operator images =="
 docker build -f "$ROOT/Dockerfile" -t "$DASH_IMG" "$ROOT"
 docker build -f "$ROOT/integrations/kubernetes/Dockerfile" \
@@ -127,8 +113,13 @@ state:
 YAML
 printf 'openapi: "3.0.0"\ninfo: { title: checkout, version: "1.0.0" }\npaths: {}\n' > "$BDIR/openapi.yaml"
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
-DIGEST="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:${LOCAL_REG_PORT}" \
-  "$PACTO_BIN" push "oci://127.0.0.1:${LOCAL_REG_PORT}/demo/checkout:1.0.0" -p "$BDIR" 2>&1 | grep -oE 'sha256:[0-9a-f]{64}' | head -1)"
+# Captured, not piped into grep: a failed push matches nothing, grep exits 1 and
+# `set -o pipefail` would kill the script here with the actual error already eaten
+# by the pipe, before the guard below could report it.
+PUSH_OUT="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:${LOCAL_REG_PORT}" \
+  "$PACTO_BIN" push "oci://127.0.0.1:${LOCAL_REG_PORT}/demo/checkout:1.0.0" -p "$BDIR" 2>&1)" || true
+DIGEST="$(printf '%s' "$PUSH_OUT" | grep -oE 'sha256:[0-9a-f]{64}' | head -1 || true)"
+[ -n "$DIGEST" ] || printf '%s\n' "$PUSH_OUT"
 kill "$REG_PF_PID" 2>/dev/null || true
 [ -n "$DIGEST" ] && pass "pushed contract revision $DIGEST" || fail "could not push/resolve the contract digest"
 CONTRACT_REF="oci://${REG_HOST}/demo/checkout@${DIGEST}"
@@ -255,7 +246,7 @@ kubectl -n "$NS" delete pod -l app.kubernetes.io/component=evidence --wait=false
   kubectl -n "$NS" rollout restart deployment/pacto-evidence >/dev/null
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
 kill "$EV_PF_PID" 2>/dev/null || true
-EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"; sleep 1
+EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"
 send_rejected "$WORK/env1.json" "replay still rejected after restart (rebuilt from immutable records)"
 send_rejected "$WORK/env2.json" "seq-2 replay still rejected after restart"
 
@@ -268,7 +259,7 @@ kubectl -n "$NS" exec deploy/pacto-evidence -- sh -c 'find /var/lib/pacto/eviden
 kubectl -n "$NS" rollout restart deployment/pacto-evidence >/dev/null
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
 kill "$EV_PF_PID" 2>/dev/null || true
-EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"; sleep 1
+EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"
 curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q '"subject":"checkout"' \
   && pass "target reconstructed from the immutable log after projection loss" || fail "projection reconstruction failed"
 # Physically prove the manifest object was RESTORED on disk (not only that /targets
@@ -324,7 +315,7 @@ helm upgrade pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeo
 wait_evidence_ready && pass "evidence Deployment recovered against the retained PVC" || fail "did not recover after re-enable"
 kubectl -n "$NS" set env deployment/pacto-evidence "PACTO_INSECURE_REGISTRIES=${REG_HOST}" >/dev/null
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
-EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"; sleep 1
+EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"
 curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q '"subject":"checkout"' \
   && pass "previously-ingested evidence survived the disable/re-enable cycle" || fail "evidence did not survive disable/re-enable"
 kill "$EV_PF_PID" 2>/dev/null || true

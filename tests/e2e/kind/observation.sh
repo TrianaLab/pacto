@@ -70,11 +70,6 @@ trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; pkill -f "kubectl.*port-forward" 
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1"; exit 1; }
 obs_teardown() { kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true; }
-pf() {
-  local lport="$1" target="$2" rport="$3"
-  kubectl -n "$NS" port-forward "$target" "${lport}:${rport}" >/dev/null 2>&1 &
-  local pid=$!; sleep 2; echo "$pid"
-}
 wait_ready() { kubectl -n "$NS" rollout status "deployment/$1" --timeout="${2:-180s}"; }
 # The kind runners have python3 but not necessarily jq, so assertions over JSON
 # are python expressions reading stdin (same choice as the other kind scripts).
@@ -273,7 +268,7 @@ wait_status checkout Compliant && pass "checkout reconciled" || fail "checkout d
 wait_status orders Compliant && pass "orders reconciled" || fail "orders did not reconcile"
 
 echo "== the Product API sees both Data Sources under their declared names =="
-DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"; sleep 2
+DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"
 BASE="http://127.0.0.1:${LOCAL_DASH_PORT}"
 # The dashboard rebuilds its snapshot periodically, so poll the assertion itself
 # rather than racing the first build; the last attempt's errors are what we print.
@@ -374,7 +369,7 @@ print("\n".join(errs))
 sys.exit(1 if errs else 0)
 ' && pass "removing a source removed its mount and its configuration" || fail "removal left wiring behind (see above)"
 
-DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"; sleep 2
+DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"
 curl -fsS "$BASE/health" >/dev/null && pass "the dashboard is alive with a failing source" || fail "a failing source took the dashboard down"
 OK=""
 for _ in $(seq 1 30); do

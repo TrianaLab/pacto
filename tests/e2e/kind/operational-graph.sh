@@ -65,11 +65,6 @@ trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; pkill -f "kubectl.*port-forward" 
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1"; exit 1; }
 og_teardown() { kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true; }
-pf() {
-  local lport="$1" target="$2" rport="$3"
-  kubectl -n "$NS" port-forward "$target" "${lport}:${rport}" >/dev/null 2>&1 &
-  local pid=$!; sleep 2; echo "$pid"
-}
 wait_ready() { kubectl -n "$NS" rollout status "deployment/$1" --timeout="${2:-180s}"; }
 
 node "$ROOT/release/scripts/build-release-plan.mjs" >/dev/null 2>&1
@@ -192,8 +187,17 @@ YAML
 
 REG_PF="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 push_bundle() { # <dir> <repo:tag> -> prints the resolved manifest digest
-  PACTO_INSECURE_REGISTRIES="127.0.0.1:${LOCAL_REG_PORT}" \
-    "$PACTO_BIN" push "oci://127.0.0.1:${LOCAL_REG_PORT}/demo/$2" -p "$1" 2>&1 | grep -oE 'sha256:[0-9a-f]{64}' | head -1
+  # The push output is CAPTURED rather than piped straight into grep. Piped, a
+  # failed push produced no match, `grep` exited 1, and under `set -o pipefail`
+  # that killed the whole script at this line with every word of the actual error
+  # already consumed by the pipe. Held in a variable it can be printed — to
+  # stderr, because stdout here is the digest the caller captures.
+  local out digest
+  out="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:${LOCAL_REG_PORT}" \
+    "$PACTO_BIN" push "oci://127.0.0.1:${LOCAL_REG_PORT}/demo/$2" -p "$1" 2>&1)" || true
+  digest="$(printf '%s' "$out" | grep -oE 'sha256:[0-9a-f]{64}' | head -1 || true)"
+  [ -n "$digest" ] || { echo "  push of $2 resolved no digest; output was:" >&2; printf '%s\n' "$out" >&2; }
+  printf '%s' "$digest"
 }
 DIGEST="$(push_bundle "$BDIR/payments" payments:1.0.0)"
 CHECKOUT_A="$(push_bundle "$BDIR/checkout-a" checkout:1.0.0)"
@@ -300,7 +304,7 @@ echo "== the live Product API proves the fixture is ready =="
 # revision retrievability, target linkage, the declared and observed edges and
 # their reconciliation, and the external evidence target. It also emits the keys
 # it DISCOVERED, so nothing downstream has to construct one.
-DASH_PF="$(pf 8080 svc/pacto-dashboard 3000)"; sleep 2
+DASH_PF="$(pf 8080 svc/pacto-dashboard 3000)"
 FIXTURE_JSON="$(mktemp)"
 ( cd "$ROOT" && go run ./tests/e2e/kind/productready \
     -base "http://127.0.0.1:8080" -domain "${REG_HOST}/demo" \

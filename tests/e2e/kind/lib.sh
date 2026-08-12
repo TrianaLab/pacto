@@ -7,6 +7,10 @@
 #     with `|| true` so the dump NEVER changes the caller's exit code — it runs
 #     inside an EXIT trap that must preserve the real failure code.
 #
+#   pf LOCAL_PORT TARGET REMOTE_PORT
+#     Background a port-forward into $NS and print its pid — but only once the
+#     forward actually answers. See the definition below for why the wait exists.
+#
 #   keep_or_teardown NS CLUSTER [TEARDOWN_FN]
 #     Tear the run down UNLESS KEEP_E2E_CLUSTER is set/non-empty, in which case
 #     the deployed state is left in place for interactive inspection:
@@ -50,6 +54,36 @@ dump_diag() {
     echo "--- evidence store inspection ($ns) ---"
     kubectl -n "$ns" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>/dev/null | head -30 || true
   fi
+}
+
+# pf LOCAL_PORT TARGET REMOTE_PORT — prints the pid on stdout, waits on readiness.
+#
+# Three scripts each grew their own copy of this, two of them ending in a flat
+# `sleep 2`. That sleep WAS the flake: on a loaded runner the tunnel is not
+# listening yet when the next command connects, and callers that pipe their
+# output (`pacto push ... | grep -oE 'sha256:...'`) swallow the connection error
+# entirely — so the script died under `set -e` with no message at all, at a line
+# that looked innocent. A readiness wait is the fix; a longer sleep is not.
+#
+# ANY HTTP response means ready: the request reached the pod and bytes came back.
+# A 404 from a registry root proves the tunnel exactly as well as a 200 from the
+# dashboard does, which is why this is a bare `curl`, not `curl -f`. A dead
+# kubectl (port already bound, target gone) is detected rather than waited out.
+# The failure goes to STDERR on purpose — stdout is the pid, and every call site
+# captures it in `$(...)`, so a message written to stdout would be swallowed too.
+pf() {
+  local lport="$1" target="$2" rport="$3"
+  kubectl -n "$NS" port-forward "$target" "${lport}:${rport}" >/dev/null 2>&1 &
+  local pid=$!
+  for _ in $(seq 1 60); do
+    if curl -sS -o /dev/null --max-time 3 "http://127.0.0.1:${lport}/" 2>/dev/null; then
+      echo "$pid"; return 0
+    fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  echo "  FAIL: port-forward to $target never answered on 127.0.0.1:${lport}" >&2
+  return 1
 }
 
 keep_or_teardown() {
