@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
 )
 
 // These tests hold the gate to the rule that makes its twelve facts mean anything:
@@ -241,6 +242,11 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func newProber(t *testing.T, f *fakeProduct, snapshots int) *prober {
 	t.Helper()
+	return newProberFor(t, f, snapshots, scenario.OperationalGraph)
+}
+
+func newProberFor(t *testing.T, f *fakeProduct, snapshots int, scn scenario.Scenario) *prober {
+	t.Helper()
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	return &prober{
@@ -251,13 +257,84 @@ func newProber(t *testing.T, f *fakeProduct, snapshots int) *prober {
 		interval:  time.Millisecond,
 		timeout:   150 * time.Millisecond,
 		snapshots: snapshots,
-		want: fixture{
-			Domain: fxDomain, Checkout: "checkout", Orders: "orders",
-			CheckoutA: "1.0.0", CheckoutB: "1.1.0", OrdersVersion: "1.0.0",
-			OCISource: fxOCI, CacheSource: fxCache, ObservationSource: fxObs,
-			EvidenceSource: fxEvidence, EvidenceService: "payments",
-		},
+		// The real scenario, not a restatement of it: the fake product above serves
+		// exactly what tests/acceptance/scenario declares, so a fixture change that
+		// the gate would mishandle fails here rather than in a Kind shard.
+		scn:    scn,
+		domain: fxDomain,
+		facts:  scn.FactCount(),
 	}
+}
+
+// The gate reads WHAT must hold out of the scenario. If any of it were still
+// written down inside the gate, a scenario asking for something the product does
+// not serve would sail through — and the fixture the harness materializes could
+// drift away from the fixture the gate proves, which is exactly the failure the
+// shared declaration exists to prevent. Each case perturbs ONE declared fact and
+// requires the gate to notice; TestGateCoherentSnapshotPasses is the control.
+func TestGateProvesWhatTheScenarioDeclares(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		apply func(s *scenario.Scenario)
+		want  string
+	}{{
+		name: "a renamed observation source",
+		apply: func(s *scenario.Scenario) {
+			s.Sources[2].ID = "other-traces"
+			s.Relationships[0].ObservedBy = "other-traces"
+		},
+		want: `observation is not attributed to "other-traces"`,
+	}, {
+		name:  "a service the fixture does not publish",
+		apply: func(s *scenario.Scenario) { s.Services[1].Name = "checkout-renamed" },
+		want:  `service "checkout-renamed" is not in the snapshot`,
+	}, {
+		name:  "a revision at a version nobody published",
+		apply: func(s *scenario.Scenario) { s.Services[1].Revisions[1].Version = "9.9.9" },
+		want:  "has no revision 9.9.9",
+	}, {
+		name:  "a different reconciliation verdict",
+		apply: func(s *scenario.Scenario) { s.Relationships[0].Reconciliation = "observed-only" },
+		want:  `reconciliation is "matched", want observed-only`,
+	}, {
+		name: "the other revision is the deployed one",
+		apply: func(s *scenario.Scenario) {
+			s.Services[1].Revisions[0].Deployed = false
+			s.Services[1].Revisions[1].Deployed = true
+		},
+		want: "runs revision " + fxRevA + ", want " + fxRevB,
+	}, {
+		name:  "evidence arriving over a different source",
+		apply: func(s *scenario.Scenario) { s.Evidence[0].Via = "evidence-grpc" },
+		want:  `no target attributed to "evidence-grpc"`,
+	}, {
+		name:  "a data source the product does not serve",
+		apply: func(s *scenario.Scenario) { s.Sources[0].ID = "registry-v2" },
+		want:  `data source "registry-v2" is not in the snapshot`,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			scn := cloneScenario(scenario.OperationalGraph)
+			tc.apply(&scn)
+			_, problems := newProberFor(t, &fakeProduct{}, 1, scn).run(io.Discard)
+			if len(problems) == 0 {
+				t.Fatal("the gate passed a scenario the product does not satisfy; it is not reading the scenario")
+			}
+			if !containsSubstring(problems, tc.want) {
+				t.Errorf("problems do not name the perturbed fact (want a mention of %q): %v", tc.want, problems)
+			}
+		})
+	}
+}
+
+func cloneScenario(s scenario.Scenario) scenario.Scenario {
+	s.Sources = append([]scenario.Source(nil), s.Sources...)
+	s.Relationships = append([]scenario.Relationship(nil), s.Relationships...)
+	s.Evidence = append([]scenario.Evidence(nil), s.Evidence...)
+	s.Services = append([]scenario.Service(nil), s.Services...)
+	for i := range s.Services {
+		s.Services[i].Revisions = append([]scenario.Revision(nil), s.Services[i].Revisions...)
+	}
+	return s
 }
 
 func TestGateCoherentSnapshotPasses(t *testing.T) {

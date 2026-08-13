@@ -9,6 +9,14 @@
 // not a `curl | grep` over a raw snapshot. The shell only starts a port-forward
 // and runs this.
 //
+// WHAT must hold is not written down here either: the gate walks
+// tests/acceptance/scenario, the same declarative value the harness materializes
+// its bundles and its observation export from. A version, a service name or a
+// data source id therefore exists once for the whole vertical. Naming them again
+// as flags is how the fixture used to be published under one version and proved
+// under another, which surfaced only as a six-minute timeout on a revision that
+// was never going to appear.
+//
 // It NEVER constructs a key. A ServiceKey is domain-escaped, a RevisionKey is a
 // ServiceKey with a content id, a TargetKey is scope/kind/name: reproducing those
 // escapes in a test would be a second implementation of the identity rules that
@@ -46,6 +54,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
 )
 
 // Decoding targets are the route-neutral pkg/fleet types, not the dashboard
@@ -56,22 +65,14 @@ func main() {
 	var (
 		base      = flag.String("base", "http://127.0.0.1:8080", "dashboard base URL")
 		domain    = flag.String("domain", "", "OCI domain the fixture services live in (registry host + org)")
-		checkout  = flag.String("checkout", "checkout", "provider service name")
-		orders    = flag.String("orders", "orders", "consumer service name")
-		revA      = flag.String("checkout-a", "1.0.0", "deployed checkout revision (version A)")
-		revB      = flag.String("checkout-b", "1.1.0", "published-but-undeployed checkout revision (version B)")
-		ordersRev = flag.String("orders-version", "1.0.0", "orders revision version")
-		ociSrc    = flag.String("oci-source", "oci", "expected OCI data source id")
-		cacheSrc  = flag.String("cache-source", "cache", "expected on-disk OCI cache data source id")
-		obsSrc    = flag.String("observation-source", "orders-traces", "expected managed observation data source id")
-		evSrc     = flag.String("evidence-source", "evidence-http", "expected Evidence Server data source id")
-		evService = flag.String("evidence-service", "payments", "service whose target arrives via the Evidence Server")
 		timeout   = flag.Duration("timeout", 6*time.Minute, "how long to wait for the fixture to become true")
 		interval  = flag.Duration("interval", 5*time.Second, "poll interval")
 		snapshots = flag.Int("snapshots", 1, "how many DISTINCT snapshots must each prove the whole fixture")
 		outPath   = flag.String("out", "", "write the discovered canonical keys here as JSON")
 	)
 	flag.Parse()
+	// The domain is the one thing the scenario cannot declare: it is the address
+	// of whichever registry the harness happened to bring up.
 	if *domain == "" {
 		exit("-domain is required (the registry host + org the fixture publishes to)")
 	}
@@ -85,13 +86,10 @@ func main() {
 		interval:  *interval,
 		timeout:   *timeout,
 		snapshots: *snapshots,
-		want: fixture{
-			Domain: *domain, Checkout: *checkout, Orders: *orders,
-			CheckoutA: *revA, CheckoutB: *revB, OrdersVersion: *ordersRev,
-			OCISource: *ociSrc, CacheSource: *cacheSrc, ObservationSource: *obsSrc,
-			EvidenceSource: *evSrc, EvidenceService: *evService,
-		},
+		scn:       scenario.OperationalGraph,
+		domain:    *domain,
 	}
+	p.facts = p.scn.FactCount()
 
 	keys, problems := p.run(os.Stdout)
 	if len(problems) > 0 {
@@ -130,7 +128,7 @@ func (p *prober) run(w io.Writer) (discovered, []string) {
 			if !proven[keys.SnapshotID] {
 				proven[keys.SnapshotID] = true
 				_, _ = fmt.Fprintf(w, "  PASS: snapshot %s proves the fixture (%d facts, round %d; %d of %d distinct snapshots)\n",
-					keys.SnapshotID, factCount, round, len(proven), p.snapshots)
+					keys.SnapshotID, p.facts, round, len(proven), p.snapshots)
 			}
 			if len(proven) >= p.snapshots {
 				return last, nil
@@ -142,17 +140,10 @@ func (p *prober) run(w io.Writer) (discovered, []string) {
 		if !time.Now().Before(deadline) {
 			return discovered{}, problems
 		}
-		_, _ = fmt.Fprintf(w, "  waiting: %d of %d facts outstanding (first: %s)\n", len(problems), factCount, problems[0])
+		_, _ = fmt.Fprintf(w, "  waiting: %d of %d facts outstanding (first: %s)\n", len(problems), p.facts, problems[0])
 		time.Sleep(p.interval)
 	}
 }
-
-// factCount is the number of facts section 8 requires the gate to prove. It is a
-// constant so the progress line reports a denominator that cannot drift silently
-// with the number of failures a round happens to produce. Fact 14 is the round's
-// snapshot coherence: the other thirteen are only facts about the fleet if one
-// snapshot answered all of them.
-const factCount = 14
 
 func exit(msg string) {
 	fmt.Fprintln(os.Stderr, "productready:", msg)
@@ -172,16 +163,6 @@ func emit(k discovered, path string) {
 		exit(err.Error())
 	}
 	fmt.Printf("  wrote the discovered canonical keys to %s\n", path)
-}
-
-// fixture is what the harness published; every field is a NAME or an id the
-// shell configured, never a key.
-type fixture struct {
-	Domain, Checkout, Orders            string
-	CheckoutA, CheckoutB, OrdersVersion string
-	OCISource, CacheSource              string
-	ObservationSource                   string
-	EvidenceSource, EvidenceService     string
 }
 
 // discovered is the canonical identity the product published for each fixture
@@ -212,9 +193,17 @@ type discovered struct {
 }
 
 type prober struct {
-	base      string
-	http      *http.Client
-	want      fixture
+	base string
+	http *http.Client
+	// scn is the declarative fixture every fact below is read out of.
+	scn scenario.Scenario
+	// domain is the OCI domain the harness published into; the only part of the
+	// fixture that is decided at run time.
+	domain string
+	// facts is how many facts scn obliges a round to prove, so the progress line
+	// reports a denominator the scenario justifies rather than a written-down
+	// constant that can drift away from it.
+	facts     int
 	interval  time.Duration
 	timeout   time.Duration
 	snapshots int
@@ -322,53 +311,74 @@ func (p *prober) probe() (discovered, []string) {
 	p.problems = nil
 	p.snapshotID = ""
 	p.mixed = false
-	got := discovered{
-		Domain: p.want.Domain, CheckoutName: p.want.Checkout, OrdersName: p.want.Orders,
-		CheckoutVersionA: p.want.CheckoutA, CheckoutVersionB: p.want.CheckoutB,
-		OrdersVersion: p.want.OrdersVersion,
-	}
+	svcKey := map[string]string{}   // service name        -> ServiceKey
+	revKey := map[string]string{}   // "service@version"   -> RevisionKey
+	tgtKey := map[string]string{}   // service name        -> TargetKey
+	evTgtKey := map[string]string{} // service name        -> TargetKey (via evidence)
 
-	// Facts 1-3: the three data sources exist AND answered in full. A source that
-	// is merely PRESENT is not usable: a partial OCI source means the revisions
-	// below may be missing for a reason the fixture would otherwise hide.
+	// Facts 1-3: every declared data source exists AND answered in full. A source
+	// that is merely PRESENT is not usable: a partial OCI source means the
+	// revisions below may be missing for a reason the fixture would otherwise hide.
 	//
-	// The CACHE source is here because the state this gate must reach is the
+	// The CACHE source is among them because the state this gate must reach is the
 	// POST-CACHE one: the pod's OCI cache starts empty and the registry pulls of
 	// the first refresh are what fill it, so only a later snapshot has the registry
 	// and the disk cache offering the same published artifacts at once. That is the
 	// pairing that used to publish one artifact as two revisions, and it is proved
 	// below by the provenance of the revisions themselves — this fact only
 	// establishes that the source contributing it was usable at all.
+	//
+	// The Evidence Server is the exception: it is proved by the target it produced
+	// (fact 13), so its id is only carried forward to attribute that target to it.
 	sources := p.list("source", "")
-	got.OCISource = p.usableSource(sources, p.want.OCISource)
-	got.CacheSource = p.usableSource(sources, p.want.CacheSource)
-	got.ObservationSource = p.usableSource(sources, p.want.ObservationSource)
-	// The Evidence Server source is not a fact on its own — fact 13 is the target it
-	// produced — but its id has to be discovered to attribute that target to it.
-	got.EvidenceSource = p.want.EvidenceSource
+	for _, src := range p.scn.Sources {
+		if src.Kind != scenario.SourceEvidence {
+			p.usableSource(sources, src.ID)
+		}
+	}
 
-	// Fact 4: both fixture services exist, in the OCI domain (a K8s-synthetic
-	// service would land in a different domain and would not carry OCI revisions).
+	// Fact 4: every declared service is in the snapshot, once. A service the
+	// fixture publishes must be in the OCI domain — a K8s-synthetic service would
+	// land in a different one and would not carry OCI revisions — while a service
+	// that only ever arrives over the Evidence Server lands in whatever domain the
+	// evidence names, so it is matched by name alone.
 	services := p.list("service", "")
-	got.CheckoutService = p.serviceKey(services, p.want.Checkout, p.want.Domain)
-	got.OrdersService = p.serviceKey(services, p.want.Orders, p.want.Domain)
-	got.EvidenceService = p.serviceKey(services, p.want.EvidenceService, "")
+	for _, svc := range p.scn.Services {
+		domain := p.domain
+		if svc.EvidenceOnly {
+			domain = ""
+		}
+		svcKey[svc.Name] = p.serviceKey(services, svc.Name, domain)
+	}
 
-	// Facts 5-7: three real contract revisions, each ONE canonical, exact,
-	// retrievable revision contributed by BOTH the registry and the disk cache.
-	got.CheckoutRevisionA = p.revisionKey(got.CheckoutService, p.want.CheckoutA)
-	got.CheckoutRevisionB = p.revisionKey(got.CheckoutService, p.want.CheckoutB)
-	got.OrdersRevision = p.revisionKey(got.OrdersService, p.want.OrdersVersion)
-
-	// Facts 8-9: the running targets link to the revisions actually deployed.
-	got.CheckoutTarget = p.runningTarget(got.CheckoutService, got.CheckoutRevisionA)
-	got.OrdersTarget = p.runningTarget(got.OrdersService, got.OrdersRevision)
+	// Facts 5-7: every published revision is ONE canonical, exact, retrievable
+	// revision contributed by BOTH the registry and the disk cache.
+	//
+	// Facts 8-9: a service that runs something has exactly one operational target,
+	// linking to the revision the fixture actually deployed.
+	for _, svc := range p.scn.Services {
+		if svc.EvidenceOnly {
+			continue
+		}
+		for _, rev := range svc.Revisions {
+			revKey[svc.Name+"@"+rev.Version] = p.revisionKey(svcKey[svc.Name], rev.Version)
+		}
+		if rev, ok := svc.DeployedRevision(); ok {
+			tgtKey[svc.Name] = p.runningTarget(svcKey[svc.Name], revKey[svc.Name+"@"+rev.Version])
+		}
+	}
 
 	// Facts 10-12: declared, observed, and reconciled as one edge.
-	p.reconciledEdge(got.OrdersService, got.CheckoutService)
+	for _, rel := range p.scn.Relationships {
+		p.reconciledEdge(rel, svcKey[rel.From], svcKey[rel.To])
+	}
 
 	// Fact 13: the external target still arrives over the Evidence Server.
-	got.EvidenceTarget = p.evidenceTarget(got.EvidenceService)
+	for _, ev := range p.scn.Evidence {
+		evTgtKey[ev.Service] = p.evidenceTarget(svcKey[ev.Service], ev.Via)
+	}
+
+	got := p.journeyInput(svcKey, revKey, tgtKey, evTgtKey)
 
 	// Fact 14: all thirteen came out of ONE snapshot. Each mismatching response has
 	// already reported itself, but the verdict is stated over the round as a whole
@@ -499,7 +509,7 @@ func (p *prober) contributedByRegistryAndCache(serviceKey, version string, prov 
 			serviceKey, version, prov.Sources.Count, prov.Sources.Total)
 		return false
 	}
-	for _, want := range []string{p.want.OCISource, p.want.CacheSource} {
+	for _, want := range []string{p.scn.SourceID(scenario.SourceRegistry), p.scn.SourceID(scenario.SourceCache)} {
 		if !sliceHas(prov.Sources.Items, want) {
 			p.failf("revision %s %s was not contributed by %q (sources: %s); the registry and the disk cache must reach the SAME canonical revision",
 				serviceKey, version, want, strings.Join(prov.Sources.Items, ", "))
@@ -546,7 +556,7 @@ func (p *prober) runningTarget(serviceKey, revisionKey string) string {
 // declared dependency (from the OCI contract revision) and the observed call
 // (from the managed observation source), and the backend — not this checker —
 // decided they are the same relationship.
-func (p *prober) reconciledEdge(fromService, toService string) {
+func (p *prober) reconciledEdge(rel scenario.Relationship, fromService, toService string) {
 	if fromService == "" || toService == "" {
 		return
 	}
@@ -563,17 +573,17 @@ func (p *prober) reconciledEdge(fromService, toService string) {
 		if e.Relation != "dependency" || e.From.Key != fromService || e.To.Key != toService {
 			continue
 		}
-		if !e.Expected {
+		if rel.Declared && !e.Expected {
 			p.failf("the %s -> %s edge is not declared", fromService, toService)
 		}
-		if !e.Observed {
+		if rel.ObservedBy != "" && !e.Observed {
 			p.failf("the %s -> %s edge is not observed", fromService, toService)
 		}
-		if e.Difference != "matched" {
-			p.failf("the %s -> %s reconciliation is %q, want matched", fromService, toService, e.Difference)
+		if e.Difference != rel.Reconciliation {
+			p.failf("the %s -> %s reconciliation is %q, want %s", fromService, toService, e.Difference, rel.Reconciliation)
 		}
-		if !hasSource(e.ObservationSources, p.want.ObservationSource) {
-			p.failf("the %s -> %s observation is not attributed to %q", fromService, toService, p.want.ObservationSource)
+		if rel.ObservedBy != "" && !hasSource(e.ObservationSources, rel.ObservedBy) {
+			p.failf("the %s -> %s observation is not attributed to %q", fromService, toService, rel.ObservedBy)
 		}
 		return
 	}
@@ -583,7 +593,7 @@ func (p *prober) reconciledEdge(fromService, toService string) {
 // evidenceTarget proves the remote, signed evidence target survived the fixture's
 // enrichment: the vertical must hold K8s, OCI, offline observation and the
 // Evidence Server at once, not trade one for another.
-func (p *prober) evidenceTarget(serviceKey string) string {
+func (p *prober) evidenceTarget(serviceKey, via string) string {
 	if serviceKey == "" {
 		return ""
 	}
@@ -592,12 +602,47 @@ func (p *prober) evidenceTarget(serviceKey string) string {
 		if d == nil || d.Target == nil {
 			continue
 		}
-		if d.Target.Source == p.want.EvidenceSource || sliceHas(d.Target.Sources.Items, p.want.EvidenceSource) {
+		if d.Target.Source == via || sliceHas(d.Target.Sources.Items, via) {
 			return t.Key
 		}
 	}
-	p.failf("service %s has no target attributed to %q", serviceKey, p.want.EvidenceSource)
+	p.failf("service %s has no target attributed to %q", serviceKey, via)
 	return ""
+}
+
+// journeyInput projects the DISCOVERED keys into the handoff the browser suite
+// reads. Which service plays which part comes from the scenario's Journey, so
+// this is a projection of the fixture rather than a second declaration of it;
+// the keys themselves are only ever the ones the product published above.
+func (p *prober) journeyInput(svcKey, revKey, tgtKey, evTgtKey map[string]string) discovered {
+	provider, _ := p.scn.Service(p.scn.Journey.Provider)
+	consumer, _ := p.scn.Service(p.scn.Journey.Consumer)
+	revA, _ := provider.DeployedRevision()
+	revB, _ := provider.PublishedOnlyRevision()
+	consumerRev, _ := consumer.DeployedRevision()
+	external := p.scn.Journey.External
+
+	return discovered{
+		Domain:            p.domain,
+		CheckoutName:      provider.Name,
+		OrdersName:        consumer.Name,
+		CheckoutVersionA:  revA.Version,
+		CheckoutVersionB:  revB.Version,
+		OrdersVersion:     consumerRev.Version,
+		CheckoutService:   svcKey[provider.Name],
+		OrdersService:     svcKey[consumer.Name],
+		EvidenceService:   svcKey[external],
+		CheckoutRevisionA: revKey[provider.Name+"@"+revA.Version],
+		CheckoutRevisionB: revKey[provider.Name+"@"+revB.Version],
+		OrdersRevision:    revKey[consumer.Name+"@"+consumerRev.Version],
+		CheckoutTarget:    tgtKey[provider.Name],
+		OrdersTarget:      tgtKey[consumer.Name],
+		EvidenceTarget:    evTgtKey[external],
+		OCISource:         p.scn.SourceID(scenario.SourceRegistry),
+		CacheSource:       p.scn.SourceID(scenario.SourceCache),
+		ObservationSource: p.scn.SourceID(scenario.SourceObservation),
+		EvidenceSource:    p.scn.SourceID(scenario.SourceEvidence),
+	}
 }
 
 func hasSource(p fleet.ObservationSourcesPreview, id string) bool {

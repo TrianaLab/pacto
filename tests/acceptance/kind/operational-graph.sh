@@ -30,6 +30,9 @@ DEMO_NS=demo
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5601
 LOCAL_EV_PORT=8687
+# The observation source's identity, as the operator configures it and as the
+# Product must publish it. It names the export the scenario projector writes.
+OBS_SOURCE=orders-traces
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
 
@@ -83,57 +86,13 @@ echo "== publish the fixture's contract revisions to the in-cluster registry =="
 # revisions that differ by exactly one deterministic semantic change, and an orders
 # revision that DECLARES the checkout dependency. The refs the cluster later stores
 # are the in-cluster ones; only this push hop goes through a forwarded port.
-BDIR="$(mktemp -d)"; mkdir -p "$BDIR"/{payments,checkout-a,checkout-b,orders}
-
-cat > "$BDIR/payments/pacto.yaml" <<'YAML'
-pactoVersion: "2.0"
-service: { name: payments, version: "1.0.0" }
-interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
-workload: service
-state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
-YAML
-printf 'openapi: "3.0.0"\ninfo: { title: payments, version: "1.0.0" }\npaths: {}\n' > "$BDIR/payments/openapi.yaml"
-
-cat > "$BDIR/checkout-a/pacto.yaml" <<'YAML'
-pactoVersion: "2.0"
-service: { name: checkout, version: "1.0.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
-interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
-workload: service
-state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
-YAML
-cat > "$BDIR/checkout-a/openapi.yaml" <<'YAML'
-openapi: "3.0.0"
-info: { title: checkout, version: "1.0.0" }
-paths:
-  /checkout: { post: { responses: { "200": { description: ok } } } }
-  /cart: { get: { responses: { "200": { description: ok } } } }
-YAML
-
-# Revision B is revision A with ONE change: the /cart path is gone. Both files are
-# written out in full rather than derived from A, so the change under analysis is
-# readable here instead of hidden in a sed. The real diff engine classifies a
-# removed OpenAPI path as Breaking; nothing else about the service moves.
-cat > "$BDIR/checkout-b/pacto.yaml" <<'YAML'
-pactoVersion: "2.0"
-service: { name: checkout, version: "1.1.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
-interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
-workload: service
-state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
-YAML
-cat > "$BDIR/checkout-b/openapi.yaml" <<'YAML'
-openapi: "3.0.0"
-info: { title: checkout, version: "1.1.0" }
-paths:
-  /checkout: { post: { responses: { "200": { description: ok } } } }
-YAML
-
-cat > "$BDIR/orders/pacto.yaml" <<YAML
-pactoVersion: "2.0"
-service: { name: orders, version: "1.0.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
-workload: service
-state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
-dependencies: [ { name: checkout, ref: 'oci://${REG_HOST}/demo/checkout', required: false, compatibility: '^1.0.0' } ]
-YAML
+#
+# WHAT is published is declared once, in tests/acceptance/scenario, and rendered
+# here — bundles and the observation export together. The gate below reads the
+# same value, so nothing about the fixture is written down in two places that can
+# quietly disagree.
+BDIR="$(mktemp -d)"
+( cd "$ROOT" && go run ./tests/acceptance/scenario/project -dir "$BDIR" -domain "${REG_HOST}/demo" )
 
 REG_PF="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 push() { push_bundle "$PACTO_BIN" "$LOCAL_REG_PORT" "$@"; }
@@ -151,18 +110,20 @@ CONTRACT_REF="oci://${REG_HOST}/demo/payments@${DIGEST}"
 echo "== a managed observation source: the orders -> checkout call, exported offline =="
 # The declarative Phase-7 form: a named source the OPERATOR mounts read-only into
 # the dashboard it manages. Not the ad-hoc positional --traces path — the Product
-# has to show this as a Data Source with the stable identity 'orders-traces'.
-kubectl -n "$NS" create configmap pacto-orders-traces --dry-run=client -o yaml \
-  --from-literal=traces.json='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"orders"}}]},"scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"checkout"}}]}]}]}]}' \
+# has to show this as a Data Source with this stable identity, and the export it
+# carries is the one the scenario derived from the declared edge, so observed and
+# declared cannot drift apart.
+kubectl -n "$NS" create configmap "pacto-${OBS_SOURCE}" --dry-run=client -o yaml \
+  --from-file="traces.json=$BDIR/${OBS_SOURCE}.json" \
   | kubectl apply -f - >/dev/null
 
 common_sets=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
              --set dashboard.enabled=true --set evidence.enabled=true
              --set evidence.trust.existingSecret=pacto-evidence-trust
              --set "insecureRegistries[0]=${REG_HOST}"
-             --set 'dashboard.observation.sources[0].name=orders-traces'
+             --set "dashboard.observation.sources[0].name=${OBS_SOURCE}"
              --set 'dashboard.observation.sources[0].file=traces.json'
-             --set 'dashboard.observation.sources[0].configMap=pacto-orders-traces')
+             --set "dashboard.observation.sources[0].configMap=pacto-${OBS_SOURCE}")
 
 echo "== install the operator with the dashboard + Evidence Server enabled =="
 helm install pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeout 240s
@@ -258,7 +219,7 @@ DASH_PF="$(pf 8080 svc/pacto-dashboard 3000)"
 FIXTURE_JSON="$(mktemp)"
 ( cd "$ROOT" && go run ./tests/acceptance/kind/productready \
     -base "http://127.0.0.1:8080" -domain "${REG_HOST}/demo" \
-    -checkout-a 1.0.0 -checkout-b 1.1.0 -snapshots 2 -out "$FIXTURE_JSON" ) \
+    -snapshots 2 -out "$FIXTURE_JSON" ) \
   && pass "the live Product API proves the fixture, twice, across a refresh" \
   || fail "the live Product API never proved the fixture on two distinct snapshots"
 
