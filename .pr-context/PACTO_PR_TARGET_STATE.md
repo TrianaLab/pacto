@@ -31,6 +31,33 @@ Pacto is not a deployment engine, authorization system, observability backend, g
 
 External systems may deploy, authorize, instrument or remediate. Pacto declares, resolves, observes through supplied evidence, evaluates, graphs, diffs and explains.
 
+## 1B. Repository-wide design preference — declarative over imperative
+
+**Declarative > imperative.**
+
+This is a design PREFERENCE, not an absolute ban on imperative code. Desired state, topology, fixtures, demo content and acceptance expectations should be expressed as DATA consumed by shared engines. Imperative code is limited to the irreducible execution boundary: invoking tools, waiting for declared conditions, collecting diagnostics and cleaning up.
+
+The maxim applies repository-wide. Its consequences for the areas this program still has to build are recorded below; they are TARGET STATE only, and nothing here authorizes work outside the phase that owns it.
+
+### Consequence — tests and demos
+
+- Prefer declarative fixture/scenario manifests over long shell or Go programs that construct topology step by step.
+- A scenario declares ONCE: services, revisions, targets, sources, relationships, evidence, expected facts and user journeys.
+- Kind, local acceptance and future demo surfaces PROJECT that canonical scenario. They do not maintain semantically independent copies of it.
+- Assertions stay in the layer that owns their meaning: backend and Product facts in Go, visible workflows in Playwright, shell only as thin orchestration.
+- Do NOT replace readable thin orchestration with a speculative framework. Inventory the imperative traces first and extract only the semantics that are demonstrably stable and repeated. This is the same inventory-before-rewrite discipline Phase 8B already imposes.
+
+### Consequence — one canonical demo model, several projections
+
+- There is ONE canonical end-to-end demo definition, projected into at least a Helm/Kubernetes surface and a Docker Compose surface.
+- Projections preserve the same product semantics wherever the platform permits: real Pacto services, contract revisions, evidence and observation sources, topology, reconciliation and dashboard journeys.
+- Platform-specific capabilities and limitations are EXPLICIT, never silently simulated. A capability a projection cannot offer is stated as absent; it is not faked.
+- Docker Compose is a parallel distribution surface. It is not a replacement for Helm and not an alternative product architecture.
+
+### Consequence — the Compose demo is distributed, not cloned
+
+The runnable Compose demo is distributed as a versioned immutable OCI artifact, so a user runs it WITHOUT cloning the repository. The requirements and the sequencing are in Phase 10B; this section only records why it exists.
+
 ## 2. Canonical ontology
 
 The final implementation and documentation must describe exactly one coherent ontology.
@@ -752,6 +779,29 @@ Test the actual built MkDocs site in a browser, including relevant diagrams, not
 
 ### Phase 10 — Docker Desktop/local-registry Kind
 Close the local Kind path where Docker Desktop/containerd image-store behavior differs from CI/classic `kind load`. Blocked on Phase 8B: its new acceptance harness must be added into the consolidated test architecture, not alongside it.
+
+### Phase 10B — canonical demo model and clone-free OCI-distributed Compose demo
+
+Blocked on Phase 8B. Phase 8B must FIRST establish the canonical scenario/projection boundary described in section 1B, or this demo becomes another imperative, duplicated harness — exactly the debt 8B exists to remove. Sequenced after Phase 10, because the Docker Desktop/local-registry work resolves the same container-runtime differences a locally run Compose demo will meet.
+
+Scope: define the ONE canonical demo model of section 1B, prove it by projecting it into at least the Helm/Kubernetes surface and a Docker Compose surface, and publish the Compose projection so it runs without a clone.
+
+Target UX: pull a pinned demo artifact with standard OCI tooling or a small Pacto command; materialize its Compose manifest, declarative fixture data and required configuration; run it with Docker Compose; open the dashboard and exercise the documented journeys.
+
+Requirements to define and satisfy:
+
+- **Immutable distribution.** Digest-pinned OCI artifact with version metadata. A tag may be a convenience; the artifact a user actually ran is identifiable by digest.
+- **Multi-architecture images** where the underlying images support it.
+- **Integrity and provenance** compatible with this repository's existing release policy. No bespoke second signing story.
+- **No embedded secrets.** Anything credential-shaped is supplied by the user or generated locally at run time.
+- **Deterministic ports, with overrides.** The documented journeys work on the defaults; a user whose ports are taken can change them without editing the artifact.
+- **Readiness from observed state.** Health checks and readiness gates observe the components, never a sleep.
+- **Offline and restart behaviour stated explicitly.** What works with no network after the pull, and what survives a restart, is documented rather than discovered.
+- **Cleanup and upgrade instructions.** How to remove everything, and how to move from one pinned demo version to the next.
+- **CI that proves the clone-free path.** CI pulls the published-shaped artifact into a CLEAN environment — no repository checkout in the run path — brings it up and exercises the documented journeys.
+- **Semantic parity checks between the projections.** An automated comparison that the Helm and Compose projections express the same canonical scenario, with any platform-imposed divergence declared as such rather than silently absorbed.
+
+Explicitly out of scope for this phase: a second product architecture, a Compose-only feature, a hosted demo service and any change to the Helm surface made only to make the Compose projection easier.
 
 ### Phase 11 — MCP catalog core
 Implement bounded multi-root catalog semantics over arbitrary Pacto contract roots. This is the CATALOG model over arbitrary roots — distinct from the operational Fleet MCP tools (`pacto_fleet_*`) this branch already ships, which stay as they are.

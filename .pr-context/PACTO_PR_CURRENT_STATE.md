@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`797a49b32d338e597c78b7834a3fd256e4ab648c`
+`837ef8bbe0e7495357d386b1de50a6defca74bd0`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,20 +25,65 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-That review kept Phase 8 NARROWLY REOPENED a sixth time, on B4's ON-DISK
-MIGRATION boundary (section 2, "Sixth narrow reopen"). The complete LocalOnly
-`CachedRef` propagation, the cold/warm reference-agreement guard, the
-RemoteAllowed miss-refetch-or-fail behaviour and resolve-once / pull-by-digest
-are independently ACCEPTED and frozen, B5 is ACCEPTED and frozen, blocker A
-stays CLOSED, the 14-fact two-snapshot live gate and journeys A–H stay accepted,
-Phase 8B stays NOT STARTED, and every other Phase-8 acceptance stays frozen.
+That review kept Phase 8 NARROWLY REOPENED a seventh time, on ONE root boundary:
+a cache inventory must enumerate coherent artifact GENERATIONS, not pathnames
+and not reference spellings (section 2, "Seventh narrow reopen"). The `_v2`
+namespace, read-only legacy compatibility, the removal of destructive
+retirement, the two-order upgrade counterexample and exact-reference dashboard
+indexing are independently ACCEPTED and frozen. Everything frozen at the sixth
+reopen stays frozen: the complete LocalOnly `CachedRef` propagation, the
+cold/warm reference-agreement guard, RemoteAllowed miss-refetch-or-fail,
+resolve-once / pull-by-digest, B5, blocker A CLOSED, the 14-fact two-snapshot
+live gate and journeys A–H. Phase 8B stays NOT STARTED.
 
-Commits appended on top of the reviewed HEAD `797a49b3`, oldest first:
+Commits appended on top of the reviewed HEAD `837ef8bb`, oldest first:
+
+- `6be8719b` — a cache inventory enumerates generations, not pathnames (blockers
+  B6 and B7)
+- this document's own commit — persist the Phase-8 candidate after the seventh
+  narrow reopen, and record the TARGET-STATE additions
+
+Commits appended on top of the earlier reviewed HEAD `797a49b3`:
 
 - `b0020460` — a cache entry this version writes can never land on an older
-  one's baseline (blocker B, B4's on-disk migration boundary)
-- this document's own commit — persist the Phase-8 candidate after the sixth
-  narrow reopen
+  one's baseline (blocker B, B4's on-disk migration boundary; ACCEPTED and
+  frozen at `837ef8bb`)
+- `c9d52bb9` — persist the Phase-8 candidate after the sixth narrow reopen
+- `837ef8bb` — record the check and thread state re-queried at `c9d52bb9`
+
+### TARGET-STATE additions in this iteration — FUTURE TARGET ONLY
+
+The doc pass also appended three things to `PACTO_PR_TARGET_STATE.md`. None of
+them is implemented, started or scheduled in this repair; they are recorded so
+the phase that owns them inherits them:
+
+- **TARGET section 1B — "Declarative > imperative."** A repository-wide design
+  PREFERENCE, not an absolute ban. Desired state, topology, fixtures, demo
+  content and acceptance expectations expressed as data consumed by shared
+  engines; imperative code limited to the irreducible execution boundary
+  (invoking tools, waiting for declared conditions, collecting diagnostics,
+  cleanup).
+- **TARGET section 1B consequences** — declarative fixture/scenario manifests
+  over step-by-step harness programs, ONE canonical scenario projected into
+  Kind, local acceptance and future demo surfaces rather than semantically
+  independent copies, assertions kept in the layer that owns their meaning, and
+  an explicit warning against replacing readable thin orchestration with a
+  speculative framework: inventory the imperative traces first. Also one
+  canonical demo model with at least a Helm/Kubernetes and a Docker Compose
+  projection, platform limitations explicit rather than silently simulated, with
+  Compose as a parallel distribution surface and not a second product
+  architecture.
+- **TARGET Phase 10B** — the clone-free OCI-distributed Compose demo, with its
+  requirements (digest-pinned immutable distribution and version metadata,
+  multi-architecture where supported, provenance compatible with the existing
+  release policy, no embedded secrets, deterministic overridable ports,
+  observed-state readiness rather than sleeps, explicit offline/restart
+  behaviour, cleanup and upgrade instructions, CI that pulls the
+  published-shaped artifact into a clean environment, and semantic parity checks
+  between the projections). It is BLOCKED on Phase 8B — which must first
+  establish the canonical scenario/projection boundary, or the demo becomes
+  another imperative duplicated harness — and sequenced after Phase 10, whose
+  Docker Desktop work resolves the same container-runtime differences.
 
 Commits appended on top of the earlier reviewed HEAD `41fa3c02`:
 
@@ -804,10 +849,16 @@ narrow-fix choice the review asked for; stale bytes stay until the cache is
 cleared, which is what a cache is for.
 
 The duplicate a surviving legacy entry would otherwise cause is a WALKER problem
-and is solved in both walkers, keyed on the COMPLETE recorded identity
-(reference plus digest): `internal/fleetsrc.cachedRefs` reports a reference once
-however many entries hold it, and `pkg/dashboard.CacheSource.buildIndex` indexes
-`ref@digest` once.
+and was addressed in both walkers.
+
+**Correction, entered at the seventh reopen.** This paragraph previously claimed
+both walkers keyed their suppression on the COMPLETE recorded identity. At
+`b0020460` that was true of `pkg/dashboard.CacheSource.buildIndex`, which
+indexed `ref@digest` once, and NOT true of `internal/fleetsrc.cachedRefs`, which
+deduped on the reference alone and therefore reported a reference once however
+many DIFFERENT artifacts were filed under it. The claim overstated what was
+proved. The implementation is corrected in the seventh reopen below, and this
+paragraph now states what each walker actually did at `b0020460`.
 
 `buildIndex` was also still rebuilding the reference from the encoded path,
 which for a real untagged entry (`%00`) emitted `repo:%00`. The exact recorded
@@ -853,10 +904,180 @@ Verification for this candidate is in section 8. Still disclosed and out of
 scope: the CodeQL PR-ref findings and the Evidence Server read-only-cache
 warning.
 
+#### Seventh narrow reopen at `837ef8bb` — B6 and B7, CANDIDATE
+
+The review at `837ef8bb` accepted and froze the `_v2` namespace, read-only
+legacy compatibility, the removal of destructive retirement, the two-order
+upgrade counterexample and exact-reference dashboard indexing, and reopened
+Phase 8 on ONE root boundary: **a cache inventory must enumerate coherent
+artifact GENERATIONS, not pathnames and not reference spellings.** Two readers
+still did.
+
+**B6 — the Fleet inventory collapsed distinct generations sharing one
+reference.** `internal/fleetsrc.cachedRefs` deduped on `ref` alone
+(`seen := map[string]bool{}`) and returned `[]string`. The legitimate on-disk
+state a legacy entry `(Ref R, Digest A)` beside a `_v2` entry `(Ref R, Digest
+B)`, `A != B` — natural once a mutable tag has been republished and pulled by
+the upgraded version, and neither destructively retirable — reported R ONCE, and
+`PullCachedPinned(R)` afterwards selected by store lookup order, so calling it
+twice read the same generation. The other artifact silently did not exist in the
+fleet.
+
+Closed by making the walk DISCOVER and nothing else. `cachedGenerations` reads
+each entry where the walk found it, through `oci.ReadCacheEntry`, and carries
+the bundle and the identity onward together; suppression is on the COMPLETE
+recorded identity (`ref + "@" + digest`), so legacy and `_v2` copies of ONE
+artifact still collapse to one revision while two generations of one reference
+stay two. Each generation becomes its own canonical digest-pinned revision
+through the shared `revisionOf`, so a published artifact keys identically
+whether it reached the fleet from the registry or from disk. A pre-sidecar entry
+still falls back to the path and still says the reference is approximate; an
+entry the walk can see and the read cannot resolve whole is a
+`SOURCE_RECORD_INVALID` limitation, not a silence.
+
+`CacheSource` also lost its `BundleStore` and its `ResolveMode`. Network-freedom
+was previously a mode argument passed to a resolver that also knows how to dial;
+it is now structural — nothing on that path can dial at all. `internal/cli`'s
+`--no-cache` wiring never publishes a cache source, so ignoring `skipDiskReads`
+here is not a behaviour change.
+
+**B7 — the dashboard walker could splice bundle A with sidecar B.**
+`pkg/dashboard.CacheSource.buildIndex` loaded `bundle.tar.gz` by pathname and
+then called `ReadCachedRef(filepath.Dir(path))` separately. An atomic directory
+replacement between the two observations published generation A's contract, hash
+and service name under generation B's reference and digest — an indexed version
+describing an artifact that has never existed. Deduplicating on `ref@digest`
+only deduped an already-spliced identity.
+
+Closed with a generation-bound read: `oci.ReadCacheEntry` for the index walk and
+for the deferred per-version load, following the `os.OpenRoot` /
+installed-generation semantics already accepted in `pkg/oci`; a replacement is a
+coherent miss the retry repairs. The lazy load also refuses an entry that no
+longer holds the artifact that was indexed — the deferred read is a SECOND
+observation of a shared directory, and serving its bytes under the first read's
+published contract, hash and reference is the same splice, delayed. No
+cache-generation concurrency logic was duplicated in the dashboard package.
+
+`internal/cachehook` carries the ONE interleaving seam (`AfterBundleRead`), fired
+inside `readCacheGeneration` between the bundle read and the identity read, so
+every reader held to the coherence rule can prove it from wherever it lives.
+Production never sets it; the zero value is a no-op. `readCacheEntry` is
+exported as `oci.ReadCacheEntry` for the same reason: it is THE definition of a
+cached generation.
+
+**Walker inventory after the repair.** Every production reader of a cache entry
+now goes through `oci.ReadCacheEntry`: `CachedStore.cachedEntry`
+(`pkg/oci/cache.go:245`), `fleetsrc.cachedGenerations`
+(`internal/fleetsrc/oci.go:282`), and the dashboard's `buildIndex`
+(`pkg/dashboard/source_cache.go:159`) and `cachedVersion.loadBundle`
+(`pkg/dashboard/source_cache.go:96`). No path-only or stale inventory is left.
+`oci.ReadCachedRef` survives with ZERO production callers — only tests asserting
+what a WRITER wrote — and its doc now says that pairing it with separately read
+bytes is exactly the splice `ReadCacheEntry` prevents. It is public API on a
+public package, so removing it is a deliberate later decision, not part of this
+narrow repair. The dashboard's private `loadBundleTarGz` / `extractTar` /
+`dotDotComponent` and its `maxBundle*` limits went with the pathname read; the
+tar-bomb, traversal and non-regular-entry limits now have ONE implementation, in
+`pkg/oci`, which is at 100% coverage and already tests each of them.
+
+Preserved unchanged: the `_v2` namespace and its disjointness proof; read-only
+legacy compatibility; no destructive retirement; the two-order upgrade
+counterexample; exact-reference dashboard indexing and the version key derived
+from the reference; the complete LocalOnly `CachedRef`; the cold/warm agreement
+guard; RemoteAllowed miss-refetch-or-fail; resolve-once then pull-by-digest;
+zero-network offline reads; B5; the 14-fact two-snapshot live gate; journeys
+A–H.
+
+Counterexamples, all under `-race`, each mutation-checked:
+
+- `internal/fleetsrc/oci_test.go` —
+  `TestCacheSource_Collect_TwoGenerationsOfOneReferenceAreTwoRevisions`: real
+  disk entries, generation A for one exact reference in the LEGACY layout and
+  generation B for the same exact reference under `_v2`, read by a cold offline
+  `CacheSource`. Two revisions, no digest twice, each bundle matching its own
+  digest's generation, each `ResolvedRef` pinned to its own digest and both
+  carrying the shared `RequestedRef`.
+- `internal/fleetsrc/oci_test.go` —
+  `TestCacheSource_Collect_OneReferenceIsCollectedOnce`: same reference AND same
+  digest in both layouts stays ONE revision.
+- `internal/fleetsrc/oci_test.go` —
+  `TestCacheSource_Collect_TheWalkAndTheReadAreOneGeneration` and
+  `_IdentityComesFromTheGenerationThatServedTheBytes`: a competing writer
+  installs a whole generation inside the read window (asserting the window was
+  actually entered), and bundle, `RequestedRef`, `Domain` and `ResolvedRef` must
+  all belong to the same generation.
+- `internal/fleetsrc/oci_test.go` —
+  `TestCacheSource_Collect_AnUnreadableEntryIsAGapNotASilence`.
+- `pkg/dashboard/source_cache_generation_test.go` —
+  `TestCacheSource_BuildIndex_ABundleAndItsIdentityAreOneGeneration`: install
+  generation A; let the walker discover and open it; atomically install
+  generation B before the identity read; assert the indexed record is wholly A,
+  wholly B or coherently absent, never A's contract under B's reference or
+  digest. Real disk entries throughout. It resolves to B, whole, via the retry.
+- `pkg/dashboard/source_cache_generation_test.go` —
+  `TestCacheSource_LazyLoad_RefusesTheGenerationItDidNotIndex`: the deferred
+  read held to the same rule, plus a removed entry as a miss and the resident
+  latest unaffected.
+- `tests/e2e/fleet_cache_identity_test.go` —
+  `TestFleetOfflineSeesEveryCachedGenerationOfOneReference`: the same B6 case in
+  PRODUCTION WIRING — a real registry, real `CachedStore`s writing both
+  generations, a real republished tag, the legacy generation placed at the
+  pathname an older Pacto left it under, then a restart with a cold offline
+  `app.Service.Fleet`. Both bundles come back under their own digests, and
+  `deadRegistry` proves zero network calls.
+- `tests/e2e/fleet_cache_identity_test.go` —
+  `TestFleetOfflineCollapsesOneArtifactCachedTwice`: the same artifact filed
+  under both pathnames is one revision, still with zero network calls.
+
+Mutation checks (each applied to the production code, run, then reverted):
+
+- `identity := ref` instead of `ref + "@" + digest` in `cachedGenerations`: the
+  unit counterexample reports one revision instead of two, and the production
+  e2e loses generation B entirely (`checkout has 1 revisions, want both cached
+  generations of <host>/demo/checkout:1.0.0`).
+- Resolve-by-reference AFTER the inventory (the walk records references, a
+  second lookup finds the first entry for each): `digest sha256:aaa… carries the
+  bytes of "gen-b", which is "gen-a"` — both digests get the same generation's
+  bundle.
+- Revert `buildIndex` to the separate pathname read: the dashboard
+  counterexample fails loudly because the interleaving window is never entered
+  at all.
+- The same reverted implementation with the hook forced between its two reads:
+  the actual splice, `service "checkout-a" is indexed under digest sha256:bbb…,
+  which holds "checkout-b"`.
+- Delete the `rec != v.rec` guard in `cachedVersion.loadBundle`: the lazy-load
+  counterexample fails.
+
+Files, `837ef8bb..6be8719b`: 12 files, +892 / -727.
+
+| file | change |
+| --- | --- |
+| `internal/cachehook/cachehook.go` | new — the one interleaving seam (+20) |
+| `internal/fleetsrc/oci.go` | `cachedRefs` -> `cachedGenerations`, shared `revisionOf`, store-free `CacheSource` |
+| `internal/fleetsrc/oci_test.go` | the B6 counterexamples and the generation-window tests |
+| `internal/app/fleet.go` | `NewCacheSource` loses its `BundleStore` argument |
+| `internal/app/fleet_test.go` | the cache fixture writes a real archive, because the inventory now reads it |
+| `pkg/dashboard/source_cache.go` | generation-bound index walk and lazy load; the private tar reader and its limits deleted |
+| `pkg/dashboard/source_cache_generation_test.go` | new — the B7 deterministic counterexample (+184) |
+| `pkg/dashboard/source_cache_test.go`, `coverage_gap_test.go` | the deleted reader's own tests removed (-360) |
+| `pkg/oci/cache.go` | `readCacheEntry` exported; the seam moved to `internal/cachehook`; `ReadCachedRef` retargeted |
+| `pkg/oci/cache_generation_test.go` | uses the shared seam |
+| `tests/e2e/fleet_cache_identity_test.go` | the two production-wiring offline counterexamples (+188) |
+
+Verification for this candidate is in section 8. Still disclosed and out of
+scope: the CodeQL PR-ref findings and the Evidence Server read-only-cache
+warning.
+
 ### Phase 8B — NOT STARTED
 
 Test architecture & harness consolidation. See TARGET section 10. Phase 8B MUST
 close before Phase 9 or Phase 10 add their new acceptance harnesses.
+
+Phase 8B additionally now owns the canonical scenario/projection boundary added
+to TARGET section 1B ("Declarative > imperative"). TARGET Phase 10B — the
+canonical demo model and the clone-free OCI-distributed Compose demo — is
+BLOCKED on it. Both are FUTURE TARGET ONLY; nothing in them was implemented in
+this narrow repair.
 
 ### Phase 9 — NOT STARTED
 
@@ -1032,9 +1253,57 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `797a49b3`. That review froze the whole runtime half of
-B4 and kept Phase 8 narrowly reopened on its on-disk migration boundary; see
-section 2.
+Reviewed at exact HEAD `837ef8bb`. That review froze the `_v2` namespace and its
+migration work and kept Phase 8 narrowly reopened on the cache-inventory
+boundary (B6 and B7); see section 2.
+
+### Seventh-reopen verification — self-reported at `6be8719b`
+
+Not an independent review. Re-verify at the exact SHA before accepting it.
+Phase 8 stays a CANDIDATE; only an independent review closes it.
+
+- Locally at the exact tree: `make ci` green end to end — `ci-static` (fmt, vet,
+  gocyclo, golangci-lint with 0 issues, `check-section`, CLI-docs drift,
+  UI-build drift, dashboard-SDK drift, plus the operator's own `ci-static`),
+  `ci-gates` (the architecture import-boundary gate and the release gates),
+  `ci-engine` (`ci-test` at 100.0% total coverage under the race detector, the
+  engine e2e, `demo-fleet`), `ci-dashboard` (Vitest 1232 passed in 67 files),
+  `ci-integration-kubernetes` (envtest plus 62 chart tests), `ci-e2e-envtest`
+  and `ci-oci`.
+- `pkg/oci` now imports `internal/cachehook`. `ci-gates` covers the import
+  boundary and is green: the forbidden edges are `k8s.io/`, `sigs.k8s.io/`, the
+  Kubernetes integration module and `gocloud.dev/`; a module-internal package is
+  allowed.
+- Focused counterexamples with `-race`: the B6 unit cases in
+  `internal/fleetsrc`, the B7 index and lazy-load cases in `pkg/dashboard`, and
+  the two production-wiring cases in `tests/e2e` (`go test -tags e2e`).
+- Five mutation checks, each applied to production code and reverted, are
+  itemized in section 2. All five kill the counterexample they target, and two
+  of them reproduce the exact defect text (`checkout has 1 revisions, want both
+  cached generations`; `service "checkout-a" is indexed under digest
+  sha256:bbb…, which holds "checkout-b"`).
+- The first `TestCacheSource_BuildIndex_ABundleAndItsIdentityAreOneGeneration`
+  run was probed to confirm it is NOT vacuous: it indexes generation B whole
+  (`service "checkout-b"`, tag `2.0.0`, ref `ghcr.io/other/checkout:2.0.0`,
+  digest B), so the assertion block runs rather than the coherent-miss early
+  return.
+- No authored frontend input changed, so the committed UI bundle was NOT
+  rebuilt; the drift gates are clean against the existing one.
+- Two incidental working-tree changes produced by the gates themselves were
+  reverted rather than committed: `go.work.sum` additions from module-graph
+  resolution, and a `helm-docs` rewrite of the authored
+  `charts/pacto-dev-gateway/README.md`. Neither is part of this repair, and
+  `make ci` is green without them.
+- The six Kind shards were NOT attempted locally this iteration; no code they
+  exercise changed beyond the cache readers already covered above, and
+  `evidence` and `operational-graph` still cannot run here for the Docker
+  Desktop containerd reason recorded at `ci.mk:88-90`. They run in CI.
+- PR at `6be8719b`: open, DRAFT, mergeable. `6be8719b` and this document's
+  commit are APPENDS on top of `837ef8bb`; no amend, no rebase, no force-push,
+  no history rewrite. Merge-base with `origin/main` is unchanged at
+  `a56b69e375f1881d645d3b39f3366f23398e72cf`.
+- GitHub CI and review-thread state at `6be8719b` are recorded below once the
+  run completes.
 
 ### Sixth-reopen verification — self-reported at `b0020460`
 
@@ -1504,10 +1773,11 @@ a representative live Product journey has actual topology, revisions, targets,
 observed evidence and reconciliation. Its detailed target is TARGET section 10,
 "Phase 8 — live Kind Product acceptance breadth".
 
-At `0cf0c69b` that vertical exists and the two counterexamples the review raised
-against it are closed (section 2). The next iteration objective is therefore the
-INDEPENDENT REVIEW of the Phase-8 candidate at its exact final SHA — not new
-Phase-8 breadth, and not Phase 8B, which remains NOT STARTED.
+At `6be8719b` that vertical exists and every counterexample the seven reviews
+have raised against it is closed (section 2), including B6 and B7 from the
+seventh reopen. The next iteration objective is therefore the INDEPENDENT REVIEW
+of the Phase-8 candidate at its exact final SHA — not new Phase-8 breadth, and
+not Phase 8B, which remains NOT STARTED.
 
 Hard boundaries for the Phase-8 session:
 
@@ -1521,7 +1791,11 @@ Hard boundaries for the Phase-8 session:
 4. do NOT re-derive reconciliation in Playwright; the backend value is
    authoritative and the browser proves consistent presentation;
 5. do NOT erase the open CodeQL item in section 8;
-6. Phases 1 through 7 must not be reopened or redesigned as a side effect.
+6. Phases 1 through 7 must not be reopened or redesigned as a side effect;
+7. do NOT implement TARGET section 1B or TARGET Phase 10B — the canonical
+   scenario/projection boundary and the clone-free OCI-distributed Compose demo
+   are recorded as FUTURE TARGET ONLY, blocked on Phase 8B and sequenced after
+   Phase 10.
 
 ## 11. Final-phase requirements already agreed
 
