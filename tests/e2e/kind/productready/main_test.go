@@ -40,6 +40,7 @@ const (
 	fxTgtO      = "tgt:orders"
 	fxTgtP      = "tgt:payments"
 	fxOCI       = "oci"
+	fxCache     = "cache"
 	fxObs       = "orders-traces"
 	fxEvidence  = "evidence-http"
 )
@@ -71,6 +72,24 @@ type fakeProduct struct {
 	// extraRevisions are appended to the checkout revision list, so a test can add
 	// a second record for an already-published version.
 	extraRevisions []fleet.EntityRef
+	// preCache is the dashboard BEFORE its OCI cache has been populated: the cache
+	// source is absent and every revision was contributed by the registry alone.
+	// Everything else about the fixture is complete and coherent.
+	preCache bool
+	// truncatedProvenance serves a bounded provenance list that dropped a source,
+	// so the answer cannot say which sources contributed.
+	truncatedProvenance bool
+}
+
+// revisionSources is the provenance the fake serves for every revision.
+func (f *fakeProduct) revisionSources() fleet.StringsPreview {
+	if f.preCache {
+		return fleet.StringsPreview{Total: 1, Count: 1, Items: []string{fxOCI}}
+	}
+	if f.truncatedProvenance {
+		return fleet.StringsPreview{Total: 2, Count: 1, Truncated: true, Items: []string{fxOCI}}
+	}
+	return fleet.StringsPreview{Total: 2, Count: 2, Items: []string{fxOCI, fxCache}}
 }
 
 func (f *fakeProduct) idFor(r *http.Request) string {
@@ -126,6 +145,9 @@ func (f *fakeProduct) list(id string, q url.Values) fleet.EntityList {
 			{Kind: "source", Key: fxObs, Label: fxObs},
 			{Kind: "source", Key: fxEvidence, Label: fxEvidence},
 		}
+		if !f.preCache {
+			refs = append(refs, fleet.EntityRef{Kind: "source", Key: fxCache, Label: fxCache})
+		}
 	case "service":
 		refs = []fleet.EntityRef{
 			svcRef(fxCheckout, "checkout", fxDomain),
@@ -168,7 +190,10 @@ func (f *fakeProduct) detail(id, kind, key string) (fleet.EntityDetail, bool) {
 		if version == "" {
 			return d, false
 		}
-		d.Revision = &fleet.RevisionDetailData{Version: version, Identity: exact}
+		d.Revision = &fleet.RevisionDetailData{
+			Version: version, Identity: exact,
+			Provenance: fleet.RevisionProvenance{Source: fxOCI, Sources: f.revisionSources()},
+		}
 	case "target":
 		switch key {
 		case fxTgtC:
@@ -229,7 +254,7 @@ func newProber(t *testing.T, f *fakeProduct, snapshots int) *prober {
 		want: fixture{
 			Domain: fxDomain, Checkout: "checkout", Orders: "orders",
 			CheckoutA: "1.0.0", CheckoutB: "1.1.0", OrdersVersion: "1.0.0",
-			OCISource: fxOCI, ObservationSource: fxObs,
+			OCISource: fxOCI, CacheSource: fxCache, ObservationSource: fxObs,
 			EvidenceSource: fxEvidence, EvidenceService: "payments",
 		},
 	}
@@ -365,6 +390,66 @@ func TestGateRequiresDistinctSnapshots(t *testing.T) {
 		p := newProber(t, &fakeProduct{}, 2)
 		if _, problems := p.run(io.Discard); len(problems) == 0 {
 			t.Fatal("a dashboard stuck on one snapshot must not satisfy -snapshots 2")
+		}
+	})
+}
+
+// The state the Kind vertical must reach is the POST-CACHE one: the pod's OCI
+// cache starts empty, the first refresh's registry pulls fill it, and only then do
+// the registry source and the disk-cache source offer the same published artifacts
+// — the pairing that used to publish one artifact as two revisions.
+//
+// Counting distinct snapshots cannot establish that. SnapshotID hashes the
+// generation time, so a dashboard that never populates a cache still emits an
+// unlimited supply of distinct, individually coherent snapshots. These tests hold
+// the gate to proving the state directly, from the provenance of the revisions.
+func TestGateRequiresCacheContribution(t *testing.T) {
+	t.Run("no number of refreshes substitutes for the cache", func(t *testing.T) {
+		// Every fact except the cache holds, on a fresh snapshot every round, for as
+		// many rounds as the deadline allows. Under -snapshots 1 — the weakest
+		// possible demand — it must still never pass.
+		f := &fakeProduct{rotate: true, preCache: true}
+		p := newProber(t, f, 1)
+		keys, problems := p.run(io.Discard)
+		if len(problems) == 0 {
+			t.Fatal("a fleet whose cache never contributed must not pass, however many snapshots it serves")
+		}
+		if f.rounds() < 3 {
+			t.Fatalf("only %d rounds ran; the case must be shown to survive repeated distinct snapshots", f.rounds())
+		}
+		if !containsSubstring(problems, "the registry and the disk cache must reach the SAME canonical revision") {
+			t.Errorf("problems do not name the missing cache contribution: %v", problems)
+		}
+		if keys != (discovered{}) {
+			t.Errorf("a failed round emitted fixture keys: %+v", keys)
+		}
+	})
+
+	t.Run("the cache source must itself be usable", func(t *testing.T) {
+		p := newProber(t, &fakeProduct{preCache: true}, 1)
+		if _, problems := p.run(io.Discard); !containsSubstring(problems, `data source "cache" is not in the snapshot`) {
+			t.Fatalf("an absent cache source must be reported: %v", problems)
+		}
+	})
+
+	t.Run("a truncated provenance list cannot answer the question", func(t *testing.T) {
+		// The list is bounded, so "cache is not in the first N" is not "cache did not
+		// contribute". An unanswerable question is a failure, not a pass.
+		p := newProber(t, &fakeProduct{truncatedProvenance: true}, 1)
+		if _, problems := p.run(io.Discard); !containsSubstring(problems, "truncated list cannot show which contributed") {
+			t.Fatalf("a truncated provenance list must be reported: %v", problems)
+		}
+	})
+
+	t.Run("one coherent post-cache snapshot passes", func(t *testing.T) {
+		// The positive control for all three: the SAME fixture, with the cache source
+		// present and both sources on every revision, passes on a single snapshot.
+		keys, problems := newProber(t, &fakeProduct{}, 1).run(io.Discard)
+		if len(problems) != 0 {
+			t.Fatalf("a coherent post-cache snapshot must pass: %v", problems)
+		}
+		if keys.CacheSource != fxCache {
+			t.Errorf("CacheSource = %q, want the discovered cache source %q", keys.CacheSource, fxCache)
 		}
 	})
 }

@@ -62,6 +62,7 @@ func main() {
 		revB      = flag.String("checkout-b", "1.1.0", "published-but-undeployed checkout revision (version B)")
 		ordersRev = flag.String("orders-version", "1.0.0", "orders revision version")
 		ociSrc    = flag.String("oci-source", "oci", "expected OCI data source id")
+		cacheSrc  = flag.String("cache-source", "cache", "expected on-disk OCI cache data source id")
 		obsSrc    = flag.String("observation-source", "orders-traces", "expected managed observation data source id")
 		evSrc     = flag.String("evidence-source", "evidence-http", "expected Evidence Server data source id")
 		evService = flag.String("evidence-service", "payments", "service whose target arrives via the Evidence Server")
@@ -87,7 +88,7 @@ func main() {
 		want: fixture{
 			Domain: *domain, Checkout: *checkout, Orders: *orders,
 			CheckoutA: *revA, CheckoutB: *revB, OrdersVersion: *ordersRev,
-			OCISource: *ociSrc, ObservationSource: *obsSrc,
+			OCISource: *ociSrc, CacheSource: *cacheSrc, ObservationSource: *obsSrc,
 			EvidenceSource: *evSrc, EvidenceService: *evService,
 		},
 	}
@@ -108,12 +109,16 @@ func main() {
 // the caller must not emit keys: a round that failed for any reason — including
 // having read its facts from two different snapshots — has no fixture to hand on.
 //
-// With -snapshots N, N DISTINCT snapshots must each prove the whole fixture. That
-// is how the vertical reaches a state a single refresh cannot show: the first
-// dashboard refresh is what populates the pod's OCI cache, so only a LATER
-// snapshot has both the registry source and the now-populated cache source
-// contributing the same published artifacts. Requiring a second proven snapshot
-// waits for that state by observing it, not by sleeping and hoping.
+// The POST-CACHE state is proved by the facts, not by counting refreshes. The
+// pod's OCI cache starts empty and the first refresh's registry pulls are what
+// fill it, so the state under test — registry and disk cache offering the same
+// published artifacts — only exists later. Waiting for N distinct snapshots
+// cannot establish it: SnapshotID hashes the generation time, so distinct ids
+// prove only that time passed. What proves it is fact 3 and facts 5-7, which
+// require the cache source to be usable and every fixture revision to carry BOTH
+// sources in its provenance. -snapshots N still requires N distinct snapshots to
+// each prove the whole fixture, so the post-cache state must also be STABLE
+// across a refresh rather than true once.
 func (p *prober) run(w io.Writer) (discovered, []string) {
 	deadline := time.Now().Add(p.timeout)
 	proven := map[string]bool{}
@@ -144,10 +149,10 @@ func (p *prober) run(w io.Writer) (discovered, []string) {
 
 // factCount is the number of facts section 8 requires the gate to prove. It is a
 // constant so the progress line reports a denominator that cannot drift silently
-// with the number of failures a round happens to produce. Fact 13 is the round's
-// snapshot coherence: the other twelve are only facts about the fleet if one
+// with the number of failures a round happens to produce. Fact 14 is the round's
+// snapshot coherence: the other thirteen are only facts about the fleet if one
 // snapshot answered all of them.
-const factCount = 13
+const factCount = 14
 
 func exit(msg string) {
 	fmt.Fprintln(os.Stderr, "productready:", msg)
@@ -174,7 +179,8 @@ func emit(k discovered, path string) {
 type fixture struct {
 	Domain, Checkout, Orders            string
 	CheckoutA, CheckoutB, OrdersVersion string
-	OCISource, ObservationSource        string
+	OCISource, CacheSource              string
+	ObservationSource                   string
 	EvidenceSource, EvidenceService     string
 }
 
@@ -193,6 +199,7 @@ type discovered struct {
 	OrdersTarget      string `json:"ordersTarget"`
 	EvidenceTarget    string `json:"evidenceTarget"`
 	OCISource         string `json:"ociSource"`
+	CacheSource       string `json:"cacheSource"`
 	ObservationSource string `json:"observationSource"`
 	EvidenceSource    string `json:"evidenceSource"`
 	// Versions travel with the keys so the browser can drive the change-analysis
@@ -321,41 +328,49 @@ func (p *prober) probe() (discovered, []string) {
 		OrdersVersion: p.want.OrdersVersion,
 	}
 
-	// Facts 1-2: both data sources exist AND answered in full. A source that is
-	// merely PRESENT is not usable: a partial OCI source means the revisions below
-	// may be missing for a reason the fixture would otherwise hide.
+	// Facts 1-3: the three data sources exist AND answered in full. A source that
+	// is merely PRESENT is not usable: a partial OCI source means the revisions
+	// below may be missing for a reason the fixture would otherwise hide.
+	//
+	// The CACHE source is here because the state this gate must reach is the
+	// POST-CACHE one: the pod's OCI cache starts empty and the registry pulls of
+	// the first refresh are what fill it, so only a later snapshot has the registry
+	// and the disk cache offering the same published artifacts at once. That is the
+	// pairing that used to publish one artifact as two revisions, and it is proved
+	// below by the provenance of the revisions themselves — this fact only
+	// establishes that the source contributing it was usable at all.
 	sources := p.list("source", "")
 	got.OCISource = p.usableSource(sources, p.want.OCISource)
+	got.CacheSource = p.usableSource(sources, p.want.CacheSource)
 	got.ObservationSource = p.usableSource(sources, p.want.ObservationSource)
-	// The Evidence Server source is not one of the twelve facts on its own — fact 12
-	// is the target it produced — but its id has to be discovered to attribute that
-	// target to it.
+	// The Evidence Server source is not a fact on its own — fact 13 is the target it
+	// produced — but its id has to be discovered to attribute that target to it.
 	got.EvidenceSource = p.want.EvidenceSource
 
-	// Fact 3: both fixture services exist, in the OCI domain (a K8s-synthetic
+	// Fact 4: both fixture services exist, in the OCI domain (a K8s-synthetic
 	// service would land in a different domain and would not carry OCI revisions).
 	services := p.list("service", "")
 	got.CheckoutService = p.serviceKey(services, p.want.Checkout, p.want.Domain)
 	got.OrdersService = p.serviceKey(services, p.want.Orders, p.want.Domain)
 	got.EvidenceService = p.serviceKey(services, p.want.EvidenceService, "")
 
-	// Facts 4-6: three real contract revisions, each with canonical immutable
-	// identity and retrievable content.
+	// Facts 5-7: three real contract revisions, each ONE canonical, exact,
+	// retrievable revision contributed by BOTH the registry and the disk cache.
 	got.CheckoutRevisionA = p.revisionKey(got.CheckoutService, p.want.CheckoutA)
 	got.CheckoutRevisionB = p.revisionKey(got.CheckoutService, p.want.CheckoutB)
 	got.OrdersRevision = p.revisionKey(got.OrdersService, p.want.OrdersVersion)
 
-	// Facts 7-8: the running targets link to the revisions actually deployed.
+	// Facts 8-9: the running targets link to the revisions actually deployed.
 	got.CheckoutTarget = p.runningTarget(got.CheckoutService, got.CheckoutRevisionA)
 	got.OrdersTarget = p.runningTarget(got.OrdersService, got.OrdersRevision)
 
-	// Facts 9-11: declared, observed, and reconciled as one edge.
+	// Facts 10-12: declared, observed, and reconciled as one edge.
 	p.reconciledEdge(got.OrdersService, got.CheckoutService)
 
-	// Fact 12: the external target still arrives over the Evidence Server.
+	// Fact 13: the external target still arrives over the Evidence Server.
 	got.EvidenceTarget = p.evidenceTarget(got.EvidenceService)
 
-	// Fact 13: all twelve came out of ONE snapshot. Each mismatching response has
+	// Fact 14: all thirteen came out of ONE snapshot. Each mismatching response has
 	// already reported itself, but the verdict is stated over the round as a whole
 	// so a splice can never be reduced to a single recoverable-looking read — and
 	// so a round that somehow swallowed the per-request error still fails here.
@@ -424,6 +439,13 @@ func (p *prober) serviceKey(services []fleet.EntityRef, name, domain string) str
 // identities — the shape the dashboard produced when the registry source and the
 // disk-cache source disagreed about what a cached bundle was. Scanning for the
 // first retrievable match would step over exactly that record and pass.
+//
+// And that one revision must have been contributed by BOTH the registry and the
+// disk cache. Uniqueness alone is satisfied trivially before the cache is ever
+// populated, so a gate that stopped there would report the pre-cache fleet as
+// proof about the post-cache one. Two sources on one revision is the LIVE
+// statement that the pairing happened and collapsed to a single identity —
+// something no count of distinct snapshots can establish.
 func (p *prober) revisionKey(serviceKey, version string) string {
 	if serviceKey == "" {
 		return ""
@@ -460,7 +482,31 @@ func (p *prober) revisionKey(serviceKey, version string) string {
 		p.failf("revision %s %s is not retrievable", serviceKey, version)
 		return ""
 	}
+	if !p.contributedByRegistryAndCache(serviceKey, version, d.Revision.Provenance) {
+		return ""
+	}
 	return r.Key
+}
+
+// contributedByRegistryAndCache proves the revision is the SAME record the
+// registry source and the disk-cache source both arrived at.
+//
+// A truncated source list is a failure, not a maybe: the check is about which
+// sources contributed, and a preview that dropped some cannot answer it.
+func (p *prober) contributedByRegistryAndCache(serviceKey, version string, prov fleet.RevisionProvenance) bool {
+	if prov.Sources.Truncated {
+		p.failf("revision %s %s lists %d of %d provenance sources; the truncated list cannot show which contributed",
+			serviceKey, version, prov.Sources.Count, prov.Sources.Total)
+		return false
+	}
+	for _, want := range []string{p.want.OCISource, p.want.CacheSource} {
+		if !sliceHas(prov.Sources.Items, want) {
+			p.failf("revision %s %s was not contributed by %q (sources: %s); the registry and the disk cache must reach the SAME canonical revision",
+				serviceKey, version, want, strings.Join(prov.Sources.Items, ", "))
+			return false
+		}
+	}
+	return true
 }
 
 // runningTarget proves the service has exactly one operational target and that it

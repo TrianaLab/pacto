@@ -305,15 +305,19 @@ echo "== the live Product API proves the fixture is ready =="
 # their reconciliation, and the external evidence target. It also emits the keys
 # it DISCOVERED, so nothing downstream has to construct one.
 #
-# -snapshots 2 is what puts the dashboard in its POST-CACHE state before anything
-# downstream looks at it. The pod's OCI cache starts empty; the first refresh's
-# registry pulls are what fill it, so only a LATER snapshot has both the registry
-# source and the now-populated cache source contributing the same published
-# artifacts — the pairing that used to publish one artifact as two revisions. The
-# gate reaches that state by requiring two DISTINCT snapshots to each prove the
-# whole fixture, so the wait is an observation, not a sleep. (A pod restart would
-# be the wrong lever: the operator mounts the cache as an emptyDir, so restarting
-# ERASES the state under test.)
+# The POST-CACHE state is proved by the FACTS, not by counting snapshots. The
+# pod's OCI cache starts empty and the first refresh's registry pulls are what
+# fill it, so the pairing that used to publish one artifact as two revisions only
+# exists once both sources contribute; the gate therefore requires the cache
+# source to be usable AND every fixture revision to name both the registry and
+# the cache in its provenance while staying ONE canonical, exact, retrievable
+# revision. Counting refreshes could not establish that: a SnapshotID hashes the
+# generation time, so distinct ids prove only that time passed.
+#
+# -snapshots 2 remains as a STABILITY requirement on top: the fixture must hold
+# across a refresh, not merely at one lucky instant. (A pod restart would be the
+# wrong lever: the operator mounts the cache as an emptyDir, so restarting ERASES
+# the state under test.)
 DASH_PF="$(pf 8080 svc/pacto-dashboard 3000)"
 FIXTURE_JSON="$(mktemp)"
 ( cd "$ROOT" && go run ./tests/e2e/kind/productready \
