@@ -31,6 +31,7 @@
 #   logs             dump component logs for the running cluster
 #   down             tear the cluster down
 set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-obs}"
 NS=pacto-system
 DEMO_NS=demo
@@ -59,9 +60,11 @@ esac
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
 trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
 
-# The kind runners have python3 but not necessarily jq, so assertions over JSON
-# are python expressions reading stdin (same choice as the other kind scripts).
-jqp() { python3 -c "$1"; }
+# Everything semantic this scenario asserts over JSON — the Deployment wiring and
+# the Product facts — is a typed decode in tests/acceptance/kind/obscheck, which
+# has its own mutation-check suite. The shell only brings the cluster up and says
+# which facts must hold.
+obscheck() { ( cd "$ROOT" && go run ./tests/acceptance/kind/obscheck "$@" ); }
 
 VER="$(release_version kubernetes)"
 CORE="$(release_version core)"
@@ -171,38 +174,13 @@ helm install pacto-operator "$CHART" -n "$NS" \
 wait_ready pacto-dashboard
 
 echo "== the REAL Deployment carries the read-only mounts and the configuration =="
-kubectl -n "$NS" get deployment pacto-dashboard -o json | jqp '
-import json,sys
-spec=json.load(sys.stdin)["spec"]["template"]["spec"]
-vols={v["name"]:v for v in spec["volumes"]}
-c=spec["containers"][0]
-mounts={m["name"]:m for m in c["volumeMounts"]}
-env={e["name"]:e.get("value","") for e in c["env"]}
-root="'"$MOUNT_ROOT"'"
-errs=[]
-for vol,claim in (("obs-orders-traces","orders-trace-export"),("obs-escaping-traces","escaping-trace-export")):
-    pvc=vols.get(vol,{}).get("persistentVolumeClaim")
-    if not pvc or pvc.get("claimName")!=claim:
-        errs.append(vol+" is not backed by the declared PVC")
-    elif not pvc.get("readOnly"):
-        errs.append(vol+" is not readOnly")
-for vol,cmname in (("obs-broken-traces","broken-trace-export"),("obs-fixture-traces","fixture-trace-export")):
-    cm=vols.get(vol,{}).get("configMap")
-    if not cm or cm.get("name")!=cmname:
-        errs.append(vol+" is not backed by the declared ConfigMap")
-for n in ("obs-orders-traces","obs-broken-traces","obs-fixture-traces","obs-escaping-traces"):
-    m=mounts.get(n)
-    if not m: errs.append("missing mount "+n)
-    elif not m.get("readOnly"): errs.append(n+" is mounted writable")
-    elif m.get("mountPath")!=root+"/"+n[4:]: errs.append(n+" mounted at "+str(m.get("mountPath")))
-want=" ".join("%s=%s/%s/%s"%(n,root,n,f) for n,f in (
-    ("broken-traces","traces.json"),("escaping-traces","escape.json"),
-    ("fixture-traces","traces.json"),("orders-traces","traces.json")))
-if env.get("PACTO_DASHBOARD_TRACE_SOURCES")!=want:
-    errs.append("PACTO_DASHBOARD_TRACE_SOURCES="+repr(env.get("PACTO_DASHBOARD_TRACE_SOURCES")))
-print("\n".join(errs))
-sys.exit(1 if errs else 0)
-' && pass "every source mounted read-only under its declared name, and configured" \
+kubectl -n "$NS" get deployment pacto-dashboard -o json \
+  | obscheck wiring -mount-root "$MOUNT_ROOT" \
+      -source 'orders-traces:pvc:orders-trace-export:traces.json' \
+      -source 'broken-traces:configMap:broken-trace-export:traces.json' \
+      -source 'fixture-traces:configMap:fixture-trace-export:traces.json' \
+      -source 'escaping-traces:pvc:escaping-trace-export:escape.json' \
+  && pass "every source mounted read-only under its declared name, and configured" \
   || fail "the deployment wiring is wrong (see above)"
 
 echo "== declared services: orders declares a dependency on checkout =="
@@ -248,52 +226,18 @@ wait_pacto_status "$DEMO_NS" orders Compliant && pass "orders reconciled" || fai
 echo "== the Product API sees both Data Sources under their declared names =="
 DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"
 BASE="http://127.0.0.1:${LOCAL_DASH_PORT}"
-# The dashboard rebuilds its snapshot periodically, so poll the assertion itself
-# rather than racing the first build; the last attempt's errors are what we print.
-OK=""
-for _ in $(seq 1 30); do
-  SNAP="$(curl -fsS "$BASE/api/fleet/snapshot" 2>/dev/null || true)"
-  [ -n "$SNAP" ] && echo "$SNAP" | jqp '
-import json,sys
-s=json.load(sys.stdin)
-src={x["id"]:x for x in s.get("sources",[])}
-errs=[]
-if src.get("orders-traces",{}).get("status")!="available":
-    errs.append("orders-traces status="+repr(src.get("orders-traces",{}).get("status")))
-# A projected ConfigMap volume resolves its own internal symlinks, so a rooted
-# read must NOT break it: valid content in, available source out.
-if src.get("fixture-traces",{}).get("status")!="available":
-    errs.append("fixture-traces status="+repr(src.get("fixture-traces",{}).get("status")))
-for bad in ("broken-traces","escaping-traces"):
-    if src.get(bad,{}).get("status")!="unavailable":
-        errs.append(bad+" status="+repr(src.get(bad,{}).get("status")))
-    if not any(l.get("code")=="SOURCE_UNAVAILABLE" and l.get("source")==bad for l in s.get("limitations",[])):
-        errs.append("no SOURCE_UNAVAILABLE limitation naming "+bad)
-obs=[r for r in s.get("relationships",[]) if r.get("provenance")=="observed"
-     and r.get("fromService","").endswith("orders") and r.get("toService","").endswith("checkout")]
-if not obs:
-    errs.append("no observed orders->checkout edge reached the fleet")
-else:
-    attributed={st.get("source") for st in obs[0].get("observedSources",[])}
-    if "orders-traces" not in attributed:
-        errs.append("the observed edge is not attributed to orders-traces: "+json.dumps(obs[0].get("observedSources")))
-    # The escaping source read nothing, so it witnessed nothing. Had the symlink
-    # been followed it would have read the very export this edge came from and
-    # would be counted here alongside orders-traces.
-    if "escaping-traces" in attributed:
-        errs.append("the escaping source read outside its mount: "+json.dumps(obs[0].get("observedSources")))
-if any(st.get("source")=="escaping-traces"
-       for r in s.get("relationships",[]) for st in r.get("observedSources",[])):
-    errs.append("the escaping source contributed evidence to the snapshot")
-if not any(v.get("name")=="checkout" for v in s.get("services",{}).values()):
-    errs.append("the reconciled services are not in the snapshot yet")
-print("\n".join(errs))
-sys.exit(1 if errs else 0)
-' >/tmp/pacto-obs-assert.txt 2>&1 && { OK=1; break; }
-  sleep 3
-done
-[ -n "$OK" ] && pass "the mounted export's observed edge is attributed to orders-traces; the projected ConfigMap source is available; the malformed and the escaping sources are explicitly unavailable and contributed nothing" \
-  || { cat /tmp/pacto-obs-assert.txt; fail "the fleet did not report the configured sources correctly (see above)"; }
+# -silent escaping-traces is the whole point of that source: it read nothing, so
+# it witnessed nothing. Had the symlink out of its mount been followed it would
+# have read the very export the observed edge came from and would be counted
+# alongside orders-traces. A projected ConfigMap volume, by contrast, resolves
+# its OWN internal symlinks, so a rooted read must not break fixture-traces.
+obscheck snapshot -base "$BASE" \
+  -available orders-traces -available fixture-traces \
+  -unavailable broken-traces -unavailable escaping-traces \
+  -observed orders:checkout -attributed orders-traces -silent escaping-traces \
+  -service checkout \
+  && pass "the mounted export's observed edge is attributed to orders-traces; the projected ConfigMap source is available; the malformed and the escaping sources are explicitly unavailable and contributed nothing" \
+  || fail "the fleet did not report the configured sources correctly (see above)"
 
 # The observed half above and the declared half the operator reconciled name the
 # same pair, which is what makes the mounted export reconcilable evidence rather
@@ -329,37 +273,20 @@ rolled() { [ "$(kubectl -n "$NS" get deployment pacto-dashboard -o jsonpath='{.m
 eventually 40 rolled && pass "changing the sources rolled the dashboard" || fail "the configuration change never reached the pod template"
 wait_ready pacto-dashboard
 
-kubectl -n "$NS" get deployment pacto-dashboard -o json | jqp '
-import json,sys
-spec=json.load(sys.stdin)["spec"]["template"]["spec"]
-names={v["name"] for v in spec["volumes"]} | {m["name"] for m in spec["containers"][0]["volumeMounts"]}
-env={e["name"]:e.get("value","") for e in spec["containers"][0]["env"]}
-errs=[]
-for gone in ("broken-traces","fixture-traces","escaping-traces"):
-    if "obs-"+gone in names: errs.append(gone+" left orphaned volume/mount wiring behind")
-    if gone in env.get("PACTO_DASHBOARD_TRACE_SOURCES",""): errs.append(gone+" is still configured")
-print("\n".join(errs))
-sys.exit(1 if errs else 0)
-' && pass "removing a source removed its mount and its configuration" || fail "removal left wiring behind (see above)"
+kubectl -n "$NS" get deployment pacto-dashboard -o json \
+  | obscheck wiring -mount-root "$MOUNT_ROOT" \
+      -source 'orders-traces:pvc:orders-trace-export:absent.json' \
+      -absent broken-traces -absent fixture-traces -absent escaping-traces \
+  && pass "removing a source removed its mount and its configuration" \
+  || fail "removal left wiring behind (see above)"
 
 DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"
 curl -fsS "$BASE/health" >/dev/null && pass "the dashboard is alive with a failing source" || fail "a failing source took the dashboard down"
-OK=""
-for _ in $(seq 1 30); do
-  SNAP="$(curl -fsS "$BASE/api/fleet/snapshot" 2>/dev/null || true)"
-  if echo "$SNAP" | jqp '
-import json,sys
-s=json.load(sys.stdin)
-src={x["id"]:x for x in s.get("sources",[])}
-if src.get("orders-traces",{}).get("status")!="unavailable": sys.exit(1)
 # The other sources must be unaffected: the live Kubernetes source still answers
 # and the services it reconciled are still there.
-if not any(x["kind"]=="kubernetes" and x["status"]=="available" for x in s.get("sources",[])): sys.exit(1)
-if not any(v.get("name")=="checkout" for v in s.get("services",{}).values()): sys.exit(1)
-' 2>/dev/null; then OK=1; break; fi
-  sleep 3
-done
-[ -n "$OK" ] && pass "the failed source is explicit unavailable knowledge; healthy sources still answer" \
+obscheck snapshot -base "$BASE" \
+  -unavailable orders-traces -kind-available kubernetes -service checkout \
+  && pass "the failed source is explicit unavailable knowledge; healthy sources still answer" \
   || fail "a missing trace file did not surface as an unavailable Data Source with the rest of the fleet intact"
 kill "$DASH_PF" 2>/dev/null || true
 
@@ -372,7 +299,7 @@ if [ -n "${KEEP_E2E_CLUSTER:-}" ]; then
 
     export KUBECONFIG=\$(mktemp) && kind get kubeconfig --name $CLUSTER > \$KUBECONFIG
     kubectl -n $NS port-forward svc/pacto-dashboard 8080:3000
-    curl -s localhost:8080/api/fleet/snapshot | python3 -m json.tool | less
+    curl -s localhost:8080/api/fleet/snapshot | less
 
   Inspect / tear down:
     make e2e-observation-kind-status
