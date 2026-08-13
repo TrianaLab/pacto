@@ -286,8 +286,9 @@ func runSnapshot(args []string) ([]string, error) {
 	deadline := time.Now().Add(*timeout)
 	// Poll the ASSERTION, not the endpoint: the snapshot is rebuilt on an
 	// interval, so a source that has not been read yet is a not-yet, not a
-	// failure. The last round's errors are what a timeout reports.
-	last := []string{"the dashboard never served a decodable snapshot"}
+	// failure. The last round's errors are what a timeout reports — the first
+	// round always writes them, whether the fetch or the check failed.
+	var last []string
 	for {
 		if snap, err := fetchSnapshot(url); err != nil {
 			last = []string{err.Error()}
