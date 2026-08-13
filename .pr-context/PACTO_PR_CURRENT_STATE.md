@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`41fa3c02a2c73cff1a9e6f64dbb78a5a96aff0ff`
+`797a49b32d338e597c78b7834a3fd256e4ab648c`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,19 +25,26 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-That review kept Phase 8 NARROWLY REOPENED a fifth time, on B4's RemoteAllowed
-half (section 2, "Fifth narrow reopen"). The LocalOnly repair in `234f01f8` is
-independently ACCEPTED and frozen, B5 is ACCEPTED and frozen, blocker A stays
-CLOSED, the registry resolve-once / pull-by-digest binding, the direct 14-fact
-post-cache gate, the two-snapshot requirement and journeys A–H stay accepted,
+That review kept Phase 8 NARROWLY REOPENED a sixth time, on B4's ON-DISK
+MIGRATION boundary (section 2, "Sixth narrow reopen"). The complete LocalOnly
+`CachedRef` propagation, the cold/warm reference-agreement guard, the
+RemoteAllowed miss-refetch-or-fail behaviour and resolve-once / pull-by-digest
+are independently ACCEPTED and frozen, B5 is ACCEPTED and frozen, blocker A
+stays CLOSED, the 14-fact two-snapshot live gate and journeys A–H stay accepted,
 Phase 8B stays NOT STARTED, and every other Phase-8 acceptance stays frozen.
 
-Commits appended on top of the reviewed HEAD `41fa3c02`, oldest first:
+Commits appended on top of the reviewed HEAD `797a49b3`, oldest first:
+
+- `b0020460` — a cache entry this version writes can never land on an older
+  one's baseline (blocker B, B4's on-disk migration boundary)
+- this document's own commit — persist the Phase-8 candidate after the sixth
+  narrow reopen
+
+Commits appended on top of the earlier reviewed HEAD `41fa3c02`:
 
 - `d58a6f93` — a cache entry belongs to the reference it says it does (blocker
-  B, B4's RemoteAllowed half)
-- this document's own commit — persist the Phase-8 candidate after the fifth
-  narrow reopen
+  B, B4's RemoteAllowed half; ACCEPTED and frozen at `797a49b3`)
+- `797a49b3` — persist the Phase-8 candidate after the fifth narrow reopen
 
 Commits appended on top of the earlier reviewed HEAD `80c0e92f`:
 
@@ -99,7 +106,7 @@ For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 - `6750c959` — the Phase-8 candidate is verified on the fixed harness
 - `d8ef5d5a`, `0cf0c69b`, `879724dc`, `6049f44e`, `caf88050`, `622ed857`,
   `1741318d`, `a1159be0`, `60fe9919`, `80c0e92f`, `234f01f8`, `41fa3c02`,
-  `d58a6f93` and this document's commit, as listed above
+  `d58a6f93`, `797a49b3`, `b0020460` and this document's commit, as listed above
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -170,6 +177,14 @@ counterexample.
 - a cold (disk) read and a warm (memory) read both preserve `Ref` and `Digest`;
 - `CacheSource` derives bundle, `Digest`, `RequestedRef`, `Domain` and
   `ResolvedRef` from that one generation.
+
+**Cache identity — the reference-agreement repair at `d58a6f93`**
+
+- a cache entry states its own identity, and a hit requires it to AGREE with the
+  reference asked for, on the cold disk read and on the warm memory read alike;
+- under `RemoteAllowed` a disagreeing entry is a MISS that refetches, or an
+  honest failure when the registry is unreachable — never mixed content;
+- resolve-once then pull-by-digest.
 
 **Phases**
 
@@ -743,6 +758,101 @@ at 100.0%; `make e2e`; `make demo-fleet`. The six Kind shards run in CI. Still
 disclosed and out of scope: the CodeQL PR-ref findings and the Evidence Server
 read-only-cache warning.
 
+#### Sixth narrow reopen at `797a49b3` — B4's on-disk migration boundary, CANDIDATE
+
+The review at `797a49b3` accepted the whole runtime half of B4 and froze it, and
+left B4 open where the fix meets an EXISTING cache on disk. `entryDir` had been
+made injective among the keys THIS version writes; its range still overlapped
+the LEGACY namespace, so a new key could name another reference's old entry:
+
+```
+refA = localhost:5000/demo/checkout:1.0.0
+refB = localhost/5000/demo/checkout:1.0.0
+legacyEntryDir(refA) == entryDir(refB)
+```
+
+An upgrade destroyed a baseline nothing could see coming. A real legacy entry
+for `refA` — complete sidecar and bundle — sits at `legacyEntryDir(refA)`; the
+new implementation starts; the first pull of `refB` writes to `entryDir(refB)`,
+which is that same directory, and re-commits it as `refB` before
+`retireLegacyEntry` is ever consulted. A cold offline reader can no longer read
+`refA` at all. The pre-existing persistence test proved only the opposite order
+(a NEW `refB` entry, then `refA` written), which the injective key already
+covered.
+
+Closed by making the namespaces DISJOINT rather than each injective, and by
+deleting the destructive retirement instead of trying to make it safe.
+
+Every entry this version writes now lives under a reserved `_v2` segment
+(`entryNamespace`). A legacy key is the reference with ':' spelled '/', so its
+first segment is the reference's first component, and an OCI reference component
+must begin with an alphanumeric: no valid reference can produce a legacy key
+under a segment starting with '_'. Nothing this version commits can therefore
+land on a baseline an earlier one left, for ANY pair of references, not just the
+ones a test enumerates. The same reservation already backs the `_invalid`
+sentinel in `CachedStore.contained`. Backward compatibility comes from still
+READING the legacy path (`entryDirs` returns the new directory and then the
+legacy one), never from writing to it.
+
+Nothing retires a legacy entry any more. Retirement read a sidecar BY PATHNAME
+and later called `RemoveAll` on that pathname, and the disk cache is shared:
+between the two operations another process installs a whole generation, and the
+removal takes a foreign one the read never saw. A sidecar-less legacy entry is
+worse — its owner is unknowable, so "it must be ours" is a guess that costs a
+stranger their only offline baseline. No destructive eager retirement is the
+narrow-fix choice the review asked for; stale bytes stay until the cache is
+cleared, which is what a cache is for.
+
+The duplicate a surviving legacy entry would otherwise cause is a WALKER problem
+and is solved in both walkers, keyed on the COMPLETE recorded identity
+(reference plus digest): `internal/fleetsrc.cachedRefs` reports a reference once
+however many entries hold it, and `pkg/dashboard.CacheSource.buildIndex` indexes
+`ref@digest` once.
+
+`buildIndex` was also still rebuilding the reference from the encoded path,
+which for a real untagged entry (`%00`) emitted `repo:%00`. The exact recorded
+`Ref` is now carried on the cached version separately from the display/version
+key, and the key is derived FROM that reference — digest for a digest pin, tag
+for a tagged reference, the contract's own version for a bare repository — never
+from the path.
+
+Preserved unchanged: the complete LocalOnly `CachedRef`; the cold/warm agreement
+guard; RemoteAllowed miss-refetch-or-fail; resolve-once then pull-by-digest;
+zero-network offline reads; B5; the 14-fact two-snapshot live gate; journeys
+A–H.
+
+- `pkg/oci/cache_alias_test.go` —
+  `TestCachedStore_AnUpgradePullDoesNotDestroyALegacyBaseline`: the upgrade
+  counterexample in BOTH migration orders (legacy A then B pulled, legacy B then
+  A pulled), with real `CachedStore`s, a real seeded legacy entry and cold
+  offline readers after a restart; both references must come back with their own
+  bundle AND their own digest. It fails on `d58a6f93` in the first order
+  (`refA`'s baseline is gone: `not cached`), which is the exact sequence the
+  review specified.
+- `pkg/oci/cache_alias_test.go` —
+  `TestEntryDir_TheNewNamespaceIsDisjointFromEveryLegacyKey`: a cross-product
+  over ten valid references (ported, port-free, nested, untagged, digest-pinned,
+  prerelease-tagged, and both spellings of the aliasing pair) proving
+  `entryDir(a) != legacyEntryDir(b)` for every pair INCLUDING `a == b`, and
+  `entryDir(a) != entryDir(b)` for distinct references.
+- `pkg/oci/cache_internal_test.go` — `entryDirs` returns the new entry first and
+  the legacy one it must still read second.
+- `pkg/dashboard/source_cache_test.go` —
+  `TestCacheSource_ScanReportsTheRecordedReference` over entries produced by a
+  REAL `CachedStore`: tagged, ported, untagged and digest-pinned. Each asserts
+  the exact recorded `Ref` and the derived version key (`1.0.0`, `2.0.0`, the
+  contract's `9.9.9` for the bare repository, `sha256:abc123` for the pin).
+  `TestCacheSource_OneArtifactIsIndexedOnce` covers the walker dedupe.
+- `internal/fleetsrc/oci_test.go` —
+  `TestCacheSource_Collect_OneReferenceIsCollectedOnce`: the same artifact under
+  the `_v2` key and the legacy key yields exactly one revision.
+- `pkg/oci/cache_test.go` — the unused `legacyCachedDir` helper that failed
+  `ci-static` at `797a49b3` is gone.
+
+Verification for this candidate is in section 8. Still disclosed and out of
+scope: the CodeQL PR-ref findings and the Evidence Server read-only-cache
+warning.
+
 ### Phase 8B — NOT STARTED
 
 Test architecture & harness consolidation. See TARGET section 10. Phase 8B MUST
@@ -922,9 +1032,70 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `1741318d`. That review kept blocker A closed, accepted
-the registry binding and the 14-fact post-cache gate, and kept Phase 8 narrowly
-reopened on two boundaries; see section 2.
+Reviewed at exact HEAD `797a49b3`. That review froze the whole runtime half of
+B4 and kept Phase 8 narrowly reopened on its on-disk migration boundary; see
+section 2.
+
+### Sixth-reopen verification — self-reported at `b0020460`
+
+Not an independent review. Re-verify at the exact SHA before accepting it.
+Phase 8 stays a CANDIDATE; only an independent review closes it.
+
+- GitHub CI at `b0020460`: 39 check runs — 36 success, `build` and `auto-merge`
+  skipped, `CodeQL` failure. Green on the first attempt, no reruns: `changes`,
+  `ci-gates`, `ci-static` (the failure this iteration was commissioned to fix),
+  `ci-engine`, `ci-oci`, `ci-dashboard`, `ci-e2e-envtest`,
+  `ci-integration-kubernetes`, `dashboard-e2e`, `operator-build`,
+  `artifact-drift`, `release-version-test`, `release-dry-run`, `required`,
+  `bundle`, `docs-check`, `repowise`, `validate`, and all six Kind shards —
+  `dashboard`, `upgrade`, `reconcile`, `evidence`, `observation`,
+  `operational-graph`. The whole run is green except the explicitly carried
+  CodeQL check.
+- Security is green and stays a DIFFERENT claim from the CodeQL alert
+  attribution: Trivy, Trivy (image), govulncheck, govulncheck (Go), PR security
+  summary and all four `Analyze` jobs pass. The `CodeQL` check itself reports
+  "8 new alerts including 8 high severity security vulnerabilities" (10 at
+  `797a49b3`) — the carried PR-ref path-expression findings on
+  `pkg/oci/cache.go`. That item stays OPEN below and is NOT closed by the green
+  Security workflow.
+- Locally at the same tree: `make ci-static` clean (fmt, vet, gocyclo, lint,
+  `check-section`, CLI-docs drift, UI-build drift, dashboard-SDK drift, plus the
+  operator's own `ci-static`); `make ci-test` — 100.0% total coverage under the
+  race detector, plus the example tests and the 24/24 offline demo-contract
+  validation; `make ci-gates`; `make ci-engine` (engine e2e and `demo-fleet`,
+  all sections PASS); `make ci-dashboard` — Vitest 1232 passed in 67 files;
+  `make ci-oci`; `make ci-integration-kubernetes`; `make ci-e2e-envtest`.
+- Focused counterfactuals with `-race -count=5`: `pkg/oci` (alias, `entryDir`,
+  `pullCached`, `pullPinned`, `readCacheEntry`), `pkg/dashboard -run
+  TestCacheSource_`, `internal/fleetsrc -run TestCacheSource_`. And `go test
+  -race ./...` over the whole module.
+- The upgrade counterexample was run against `d58a6f93` before the fix: it fails
+  there in the "legacy A, then B is pulled" order, with `refA` no longer cached
+  at all after the restart. The opposite order already passed there, and both
+  orders are asserted now regardless.
+- No authored frontend input changed, so the committed UI bundle was NOT
+  rebuilt; the drift gates are clean against the existing one.
+- The six Kind shards were attempted locally. Four PASS — `dashboard`,
+  `upgrade`, `reconcile`, `observation`. `evidence` and `operational-graph`
+  cannot run here for the reason recorded at `ci.mk:88-90`: both load
+  `registry:2`, and under Docker Desktop's containerd image store `kind load`
+  fails with `ctr: content digest sha256:46faa9a1… not found` while importing
+  `--all-platforms`, so the cluster never gets its images. Both are green in
+  CI's clean Docker at `b0020460`.
+- PR at `b0020460`: open, DRAFT, mergeable. No amend, no rebase, no force-push,
+  no history rewrite — `b0020460` and this document's commit are appends on top
+  of `797a49b3`.
+- Review threads re-queried at `b0020460` (paginated, all 199 fetched): 199
+  total, 189 resolved, 10 unresolved. Six are `github-code-quality` comments on
+  the GENERATED minified Mermaid chunk
+  `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, unchanged because
+  the bundle was not rebuilt. Four are `github-advanced-security` CodeQL
+  comments on AUTHORED code, now at `pkg/oci/cache.go` lines 367, 386, 387 and
+  654. So: 4 unresolved authored, 6 unresolved generated. At `797a49b3` the same
+  query returned 199 total, 187 resolved, 12 unresolved (6 generated, 6
+  authored); two authored CodeQL threads resolved themselves as their lines
+  moved with this commit. The unresolved authored population is the same carried
+  item, not a new one.
 
 ### Third-reopen verification — self-reported at `a1159be0`
 
@@ -1270,6 +1441,27 @@ joins the population that must be independently triaged before Phase 14
 readiness. No attempt was made to silence any of them, and no unrelated security
 code was touched. The `CodeQL` check run at `a1159be0` still fails; the Security
 workflow at the same SHA is green, and those remain two different claims.
+
+Re-queried again at `b0020460` (same caveats, still OPEN): 9 open alerts on
+`refs/pull/291/head` — 8 `go/path-injection` and the same 1 Python alert. The
+population is UNCHANGED in membership; only lines moved:
+
+- alerts 40, 41, 42, 43 (`internal/app/resolve.go` 35, 43, 57, 67) — unchanged;
+- alerts 59, 60, 61 (`pkg/oci/cache.go` 367, 386, 387) — the same three
+  previously reported at 322, 341, 342 on `writeCacheEntry`'s `MkdirAll`,
+  `RemoveAll` and `Rename`; the lines moved because this pass's comments and the
+  `entryNamespace` change sit above them, and no security code was changed;
+- alert 62 (`pkg/oci/cache.go` 654, `heldGenerationIsInstalled`'s `os.Stat`) —
+  the same alert previously reported at 481, moved for the same reason;
+- alert 38 (`release/scripts/docs_check.py:197`) — unchanged.
+
+No alert was added, silenced or dismissed in this pass, and no unrelated
+security code was touched. The `CodeQL` check run at `b0020460` still fails,
+reporting 8 new high-severity alerts (10 at `797a49b3` — the number the check
+attributes to the diff moved, the underlying open population did not). The
+Security workflow at the same SHA is green, and those remain two different
+claims. The whole item stays OPEN and must be independently triaged, fixed or
+dismissed with evidence before Phase 14 readiness.
 
 Important process rule:
 
