@@ -1,6 +1,6 @@
 # Pacto PR #291 — Current Implementation State
 
-**Snapshot date:** 2026-08-13  
+**Snapshot date:** 2026-08-13
 **Repository:** `TrianaLab/pacto`  
 **PR:** `#291`  
 **Branch:** `feat/operational-graph-fleet`
@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`879724dc1fc9b3b06b96fb3f6d3f1fa57ce0e2e4`
+`1741318d26ccc08238c60bd046d4e19019b1036d`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,12 +25,20 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-That review kept Phase 8 NARROWLY REOPENED. It CLOSED blocker A
-independently — `productready`'s same-round `SnapshotID` coherence is settled
-and must not be redesigned — and left three blocker-B boundaries open (section
-2). Every other Phase-8 acceptance stays frozen.
+That review kept Phase 8 NARROWLY REOPENED a third time, on two boundaries
+(section 2, "Third narrow reopen"). Blocker A stays CLOSED, the registry
+resolve-once / pull-by-digest binding and the direct 14-fact post-cache gate are
+accepted, Phase 8B stays NOT STARTED, and every other Phase-8 acceptance stays
+frozen.
 
-Commits appended on top of the reviewed HEAD `879724dc`, oldest first:
+Commits appended on top of the reviewed HEAD `1741318d`, oldest first:
+
+- `a1159be0` — a reader gets one cache generation, and the cache's life is
+  three facts (blocker B, boundaries 4 and 5)
+- this document's own commit — persist the Phase-8 candidate after the third
+  narrow reopen
+
+Commits appended on top of the earlier reviewed HEAD `879724dc`:
 
 - `6049f44e` — a cache entry is the bundle and its identity, bound to the bytes
   pulled (blocker B, boundaries 1 and 2)
@@ -38,8 +46,7 @@ Commits appended on top of the reviewed HEAD `879724dc`, oldest first:
   (blocker B, boundary 3)
 - `622ed857` — a cache the pulls fill is a source, whatever was in it at startup
   (the product defect boundary 3's gate caught; see section 8)
-- this document's own commit — persist the Phase-8 state after the blocker-B
-  boundaries
+- `1741318d` — persist the Phase-8 candidate after the second narrow reopen
 
 Commits appended on top of the earlier reviewed HEAD `6750c959`:
 
@@ -76,8 +83,9 @@ For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 - `2c5034d8` — persist the Phase 8 candidate state and what it does not close
 - `d18ca70e` — a port-forward is ready when it answers, not two seconds later
 - `6750c959` — the Phase-8 candidate is verified on the fixed harness
-- `d8ef5d5a`, `0cf0c69b`, `879724dc`, `6049f44e`, `caf88050` and this
-  document's commit, as listed above
+- `d8ef5d5a`, `0cf0c69b`, `879724dc`, `6049f44e`, `caf88050`, `622ed857`,
+  `1741318d`, `a1159be0` and this document's commit, as listed
+  above
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -487,6 +495,88 @@ The shell classification is unchanged again: `tests/e2e/kind/operational-graph.s
 gained only a rewritten rationale comment. The Kind vertical, its thin
 orchestration and `-snapshots 2` all stand.
 
+#### Third narrow reopen at `1741318d` — two blocker-B boundaries, CANDIDATE
+
+The review at `1741318d` kept blocker A CLOSED, accepted the registry
+resolve-once / pull-by-digest binding and accepted the direct 14-fact post-cache
+gate. It left two boundaries open. Phase 8B was not begun, `productready`'s
+provenance checks and the `-snapshots 2` stability requirement were not touched,
+and no sleep, shell harness, pod restart, fixture shortcut or Playwright-side
+derivation was added.
+
+**B4 — a reader could still mix two coherent generations.** `writeCacheEntry`
+commits a generation whole, but that makes each GENERATION coherent, not each
+READER. Two files opened by pathname are two observations, and the disk cache is
+shared between processes and between store instances, so a mutex on one
+`CachedStore` proves nothing. Two deterministic counterexamples: `pullCached`
+finished reading bundle A, another writer installed generation B, and the
+subsequent `ReadCachedRef` returned bundle A under digest B; and `CacheSource`
+walked the cache recording sidecar A, a writer installed B, the LocalOnly
+resolution read bundle B, and `collectRefs` then overwrote its digest with the
+walk's entry.Digest A — the same lie in the other direction.
+
+Closed by reading ONE generation through ONE directory handle. `readCacheEntry`
+opens the entry directory with `os.OpenRoot` and takes both the bundle and the
+sidecar from that handle. A generation swapped out from under the handle is
+unlinked, not rewritten: its files keep answering, and once `RemoveAll` has taken
+them they read as ABSENT rather than replaced, which `os.SameFile` against the
+installed directory distinguishes from an entry that simply never had a sidecar
+— so pre-sidecar entries stay readable and identity-less, exactly as intended.
+Absent is coherent: retry the successor, at most `cacheEntryAttempts` times, and
+a writer that keeps winning yields a cache MISS, never a mixture. The inverse
+case is closed at the source: `Resolver.ResolvePinned` in `LocalOnly` now
+reports the digest the store read back WITH the bytes
+(`CachedStore.PullCachedPinned`), and `collectRefs`'s walk-time digest override
+is deleted. `cachedRefs` now says only WHICH entries exist; what they are and
+what they hold arrive together, later, from one generation.
+
+Preserved unchanged: best-effort persistence after a successful registry pull, no
+walker-visible partial entry, network-free offline reads, digest-bound
+mutable-tag behaviour, and old-cache compatibility.
+
+- `pkg/oci/cache_generation_test.go` — barrier-driven, two real `CachedStore`
+  instances over one real disk cache: the writer commits generation B exactly
+  between the reader's bundle read and its identity read, and the reader must
+  answer B/B; a writer that wins three times running gives a miss, with every
+  attempt consumed; a sidecar-less entry is compatible, not a swapped
+  generation. With the staging-directory writer alone — the sidecar re-read by
+  pathname — the first test fails with `the reader returned the bytes of "gen-a"
+  under digest sha256:bbb, which holds "gen-b"`.
+- `internal/fleetsrc/oci_test.go` —
+  `TestCacheSource_Collect_TheWalkAndTheReadAreOneGeneration` drives the inverse
+  interleaving through the real walk and the real disk read: generation B is
+  committed by a second `CachedStore` after the walk has recorded A. Restoring
+  the walk-time override fails it with `the revision carries the bytes of
+  "gen-b" under digest sha256:aaa…, which holds "gen-a"`.
+
+**B5 — one expression stood for three different facts.**
+`opts.IncludeCache = opts.IncludeCache || len(opts.OCIRefs) > 0` is a
+discoverability test doing a lifecycle's job. In the operator-startup path a
+later Kubernetes failure or empty result takes the offline baseline away exactly
+when it is the only thing that can answer; and the same expression turns
+`CacheSource` on for explicit OCI refs under `--no-cache`, publishing a source
+over entries the store then refuses to read — a partial baseline made of
+limitations.
+
+Closed by representing the three facts separately. `cacheLifecycle` carries
+`permitted` (`--no-cache` excluded whatever the cache already held), `baseline`
+(startup detection found content) and `materialized` (this process has committed
+an entry, which `CachedStore.Materialized` reports and a pod's emptyDir cache
+cannot); `contributes()` is `permitted && (baseline || materialized())`.
+Discovery is no longer part of the answer.
+
+- `internal/cli/fleet_wiring_test.go` — sequential, production-wired:
+  A. a startup-empty cache, refs that appear on refresh 2, real pulls that fill
+  it, then a registry taken offline and a refresh that discovers nothing — the
+  cache source is still present, available and contributing revisions offline,
+  and a cold second `CachedStore` over the same directory proves the entries are
+  on disk; B. `--no-cache` over pre-existing entries publishes neither those
+  entries nor a partial source, while this session's own pull is still served,
+  keeping the documented cold-start behaviour; C. a dashboard whose store cannot
+  cache invents no cache source, even with a discovered ref. All four
+  `cacheLifecycle` cases plus all three scenarios fail against the old
+  expression.
+
 ### Phase 8B — NOT STARTED
 
 Test architecture & harness consolidation. See TARGET section 10. Phase 8B MUST
@@ -666,8 +756,59 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `879724dc`. That review closed blocker A and kept Phase 8
-narrowly reopened on three blocker-B boundaries; see section 2.
+Reviewed at exact HEAD `1741318d`. That review kept blocker A closed, accepted
+the registry binding and the 14-fact post-cache gate, and kept Phase 8 narrowly
+reopened on two boundaries; see section 2.
+
+### Third-reopen verification — self-reported at `a1159be0`
+
+Not an independent review. Re-verify at the exact SHA before accepting it.
+Phase 8 stays a CANDIDATE; only an independent review closes it.
+
+- GitHub CI run `31690665496` at `a1159be0`: every job green on the first
+  attempt, no reruns — `changes`, `ci-gates`, `ci-static`, `ci-engine`,
+  `ci-oci`, `ci-dashboard`, `ci-e2e-envtest`, `ci-integration-kubernetes`,
+  `dashboard-e2e`, `operator-build`, `artifact-drift`, `release-version-test`,
+  `release-dry-run`, `required`, and all six Kind shards — `dashboard`,
+  `upgrade`, `reconcile`, `evidence`, `observation`, `operational-graph`.
+- All 39 check runs at `a1159be0`: 36 success, `build` and `auto-merge`
+  skipped, and `CodeQL` failure — the carried-forward alerts item, re-queried
+  below. Security (Trivy, govulncheck, all four CodeQL `Analyze` jobs), Docs
+  check, Pacto Contract CI, Repowise and Validate PR title are green. The green
+  Security workflow is a DIFFERENT claim from the CodeQL alert attribution and
+  does not close that item.
+- Locally at the same tree: `make ci-static` (fmt, vet, gocyclo, lint,
+  `check-section`, CLI-docs drift, UI-build drift, dashboard-SDK drift, plus the
+  operator's own `ci-static`) clean, `0 issues`; `make ci-gates`; `make
+  ci-engine` — 100.0% total coverage with the race detector, the engine e2e
+  suite, and `make demo-fleet` all sections PASS; `make ci-dashboard` — Vitest
+  1232 passed in 67 files; `make ci-oci`; `make ci-integration-kubernetes`;
+  `make ci-e2e-envtest`. Focused with `-race`: `./internal/cli/`, `./pkg/oci/`,
+  `./internal/fleetsrc/` clean. No authored frontend input changed, so the
+  committed UI bundle was NOT rebuilt and the drift gates are clean against the
+  existing one.
+- The six Kind shards were attempted locally this time. Four PASS —
+  `dashboard`, `upgrade`, `reconcile`, `observation`. `evidence` and
+  `operational-graph` cannot run here: both load the single-platform
+  `registry:2`, and `kind load` under Docker Desktop's containerd image store
+  fails with `ctr: content digest sha256:46faa9a1… not found` while importing
+  `--all-platforms`, so the cluster never gets its images. Flattening
+  `registry:2` to a single-platform image locally does not defeat it — the
+  scenario re-pulls the multi-platform tag itself. This is the limitation
+  recorded at `ci.mk:88-90`; those two shards are verified in CI, where both are
+  green at `a1159be0`.
+- PR at `a1159be0`: open, DRAFT, mergeable. No rebase, no amend, no history
+  rewrite, no force-push — `a1159be0` and this document's commit are appends on
+  top of `1741318d`.
+- Review threads re-queried at `a1159be0` (paginated and de-duplicated by
+  thread id, 196 threads): 186 resolved, 10 unresolved. The 186 resolved are all
+  outdated; the 10 unresolved are the CURRENT ones. Six are `github-code-quality`
+  comments on the GENERATED minified Mermaid chunk
+  `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, unchanged because
+  the bundle was not rebuilt. Four are `github-advanced-security` CodeQL
+  comments on AUTHORED code — `pkg/oci/cache.go` lines 255, 285, 304 and 305 —
+  which the CodeQL item below re-queries at the current line numbers. So: 4
+  unresolved authored, 6 unresolved generated.
 
 ### Second-reopen verification — self-reported at `622ed857`
 
@@ -715,8 +856,10 @@ Not an independent review. Re-verify at the exact SHA before accepting it.
 - PR at `622ed857`: open, DRAFT, mergeable. No rebase, no amend, no history
   rewrite, no force-push — `6049f44e`, `caf88050` and `622ed857` are appends on
   top of `879724dc`, and this document's commit appends on top of them.
-- Review threads re-queried at `622ed857` (paginated and de-duplicated, 596
-  threads): 586 resolved, 10 unresolved, all CURRENT (none outdated). Six are
+- Review threads re-queried at `622ed857` (paginated and de-duplicated, 196
+  threads): 186 resolved, 10 unresolved, and the 10 unresolved are the CURRENT
+  ones. The earlier "596" was the un-de-duplicated page total — the same threads
+  counted once per page of the paginated query — and is corrected here. Six are
   `github-code-quality` comments on the GENERATED minified Mermaid chunk
   `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, unchanged because
   the bundle was not rebuilt. Four are `github-advanced-security` CodeQL comments
@@ -922,6 +1065,39 @@ alerts are OPEN, are not described as resolved, dismissed or main-lineage, and
 join the population that must be independently triaged before Phase 14
 readiness. No attempt was made to silence them, and no unrelated security code
 was touched.
+
+Re-queried again at `a1159be0` (same caveats, still OPEN): 9 open alerts on
+`refs/pull/291/head` — 8 `go/path-injection` and the same 1 Python alert. The
+population SHRANK BY ONE and its membership moved again; the churn is disclosed
+rather than folded in:
+
+- alerts 40, 41, 42, 43 (`internal/app/resolve.go` 35, 43, 57, 67) — unchanged;
+- alerts 59, 60, 61 (`pkg/oci/cache.go` 322, 341, 342) — the same three
+  previously reported at 285, 304 and 305 on `writeCacheEntry`'s `MkdirAll`,
+  `RemoveAll` and `Rename`; the lines moved because boundary 4 inserted code, and
+  no security code was changed;
+- alert 62 (`pkg/oci/cache.go` 481, `heldGenerationIsInstalled`'s `os.Stat`) —
+  NEW, on the installed-directory comparison boundary 4 added;
+- alert 58 (`ReadCachedRef`'s `os.ReadFile`, previously 255) and alert 45
+  (`loadFromCache`'s `os.Open`, previously 371) — reported by the API as FIXED,
+  not dismissed and not suppressed. `loadFromCache` was replaced by
+  `readCacheGeneration`, which opens the entry through `os.OpenRoot` and reads
+  both files from that handle, so those two flows no longer exist as written. A
+  `state: fixed` alert is CodeQL's own report, not a triage verdict, and it is
+  recorded here as such;
+- alert 38 (`release/scripts/docs_check.py:197`) — unchanged.
+
+The one new alert is the SAME family, behind the same barrier, as 59/60/61:
+every one of those paths derives from `cachePath`, which contains its result
+inside the cache directory with an explicit `filepath.Rel` plus `..` check and
+returns a fixed `_invalid` path otherwise. CodeQL does not model that barrier.
+That explanation is PLAUSIBLE, NOT VERIFIED, and it is exactly the explanation
+this item refuses to accept without inspecting the alert records. So: the new
+alert is OPEN, is not described as resolved, dismissed or main-lineage, and
+joins the population that must be independently triaged before Phase 14
+readiness. No attempt was made to silence any of them, and no unrelated security
+code was touched. The `CodeQL` check run at `a1159be0` still fails; the Security
+workflow at the same SHA is green, and those remain two different claims.
 
 Important process rule:
 
