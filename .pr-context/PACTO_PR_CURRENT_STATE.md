@@ -1,6 +1,6 @@
 # Pacto PR #291 — Current Implementation State
 
-**Snapshot date:** 2026-08-12  
+**Snapshot date:** 2026-08-13  
 **Repository:** `TrianaLab/pacto`  
 **PR:** `#291`  
 **Branch:** `feat/operational-graph-fleet`
@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`6750c95921e60969d54859a10d8f8c287eefb58c`
+`879724dc1fc9b3b06b96fb3f6d3f1fa57ce0e2e4`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,16 +25,27 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-That review NARROWLY REOPENED Phase 8 on two counterexamples (blockers A and B
-in section 2) and left every other Phase-8 acceptance frozen.
+That review kept Phase 8 NARROWLY REOPENED. It CLOSED blocker A
+independently — `productready`'s same-round `SnapshotID` coherence is settled
+and must not be redesigned — and left three blocker-B boundaries open (section
+2). Every other Phase-8 acceptance stays frozen.
 
-Commits appended on top of the reviewed HEAD `6750c959`, oldest first:
+Commits appended on top of the reviewed HEAD `879724dc`, oldest first:
+
+- `6049f44e` — a cache entry is the bundle and its identity, bound to the bytes
+  pulled (blocker B, boundaries 1 and 2)
+- `caf88050` — the live gate proves the cache contributed, not that time passed
+  (blocker B, boundary 3)
+- `622ed857` — a cache the pulls fill is a source, whatever was in it at startup
+  (the product defect boundary 3's gate caught; see section 8)
+- this document's own commit — persist the Phase-8 state after the blocker-B
+  boundaries
+
+Commits appended on top of the earlier reviewed HEAD `6750c959`:
 
 - `d8ef5d5a` — one published artifact is one revision, whatever found it
-  (blocker B)
 - `0cf0c69b` — a round of facts is only a fact if one snapshot answered all of it
-  (blocker A)
-- this document's own commit — persist the Phase-8 state after blockers A and B
+- `879724dc` — persist the Phase-8 state after the narrow reopen
 
 For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 
@@ -65,7 +76,8 @@ For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 - `2c5034d8` — persist the Phase 8 candidate state and what it does not close
 - `d18ca70e` — a port-forward is ready when it answers, not two seconds later
 - `6750c959` — the Phase-8 candidate is verified on the fixed harness
-- `d8ef5d5a`, `0cf0c69b` and this document's commit, as listed above
+- `d8ef5d5a`, `0cf0c69b`, `879724dc`, `6049f44e`, `caf88050` and this
+  document's commit, as listed above
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -232,9 +244,10 @@ target preserved.
 Not another Kind vertical. Not a test-architecture refactor. Not Phase 8B.
 
 Implemented at `d18ca70e`, NARROWLY REOPENED by the independent review at
-`6750c959` on two counterexamples, and re-implemented at `0cf0c69b`. This is a
-Claude self-report and closes nothing: the phase is a CANDIDATE until an
-independent review says otherwise.
+`6750c959` on two counterexamples, re-implemented at `0cf0c69b`, still narrowly
+reopened by the review at `879724dc` on three blocker-B boundaries, and
+re-implemented at `caf88050` and `622ed857`. This is a Claude self-report and closes nothing:
+the phase is a CANDIDATE until an independent review says otherwise.
 
 #### Narrow reopen at `6750c959` — blockers A and B, closed at `0cf0c69b`
 
@@ -362,6 +375,117 @@ minting a second `RevisionKey` for the same content — became blocker B of the
 narrow reopen and is closed above. The shell classification is unchanged by this
 pass: `tests/e2e/kind/operational-graph.sh` gained one flag and a comment, still
 thin orchestration, and no new harness was created.
+
+#### Second narrow reopen at `879724dc` — blocker A CLOSED, three blocker-B boundaries, re-implemented at `caf88050`
+
+The review at `879724dc` CLOSED blocker A independently: `productready`'s
+same-round `SnapshotID` coherence is settled and was NOT redesigned in this
+pass. Every other accepted Phase-8 behaviour stayed frozen, Phase 8B was not
+begun, and no new shell harness, fixture-only Product shortcut, fixed sleep,
+pod restart or Playwright re-derivation was added.
+
+Blocker B was left open on three boundaries. The `0cf0c69b` sidecar made the
+cache reader agree with the registry; it did not make the ENTRY coherent, did
+not bind the recorded digest to the bytes that were actually downloaded, and
+the live gate proved neither.
+
+**B1 — a cache entry could be half a thing.** `CachedStore.Pull` discarded the
+errors from `saveRefRecord` and `saveToCache` and wrote both files in place. A
+sidecar that could not be written — `ref.json` already exists as a directory —
+still let `bundle.tar.gz` be published, and an interruption between the two
+paired a fresh sidecar with the previous pull's bytes. Either shape puts a
+walker-visible bundle next to an identity that is missing or wrong, which is
+exactly the guess-from-the-path duplicate blocker B is about.
+
+Closed at `6049f44e`. `writeCacheEntry` stages both files in a temporary
+directory under the cache's PARENT — outside the tree walkers scan — and
+commits with one `os.Rename`. A reader sees the old entry or the new entry,
+never a mixture; any failure leaves the entry ABSENT, an ordinary miss the next
+pull repairs, and never corrupts a coherent entry that was already there. The
+persistence failure is now logged instead of dropped. `writeBundleFile` reports
+`Close`, so a gzip flush that fails cannot commit a truncated archive under a
+valid identity.
+
+**B2 — the digest was a second observation of a moving target.** `Pull(tag)`
+followed by `Resolve(tag)`, and a later `Resolve(tag)` again, are separate
+questions to a MUTABLE reference. Re-pushed in between, the resolve answers
+with the digest of an artifact this snapshot never read, and the revision then
+claims an immutable identity for content that does not have it.
+
+Closed at `6049f44e`. `resolveAndPull` resolves the reference ONCE and fetches
+the content from the digest-pinned reference that resolve named, so digest and
+bytes agree by construction; `CachedStore.PullPinned` and
+`Resolver.ResolvePinned` return the two together, and `fleetsrc` uses the
+digest that came back WITH the bundle instead of asking again. A memory or disk
+hit reports the digest RECORDED with those bytes. The originally requested ref
+is preserved as provenance: it remains the cache key and the sidecar's `Ref`,
+so pinning changes what is fetched, never what the entry is called. A registry
+that will not answer leaves the identity unknown and the tag is fetched as
+written — real content, no claimed digest. `LocalOnly` reports no digest of its
+own, so the offline `CacheSource` stays network-free and digest-exact, and two
+genuinely distinct digests declaring one version remain two revisions.
+
+**B3 — `-snapshots 2` could not prove the post-cache state.** A `SnapshotID`
+hashes the generation time, so distinct ids prove refreshes happened, not that
+the cache contributed anything.
+
+Closed at `caf88050`. The gate now requires the STATE: the cache source present
+and available, and each of checkout 1.0.0, checkout 1.1.0 and orders 1.0.0
+naming BOTH the configured OCI source and the cache source in
+`Revision.Provenance.Sources` while staying exactly one canonical, exact,
+retrievable revision. That union cannot hold unless both sources resolved the
+same published artifact to the same identity. `-snapshots 2` remains as a
+stability requirement on top, not as the proof. Same-round `SnapshotID`
+coherence is untouched and still covers every response, now over fourteen
+facts.
+
+Adversarial tests, each of which fails if ONLY the production correction is
+reverted:
+
+- `pkg/oci/cache_coherence_test.go` — a failed commit publishes no bundle
+  without its identity; a failed overwrite leaves the coherent entry that was
+  already there rather than pairing a new sidecar with old bytes; a tag that
+  moves between the pull and the question yields the digest of the bytes that
+  were read; a cache hit reports the recorded digest; and the pinned resolver
+  carries the binding the store made.
+- `pkg/oci/cache_internal_test.go` — every way the commit can fail is reported,
+  including a sidecar path that cannot be created and a bundle that cannot be
+  staged, and a failed staging publishes nothing.
+- `tests/e2e/fleet_cache_identity_test.go` —
+  `TestFleetMovingTagBindsDigestToTheBytesPulled` uses a REAL registry and a
+  real `pacto push --force` that moves the tag during the build: the fleet
+  still holds exactly one checkout revision, its digest names the artifact the
+  revision actually carries, its `ResolvedRef` is pinned to that digest, its
+  requested ref is preserved, and a later offline build over a dead registry
+  reports the same digest and the same content.
+- `tests/e2e/kind/productready/main_test.go` — arbitrarily many distinct
+  coherent snapshots without cache provenance cannot pass the gate, and a
+  coherent post-cache snapshot naming both sources does.
+
+**What B3's gate then caught — a real product defect, fixed at `622ed857`.**
+The first CI run of the new gate FAILED, on the product, not on the harness:
+`data source "cache" is not in the snapshot (present: evidence-http, k8s, oci,
+orders-traces)`. `internal/cli/dashboard.go` decided `IncludeCache` from what
+startup DETECTION found on disk, and an operator-managed dashboard's cache is an
+`emptyDir` created with the pod. Empty once meant absent for the life of the
+process, so the offline baseline the dashboard's own pulls were filling never
+contributed a single revision, and the registry stayed the only thing that could
+answer. `withClusterContractRefs` now treats the cache as a property of the
+REFRESH: whenever there is an OCI ref to pull, the directory those pulls write
+into is asked. An absent or empty cache collects nothing and reports no error,
+so asking when there is nothing there costs nothing.
+`internal/cli/fleet_wiring_test.go` covers the four cases — refresh-discovered
+refs enable it, explicitly configured refs enable it with no discovery, no OCI
+refs must NOT add a cache source, and an already-enabled cache stays enabled.
+
+This is the direct evidence that boundary 3 was worth its own blocker: two
+distinct coherent snapshots had been passing for the whole previous pass while
+the product never read its own cache. `-snapshots 2` could not see it. The
+state requirement saw it on the first run.
+
+The shell classification is unchanged again: `tests/e2e/kind/operational-graph.sh`
+gained only a rewritten rationale comment. The Kind vertical, its thin
+orchestration and `-snapshots 2` all stand.
 
 ### Phase 8B — NOT STARTED
 
@@ -542,8 +666,76 @@ uncertainty/completeness and remain accessible/mobile/light/dark.
 
 ## 8. Latest verification snapshot
 
-Reviewed at exact HEAD `6750c959`. That review reopened Phase 8 narrowly; see
-section 2.
+Reviewed at exact HEAD `879724dc`. That review closed blocker A and kept Phase 8
+narrowly reopened on three blocker-B boundaries; see section 2.
+
+### Second-reopen verification — self-reported at `622ed857`
+
+Not an independent review. Re-verify at the exact SHA before accepting it.
+
+- GitHub CI run `31678484400` at `622ed857`: every job green — `changes`,
+  `ci-gates`, `ci-static`, `ci-engine`, `ci-oci`, `ci-dashboard`,
+  `ci-e2e-envtest`, `ci-integration-kubernetes`, `dashboard-e2e`,
+  `operator-build`, `artifact-drift`, `release-version-test`,
+  `release-dry-run`, `required`, and all six Kind shards — `reconcile`,
+  `dashboard`, `upgrade`, `evidence`, `observation`, `operational-graph`. No
+  reruns: green on the first attempt.
+- Other workflows at `622ed857`: Security (including Trivy and all four CodeQL
+  `Analyze` jobs), Docs check, Pacto Contract CI, Repowise and Validate PR title
+  all green. The `CodeQL` check run itself fails — that is the carried-forward
+  alerts item below, re-queried there.
+- The `operational-graph` shard (job `94378336340`) is the direct evidence for
+  boundary 3, and it is worth reading as a sequence rather than as a verdict.
+  The gate first waited on `data source "oci" is not in the snapshot`, then on
+  `revision …/checkout 1.0.0 was not contributed by "cache" (sources: oci)` for
+  six rounds while the registry answered and the disk cache had not yet been
+  filled, then passed: snapshot `sha256:9ad5bcb9…` proved all 14 facts on round
+  9, and snapshot `sha256:7d81cfc7…` proved all 14 again on round 15 — two
+  distinct coherent snapshots across a refresh, each with checkout 1.0.0,
+  checkout 1.1.0 and orders 1.0.0 naming BOTH `oci` and `cache` while remaining
+  exactly one canonical, exact, retrievable revision. The eight live Chromium
+  journeys then passed against that state. Those intermediate `not contributed
+  by "cache"` lines are the gate doing the thing `-snapshots 2` could not.
+- Locally at the same tree: `make ci-test` — 100.0% total coverage across every
+  package plus the example tests and the offline demo-contract validation
+  (24/24); `make ci-static` — fmt, vet, gocyclo, lint, `check-section`,
+  CLI-docs drift, UI-build drift, dashboard-SDK drift, and the operator's own
+  `ci-static`, all clean, `0 issues`; `go test -race ./internal/cli/...` clean
+  over the changed package. No authored frontend input changed, so the committed
+  UI bundle was NOT rebuilt and `ci-ui-drift` is clean against the existing one.
+- **The six Kind shards cannot be run on this machine.** Docker Desktop's
+  containerd image store reports an image's `.Id` as the multi-platform INDEX
+  digest while the kind node reports the CONFIG digest, so `kind load`'s presence
+  check can never match and it re-imports `--all-platforms`, which fails on a
+  single-platform local `registry:2`. This is the limitation already recorded at
+  `ci.mk:88-90`; a pre-seed of the node via `docker save` plus `ctr import` was
+  tried and does not defeat it. The shards are therefore verified in CI only,
+  which is where the boundary-3 failure at `caf88050` and its fix at `622ed857`
+  were both observed.
+- PR at `622ed857`: open, DRAFT, mergeable. No rebase, no amend, no history
+  rewrite, no force-push — `6049f44e`, `caf88050` and `622ed857` are appends on
+  top of `879724dc`, and this document's commit appends on top of them.
+- Review threads re-queried at `622ed857` (paginated and de-duplicated, 596
+  threads): 586 resolved, 10 unresolved, all CURRENT (none outdated). Six are
+  `github-code-quality` comments on the GENERATED minified Mermaid chunk
+  `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, unchanged because
+  the bundle was not rebuilt. Four are `github-advanced-security` CodeQL comments
+  on AUTHORED code — `pkg/oci/cache.go` lines 255, 285, 304 and 305 — recorded in
+  the carried CodeQL item below. So: 4 unresolved authored, 6 unresolved
+  generated. The two threads reported at `0cf0c69b` on `cache.go` 260 and 261 are
+  gone because the code they pointed at, the in-place sidecar write, was deleted
+  by boundary 1.
+
+**Disclosed, NOT fixed — outside the frozen blocker-B scope.** Boundary 1 made
+the cache-persistence failure loud instead of silent, and the first thing it
+said, in the failure diagnostics of the red run at `caf88050`, was that the
+`pacto-evidence` pod logs `could not cache the pulled bundle … read-only file
+system` on every pull: its cache directory sits on a read-only mount. The
+evidence component therefore has no offline baseline of its own. That is a real
+deployment defect, it is not in any of the three blocker-B boundaries, and
+nothing in this pass changed it. It is only visible in a shard's diagnostics
+dump, which a green run does not produce, so it was not re-observed at
+`622ed857`.
 
 ### Post-reopen verification — self-reported at `0cf0c69b`
 
@@ -702,6 +894,34 @@ the two new alerts are OPEN, are not described as resolved, dismissed or
 main-lineage, and are added to the population that must be independently triaged
 before Phase 14 readiness. No attempt was made to silence them, and no unrelated
 security code was touched.
+
+Re-queried again at `622ed857` (same caveats, still OPEN): 10 open alerts on
+`refs/pull/291/head` — 9 `go/path-injection` and the same 1 Python alert. The
+population SIZE is unchanged, but its membership is not, and the churn is
+disclosed rather than folded in:
+
+- alerts 40, 41, 42, 43 (`internal/app/resolve.go` 35, 43, 57, 67) — unchanged;
+- alert 45 (`pkg/oci/cache.go` 371, `loadFromCache`'s `os.Open`) — the same alert
+  previously reported at 301; the line moved because boundary 1 inserted code
+  above it, and no security code was changed;
+- alerts 46, 47 and 56, 57 — CLOSED, not dismissed and not suppressed: they were
+  on `saveToCache`, `saveRefRecord` and the in-place sidecar write, all four of
+  which boundary 1 DELETED;
+- alerts 58, 59, 60, 61 (`pkg/oci/cache.go` 255, 285, 304, 305) — NEW, on
+  `ReadCachedRef`'s `os.ReadFile` and on `writeCacheEntry`'s `MkdirAll`,
+  `RemoveAll` and `Rename`, i.e. the atomic commit boundary 1 added;
+- alert 38 (`release/scripts/docs_check.py:197`) — unchanged.
+
+The four new alerts are the SAME family, behind the same barrier, as 45: every
+one of those paths derives from `cachePath`, which contains its result inside
+the cache directory with an explicit `filepath.Rel` plus `..` check and returns
+a fixed `_invalid` path otherwise. CodeQL does not model that barrier. That
+explanation is PLAUSIBLE, NOT VERIFIED, and it is exactly the explanation this
+item refuses to accept without inspecting the alert records. So: the four new
+alerts are OPEN, are not described as resolved, dismissed or main-lineage, and
+join the population that must be independently triaged before Phase 14
+readiness. No attempt was made to silence them, and no unrelated security code
+was touched.
 
 Important process rule:
 
