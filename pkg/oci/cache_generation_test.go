@@ -112,13 +112,13 @@ func TestPullCached_ServesOneGenerationsBytesUnderThatGenerationsIdentity(t *tes
 	atBarrier(t, 1, func() { installGeneration(t, ctx, ref, "sha256:bbb") })
 
 	reader := NewCachedStore(&generationStore{digest: "sha256:aaa"})
-	bundle, digest, ok := reader.pullCached(ctx, ref)
+	bundle, rec, ok := reader.pullCached(ctx, ref)
 	if !ok {
 		t.Fatal("the entry is installed throughout: a reader must see one of the two generations")
 	}
-	assertCoherent(t, bundle, digest)
-	if digest != "sha256:bbb" {
-		t.Errorf("digest = %q; the generation displaced mid-read is gone, so its successor is what is readable", digest)
+	assertCoherent(t, bundle, rec.Digest)
+	if rec.Digest != "sha256:bbb" {
+		t.Errorf("digest = %q; the generation displaced mid-read is gone, so its successor is what is readable", rec.Digest)
 	}
 }
 
@@ -136,11 +136,11 @@ func TestPullCached_AWriterThatKeepsWinningIsAMissNotAMixture(t *testing.T) {
 	})
 
 	reader := NewCachedStore(&generationStore{digest: "sha256:aaa"})
-	bundle, digest, ok := reader.pullCached(ctx, ref)
+	bundle, rec, ok := reader.pullCached(ctx, ref)
 	if ok {
 		// Serving is allowed only if it is coherent; giving up is the other
 		// acceptable answer, and the next pull repairs it.
-		assertCoherent(t, bundle, digest)
+		assertCoherent(t, bundle, rec.Digest)
 	}
 	if i != len(digests) {
 		t.Errorf("the reader retried %d times, want %d attempts against a writer that keeps winning", i, len(digests))
@@ -170,5 +170,34 @@ func TestReadCacheEntry_ASidecarlessEntryIsCompatibleNotSwapped(t *testing.T) {
 	}
 	if got := bundle.Contract.Service.Name; got != "gen-a" {
 		t.Errorf("read %q, want the cached bytes", got)
+	}
+}
+
+// TestPullCachedPinned_AWarmReadKeepsTheRecordedRef holds the in-memory cache to
+// the same rule as the disk read: what it hands back is what the generation that
+// supplied the bytes SAID, not the key the caller looked it up under.
+//
+// The two differ. cachePath maps every ':' to '/', so a registry port and a path
+// segment spell to one entry directory, and the entry there answers to both
+// references. The cold read gets the record right; a warm read that reduced it
+// to a digest would lose the only statement of what these bytes are, and the
+// caller's lookup key would take its place — silently, on the second request.
+func TestPullCachedPinned_AWarmReadKeepsTheRecordedRef(t *testing.T) {
+	privateCache(t)
+	ctx := context.Background()
+	const asked = "localhost:5000/demo/checkout:1.0.0"
+	const installed = "localhost/5000/demo/checkout:1.0.0"
+	installGeneration(t, ctx, installed, "sha256:bbb")
+
+	reader := NewCachedStore(&generationStore{digest: "sha256:aaa"}) // a registry that would disagree
+	for _, read := range []string{"cold (disk)", "warm (memory)"} {
+		bundle, rec, ok := reader.PullCachedPinned(ctx, asked)
+		if !ok {
+			t.Fatalf("%s: the entry is installed, want a hit", read)
+		}
+		assertCoherent(t, bundle, rec.Digest)
+		if (rec != CachedRef{Ref: installed, Digest: "sha256:bbb"}) {
+			t.Errorf("%s read: record = %+v, want the whole record the entry holds", read, rec)
+		}
 	}
 }

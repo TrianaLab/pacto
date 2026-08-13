@@ -55,13 +55,16 @@ type CachedStore struct {
 	tagsCache map[string][]string
 }
 
-// pullEntry is the value stored in each pullLRU list element. digest is the
-// manifest digest of the artifact this bundle was fetched from, empty when the
-// registry would not say; it travels with the bundle so a cache hit reports the
-// SAME identity the pull recorded instead of re-asking a mutable tag.
+// pullEntry is the value stored in each pullLRU list element. ref is the LOOKUP
+// KEY — what a caller asked for — and rec is what the entry that answered says
+// these bytes ARE: the reference they were pulled under and the manifest digest
+// of the artifact that served them (empty when nothing recorded one). The two
+// are different facts, and they differ whenever one entry directory answers to
+// more than one reference, so rec travels with the bundle instead of being
+// re-derived from the key or from a mutable tag.
 type pullEntry struct {
 	ref    string
-	digest string
+	rec    CachedRef
 	bundle *contract.Bundle
 }
 
@@ -169,11 +172,19 @@ func (c *CachedStore) PullCached(ctx context.Context, ref string) (*contract.Bun
 	return bundle, hit
 }
 
-// PullCachedPinned is [CachedStore.PullCached] plus the manifest digest RECORDED
-// with the bundle it serves — read from the same cache generation, so the
-// offline reader reports the identity of the bytes it got and never has to ask a
-// registry the mode forbids. Empty means the entry never recorded one.
-func (c *CachedStore) PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, string, bool) {
+// PullCachedPinned is [CachedStore.PullCached] plus the identity RECORDED with
+// the bundle it serves — the reference it was pulled under AND the manifest
+// digest of the artifact that answered, read from the same cache generation as
+// the bytes. So the offline reader reports what it actually got and never has to
+// ask a registry the mode forbids.
+//
+// The recorded reference is not the one asked for. [CachedStore.cachePath] maps
+// every ':' to '/', so it is not injective: "localhost:5000/demo/svc:1.0.0" and
+// "localhost/5000/demo/svc:1.0.0" name ONE entry directory, and the entry
+// installed there answers under whichever of them a caller happens to use. What
+// the caller asked is a lookup key; what came back is this record. A zero record
+// means the entry predates the sidecar and states no identity at all.
+func (c *CachedStore) PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
 	return c.pullCached(ctx, ref)
 }
 
@@ -184,9 +195,10 @@ func (c *CachedStore) PullCachedPinned(ctx context.Context, ref string) (*contra
 // operator-managed run starts.
 func (c *CachedStore) Materialized() bool { return c.materialized.Load() }
 
-// pullCached is [CachedStore.PullCached] plus the manifest digest recorded for
-// the served bundle, so a hit reports the identity the pull observed.
-func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bundle, string, bool) {
+// pullCached is [CachedStore.PullCached] plus the identity recorded for the
+// served bundle, so a hit reports what the pull observed rather than what the
+// lookup key spells.
+func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
 	// 1. In-memory cache (fastest).
 	c.pullMu.Lock()
 	if el, ok := c.pullCache[ref]; ok {
@@ -194,7 +206,7 @@ func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bun
 		e := el.Value.(*pullEntry)
 		c.pullMu.Unlock()
 		logging.LoggerFromContext(ctx).Debug("cache hit (memory)", "ref", ref)
-		return e.bundle, e.digest, true
+		return e.bundle, e.rec, true
 	}
 	c.pullMu.Unlock()
 
@@ -204,11 +216,11 @@ func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bun
 			logging.LoggerFromContext(ctx).Debug("cache hit (disk)", "ref", ref)
 			// The sidecar was committed with these exact bytes, so it is the
 			// identity of what was just loaded, not a fresh guess about a tag.
-			c.storePull(ref, bundle, rec.Digest)
-			return bundle, rec.Digest, true
+			c.storePull(ref, bundle, rec)
+			return bundle, rec, true
 		}
 	}
-	return nil, "", false
+	return nil, CachedRef{}, false
 }
 
 // Pull returns the bundle for ref, checking the in-memory cache, then the disk
@@ -229,8 +241,8 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 // entry is called. A cache hit reports the digest RECORDED at pull time, so the
 // answer never depends on where the tag points now.
 func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bundle, string, error) {
-	if bundle, digest, ok := c.pullCached(ctx, ref); ok {
-		return bundle, digest, nil
+	if bundle, rec, ok := c.pullCached(ctx, ref); ok {
+		return bundle, rec.Digest, nil
 	}
 
 	// 3. Registry (slowest).
@@ -240,10 +252,13 @@ func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bun
 		return nil, "", err
 	}
 
-	c.storePull(ref, bundle, digest)
+	// One record for the three places this pull is remembered: what the caller is
+	// told, what memory serves next, and what is committed beside the bytes.
+	rec := CachedRef{Ref: ref, Digest: digest}
+	c.storePull(ref, bundle, rec)
 	if c.cacheDir != "" {
 		entry := filepath.Dir(c.cachePath(ref))
-		if err := c.writeCacheEntry(entry, CachedRef{Ref: ref, Digest: digest}, bundle); err != nil {
+		if err := c.writeCacheEntry(entry, rec, bundle); err != nil {
 			// The pull SUCCEEDED; only its persistence did not. Say so instead of
 			// dropping it silently — a cache that never fills is a performance
 			// mystery, and the failure that motivated this path was invisible.
@@ -375,16 +390,20 @@ func PinRefToDigest(ref, digest string) string {
 	return r + "@" + digest
 }
 
-func (c *CachedStore) storePull(ref string, bundle *contract.Bundle, digest string) {
+// storePull remembers a bundle under the key it was looked up by, together with
+// the record of what that bundle IS. The two are stored as a pair: a warm hit
+// must answer with the identity the cold read observed, never with one
+// reconstructed from the key.
+func (c *CachedStore) storePull(ref string, bundle *contract.Bundle, rec CachedRef) {
 	c.pullMu.Lock()
 	defer c.pullMu.Unlock()
 	if el, ok := c.pullCache[ref]; ok {
 		e := el.Value.(*pullEntry)
-		e.bundle, e.digest = bundle, digest
+		e.bundle, e.rec = bundle, rec
 		c.pullLRU.MoveToFront(el)
 		return
 	}
-	c.pullCache[ref] = c.pullLRU.PushFront(&pullEntry{ref: ref, digest: digest, bundle: bundle})
+	c.pullCache[ref] = c.pullLRU.PushFront(&pullEntry{ref: ref, rec: rec, bundle: bundle})
 	// Evict least-recently-used entries beyond the cap. Len > cap ≥ 0 guarantees
 	// a non-nil Back() each iteration.
 	for c.pullLRU.Len() > pullCacheMaxEntries {

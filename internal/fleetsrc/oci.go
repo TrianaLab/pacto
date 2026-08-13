@@ -105,7 +105,7 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 				concrete = pinned
 			}
 		}
-		bundle, digest, err := resolver.ResolvePinned(ctx, concrete, mode)
+		bundle, rec, err := resolver.ResolvePinned(ctx, concrete, mode)
 		if err != nil {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
 				Code: fleet.LimitationSourceRecordInvalid, Source: id,
@@ -113,7 +113,23 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 			})
 			continue
 		}
-		// RequestedRef stays what the caller asked for; only the resolution moves.
+		// A cache entry that states its own reference states what these bytes ARE,
+		// and that is the revision's identity — reference, domain and all.
+		//
+		// The walk above only DISCOVERED the entry. Its sidecar was a separate,
+		// earlier observation, and the cache path cannot arbitrate between the two:
+		// cachePath maps every ':' to '/', so "localhost:5000/demo/svc:1.0.0" and
+		// "localhost/5000/demo/svc:1.0.0" are one entry directory that answers to
+		// both. Keeping the walk's spelling would publish the digest and bytes of
+		// the generation installed now under the repository, domain and canonical
+		// key of the one the walk saw: a revision belonging to no artifact.
+		if rec.Ref != "" {
+			ref = rec.Ref
+			concrete = strings.TrimPrefix(rec.Ref, "oci://")
+		}
+		// RequestedRef is the reference this revision is known by — what the caller
+		// asked for, or what the entry that answered says it was pulled under. Only
+		// the resolution moves.
 		rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: concrete}
 		// The requested ref may be a MUTABLE tag; the resolved digest is the
 		// immutable identity. Pin ResolvedRef to the digest so a Product Impact
@@ -147,9 +163,9 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// the question, it answers with the digest of an artifact this snapshot
 		// never read, and the revision then claims an immutable identity for
 		// content that does not have it.
-		if digest != "" {
-			rev.Digest = digest
-			rev.ResolvedRef = pinRefToDigest(concrete, digest)
+		if rec.Digest != "" {
+			rev.Digest = rec.Digest
+			rev.ResolvedRef = pinRefToDigest(concrete, rec.Digest)
 		}
 		col.Revisions = append(col.Revisions, rev)
 	}

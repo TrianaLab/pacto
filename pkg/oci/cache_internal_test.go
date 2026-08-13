@@ -114,7 +114,7 @@ func TestCachedStore_PullCacheEvictsBeyondCap(t *testing.T) {
 	// not a duplicate entry.
 	before := c.pullLRU.Len()
 	b2 := &contract.Bundle{Contract: &contract.Contract{}}
-	c.storePull("a", b2, "sha256:a2")
+	c.storePull("a", b2, CachedRef{Ref: "a", Digest: "sha256:a2"})
 	if c.pullLRU.Len() != before {
 		t.Fatalf("re-store should not grow cache: len %d -> %d", before, c.pullLRU.Len())
 	}
@@ -124,8 +124,8 @@ func TestCachedStore_PullCacheEvictsBeyondCap(t *testing.T) {
 	}
 	// The recorded identity travels with the bundle: a stale digest left behind
 	// would make a memory hit report a digest for content it no longer holds.
-	if got.digest != "sha256:a2" {
-		t.Fatalf("re-store left digest %q, want the digest of the bundle now held", got.digest)
+	if (got.rec != CachedRef{Ref: "a", Digest: "sha256:a2"}) {
+		t.Fatalf("re-store left record %+v, want the record of the bundle now held", got.rec)
 	}
 }
 

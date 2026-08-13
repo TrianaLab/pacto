@@ -106,21 +106,27 @@ func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint strin
 	return bundle, err
 }
 
-// ResolvePinned is [Resolver.Resolve] plus the manifest digest of the artifact
-// the returned bundle actually came from, obtained as ONE observation with the
+// ResolvePinned is [Resolver.Resolve] plus the identity of the artifact the
+// returned bundle actually came from, obtained as ONE observation with the
 // content (see [CachedStore.PullPinned]). Asking the registry for a digest AFTER
 // a pull is a second observation of a mutable tag: re-pushed in between, it
 // names bytes the caller never read.
 //
-// LocalOnly reports the digest RECORDED beside the cached bundle, read from the
+// LocalOnly reports the record written beside the cached bundle, read from the
 // same cache generation as the bytes — never re-derived, which offline would
-// mean dialing a registry the mode promised not to touch. An entry that recorded
-// no digest reports none.
-func (r *Resolver) ResolvePinned(ctx context.Context, ref string, mode ResolveMode) (*contract.Bundle, string, error) {
+// mean dialing a registry the mode promised not to touch. Its Ref is what the
+// cache says these bytes ARE, and it can differ from the reference asked for,
+// because one cache entry directory answers to every reference that spells to
+// it (see [CachedStore.PullCachedPinned]). An entry that recorded nothing
+// reports nothing, and the caller's own reference is then all there is.
+//
+// Remote resolution reports the digest alone: the bytes came from the registry
+// under the reference this call named, so there is no second identity to carry.
+func (r *Resolver) ResolvePinned(ctx context.Context, ref string, mode ResolveMode) (*contract.Bundle, CachedRef, error) {
 	return r.resolvePinned(ctx, ref, "", mode)
 }
 
-func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mode ResolveMode) (*contract.Bundle, string, error) {
+func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mode ResolveMode) (*contract.Bundle, CachedRef, error) {
 	ref = strings.TrimPrefix(ref, "oci://")
 
 	if mode == LocalOnly {
@@ -134,12 +140,12 @@ func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mo
 			// Pass through typed errors (auth/unreachable/not-found/invalid) —
 			// only a genuine no-match-for-constraint becomes NoMatchingVersion.
 			if typed := classifyPullError(err); typed != nil {
-				return nil, "", typed
+				return nil, CachedRef{}, typed
 			}
 			if constraint != "" {
-				return nil, "", &NoMatchingVersionError{Ref: ref, Constraint: constraint, Err: err}
+				return nil, CachedRef{}, &NoMatchingVersionError{Ref: ref, Constraint: constraint, Err: err}
 			}
-			return nil, "", &ArtifactNotFoundError{Ref: ref, Err: err}
+			return nil, CachedRef{}, &ArtifactNotFoundError{Ref: ref, Err: err}
 		}
 		ref = resolved
 	}
@@ -203,20 +209,23 @@ func classifyPullError(err error) error {
 // recorded for what it serves, without contacting the registry (see
 // [CachedStore.PullCachedPinned]).
 type cachedPuller interface {
-	PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, string, bool)
+	PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool)
 }
 
-func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, string, error) {
+func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {
 	// A cached store's Pull falls through to the REGISTRY on a cache miss, so
 	// asking it to Pull would make LocalOnly a network call -- the exact opposite
 	// of what the mode promises, and enough to hang a caller that walks thousands
 	// of cached refs offline. Read the cache directly when the store can.
 	if cp, ok := r.store.(cachedPuller); ok {
-		bundle, digest, hit := cp.PullCachedPinned(ctx, ref)
+		bundle, rec, hit := cp.PullCachedPinned(ctx, ref)
 		if !hit {
-			return nil, "", &ArtifactNotFoundError{Ref: ref, Err: errors.New("not found in local cache")}
+			return nil, CachedRef{}, &ArtifactNotFoundError{Ref: ref, Err: errors.New("not found in local cache")}
 		}
-		return localBundle(ref, bundle, digest)
+		// The whole record travels, reference included: it came from the generation
+		// that supplied these bytes, and the reference the caller used to find it is
+		// only a lookup key.
+		return localBundle(ref, bundle, rec)
 	}
 	// A store with no cache of its own has nothing "local" to read; its Pull is
 	// the only option, and its typed auth/not-found/unreachable errors are more
@@ -224,33 +233,36 @@ func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bund
 	bundle, err := r.store.Pull(ctx, ref)
 	if err != nil {
 		if typed := classifyPullError(err); typed != nil {
-			return nil, "", typed
+			return nil, CachedRef{}, typed
 		}
-		return nil, "", &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
+		return nil, CachedRef{}, &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
 	}
 	// Nothing recorded an identity for these bytes, so none is claimed.
-	return localBundle(ref, bundle, "")
+	return localBundle(ref, bundle, CachedRef{})
 }
 
-func localBundle(ref string, bundle *contract.Bundle, digest string) (*contract.Bundle, string, error) {
+func localBundle(ref string, bundle *contract.Bundle, rec CachedRef) (*contract.Bundle, CachedRef, error) {
 	if bundle.Contract == nil {
-		return nil, "", &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
+		return nil, CachedRef{}, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
 	}
-	return bundle, digest, nil
+	return bundle, rec, nil
 }
 
-func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, string, error) {
+func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {
 	bundle, digest, err := pullPinned(ctx, r.store, ref)
 	if err != nil {
 		if typed := classifyPullError(err); typed != nil {
-			return nil, "", typed
+			return nil, CachedRef{}, typed
 		}
-		return nil, "", err
+		return nil, CachedRef{}, err
 	}
 	if bundle.Contract == nil {
-		return nil, "", &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
+		return nil, CachedRef{}, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
 	}
-	return bundle, digest, nil
+	// Only the digest: these bytes were fetched under the reference this call
+	// named, so the caller already holds their reference and no cache generation
+	// is claiming a different one.
+	return bundle, CachedRef{Digest: digest}, nil
 }
 
 // pinnedPuller is a store that binds the manifest digest it reports to the bytes

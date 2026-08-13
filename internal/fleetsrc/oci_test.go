@@ -28,8 +28,10 @@ type fakeStore struct {
 	resolves int
 	// recorded is the identity each CACHE ENTRY holds beside its bundle, which an
 	// offline store reads back together with the bytes. It is a different fact
-	// from digest above — what the registry says now, online.
-	recorded map[string]string
+	// from digest above — what the registry says now, online — and an entry
+	// missing from it is one written before the sidecar existed: readable bytes,
+	// no stated identity.
+	recorded map[string]oci.CachedRef
 }
 
 func bundleFor(name string) *contract.Bundle {
@@ -74,13 +76,13 @@ func (f *fakeStore) Pull(_ context.Context, ref string) (*contract.Bundle, error
 // PullCachedPinned makes this fake an offline-capable store, as the real
 // CachedStore is: it serves a bundle with the identity recorded beside it and
 // never touches the registry.
-func (f *fakeStore) PullCachedPinned(_ context.Context, ref string) (*contract.Bundle, string, bool) {
+func (f *fakeStore) PullCachedPinned(_ context.Context, ref string) (*contract.Bundle, oci.CachedRef, bool) {
 	if f.pullErr[ref] != nil {
-		return nil, "", false
+		return nil, oci.CachedRef{}, false
 	}
 	b, ok := f.bundles[ref]
 	if !ok {
-		return nil, "", false
+		return nil, oci.CachedRef{}, false
 	}
 	return b, f.recorded[ref], true
 }
@@ -345,8 +347,10 @@ func TestCacheSource_Collect_SidecarIsTheIdentity(t *testing.T) {
 		`{"ref":"localhost:5000/demo/checkout:1.0.0","digest":"`+dgst+`"}`)
 
 	store := &fakeStore{
-		bundles:  map[string]*contract.Bundle{"localhost:5000/demo/checkout:1.0.0": bundleFor("checkout")},
-		recorded: map[string]string{"localhost:5000/demo/checkout:1.0.0": dgst},
+		bundles: map[string]*contract.Bundle{"localhost:5000/demo/checkout:1.0.0": bundleFor("checkout")},
+		recorded: map[string]oci.CachedRef{
+			"localhost:5000/demo/checkout:1.0.0": {Ref: "localhost:5000/demo/checkout:1.0.0", Digest: dgst},
+		},
 	}
 	col, err := NewCacheSource("cache", dir, store).Collect(context.Background())
 	if err != nil {
@@ -526,6 +530,79 @@ func TestCacheSource_Collect_TheWalkAndTheReadAreOneGeneration(t *testing.T) {
 	}
 	if rev.ResolvedRef != "oci://localhost:5000/demo/checkout@"+rev.Digest {
 		t.Errorf("ResolvedRef = %q, want the canonical pin of the digest it reported", rev.ResolvedRef)
+	}
+}
+
+// TestCacheSource_Collect_IdentityComesFromTheGenerationThatServedTheBytes is
+// the same interleaving with the two generations spelled DIFFERENTLY, which is
+// what makes the walk's sidecar a separate fact rather than a copy of the
+// read's. cachePath maps every ':' to '/', so it is not injective: these two
+// references — a registry port and a path segment — name one entry directory.
+//
+//	localhost:5000/demo/checkout:1.0.0
+//	localhost/5000/demo/checkout:1.0.0
+//
+// Binding only bundle and digest to the generation that answered leaves the
+// reference the walk saw describing bytes it never read: the revision then
+// claims generation B's digest under generation A's repository and domain. A
+// revision is one generation or it is not a revision.
+func TestCacheSource_Collect_IdentityComesFromTheGenerationThatServedTheBytes(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	ctx := context.Background()
+	const refA, refB = "localhost:5000/demo/checkout:1.0.0", "localhost/5000/demo/checkout:1.0.0"
+	digestA, digestB := validDigest("a"), validDigest("b")
+	// What each published generation IS, whole: bytes, reference and the domain
+	// that reference belongs to.
+	gens := map[string]struct{ ref, holds, domain string }{
+		digestA: {refA, "gen-a", "localhost:5000/demo"},
+		digestB: {refB, "gen-b", "localhost/5000/demo"},
+	}
+
+	install := func(ref, digest string) {
+		t.Helper()
+		writer := oci.NewCachedStore(&oneArtifactRegistry{digest: digest, bundle: diskBundle(gens[digest].holds)})
+		writer.DisableCache() // cold, so it really pulls and really commits
+		if _, err := writer.Pull(ctx, ref); err != nil {
+			t.Fatalf("installing generation %s: %v", digest, err)
+		}
+	}
+	install(refA, digestA)
+
+	// A second store commits B into the same entry directory once the walk has
+	// recorded A's sidecar and before the entry is read.
+	orig := fsWalkDir
+	t.Cleanup(func() { fsWalkDir = orig })
+	fsWalkDir = func(root string, fn fs.WalkDirFunc) error {
+		err := orig(root, fn)
+		install(refB, digestB)
+		return err
+	}
+
+	reader := oci.NewCachedStore(&oneArtifactRegistry{digest: digestA})
+	col, err := NewCacheSource("cache", reader.CacheDir(), reader).Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %+v, want the one cached entry", col.Revisions)
+	}
+	rev := col.Revisions[0]
+	gen, published := gens[rev.Digest]
+	if !published {
+		t.Fatalf("revision digest %q belongs to no published generation", rev.Digest)
+	}
+	// Either generation is an acceptable answer; a mixture of the two is not.
+	if got := rev.Bundle.Contract.Service.Name; got != gen.holds {
+		t.Errorf("bundle is %q, but digest %s holds %q", got, rev.Digest, gen.holds)
+	}
+	if rev.RequestedRef != gen.ref {
+		t.Errorf("RequestedRef = %q, but the bytes came from the generation pulled as %q", rev.RequestedRef, gen.ref)
+	}
+	if rev.Domain != gen.domain {
+		t.Errorf("Domain = %q, want %q — the domain of the reference that served these bytes", rev.Domain, gen.domain)
+	}
+	if want := pinRefToDigest(gen.ref, rev.Digest); rev.ResolvedRef != want {
+		t.Errorf("ResolvedRef = %q, want %q", rev.ResolvedRef, want)
 	}
 }
 

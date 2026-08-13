@@ -240,22 +240,28 @@ func TestResolverPinned_CarriesTheBindingTheStoreMade(t *testing.T) {
 	ctx := context.Background()
 
 	warm := oci.NewCachedStore(&movingTagStore{})
-	bundle, digest, err := oci.NewResolver(warm).ResolvePinned(ctx, "oci://"+ref, oci.RemoteAllowed)
+	bundle, rec, err := oci.NewResolver(warm).ResolvePinned(ctx, "oci://"+ref, oci.RemoteAllowed)
 	if err != nil {
 		t.Fatalf("ResolvePinned() error: %v", err)
 	}
+	digest := rec.Digest
 	if got := bundle.Contract.Service.Name; got != digest {
 		t.Fatalf("resolved the artifact published as %q under digest %s", got, digest)
 	}
 
 	registry := &countingStore{}
 	cold := oci.NewCachedStore(registry)
-	local, localDigest, err := oci.NewResolver(cold).ResolvePinned(ctx, ref, oci.LocalOnly)
+	local, localRec, err := oci.NewResolver(cold).ResolvePinned(ctx, ref, oci.LocalOnly)
 	if err != nil {
 		t.Fatalf("LocalOnly ResolvePinned() error: %v", err)
 	}
-	if localDigest != digest {
-		t.Errorf("LocalOnly reported digest %q, want the recorded %q: offline identity is read back WITH the bytes", localDigest, digest)
+	if localRec.Digest != digest {
+		t.Errorf("LocalOnly reported digest %q, want the recorded %q: offline identity is read back WITH the bytes", localRec.Digest, digest)
+	}
+	// And it reports WHICH reference the cache holds those bytes under, read from
+	// the same generation as the digest beside it.
+	if localRec.Ref != ref {
+		t.Errorf("LocalOnly reported ref %q, want the recorded %q", localRec.Ref, ref)
 	}
 	if registry.pullCount.Load() != 0 {
 		t.Errorf("the offline path pulled %d times, want none", registry.pullCount.Load())
