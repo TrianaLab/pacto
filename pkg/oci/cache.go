@@ -5,10 +5,12 @@ import (
 	"container/list"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/logging"
@@ -36,6 +38,12 @@ type CachedStore struct {
 	// skipDiskReads disables loading from disk cache (cold-start mode).
 	// Disk writes remain enabled so same-session pulls are persisted.
 	skipDiskReads bool
+
+	// materialized records that THIS process has committed an entry into the disk
+	// cache. It is a different fact from what the cache held at startup and from
+	// what happens to be discoverable now, and the only one that says the
+	// directory has content this run put there.
+	materialized atomic.Bool
 
 	// pullCache is a bounded LRU: map ref -> list element, with pullLRU ordering
 	// entries most-recently-used at the front. Guarded by pullMu.
@@ -161,6 +169,21 @@ func (c *CachedStore) PullCached(ctx context.Context, ref string) (*contract.Bun
 	return bundle, hit
 }
 
+// PullCachedPinned is [CachedStore.PullCached] plus the manifest digest RECORDED
+// with the bundle it serves — read from the same cache generation, so the
+// offline reader reports the identity of the bytes it got and never has to ask a
+// registry the mode forbids. Empty means the entry never recorded one.
+func (c *CachedStore) PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, string, bool) {
+	return c.pullCached(ctx, ref)
+}
+
+// Materialized reports whether this store has written a bundle into the disk
+// cache during this process. A dashboard uses it to tell "the cache is empty
+// because nothing has been pulled yet" from "the cache holds what this session
+// pulled" — the pod's cache is an emptyDir, so the first is where every
+// operator-managed run starts.
+func (c *CachedStore) Materialized() bool { return c.materialized.Load() }
+
 // pullCached is [CachedStore.PullCached] plus the manifest digest recorded for
 // the served bundle, so a hit reports the identity the pull observed.
 func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bundle, string, bool) {
@@ -177,12 +200,10 @@ func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bun
 
 	// 2. Disk cache (skipped when --no-cache / DisableCache is active).
 	if c.cacheDir != "" && !c.skipDiskReads {
-		path := c.cachePath(ref)
-		if bundle, err := c.loadFromCache(path); err == nil {
+		if bundle, rec, ok := readCacheEntry(filepath.Dir(c.cachePath(ref))); ok {
 			logging.LoggerFromContext(ctx).Debug("cache hit (disk)", "ref", ref)
 			// The sidecar was committed with these exact bytes, so it is the
 			// identity of what was just loaded, not a fresh guess about a tag.
-			rec, _ := ReadCachedRef(filepath.Dir(path))
 			c.storePull(ref, bundle, rec.Digest)
 			return bundle, rec.Digest, true
 		}
@@ -227,6 +248,8 @@ func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bun
 			// dropping it silently — a cache that never fills is a performance
 			// mystery, and the failure that motivated this path was invisible.
 			logging.LoggerFromContext(ctx).Warn("could not cache the pulled bundle", "ref", ref, "error", err)
+		} else {
+			c.materialized.Store(true)
 		}
 	}
 
@@ -256,6 +279,20 @@ func ReadCachedRef(dir string) (CachedRef, bool) {
 	if err != nil {
 		return CachedRef{}, false
 	}
+	return parseCachedRef(b)
+}
+
+// readCachedRefFrom reads the sidecar through an already-open entry handle, so
+// the identity comes from the same generation as the bundle read beside it.
+func readCachedRefFrom(root *os.Root) (CachedRef, bool) {
+	b, err := root.ReadFile(CachedRefFile)
+	if err != nil {
+		return CachedRef{}, false
+	}
+	return parseCachedRef(b)
+}
+
+func parseCachedRef(b []byte) (CachedRef, bool) {
 	var rec CachedRef
 	if err := json.Unmarshal(b, &rec); err != nil || rec.Ref == "" {
 		return CachedRef{}, false
@@ -367,14 +404,86 @@ func (c *CachedStore) cachePath(ref string) string {
 	return joined
 }
 
-func (c *CachedStore) loadFromCache(path string) (*contract.Bundle, error) {
-	f, err := os.Open(path)
+// afterCachedBundleRead is a seam for driving the interleaving below in tests:
+// it runs where a competing writer installs a new generation, after this reader
+// has the bundle and before it asks what that bundle IS.
+var afterCachedBundleRead = func() {}
+
+// cacheEntryAttempts bounds the re-reads below. Each retry observes the
+// generation that displaced the last one, so a competing writer would have to
+// win the race repeatedly to exhaust them — and exhaustion is a cache MISS, not
+// an incoherent answer.
+const cacheEntryAttempts = 3
+
+// readCacheEntry reads a cache entry — the bundle and the identity beside it —
+// from ONE installed generation.
+//
+// [CachedStore.writeCacheEntry] commits a generation whole, but that only makes
+// each generation coherent; it does not make a READER coherent. Two files opened
+// by pathname are two observations, and another process (or another CachedStore
+// over the same directory — the disk cache is shared, so its mutex proves
+// nothing) can commit a new generation between them. The reader then pairs
+// bundle A with identity B and publishes content under a digest it does not
+// have, which is the same lie the in-place writer used to tell.
+//
+// So both files come from one directory HANDLE. A generation swapped out from
+// under it is unlinked, not rewritten: its files keep answering this handle, and
+// once RemoveAll has taken them the reader sees them ABSENT rather than
+// replaced. Absent is coherent — retry and read the generation that displaced
+// it, or report a miss the next pull repairs.
+func readCacheEntry(dir string) (*contract.Bundle, CachedRef, bool) {
+	for range cacheEntryAttempts {
+		bundle, rec, swapped := readCacheGeneration(dir)
+		if !swapped {
+			return bundle, rec, bundle != nil
+		}
+	}
+	return nil, CachedRef{}, false
+}
+
+// readCacheGeneration reads one generation through a single directory handle.
+// The last result reports that the generation went away mid-read, so the caller
+// can read its successor instead of returning half of each.
+func readCacheGeneration(dir string) (*contract.Bundle, CachedRef, bool) {
+	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return nil, err
+		return nil, CachedRef{}, false // no entry here at all: an ordinary miss
+	}
+	defer func() { _ = root.Close() }()
+
+	f, err := root.Open(CachedBundleFile)
+	if err != nil {
+		return nil, CachedRef{}, !heldGenerationIsInstalled(root, dir)
 	}
 	defer func() { _ = f.Close() }()
+	bundle, err := loadBundle(f)
+	if err != nil {
+		return nil, CachedRef{}, false
+	}
 
-	gr, err := gzip.NewReader(f)
+	afterCachedBundleRead()
+
+	rec, ok := readCachedRefFrom(root)
+	// No sidecar has two meanings: an entry written before sidecars existed —
+	// compatible, identity simply unknown — or a generation that has since been
+	// swapped away, whose successor does have one.
+	if !ok && !heldGenerationIsInstalled(root, dir) {
+		return nil, CachedRef{}, true
+	}
+	return bundle, rec, false
+}
+
+// heldGenerationIsInstalled reports whether the directory this handle holds is
+// still the one installed at dir. A commit replaces the directory, so a handle
+// whose identity no longer matches names a generation nobody can reach.
+func heldGenerationIsInstalled(root *os.Root, dir string) bool {
+	held, herr := root.Stat(".")
+	installed, ierr := os.Stat(dir)
+	return herr == nil && ierr == nil && os.SameFile(held, installed)
+}
+
+func loadBundle(r io.Reader) (*contract.Bundle, error) {
+	gr, err := gzip.NewReader(r)
 	if err != nil {
 		return nil, err
 	}

@@ -26,6 +26,10 @@ type fakeStore struct {
 	tags map[string][]string
 	// resolves counts digest resolutions, which are registry round trips.
 	resolves int
+	// recorded is the identity each CACHE ENTRY holds beside its bundle, which an
+	// offline store reads back together with the bytes. It is a different fact
+	// from digest above — what the registry says now, online.
+	recorded map[string]string
 }
 
 func bundleFor(name string) *contract.Bundle {
@@ -66,6 +70,21 @@ func (f *fakeStore) Pull(_ context.Context, ref string) (*contract.Bundle, error
 	}
 	return nil, errors.New("not found")
 }
+
+// PullCachedPinned makes this fake an offline-capable store, as the real
+// CachedStore is: it serves a bundle with the identity recorded beside it and
+// never touches the registry.
+func (f *fakeStore) PullCachedPinned(_ context.Context, ref string) (*contract.Bundle, string, bool) {
+	if f.pullErr[ref] != nil {
+		return nil, "", false
+	}
+	b, ok := f.bundles[ref]
+	if !ok {
+		return nil, "", false
+	}
+	return b, f.recorded[ref], true
+}
+
 func (f *fakeStore) Resolve(_ context.Context, ref string) (string, error) {
 	f.resolves++
 	if d, ok := f.digest[ref]; ok {
@@ -326,7 +345,8 @@ func TestCacheSource_Collect_SidecarIsTheIdentity(t *testing.T) {
 		`{"ref":"localhost:5000/demo/checkout:1.0.0","digest":"`+dgst+`"}`)
 
 	store := &fakeStore{
-		bundles: map[string]*contract.Bundle{"localhost:5000/demo/checkout:1.0.0": bundleFor("checkout")},
+		bundles:  map[string]*contract.Bundle{"localhost:5000/demo/checkout:1.0.0": bundleFor("checkout")},
+		recorded: map[string]string{"localhost:5000/demo/checkout:1.0.0": dgst},
 	}
 	col, err := NewCacheSource("cache", dir, store).Collect(context.Background())
 	if err != nil {
@@ -342,8 +362,9 @@ func TestCacheSource_Collect_SidecarIsTheIdentity(t *testing.T) {
 	if rev.Domain != "localhost:5000/demo" {
 		t.Errorf("Domain = %q, want localhost:5000/demo", rev.Domain)
 	}
-	// The recorded digest is what makes the cached record key to the SAME
-	// canonical revision as the registry record for the same artifact.
+	// The recorded digest — read back WITH the bytes, not looked up afterwards —
+	// is what makes the cached record key to the SAME canonical revision as the
+	// registry record for the same artifact.
 	if rev.Digest != dgst || rev.ResolvedRef != "oci://localhost:5000/demo/checkout@"+dgst {
 		t.Errorf("revision = ref %q digest %q, want the digest-pinned canonical form", rev.ResolvedRef, rev.Digest)
 	}
@@ -417,6 +438,94 @@ func TestCacheSource_Collect_OrderIsDeterministic(t *testing.T) {
 		col.Revisions[0].RequestedRef != "ghcr.io/org/bbb:1.0.0" ||
 		col.Revisions[1].RequestedRef != "ghcr.io/org/zzz:1.0.0" {
 		t.Fatalf("revisions = %+v, want bbb then zzz", col.Revisions)
+	}
+}
+
+// diskBundle survives a round trip through the REAL disk cache: its FS carries
+// the pacto.yaml a reader parses back, and its service name says which
+// generation the reader got.
+func diskBundle(marker string) *contract.Bundle {
+	y := []byte("pactoVersion: \"2.0\"\nservice:\n  name: " + marker + "\n  version: \"1.0.0\"\n")
+	return &contract.Bundle{
+		Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: marker, Version: "1.0.0"}},
+		RawYAML:  y,
+		FS:       fstest.MapFS{"pacto.yaml": &fstest.MapFile{Data: y, Mode: 0o644}},
+	}
+}
+
+// oneArtifactRegistry serves a single artifact: one digest, one content.
+type oneArtifactRegistry struct {
+	digest string
+	bundle *contract.Bundle
+}
+
+func (r *oneArtifactRegistry) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", nil
+}
+func (r *oneArtifactRegistry) Resolve(context.Context, string) (string, error) {
+	return r.digest, nil
+}
+func (r *oneArtifactRegistry) ListTags(context.Context, string) ([]string, error) { return nil, nil }
+func (r *oneArtifactRegistry) Pull(context.Context, string) (*contract.Bundle, error) {
+	if r.bundle == nil {
+		return nil, errors.New("this store must not be asked")
+	}
+	return r.bundle, nil
+}
+
+// TestCacheSource_Collect_TheWalkAndTheReadAreOneGeneration drives the inverse
+// interleaving of the pull path's: the walk records the sidecar of the
+// generation installed now, the resolution reads the entry a moment later, and
+// the disk cache is SHARED — another Pacto process can commit a new generation
+// in between. Pairing the walk's identity with the read's bytes publishes
+// content under a digest it does not have. Both must come from one generation.
+func TestCacheSource_Collect_TheWalkAndTheReadAreOneGeneration(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	ctx := context.Background()
+	const ref = "localhost:5000/demo/checkout:1.0.0"
+	genA, genB := validDigest("a"), validDigest("b")
+	holds := map[string]string{genA: "gen-a", genB: "gen-b"}
+
+	install := func(digest string) {
+		t.Helper()
+		writer := oci.NewCachedStore(&oneArtifactRegistry{digest: digest, bundle: diskBundle(holds[digest])})
+		writer.DisableCache() // cold, so it really pulls and really commits
+		if _, err := writer.Pull(ctx, ref); err != nil {
+			t.Fatalf("installing generation %s: %v", digest, err)
+		}
+	}
+	install(genA)
+
+	// A SECOND store over the same directory commits generation B once the walk
+	// has recorded A and before the entry is read.
+	orig := fsWalkDir
+	t.Cleanup(func() { fsWalkDir = orig })
+	fsWalkDir = func(root string, fn fs.WalkDirFunc) error {
+		err := orig(root, fn)
+		install(genB)
+		return err
+	}
+
+	// The reader is cold: nothing of either generation is in its memory, so the
+	// answer comes from the real disk read path.
+	reader := oci.NewCachedStore(&oneArtifactRegistry{digest: genA})
+	col, err := NewCacheSource("cache", reader.CacheDir(), reader).Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %+v, want the one cached entry", col.Revisions)
+	}
+	rev := col.Revisions[0]
+	want, published := holds[rev.Digest]
+	if !published {
+		t.Fatalf("revision digest %q belongs to no published generation", rev.Digest)
+	}
+	if got := rev.Bundle.Contract.Service.Name; got != want {
+		t.Fatalf("the revision carries the bytes of %q under digest %s, which holds %q", got, rev.Digest, want)
+	}
+	if rev.ResolvedRef != "oci://localhost:5000/demo/checkout@"+rev.Digest {
+		t.Errorf("ResolvedRef = %q, want the canonical pin of the digest it reported", rev.ResolvedRef)
 	}
 }
 

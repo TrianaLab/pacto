@@ -183,8 +183,13 @@ Services are grouped by name across sources and merged using priority rules:
 			// snapshot instead of rebuilding per request.
 			if fopts, ok := dashboardFleetOptions(dir, repos, namespace, observation, detectResult); ok {
 				discover := clusterContractRefs(detectResult)
+				cacheUse := cacheLifecycle{
+					permitted:    !noCache,
+					baseline:     fopts.IncludeCache,
+					materialized: cacheMaterialization(svc.BundleStore),
+				}
 				mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
-					return svc.Fleet(ctx, withClusterContractRefs(ctx, fopts, discover))
+					return svc.Fleet(ctx, withClusterContractRefs(ctx, fopts, discover, cacheUse))
 				}, fleet.ManagerOptions{})
 				go mgr.Start(cmd.Context(), fleetRefreshInterval)
 				server.SetFleetProvider(managerFleetProvider(mgr))
@@ -554,9 +559,48 @@ func clusterContractRefs(dr *dashboard.DetectResult) func(context.Context) []str
 	return dashboard.ContractRefProviderFromSource(dr.K8s)
 }
 
+// cacheLifecycle answers one question per refresh — may the disk cache
+// contribute a baseline? — from three facts that are NOT the same fact.
+//
+// Deriving it from "are there OCI refs right now" conflated all three. An
+// operator-managed pod starts with an emptyDir cache and no reconciled CRs, so
+// the baseline is off; refs then appear, the pulls fill the cache — and the next
+// Kubernetes read that fails or comes back empty took the cache away again,
+// exactly when the offline baseline was the only thing left that could answer.
+// The same expression also turned the cache on for explicit refs under
+// --no-cache, publishing a source over pre-existing entries the store then
+// refuses to read: a partial baseline made of limitations.
+type cacheLifecycle struct {
+	// permitted is false when --no-cache excluded whatever the cache already
+	// held. Cold start is a promise about pre-existing state, and the walk that
+	// backs a cache source cannot tell those entries from this session's.
+	permitted bool
+	// baseline is what startup detection found: a cache with content to read.
+	baseline bool
+	// materialized asks the store whether THIS process has filled the cache,
+	// which is the fact a pod's empty startup cache cannot report and no
+	// re-inspection of a discovery result can substitute for.
+	materialized func() bool
+}
+
+// contributes reports whether this refresh should read the disk cache.
+func (c cacheLifecycle) contributes() bool {
+	return c.permitted && (c.baseline || c.materialized())
+}
+
+// cacheMaterialization reports whether the store has written cache entries
+// during this process. A store that cannot say has not filled anything this
+// process can claim.
+func cacheMaterialization(store oci.BundleStore) func() bool {
+	if m, ok := store.(interface{ Materialized() bool }); ok {
+		return m.Materialized
+	}
+	return func() bool { return false }
+}
+
 // withClusterContractRefs returns the snapshot options for ONE refresh: the
 // configured sources plus whatever contract references the cluster reports right
-// now.
+// now, and the cache verdict for this moment in the cache's lifecycle.
 //
 // The refresh, not startup, is the only honest place to ask. An operator-managed
 // dashboard is created by the operator BEFORE any Pacto CR has been reconciled,
@@ -568,16 +612,7 @@ func clusterContractRefs(dr *dashboard.DetectResult) func(context.Context) []str
 //
 // Explicit `oci://` arguments still win their place in the list; discovery adds
 // to what the operator configured rather than replacing it.
-//
-// The disk cache is a property of the refresh for the SAME reason. Startup
-// detection judges the cache by what is in it, and an operator-managed pod's
-// cache is empty by construction — an emptyDir created with the pod — so a
-// cache judged absent once is absent for the life of the process. The offline
-// baseline the operator mounted then never contributes, and the registry
-// remains the only thing that can answer, however much has since been pulled
-// into that directory. An absent or empty cache directory collects nothing and
-// reports no error, so asking when there is nothing there costs nothing.
-func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discover func(context.Context) []string) app.FleetOptions {
+func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discover func(context.Context) []string, cache cacheLifecycle) app.FleetOptions {
 	if discover != nil {
 		if found := discover(ctx); len(found) > 0 {
 			seen := make(map[string]struct{}, len(opts.OCIRefs)+len(found))
@@ -592,7 +627,7 @@ func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discove
 			opts.OCIRefs = merged
 		}
 	}
-	opts.IncludeCache = opts.IncludeCache || len(opts.OCIRefs) > 0
+	opts.IncludeCache = cache.contributes()
 	return opts
 }
 

@@ -43,13 +43,7 @@ func (s *OCISource) Kind() string { return "oci" }
 
 // Collect resolves each configured ref into a revision.
 func (s *OCISource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	// A configured ref is a request, not a record: this source is allowed to
-	// reach the registry, so it learns the digest there rather than from disk.
-	refs := make([]oci.CachedRef, len(s.refs))
-	for i, ref := range s.refs {
-		refs[i] = oci.CachedRef{Ref: ref}
-	}
-	return collectRefs(ctx, s.id, s.resolver, s.store, refs, s.mode)
+	return collectRefs(ctx, s.id, s.resolver, s.store, s.refs, s.mode)
 }
 
 // CacheSource enumerates every bundle in the local OCI disk cache and includes
@@ -90,10 +84,9 @@ func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 
 // collectRefs resolves refs into revisions, turning per-ref failures into
 // record-level limitations so a partial result is never mistaken for empty.
-func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []oci.CachedRef, mode oci.ResolveMode) (*fleet.Collection, error) {
+func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string, mode oci.ResolveMode) (*fleet.Collection, error) {
 	col := &fleet.Collection{}
-	for _, entry := range refs {
-		ref := entry.Ref
+	for _, ref := range refs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -142,15 +135,18 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// no second identity. A pre-sidecar cache entry still has no digest, and
 		// still says so.
 		//
+		// That recorded digest comes back from the resolution ITSELF, read from the
+		// cache generation that served these bytes. The walk that found the entry is
+		// a separate, earlier observation of a shared directory: reusing ITS sidecar
+		// would pair the identity the walker saw with whatever a concurrent writer
+		// has since installed — bundle B under digest A.
+		//
 		// Online, the digest comes back WITH the bundle from the one pull that
 		// fetched it. Asking the registry again afterwards was a second observation
 		// of a reference that may be a mutable tag: re-pushed between the pull and
 		// the question, it answers with the digest of an artifact this snapshot
 		// never read, and the revision then claims an immutable identity for
 		// content that does not have it.
-		if mode == oci.LocalOnly {
-			digest = entry.Digest
-		}
 		if digest != "" {
 			rev.Digest = digest
 			rev.ResolvedRef = pinRefToDigest(concrete, digest)
@@ -201,22 +197,24 @@ func OciDomain(ref string) string {
 	return ""
 }
 
-// cachedRefs walks the cache directory and reports what each cached bundle is.
+// cachedRefs walks the cache directory and reports which reference each cached
+// bundle was pulled under — the entries to resolve, not their content or their
+// identity: those are read together, later, from one generation of the entry.
 //
 // The authority is the sidecar the cache writes beside every bundle: the exact
-// pulled reference and its manifest digest. Only an entry written before the
-// sidecar existed falls back to reading the path — <cacheDir>/<repo...>/<tag>/
-// bundle.tar.gz reconstructed as <repo...>:<tag> — which is approximate, because
-// the path spells a registry port and a digest the same way it spells a path
-// separator and a tag. Results are sorted for deterministic output.
-func cachedRefs(cacheDir string) ([]oci.CachedRef, error) {
+// pulled reference. Only an entry written before the sidecar existed falls back
+// to reading the path — <cacheDir>/<repo...>/<tag>/bundle.tar.gz reconstructed
+// as <repo...>:<tag> — which is approximate, because the path spells a registry
+// port and a digest the same way it spells a path separator and a tag. Results
+// are sorted for deterministic output.
+func cachedRefs(cacheDir string) ([]string, error) {
 	if _, err := os.Stat(cacheDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	var refs []oci.CachedRef
+	var refs []string
 	err := fsWalkDir(cacheDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -225,7 +223,7 @@ func cachedRefs(cacheDir string) ([]oci.CachedRef, error) {
 			return nil
 		}
 		if rec, ok := oci.ReadCachedRef(filepath.Dir(path)); ok {
-			refs = append(refs, rec)
+			refs = append(refs, rec.Ref)
 			return nil
 		}
 		// path is always under cacheDir (WalkDir guarantees it), so a prefix trim
@@ -239,12 +237,12 @@ func cachedRefs(cacheDir string) ([]oci.CachedRef, error) {
 		parts = parts[:len(parts)-1] // drop bundle.tar.gz
 		tag := parts[len(parts)-1]
 		repo := strings.Join(parts[:len(parts)-1], "/")
-		refs = append(refs, oci.CachedRef{Ref: repo + ":" + tag})
+		refs = append(refs, repo+":"+tag)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(refs, func(i, j int) bool { return refs[i].Ref < refs[j].Ref })
+	sort.Strings(refs)
 	return refs, nil
 }

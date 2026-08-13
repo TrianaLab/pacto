@@ -112,9 +112,10 @@ func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint strin
 // a pull is a second observation of a mutable tag: re-pushed in between, it
 // names bytes the caller never read.
 //
-// LocalOnly reports no digest: the offline reader's identity is the one RECORDED
-// beside the cached bundle, which the caller already holds, and inventing a
-// digest here would mean dialing a registry the mode promised not to touch.
+// LocalOnly reports the digest RECORDED beside the cached bundle, read from the
+// same cache generation as the bytes — never re-derived, which offline would
+// mean dialing a registry the mode promised not to touch. An entry that recorded
+// no digest reports none.
 func (r *Resolver) ResolvePinned(ctx context.Context, ref string, mode ResolveMode) (*contract.Bundle, string, error) {
 	return r.resolvePinned(ctx, ref, "", mode)
 }
@@ -123,8 +124,7 @@ func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mo
 	ref = strings.TrimPrefix(ref, "oci://")
 
 	if mode == LocalOnly {
-		bundle, err := r.resolveLocal(ctx, ref)
-		return bundle, "", err
+		return r.resolveLocal(ctx, ref)
 	}
 
 	// For untagged refs in remote mode, resolve the best tag first.
@@ -199,23 +199,24 @@ func classifyPullError(err error) error {
 	return nil
 }
 
-// cachedPuller is a store that can serve from its own cache without contacting
-// the registry (see [CachedStore.PullCached]).
+// cachedPuller is a store that can serve from its own cache, with the identity
+// recorded for what it serves, without contacting the registry (see
+// [CachedStore.PullCachedPinned]).
 type cachedPuller interface {
-	PullCached(ctx context.Context, ref string) (*contract.Bundle, bool)
+	PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, string, bool)
 }
 
-func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, error) {
+func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, string, error) {
 	// A cached store's Pull falls through to the REGISTRY on a cache miss, so
 	// asking it to Pull would make LocalOnly a network call -- the exact opposite
 	// of what the mode promises, and enough to hang a caller that walks thousands
 	// of cached refs offline. Read the cache directly when the store can.
 	if cp, ok := r.store.(cachedPuller); ok {
-		bundle, hit := cp.PullCached(ctx, ref)
+		bundle, digest, hit := cp.PullCachedPinned(ctx, ref)
 		if !hit {
-			return nil, &ArtifactNotFoundError{Ref: ref, Err: errors.New("not found in local cache")}
+			return nil, "", &ArtifactNotFoundError{Ref: ref, Err: errors.New("not found in local cache")}
 		}
-		return localBundle(ref, bundle)
+		return localBundle(ref, bundle, digest)
 	}
 	// A store with no cache of its own has nothing "local" to read; its Pull is
 	// the only option, and its typed auth/not-found/unreachable errors are more
@@ -223,18 +224,19 @@ func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bund
 	bundle, err := r.store.Pull(ctx, ref)
 	if err != nil {
 		if typed := classifyPullError(err); typed != nil {
-			return nil, typed
+			return nil, "", typed
 		}
-		return nil, &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
+		return nil, "", &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
 	}
-	return localBundle(ref, bundle)
+	// Nothing recorded an identity for these bytes, so none is claimed.
+	return localBundle(ref, bundle, "")
 }
 
-func localBundle(ref string, bundle *contract.Bundle) (*contract.Bundle, error) {
+func localBundle(ref string, bundle *contract.Bundle, digest string) (*contract.Bundle, string, error) {
 	if bundle.Contract == nil {
-		return nil, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
+		return nil, "", &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
 	}
-	return bundle, nil
+	return bundle, digest, nil
 }
 
 func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, string, error) {

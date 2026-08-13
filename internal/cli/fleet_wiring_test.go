@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,8 +10,11 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // TestBuildMCPServer_WithFleet covers the --fleet branch of buildMCPServer: no
@@ -375,7 +379,7 @@ func TestWithClusterContractRefs(t *testing.T) {
 		"empty cluster": func(context.Context) []string { return nil },
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := withClusterContractRefs(ctx, base, discover)
+			got := withClusterContractRefs(ctx, base, discover, cacheUnfilled())
 			if !reflect.DeepEqual(got.OCIRefs, base.OCIRefs) {
 				t.Errorf("OCIRefs = %v, want %v", got.OCIRefs, base.OCIRefs)
 			}
@@ -387,7 +391,7 @@ func TestWithClusterContractRefs(t *testing.T) {
 		calls++
 		return []string{"reg.svc:5000/demo/orders", "reg.svc:5000/demo/checkout@sha256:abc"}
 	}
-	got := withClusterContractRefs(ctx, base, discover)
+	got := withClusterContractRefs(ctx, base, discover, cacheUnfilled())
 	want := []string{
 		"ghcr.io/x/a",
 		"reg.svc:5000/demo/orders",
@@ -400,37 +404,196 @@ func TestWithClusterContractRefs(t *testing.T) {
 		t.Errorf("the configured options were mutated: %v", base.OCIRefs)
 	}
 	// A second refresh re-asks rather than reusing the first answer.
-	withClusterContractRefs(ctx, base, discover)
+	withClusterContractRefs(ctx, base, discover, cacheUnfilled())
 	if calls != 2 {
 		t.Errorf("discover called %d times, want 2", calls)
 	}
 }
 
-// TestWithClusterContractRefs_ReadsTheCacheThePullsFill proves the disk cache is
-// judged per refresh, not once at startup. An operator-managed pod's cache is an
-// emptyDir created with the pod, so detection always finds it empty; if that
-// verdict stuck, the registry would stay the only source that ever answers and
-// the offline baseline sitting in that directory would never contribute.
-func TestWithClusterContractRefs_ReadsTheCacheThePullsFill(t *testing.T) {
-	ctx := context.Background()
-	discovered := func(context.Context) []string { return []string{"reg.svc:5000/demo/orders"} }
+// cacheUnfilled is the lifecycle of a run that may use the cache, started with
+// nothing in it and has pulled nothing into it yet.
+func cacheUnfilled() cacheLifecycle {
+	return cacheLifecycle{permitted: true, materialized: func() bool { return false }}
+}
 
-	// Startup found an empty cache, so IncludeCache is false; the refresh that
-	// pulls from the registry is also the refresh that fills the cache.
-	if got := withClusterContractRefs(ctx, app.FleetOptions{}, discovered); !got.IncludeCache {
-		t.Error("a refresh with contract references must also read the cache those pulls fill")
+// TestCacheLifecycle_Contributes pins the three dimensions apart. Discovery is
+// deliberately absent from all of them: whether a ref happened to be readable in
+// this refresh says nothing about whether the cache holds a baseline.
+func TestCacheLifecycle_Contributes(t *testing.T) {
+	filled, empty := func() bool { return true }, func() bool { return false }
+	for name, tc := range map[string]struct {
+		lifecycle cacheLifecycle
+		want      bool
+	}{
+		"nothing to read yet":      {cacheLifecycle{permitted: true, materialized: empty}, false},
+		"startup found a cache":    {cacheLifecycle{permitted: true, baseline: true, materialized: empty}, true},
+		"this session filled it":   {cacheLifecycle{permitted: true, materialized: filled}, true},
+		"--no-cache over a full 1": {cacheLifecycle{baseline: true, materialized: filled}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.lifecycle.contributes(); got != tc.want {
+				t.Errorf("contributes() = %v, want %v", got, tc.want)
+			}
+		})
 	}
-	// Explicitly configured refs are enough on their own — no cluster needed.
-	base := app.FleetOptions{OCIRefs: []string{"ghcr.io/x/a"}}
-	if got := withClusterContractRefs(ctx, base, nil); !got.IncludeCache {
-		t.Error("configured OCI references must read the cache too")
+}
+
+// cacheHarness points the OCI disk cache at a private directory and returns a
+// service over a REAL CachedStore in front of a registry the test controls.
+func cacheHarness(t *testing.T) (*app.Service, *oci.CachedStore, *testutil.MockBundleStore) {
+	t.Helper()
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	reg := &testutil.MockBundleStore{}
+	store := oci.NewCachedStore(reg)
+	return app.NewService(store, nil), store, reg
+}
+
+// offline makes every registry call fail, leaving the disk cache as the only
+// thing that can answer.
+func offline(reg *testutil.MockBundleStore) {
+	down := errors.New("registry unreachable")
+	reg.PullFn = func(context.Context, string) (*contract.Bundle, error) { return nil, down }
+	reg.ResolveFn = func(context.Context, string) (string, error) { return "", down }
+	reg.ListTagsFn = func(context.Context, string) ([]string, error) { return nil, down }
+}
+
+// sourceOfKind returns the snapshot's source of the given kind, or nil.
+func sourceOfKind(snap *fleet.FleetSnapshot, kind string) *fleet.SourceState {
+	for i, s := range snap.Sources {
+		if s.Kind == kind {
+			return &snap.Sources[i]
+		}
 	}
-	// Nothing to pull, nothing to cache: no source is invented.
-	if got := withClusterContractRefs(ctx, app.FleetOptions{}, nil); got.IncludeCache {
-		t.Error("a refresh with no OCI references must not add a cache source")
+	return nil
+}
+
+// TestCacheLifecycle_TheCacheThisSessionFilledOutlivesDiscovery walks the
+// operator-startup sequence. The pod's cache is an emptyDir, so startup finds
+// nothing; refs appear once the operator has reconciled a Pacto CR; the pulls
+// fill the cache. A later Kubernetes read that fails or returns nothing must not
+// take that baseline away — it is the only thing left that can answer.
+func TestCacheLifecycle_TheCacheThisSessionFilledOutlivesDiscovery(t *testing.T) {
+	ctx := context.Background()
+	svc, store, reg := cacheHarness(t)
+	const ref = "reg.svc:5000/demo/orders:1.0.0"
+	cache := cacheLifecycle{permitted: true, materialized: cacheMaterialization(store)}
+
+	// Refresh 1: no cluster references yet, and nothing in the cache to read.
+	first := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string { return nil }, cache)
+	if first.IncludeCache {
+		t.Error("nothing has been pulled and startup found nothing: there is no baseline to publish")
 	}
-	// An already-enabled cache (startup found bundles) stays enabled.
-	if got := withClusterContractRefs(ctx, app.FleetOptions{IncludeCache: true}, nil); !got.IncludeCache {
-		t.Error("a cache enabled at startup must not be turned off by a refresh")
+
+	// Refresh 2: the operator has resolved a contract, so the refresh pulls it —
+	// and that pull is what materializes the cache.
+	second := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string { return []string{ref} }, cache)
+	if _, err := svc.Fleet(ctx, second); err != nil {
+		t.Fatalf("Fleet() error: %v", err)
+	}
+	if !store.Materialized() {
+		t.Fatal("the pull did not fill the disk cache")
+	}
+
+	// Refresh 3: the cluster read comes back empty (or failed). The baseline the
+	// session just wrote must still be read, and must still answer with the
+	// registry gone.
+	offline(reg)
+	third := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string { return nil }, cache)
+	if !third.IncludeCache {
+		t.Fatal("a cache this session filled must survive a refresh that discovers nothing")
+	}
+	snap, err := svc.Fleet(ctx, third)
+	if err != nil {
+		t.Fatalf("offline Fleet() error: %v", err)
+	}
+	got := sourceOfKind(snap, "cache")
+	if got == nil {
+		t.Fatal("no cache source in the snapshot")
+	}
+	if got.Status != fleet.SourceAvailable || got.RevisionCount == 0 {
+		t.Fatalf("cache source = %s with %d revisions, want an available baseline", got.Status, got.RevisionCount)
+	}
+
+	// And it is on DISK, not merely in this store's memory: a second process over
+	// the same cache directory, with the registry down, reads the same baseline.
+	cold := app.NewService(oci.NewCachedStore(reg), nil)
+	coldSnap, err := cold.Fleet(ctx, app.FleetOptions{IncludeCache: true})
+	if err != nil {
+		t.Fatalf("cold Fleet() error: %v", err)
+	}
+	if s := sourceOfKind(coldSnap, "cache"); s == nil || s.RevisionCount != got.RevisionCount {
+		t.Fatalf("a cold store read %v from the same cache directory, want %d revisions", s, got.RevisionCount)
+	}
+}
+
+// TestCacheLifecycle_NoCacheNeverPublishesWhatWasAlreadyThere holds the
+// documented cold start: --no-cache excludes the entries that were on disk
+// before the process started. The walk behind a cache source cannot tell those
+// from this session's, and the store refuses to read them, so publishing the
+// source at all yields a baseline made of limitations.
+func TestCacheLifecycle_NoCacheNeverPublishesWhatWasAlreadyThere(t *testing.T) {
+	ctx := context.Background()
+	svc, store, reg := cacheHarness(t)
+	const preexisting = "reg.svc:5000/demo/orders:9.9.9"
+	const session = "reg.svc:5000/demo/orders:1.0.0"
+
+	// Something was already in the cache when the process started.
+	if _, err := oci.NewCachedStore(reg).Pull(ctx, preexisting); err != nil {
+		t.Fatalf("seeding the cache: %v", err)
+	}
+	store.DisableCache() // --no-cache
+	cache := cacheLifecycle{permitted: false, materialized: cacheMaterialization(store)}
+
+	opts := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string { return []string{session} }, cache)
+	if opts.IncludeCache {
+		t.Fatal("--no-cache must not publish a cache source over pre-existing entries")
+	}
+	snap, err := svc.Fleet(ctx, opts)
+	if err != nil {
+		t.Fatalf("Fleet() error: %v", err)
+	}
+	if s := sourceOfKind(snap, "cache"); s != nil {
+		t.Fatalf("cold start published a cache source: %+v", s)
+	}
+	for key := range snap.Revisions {
+		if strings.Contains(string(key), "9.9.9") {
+			t.Fatalf("a pre-existing cache entry reached the snapshot: %s", key)
+		}
+	}
+	// Same-session materialization keeps its documented behavior: the pull
+	// happened, it was persisted, and its revision is in the snapshot — via the
+	// registry source, not by re-opening the cold cache.
+	if !store.Materialized() {
+		t.Error("--no-cache must still persist this session's pulls")
+	}
+	if len(snap.Revisions) != 1 {
+		t.Errorf("revisions = %d, want only the one this session pulled", len(snap.Revisions))
+	}
+	// A later refresh does not change its mind once the cache has content.
+	if again := withClusterContractRefs(ctx, app.FleetOptions{}, nil, cache); again.IncludeCache {
+		t.Error("--no-cache is a promise about pre-existing state, not a first-refresh rule")
+	}
+}
+
+// TestCacheLifecycle_NoCapabilityInventsNoSource: a dashboard whose store cannot
+// cache anything has no baseline to offer. Deriving the cache from "there are
+// OCI refs" published an unavailable cache source that never existed.
+func TestCacheLifecycle_NoCapabilityInventsNoSource(t *testing.T) {
+	ctx := context.Background()
+	svc := app.NewService(nil, nil)
+	cache := cacheLifecycle{permitted: true, materialized: cacheMaterialization(nil)}
+
+	opts := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string {
+		return []string{"reg.svc:5000/demo/orders:1.0.0"}
+	}, cache)
+	if opts.IncludeCache {
+		t.Fatal("a store that cannot cache has nothing to contribute")
+	}
+	snap, err := svc.Fleet(ctx, opts)
+	if err != nil {
+		t.Fatalf("Fleet() error: %v", err)
+	}
+	if s := sourceOfKind(snap, "cache"); s != nil {
+		t.Fatalf("invented a cache source: %+v", s)
 	}
 }

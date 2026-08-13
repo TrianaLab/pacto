@@ -230,9 +230,10 @@ func TestCachedStore_PullPinnedBindsTheDigestToTheBytesItFetched(t *testing.T) {
 }
 
 // ResolvePinned is the seam the fleet's OCI source uses to learn a revision's
-// immutable identity. It must carry the pull's own binding through — and it must
-// not invent one offline, where the recorded identity is all there is and dialling
-// a registry is exactly what the mode forbids.
+// immutable identity. It must carry the pull's own binding through — offline too,
+// where the recorded identity is all there is and dialling a registry is exactly
+// what the mode forbids. The cold store's registry would answer a DIFFERENT
+// digest, so a re-derived identity is visible as such.
 func TestResolverPinned_CarriesTheBindingTheStoreMade(t *testing.T) {
 	useTempCacheHome(t)
 	const ref = "localhost:5000/demo/checkout:1.0.0"
@@ -247,13 +248,17 @@ func TestResolverPinned_CarriesTheBindingTheStoreMade(t *testing.T) {
 		t.Fatalf("resolved the artifact published as %q under digest %s", got, digest)
 	}
 
-	cold := oci.NewCachedStore(&countingStore{})
-	local, digest, err := oci.NewResolver(cold).ResolvePinned(ctx, ref, oci.LocalOnly)
+	registry := &countingStore{}
+	cold := oci.NewCachedStore(registry)
+	local, localDigest, err := oci.NewResolver(cold).ResolvePinned(ctx, ref, oci.LocalOnly)
 	if err != nil {
 		t.Fatalf("LocalOnly ResolvePinned() error: %v", err)
 	}
-	if digest != "" {
-		t.Errorf("LocalOnly reported digest %q; offline identity comes from the sidecar the caller reads, not from the registry", digest)
+	if localDigest != digest {
+		t.Errorf("LocalOnly reported digest %q, want the recorded %q: offline identity is read back WITH the bytes", localDigest, digest)
+	}
+	if registry.pullCount.Load() != 0 {
+		t.Errorf("the offline path pulled %d times, want none", registry.pullCount.Load())
 	}
 	if local.Contract.Service.Name != bundle.Contract.Service.Name {
 		t.Errorf("offline served %q, want the cached %q", local.Contract.Service.Name, bundle.Contract.Service.Name)
