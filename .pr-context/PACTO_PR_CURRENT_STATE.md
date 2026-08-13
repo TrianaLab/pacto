@@ -1097,6 +1097,23 @@ Phase 8 stays a CANDIDATE; only an independent review closes it.
   moved with this commit. The unresolved authored population is the same carried
   item, not a new one.
 
+#### Check and thread state at this document's own commit `c9d52bb9`
+
+- 39 check runs: 36 success, `build` and `auto-merge` skipped, `CodeQL` failure
+  — the same shape as `b0020460`, with all six Kind shards green.
+- NOT green on the first attempt. `ci-e2e-kind (evidence)` failed once on an
+  infrastructure fault and was RERUN: the operator image build inside the shard
+  could not verify two unrelated third-party `go.mod` files because
+  `sum.golang.org` answered `stream error: ... INTERNAL_ERROR` for
+  `github.com/danielgtaylor/shorthand/v2@v2.4.0` and
+  `github.com/gin-contrib/sse@v1.1.1`, so `docker build` exited before a cluster
+  ever existed. `c9d52bb9` is a documentation-only commit and the shard is green
+  at `b0020460` with identical code. The rerun is disclosed here rather than
+  reported as a clean first pass.
+- Review threads re-queried at `c9d52bb9`: 199 total, 189 resolved, 10
+  unresolved — the same 6 generated (`ganttDiagram-6RSMTGT7-i4uZHW8n.js`) and 4
+  authored (`pkg/oci/cache.go`) as at `b0020460`.
+
 ### Third-reopen verification — self-reported at `a1159be0`
 
 Not an independent review. Re-verify at the exact SHA before accepting it.
