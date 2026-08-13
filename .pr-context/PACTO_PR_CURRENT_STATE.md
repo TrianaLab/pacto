@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`1741318d26ccc08238c60bd046d4e19019b1036d`
+`80c0e92ff6d09414ae21ebaa84debb40f6b5111c`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,18 +25,25 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-That review kept Phase 8 NARROWLY REOPENED a third time, on two boundaries
-(section 2, "Third narrow reopen"). Blocker A stays CLOSED, the registry
-resolve-once / pull-by-digest binding and the direct 14-fact post-cache gate are
-accepted, Phase 8B stays NOT STARTED, and every other Phase-8 acceptance stays
-frozen.
+That review kept Phase 8 NARROWLY REOPENED a fourth time, on B4's one remaining
+boundary (section 2, "Fourth narrow reopen"). B5 is independently ACCEPTED and
+frozen, blocker A stays CLOSED, the registry resolve-once / pull-by-digest
+binding and the direct 14-fact post-cache gate stay accepted, Phase 8B stays NOT
+STARTED, and every other Phase-8 acceptance stays frozen.
 
-Commits appended on top of the reviewed HEAD `1741318d`, oldest first:
+Commits appended on top of the reviewed HEAD `80c0e92f`, oldest first:
+
+- `234f01f8` — a cached revision is named by the generation that served it
+  (blocker B, B4's remaining boundary)
+- this document's own commit — persist the Phase-8 candidate after the fourth
+  narrow reopen
+
+Commits appended on top of the earlier reviewed HEAD `1741318d`:
 
 - `a1159be0` — a reader gets one cache generation, and the cache's life is
   three facts (blocker B, boundaries 4 and 5)
 - `60fe9919` — persist the Phase-8 candidate after the third narrow reopen
-- this document's own commit — record the final-SHA re-query
+- `80c0e92f` — record the review-thread and check state re-queried at `60fe9919`
 
 Commits appended on top of the earlier reviewed HEAD `879724dc`:
 
@@ -84,8 +91,8 @@ For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 - `d18ca70e` — a port-forward is ready when it answers, not two seconds later
 - `6750c959` — the Phase-8 candidate is verified on the fixed harness
 - `d8ef5d5a`, `0cf0c69b`, `879724dc`, `6049f44e`, `caf88050`, `622ed857`,
-  `1741318d`, `a1159be0`, `60fe9919` and this document's commit, as listed
-  above
+  `1741318d`, `a1159be0`, `60fe9919`, `80c0e92f`, `234f01f8` and this
+  document's commit, as listed above
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -576,6 +583,70 @@ Discovery is no longer part of the answer.
   cache invents no cache source, even with a discovered ref. All four
   `cacheLifecycle` cases plus all three scenarios fail against the old
   expression.
+
+#### Fourth narrow reopen at `80c0e92f` — B4's remaining boundary, CANDIDATE
+
+The review at `80c0e92f` accepted B5 independently and froze it, and left B4
+open on ONE boundary: the reader bound bundle bytes and `Digest` to a single
+directory generation, but the sidecar's `Ref` from that same generation never
+reached the fleet. `PullCachedPinned` exposed bundle + digest and dropped
+`CachedRef.Ref`, so `collectRefs` still built `RequestedRef`, `Domain` and the
+canonical `ResolvedRef` from the reference the WALK had recorded, while the
+digest came from the later read.
+
+`cachePath` maps every ':' to '/', so it is not injective, and these two
+references name one entry directory:
+
+- `localhost:5000/demo/checkout:1.0.0`
+- `localhost/5000/demo/checkout:1.0.0`
+
+Install the first, let `cachedRefs` record its sidecar, install the second
+through a second real `CachedStore`, and the cold reader answered with the
+second generation's bytes and digest under the first generation's repository,
+domain and canonical revision key: a revision belonging to no published
+artifact. The existing generation test could not see it because both of its
+generations used the same reference and it asserted only bundle/digest
+coherence.
+
+Closed by carrying the WHOLE record from the generation that supplied the bytes.
+`CachedStore.PullCachedPinned` and `Resolver.ResolvePinned` in `LocalOnly` now
+return the `CachedRef` (`Ref` and `Digest`) read through the one directory
+handle; the in-memory pull cache stores that record beside the bundle instead of
+a bare digest, so a warm hit answers with what the entry said and never with the
+key it was looked up under; and `collectRefs` derives `RequestedRef`, `Domain`
+and the pinned `ResolvedRef` from it whenever the entry states a reference. The
+walk is left doing only what it can do honestly — discovering which entries
+exist. A record with no reference is impossible to pair with a digest
+(`parseCachedRef` rejects a sidecar without `ref`), so the mixed revision has no
+remaining path: an entry either states its identity or is identity-less.
+
+Preserved unchanged: pre-sidecar entries stay readable, identity-less and
+path-approximate; remote resolution still reports the digest of the one pull
+that fetched the bytes, and its `CachedRef.Ref` is empty because no cache
+generation is claiming a different reference; offline reads make no network
+call; mutable tags stay bound to the digest recorded at pull time; B5 and every
+accepted live Product acceptance are untouched.
+
+- `internal/fleetsrc/oci_test.go` —
+  `TestCacheSource_Collect_IdentityComesFromTheGenerationThatServedTheBytes`:
+  the two-reference counterexample above on a real disk cache with two real
+  `CachedStore` instances, asserting the COMPLETE identity — bundle, `Digest`,
+  `RequestedRef`, `Domain`, `ResolvedRef` — belongs to one generation. On the
+  production code at `80c0e92f` it fails with `RequestedRef =
+  "localhost:5000/demo/checkout:1.0.0", but the bytes came from the generation
+  pulled as "localhost/5000/demo/checkout:1.0.0"`, plus the matching `Domain`
+  and `ResolvedRef` failures.
+- `pkg/oci/cache_generation_test.go` —
+  `TestPullCachedPinned_AWarmReadKeepsTheRecordedRef`: an entry installed under
+  one spelling and read under the other returns the complete record on the cold
+  (disk) read AND on the warm (memory) read. Reducing the memory hit to
+  `CachedRef{Digest: e.rec.Digest}` fails the warm leg alone, which is the
+  regression this leg exists to catch.
+
+Verification for this candidate: the two counterfactuals with `-race`; `go test
+-race ./...`; `make lint`; `make coverage` at 100.0%; `make e2e`; `make
+demo-fleet`. The six Kind shards run in CI. Still disclosed and out of scope:
+the CodeQL PR-ref findings and the Evidence Server read-only-cache warning.
 
 ### Phase 8B — NOT STARTED
 
