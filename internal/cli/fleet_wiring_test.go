@@ -405,3 +405,32 @@ func TestWithClusterContractRefs(t *testing.T) {
 		t.Errorf("discover called %d times, want 2", calls)
 	}
 }
+
+// TestWithClusterContractRefs_ReadsTheCacheThePullsFill proves the disk cache is
+// judged per refresh, not once at startup. An operator-managed pod's cache is an
+// emptyDir created with the pod, so detection always finds it empty; if that
+// verdict stuck, the registry would stay the only source that ever answers and
+// the offline baseline sitting in that directory would never contribute.
+func TestWithClusterContractRefs_ReadsTheCacheThePullsFill(t *testing.T) {
+	ctx := context.Background()
+	discovered := func(context.Context) []string { return []string{"reg.svc:5000/demo/orders"} }
+
+	// Startup found an empty cache, so IncludeCache is false; the refresh that
+	// pulls from the registry is also the refresh that fills the cache.
+	if got := withClusterContractRefs(ctx, app.FleetOptions{}, discovered); !got.IncludeCache {
+		t.Error("a refresh with contract references must also read the cache those pulls fill")
+	}
+	// Explicitly configured refs are enough on their own — no cluster needed.
+	base := app.FleetOptions{OCIRefs: []string{"ghcr.io/x/a"}}
+	if got := withClusterContractRefs(ctx, base, nil); !got.IncludeCache {
+		t.Error("configured OCI references must read the cache too")
+	}
+	// Nothing to pull, nothing to cache: no source is invented.
+	if got := withClusterContractRefs(ctx, app.FleetOptions{}, nil); got.IncludeCache {
+		t.Error("a refresh with no OCI references must not add a cache source")
+	}
+	// An already-enabled cache (startup found bundles) stays enabled.
+	if got := withClusterContractRefs(ctx, app.FleetOptions{IncludeCache: true}, nil); !got.IncludeCache {
+		t.Error("a cache enabled at startup must not be turned off by a refresh")
+	}
+}

@@ -568,24 +568,31 @@ func clusterContractRefs(dr *dashboard.DetectResult) func(context.Context) []str
 //
 // Explicit `oci://` arguments still win their place in the list; discovery adds
 // to what the operator configured rather than replacing it.
+//
+// The disk cache is a property of the refresh for the SAME reason. Startup
+// detection judges the cache by what is in it, and an operator-managed pod's
+// cache is empty by construction — an emptyDir created with the pod — so a
+// cache judged absent once is absent for the life of the process. The offline
+// baseline the operator mounted then never contributes, and the registry
+// remains the only thing that can answer, however much has since been pulled
+// into that directory. An absent or empty cache directory collects nothing and
+// reports no error, so asking when there is nothing there costs nothing.
 func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discover func(context.Context) []string) app.FleetOptions {
-	if discover == nil {
-		return opts
-	}
-	found := discover(ctx)
-	if len(found) == 0 {
-		return opts
-	}
-	seen := make(map[string]struct{}, len(opts.OCIRefs)+len(found))
-	merged := make([]string, 0, len(opts.OCIRefs)+len(found))
-	for _, ref := range slices.Concat(opts.OCIRefs, found) {
-		if _, dup := seen[ref]; dup {
-			continue
+	if discover != nil {
+		if found := discover(ctx); len(found) > 0 {
+			seen := make(map[string]struct{}, len(opts.OCIRefs)+len(found))
+			merged := make([]string, 0, len(opts.OCIRefs)+len(found))
+			for _, ref := range slices.Concat(opts.OCIRefs, found) {
+				if _, dup := seen[ref]; dup {
+					continue
+				}
+				seen[ref] = struct{}{}
+				merged = append(merged, ref)
+			}
+			opts.OCIRefs = merged
 		}
-		seen[ref] = struct{}{}
-		merged = append(merged, ref)
 	}
-	opts.OCIRefs = merged
+	opts.IncludeCache = opts.IncludeCache || len(opts.OCIRefs) > 0
 	return opts
 }
 
