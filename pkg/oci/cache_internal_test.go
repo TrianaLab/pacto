@@ -57,11 +57,13 @@ func TestEntryDir_DistinctRefsNeverNameOneDirectory(t *testing.T) {
 		seen[dir] = ref
 	}
 
-	// And the escaping is invisible to every reference that has no ':' beyond its
-	// tag — those keep the directory they have always had, so no existing cache
-	// entry is stranded by the new key.
-	if got, want := store.entryDir("ghcr.io/org/svc:1.0.0"), store.legacyEntryDir("ghcr.io/org/svc:1.0.0"); got != want {
-		t.Errorf("a port-free reference moved: %s, want the unchanged %s", got, want)
+	// Every reference now writes inside the reserved namespace, so no existing
+	// entry is at a path this version commits to — and none is stranded either,
+	// because a read still consults the legacy path it may live at.
+	const ref = "ghcr.io/org/svc:1.0.0"
+	dirs := store.entryDirs(ref)
+	if len(dirs) != 2 || dirs[0] != store.entryDir(ref) || dirs[1] != store.legacyEntryDir(ref) {
+		t.Errorf("entryDirs(%q) = %v, want the new entry and then the legacy one it must still read", ref, dirs)
 	}
 }
 

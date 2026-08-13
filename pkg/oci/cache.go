@@ -294,7 +294,6 @@ func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bun
 			logging.LoggerFromContext(ctx).Warn("could not cache the pulled bundle", "ref", ref, "error", err)
 		} else {
 			c.materialized.Store(true)
-			c.retireLegacyEntry(ctx, ref, entry)
 		}
 	}
 
@@ -449,13 +448,28 @@ func (c *CachedStore) storePull(ref string, bundle *contract.Bundle, rec CachedR
 // literal "%00" tag escapes to "%2500".
 const untaggedSegment = "%00"
 
-// entryDir returns the directory holding ref's cache entry. The mapping is
-// INJECTIVE — distinct references never name one directory.
+// entryNamespace is the reserved directory every entry this version writes lives
+// under. It is what makes the new layout DISJOINT from the legacy one, which is
+// a strictly stronger property than the injectivity below and the one an upgrade
+// actually needs.
 //
-// It used to map every ':' to '/', which is not: "localhost:5000/demo/svc:1.0.0"
-// and "localhost/5000/demo/svc:1.0.0" named ONE entry, so pulling either
-// overwrote the other's offline baseline and a lookup by either was answered
-// with whichever had been installed last — bundle B published under reference A.
+// A legacy key is the reference itself with ':' spelled '/', so its first path
+// segment is the reference's first component — and an OCI reference component
+// must begin with an alphanumeric. No valid reference can therefore produce a
+// legacy key under a segment starting with '_', so nothing this version commits
+// can ever land on a baseline an earlier one left. (The same reservation already
+// backs the "_invalid" sentinel in [CachedStore.contained].)
+const entryNamespace = "_v2"
+
+// entryDir returns the directory this version writes ref's cache entry to. The
+// mapping is INJECTIVE — distinct references never name one directory — and its
+// whole range is disjoint from [CachedStore.legacyEntryDir]'s.
+//
+// The old key mapped every ':' to '/', which is not injective:
+// "localhost:5000/demo/svc:1.0.0" and "localhost/5000/demo/svc:1.0.0" named ONE
+// entry, so pulling either overwrote the other's offline baseline and a lookup
+// by either was answered with whichever had been installed last — bundle B
+// published under reference A.
 //
 // So only the TAG's ':' is still spelled as a separator, and every other ':'
 // (a registry port, a digest algorithm) is escaped inside its path segment along
@@ -463,16 +477,24 @@ const untaggedSegment = "%00"
 // [untaggedSegment] when there is none. Unescape each segment, rejoin with '/'
 // and put the ':' back before the last, and the reference comes back exactly.
 //
-// ponytail: only ':' and '%' are escaped, so every reference WITHOUT a registry
-// port or a digest keeps the path it has always had and no existing cache entry
-// is invalidated by this change. A '.' or '..' segment would still leave the
-// cache directory; those are not valid OCI references and [CachedStore.contained]
-// rejects them rather than the encoding growing cases for them.
+// Fixing the encoding alone was not enough. The repaired key stayed inside the
+// legacy NAMESPACE, where it is injective among new keys and still collides with
+// other references' old ones: entryDir("localhost/5000/demo/svc:1.0.0") is
+// exactly where a legacy entry for "localhost:5000/demo/svc:1.0.0" lives, so the
+// first pull after an upgrade destroyed a baseline it had no way to see. The
+// reserved namespace is what closes that; compatibility comes from reading the
+// legacy path ([CachedStore.entryDirs]), never from writing to it.
+//
+// ponytail: a reserved segment, not a per-entry version marker or a manifest —
+// the layout is derivable from the reference, so nothing needs to be recorded to
+// find it. A '.' or '..' segment would still leave the cache directory; those
+// are not valid OCI references and [CachedStore.contained] rejects them rather
+// than the encoding growing cases for them.
 func (c *CachedStore) entryDir(ref string) string {
 	repo, tag, tagged := splitRefTag(ref)
-	parts := strings.Split(repo, "/")
-	for i, p := range parts {
-		parts[i] = escapeRefSegment(p)
+	parts := append([]string{entryNamespace}, strings.Split(repo, "/")...)
+	for i, p := range parts[1:] {
+		parts[i+1] = escapeRefSegment(p)
 	}
 	if tagged {
 		parts = append(parts, escapeRefSegment(tag))
@@ -543,30 +565,17 @@ func escapeRefSegment(s string) string {
 	return b.String()
 }
 
-// retireLegacyEntry drops the pre-injective entry ref used to live in, now that
-// its content has been re-committed under the injective key. Left behind, a
-// walker would find both and the same artifact would enter the fleet twice — the
-// second time under whatever the old path spells, which for a port-carrying
-// registry is a repository and a domain no artifact has.
+// Nothing retires a legacy entry. Retirement read a sidecar BY PATHNAME and
+// later removed that pathname, and the disk cache is shared: between the two
+// operations another process installs a whole new generation, and the removal
+// takes a foreign one the read never saw. A sidecar-less legacy entry is worse —
+// its owner is unknowable, so "it must be ours" is a guess that costs a stranger
+// their only offline baseline.
 //
-// The one entry that stays is a sidecar naming a DIFFERENT reference: that is
-// the aliased artifact's own baseline, the very thing an injective key exists to
-// stop this pull from destroying. An entry with no sidecar states no identity to
-// contradict, and the legacy directory is by definition where THIS reference was
-// cached, so re-pulling it is what supersedes it.
-func (c *CachedStore) retireLegacyEntry(ctx context.Context, ref, entry string) {
-	legacy := c.legacyEntryDir(ref)
-	if legacy == entry {
-		return
-	}
-	if rec, ok := ReadCachedRef(legacy); ok && rec.Ref != ref {
-		return
-	}
-	if err := os.RemoveAll(legacy); err != nil {
-		logging.LoggerFromContext(ctx).Warn("could not retire the superseded cache entry",
-			"ref", ref, "entry", legacy, "error", err)
-	}
-}
+// The duplicate a surviving legacy entry would otherwise cause is a WALKER
+// problem, and it is solved where it appears: both cache walkers skip an entry
+// whose complete recorded identity they have already indexed. Stale bytes stay
+// on disk until the cache is cleared, which is what a cache is for.
 
 // afterCachedBundleRead is a seam for driving the interleaving below in tests:
 // it runs where a competing writer installs a new generation, after this reader

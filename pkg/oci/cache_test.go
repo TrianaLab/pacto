@@ -685,23 +685,18 @@ func (s *resolveErrStore) Resolve(context.Context, string) (string, error) {
 }
 
 // cachedDir is where the store writes ref's bundle and its sidecar. It mirrors
-// the unexported entryDir rule: the tag is a directory of its own, and every
-// other ':' — a registry port, a digest algorithm — is escaped inside its
-// segment so that two references never spell to one entry.
+// the unexported entryDir rule: entries live in a reserved namespace no legacy
+// key can reach, the tag is a directory of its own, and every other ':' — a
+// registry port, a digest algorithm — is escaped inside its segment so that two
+// references never spell to one entry.
 func cachedDir(store *oci.CachedStore, ref string) string {
 	repo, tag := ref, "%00"
 	slash := strings.LastIndex(ref, "/")
 	if colon := strings.LastIndex(ref, ":"); colon > slash {
 		repo, tag = ref[:colon], strings.ReplaceAll(ref[colon+1:], ":", "%3A")
 	}
-	return filepath.Join(store.CacheDir(),
+	return filepath.Join(store.CacheDir(), "_v2",
 		filepath.FromSlash(strings.ReplaceAll(repo, ":", "%3A")), tag)
-}
-
-// legacyCachedDir is where a store WRITTEN BEFORE the key became injective put
-// ref's entry: every ':' spelled as a path separator.
-func legacyCachedDir(cacheDir, ref string) string {
-	return filepath.Join(cacheDir, filepath.FromSlash(strings.ReplaceAll(ref, ":", "/")))
 }
 
 func TestCachedStore_Pull_WritesRefSidecar(t *testing.T) {

@@ -4,17 +4,16 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
-// Two references that USED to spell to one cache directory. The port form is the
-// one every registry writes; the path form is how the old key spelled it, so an
-// entry installed under refPathed lands exactly where a legacy entry for
-// refPorted lives. Nothing here is hand-built: the alias is produced by the real
-// store, which is the only way to prove the real store no longer honours it.
+// Two references that spell to ONE legacy cache directory. The port form is the
+// one every registry writes; the path form is how the old key spelled it. The
+// new key gives each its own entry, but the collision does not go away — it is
+// still there in every cache written before the upgrade, which is why a read
+// must judge what it finds at the legacy path and a write must never go there.
 const (
 	refPorted = "localhost:5000/demo/checkout:1.0.0"
 	refPathed = "localhost/5000/demo/checkout:1.0.0"
@@ -39,9 +38,11 @@ func (unreachableStore) Pull(context.Context, string) (*contract.Bundle, error) 
 }
 
 // TestPullCached_AnEntryNamingAnotherReferenceIsAMissColdAndWarm is the alias
-// counterexample at the read boundary. The entry on disk is a real, coherent
-// cache entry — it is simply SOME OTHER artifact's, and it says so. Serving it
-// would hand back its bytes and its digest under the reference this call named.
+// counterexample at the read boundary. A read still consults the legacy path,
+// where the two spellings DO collide, so what it finds there can be a real,
+// coherent cache entry that is simply SOME OTHER artifact's — and says so.
+// Serving it would hand back its bytes and its digest under the reference this
+// call named.
 //
 // Both legs are exercised, because they used to be able to disagree: the cold
 // read fills memory under the LOOKUP key, so a guard that lived only on the disk
@@ -49,11 +50,12 @@ func (unreachableStore) Pull(context.Context, string) (*contract.Bundle, error) 
 func TestPullCached_AnEntryNamingAnotherReferenceIsAMissColdAndWarm(t *testing.T) {
 	privateCache(t)
 	ctx := context.Background()
-	installGeneration(t, ctx, refPathed, "sha256:bbb")
+	seedLegacyEntry(t, refPathed, "sha256:bbb")
 
 	reader := NewCachedStore(&generationStore{digest: "sha256:aaa"})
-	if got, want := reader.legacyEntryDir(refPorted), reader.entryDir(refPathed); got != want {
-		t.Fatalf("this test needs the two references to alias: %s vs %s", got, want)
+	legacy := reader.legacyEntryDir(refPathed)
+	if got := reader.legacyEntryDir(refPorted); got != legacy {
+		t.Fatalf("this test needs the two references to alias: %s vs %s", got, legacy)
 	}
 
 	if bundle, rec, ok := reader.PullCachedPinned(ctx, refPorted); ok {
@@ -61,7 +63,7 @@ func TestPullCached_AnEntryNamingAnotherReferenceIsAMissColdAndWarm(t *testing.T
 	}
 
 	// The disk is gone, so only the memory the cold read filled can answer now.
-	if err := os.RemoveAll(reader.entryDir(refPathed)); err != nil {
+	if err := os.RemoveAll(legacy); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := reader.pullCache[refPorted]; !ok {
@@ -80,7 +82,7 @@ func TestPullCached_AnEntryNamingAnotherReferenceIsAMissColdAndWarm(t *testing.T
 func TestPullPinned_AnAliasEntryIsRefetchedNotServed(t *testing.T) {
 	privateCache(t)
 	ctx := context.Background()
-	installGeneration(t, ctx, refPathed, "sha256:bbb")
+	seedLegacyEntry(t, refPathed, "sha256:bbb")
 
 	store := NewCachedStore(&generationStore{digest: "sha256:aaa", bundle: generationBundle("gen-a")})
 	bundle, digest, err := store.PullPinned(ctx, refPorted)
@@ -126,7 +128,7 @@ func TestPullPinned_AMatchingCacheHitAsksNoRegistry(t *testing.T) {
 func TestPullPinned_AnAliasEntryWithNoRegistryFailsRatherThanMix(t *testing.T) {
 	privateCache(t)
 	ctx := context.Background()
-	installGeneration(t, ctx, refPathed, "sha256:bbb")
+	seedLegacyEntry(t, refPathed, "sha256:bbb")
 
 	store := NewCachedStore(&unreachableStore{})
 	bundle, digest, err := store.PullPinned(ctx, refPorted)
@@ -166,60 +168,119 @@ func TestCachedStore_TwoAliasingReferencesKeepSeparateBaselines(t *testing.T) {
 	}
 }
 
-// TestPullPinned_TheSupersededLegacyEntryIsRetired keeps the migration from
-// doubling the cache. An entry this reference wrote under the old key is not
-// read again once the new one exists, so leaving it behind is dead bytes at the
-// exact path a future alias would want.
-func TestPullPinned_TheSupersededLegacyEntryIsRetired(t *testing.T) {
-	privateCache(t)
-	ctx := context.Background()
-	store := NewCachedStore(&generationStore{digest: "sha256:aaa", bundle: generationBundle("gen-a")})
-
-	// The legacy entry is this reference's own and unreadable, so the pull is a
-	// miss the registry answers — the one moment the old path can be retired.
-	legacy := store.legacyEntryDir(refPorted)
-	if err := store.writeCacheEntry(legacy, CachedRef{Ref: refPorted, Digest: "sha256:aaa"}, generationBundle("gen-a")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(legacy, CachedBundleFile), []byte("not gzip"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, _, err := store.PullPinned(ctx, refPorted); err != nil {
-		t.Fatalf("PullPinned(%s): %v", refPorted, err)
-	}
-	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
-		t.Errorf("the superseded entry is still there: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(store.entryDir(refPorted), CachedBundleFile)); err != nil {
-		t.Errorf("the pull did not write the entry under the new key: %v", err)
+// seedLegacyEntry installs the entry an EARLIER BUILD left for ref: the
+// pre-injective path, with the complete pair beside each other — the bundle and
+// the sidecar naming what it is. This is the state an upgrade actually starts
+// from, and it is not reproducible by the current store, which no longer writes
+// there.
+func seedLegacyEntry(t *testing.T, ref, digest string) {
+	t.Helper()
+	store := NewCachedStore(&unreachableStore{})
+	legacy := store.legacyEntryDir(ref)
+	rec := CachedRef{Ref: ref, Digest: digest}
+	if err := store.writeCacheEntry(legacy, rec, generationBundle(generations[digest])); err != nil {
+		t.Fatalf("seeding the legacy entry for %s: %v", ref, err)
 	}
 }
 
-// A retirement is housekeeping. It happens after the pull has already succeeded
-// and been committed, so a cache directory that refuses the removal must cost a
-// warning, never the bundle the caller asked for.
-func TestPullPinned_ARetirementThatCannotHappenIsNotAFailure(t *testing.T) {
+// assertColdOfflineBaselines fails unless each reference is still recoverable,
+// whole, by a reader that starts cold and cannot reach a registry — the process
+// after the upgrade, on a plane.
+func assertColdOfflineBaselines(t *testing.T, ctx context.Context, want ...CachedRef) {
+	t.Helper()
+	for _, w := range want {
+		reader := NewCachedStore(&unreachableStore{})
+		bundle, rec, ok := reader.PullCachedPinned(ctx, w.Ref)
+		if !ok {
+			t.Errorf("%s is no longer cached: its offline baseline was taken", w.Ref)
+			continue
+		}
+		if rec != w {
+			t.Errorf("%s: record = %+v, want its own %+v", w.Ref, rec, w)
+		}
+		assertCoherent(t, bundle, rec.Digest)
+	}
+}
+
+// TestCachedStore_AnUpgradePullDoesNotDestroyALegacyBaseline is the alias
+// counterexample at the MIGRATION boundary, the one an injective-among-new-keys
+// map still loses. legacyEntryDir(refPorted) and entryDir(refPathed) are the
+// same directory, so an upgraded store pulling refPathed writes straight over
+// the baseline refPorted left behind — and nothing in the pull can tell, because
+// the destruction is a commit at a path this reference legitimately owns.
+//
+// Both orders run: which reference was cached first must not decide which one
+// survives.
+func TestCachedStore_AnUpgradePullDoesNotDestroyALegacyBaseline(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		legacy CachedRef
+		pulled CachedRef
+	}{
+		{"legacy A, then B is pulled",
+			CachedRef{Ref: refPorted, Digest: "sha256:aaa"},
+			CachedRef{Ref: refPathed, Digest: "sha256:bbb"}},
+		{"legacy B, then A is pulled",
+			CachedRef{Ref: refPathed, Digest: "sha256:bbb"},
+			CachedRef{Ref: refPorted, Digest: "sha256:aaa"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			privateCache(t)
+			ctx := context.Background()
+			seedLegacyEntry(t, tc.legacy.Ref, tc.legacy.Digest)
+
+			puller := NewCachedStore(&generationStore{
+				digest: tc.pulled.Digest,
+				bundle: generationBundle(generations[tc.pulled.Digest]),
+			})
+			bundle, digest, err := puller.PullPinned(ctx, tc.pulled.Ref)
+			if err != nil {
+				t.Fatalf("PullPinned(%s): %v", tc.pulled.Ref, err)
+			}
+			if digest != tc.pulled.Digest {
+				t.Errorf("digest = %q, want the artifact the registry holds", digest)
+			}
+			assertCoherent(t, bundle, digest)
+
+			assertColdOfflineBaselines(t, ctx, tc.legacy, tc.pulled)
+		})
+	}
+}
+
+// validRefs spans the shapes a reference comes in — tagged, untagged,
+// digest-pinned, ported, nested — plus the pair whose spellings alias under the
+// legacy key.
+var validRefs = []string{
+	"ghcr.io/org/svc:1.0.0",
+	"ghcr.io/org/svc",
+	"ghcr.io/org/svc@sha256:abc",
+	"ghcr.io/org/svc/nested:1.0.0",
+	"ghcr.io/org/svc:1.0.0-rc.1",
+	refPorted,
+	refPathed,
+	"localhost:5000/demo/checkout",
+	"registry.example.com:443/a/b/c:v2",
+	"registry.example.com/443/a/b/c:v2",
+}
+
+// TestEntryDir_TheNewNamespaceIsDisjointFromEveryLegacyKey proves the property
+// the migration needs, which is strictly stronger than injectivity among new
+// keys: a new entry never lands where ANY reference's legacy entry lives. An
+// injective-but-overlapping map still overwrites a stranger's baseline exactly
+// once per upgrade, and the loss is invisible until the next offline run.
+func TestEntryDir_TheNewNamespaceIsDisjointFromEveryLegacyKey(t *testing.T) {
 	privateCache(t)
-	ctx := context.Background()
-	store := NewCachedStore(&generationStore{digest: "sha256:aaa", bundle: generationBundle("gen-a")})
-
-	legacy := store.legacyEntryDir(refPorted)
-	if err := store.writeCacheEntry(legacy, CachedRef{Ref: refPorted, Digest: "sha256:aaa"}, generationBundle("gen-a")); err != nil {
-		t.Fatal(err)
+	store := NewCachedStore(&unreachableStore{})
+	for _, a := range validRefs {
+		for _, b := range validRefs {
+			// Disjointness holds for a == b too: a reference's own legacy entry is
+			// read, never written over.
+			if got := store.entryDir(a); got == store.legacyEntryDir(b) {
+				t.Errorf("entryDir(%q) is %q, the legacy entry of %q", a, got, b)
+			}
+			if a != b && store.entryDir(a) == store.entryDir(b) {
+				t.Errorf("entryDir(%q) == entryDir(%q) == %q", a, b, store.entryDir(a))
+			}
+		}
 	}
-	if err := os.WriteFile(filepath.Join(legacy, CachedBundleFile), []byte("not gzip"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	parent := filepath.Dir(legacy)
-	if err := os.Chmod(parent, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
-
-	bundle, digest, err := store.PullPinned(ctx, refPorted)
-	if err != nil {
-		t.Fatalf("an unretirable legacy entry failed the pull: %v", err)
-	}
-	assertCoherent(t, bundle, digest)
 }

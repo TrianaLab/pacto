@@ -222,6 +222,12 @@ func OciDomain(ref string) string {
 // as <repo...>:<tag> — which is approximate, because the path spells a registry
 // port and a digest the same way it spells a path separator and a tag. Results
 // are sorted for deterministic output.
+//
+// A reference is reported ONCE however many entries hold it. The same reference
+// can be on disk twice — under the legacy key and under the current one — and
+// nothing deletes the old copy, because retiring an entry means removing a
+// directory of a shared cache by pathname. Resolving one reference twice is
+// duplicate work either way.
 func cachedRefs(cacheDir string) ([]string, error) {
 	if _, err := os.Stat(cacheDir); err != nil {
 		if os.IsNotExist(err) {
@@ -230,6 +236,13 @@ func cachedRefs(cacheDir string) ([]string, error) {
 		return nil, err
 	}
 	var refs []string
+	seen := map[string]bool{}
+	add := func(ref string) {
+		if !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
 	err := fsWalkDir(cacheDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -238,7 +251,7 @@ func cachedRefs(cacheDir string) ([]string, error) {
 			return nil
 		}
 		if rec, ok := oci.ReadCachedRef(filepath.Dir(path)); ok {
-			refs = append(refs, rec.Ref)
+			add(rec.Ref)
 			return nil
 		}
 		// path is always under cacheDir (WalkDir guarantees it), so a prefix trim
@@ -252,7 +265,7 @@ func cachedRefs(cacheDir string) ([]string, error) {
 		parts = parts[:len(parts)-1] // drop bundle.tar.gz
 		tag := parts[len(parts)-1]
 		repo := strings.Join(parts[:len(parts)-1], "/")
-		refs = append(refs, repo+":"+tag)
+		add(repo + ":" + tag)
 		return nil
 	})
 	if err != nil {

@@ -22,16 +22,24 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
-// refRepoAndTag splits a pulled reference into the repository and tag this
-// source indexes by. A tag is a ':' after the last '/', so a registry port is
-// never mistaken for one. A reference that names no tag keeps the pair the path
-// yielded — there is nothing better to index it by.
-func refRepoAndTag(ref, pathRepo, pathTag string) (repo, tag string) {
+// versionKeyFor is the version a recorded reference is displayed and looked up
+// by. It is NOT the reference — that is kept exactly as recorded — only the key
+// beside it.
+//
+// A digest-pinned reference has no tag; the digest is what pins it. Otherwise a
+// tag is a ':' after the last '/', so a registry port is never mistaken for one.
+// A reference that names neither is indexed by the version its contract
+// declares: the path cannot help, because the cache spells "no tag" as the
+// escape sequence %00, and "%00" is not a version anyone can ask for.
+func versionKeyFor(ref, contractVersion string) string {
+	if i := strings.Index(ref, "@"); i >= 0 {
+		return ref[i+1:]
+	}
 	slash := strings.LastIndex(ref, "/")
 	if colon := strings.LastIndex(ref, ":"); colon > slash {
-		return ref[:colon], ref[colon+1:]
+		return ref[colon+1:]
 	}
-	return pathRepo, pathTag
+	return contractVersion
 }
 
 // CacheSource implements DataSource by reading materialized OCI bundles from
@@ -64,8 +72,8 @@ type cachedService struct {
 }
 
 type cachedVersion struct {
-	tag  string
-	repo string // full repo path relative to cacheDir
+	tag  string // the display / lookup key
+	ref  string // the EXACT reference recorded for this entry, never rebuilt from tag
 	path string // absolute path to bundle.tar.gz
 	// Lightweight, always resident (pacto.yaml is small):
 	contract *contract.Contract // parsed contract
@@ -111,11 +119,20 @@ func (s *CacheSource) buildIndex() map[string]*cachedService {
 		return services
 	}
 
+	// One artifact, one entry. The same reference can be on disk twice — under
+	// the legacy key and under the current one — because nothing deletes the old
+	// copy: retiring an entry means removing a directory of a SHARED cache by
+	// pathname, which takes whatever generation happens to be installed at the
+	// moment of the removal rather than the one that was inspected. So the
+	// duplicate is dropped here instead, keyed on the entry's complete recorded
+	// identity: the reference AND the digest it was pulled at.
+	seen := map[string]bool{}
+
 	_ = filepath.Walk(s.cacheDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // skip errors
 		}
-		if info.IsDir() || info.Name() != "bundle.tar.gz" {
+		if info.IsDir() || info.Name() != oci.CachedBundleFile {
 			return nil
 		}
 
@@ -130,20 +147,29 @@ func (s *CacheSource) buildIndex() map[string]*cachedService {
 			return nil // need at least registry/name/tag
 		}
 
-		tag := parts[len(parts)-1]
-		repo := strings.Join(parts[:len(parts)-1], "/")
-		// The path is a GUESS: it escapes what it must to stay injective, so a
-		// port-carrying registry reads back as "localhost%3A5000/org/name". The
-		// sidecar the cache writes beside every bundle states the exact reference
-		// it was pulled under, so it is the answer whenever there is one.
-		if rec, ok := oci.ReadCachedRef(filepath.Dir(path)); ok {
-			repo, tag = refRepoAndTag(rec.Ref, repo, tag)
-		}
-
 		bundle, err := loadBundleTarGz(path)
 		if err != nil {
 			return nil // skip corrupt bundles
 		}
+
+		// The path is an ENCODING of the reference, not the reference: it escapes
+		// a registry port, and it spells "no tag" as %00. Reconstructing from it
+		// publishes "repo:%00" — a reference no registry has. The sidecar beside
+		// the bundle states the exact one, so it is the answer whenever there is
+		// one, and the display key is derived from it separately.
+		tag := parts[len(parts)-1]
+		ref := strings.Join(parts[:len(parts)-1], "/") + ":" + tag
+		rec, recorded := oci.ReadCachedRef(filepath.Dir(path))
+		if recorded {
+			ref = rec.Ref
+			tag = versionKeyFor(rec.Ref, bundle.Contract.Service.Version)
+		}
+
+		identity := ref + "@" + rec.Digest
+		if seen[identity] {
+			return nil
+		}
+		seen[identity] = true
 
 		name := bundle.Contract.Service.Name
 
@@ -155,7 +181,7 @@ func (s *CacheSource) buildIndex() map[string]*cachedService {
 
 		svc.versions = append(svc.versions, cachedVersion{
 			tag:      tag,
-			repo:     repo,
+			ref:      ref,
 			path:     path,
 			contract: bundle.Contract,
 			rawYAML:  bundle.RawYAML,
@@ -267,7 +293,7 @@ func (s *CacheSource) GetVersions(ctx context.Context, name string) ([]Version, 
 	for _, v := range sorted {
 		ver := Version{
 			Version: v.tag,
-			Ref:     v.repo + ":" + v.tag,
+			Ref:     v.ref,
 		}
 		// Compute contract hash from raw YAML (always resident, small).
 		if len(v.rawYAML) > 0 {

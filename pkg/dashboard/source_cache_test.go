@@ -13,7 +13,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -242,57 +244,114 @@ service:
 	}
 }
 
-// TestCacheSource_ScanPrefersTheRecordedReference holds the index to the
-// reference each entry was actually pulled under. The path is only an
-// approximation of it — the cache key escapes a registry port so that two
-// references can never spell to one entry, and an escaped port is not a
-// reference anyone can pull — while the sidecar beside the bundle is the exact
-// one. An entry that records no tag has nothing better than the path, and keeps
-// it.
-func TestCacheSource_ScanPrefersTheRecordedReference(t *testing.T) {
-	root := t.TempDir()
+// walkStore is a registry that answers every reference with a bundle naming the
+// service encoded in its repository, so entries written through the REAL
+// CachedStore can be told apart after the round trip.
+type walkStore struct{}
 
-	ported := filepath.Join(root, "localhost%3A5000", "demo", "checkout", "1.0.0")
-	writeBundleTarGzFile(t, filepath.Join(ported, "bundle.tar.gz"),
-		`pactoVersion: "2.0"
-service:
-  name: checkout
-  version: 1.0.0
-`)
-	writeCachedRef(t, ported, "localhost:5000/demo/checkout:1.0.0")
+func (walkStore) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", nil
+}
+func (walkStore) Resolve(_ context.Context, ref string) (string, error) {
+	return "sha256:" + strings.NewReplacer("/", "-", ":", "-", "@", "-").Replace(ref), nil
+}
+func (walkStore) ListTags(context.Context, string) ([]string, error) { return nil, nil }
+func (walkStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
+	repo, _, _ := strings.Cut(strings.TrimPrefix(ref[strings.LastIndex(ref, "/")+1:], "/"), ":")
+	repo, _, _ = strings.Cut(repo, "@")
+	y := []byte(fmt.Sprintf("pactoVersion: \"2.0\"\nservice:\n  name: %s\n  version: 9.9.9\n", repo))
+	return &contract.Bundle{
+		Contract: &contract.Contract{
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: repo, Version: "9.9.9"},
+		},
+		RawYAML: y,
+		FS:      fstest.MapFS{"pacto.yaml": &fstest.MapFile{Data: y, Mode: fs.FileMode(0o644)}},
+	}, nil
+}
 
-	untagged := filepath.Join(root, "ghcr.io", "org", "api", "2.0.0")
-	writeBundleTarGzFile(t, filepath.Join(untagged, "bundle.tar.gz"),
-		`pactoVersion: "2.0"
-service:
-  name: api
-  version: 2.0.0
-`)
-	writeCachedRef(t, untagged, "ghcr.io/org/api")
+// TestCacheSource_ScanReportsTheRecordedReference holds the index to the
+// reference each entry was actually pulled under, for entries the real cache
+// really wrote — the only ones whose layout is not a test's own guess.
+//
+// The path is an ENCODING of the reference, never the reference: it escapes a
+// registry port, and it spells "no tag" as %00. Reconstructing from it published
+// "ghcr.io/org/worker:%00", a reference no registry has and no user can pull.
+// The recorded reference is kept exactly as recorded, and the version key is
+// derived from it separately — from the digest when one pins the entry, from the
+// contract when nothing names a version at all.
+func TestCacheSource_ScanReportsTheRecordedReference(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	store := oci.NewCachedStore(walkStore{})
+	ctx := context.Background()
 
-	src := NewCacheSource(root)
-	for _, tc := range []struct{ name, want string }{
-		{"checkout", "localhost:5000/demo/checkout:1.0.0"},
-		{"api", "ghcr.io/org/api:2.0.0"},
+	for _, tc := range []struct{ ref, service, wantVersion string }{
+		{"ghcr.io/org/api:1.0.0", "api", "1.0.0"},                       // tagged
+		{"localhost:5000/demo/checkout:2.0.0", "checkout", "2.0.0"},     // a registry port
+		{"ghcr.io/org/worker", "worker", "9.9.9"},                       // no tag at all
+		{"ghcr.io/org/pinned@sha256:abc123", "pinned", "sha256:abc123"}, // digest-pinned
 	} {
-		versions, err := src.GetVersions(context.Background(), tc.name)
-		if err != nil {
-			t.Fatalf("GetVersions(%s): %v", tc.name, err)
+		if _, err := store.Pull(ctx, tc.ref); err != nil {
+			t.Fatalf("Pull(%s): %v", tc.ref, err)
 		}
-		if len(versions) != 1 {
-			t.Fatalf("%s: versions = %+v, want the one cached entry", tc.name, versions)
-		}
-		if versions[0].Ref != tc.want {
-			t.Errorf("%s: Ref = %q, want %q", tc.name, versions[0].Ref, tc.want)
-		}
+		t.Run(tc.service, func(t *testing.T) {
+			versions, err := NewCacheSource(store.CacheDir()).GetVersions(ctx, tc.service)
+			if err != nil {
+				t.Fatalf("GetVersions(%s): %v", tc.service, err)
+			}
+			if len(versions) != 1 {
+				t.Fatalf("versions = %+v, want the one cached entry", versions)
+			}
+			if versions[0].Ref != tc.ref {
+				t.Errorf("Ref = %q, want the exact recorded %q", versions[0].Ref, tc.ref)
+			}
+			if versions[0].Version != tc.wantVersion {
+				t.Errorf("Version = %q, want %q", versions[0].Version, tc.wantVersion)
+			}
+		})
 	}
 }
 
-// writeCachedRef records the reference an entry was pulled under, exactly as the
-// OCI cache writes it beside every bundle.
-func writeCachedRef(t *testing.T, dir, ref string) {
+// TestCacheSource_OneArtifactIsIndexedOnce is the other half of not retiring the
+// legacy entry: after an upgrade the same reference is on disk twice, under the
+// old key and the new one. Nothing removes the old copy — removing a directory
+// of a shared cache by pathname takes whichever generation is installed at that
+// instant — so the walker is what must not double-count it.
+func TestCacheSource_OneArtifactIsIndexedOnce(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	store := oci.NewCachedStore(walkStore{})
+	ctx := context.Background()
+	const ref = "localhost:5000/demo/checkout:1.0.0"
+
+	if _, err := store.Pull(ctx, ref); err != nil {
+		t.Fatalf("Pull(%s): %v", ref, err)
+	}
+	// The entry an earlier build left at the legacy key: same reference, same
+	// digest, a second directory.
+	legacy := filepath.Join(store.CacheDir(), filepath.FromSlash(strings.ReplaceAll(ref, ":", "/")))
+	writeBundleTarGzFile(t, filepath.Join(legacy, oci.CachedBundleFile),
+		"pactoVersion: \"2.0\"\nservice:\n  name: checkout\n  version: 9.9.9\n")
+	digest, err := walkStore{}.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCachedRefWithDigest(t, legacy, ref, digest)
+
+	versions, err := NewCacheSource(store.CacheDir()).GetVersions(ctx, "checkout")
+	if err != nil {
+		t.Fatalf("GetVersions: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Errorf("versions = %+v, want the one artifact indexed once", versions)
+	}
+}
+
+// writeCachedRefWithDigest records the COMPLETE identity of an entry — the
+// reference and the digest it was pulled at — exactly as the OCI cache writes it
+// beside every bundle.
+func writeCachedRefWithDigest(t *testing.T, dir, ref, digest string) {
 	t.Helper()
-	b, err := json.Marshal(oci.CachedRef{Ref: ref})
+	b, err := json.Marshal(oci.CachedRef{Ref: ref, Digest: digest})
 	if err != nil {
 		t.Fatal(err)
 	}

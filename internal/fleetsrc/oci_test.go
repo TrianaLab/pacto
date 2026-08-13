@@ -404,6 +404,38 @@ func TestCacheSource_Collect_SidecarWithoutDigestStaysApproximate(t *testing.T) 
 	}
 }
 
+// TestCacheSource_Collect_OneReferenceIsCollectedOnce covers the state an
+// upgrade leaves: the same reference cached under BOTH the legacy key and the
+// current one, because nothing retires the old entry — removing a directory of a
+// shared cache by pathname takes whichever generation is installed at that
+// instant, not the one that was inspected. Resolving the reference twice would
+// be duplicate work at best and a duplicate revision at worst.
+func TestCacheSource_Collect_OneReferenceIsCollectedOnce(t *testing.T) {
+	dir := t.TempDir()
+	const ref = "localhost:5000/demo/checkout:1.0.0"
+	dgst := validDigest("d")
+	for _, entry := range []string{
+		"_v2/localhost%3A5000/demo/checkout/1.0.0", // what this version writes
+		"localhost/5000/demo/checkout/1.0.0",       // what an earlier one left
+	} {
+		mustCacheFile(t, dir, entry+"/bundle.tar.gz")
+		mustSidecar(t, filepath.Join(dir, filepath.FromSlash(entry)),
+			`{"ref":"`+ref+`","digest":"`+dgst+`"}`)
+	}
+
+	store := &fakeStore{
+		bundles:  map[string]*contract.Bundle{ref: bundleFor("checkout")},
+		recorded: map[string]oci.CachedRef{ref: {Ref: ref, Digest: dgst}},
+	}
+	col, err := NewCacheSource("cache", dir, store).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %+v, want the one reference collected once", col.Revisions)
+	}
+}
+
 func TestCacheSource_Collect_UnusableSidecarFallsBackToPath(t *testing.T) {
 	dir := t.TempDir()
 	entry := "ghcr.io/org/svc/1.0.0"
