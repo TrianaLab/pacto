@@ -9,7 +9,7 @@
 # separately by the kind acceptance (tests/acceptance/kind).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 WORK="$(mktemp -d)"
 BIN="$WORK/pacto"
 trap 'rm -rf "$WORK"; [ -n "${SERVE_PID:-}" ] && kill "$SERVE_PID" 2>/dev/null; [ -n "${REG_PID:-}" ] && kill "$REG_PID" 2>/dev/null; true' EXIT
