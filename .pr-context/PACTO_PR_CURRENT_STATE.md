@@ -35,8 +35,8 @@ Commits appended on top of the reviewed HEAD `1741318d`, oldest first:
 
 - `a1159be0` — a reader gets one cache generation, and the cache's life is
   three facts (blocker B, boundaries 4 and 5)
-- this document's own commit — persist the Phase-8 candidate after the third
-  narrow reopen
+- `60fe9919` — persist the Phase-8 candidate after the third narrow reopen
+- this document's own commit — record the final-SHA re-query
 
 Commits appended on top of the earlier reviewed HEAD `879724dc`:
 
@@ -84,7 +84,7 @@ For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 - `d18ca70e` — a port-forward is ready when it answers, not two seconds later
 - `6750c959` — the Phase-8 candidate is verified on the fixed harness
 - `d8ef5d5a`, `0cf0c69b`, `879724dc`, `6049f44e`, `caf88050`, `622ed857`,
-  `1741318d`, `a1159be0` and this document's commit, as listed
+  `1741318d`, `a1159be0`, `60fe9919` and this document's commit, as listed
   above
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
@@ -801,14 +801,20 @@ Phase 8 stays a CANDIDATE; only an independent review closes it.
   rewrite, no force-push — `a1159be0` and this document's commit are appends on
   top of `1741318d`.
 - Review threads re-queried at `a1159be0` (paginated and de-duplicated by
-  thread id, 196 threads): 186 resolved, 10 unresolved. The 186 resolved are all
-  outdated; the 10 unresolved are the CURRENT ones. Six are `github-code-quality`
+  thread id, 196 threads): 186 resolved, 10 unresolved, and the 10 unresolved
+  are the CURRENT ones. Re-queried again after this document's commit, at
+  `60fe9919`: 197 threads, 187 resolved, 10 unresolved, all 10 still CURRENT.
+  The total moved by one because CodeQL closed its thread on `cache.go` 255 and
+  opened one on `cache.go` 481, which is the alert churn recorded below; the
+  unresolved population did not change size. Six are `github-code-quality`
   comments on the GENERATED minified Mermaid chunk
   `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, unchanged because
   the bundle was not rebuilt. Four are `github-advanced-security` CodeQL
-  comments on AUTHORED code — `pkg/oci/cache.go` lines 255, 285, 304 and 305 —
-  which the CodeQL item below re-queries at the current line numbers. So: 4
-  unresolved authored, 6 unresolved generated.
+  comments on AUTHORED code, now at `pkg/oci/cache.go` lines 322, 341, 342 and
+  481. So: 4 unresolved authored, 6 unresolved generated.
+- All 38 check runs at `60fe9919` (this document's own commit) have the same
+  shape as at `a1159be0`: everything green including all six Kind shards, with
+  `build` and `auto-merge` skipped and `CodeQL` failing as the carried item.
 
 ### Second-reopen verification — self-reported at `622ed857`
 
