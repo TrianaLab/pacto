@@ -157,7 +157,7 @@ func TestReadCacheEntry_ASidecarlessEntryIsCompatibleNotSwapped(t *testing.T) {
 	// readable, and reports no digest rather than being retried away as a
 	// generation someone displaced.
 	store := NewCachedStore(&generationStore{digest: "sha256:aaa"})
-	dir := filepath.Dir(store.cachePath(ref))
+	dir := store.entryDir(ref)
 	if err := os.Remove(filepath.Join(dir, CachedRefFile)); err != nil {
 		t.Fatal(err)
 	}
@@ -175,28 +175,23 @@ func TestReadCacheEntry_ASidecarlessEntryIsCompatibleNotSwapped(t *testing.T) {
 
 // TestPullCachedPinned_AWarmReadKeepsTheRecordedRef holds the in-memory cache to
 // the same rule as the disk read: what it hands back is what the generation that
-// supplied the bytes SAID, not the key the caller looked it up under.
-//
-// The two differ. cachePath maps every ':' to '/', so a registry port and a path
-// segment spell to one entry directory, and the entry there answers to both
-// references. The cold read gets the record right; a warm read that reduced it
-// to a digest would lose the only statement of what these bytes are, and the
-// caller's lookup key would take its place — silently, on the second request.
+// supplied the bytes SAID, not a digest with the record thrown away. A warm read
+// that reduced the record to a digest would lose the only statement of what
+// these bytes are — silently, on the second request.
 func TestPullCachedPinned_AWarmReadKeepsTheRecordedRef(t *testing.T) {
 	privateCache(t)
 	ctx := context.Background()
-	const asked = "localhost:5000/demo/checkout:1.0.0"
-	const installed = "localhost/5000/demo/checkout:1.0.0"
-	installGeneration(t, ctx, installed, "sha256:bbb")
+	const ref = "localhost:5000/demo/checkout:1.0.0"
+	installGeneration(t, ctx, ref, "sha256:bbb")
 
 	reader := NewCachedStore(&generationStore{digest: "sha256:aaa"}) // a registry that would disagree
 	for _, read := range []string{"cold (disk)", "warm (memory)"} {
-		bundle, rec, ok := reader.PullCachedPinned(ctx, asked)
+		bundle, rec, ok := reader.PullCachedPinned(ctx, ref)
 		if !ok {
 			t.Fatalf("%s: the entry is installed, want a hit", read)
 		}
 		assertCoherent(t, bundle, rec.Digest)
-		if (rec != CachedRef{Ref: installed, Digest: "sha256:bbb"}) {
+		if (rec != CachedRef{Ref: ref, Digest: "sha256:bbb"}) {
 			t.Errorf("%s read: record = %+v, want the whole record the entry holds", read, rec)
 		}
 	}

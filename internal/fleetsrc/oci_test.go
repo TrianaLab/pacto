@@ -536,8 +536,9 @@ func TestCacheSource_Collect_TheWalkAndTheReadAreOneGeneration(t *testing.T) {
 // TestCacheSource_Collect_IdentityComesFromTheGenerationThatServedTheBytes is
 // the same interleaving with the two generations spelled DIFFERENTLY, which is
 // what makes the walk's sidecar a separate fact rather than a copy of the
-// read's. cachePath maps every ':' to '/', so it is not injective: these two
-// references — a registry port and a path segment — name one entry directory.
+// read's. The two references below — a registry port and a path segment — are
+// the pair the pre-injective cache key spelled to ONE entry directory, and the
+// legacy entries of that era are still readable.
 //
 //	localhost:5000/demo/checkout:1.0.0
 //	localhost/5000/demo/checkout:1.0.0
@@ -603,6 +604,66 @@ func TestCacheSource_Collect_IdentityComesFromTheGenerationThatServedTheBytes(t 
 	}
 	if want := pinRefToDigest(gen.ref, rev.Digest); rev.ResolvedRef != want {
 		t.Errorf("ResolvedRef = %q, want %q", rev.ResolvedRef, want)
+	}
+}
+
+// TestOCISource_Collect_ACachedAliasIsNotThisReferencesRevision is the whole
+// production path, wired as it ships: an OCISource over a real CachedStore in
+// RemoteAllowed mode, a real registry, and a real disk cache that another
+// process has already written to.
+//
+// The entry that other process left is a COMPLETE, coherent cache entry for
+// ANOTHER reference — it just happens to sit where the pre-injective key also
+// looked for this one. Everything the revision publishes is therefore under
+// test at once: serve those bytes and the snapshot carries B's contract, B's
+// digest and B's canonical key under A's requested reference and A's domain, a
+// revision no published artifact has. The registry has A; A is what must come
+// back, whole.
+func TestOCISource_Collect_ACachedAliasIsNotThisReferencesRevision(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	ctx := context.Background()
+	const refA, refB = "localhost:5000/demo/checkout:1.0.0", "localhost/5000/demo/checkout:1.0.0"
+	digestA, digestB := validDigest("a"), validDigest("b")
+
+	// Another pull, in another process, over the same cache directory.
+	writer := oci.NewCachedStore(&oneArtifactRegistry{digest: digestB, bundle: diskBundle("gen-b")})
+	writer.DisableCache() // cold, so it really pulls and really commits
+	if _, err := writer.Pull(ctx, refB); err != nil {
+		t.Fatalf("installing the other reference's entry: %v", err)
+	}
+
+	store := oci.NewCachedStore(&oneArtifactRegistry{digest: digestA, bundle: diskBundle("gen-a")})
+	col, err := NewOCISource("oci", store, []string{refA}).Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Limitations) != 0 {
+		t.Fatalf("limitations = %+v, want none: the registry holds this reference", col.Limitations)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %+v, want the one configured ref", col.Revisions)
+	}
+	rev := col.Revisions[0]
+	if got := rev.Bundle.Contract.Service.Name; got != "gen-a" {
+		t.Errorf("bundle is %q, want the content the registry holds under %s", got, refA)
+	}
+	if rev.Digest != digestA {
+		t.Errorf("Digest = %q, want %q — the artifact this reference names", rev.Digest, digestA)
+	}
+	if rev.RequestedRef != refA {
+		t.Errorf("RequestedRef = %q, want %q", rev.RequestedRef, refA)
+	}
+	if rev.Domain != "localhost:5000/demo" {
+		t.Errorf("Domain = %q, want the domain of %s", rev.Domain, refA)
+	}
+	if want := "oci://localhost:5000/demo/checkout@" + digestA; rev.ResolvedRef != want {
+		t.Errorf("ResolvedRef = %q, want %q", rev.ResolvedRef, want)
+	}
+
+	// And the other reference still has the offline baseline it installed.
+	reader := oci.NewCachedStore(&oneArtifactRegistry{digest: digestB})
+	if _, rec, ok := reader.PullCachedPinned(ctx, refB); !ok || rec.Digest != digestB {
+		t.Errorf("the other reference's entry is now %+v (hit=%v)", rec, ok)
 	}
 }
 

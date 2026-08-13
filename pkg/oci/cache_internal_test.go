@@ -15,38 +15,53 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
-func TestCachePath_TraversalBlocked(t *testing.T) {
+func TestEntryDir_TraversalBlocked(t *testing.T) {
 	cacheDir := t.TempDir()
 	store := &CachedStore{cacheDir: cacheDir}
 
-	ref := "ghcr.io/../../../etc/passwd"
-	got := store.cachePath(ref)
-
-	rel, err := filepath.Rel(cacheDir, got)
-	if err != nil {
-		t.Fatalf("filepath.Rel error: %v", err)
-	}
-	if strings.HasPrefix(rel, "..") {
-		t.Errorf("cachePath escaped cache directory: %s (rel=%s)", got, rel)
+	// Both spellings: the escaped key and the legacy one a read still consults.
+	for _, got := range store.entryDirs("ghcr.io/../../../etc/passwd:1.0.0") {
+		rel, err := filepath.Rel(cacheDir, got)
+		if err != nil {
+			t.Fatalf("filepath.Rel error: %v", err)
+		}
+		if strings.HasPrefix(rel, "..") {
+			t.Errorf("entry directory escaped the cache: %s (rel=%s)", got, rel)
+		}
 	}
 }
 
-func TestCachePath_NormalRef(t *testing.T) {
-	cacheDir := t.TempDir()
-	store := &CachedStore{cacheDir: cacheDir}
+// The cache key must be INJECTIVE: two references that spell to one directory
+// mean pulling either destroys the other's offline baseline, and a lookup by
+// either is answered with whichever was installed last.
+func TestEntryDir_DistinctRefsNeverNameOneDirectory(t *testing.T) {
+	store := &CachedStore{cacheDir: t.TempDir()}
 
-	ref := "ghcr.io/acme/svc:1.0.0"
-	got := store.cachePath(ref)
+	refs := []string{
+		"localhost:5000/demo/checkout:1.0.0", // a registry port
+		"localhost/5000/demo/checkout:1.0.0", // ...and the path segment it used to spell as
+		"ghcr.io/org/svc:1.0.0",
+		"ghcr.io/org/svc",             // untagged, not the "svc/1.0.0" of the line above
+		"ghcr.io/org/svc:1.0.0/extra", // no tag: the ':' is not after the last '/'
+		"ghcr.io/org/svc@sha256:abc",  // a digest, not a "sha256" repo with an "abc" tag
+		"ghcr.io/org/svc:%3A",         // a literal escape sequence in a tag
+		"ghcr.io/org/svc:" + "%253A",  // ...and its escaping, one round further
+		"ghcr.io/org/svc:" + untaggedSegment,
+	}
+	seen := map[string]string{}
+	for _, ref := range refs {
+		dir := store.entryDir(ref)
+		if other, clash := seen[dir]; clash {
+			t.Errorf("%q and %q both cache to %s", other, ref, dir)
+		}
+		seen[dir] = ref
+	}
 
-	rel, err := filepath.Rel(cacheDir, got)
-	if err != nil {
-		t.Fatalf("filepath.Rel error: %v", err)
-	}
-	if strings.HasPrefix(rel, "..") {
-		t.Errorf("normal ref should stay inside cache: %s (rel=%s)", got, rel)
-	}
-	if !strings.HasSuffix(got, "bundle.tar.gz") {
-		t.Errorf("expected bundle.tar.gz suffix, got %s", got)
+	// And the escaping is invisible to every reference that has no ':' beyond its
+	// tag — those keep the directory they have always had, so no existing cache
+	// entry is stranded by the new key.
+	if got, want := store.entryDir("ghcr.io/org/svc:1.0.0"), store.legacyEntryDir("ghcr.io/org/svc:1.0.0"); got != want {
+		t.Errorf("a port-free reference moved: %s, want the unchanged %s", got, want)
 	}
 }
 

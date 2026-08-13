@@ -117,12 +117,11 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// and that is the revision's identity — reference, domain and all.
 		//
 		// The walk above only DISCOVERED the entry. Its sidecar was a separate,
-		// earlier observation, and the cache path cannot arbitrate between the two:
-		// cachePath maps every ':' to '/', so "localhost:5000/demo/svc:1.0.0" and
-		// "localhost/5000/demo/svc:1.0.0" are one entry directory that answers to
-		// both. Keeping the walk's spelling would publish the digest and bytes of
-		// the generation installed now under the repository, domain and canonical
-		// key of the one the walk saw: a revision belonging to no artifact.
+		// earlier observation of a SHARED directory, and the walk's spelling cannot
+		// arbitrate between the two: another process commits generations into the
+		// same entry, so keeping it would publish the digest and bytes of the
+		// generation installed now under the repository, domain and canonical key of
+		// the one the walk saw — a revision belonging to no artifact.
 		if rec.Ref != "" {
 			ref = rec.Ref
 			concrete = strings.TrimPrefix(rec.Ref, "oci://")

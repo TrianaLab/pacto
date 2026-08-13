@@ -191,8 +191,7 @@ func TestCachedStore_Pull_CorruptGzipFallsBack(t *testing.T) {
 	}
 
 	// Corrupt the cached file with invalid gzip data.
-	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store1, ref), "bundle.tar.gz")
 	if err := os.WriteFile(cachePath, []byte("not gzip"), 0644); err != nil {
 		t.Fatalf("failed to corrupt cache: %v", err)
 	}
@@ -298,7 +297,7 @@ func TestCachedStore_DisableCache_StillWritesToDisk(t *testing.T) {
 	}
 
 	// Verify bundle was written to disk.
-	cachePath := filepath.Join(store.CacheDir(), strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store, ref), "bundle.tar.gz")
 	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
 		t.Fatalf("expected bundle.tar.gz to be written at %s after DisableCache", cachePath)
 	}
@@ -353,8 +352,7 @@ func TestCachedStore_Pull_CorruptTarFallsBack(t *testing.T) {
 	}
 
 	// Overwrite with valid gzip but invalid tar content.
-	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store1, ref), "bundle.tar.gz")
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	_, _ = gw.Write([]byte("not a tar"))
@@ -394,8 +392,7 @@ func TestCachedStore_Pull_MissingPactoYamlFallsBack(t *testing.T) {
 	}
 
 	// Overwrite cache with valid gzip+tar but no pacto.yaml.
-	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store1, ref), "bundle.tar.gz")
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -439,8 +436,7 @@ func TestCachedStore_Pull_InvalidPactoYamlFallsBack(t *testing.T) {
 	}
 
 	// Overwrite with valid gzip+tar containing invalid pacto.yaml.
-	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store1, ref), "bundle.tar.gz")
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -617,8 +613,7 @@ func TestCachedStore_XDGCacheHome(t *testing.T) {
 		t.Fatalf("Pull() error: %v", err)
 	}
 
-	cachePath := filepath.Join(customCache, "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store, ref), "bundle.tar.gz")
 	if _, err := os.Stat(cachePath); err != nil {
 		t.Errorf("expected cache file at %s: %v", cachePath, err)
 	}
@@ -690,9 +685,23 @@ func (s *resolveErrStore) Resolve(context.Context, string) (string, error) {
 }
 
 // cachedDir is where the store writes ref's bundle and its sidecar. It mirrors
-// the unexported cachePath rule: every ':' becomes a path separator.
+// the unexported entryDir rule: the tag is a directory of its own, and every
+// other ':' — a registry port, a digest algorithm — is escaped inside its
+// segment so that two references never spell to one entry.
 func cachedDir(store *oci.CachedStore, ref string) string {
-	return filepath.Join(store.CacheDir(), filepath.FromSlash(strings.ReplaceAll(ref, ":", "/")))
+	repo, tag := ref, "%00"
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		repo, tag = ref[:colon], strings.ReplaceAll(ref[colon+1:], ":", "%3A")
+	}
+	return filepath.Join(store.CacheDir(),
+		filepath.FromSlash(strings.ReplaceAll(repo, ":", "%3A")), tag)
+}
+
+// legacyCachedDir is where a store WRITTEN BEFORE the key became injective put
+// ref's entry: every ':' spelled as a path separator.
+func legacyCachedDir(cacheDir, ref string) string {
+	return filepath.Join(cacheDir, filepath.FromSlash(strings.ReplaceAll(ref, ":", "/")))
 }
 
 func TestCachedStore_Pull_WritesRefSidecar(t *testing.T) {

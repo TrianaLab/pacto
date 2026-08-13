@@ -178,12 +178,9 @@ func (c *CachedStore) PullCached(ctx context.Context, ref string) (*contract.Bun
 // the bytes. So the offline reader reports what it actually got and never has to
 // ask a registry the mode forbids.
 //
-// The recorded reference is not the one asked for. [CachedStore.cachePath] maps
-// every ':' to '/', so it is not injective: "localhost:5000/demo/svc:1.0.0" and
-// "localhost/5000/demo/svc:1.0.0" name ONE entry directory, and the entry
-// installed there answers under whichever of them a caller happens to use. What
-// the caller asked is a lookup key; what came back is this record. A zero record
-// means the entry predates the sidecar and states no identity at all.
+// The record is the entry's own statement, not the lookup key echoed back, and a
+// hit is only reported when the two AGREE (see [CachedStore.pullCached]). A zero
+// record means the entry predates the sidecar and states no identity at all.
 func (c *CachedStore) PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
 	return c.pullCached(ctx, ref)
 }
@@ -198,21 +195,53 @@ func (c *CachedStore) Materialized() bool { return c.materialized.Load() }
 // pullCached is [CachedStore.PullCached] plus the identity recorded for the
 // served bundle, so a hit reports what the pull observed rather than what the
 // lookup key spells.
+//
+// A hit requires the two to AGREE. An entry that states a DIFFERENT reference is
+// some other artifact's, and serving it here would publish its bytes and its
+// digest under the reference this call named — the mixed revision that the
+// injective key ([CachedStore.entryDir]) prevents for entries written by this
+// version and that a legacy entry, written when the key still aliased, can still
+// offer. Disagreement is therefore a MISS: online the registry is asked for the
+// artifact actually wanted, offline the caller is told it is not cached. An entry
+// that states NOTHING (written before the sidecar existed) contradicts nothing
+// and is served with no identity, as it always was.
 func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
-	// 1. In-memory cache (fastest).
+	bundle, rec, ok := c.cachedEntry(ctx, ref)
+	if !ok {
+		return nil, CachedRef{}, false
+	}
+	if rec.Ref != "" && rec.Ref != ref {
+		logging.LoggerFromContext(ctx).Debug("cache entry names another reference",
+			"ref", ref, "entry", rec.Ref)
+		return nil, CachedRef{}, false
+	}
+	return bundle, rec, true
+}
+
+// cachedEntry finds what the cache holds under ref — memory first, then disk —
+// without judging whether it is ref's. Both legs return the pair the entry
+// itself supplied, so [CachedStore.pullCached] can apply ONE rule to both and a
+// warm read can never answer differently from the cold read that filled it.
+func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
+	// 1. In-memory cache (fastest). The pair is copied out under the mutex: a
+	// concurrent storePull rewrites the entry in place.
 	c.pullMu.Lock()
 	if el, ok := c.pullCache[ref]; ok {
 		c.pullLRU.MoveToFront(el)
 		e := el.Value.(*pullEntry)
+		bundle, rec := e.bundle, e.rec
 		c.pullMu.Unlock()
 		logging.LoggerFromContext(ctx).Debug("cache hit (memory)", "ref", ref)
-		return e.bundle, e.rec, true
+		return bundle, rec, true
 	}
 	c.pullMu.Unlock()
 
 	// 2. Disk cache (skipped when --no-cache / DisableCache is active).
-	if c.cacheDir != "" && !c.skipDiskReads {
-		if bundle, rec, ok := readCacheEntry(filepath.Dir(c.cachePath(ref))); ok {
+	if c.cacheDir == "" || c.skipDiskReads {
+		return nil, CachedRef{}, false
+	}
+	for _, dir := range c.entryDirs(ref) {
+		if bundle, rec, ok := readCacheEntry(dir); ok {
 			logging.LoggerFromContext(ctx).Debug("cache hit (disk)", "ref", ref)
 			// The sidecar was committed with these exact bytes, so it is the
 			// identity of what was just loaded, not a fresh guess about a tag.
@@ -257,7 +286,7 @@ func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bun
 	rec := CachedRef{Ref: ref, Digest: digest}
 	c.storePull(ref, bundle, rec)
 	if c.cacheDir != "" {
-		entry := filepath.Dir(c.cachePath(ref))
+		entry := c.entryDir(ref)
 		if err := c.writeCacheEntry(entry, rec, bundle); err != nil {
 			// The pull SUCCEEDED; only its persistence did not. Say so instead of
 			// dropping it silently — a cache that never fills is a performance
@@ -265,6 +294,7 @@ func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bun
 			logging.LoggerFromContext(ctx).Warn("could not cache the pulled bundle", "ref", ref, "error", err)
 		} else {
 			c.materialized.Store(true)
+			c.retireLegacyEntry(ctx, ref, entry)
 		}
 	}
 
@@ -319,10 +349,11 @@ func parseCachedRef(b []byte) (CachedRef, bool) {
 //
 // An entry is two files a reader must agree about: a walker keys on
 // bundle.tar.gz and asks the ref.json beside it what that bundle IS. The cache
-// PATH cannot answer — cachePath maps every ':' to '/', so a registry port is
-// spelled like a path segment and a digest like a tag — so a reader that finds
-// no usable sidecar GUESSES an identity from the path, and the same published
-// artifact enters the fleet a second time under a derived content identity.
+// PATH cannot answer — it spells a registry port and a tag with the same
+// separator, and escapes what it must ([CachedStore.entryDir]) — so a reader
+// that finds no usable sidecar GUESSES an identity from the path, and the same
+// published artifact enters the fleet a second time under a derived content
+// identity.
 //
 // Written in place the two files can disagree: a sidecar write that fails
 // (ref.json already exists as a directory) still leaves the bundle to be
@@ -413,14 +444,128 @@ func (c *CachedStore) storePull(ref string, bundle *contract.Bundle, rec CachedR
 	}
 }
 
-func (c *CachedStore) cachePath(ref string) string {
-	safe := strings.ReplaceAll(ref, ":", "/")
-	joined := filepath.Join(c.cacheDir, safe, CachedBundleFile)
-	// Ensure the resolved path stays inside the cache directory.
-	if rel, err := filepath.Rel(c.cacheDir, joined); err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.Join(c.cacheDir, "_invalid", CachedBundleFile)
+// untaggedSegment stands in for the tag of a reference that names none, so that
+// "a" and "a:b" cannot spell to one directory. Escaping never produces it: a
+// literal "%00" tag escapes to "%2500".
+const untaggedSegment = "%00"
+
+// entryDir returns the directory holding ref's cache entry. The mapping is
+// INJECTIVE — distinct references never name one directory.
+//
+// It used to map every ':' to '/', which is not: "localhost:5000/demo/svc:1.0.0"
+// and "localhost/5000/demo/svc:1.0.0" named ONE entry, so pulling either
+// overwrote the other's offline baseline and a lookup by either was answered
+// with whichever had been installed last — bundle B published under reference A.
+//
+// So only the TAG's ':' is still spelled as a separator, and every other ':'
+// (a registry port, a digest algorithm) is escaped inside its path segment along
+// with the '%' that escaping uses. The tag always gets a segment of its own,
+// [untaggedSegment] when there is none. Unescape each segment, rejoin with '/'
+// and put the ':' back before the last, and the reference comes back exactly.
+//
+// ponytail: only ':' and '%' are escaped, so every reference WITHOUT a registry
+// port or a digest keeps the path it has always had and no existing cache entry
+// is invalidated by this change. A '.' or '..' segment would still leave the
+// cache directory; those are not valid OCI references and [CachedStore.contained]
+// rejects them rather than the encoding growing cases for them.
+func (c *CachedStore) entryDir(ref string) string {
+	repo, tag, tagged := splitRefTag(ref)
+	parts := strings.Split(repo, "/")
+	for i, p := range parts {
+		parts[i] = escapeRefSegment(p)
+	}
+	if tagged {
+		parts = append(parts, escapeRefSegment(tag))
+	} else {
+		parts = append(parts, untaggedSegment)
+	}
+	return c.contained(filepath.Join(parts...))
+}
+
+// legacyEntryDir returns the directory ref's entry lived in before the key was
+// injective. READ-ONLY: nothing is written here any more, and an entry found
+// here is only served when its sidecar names the reference asked for (see
+// [CachedStore.pullCached]) — that is what keeps two references that still
+// collide under this spelling from crossing.
+func (c *CachedStore) legacyEntryDir(ref string) string {
+	return c.contained(strings.ReplaceAll(ref, ":", "/"))
+}
+
+// entryDirs lists the directories a read must consider, in order, without
+// naming the same one twice — for a reference with neither a port nor a digest
+// the two spellings are identical.
+func (c *CachedStore) entryDirs(ref string) []string {
+	dir := c.entryDir(ref)
+	if legacy := c.legacyEntryDir(ref); legacy != dir {
+		return []string{dir, legacy}
+	}
+	return []string{dir}
+}
+
+// contained resolves rel under the cache directory, refusing to leave it.
+func (c *CachedStore) contained(rel string) string {
+	joined := filepath.Join(c.cacheDir, rel)
+	if r, err := filepath.Rel(c.cacheDir, joined); err != nil || strings.HasPrefix(r, "..") {
+		return filepath.Join(c.cacheDir, "_invalid")
 	}
 	return joined
+}
+
+// splitRefTag splits a reference into its repository and its tag. A tag is a
+// ':' after the last '/', so a registry port is never mistaken for one; the last
+// result reports whether there was a tag at all, which "" alone cannot.
+func splitRefTag(ref string) (repo, tag string, tagged bool) {
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[:colon], ref[colon+1:], true
+	}
+	return ref, "", false
+}
+
+// escapeRefSegment percent-escapes the two characters that would otherwise make
+// a path segment ambiguous: ':' (which the layout spells as a separator) and the
+// '%' this escaping introduces.
+func escapeRefSegment(s string) string {
+	if !strings.ContainsAny(s, "%:") {
+		return s
+	}
+	var b strings.Builder
+	for i := range len(s) {
+		switch s[i] {
+		case '%':
+			b.WriteString("%25")
+		case ':':
+			b.WriteString("%3A")
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
+// retireLegacyEntry drops the pre-injective entry ref used to live in, now that
+// its content has been re-committed under the injective key. Left behind, a
+// walker would find both and the same artifact would enter the fleet twice — the
+// second time under whatever the old path spells, which for a port-carrying
+// registry is a repository and a domain no artifact has.
+//
+// The one entry that stays is a sidecar naming a DIFFERENT reference: that is
+// the aliased artifact's own baseline, the very thing an injective key exists to
+// stop this pull from destroying. An entry with no sidecar states no identity to
+// contradict, and the legacy directory is by definition where THIS reference was
+// cached, so re-pulling it is what supersedes it.
+func (c *CachedStore) retireLegacyEntry(ctx context.Context, ref, entry string) {
+	legacy := c.legacyEntryDir(ref)
+	if legacy == entry {
+		return
+	}
+	if rec, ok := ReadCachedRef(legacy); ok && rec.Ref != ref {
+		return
+	}
+	if err := os.RemoveAll(legacy); err != nil {
+		logging.LoggerFromContext(ctx).Warn("could not retire the superseded cache entry",
+			"ref", ref, "entry", legacy, "error", err)
+	}
 }
 
 // afterCachedBundleRead is a seam for driving the interleaving below in tests:

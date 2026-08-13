@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // TestCacheSource_ConcurrentRescanAndReads exercises Rescan() (which swaps the
@@ -236,6 +239,65 @@ service:
 	}
 	if len(versions) != 2 {
 		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+}
+
+// TestCacheSource_ScanPrefersTheRecordedReference holds the index to the
+// reference each entry was actually pulled under. The path is only an
+// approximation of it — the cache key escapes a registry port so that two
+// references can never spell to one entry, and an escaped port is not a
+// reference anyone can pull — while the sidecar beside the bundle is the exact
+// one. An entry that records no tag has nothing better than the path, and keeps
+// it.
+func TestCacheSource_ScanPrefersTheRecordedReference(t *testing.T) {
+	root := t.TempDir()
+
+	ported := filepath.Join(root, "localhost%3A5000", "demo", "checkout", "1.0.0")
+	writeBundleTarGzFile(t, filepath.Join(ported, "bundle.tar.gz"),
+		`pactoVersion: "2.0"
+service:
+  name: checkout
+  version: 1.0.0
+`)
+	writeCachedRef(t, ported, "localhost:5000/demo/checkout:1.0.0")
+
+	untagged := filepath.Join(root, "ghcr.io", "org", "api", "2.0.0")
+	writeBundleTarGzFile(t, filepath.Join(untagged, "bundle.tar.gz"),
+		`pactoVersion: "2.0"
+service:
+  name: api
+  version: 2.0.0
+`)
+	writeCachedRef(t, untagged, "ghcr.io/org/api")
+
+	src := NewCacheSource(root)
+	for _, tc := range []struct{ name, want string }{
+		{"checkout", "localhost:5000/demo/checkout:1.0.0"},
+		{"api", "ghcr.io/org/api:2.0.0"},
+	} {
+		versions, err := src.GetVersions(context.Background(), tc.name)
+		if err != nil {
+			t.Fatalf("GetVersions(%s): %v", tc.name, err)
+		}
+		if len(versions) != 1 {
+			t.Fatalf("%s: versions = %+v, want the one cached entry", tc.name, versions)
+		}
+		if versions[0].Ref != tc.want {
+			t.Errorf("%s: Ref = %q, want %q", tc.name, versions[0].Ref, tc.want)
+		}
+	}
+}
+
+// writeCachedRef records the reference an entry was pulled under, exactly as the
+// OCI cache writes it beside every bundle.
+func writeCachedRef(t *testing.T, dir, ref string) {
+	t.Helper()
+	b, err := json.Marshal(oci.CachedRef{Ref: ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, oci.CachedRefFile), b, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

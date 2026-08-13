@@ -115,13 +115,14 @@ func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint strin
 // LocalOnly reports the record written beside the cached bundle, read from the
 // same cache generation as the bytes — never re-derived, which offline would
 // mean dialing a registry the mode promised not to touch. Its Ref is what the
-// cache says these bytes ARE, and it can differ from the reference asked for,
-// because one cache entry directory answers to every reference that spells to
-// it (see [CachedStore.PullCachedPinned]). An entry that recorded nothing
-// reports nothing, and the caller's own reference is then all there is.
+// cache says these bytes ARE. An entry that recorded nothing reports nothing,
+// and the caller's own reference is then all there is.
 //
-// Remote resolution reports the digest alone: the bytes came from the registry
-// under the reference this call named, so there is no second identity to carry.
+// Remote resolution reports the digest alone, because there is no second
+// identity to carry: the bytes came from the registry under the reference this
+// call named, or from a cache entry that STATES that reference — a stored
+// generation naming any other reference is not a hit for this one and the
+// registry is asked (see [CachedStore.pullCached]).
 func (r *Resolver) ResolvePinned(ctx context.Context, ref string, mode ResolveMode) (*contract.Bundle, CachedRef, error) {
 	return r.resolvePinned(ctx, ref, "", mode)
 }
@@ -260,8 +261,9 @@ func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.
 		return nil, CachedRef{}, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
 	}
 	// Only the digest: these bytes were fetched under the reference this call
-	// named, so the caller already holds their reference and no cache generation
-	// is claiming a different one.
+	// named — or served by a cache entry that states it, since one stating any
+	// other reference is a miss — so the caller already holds their reference and
+	// no cache generation is claiming a different one.
 	return bundle, CachedRef{Digest: digest}, nil
 }
 

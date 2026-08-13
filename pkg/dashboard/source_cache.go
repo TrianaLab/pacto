@@ -18,8 +18,21 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 	"github.com/trianalab/pacto/v3/pkg/semver"
 )
+
+// refRepoAndTag splits a pulled reference into the repository and tag this
+// source indexes by. A tag is a ':' after the last '/', so a registry port is
+// never mistaken for one. A reference that names no tag keeps the pair the path
+// yielded — there is nothing better to index it by.
+func refRepoAndTag(ref, pathRepo, pathTag string) (repo, tag string) {
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[:colon], ref[colon+1:]
+	}
+	return pathRepo, pathTag
+}
 
 // CacheSource implements DataSource by reading materialized OCI bundles from
 // the on-disk cache at ~/.cache/pacto/oci/. It is NOT a public data source —
@@ -119,6 +132,13 @@ func (s *CacheSource) buildIndex() map[string]*cachedService {
 
 		tag := parts[len(parts)-1]
 		repo := strings.Join(parts[:len(parts)-1], "/")
+		// The path is a GUESS: it escapes what it must to stay injective, so a
+		// port-carrying registry reads back as "localhost%3A5000/org/name". The
+		// sidecar the cache writes beside every bundle states the exact reference
+		// it was pulled under, so it is the answer whenever there is one.
+		if rec, ok := oci.ReadCachedRef(filepath.Dir(path)); ok {
+			repo, tag = refRepoAndTag(rec.Ref, repo, tag)
+		}
 
 		bundle, err := loadBundleTarGz(path)
 		if err != nil {
