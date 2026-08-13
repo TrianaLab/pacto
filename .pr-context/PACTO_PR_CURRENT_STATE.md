@@ -1908,3 +1908,163 @@ Classify every added file.
 Remove implementation-only artifacts such as internal plans, ChatGPT/Claude instructions, handoffs, temporary ledgers, review screenshots, traces/reports, one-off scripts, caches/logs, orphan fixtures, accidental generated output and local config/paths/secrets.
 
 The three PR coordination documents are temporary branch state and MUST be deleted in Phase 14 before merge readiness.
+
+## 12. Phase 8B inventory ledger — TRANSIENT
+
+Migration bookkeeping for the ACTIVE phase. Deleted with this document in Phase
+14. The durable repository documentation (`docs/maintainers/testing.md`) carries
+the resulting ARCHITECTURE, never this ledger.
+
+No relocation, rewrite or deletion in Phase 8B exists without a row here.
+
+### 12.1 Canonical taxonomy
+
+Every test belongs to exactly ONE semantic level, chosen by what it PROVES —
+never by historical filename or implementation language.
+
+| # | Level | Proves | Home | Language |
+|---|-------|--------|------|----------|
+| 1 | unit | one package's behaviour in isolation | beside the code | Go, Vitest |
+| 2 | integration | two or more real components wired together in one process | `tests/integration/`, `integrations/kubernetes/test/integration/`, `pkg/oci` | Go |
+| 3 | architecture / invariant | a structural rule about the repository itself | `tests/architecture/` | Go |
+| 4 | local acceptance, cluster-free | a whole user story through real binaries, no cluster | `tests/acceptance/local/` | Go behind thin shell |
+| 5 | Kind / system acceptance | the product against a real Kubernetes cluster | `tests/acceptance/kind/` | Go assertions behind thin shell |
+| 6 | browser acceptance, deterministic | the built UI in a real browser over fixed data | `pkg/dashboard/frontend/e2e/` | Playwright/TS |
+| 7 | live-browser acceptance | the built UI in a real browser over a real cluster | `pkg/dashboard/frontend/e2e-live/` | Playwright/TS |
+| 8 | release verification | the release system produces the artifacts it claims | `tests/release/`, `release/orchestrator/*.test.mjs` | Go, Node |
+
+Levels 6 and 7 stay SEPARATE suites. Determinism and liveness are different
+properties; a merged suite proves neither.
+
+### 12.2 Inventory and disposition
+
+Columns: responsibility / level / permanent invariant proved / overlap /
+permanent value / current -> correct location / current -> correct language /
+disposition / canonical scenario consumed.
+
+**Root Go suites**
+
+| Item | Level | Invariant proved | Overlap | Value | Location move | Language | Disposition |
+|---|---|---|---|---|---|---|---|
+| `tests/e2e/*.go` (20 files, `//go:build e2e`, package `e2e`) | 2 integration — they drive `internal/cli` IN PROCESS against an `httptest` registry; nothing is end-to-end about them | CLI surface behaviour over the real validator, differ, packer, OCI client, MCP server and lockfile | none; the only suite at this level for the engine | permanent | `tests/e2e/` -> `tests/integration/` | Go -> Go | MOVE + retag `e2e` -> `integration`. Reclassification mandated by TARGET section 10. |
+| `tests/e2e/helpers_test.go`, `fixtures_test.go` | 2 | shared in-process registry, `chdir` serialization, bundle builders | none | permanent | moves with the suite | Go | MOVE |
+| `tests/e2e/testplugin/` | 2 fixture | a real external plugin binary on PATH | none | permanent | `tests/integration/testplugin/` | Go | MOVE |
+| `tests/architecture/*.go` (4) | 3 | core stays k8s-free; collector docs exist; fleet routes stay neutral; OTel path stays offline | none | permanent | unchanged | Go | KEEP |
+| `tests/release/*.go` (13) | 8 | one publisher per artifact, DAG shape, plan idempotency, immutability, module path, demo refs, stale links, dockerfile, chart recovery, docs paths/versioning, source SHA, adapter parity | none | permanent | unchanged | Go | KEEP; `stale_links_test.go` path allowlist updated for the fixture move |
+| `tests/scripts/check_section_test.go` | 3 | the U+00A7 gate script actually fails on a glyph, and reports path:line, commit sha and PR-title/body source | none | permanent | `tests/scripts/` -> `tests/architecture/` | Go | MOVE. **It is currently a gate that never runs**: `ci-gates` runs only `./tests/architecture/... ./tests/release/...`, `ci-test` excludes `/tests/`, and `make e2e` runs only the e2e suite and `productready`. Moving it into `tests/architecture/` wires it in BY CONSTRUCTION. Coverage increase, not a reorganization. |
+
+**Acceptance harnesses**
+
+| Item | Level | Invariant proved | Overlap | Value | Location move | Language | Disposition |
+|---|---|---|---|---|---|---|---|
+| `tests/e2e/fleet-graph.sh` (179 lines) | 4 | the whole fleet story with no cluster: graph assembly, signed evidence ingest + durable replay + sequence ordering, OTel observe, reconcile (matched and observed-not-declared), impact BREAKING with corroborated confidence and non-zero exit | conceptually overlaps the Kind vertical, but it is the ONLY cluster-free proof and runs anywhere Go runs | permanent | `tests/acceptance/local/fleet-graph.sh` | thin shell over real `pacto` — CORRECT as shell | MOVE. Genuinely thin: builds two binaries, runs real CLI commands, greps their output. |
+| `tests/e2e/localregistry/` | 4 fixture | a real OCI registry process for the cluster-free path | none | permanent | `tests/acceptance/local/localregistry/` | Go | MOVE |
+| `tests/e2e/kind/lib.sh` (101 lines) | 5 shared harness | `pf` readiness-waiting port-forward, `dump_diag`, `keep_or_teardown` | none — this is the ONE existing shared harness | permanent | `tests/acceptance/kind/lib.sh` | shell | MOVE + EXTEND. `pf` behaviour is accepted Phase-8 behaviour and is preserved byte-for-byte. |
+| `tests/e2e/kind/run.sh` (133) | 5 | prev-chart install -> upgrade -> dashboard path -> real RBAC `can-i` -> Compliant/Unknown(EVIDENCE_MISSING)/Compliant -> `evaluationCoverage` -> `pacto fleet search --k8s` -> uninstall leaves nothing | distinct scenario boundary | permanent | `tests/acceptance/kind/reconcile.sh` | shell | MOVE + RENAME (`run.sh` names nothing) + refit onto shared harness |
+| `tests/e2e/kind/dashboard-modes.sh` (152) | 5 | the operator does not crashloop across the four `dashboard.enabled` transitions; exactly one Running pod, zero restarts | distinct scenario boundary | permanent | `tests/acceptance/kind/dashboard-modes.sh` | shell | MOVE + refit |
+| `tests/e2e/kind/v4-to-v5-upgrade.sh` (224) | 5 | a REAL cross-major chart + CRD migration: published v4 chart and CRDs, server-side apply, `helm upgrade` to v5, existing resources survive | distinct scenario boundary | permanent | `tests/acceptance/kind/upgrade-v4-v5.sh` | shell | MOVE + refit. The pinned `V4_DIGEST` fail-closed drift check is preserved. |
+| `tests/e2e/kind/fixtures/pacto-operator-v4/` (29 files) | 5 fixture | byte-faithful published v4 chart — permanent cross-major compatibility value | none | permanent | `tests/acceptance/kind/fixtures/pacto-operator-v4/` | n/a | MOVE UNCHANGED. Provenance already documented in its `SOURCE.md`; the note stays next to it. `tests/release/stale_links_test.go` allowlists the new path. |
+| `tests/e2e/kind/evidence.sh` (324) | 5 | operator-managed Evidence Server: Deployment/Service/RETAINED PVC, replicas=1, durable commit, Evidence source API, dashboard Fleet API, CLI over the same store, replay 409, newer sequence accepted, restart recovery, manifest projection physically rewritten, corrupt record -> degraded, disable retains PVC and drops the source, re-enable recovers | duplicates the in-cluster registry YAML, the trust keygen+Secret and push-bundle-and-extract-digest with `operational-graph.sh`, verbatim | permanent | `tests/acceptance/kind/evidence.sh` | shell | MOVE + refit; the three duplicated blocks move to `lib.sh` |
+| `tests/e2e/kind/observation.sh` (410) | 5 | 8 claims: declared Helm observation sources become read-only mounts under their declared names; the ConfigMap and PVC sources each produce a stable Data Source identity; the observed `orders->checkout` edge is attributed to `orders-traces`; a symlink-ESCAPING source contributes nothing; a broken source is explicit `SOURCE_UNAVAILABLE` knowledge, not a silently empty graph; removing sources leaves no orphaned wiring | distinct scenario boundary | permanent | `tests/acceptance/kind/observation.sh` | shell + **three embedded `python3 -c` blocks doing semantic JSON assertion** -> shell + Go | MOVE + **REWRITE the assertions in Go**. This is the named Phase-8 debt ("no semantic JSON parsing in shell"). The eight claims are preserved exactly; only the language asserting them changes. |
+| `tests/e2e/kind/operational-graph.sh` (369) | 5 + 7 driver | the full live vertical and the live browser leg; publishes four real bundles, wires the observation source, applies two digest-pinned CRs, signs and sends an EvidenceEnvelope | its four bundle heredocs are the canonical scenario, duplicated as flags into `productready` | permanent | `tests/acceptance/kind/operational-graph.sh` | shell | MOVE + refit; the four heredocs are REPLACED by a projection of the canonical scenario. Every semantic claim already lives in Go; that stays true. |
+| `tests/e2e/kind/productready/` (`main.go` 641 + `main_test.go` 480) | 5 gate | the coherent 14-fact / two-snapshot Product gate; discovers every key through `/api/fleet/entities`, never constructs one; `adopt()` enforces single-snapshot coherence; emits the discovered-key fixture the live browser suite consumes | none | permanent | `tests/acceptance/kind/productready/` | Go | MOVE. Facts and the `adopt()` rule are accepted Phase-8 behaviour and unchanged; only the source of its EXPECTATIONS moves from flags to the canonical scenario. |
+
+**Browser suites**
+
+| Item | Level | Invariant proved | Overlap | Value | Location | Disposition |
+|---|---|---|---|---|---|---|
+| `pkg/dashboard/frontend/e2e/` (24 specs + 2 helpers, 5731 lines) | 6 | the built WASM demo in Chromium: a11y (axe), keyboard, mobile/responsive, typography, headings, page TOC, graph state and visuals, inventory, references, suggest, SWR, owners, place, product scale, novice journeys, Mermaid render, workspace geometry | none | permanent | unchanged | KEEP. Deterministic browser acceptance is NOT flattened into the live suite. |
+| `pkg/dashboard/frontend/e2e-live/` (`fixture.ts` 58 + `product-journeys.spec.ts` 326) | 7 | live journeys A-H against the real port-forwarded Product, over keys DISCOVERED by `productready` | none | permanent | unchanged | KEEP; only the `tests/e2e/kind/...` path references in its comments are updated |
+| `pkg/dashboard/frontend/src/**/*.test.ts` (67 files) | 1 | frontend unit behaviour | none | permanent | unchanged | KEEP |
+
+**Kubernetes integration and release**
+
+| Item | Level | Invariant proved | Value | Location | Disposition |
+|---|---|---|---|---|---|
+| `integrations/kubernetes/internal/**/*_test.go` (40) | 1 + 2 (envtest via `suite_test.go`) | controller, dashboard, evidence, observer, loader, credentials, prober, metrics behaviour | permanent | unchanged | KEEP |
+| `integrations/kubernetes/test/e2e/` (`//go:build e2e`) | 2 | operator acceptance against envtest, no cluster | permanent | unchanged | KEEP. Already correctly located inside the module that owns it. |
+| `integrations/kubernetes/test/integration/oci_test.go` | 2 | operator OCI loading against a real registry | permanent | unchanged | KEEP |
+| `integrations/kubernetes/charts/pacto-operator/tests/*.yaml` (8) | 3 | helm-unittest template invariants | permanent | unchanged | KEEP |
+| `release/orchestrator/detect.test.mjs` | 8 | transaction detection from a changeset state | permanent | unchanged | KEEP |
+| `release/orchestrator/dry-run.sh`, `test-release-version.sh`, `verify-k8s-standalone.sh` | 8 | the real release simulation, the real `release:version` run, the external-consumer module proof | permanent | unchanged | KEEP. Genuinely thin process orchestration around real release tooling. |
+| `examples/demo/source_embed_test.go` | 1 | the embedded demo source | permanent | unchanged | KEEP |
+
+**Nothing is deleted in Phase 8B.** Every row above is keep, move, rename or
+rewrite-in-place. No invariant loses a prover.
+
+### 12.3 Duplicated shared concerns found across the six Kind harnesses
+
+Counted by grep across `run.sh`, `dashboard-modes.sh`, `v4-to-v5-upgrade.sh`,
+`evidence.sh`, `observation.sh` and `operational-graph.sh`.
+
+| Concern | Copies today | Disposition |
+|---|---|---|
+| resolve the chart version out of `release-release-plan`/manifest via `python3 -c 'import json...'` | 4 | ONE `chart_version` in `lib.sh` |
+| `docker build` the operator and dashboard images | 5 | ONE `build_images` |
+| `helm package` the chart | 4 | ONE `package_chart` |
+| `kind create cluster` if absent | 6 | ONE `ensure_cluster` |
+| `kind load docker-image` | 6 | folded into `ensure_cluster` / `load_images` |
+| `KUBECONFIG=$(mktemp)` + `kind get kubeconfig` | 6 | folded into `ensure_cluster` |
+| in-cluster registry Deployment + Service YAML | 2, byte-identical | ONE `install_registry` |
+| trust keypair + Secret | 2, identical | ONE `install_trust_key` |
+| push a bundle and extract its digest | 2 + a variant | ONE `push_bundle` |
+| `pass()` / `fail()` reporting | 4 | ONE pair in `lib.sh` |
+| `wait_status` CR condition polling | 3 | ONE `wait_status` |
+| `wait_ready` rollout polling | 4 | ONE `wait_ready` |
+| ad-hoc `for i in $(seq ...)` eventually loops | many | ONE `eventually` |
+| `go build -o "$(mktemp)" ./cmd/pacto` | 4 | ONE `build_pacto` |
+| port-forward with readiness | already ONE (`pf`) | unchanged — accepted behaviour |
+| diagnostics dump | already ONE (`dump_diag`) | unchanged |
+| cleanup / keep-cluster | already ONE (`keep_or_teardown`) | unchanged |
+
+Scenario-specific orchestration stays explicit in each harness. Only the stable
+shared concern is centralized.
+
+### 12.4 Canonical scenario duplication
+
+The same commerce scenario is described FOUR times today:
+
+1. four bundle heredocs in `operational-graph.sh` (payments, checkout 1.0.0,
+   checkout 1.1.0 with `/cart` removed = Breaking, orders declaring the checkout
+   dependency);
+2. the expected facts, passed back into `productready` as `-domain`,
+   `-checkout-a`, `-checkout-b`, `-snapshots` flags;
+3. inline CR contracts in `observation.sh` and `reconcile.sh`;
+4. a single checkout bundle in `evidence.sh`, and web/payments in
+   `fleet-graph.sh`.
+
+Phase 8B establishes ONE declarative Go scenario able to express services,
+revisions, targets, sources, relationships, evidence, expected Product facts and
+journey inputs, with the projections that ALREADY have a consumer:
+
+- bundle materialization (replaces the heredocs);
+- expected Product facts (replaces the `productready` flags);
+- the discovered-key fixture handed to the live browser suite (already exists,
+  now sourced from the same declaration).
+
+The Helm and Compose projections TARGET Phase 10B needs are NOT implemented —
+only the boundary they will share. No speculative framework: the scenario is
+data plus the two projections that have a caller today.
+
+### 12.5 Nomenclature
+
+`make e2e` currently means "in-process CLI integration tests", `run.sh` names
+nothing, and `demo-fleet` is the cluster-free acceptance. New names reveal the
+level; the old names remain as aliases so nothing a contributor or a workflow
+already invokes breaks.
+
+| Old | New | Alias kept |
+|---|---|---|
+| `make e2e` | `make test-integration` | yes |
+| `make demo-fleet` | `make test-acceptance-local` | yes |
+| `make ci-e2e-kind-*` | `make test-acceptance-kind-*` | yes |
+| `make e2e-dashboard-wasm` | `make test-browser` | yes |
+| `make e2e-dashboard-kind-browser` | `make test-browser-live` | yes |
+| `tests/e2e/kind/run.sh` | `tests/acceptance/kind/reconcile.sh` | n/a |
+| `tests/e2e/kind/v4-to-v5-upgrade.sh` | `tests/acceptance/kind/upgrade-v4-v5.sh` | n/a |
+
+Workflow JOB IDS are left alone: `required` is the single branch-protection
+check and renaming ids risks silently unsatisfiable protection rules. Only the
+human-facing `name:` fields and the invoked target names change. The inventory
+does not demonstrate that a broad workflow rewrite is required, so there is not
+one.
