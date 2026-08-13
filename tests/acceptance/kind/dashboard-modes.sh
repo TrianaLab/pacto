@@ -10,9 +10,10 @@
 # a narrow always-on teardown RBAC, so a disabled operator starts cleanly and an
 # upgraded (enabled -> disabled) one can still tear the dashboard down.
 #
-# Builds the operator + dashboard images the same way run.sh does (root Dockerfile
-# for the dashboard, coupled into the operator via the DASHBOARD_IMAGE build-arg),
-# installs the chart straight from the working tree, and drives four scenarios:
+# Builds the operator + dashboard images the same way every other scenario does
+# (root Dockerfile for the dashboard, coupled into the operator via the
+# DASHBOARD_IMAGE build-arg), installs the chart straight from the working tree
+# rather than a packaged copy, and drives four scenarios:
 #   1. fresh install dashboard.enabled=false -> operator Ready, ZERO restarts, no
 #      dashboard resources.
 #   2. upgrade true -> false -> dashboard resources removed, operator stays Ready.
@@ -22,35 +23,27 @@ set -euo pipefail
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-mono}"
 NS=pacto-modes
-CHART="$ROOT/integrations/kubernetes/charts/pacto-operator"
+CHART="$PACTO_CHART"
 TAG=e2e-modes
 OP_REPO="localhost:5001/pacto-operator/pacto-controller"
 OP_IMG="${OP_REPO}:${TAG}"
 DASH_IMG="localhost:5001/pacto-dashboard:${TAG}"
 
-fail() { echo "  FAIL: $*"; exit 1; }
 exists() { kubectl "$@" -o name 2>/dev/null | grep -q .; }
 
-echo "== build dashboard image (root Dockerfile) =="
-docker build -f "$ROOT/Dockerfile" -t "$DASH_IMG" "$ROOT"
-echo "== build operator image (root context) coupled to the dashboard image =="
-docker build -f "$ROOT/integrations/kubernetes/Dockerfile" \
-  --build-arg VERSION="$TAG" --build-arg DASHBOARD_IMAGE="$DASH_IMG" -t "$OP_IMG" "$ROOT"
+build_operator_images "$OP_IMG" "$DASH_IMG" "$TAG"
 
-kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s
-kind load docker-image "$DASH_IMG" "$OP_IMG" --name "$CLUSTER"
-export KUBECONFIG="$(mktemp)"; kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
+ensure_cluster
+load_images "$DASH_IMG" "$OP_IMG"
 
-# Best-effort teardown so reruns start clean and a mid-run failure leaves nothing.
-cleanup() { helm uninstall pacto-operator -n "$NS" --wait >/dev/null 2>&1 || true; kubectl delete ns "$NS" --wait=false >/dev/null 2>&1 || true; }
 # On exit: dump diagnostics FIRST if we failed, then tear down — unless
 # KEEP_E2E_CLUSTER is set, which leaves the state for inspection (see lib.sh).
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; keep_or_teardown "$NS" "$CLUSTER" cleanup; exit $rc' EXIT
-cleanup
+trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; keep_or_teardown "$NS" "$CLUSTER"; exit $rc' EXIT
+# Best-effort teardown up front too, so a rerun starts from a clean namespace.
+helm_teardown "$NS"
 
 # Image loaded into kind: operator via image.pullPolicy=Never; the dashboard image
 # the operator deploys is its coupled DASHBOARD_IMAGE (also loaded, non-latest tag
@@ -95,8 +88,7 @@ wait_gone() { # kind name [ns-args...]
 }
 
 wait_dashboard_ready() {
-  for _ in $(seq 1 40); do kubectl -n "$NS" get deploy pacto-dashboard >/dev/null 2>&1 && break; sleep 3; done
-  kubectl -n "$NS" rollout status deployment/pacto-dashboard --timeout=150s >/dev/null || fail "dashboard Deployment not Ready"
+  wait_managed_ready pacto-dashboard 150s >/dev/null || fail "dashboard Deployment not Ready"
   exists -n "$NS" get svc pacto-dashboard || fail "pacto-dashboard Service missing"
   exists get clusterrolebinding pacto-dashboard || fail "pacto-dashboard ClusterRoleBinding missing"
   echo "  dashboard resources created + Deployment Ready"

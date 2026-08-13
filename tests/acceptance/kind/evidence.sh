@@ -11,7 +11,6 @@
 # physically on disk) and a semantically-corrupt record (degraded state) are all
 # exercised in the cluster — not delegated to a filesystem-only test.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-evidence}"
 NS=pacto-system
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
@@ -21,77 +20,27 @@ LOCAL_EV_PORT=8686
 source "$(dirname "$0")/lib.sh"
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
 trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
-node "$ROOT/release/scripts/build-release-plan.mjs" >/dev/null 2>&1
-VER="$(python3 -c 'import json;print(json.load(open("'"$ROOT"'/release/release-plan.json"))["groups"]["kubernetes"]["version"])')"
-CORE="$(python3 -c 'import json;print(json.load(open("'"$ROOT"'/release/release-plan.json"))["groups"]["core"]["version"])')"
+VER="$(release_version kubernetes)"
+CORE="$(release_version core)"
 OP_IMG="localhost:5001/pacto-operator/pacto-controller:${VER}"
 OP_REPO="localhost:5001/pacto-operator/pacto-controller"
 DASH_IMG="localhost:5001/pacto-dashboard:${CORE}"
 
-pass() { echo "  PASS: $1"; }
-fail() { echo "  FAIL: $1"; exit 1; }
-
-# wait_evidence_ready: the evidence Deployment is created by the operator (not the
-# chart), so helm --wait does not cover it; poll until it is Ready.
-wait_evidence_ready() {
-  for _ in $(seq 1 40); do
-    if kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=10s >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 3
-  done
-  return 1
-}
-
-echo "== build dashboard + operator images =="
-docker build -f "$ROOT/Dockerfile" -t "$DASH_IMG" "$ROOT"
-docker build -f "$ROOT/integrations/kubernetes/Dockerfile" \
-  --build-arg VERSION="$VER" --build-arg DASHBOARD_IMAGE="$DASH_IMG" -t "$OP_IMG" "$ROOT"
+build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
 
 echo "== package the chart =="
-rm -rf /tmp/pacto-evidence-charts; mkdir -p /tmp/pacto-evidence-charts
-helm package "$ROOT/integrations/kubernetes/charts/pacto-operator" -d /tmp/pacto-evidence-charts >/dev/null
-CHART="$(ls /tmp/pacto-evidence-charts/pacto-operator-*.tgz)"
+CHART="$(package_chart "$PACTO_CHART")"
 
-kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s
-docker pull registry:2 >/dev/null
-kind load docker-image "$DASH_IMG" "$OP_IMG" registry:2 --name "$CLUSTER"
-KUBECONFIG="$(mktemp)"; export KUBECONFIG; kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
+ensure_cluster
+load_images "$DASH_IMG" "$OP_IMG"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "== an in-cluster OCI registry (plain HTTP) makes a contract revision resolvable =="
-kubectl -n "$NS" apply -f - >/dev/null <<'YAML'
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: pacto-registry, labels: { app: pacto-registry } }
-spec:
-  replicas: 1
-  selector: { matchLabels: { app: pacto-registry } }
-  template:
-    metadata: { labels: { app: pacto-registry } }
-    spec:
-      containers:
-      - name: registry
-        image: registry:2
-        imagePullPolicy: Never
-        ports: [ { containerPort: 5000 } ]
----
-apiVersion: v1
-kind: Service
-metadata: { name: pacto-registry }
-spec:
-  selector: { app: pacto-registry }
-  ports: [ { port: 5000, targetPort: 5000 } ]
-YAML
-kubectl -n "$NS" rollout status deployment/pacto-registry --timeout=120s
+install_registry
 
 echo "== trust store: a producer keypair -> a Secret the Evidence Server mounts =="
-PACTO_BIN="$(mktemp)"
-go build -o "$PACTO_BIN" "$ROOT/cmd/pacto"
-KEYDIR="$(mktemp -d)"
-"$PACTO_BIN" evidence keygen --out "$KEYDIR" --key-id demo >/dev/null
-kubectl -n "$NS" create secret generic pacto-evidence-trust --from-file=demo.pub="$KEYDIR/demo.pub" \
-  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+PACTO_BIN="$(build_pacto)"
+KEYDIR="$(trust_keypair "$PACTO_BIN")"
 
 echo "== push a contract bundle to the in-cluster registry (over the forwarded port) =="
 BDIR="$(mktemp -d)"
@@ -113,13 +62,7 @@ state:
 YAML
 printf 'openapi: "3.0.0"\ninfo: { title: checkout, version: "1.0.0" }\npaths: {}\n' > "$BDIR/openapi.yaml"
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
-# Captured, not piped into grep: a failed push matches nothing, grep exits 1 and
-# `set -o pipefail` would kill the script here with the actual error already eaten
-# by the pipe, before the guard below could report it.
-PUSH_OUT="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:${LOCAL_REG_PORT}" \
-  "$PACTO_BIN" push "oci://127.0.0.1:${LOCAL_REG_PORT}/demo/checkout:1.0.0" -p "$BDIR" 2>&1)" || true
-DIGEST="$(printf '%s' "$PUSH_OUT" | grep -oE 'sha256:[0-9a-f]{64}' | head -1 || true)"
-[ -n "$DIGEST" ] || printf '%s\n' "$PUSH_OUT"
+DIGEST="$(push_bundle "$PACTO_BIN" "$LOCAL_REG_PORT" "$BDIR" checkout:1.0.0)"
 kill "$REG_PF_PID" 2>/dev/null || true
 [ -n "$DIGEST" ] && pass "pushed contract revision $DIGEST" || fail "could not push/resolve the contract digest"
 CONTRACT_REF="oci://${REG_HOST}/demo/checkout@${DIGEST}"
@@ -133,7 +76,7 @@ echo "== install the operator with the Evidence Server enabled =="
 helm install pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeout 240s
 
 echo "== the operator reconciles a managed Evidence Server (readiness gated on recovery) =="
-wait_evidence_ready \
+wait_managed_ready pacto-evidence \
   && pass "evidence Deployment is Ready (storage recovered)" \
   || fail "evidence Deployment did not become Ready"
 kubectl -n "$NS" get svc pacto-evidence >/dev/null && pass "internal Evidence Service exists" || fail "internal Evidence Service missing"
@@ -206,32 +149,21 @@ DASH_PF_PID="$(pf 8080 svc/pacto-dashboard 3000)"
 # The dashboard serves a periodically-refreshed snapshot (fleetRefreshInterval,
 # 30s), so an envelope ingested after its first build appears on the next refresh.
 # Poll rather than race the first build.
-dash_has_checkout=false
-for _ in $(seq 1 24); do
-  if curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" 2>/dev/null | grep -q 'checkout'; then
-    dash_has_checkout=true; break
-  fi
-  sleep 3
-done
-$dash_has_checkout \
+dash_has_checkout() { curl -fsS "http://127.0.0.1:8080/api/fleet/snapshot" 2>/dev/null | grep -q 'checkout'; }
+eventually 24 dash_has_checkout \
   && pass "dashboard Fleet API reports the checkout target" || fail "dashboard Fleet API missing the target"
 
 echo "== the CLI reports the same target over the same Evidence source =="
 # Retry: the CLI builds a fresh snapshot each run, but a long-lived kubectl
 # port-forward can drop transiently. On failure the actual output is printed for
 # diagnosis rather than swallowed.
-cli_out=""; cli_ok=false
-for _ in $(seq 1 10); do
+cli_out=""
+cli_has_checkout() {
   cli_out="$("$PACTO_BIN" fleet search --evidence-url "http://127.0.0.1:${LOCAL_EV_PORT}" 2>&1 || true)"
-  if printf '%s' "$cli_out" | grep -q checkout; then cli_ok=true; break; fi
-  sleep 2
-done
-if $cli_ok; then
-  pass "CLI fleet search reports the checkout target"
-else
-  echo "  CLI output was: $cli_out"
-  fail "CLI missing the target"
-fi
+  printf '%s' "$cli_out" | grep -q checkout
+}
+eventually 10 cli_has_checkout || { echo "  CLI output was: $cli_out"; fail "CLI missing the target"; }
+pass "CLI fleet search reports the checkout target"
 
 echo "== replay: re-sending the same envelope is rejected (409) =="
 send_rejected "$WORK/env1.json" "replay rejected"
@@ -278,26 +210,19 @@ kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
 # can read the store a moment before the scan reaches the corrupt object -- and `exec
 # deploy/...` can still pick the terminating pod. The claim is that the store surfaces
 # the corruption, not that it does so within one round trip.
-degraded=false
-for _ in $(seq 1 30); do
-  if kubectl -n "$NS" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>/dev/null | grep -qiE 'degraded|corrupt'; then
-    degraded=true; break
-  fi
-  sleep 2
-done
-[ "$degraded" = true ] \
+store_degraded() {
+  kubectl -n "$NS" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>/dev/null \
+    | grep -qiE 'degraded|corrupt'
+}
+eventually 30 store_degraded \
   && pass "store reports degraded with the corrupt record surfaced (usable records retained)" \
   || fail "store did not surface the corrupt record as degraded"
 kill "$EV_PF_PID" "$DASH_PF_PID" 2>/dev/null || true
 
 echo "== disabling the Evidence Server RETAINS the PVC (persistent evidence preserved) =="
 helm upgrade pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --set evidence.enabled=false --wait --timeout 180s
-deleted=false
-for _ in $(seq 1 40); do
-  kubectl -n "$NS" get deploy pacto-evidence -o name 2>/dev/null | grep -q . || { deleted=true; break; }
-  sleep 3
-done
-[ "$deleted" = true ] && pass "evidence Deployment removed on disable" || fail "evidence Deployment survived disable"
+evidence_gone() { ! deploy_exists pacto-evidence; }
+eventually 40 evidence_gone && pass "evidence Deployment removed on disable" || fail "evidence Deployment survived disable"
 kubectl -n "$NS" get pvc pacto-evidence-data >/dev/null 2>&1 \
   && pass "evidence PVC RETAINED after disable" || fail "evidence PVC was deleted on disable"
 
@@ -312,7 +237,7 @@ kill "$DASH_PF_PID" 2>/dev/null || true
 
 echo "== re-enabling recovers the RETAINED evidence (data survives the disable cycle) =="
 helm upgrade pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeout 180s
-wait_evidence_ready && pass "evidence Deployment recovered against the retained PVC" || fail "did not recover after re-enable"
+wait_managed_ready pacto-evidence && pass "evidence Deployment recovered against the retained PVC" || fail "did not recover after re-enable"
 kubectl -n "$NS" set env deployment/pacto-evidence "PACTO_INSECURE_REGISTRIES=${REG_HOST}" >/dev/null
 kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
 EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"

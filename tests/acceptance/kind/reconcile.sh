@@ -10,7 +10,6 @@
 # transitions are deterministic (the operator default window is 2m). Uses the
 # packaged chart + real images the release simulation builds, not a dev deployment.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-mono}"
 NS=pacto-system
 # shellcheck source=tests/acceptance/kind/lib.sh
@@ -19,34 +18,25 @@ source "$(dirname "$0")/lib.sh"
 # This scenario reuses/leaves its kind cluster (see KEEP_E2E_CLUSTER in lib.sh).
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
 trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; exit $rc' EXIT
-node "$ROOT/release/scripts/build-release-plan.mjs" >/dev/null 2>&1
-VER="$(python3 -c 'import json;print(json.load(open("'"$ROOT"'/release/release-plan.json"))["groups"]["kubernetes"]["version"])')"
-CORE="$(python3 -c 'import json;print(json.load(open("'"$ROOT"'/release/release-plan.json"))["groups"]["core"]["version"])')"
+VER="$(release_version kubernetes)"
+CORE="$(release_version core)"
 OP_IMG="localhost:5001/pacto-operator/pacto-controller:${VER}"
 OP_REPO="localhost:5001/pacto-operator/pacto-controller"
 DASH_IMG="localhost:5001/pacto-dashboard:${CORE}"
 
-echo "== build dashboard image (root Dockerfile) =="
-docker build -f "$ROOT/Dockerfile" -t "$DASH_IMG" "$ROOT"
-echo "== build operator image (production root context) coupled to the dashboard image =="
-docker build -f "$ROOT/integrations/kubernetes/Dockerfile" \
-  --build-arg VERSION="$VER" --build-arg DASHBOARD_IMAGE="$DASH_IMG" -t "$OP_IMG" "$ROOT"
+build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
 
 echo "== package the new chart + a previous-release fixture =="
-rm -rf /tmp/pacto-charts; mkdir -p /tmp/pacto-charts
-helm package "$ROOT/integrations/kubernetes/charts/pacto-operator" -d /tmp/pacto-charts >/dev/null
-NEW_CHART="$(ls /tmp/pacto-charts/pacto-operator-*.tgz | grep -v prev)"
+NEW_CHART="$(package_chart "$PACTO_CHART")"
 # Faithful previous-release fixture: the same chart at an earlier version. The
 # image is the same local build (a cross-major public-chart in-cluster upgrade is
 # impractical since helm never upgrades crds/; that path is covered by the release
 # dry-run + envtest). The upgrade still exercises a version bump + arg change +
 # rolling restart.
-helm package "$ROOT/integrations/kubernetes/charts/pacto-operator" --version 0.0.0-prev --app-version "$VER" -d /tmp/pacto-charts >/dev/null
-PREV_CHART="/tmp/pacto-charts/pacto-operator-0.0.0-prev.tgz"
+PREV_CHART="$(package_chart "$PACTO_CHART" --version 0.0.0-prev --app-version "$VER")"
 
-kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s
-kind load docker-image "$DASH_IMG" "$OP_IMG" --name "$CLUSTER"
-export KUBECONFIG="$(mktemp)"; kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
+ensure_cluster
+load_images "$DASH_IMG" "$OP_IMG"
 
 # Operator image loaded into kind (Never). The dashboard image the operator
 # deploys is its coupled DASHBOARD_IMAGE (also kind-loaded); its tag is a real
@@ -66,8 +56,7 @@ kubectl -n "$NS" get deploy pacto-operator -o jsonpath='{.spec.template.spec.con
   && echo "  upgrade applied: --stabilization-window=5s present"
 
 echo "== dashboard deployment path (enabled) =="
-for _ in $(seq 1 40); do kubectl -n "$NS" get deploy pacto-dashboard >/dev/null 2>&1 && break; sleep 3; done
-kubectl -n "$NS" rollout status deployment/pacto-dashboard --timeout=120s && echo "  dashboard deployment ready"
+wait_managed_ready pacto-dashboard 120s && echo "  dashboard deployment ready"
 
 echo "== RBAC: the operator ServiceAccount may perform every read its collector needs =="
 for verb_res in "get:deployments" "list:deployments" "get:statefulsets" "get:jobs" \
@@ -94,17 +83,17 @@ spec:
       state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}
   target: {workloadRef: {name: orders, kind: Deployment}}
 YAML
-wait_status() { for i in $(seq 1 60); do s=$(kubectl -n demo get pacto orders -o jsonpath='{.status.contractStatus}' 2>/dev/null||true); [ "$s" = "$1" ] && { echo "  status=$s OK"; return 0; }; sleep 3; done; echo "  FAIL: wanted $1 got '$s'"; kubectl -n demo get pacto orders -o yaml | tail -30; exit 1; }
-echo "== A Compliant (workload observed + matches) =="; wait_status Compliant
+expect_status() { wait_pacto_status demo orders "$1" && pass "contractStatus=$1" || fail "orders never reached $1"; }
+echo "== A Compliant (workload observed + matches) =="; expect_status Compliant
 echo "== B target deleted -> Unknown (EVIDENCE_MISSING, sustained past the 5s window) =="
 kubectl -n demo delete deployment orders --wait >/dev/null
-wait_status Unknown
+expect_status Unknown
 kubectl -n demo get pacto orders -o jsonpath='{range .status.findings[*]}{.code}{" "}{end}' | grep -q EVIDENCE_MISSING \
   && echo "  finding EVIDENCE_MISSING present"
 echo "== C target recreated -> Compliant (recovery) =="
 kubectl -n demo create deployment orders --image=registry.k8s.io/pause:3.9 >/dev/null
 kubectl -n demo rollout status deployment/orders --timeout=90s
-wait_status Compliant
+expect_status Compliant
 
 echo "== evaluation coverage reaches the CR status =="
 cov="$(kubectl -n demo get pacto orders -o jsonpath='{.status.evaluationCoverage}' 2>/dev/null)"
@@ -114,8 +103,7 @@ echo "== live Kubernetes fleet source reflects the reconciled CR =="
 # The operational graph's live k8s source reads Pacto CRs straight from the
 # cluster this run reconciled, with no separate reporting step. KUBECONFIG is
 # already exported above, so `pacto fleet --k8s` uses this kind cluster.
-PACTO_BIN="$(mktemp)"
-go build -o "$PACTO_BIN" "$ROOT/cmd/pacto"
+PACTO_BIN="$(build_pacto)"
 FLEET_JSON="$("$PACTO_BIN" fleet search --k8s --namespace demo --output-format json 2>/tmp/fleet-k8s.err)" \
   || { echo "  FAIL: pacto fleet --k8s errored"; cat /tmp/fleet-k8s.err; exit 1; }
 grep -q '"name": *"orders"' <<<"$FLEET_JSON" \

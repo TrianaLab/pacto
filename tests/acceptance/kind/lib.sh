@@ -1,28 +1,260 @@
 #!/usr/bin/env bash
-# Shared helpers for the kind e2e scripts (run.sh, evidence.sh,
-# dashboard-modes.sh, v4-to-v5-upgrade.sh). Sourced, never executed directly.
+# Shared harness for the kind acceptance scenarios (reconcile.sh, evidence.sh,
+# dashboard-modes.sh, observation.sh, operational-graph.sh, upgrade-v4-v5.sh).
+# Sourced, never executed directly.
 #
-#   dump_diag NS
-#     Best-effort cluster diagnostics for a failed run. Every command is guarded
-#     with `|| true` so the dump NEVER changes the caller's exit code — it runs
-#     inside an EXIT trap that must preserve the real failure code.
+# ONE implementation per stable shared concern: reporting, eventual conditions,
+# cluster lifecycle, image loading, chart packaging, port-forwarding, fixture
+# installation, failure diagnostics, cleanup. Everything a single scenario needs
+# stays in that scenario's script, next to the claim it serves — this file is a
+# toolbox, not a framework, and it never decides what a scenario proves.
 #
-#   pf LOCAL_PORT TARGET REMOTE_PORT
-#     Background a port-forward into $NS and print its pid — but only once the
-#     forward actually answers. See the definition below for why the wait exists.
+# Functions that operate "in the current run" read the caller's $NS and $CLUSTER
+# globals (every scenario sets both before using them); everything else is an
+# explicit argument.
 #
-#   keep_or_teardown NS CLUSTER [TEARDOWN_FN]
-#     Tear the run down UNLESS KEEP_E2E_CLUSTER is set/non-empty, in which case
-#     the deployed state is left in place for interactive inspection:
-#         KEEP_E2E_CLUSTER=1 bash tests/acceptance/kind/<script>.sh
-#     Default (unset/empty) tears down, so CI never leaks state. TEARDOWN_FN is
-#     the caller's own cleanup function; if omitted a generic helm-uninstall +
-#     delete-namespace is used. NS/CLUSTER are arguments (they differ per script:
-#     pacto-system, pacto-modes, pacto-upgrade) — nothing is hardcoded here.
+#   pass MSG / fail MSG            report one claim; fail exits 1
+#   eventually ROUNDS CMD...       run CMD until it succeeds, 3s apart
+#   ensure_cluster                 create $CLUSTER if absent, point KUBECONFIG at it
+#   use_existing_cluster HINT      require an already-running $CLUSTER
+#   load_images IMG...             import images into $CLUSTER
+#   delete_cluster / down_cluster  quiet teardown / the chatty `down` subcommand
+#   release_version GROUP          the version the release plan assigns
+#   build_operator_images ...      the two production image builds, coupled
+#   package_chart CHART_DIR ...    helm package -> prints the .tgz
+#   build_pacto                    go build cmd/pacto -> prints the binary
+#   wait_ready DEPLOY              a chart-created Deployment is rolled out
+#   wait_managed_ready DEPLOY      an OPERATOR-created Deployment exists, then is
+#   pacto_status NS NAME           the CR's contractStatus (empty while unset)
+#   wait_pacto_status NS NAME WANT poll for it, dumping the CR when it never lands
+#   install_registry               an in-cluster OCI registry, ready to push to
+#   trust_keypair PACTO_BIN        producer keypair + the Secret evidence mounts
+#   push_bundle BIN PORT DIR REF   publish a bundle -> prints the manifest digest
+#   dump_diag NS                   best-effort diagnostics for a failed run
+#   pf LOCAL_PORT TARGET REMOTE    a port-forward that is already answering
+#   keep_or_teardown NS CLUSTER FN tear down unless KEEP_E2E_CLUSTER is set
+#   helm_teardown NS               uninstall the release, drop the namespace
+
+_PACTO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# The chart under test, always from the working tree.
+# shellcheck disable=SC2034  # read by the scenarios that source this file
+PACTO_CHART="$_PACTO_ROOT/integrations/kubernetes/charts/pacto-operator"
+
+# --- reporting --------------------------------------------------------------
+
+pass() { echo "  PASS: $*"; }
+# The failure goes to STDERR: call sites routinely silence a helper's chatty
+# stdout (`wait_managed_ready x >/dev/null || fail ...`), and a reason written to
+# stdout would be silenced with it — leaving a run that exits 1 saying nothing.
+fail() { echo "  FAIL: $*" >&2; exit 1; }
+
+# eventually ROUNDS CMD... — run CMD until it succeeds, sleeping 3s between
+# rounds; returns 1 if it never does. Nothing in a real cluster is true the
+# instant the previous command returns: the operator has to reconcile, the
+# dashboard rebuilds its snapshot on an interval, a rollout takes as long as it
+# takes. Every scenario grew its own `for _ in $(seq 1 N)` around that; they
+# differ only in the condition and in how long they are willing to wait, so
+# those are the two arguments.
+eventually() {
+  local rounds="$1"; shift
+  local i
+  for ((i = 0; i < rounds; i++)); do
+    "$@" && return 0
+    sleep 3
+  done
+  return 1
+}
+
+# --- cluster lifecycle ------------------------------------------------------
+
+# Every scenario runs against its own KUBECONFIG copy rather than the caller's
+# current context: a kind acceptance run must never depend on — or disturb —
+# whatever cluster the developer happens to be pointed at.
+_kubeconfig_for_cluster() {
+  KUBECONFIG="$(mktemp)"; export KUBECONFIG
+  kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
+}
+
+ensure_cluster() {
+  kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s
+  _kubeconfig_for_cluster
+}
+
+use_existing_cluster() { # HINT — the command that would have created it
+  kind get clusters | grep -qx "$CLUSTER" || { echo "no kind cluster '$CLUSTER' — run '${1:-the up subcommand}' first"; exit 1; }
+  _kubeconfig_for_cluster
+}
+
+# load_images IMG... — import each image into $CLUSTER ONE AT A TIME. A combined
+# `kind load docker-image A B C` streams a single ctr import that can fail with
+# "content digest ... not found" when the images share base layers.
+load_images() {
+  local img
+  for img in "$@"; do kind load docker-image "$img" --name "$CLUSTER"; done
+}
+
+delete_cluster() { kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true; }
+
+down_cluster() { # the `down` subcommand: delete it if it is there, say which happened
+  if kind get clusters | grep -qx "$CLUSTER"; then
+    kind delete cluster --name "$CLUSTER"; echo "cluster '$CLUSTER' deleted"
+  else
+    echo "no cluster '$CLUSTER'"
+  fi
+}
+
+# --- images and charts ------------------------------------------------------
+
+_PACTO_PLAN_BUILT=
+
+# release_version GROUP (core|kubernetes) — the version the release plan assigns.
+# The plan is rebuilt once per run, then read with node, which the plan builder
+# already requires. Reading it with a second interpreter only added a dependency.
+release_version() {
+  if [ -z "$_PACTO_PLAN_BUILT" ]; then
+    node "$_PACTO_ROOT/release/scripts/build-release-plan.mjs" >/dev/null 2>&1
+    _PACTO_PLAN_BUILT=1
+  fi
+  node -e 'process.stdout.write(require(process.argv[1]).groups[process.argv[2]].version)' \
+    "$_PACTO_ROOT/release/release-plan.json" "$1"
+}
+
+# build_operator_images OP_IMG DASH_IMG VERSION — the two production builds, in
+# the order that couples them: the operator deploys the dashboard image baked in
+# at build time, so the dashboard must exist first and be named in the operator's
+# DASHBOARD_IMAGE build-arg.
+#
+# --load forces the result into the local docker image store even when the
+# default buildx builder uses the docker-container driver (otherwise the image
+# lives only in buildkit's cache and `kind load docker-image` fails with
+# "content digest not found").
+build_operator_images() {
+  echo "== build the dashboard image (root Dockerfile) =="
+  docker build --load -f "$_PACTO_ROOT/Dockerfile" -t "$2" "$_PACTO_ROOT"
+  echo "== build the operator image (production root context) coupled to that dashboard =="
+  docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" \
+    --build-arg VERSION="$3" --build-arg DASHBOARD_IMAGE="$2" -t "$1" "$_PACTO_ROOT"
+}
+
+# package_chart CHART_DIR [helm package args...] — prints the packaged .tgz path.
+# Each call packages into its OWN empty directory, so the path is unambiguous
+# without pattern-matching a shared /tmp directory that a previous run, or the
+# scenario's own second package call, also wrote into.
+package_chart() {
+  local src="$1" dir; shift
+  dir="$(mktemp -d)"
+  helm package "$src" "$@" -d "$dir" >/dev/null
+  ls "$dir"/*.tgz
+}
+
+build_pacto() { # prints the path to a freshly built pacto binary
+  local bin; bin="$(mktemp)"
+  go build -o "$bin" "$_PACTO_ROOT/cmd/pacto" >&2
+  echo "$bin"
+}
+
+# --- workloads --------------------------------------------------------------
+
+wait_ready() { # DEPLOY [TIMEOUT] — a Deployment the chart creates
+  kubectl -n "$NS" rollout status "deployment/$1" --timeout="${2:-180s}"
+}
+
+deploy_exists() { kubectl -n "$NS" get deploy "$1" >/dev/null 2>&1; }
+
+# wait_managed_ready DEPLOY [TIMEOUT] — a Deployment the OPERATOR creates.
+# `helm --wait` cannot cover these: they do not exist when helm returns, so
+# waiting on the rollout has to wait for the object first.
+wait_managed_ready() {
+  eventually 40 deploy_exists "$1" || fail "the operator never created deployment/$1"
+  wait_ready "$1" "${2:-150s}"
+}
+
+pacto_status() { # NS NAME — the CR's contractStatus, empty while it has none
+  kubectl -n "$1" get pacto "$2" -o jsonpath='{.status.contractStatus}' 2>/dev/null || true
+}
+
+# wait_pacto_status NS NAME WANT — poll for a reconciled verdict. On timeout it
+# prints what it last saw and the tail of the CR: a status that never arrives is
+# otherwise only diagnosable by reading operator logs backwards.
+wait_pacto_status() {
+  local last=""
+  for _ in $(seq 1 60); do
+    last="$(pacto_status "$1" "$2")"
+    [ "$last" = "$3" ] && return 0
+    sleep 3
+  done
+  echo "  wanted $2 contractStatus=$3, last saw '$last'" >&2
+  kubectl -n "$1" get pacto "$2" -o yaml | tail -30 >&2 || true
+  return 1
+}
+
+# --- fixtures ---------------------------------------------------------------
+
+# install_registry — an in-cluster OCI registry in $NS, ready to be pushed to.
+# Plain HTTP, so callers must also teach whatever resolves from it to treat the
+# service host as insecure. imagePullPolicy: Never, because the image is loaded
+# into the node rather than pulled from Docker Hub by every kind node in CI.
+install_registry() {
+  docker pull registry:2 >/dev/null
+  load_images registry:2
+  kubectl -n "$NS" apply -f - >/dev/null <<'YAML'
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: pacto-registry, labels: { app: pacto-registry } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: pacto-registry } }
+  template:
+    metadata: { labels: { app: pacto-registry } }
+    spec:
+      containers:
+      - { name: registry, image: registry:2, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: pacto-registry }
+spec:
+  selector: { app: pacto-registry }
+  ports: [ { port: 5000, targetPort: 5000 } ]
+YAML
+  wait_ready pacto-registry 120s
+}
+
+# trust_keypair PACTO_BIN — a producer keypair plus the Secret the Evidence
+# Server mounts as its trust store. Prints the key directory; the private half
+# stays there for the caller to sign with.
+trust_keypair() {
+  local keydir; keydir="$(mktemp -d)"
+  "$1" evidence keygen --out "$keydir" --key-id demo >/dev/null
+  kubectl -n "$NS" create secret generic pacto-evidence-trust --from-file=demo.pub="$keydir/demo.pub" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  echo "$keydir"
+}
+
+# push_bundle PACTO_BIN LOCAL_PORT DIR REPO:TAG — publish a bundle through a
+# forwarded registry port; prints the resolved manifest digest.
+#
+# The push output is CAPTURED rather than piped straight into grep. Piped, a
+# failed push produced no match, `grep` exited 1, and under `set -o pipefail`
+# that killed the whole script at that line with every word of the actual error
+# already consumed by the pipe. Held in a variable it can be printed — to
+# stderr, because stdout here is the digest the caller captures.
+push_bundle() {
+  local out digest
+  out="$(PACTO_INSECURE_REGISTRIES="127.0.0.1:$2" "$1" push "oci://127.0.0.1:$2/demo/$4" -p "$3" 2>&1)" || true
+  digest="$(printf '%s' "$out" | grep -oE 'sha256:[0-9a-f]{64}' | head -1 || true)"
+  [ -n "$digest" ] || { echo "  push of $4 resolved no digest; output was:" >&2; printf '%s\n' "$out" >&2; }
+  printf '%s' "$digest"
+}
+
+# --- diagnostics and teardown -----------------------------------------------
 
 # The pacto components a script may deploy; logs are dumped for whichever exist.
 _PACTO_DEPLOYS=(pacto-operator pacto-dashboard pacto-evidence)
 
+# dump_diag NS — best-effort cluster diagnostics for a failed run. Every command
+# is guarded with `|| true` so the dump NEVER changes the caller's exit code — it
+# runs inside an EXIT trap that must preserve the real failure code.
 dump_diag() {
   local ns="${1:-}" d
   echo "== DIAGNOSTICS (namespace: ${ns:-<none>}) =="
@@ -86,6 +318,14 @@ pf() {
   return 1
 }
 
+# keep_or_teardown NS CLUSTER [TEARDOWN_FN] — tear the run down UNLESS
+# KEEP_E2E_CLUSTER is set/non-empty, in which case the deployed state is left in
+# place for interactive inspection:
+#     KEEP_E2E_CLUSTER=1 bash tests/acceptance/kind/<script>.sh
+# Default (unset/empty) tears down, so CI never leaks state. TEARDOWN_FN is the
+# caller's own cleanup function; if omitted a generic helm-uninstall +
+# delete-namespace is used. NS/CLUSTER are arguments (they differ per script:
+# pacto-system, pacto-modes, pacto-upgrade) — nothing is hardcoded here.
 keep_or_teardown() {
   local ns="${1:-}" cluster="${2:-}" fn="${3:-}"
   if [ -n "${KEEP_E2E_CLUSTER:-}" ]; then
@@ -95,7 +335,11 @@ keep_or_teardown() {
   if [ -n "$fn" ]; then
     "$fn"
   else
-    helm uninstall pacto-operator -n "$ns" --wait >/dev/null 2>&1 || true
-    kubectl delete ns "$ns" --wait=false >/dev/null 2>&1 || true
+    helm_teardown "$ns"
   fi
+}
+
+helm_teardown() { # NS — the generic cleanup: uninstall the release, drop the namespace
+  helm uninstall pacto-operator -n "$1" --wait >/dev/null 2>&1 || true
+  kubectl delete ns "$1" --wait=false >/dev/null 2>&1 || true
 }

@@ -3,7 +3,7 @@
 This is a byte-faithful vendored copy of the **real** previous-major (v4) operator
 Helm chart, used by `tests/acceptance/kind/upgrade-v4-v5.sh` to prove a genuine
 cross-major chart + CRD upgrade (v4 -> v5) against a live kind cluster — not the
-"same chart repackaged with an older number" fixture that `run.sh` uses.
+"same chart repackaged with an older number" fixture that `reconcile.sh` uses.
 
 ## Why vendored (not `helm pull`)
 
@@ -34,7 +34,7 @@ Digests captured and verified as of **2026-07-27**.
 | v4 chart (published) | `ghcr.io/trianalab/pacto-operator/charts/pacto-operator:4.7.0` | — | **no** (MANIFEST_UNKNOWN) |
 | v4 chart source | `github.com/TrianaLab/pacto-operator` tag `v4.7.0`, commit `a889498538fd29421ffe2644dfd21b544dff9eb6` | tarball sha256 `b7d6c09d406344394ec615fcd3e0522c27c40f015c736154183e5a1194a77a56` | yes (`gh api .../tarball/v4.7.0`) |
 
-**Verify the pinned image** (the exact check `v4-to-v5-upgrade.sh` STEP 0 runs; the
+**Verify the pinned image** (the exact check `upgrade-v4-v5.sh` STEP 0 runs; the
 test fails closed if this drifts):
 
 ```

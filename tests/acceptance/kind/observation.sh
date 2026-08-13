@@ -31,7 +31,6 @@
 #   logs             dump component logs for the running cluster
 #   down             tear the cluster down
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-obs}"
 NS=pacto-system
 DEMO_NS=demo
@@ -40,15 +39,10 @@ MOUNT_ROOT=/var/lib/pacto/observation
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
 
-use_existing_cluster() {
-  kind get clusters | grep -qx "$CLUSTER" || { echo "no kind cluster '$CLUSTER' — run 'make e2e-observation-kind-up' first"; exit 1; }
-  KUBECONFIG="$(mktemp)"; export KUBECONFIG; kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
-}
-
 CMD="${1:-run}"
 case "$CMD" in
   status)
-    use_existing_cluster
+    use_existing_cluster "make e2e-observation-kind-up"
     echo "== pods =="; kubectl -n "$NS" get pods
     echo "== pvc =="; kubectl -n "$NS" get pvc
     echo "== dashboard observation volumes =="
@@ -56,10 +50,8 @@ case "$CMD" in
     echo "== dashboard observation mounts =="
     kubectl -n "$NS" get deployment pacto-dashboard -o jsonpath='{range .spec.template.spec.containers[0].volumeMounts[*]}{.name}{" "}{.mountPath}{" readOnly="}{.readOnly}{"\n"}{end}' 2>/dev/null || true
     exit 0 ;;
-  logs) use_existing_cluster; dump_diag "$NS"; exit 0 ;;
-  down)
-    if kind get clusters | grep -qx "$CLUSTER"; then kind delete cluster --name "$CLUSTER"; echo "cluster '$CLUSTER' deleted"; else echo "no cluster '$CLUSTER'"; fi
-    exit 0 ;;
+  logs) use_existing_cluster "make e2e-observation-kind-up"; dump_diag "$NS"; exit 0 ;;
+  down) down_cluster; exit 0 ;;
   run|up) : ;;
   *) echo "unknown subcommand: $CMD (use up|status|logs|down)"; exit 2 ;;
 esac
@@ -67,36 +59,23 @@ esac
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
 trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
 
-pass() { echo "  PASS: $1"; }
-fail() { echo "  FAIL: $1"; exit 1; }
-obs_teardown() { kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true; }
-wait_ready() { kubectl -n "$NS" rollout status "deployment/$1" --timeout="${2:-180s}"; }
 # The kind runners have python3 but not necessarily jq, so assertions over JSON
 # are python expressions reading stdin (same choice as the other kind scripts).
 jqp() { python3 -c "$1"; }
 
-node "$ROOT/release/scripts/build-release-plan.mjs" >/dev/null 2>&1
-VER="$(python3 -c 'import json;print(json.load(open("'"$ROOT"'/release/release-plan.json"))["groups"]["kubernetes"]["version"])')"
-CORE="$(python3 -c 'import json;print(json.load(open("'"$ROOT"'/release/release-plan.json"))["groups"]["core"]["version"])')"
+VER="$(release_version kubernetes)"
+CORE="$(release_version core)"
 OP_REPO="localhost:5001/pacto-operator/pacto-controller"
 OP_IMG="${OP_REPO}:${VER}"
 DASH_IMG="localhost:5001/pacto-dashboard:${CORE}"
 
-echo "== build the operator + dashboard images =="
-docker build --load -f "$ROOT/Dockerfile" -t "$DASH_IMG" "$ROOT"
-docker build --load -f "$ROOT/integrations/kubernetes/Dockerfile" \
-  --build-arg VERSION="$VER" --build-arg DASHBOARD_IMAGE="$DASH_IMG" -t "$OP_IMG" "$ROOT"
+build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
 
 echo "== package the operator chart =="
-rm -rf /tmp/pacto-obs-charts; mkdir -p /tmp/pacto-obs-charts
-helm package "$ROOT/integrations/kubernetes/charts/pacto-operator" -d /tmp/pacto-obs-charts >/dev/null
-CHART="$(ls /tmp/pacto-obs-charts/pacto-operator-*.tgz)"
+CHART="$(package_chart "$PACTO_CHART")"
 
-kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s
-for img in "$DASH_IMG" "$OP_IMG"; do
-  kind load docker-image "$img" --name "$CLUSTER"
-done
-KUBECONFIG="$(mktemp)"; export KUBECONFIG; kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
+ensure_cluster
+load_images "$DASH_IMG" "$OP_IMG"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "== an externally managed PVC holds the trace export (Pacto never writes it) =="
@@ -263,9 +242,8 @@ spec:
       dependencies: [{name: checkout, ref: 'oci://example.com/demo/checkout', required: false, compatibility: '^1.0.0'}]
   target: {workloadRef: {name: orders, kind: Deployment}}
 YAML
-wait_status() { for _ in $(seq 1 60); do [ "$(kubectl -n "$DEMO_NS" get pacto "$1" -o jsonpath='{.status.contractStatus}' 2>/dev/null||true)" = "$2" ] && return 0; sleep 3; done; return 1; }
-wait_status checkout Compliant && pass "checkout reconciled" || fail "checkout did not reconcile"
-wait_status orders Compliant && pass "orders reconciled" || fail "orders did not reconcile"
+wait_pacto_status "$DEMO_NS" checkout Compliant && pass "checkout reconciled" || fail "checkout did not reconcile"
+wait_pacto_status "$DEMO_NS" orders Compliant && pass "orders reconciled" || fail "orders did not reconcile"
 
 echo "== the Product API sees both Data Sources under their declared names =="
 DASH_PF="$(pf "$LOCAL_DASH_PORT" svc/pacto-dashboard 3000)"
@@ -347,13 +325,8 @@ helm upgrade pacto-operator "$CHART" -n "$NS" \
   --set 'dashboard.observation.sources[0].file=absent.json' \
   --set 'dashboard.observation.sources[0].existingClaim=orders-trace-export' \
   --wait --timeout 240s
-AFTER="$BEFORE"
-for _ in $(seq 1 40); do
-  AFTER="$(kubectl -n "$NS" get deployment pacto-dashboard -o jsonpath='{.metadata.generation}')"
-  [ "$AFTER" != "$BEFORE" ] && break
-  sleep 3
-done
-[ "$AFTER" != "$BEFORE" ] && pass "changing the sources rolled the dashboard" || fail "the configuration change never reached the pod template"
+rolled() { [ "$(kubectl -n "$NS" get deployment pacto-dashboard -o jsonpath='{.metadata.generation}')" != "$BEFORE" ]; }
+eventually 40 rolled && pass "changing the sources rolled the dashboard" || fail "the configuration change never reached the pod template"
 wait_ready pacto-dashboard
 
 kubectl -n "$NS" get deployment pacto-dashboard -o json | jqp '
@@ -407,4 +380,4 @@ if [ -n "${KEEP_E2E_CLUSTER:-}" ]; then
     make e2e-observation-kind-down
 EOF
 fi
-keep_or_teardown "$NS" "$CLUSTER" "obs_teardown"
+keep_or_teardown "$NS" "$CLUSTER" delete_cluster
