@@ -1,21 +1,15 @@
 package dashboard
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
-	"testing/fstest"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/oci"
@@ -51,8 +45,12 @@ func versionKeyFor(ref, contractVersion string) string {
 // When no live OCI registry is configured, ActiveSources() maps CacheSource
 // under the "oci" key so previously cached data is still available.
 //
-// The cache layout is: <cacheDir>/<repo>/<tag>/bundle.tar.gz
-// e.g. ~/.cache/pacto/oci/ghcr.io/org/service/1.0.0/bundle.tar.gz
+// An entry is a directory under cacheDir holding a bundle and the identity
+// recorded beside it. Where that directory SITS is the cache's own business —
+// current entries live under a reserved namespace segment with their reference
+// escaped, older ones under the reference spelled as a path — so this walker
+// looks for the bundle file anywhere beneath cacheDir and asks the entry itself
+// what it is, rather than decoding the pathname (see [oci.ReadCacheEntry]).
 type CacheSource struct {
 	cacheDir string // e.g. ~/.cache/pacto/oci
 
@@ -72,21 +70,37 @@ type cachedService struct {
 }
 
 type cachedVersion struct {
-	tag  string // the display / lookup key
-	ref  string // the EXACT reference recorded for this entry, never rebuilt from tag
-	path string // absolute path to bundle.tar.gz
+	tag string // the display / lookup key
+	ref string // the EXACT reference recorded for this entry, never rebuilt from tag
+	dir string // the cache entry directory this version was read from
+	rec oci.CachedRef
 	// Lightweight, always resident (pacto.yaml is small):
 	contract *contract.Contract // parsed contract
 	rawYAML  []byte             // raw pacto.yaml, for ContractHash
 	// The full bundle FS (openapi/sbom/schema — the bulk of the bytes) is NOT
-	// retained per version; it is loaded lazily from path on demand. Only the
-	// latest version's full bundle lives resident on cachedService.latest. This
-	// bounds memory to O(services) instead of O(services × versions).
+	// retained per version; it is loaded lazily from the entry on demand. Only
+	// the latest version's full bundle lives resident on cachedService.latest.
+	// This bounds memory to O(services) instead of O(services × versions).
 }
 
 // loadBundle reads the full bundle (with FS) for this version from disk.
+//
+// The deferred read is a SECOND observation of a shared directory, taken some
+// time after the index recorded what lives there — long enough for a re-pull to
+// have committed a different artifact into the same entry. So the generation
+// that answers must still be the generation that was indexed: this version's
+// contract, hash and reference were published from the first read, and returning
+// the second read's bytes beneath them would splice the two just as surely as
+// reading the identity separately would.
 func (v *cachedVersion) loadBundle() (*contract.Bundle, error) {
-	return loadBundleTarGz(v.path)
+	bundle, rec, ok := oci.ReadCacheEntry(v.dir)
+	if !ok {
+		return nil, fmt.Errorf("cache entry for %q is not readable", v.ref)
+	}
+	if rec != v.rec {
+		return nil, fmt.Errorf("cache entry for %q now holds a different artifact; rescan", v.ref)
+	}
+	return bundle, nil
 }
 
 // bundle returns the full bundle for tag: the resident latest when it matches,
@@ -136,33 +150,38 @@ func (s *CacheSource) buildIndex() map[string]*cachedService {
 			return nil
 		}
 
-		// Extract repo and tag from path structure:
-		// cacheDir/ghcr.io/org/name/1.0.0/bundle.tar.gz
-		// -> rel = ghcr.io/org/name/1.0.0/bundle.tar.gz
-		// filepath.Rel cannot fail because path is always under s.cacheDir (Walk root).
-		rel, _ := filepath.Rel(s.cacheDir, path)
-
-		parts := strings.Split(filepath.Dir(rel), string(filepath.Separator))
-		if len(parts) < 2 {
-			return nil // need at least registry/name/tag
+		// The walk DISCOVERS entries; it does not read them. Opening the archive
+		// by pathname and then asking a second time what it was — even a moment
+		// later, even in the same callback — is two observations of a SHARED
+		// directory, and another Pacto process commits whole generations into it.
+		// Between the two, this walker would publish generation A's contract,
+		// hash and service name under generation B's reference and digest: an
+		// indexed version describing no artifact that has ever existed. So the
+		// directory goes to the one entry read that returns both facts from a
+		// single installed generation, or neither.
+		dir := filepath.Dir(path)
+		bundle, rec, ok := oci.ReadCacheEntry(dir)
+		if !ok {
+			return nil // corrupt, or replaced faster than it can be read whole
 		}
 
-		bundle, err := loadBundleTarGz(path)
-		if err != nil {
-			return nil // skip corrupt bundles
-		}
-
-		// The path is an ENCODING of the reference, not the reference: it escapes
-		// a registry port, and it spells "no tag" as %00. Reconstructing from it
-		// publishes "repo:%00" — a reference no registry has. The sidecar beside
-		// the bundle states the exact one, so it is the answer whenever there is
-		// one, and the display key is derived from it separately.
-		tag := parts[len(parts)-1]
-		ref := strings.Join(parts[:len(parts)-1], "/") + ":" + tag
-		rec, recorded := oci.ReadCachedRef(filepath.Dir(path))
-		if recorded {
-			ref = rec.Ref
-			tag = versionKeyFor(rec.Ref, bundle.Contract.Service.Version)
+		// The recorded reference is the exact one this artifact was pulled under,
+		// and the display key is derived from it separately. Only an entry written
+		// before the sidecar existed falls back to the path — which is an ENCODING
+		// of a reference, not the reference: it escapes a registry port and spells
+		// "no tag" as %00, so it can publish "repo:%00", which no registry has.
+		ref, tag := rec.Ref, versionKeyFor(rec.Ref, bundle.Contract.Service.Version)
+		if ref == "" {
+			// cacheDir/ghcr.io/org/name/1.0.0/bundle.tar.gz
+			// -> rel = ghcr.io/org/name/1.0.0/bundle.tar.gz
+			// filepath.Rel cannot fail because path is always under s.cacheDir (Walk root).
+			rel, _ := filepath.Rel(s.cacheDir, path)
+			parts := strings.Split(filepath.Dir(rel), string(filepath.Separator))
+			if len(parts) < 2 {
+				return nil // need at least registry/name/tag
+			}
+			tag = parts[len(parts)-1]
+			ref = strings.Join(parts[:len(parts)-1], "/") + ":" + tag
 		}
 
 		identity := ref + "@" + rec.Digest
@@ -182,7 +201,8 @@ func (s *CacheSource) buildIndex() map[string]*cachedService {
 		svc.versions = append(svc.versions, cachedVersion{
 			tag:      tag,
 			ref:      ref,
-			path:     path,
+			dir:      dir,
+			rec:      rec,
 			contract: bundle.Contract,
 			rawYAML:  bundle.RawYAML,
 		})
@@ -303,7 +323,7 @@ func (s *CacheSource) GetVersions(ctx context.Context, name string) ([]Version, 
 		// Use bundle.tar.gz file modification time as createdAt.
 		// Note: this is the local materialization time (when the bundle was
 		// pulled/cached to disk), not the registry push time.
-		if info, err := os.Stat(v.path); err == nil {
+		if info, err := os.Stat(filepath.Join(v.dir, oci.CachedBundleFile)); err == nil {
 			t := info.ModTime()
 			ver.CreatedAt = &t
 		}
@@ -370,107 +390,8 @@ func (svc *cachedService) findVersion(tag string) *cachedVersion {
 	return nil
 }
 
-// loadBundleTarGz reads a bundle.tar.gz file and parses the contract within.
-func loadBundleTarGz(path string) (*contract.Bundle, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = gr.Close() }()
-
-	fsys, err := extractTar(gr)
-	if err != nil {
-		return nil, err
-	}
-
-	rawYAML, err := fs.ReadFile(fsys, "pacto.yaml")
-	if err != nil {
-		return nil, err
-	}
-
-	c, err := contract.Parse(bytes.NewReader(rawYAML))
-	if err != nil {
-		return nil, err
-	}
-
-	return &contract.Bundle{Contract: c, RawYAML: rawYAML, FS: fsys}, nil
-}
-
-const (
-	maxBundleFileSize  = 10 << 20 // 10 MB per file
-	maxBundleTotalSize = 50 << 20 // 50 MB total
-	maxBundleEntries   = 10000    // max number of tar entries
-)
-
-// dotDotComponent reports whether any path component is "..", i.e. a real
-// traversal (as opposed to a name that merely contains "..").
-func dotDotComponent(name string) bool {
-	for _, part := range strings.Split(name, "/") {
-		if part == ".." {
-			return true
-		}
-	}
-	return false
-}
-
-// extractTar reads a tar stream and returns an in-memory FS.
-func extractTar(r io.Reader) (fs.FS, error) {
-	memFS := fstest.MapFS{}
-	tr := tar.NewReader(r)
-	var totalSize int64
-	var entries int
-
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("reading tar entry: %w", err)
-		}
-
-		entries++
-		if entries > maxBundleEntries {
-			return nil, fmt.Errorf("tar has too many entries (>%d)", maxBundleEntries)
-		}
-
-		name := filepath.ToSlash(strings.TrimPrefix(header.Name, "./"))
-		if name == "" || name == "." {
-			continue
-		}
-		if dotDotComponent(name) {
-			return nil, fmt.Errorf("invalid path in tar: %s", header.Name)
-		}
-
-		if header.Typeflag == tar.TypeDir {
-			memFS[name] = &fstest.MapFile{Mode: fs.ModeDir | 0755}
-			continue
-		}
-		if header.Typeflag != tar.TypeReg {
-			return nil, fmt.Errorf("unsupported tar entry type %q for %s", string(header.Typeflag), name)
-		}
-
-		data, err := io.ReadAll(io.LimitReader(tr, maxBundleFileSize+1))
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", name, err)
-		}
-		if int64(len(data)) > maxBundleFileSize {
-			return nil, fmt.Errorf("file %s exceeds maximum size", name)
-		}
-
-		totalSize += int64(len(data))
-		if totalSize > maxBundleTotalSize {
-			return nil, fmt.Errorf("extracted bundle exceeds maximum total size")
-		}
-
-		memFS[name] = &fstest.MapFile{Data: data, Mode: 0644}
-	}
-
-	return memFS, nil
-}
+// The bundle archive is read by [oci.ReadCacheEntry], which is also where the
+// tar-bomb, traversal and non-regular-entry limits live. This package used to
+// carry its own copy of that reader; it no longer opens a cache archive by
+// pathname at all, and a second implementation of the same limits is a second
+// place for them to drift.

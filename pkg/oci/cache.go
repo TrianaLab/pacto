@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/trianalab/pacto/v3/internal/cachehook"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 )
@@ -241,7 +242,7 @@ func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bu
 		return nil, CachedRef{}, false
 	}
 	for _, dir := range c.entryDirs(ref) {
-		if bundle, rec, ok := readCacheEntry(dir); ok {
+		if bundle, rec, ok := ReadCacheEntry(dir); ok {
 			logging.LoggerFromContext(ctx).Debug("cache hit (disk)", "ref", ref)
 			// The sidecar was committed with these exact bytes, so it is the
 			// identity of what was just loaded, not a fresh guess about a tag.
@@ -315,9 +316,16 @@ type CachedRef struct {
 	Digest string `json:"digest,omitempty"`
 }
 
-// ReadCachedRef reads the sidecar beside a cached bundle. The second result is
-// false when the entry predates the sidecar or the file is unusable, and the
-// caller must then fall back to reconstructing an approximate ref from the path.
+// ReadCachedRef reads ONE file: the sidecar beside a cached bundle. The second
+// result is false when the entry predates the sidecar or the file is unusable.
+//
+// It is NOT an entry read, and it is not how a reader learns what a bundle is.
+// Pairing what it returns with bytes read separately by pathname is exactly the
+// splice [ReadCacheEntry] exists to prevent: the two observations can straddle a
+// competing writer's commit, and the reader then publishes one generation's
+// content under the next generation's identity. Anything that needs both facts
+// must call [ReadCacheEntry]; this reports what a sidecar says, for callers
+// checking what a WRITER wrote.
 func ReadCachedRef(dir string) (CachedRef, bool) {
 	b, err := os.ReadFile(filepath.Join(dir, CachedRefFile))
 	if err != nil {
@@ -577,19 +585,23 @@ func escapeRefSegment(s string) string {
 // whose complete recorded identity they have already indexed. Stale bytes stay
 // on disk until the cache is cleared, which is what a cache is for.
 
-// afterCachedBundleRead is a seam for driving the interleaving below in tests:
-// it runs where a competing writer installs a new generation, after this reader
-// has the bundle and before it asks what that bundle IS.
-var afterCachedBundleRead = func() {}
-
 // cacheEntryAttempts bounds the re-reads below. Each retry observes the
 // generation that displaced the last one, so a competing writer would have to
 // win the race repeatedly to exhaust them — and exhaustion is a cache MISS, not
 // an incoherent answer.
 const cacheEntryAttempts = 3
 
-// readCacheEntry reads a cache entry — the bundle and the identity beside it —
-// from ONE installed generation.
+// ReadCacheEntry reads a cache entry — the bundle and the identity beside it —
+// from ONE installed generation. It is THE definition of a cached generation:
+// every reader of the disk cache, in this package or outside it, gets both facts
+// here or gets neither.
+//
+// A walker's business is DISCOVERY — which entry directories exist — and nothing
+// more. The pathname it found an entry by cannot identify the entry ([entryDir]
+// spells a registry port, a tag and a missing tag with characters a path also
+// uses), and an identity read separately from the bytes describes whatever was
+// installed at the moment of THAT read. So a walker hands the directory to this
+// function and publishes what comes back, together.
 //
 // [CachedStore.writeCacheEntry] commits a generation whole, but that only makes
 // each generation coherent; it does not make a READER coherent. Two files opened
@@ -604,7 +616,7 @@ const cacheEntryAttempts = 3
 // once RemoveAll has taken them the reader sees them ABSENT rather than
 // replaced. Absent is coherent — retry and read the generation that displaced
 // it, or report a miss the next pull repairs.
-func readCacheEntry(dir string) (*contract.Bundle, CachedRef, bool) {
+func ReadCacheEntry(dir string) (*contract.Bundle, CachedRef, bool) {
 	for range cacheEntryAttempts {
 		bundle, rec, swapped := readCacheGeneration(dir)
 		if !swapped {
@@ -634,7 +646,7 @@ func readCacheGeneration(dir string) (*contract.Bundle, CachedRef, bool) {
 		return nil, CachedRef{}, false
 	}
 
-	afterCachedBundleRead()
+	cachehook.AfterBundleRead()
 
 	rec, ok := readCachedRefFrom(root)
 	// No sidecar has two meanings: an entry written before sidecars existed —

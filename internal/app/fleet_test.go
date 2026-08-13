@@ -1,6 +1,8 @@
 package app
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"errors"
 	"net/http"
@@ -345,14 +347,32 @@ func hasUnavailable(snap *fleet.FleetSnapshot, source string) bool {
 	return false
 }
 
+// writeCacheBundle writes a real cached bundle archive. The cache inventory
+// reads every entry it discovers — a placeholder byte would make this fixture an
+// unreadable entry rather than the baseline revision the test is about.
 func writeCacheBundle(t *testing.T, dir, rel string) {
 	t.Helper()
 	p := filepath.Join(dir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+	f, err := os.Create(p)
+	if err != nil {
 		t.Fatal(err)
+	}
+	gw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gw)
+	y := []byte("pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: \"1.0.0\"\n")
+	if err := tw.WriteHeader(&tar.Header{Name: "pacto.yaml", Size: int64(len(y)), Mode: 0o644}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(y); err != nil {
+		t.Fatal(err)
+	}
+	for _, closeErr := range []error{tw.Close(), gw.Close(), f.Close()} {
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
 	}
 }
 

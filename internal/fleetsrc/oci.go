@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
@@ -24,7 +25,6 @@ type OCISource struct {
 	resolver *oci.Resolver
 	store    oci.BundleStore
 	refs     []string
-	mode     oci.ResolveMode
 }
 
 // NewOCISource returns an OCI-backed revision source over the given refs.
@@ -32,7 +32,7 @@ func NewOCISource(id string, store oci.BundleStore, refs []string) *OCISource {
 	if id == "" {
 		id = "oci"
 	}
-	return &OCISource{id: id, resolver: oci.NewResolver(store), store: store, refs: refs, mode: oci.RemoteAllowed}
+	return &OCISource{id: id, resolver: oci.NewResolver(store), store: store, refs: refs}
 }
 
 // ID implements [fleet.Source].
@@ -43,26 +43,30 @@ func (s *OCISource) Kind() string { return "oci" }
 
 // Collect resolves each configured ref into a revision.
 func (s *OCISource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	return collectRefs(ctx, s.id, s.resolver, s.store, s.refs, s.mode)
+	return collectRefs(ctx, s.id, s.resolver, s.store, s.refs)
 }
 
 // CacheSource enumerates every bundle in the local OCI disk cache and includes
 // it as a baseline revision. It is the offline counterpart to [OCISource]: it
-// resolves strictly from disk (no network), so a disconnected environment still
-// sees every service it has ever pulled.
+// reads strictly from disk, so a disconnected environment still sees every
+// service it has ever pulled.
+//
+// It holds no BundleStore. Network-freedom used to rest on passing
+// [oci.LocalOnly] to a resolver that also knows how to dial; now there is
+// nothing here that could dial, and a cache entry is read where it is found
+// rather than looked up again afterwards by the reference it was found under —
+// see [cachedGenerations].
 type CacheSource struct {
 	id       string
 	cacheDir string
-	resolver *oci.Resolver
-	store    oci.BundleStore
 }
 
 // NewCacheSource returns a source over the on-disk OCI cache rooted at cacheDir.
-func NewCacheSource(id, cacheDir string, store oci.BundleStore) *CacheSource {
+func NewCacheSource(id, cacheDir string) *CacheSource {
 	if id == "" {
 		id = "cache"
 	}
-	return &CacheSource{id: id, cacheDir: cacheDir, resolver: oci.NewResolver(store), store: store}
+	return &CacheSource{id: id, cacheDir: cacheDir}
 }
 
 // ID implements [fleet.Source].
@@ -71,20 +75,37 @@ func (s *CacheSource) ID() string { return s.id }
 // Kind implements [fleet.Source].
 func (s *CacheSource) Kind() string { return "cache" }
 
-// Collect walks the cache directory, reconstructs each cached ref, and resolves
-// it from disk. An absent cache directory yields an empty collection (nothing
-// cached), not an error.
+// Collect walks the cache directory and turns every generation it finds into a
+// baseline revision. An absent cache directory yields an empty collection
+// (nothing cached), not an error.
 func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	refs, err := cachedRefs(s.cacheDir)
+	gens, err := cachedGenerations(s.cacheDir)
 	if err != nil {
 		return nil, err
 	}
-	return collectRefs(ctx, s.id, s.resolver, s.store, refs, oci.LocalOnly)
+	col := &fleet.Collection{}
+	for _, g := range gens {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		// An entry the walk could SEE and the read could not resolve to one whole
+		// generation is a gap in the baseline, and a partial baseline that says so
+		// is not the same thing as an empty one.
+		if g.bundle == nil {
+			col.Limitations = append(col.Limitations, fleet.Limitation{
+				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+				Message: "cache entry " + g.ref + " could not be read as one coherent generation",
+			})
+			continue
+		}
+		col.Revisions = append(col.Revisions, revisionOf(g.ref, strings.TrimPrefix(g.ref, "oci://"), g.rec, g.bundle))
+	}
+	return col, nil
 }
 
 // collectRefs resolves refs into revisions, turning per-ref failures into
 // record-level limitations so a partial result is never mistaken for empty.
-func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string, mode oci.ResolveMode) (*fleet.Collection, error) {
+func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store oci.BundleStore, refs []string) (*fleet.Collection, error) {
 	col := &fleet.Collection{}
 	for _, ref := range refs {
 		if err := ctx.Err(); err != nil {
@@ -100,12 +121,10 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// returns it unchanged, no round trip); the oci:// spelling is stripped because
 		// the registry client parses a bare reference, unlike the resolver.
 		concrete := strings.TrimPrefix(ref, "oci://")
-		if mode == oci.RemoteAllowed {
-			if pinned, rerr := oci.ResolveRef(ctx, store, concrete, ""); rerr == nil {
-				concrete = pinned
-			}
+		if pinned, rerr := oci.ResolveRef(ctx, store, concrete, ""); rerr == nil {
+			concrete = pinned
 		}
-		bundle, rec, err := resolver.ResolvePinned(ctx, concrete, mode)
+		bundle, rec, err := resolver.ResolvePinned(ctx, concrete, oci.RemoteAllowed)
 		if err != nil {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
 				Code: fleet.LimitationSourceRecordInvalid, Source: id,
@@ -113,62 +132,57 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 			})
 			continue
 		}
-		// A cache entry that states its own reference states what these bytes ARE,
-		// and that is the revision's identity — reference, domain and all.
-		//
-		// The walk above only DISCOVERED the entry. Its sidecar was a separate,
-		// earlier observation of a SHARED directory, and the walk's spelling cannot
-		// arbitrate between the two: another process commits generations into the
-		// same entry, so keeping it would publish the digest and bytes of the
-		// generation installed now under the repository, domain and canonical key of
-		// the one the walk saw — a revision belonging to no artifact.
+		// A cached entry may have answered this resolution, and an entry that states
+		// its own reference states what these bytes ARE — reference, domain and all.
+		// The caller's spelling can be an alias the cache resolved through; the
+		// record came back from the generation that actually served the bytes.
 		if rec.Ref != "" {
 			ref = rec.Ref
 			concrete = strings.TrimPrefix(rec.Ref, "oci://")
 		}
-		// RequestedRef is the reference this revision is known by — what the caller
-		// asked for, or what the entry that answered says it was pulled under. Only
-		// the resolution moves.
-		rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: concrete}
-		// The requested ref may be a MUTABLE tag; the resolved digest is the
-		// immutable identity. Pin ResolvedRef to the digest so a Product Impact
-		// request by canonical revision key analyzes exactly the content the
-		// snapshot captured, never whatever the tag points at later.
-		//
-		// Resolving a digest is a REGISTRY ROUND TRIP, so it is only done when the
-		// caller may reach the network. LocalOnly is the offline path ([CacheSource]
-		// over the disk cache): dialing the registry once per cached bundle turned a
-		// disk walk into thousands of serial network waits, and because every fleet
-		// endpoint waits on the first snapshot, a slow or unreachable registry left
-		// the whole dashboard hanging with nothing rendered. Offline we keep the
-		// mutable tag, which is honest -- we cannot know the digest without asking.
-		//
-		// Offline, the digest is not unknowable — it is RECORDED. The disk cache
-		// writes the manifest digest beside each bundle at pull time, so the same
-		// published artifact keys to the same canonical revision whether it reached
-		// the fleet from the registry or from the cache, with no network call and
-		// no second identity. A pre-sidecar cache entry still has no digest, and
-		// still says so.
-		//
-		// That recorded digest comes back from the resolution ITSELF, read from the
-		// cache generation that served these bytes. The walk that found the entry is
-		// a separate, earlier observation of a shared directory: reusing ITS sidecar
-		// would pair the identity the walker saw with whatever a concurrent writer
-		// has since installed — bundle B under digest A.
-		//
-		// Online, the digest comes back WITH the bundle from the one pull that
-		// fetched it. Asking the registry again afterwards was a second observation
-		// of a reference that may be a mutable tag: re-pushed between the pull and
-		// the question, it answers with the digest of an artifact this snapshot
-		// never read, and the revision then claims an immutable identity for
-		// content that does not have it.
-		if rec.Digest != "" {
-			rev.Digest = rec.Digest
-			rev.ResolvedRef = pinRefToDigest(concrete, rec.Digest)
-		}
-		col.Revisions = append(col.Revisions, rev)
+		col.Revisions = append(col.Revisions, revisionOf(ref, concrete, rec, bundle))
 	}
 	return col, nil
+}
+
+// revisionOf shapes ONE read artifact into a revision: the bundle, the reference
+// it is known by, and — when the read recorded one — its immutable digest. Both
+// sources shape their revisions here, so a published artifact keys to the same
+// canonical revision whether it reached the fleet from the registry or from the
+// disk cache.
+//
+// ref is what this revision is known by: what the caller asked for, or what the
+// entry that answered says it was pulled under. concrete is the same reference
+// without the oci:// scheme, already pinned to a concrete tag where that was
+// possible. Only the resolution moves.
+//
+// The reference may be a MUTABLE tag; the digest is the immutable identity, so
+// ResolvedRef is pinned to it and a Product Impact request by canonical revision
+// key analyzes exactly the content the snapshot captured, never whatever the tag
+// points at later.
+//
+// rec must come from the read that produced bundle, never from a second look at
+// the same reference:
+//
+//   - Online, the digest comes back WITH the bundle from the one pull that
+//     fetched it. Asking the registry again afterwards is a second observation of
+//     a mutable tag: re-pushed in between, it answers with the digest of an
+//     artifact this snapshot never read, and the revision then claims an
+//     immutable identity for content that does not have it.
+//   - Offline, the digest is not unknowable — it is RECORDED, written beside the
+//     bundle at pull time and read from the same generation that served the
+//     bytes. Re-reading the sidecar after the walk found the entry would pair
+//     what the walker saw with whatever a concurrent writer has since installed:
+//     bundle B under digest A.
+//
+// A pre-sidecar cache entry still has no digest, and still says so.
+func revisionOf(ref, concrete string, rec oci.CachedRef, bundle *contract.Bundle) fleet.RawRevision {
+	rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: concrete}
+	if rec.Digest != "" {
+		rev.Digest = rec.Digest
+		rev.ResolvedRef = pinRefToDigest(concrete, rec.Digest)
+	}
+	return rev
 }
 
 // pinRefToDigest rewrites a reference to its CANONICAL immutable digest-pinned
@@ -212,37 +226,52 @@ func OciDomain(ref string) string {
 	return ""
 }
 
-// cachedRefs walks the cache directory and reports which reference each cached
-// bundle was pulled under — the entries to resolve, not their content or their
-// identity: those are read together, later, from one generation of the entry.
+// cachedGeneration is ONE cache entry read whole: the bundle bytes and the
+// identity recorded beside them, both taken from a single installed generation
+// of the entry directory. bundle is nil when the entry could not be read that
+// way at all — a gap the caller reports, not a revision.
+type cachedGeneration struct {
+	// ref is the reference this artifact was pulled under, as the generation
+	// itself recorded it — or, only for an entry written before the sidecar
+	// existed, one approximated from the pathname.
+	ref    string
+	rec    oci.CachedRef
+	bundle *contract.Bundle
+}
+
+// cachedGenerations walks the cache directory and reads every entry it finds
+// into one whole generation each. An absent cache directory is not an error:
+// nothing has been pulled yet.
 //
-// The authority is the sidecar the cache writes beside every bundle: the exact
-// pulled reference. Only an entry written before the sidecar existed falls back
-// to reading the path — <cacheDir>/<repo...>/<tag>/bundle.tar.gz reconstructed
-// as <repo...>:<tag> — which is approximate, because the path spells a registry
-// port and a digest the same way it spells a path separator and a tag. Results
-// are sorted for deterministic output.
+// The walk DISCOVERS entry directories and does nothing else. It does not decide
+// what an entry holds, and it does not hand a reference onward for someone to
+// look up again afterwards: a reference is not an entry. Two entries can carry
+// the same reference and different content — the same tag pulled under the
+// legacy layout and again under the current one, republished in between — and
+// neither may be deleted, because retiring an entry means removing a directory
+// of a SHARED cache by pathname. Resolving by reference after the walk would
+// read whichever of the two the store happened to find, twice, and the other
+// generation would silently not exist. So each entry is read where it was found,
+// through [oci.ReadCacheEntry], which returns the bundle and the identity from
+// one installed generation or neither.
 //
-// A reference is reported ONCE however many entries hold it. The same reference
-// can be on disk twice — under the legacy key and under the current one — and
-// nothing deletes the old copy, because retiring an entry means removing a
-// directory of a shared cache by pathname. Resolving one reference twice is
-// duplicate work either way.
-func cachedRefs(cacheDir string) ([]string, error) {
+// Duplicate suppression is therefore on the COMPLETE recorded identity, ref and
+// digest together: legacy and current copies of one artifact collapse to one
+// revision, while two generations of one reference stay two.
+//
+// Only an entry with no recorded reference falls back to the path —
+// <cacheDir>/<repo...>/<tag>/bundle.tar.gz read as <repo...>:<tag> — which is
+// approximate, because a path spells a registry port and a tag with the same
+// characters it spells itself with. Results are sorted for deterministic output.
+func cachedGenerations(cacheDir string) ([]cachedGeneration, error) {
 	if _, err := os.Stat(cacheDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	var refs []string
+	var gens []cachedGeneration
 	seen := map[string]bool{}
-	add := func(ref string) {
-		if !seen[ref] {
-			seen[ref] = true
-			refs = append(refs, ref)
-		}
-	}
 	err := fsWalkDir(cacheDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -250,27 +279,50 @@ func cachedRefs(cacheDir string) ([]string, error) {
 		if d.IsDir() || d.Name() != oci.CachedBundleFile {
 			return nil
 		}
-		if rec, ok := oci.ReadCachedRef(filepath.Dir(path)); ok {
-			add(rec.Ref)
+		bundle, rec, ok := oci.ReadCacheEntry(filepath.Dir(path))
+		ref := rec.Ref
+		if ref == "" {
+			approx, valid := refFromCachePath(cacheDir, path)
+			if !valid {
+				return nil
+			}
+			ref = approx
+		}
+		if !ok {
+			gens = append(gens, cachedGeneration{ref: ref})
 			return nil
 		}
-		// path is always under cacheDir (WalkDir guarantees it), so a prefix trim
-		// yields the relative path without a Rel error branch.
-		rel := strings.TrimPrefix(strings.TrimPrefix(path, cacheDir), string(os.PathSeparator))
-		parts := strings.Split(filepath.ToSlash(rel), "/")
-		// Need at least repo/tag/bundle.tar.gz.
-		if len(parts) < 3 {
+		identity := ref + "@" + rec.Digest
+		if seen[identity] {
 			return nil
 		}
-		parts = parts[:len(parts)-1] // drop bundle.tar.gz
-		tag := parts[len(parts)-1]
-		repo := strings.Join(parts[:len(parts)-1], "/")
-		add(repo + ":" + tag)
+		seen[identity] = true
+		gens = append(gens, cachedGeneration{ref: ref, rec: rec, bundle: bundle})
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(refs)
-	return refs, nil
+	sort.SliceStable(gens, func(i, j int) bool {
+		return gens[i].ref+"@"+gens[i].rec.Digest < gens[j].ref+"@"+gens[j].rec.Digest
+	})
+	return gens, nil
+}
+
+// refFromCachePath approximates the reference of an entry that recorded none,
+// from where it sits under cacheDir. False means the path is too short to be an
+// entry at all.
+func refFromCachePath(cacheDir, path string) (string, bool) {
+	// path is always under cacheDir (WalkDir guarantees it), so a prefix trim
+	// yields the relative path without a Rel error branch.
+	rel := strings.TrimPrefix(strings.TrimPrefix(path, cacheDir), string(os.PathSeparator))
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	// Need at least repo/tag/bundle.tar.gz.
+	if len(parts) < 3 {
+		return "", false
+	}
+	parts = parts[:len(parts)-1] // drop bundle.tar.gz
+	tag := parts[len(parts)-1]
+	repo := strings.Join(parts[:len(parts)-1], "/")
+	return repo + ":" + tag, true
 }

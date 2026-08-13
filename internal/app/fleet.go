@@ -108,7 +108,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}
 	if opts.IncludeCache {
 		if s.BundleStore != nil {
-			sources = append(sources, fleetsrc.NewCacheSource("cache", bundleStoreCacheDir(s.BundleStore), s.BundleStore))
+			sources = append(sources, fleetsrc.NewCacheSource("cache", bundleStoreCacheDir(s.BundleStore)))
 		} else {
 			sources = append(sources, fleet.NewFailingSource("cache", "cache", errNoBundleStore))
 		}

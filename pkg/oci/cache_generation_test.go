@@ -10,6 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/trianalab/pacto/v3/internal/cachehook"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
@@ -77,9 +78,9 @@ func installGeneration(t *testing.T, ctx context.Context, ref, digest string) {
 // the window a competing writer commits in — for the next n reads.
 func atBarrier(t *testing.T, n int, fn func()) {
 	t.Helper()
-	old := afterCachedBundleRead
-	t.Cleanup(func() { afterCachedBundleRead = old })
-	afterCachedBundleRead = func() {
+	old := cachehook.AfterBundleRead
+	t.Cleanup(func() { cachehook.AfterBundleRead = old })
+	cachehook.AfterBundleRead = func() {
 		if n == 0 {
 			return
 		}
@@ -161,7 +162,7 @@ func TestReadCacheEntry_ASidecarlessEntryIsCompatibleNotSwapped(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, CachedRefFile)); err != nil {
 		t.Fatal(err)
 	}
-	bundle, rec, ok := readCacheEntry(dir)
+	bundle, rec, ok := ReadCacheEntry(dir)
 	if !ok {
 		t.Fatal("a pre-sidecar cache entry must still be readable")
 	}

@@ -1,11 +1,7 @@
 package dashboard
 
 import (
-	"archive/tar"
-	"bytes"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,35 +9,6 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
-
-func TestExtractTar_ReadError(t *testing.T) {
-	// Create a tar with a valid header but the data read will fail.
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-
-	// Write a header for a file with size 100 but don't write the data.
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "bad.txt",
-		Size: 100,
-		Mode: 0644,
-	})
-	_ = tw.Flush()
-
-	// Concatenate the buffer with an error reader to simulate read failure.
-	combinedReader := io.MultiReader(bytes.NewReader(buf.Bytes()), &errorReader{})
-
-	_, err := extractTar(combinedReader)
-	if err == nil {
-		t.Fatal("expected error from read failure in tar extraction")
-	}
-}
-
-// errorReader always returns an error on Read.
-type errorReader struct{}
-
-func (e *errorReader) Read([]byte) (int, error) {
-	return 0, io.ErrUnexpectedEOF
-}
 
 func TestCacheSource_ScanWalkError(t *testing.T) {
 	// Create a cache dir with an unreadable subdirectory to trigger walk error callback.
@@ -121,52 +88,6 @@ func TestDetectCache_HomeError(t *testing.T) {
 	}
 	if result.Cache != nil {
 		t.Error("expected nil cache when home dir fails")
-	}
-}
-
-func TestExtractTar_PrefixDotSlash(t *testing.T) {
-	// Entries prefixed with "./" should have the prefix stripped.
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-
-	data := []byte("content")
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "./file.txt",
-		Size: int64(len(data)),
-		Mode: 0644,
-	})
-	_, _ = tw.Write(data)
-	_ = tw.Close()
-
-	fsys, err := extractTar(&buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content, err := fs.ReadFile(fsys, "file.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(content) != "content" {
-		t.Errorf("expected 'content', got %q", string(content))
-	}
-}
-
-func TestExtractTar_DotDotInMiddle(t *testing.T) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-
-	data := []byte("sneaky")
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "subdir/../secret.txt",
-		Size: int64(len(data)),
-		Mode: 0644,
-	})
-	_, _ = tw.Write(data)
-	_ = tw.Close()
-
-	_, err := extractTar(&buf)
-	if err == nil {
-		t.Fatal("expected error for path containing '..'")
 	}
 }
 

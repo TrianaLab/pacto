@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -327,6 +328,193 @@ func TestFleetMovingTagBindsDigestToTheBytesPulled(t *testing.T) {
 	}
 	if got := cacheIdentityMarker(offRevs[0].Contract); got != cacheIdentityMarker(rev.Contract) {
 		t.Errorf("cached bytes are marked %q under digest %s, which names %q", got, offRevs[0].Digest, cacheIdentityMarker(rev.Contract))
+	}
+}
+
+// entryDirOf returns the single cache entry directory under root, failing if
+// there is not exactly one. The layout is the store's business; the test only
+// needs to find what it wrote.
+func entryDirOf(t *testing.T, root string) string {
+	t.Helper()
+	var found []string
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && d.Name() == oci.CachedBundleFile {
+			found = append(found, filepath.Dir(path))
+		}
+		return err
+	}); err != nil {
+		t.Fatalf("walking %s: %v", root, err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("found %d cache entries under %s, want exactly 1: %v", len(found), root, found)
+	}
+	return found[0]
+}
+
+// copyEntry copies a whole cache entry — the bundle and the identity recorded
+// beside it — to dst, leaving the original in place.
+func copyEntry(t *testing.T, dst, src string) {
+	t.Helper()
+	if err := os.MkdirAll(dst, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	names, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range names {
+		b, err := os.ReadFile(filepath.Join(src, n.Name())) //nolint:gosec
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dst, n.Name()), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// legacyDirFor is the pathname an older Pacto stored an entry under, before the
+// cache key was injective: every ':' spelled as a path separator.
+func legacyDirFor(cacheDir, ref string) string {
+	return filepath.Join(cacheDir, filepath.FromSlash(strings.ReplaceAll(ref, ":", "/")))
+}
+
+// A mutable tag republished between two pulls leaves the cache holding TWO
+// generations of ONE reference: the artifact the older Pacto pulled, under the
+// legacy pathname, and the artifact this version pulled, under the current one.
+// Both are real. Neither may be destructively retired — removing an entry means
+// deleting a directory of a SHARED cache by pathname, which takes whatever
+// generation happens to be installed at that instant rather than the one that
+// was inspected.
+//
+// So the offline fleet must enumerate GENERATIONS, not pathnames and not
+// reference spellings. An inventory keyed on the reference alone reports one of
+// the two artifacts and silently loses the other, which is exactly the history
+// an operational graph exists to show.
+func TestFleetOfflineSeesEveryCachedGenerationOfOneReference(t *testing.T) {
+	homeA, shared := t.TempDir(), t.TempDir()
+	reg := newTestRegistry(t)
+	ref := pushCacheIdentityBundle(t, reg, "demo/checkout", "1.0.0", "checkout", "1.0.0", "first")
+	tagged := reg.host + "/demo/checkout:1.0.0"
+	ctx := context.Background()
+
+	// Generation A, pulled and written by a real CachedStore into its own cache.
+	t.Setenv("XDG_CACHE_HOME", homeA)
+	storeA := oci.NewCachedStore(reg.client)
+	if _, err := app.NewService(storeA, &plugin.SubprocessRunner{}).
+		Fleet(ctx, app.FleetOptions{OCIRefs: []string{ref}}); err != nil {
+		t.Fatalf("pulling generation A: %v", err)
+	}
+	digestA, err := reg.client.Resolve(ctx, tagged)
+	if err != nil {
+		t.Fatalf("resolving generation A: %v", err)
+	}
+
+	// The tag is republished: same reference, different artifact.
+	repush := filepath.Join(t.TempDir(), "second")
+	writeBundleDir(t, repush, cacheIdentityContract("checkout", "1.0.0", "second"), nil)
+	if out, err := runCommand(t, reg, "push", ref, "-p", repush, "--force"); err != nil {
+		t.Fatalf("republishing the tag: %v\n%s", err, out)
+	}
+
+	// Generation B, pulled by a real CachedStore into the cache under test.
+	t.Setenv("XDG_CACHE_HOME", shared)
+	storeB := oci.NewCachedStore(reg.client)
+	if _, err := app.NewService(storeB, &plugin.SubprocessRunner{}).
+		Fleet(ctx, app.FleetOptions{OCIRefs: []string{ref}}); err != nil {
+		t.Fatalf("pulling generation B: %v", err)
+	}
+	digestB, err := reg.client.Resolve(ctx, tagged)
+	if err != nil {
+		t.Fatalf("resolving generation B: %v", err)
+	}
+	if digestA == digestB {
+		t.Fatalf("both pulls resolved to %s; the fixture did not republish the tag", digestA)
+	}
+
+	// A now takes the place the older Pacto left it in, beside B. Nothing about
+	// the entry is rewritten: it is byte-for-byte what the store wrote.
+	copyEntry(t, legacyDirFor(storeB.CacheDir(), tagged), entryDirOf(t, storeA.CacheDir()))
+
+	// Restart, cold, disconnected: a brand-new store over the cache directory and
+	// a registry that answers nothing.
+	dead := &deadRegistry{}
+	snap, err := app.NewService(oci.NewCachedStore(dead), &plugin.SubprocessRunner{}).
+		Fleet(ctx, app.FleetOptions{IncludeCache: true})
+	if err != nil {
+		t.Fatalf("offline build: %v", err)
+	}
+	if n := dead.calls.Load(); n != 0 {
+		t.Errorf("offline build made %d registry calls, want 0", n)
+	}
+	if msgs := unresolvedRevisions(snap); len(msgs) != 0 {
+		t.Errorf("offline build produced unresolved revisions: %v", msgs)
+	}
+
+	revs := revisionsOf(snap, "checkout")
+	if len(revs) != 2 {
+		for _, r := range revs {
+			t.Logf("  checkout: key=%s digest=%q marker=%q", r.Key, r.Digest, cacheIdentityMarker(r.Contract))
+		}
+		t.Fatalf("checkout has %d revisions, want both cached generations of %s", len(revs), tagged)
+	}
+	// Each generation is itself: the digest names the bytes filed under it, and
+	// the canonical reference is pinned to that digest.
+	want := map[string]string{digestA: "first", digestB: "second"}
+	for _, r := range revs {
+		marker, published := want[r.Digest]
+		if !published {
+			t.Fatalf("revision digest %q belongs to neither published generation", r.Digest)
+		}
+		delete(want, r.Digest)
+		if got := cacheIdentityMarker(r.Contract); got != marker {
+			t.Errorf("digest %s carries the bytes marked %q, which is %q", r.Digest, got, marker)
+		}
+		if r.ResolvedRef != "oci://"+oci.PinRefToDigest(tagged, r.Digest) {
+			t.Errorf("resolvedRef = %q, want it pinned to %s", r.ResolvedRef, r.Digest)
+		}
+		if r.RequestedRef != tagged {
+			t.Errorf("requestedRef = %q, want the reference both generations were pulled under, %q", r.RequestedRef, tagged)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("no revision was emitted for %v", want)
+	}
+}
+
+// The other half of the same rule: one artifact filed under both pathnames is
+// still ONE artifact. Suppression is keyed on the complete recorded identity —
+// reference AND digest — so the legacy copy of a generation collapses into it
+// rather than doubling the fleet.
+func TestFleetOfflineCollapsesOneArtifactCachedTwice(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	reg := newTestRegistry(t)
+	ref := pushCacheIdentityBundle(t, reg, "demo/checkout", "1.0.0", "checkout", "1.0.0", "only")
+	tagged := reg.host + "/demo/checkout:1.0.0"
+	ctx := context.Background()
+
+	store := oci.NewCachedStore(reg.client)
+	if _, err := app.NewService(store, &plugin.SubprocessRunner{}).
+		Fleet(ctx, app.FleetOptions{OCIRefs: []string{ref}}); err != nil {
+		t.Fatalf("warming the cache: %v", err)
+	}
+	copyEntry(t, legacyDirFor(store.CacheDir(), tagged), entryDirOf(t, store.CacheDir()))
+
+	dead := &deadRegistry{}
+	snap, err := app.NewService(oci.NewCachedStore(dead), &plugin.SubprocessRunner{}).
+		Fleet(ctx, app.FleetOptions{IncludeCache: true})
+	if err != nil {
+		t.Fatalf("offline build: %v", err)
+	}
+	if n := dead.calls.Load(); n != 0 {
+		t.Errorf("offline build made %d registry calls, want 0", n)
+	}
+	revs := revisionsOf(snap, "checkout")
+	if len(revs) != 1 {
+		for _, r := range revs {
+			t.Logf("  checkout: key=%s digest=%q", r.Key, r.Digest)
+		}
+		t.Fatalf("checkout has %d revisions, want 1 — the same artifact filed twice is one artifact", len(revs))
 	}
 }
 
