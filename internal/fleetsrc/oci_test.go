@@ -46,6 +46,18 @@ func (f *fakeStore) ListTags(_ context.Context, repo string) ([]string, error) {
 	return f.tags[repo], nil
 }
 func (f *fakeStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
+	// A registry is content-addressed: it serves an artifact by digest as well as
+	// by the tag that names it. The pull path resolves a mutable tag ONCE and
+	// fetches the digest that resolve named, so this fake has to answer the pinned
+	// reference with the same bytes the tag would have served.
+	if i := strings.Index(ref, "@"); i >= 0 {
+		for tagged, d := range f.digest {
+			if d == ref[i+1:] {
+				ref = tagged
+				break
+			}
+		}
+	}
 	if e := f.pullErr[ref]; e != nil {
 		return nil, e
 	}

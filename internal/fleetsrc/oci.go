@@ -112,7 +112,7 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 				concrete = pinned
 			}
 		}
-		bundle, err := resolver.Resolve(ctx, concrete, mode)
+		bundle, digest, err := resolver.ResolvePinned(ctx, concrete, mode)
 		if err != nil {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
 				Code: fleet.LimitationSourceRecordInvalid, Source: id,
@@ -141,15 +141,19 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// the fleet from the registry or from the cache, with no network call and
 		// no second identity. A pre-sidecar cache entry still has no digest, and
 		// still says so.
-		switch {
-		case mode == oci.RemoteAllowed:
-			if digest, derr := store.Resolve(ctx, concrete); derr == nil {
-				rev.Digest = digest
-				rev.ResolvedRef = pinRefToDigest(concrete, digest)
-			}
-		case entry.Digest != "":
-			rev.Digest = entry.Digest
-			rev.ResolvedRef = pinRefToDigest(concrete, entry.Digest)
+		//
+		// Online, the digest comes back WITH the bundle from the one pull that
+		// fetched it. Asking the registry again afterwards was a second observation
+		// of a reference that may be a mutable tag: re-pushed between the pull and
+		// the question, it answers with the digest of an artifact this snapshot
+		// never read, and the revision then claims an immutable identity for
+		// content that does not have it.
+		if mode == oci.LocalOnly {
+			digest = entry.Digest
+		}
+		if digest != "" {
+			rev.Digest = digest
+			rev.ResolvedRef = pinRefToDigest(concrete, digest)
 		}
 		col.Revisions = append(col.Revisions, rev)
 	}
@@ -157,23 +161,13 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 }
 
 // pinRefToDigest rewrites a reference to its CANONICAL immutable digest-pinned
-// form "oci://<repository>@<digest>", stripping any existing tag or digest. The
-// oci:// scheme is ALWAYS emitted regardless of the input spelling: this source
-// only ever produces OCI revisions, and a resolved digest must carry a canonical,
-// resolver-compatible reference (a scheme-less "repo@digest" would be resolved as
-// a local filesystem path by graph.ParseDependencyRef, breaking a canonical
-// Product Impact). A tag is a ':' after the last '/', so a registry port
-// (localhost:5000/...) is never mistaken for a tag separator.
+// form "oci://<repository>@<digest>". The oci:// scheme is ALWAYS emitted
+// regardless of the input spelling: this source only ever produces OCI revisions,
+// and a resolved digest must carry a canonical, resolver-compatible reference (a
+// scheme-less "repo@digest" would be resolved as a local filesystem path by
+// graph.ParseDependencyRef, breaking a canonical Product Impact).
 func pinRefToDigest(ref, digest string) string {
-	r := strings.TrimPrefix(ref, "oci://")
-	if i := strings.Index(r, "@"); i >= 0 {
-		r = r[:i]
-	}
-	slash := strings.LastIndex(r, "/")
-	if colon := strings.LastIndex(r, ":"); colon > slash {
-		r = r[:colon]
-	}
-	return "oci://" + r + "@" + digest
+	return "oci://" + oci.PinRefToDigest(ref, digest)
 }
 
 // OciDomain derives the logical-service domain (the registry+org/repo scope) from
@@ -227,7 +221,7 @@ func cachedRefs(cacheDir string) ([]oci.CachedRef, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if d.IsDir() || d.Name() != "bundle.tar.gz" {
+		if d.IsDir() || d.Name() != oci.CachedBundleFile {
 			return nil
 		}
 		if rec, ok := oci.ReadCachedRef(filepath.Dir(path)); ok {

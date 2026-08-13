@@ -47,9 +47,13 @@ type CachedStore struct {
 	tagsCache map[string][]string
 }
 
-// pullEntry is the value stored in each pullLRU list element.
+// pullEntry is the value stored in each pullLRU list element. digest is the
+// manifest digest of the artifact this bundle was fetched from, empty when the
+// registry would not say; it travels with the bundle so a cache hit reports the
+// SAME identity the pull recorded instead of re-asking a mutable tag.
 type pullEntry struct {
 	ref    string
+	digest string
 	bundle *contract.Bundle
 }
 
@@ -153,61 +157,88 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 // [LocalOnly] mode uses it, which is what keeps "local only" from silently
 // becoming a per-ref network pull on a cache miss.
 func (c *CachedStore) PullCached(ctx context.Context, ref string) (*contract.Bundle, bool) {
+	bundle, _, hit := c.pullCached(ctx, ref)
+	return bundle, hit
+}
+
+// pullCached is [CachedStore.PullCached] plus the manifest digest recorded for
+// the served bundle, so a hit reports the identity the pull observed.
+func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bundle, string, bool) {
 	// 1. In-memory cache (fastest).
 	c.pullMu.Lock()
 	if el, ok := c.pullCache[ref]; ok {
 		c.pullLRU.MoveToFront(el)
-		b := el.Value.(*pullEntry).bundle
+		e := el.Value.(*pullEntry)
 		c.pullMu.Unlock()
 		logging.LoggerFromContext(ctx).Debug("cache hit (memory)", "ref", ref)
-		return b, true
+		return e.bundle, e.digest, true
 	}
 	c.pullMu.Unlock()
 
 	// 2. Disk cache (skipped when --no-cache / DisableCache is active).
 	if c.cacheDir != "" && !c.skipDiskReads {
-		cachePath := c.cachePath(ref)
-		if bundle, err := c.loadFromCache(cachePath); err == nil {
+		path := c.cachePath(ref)
+		if bundle, err := c.loadFromCache(path); err == nil {
 			logging.LoggerFromContext(ctx).Debug("cache hit (disk)", "ref", ref)
-			c.storePull(ref, bundle)
-			return bundle, true
+			// The sidecar was committed with these exact bytes, so it is the
+			// identity of what was just loaded, not a fresh guess about a tag.
+			rec, _ := ReadCachedRef(filepath.Dir(path))
+			c.storePull(ref, bundle, rec.Digest)
+			return bundle, rec.Digest, true
 		}
 	}
-	return nil, false
+	return nil, "", false
 }
 
 // Pull returns the bundle for ref, checking the in-memory cache, then the disk
 // cache (skipped when DisableCache is active), then the wrapped store. Registry
 // pulls are stored in memory and persisted to disk for future lookups.
 func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
-	if bundle, ok := c.PullCached(ctx, ref); ok {
-		return bundle, nil
+	bundle, _, err := c.PullPinned(ctx, ref)
+	return bundle, err
+}
+
+// PullPinned is [CachedStore.Pull] plus the manifest digest of the artifact the
+// returned bundle actually came from (see [resolveAndPull] for why the two must
+// come from one observation). The digest is empty only when nothing ever told us
+// — never a different artifact's.
+//
+// The originally requested ref is preserved as provenance — it is the cache key
+// and the sidecar's Ref — so pinning changes what is fetched, never what this
+// entry is called. A cache hit reports the digest RECORDED at pull time, so the
+// answer never depends on where the tag points now.
+func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bundle, string, error) {
+	if bundle, digest, ok := c.pullCached(ctx, ref); ok {
+		return bundle, digest, nil
 	}
 
 	// 3. Registry (slowest).
 	logging.LoggerFromContext(ctx).Debug("cache miss, pulling from registry", "ref", ref)
-	bundle, err := c.inner.Pull(ctx, ref)
+	bundle, digest, err := resolveAndPull(ctx, c.inner, ref)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	c.storePull(ref, bundle)
+	c.storePull(ref, bundle, digest)
 	if c.cacheDir != "" {
-		path := c.cachePath(ref)
-		// The sidecar goes down FIRST. A cache walker keys on bundle.tar.gz, so
-		// recording what the bundle is BEFORE the bundle appears means a concurrent
-		// reader can never find an artifact whose identity is still missing — which
-		// is the same reader, in the same process, when a fleet refresh runs its
-		// registry source and its cache source side by side.
-		c.saveRefRecord(ctx, filepath.Dir(path), ref)
-		_ = c.saveToCache(path, bundle)
+		entry := filepath.Dir(c.cachePath(ref))
+		if err := c.writeCacheEntry(entry, CachedRef{Ref: ref, Digest: digest}, bundle); err != nil {
+			// The pull SUCCEEDED; only its persistence did not. Say so instead of
+			// dropping it silently — a cache that never fills is a performance
+			// mystery, and the failure that motivated this path was invisible.
+			logging.LoggerFromContext(ctx).Warn("could not cache the pulled bundle", "ref", ref, "error", err)
+		}
 	}
 
-	return bundle, nil
+	return bundle, digest, nil
 }
 
 // CachedRefFile is the sidecar written beside every cached bundle.
 const CachedRefFile = "ref.json"
+
+// CachedBundleFile is the bundle archive of a cache entry. Cache walkers key on
+// it, so it is also what makes an entry VISIBLE.
+const CachedBundleFile = "bundle.tar.gz"
 
 // CachedRef is what a cached bundle IS: the reference it was pulled under,
 // spelled exactly as the registry was asked, plus the manifest digest of the
@@ -232,33 +263,55 @@ func ReadCachedRef(dir string) (CachedRef, bool) {
 	return rec, true
 }
 
-// saveRefRecord records what the bundle just written to dir actually is.
+// writeCacheEntry commits a bundle and its identity as ONE cache entry.
 //
-// The cache PATH cannot carry that. cachePath maps every ':' to '/', so
-// "reg:5000/demo/svc@sha256:abc" and "reg/5000/demo/svc@sha256/abc" name the
-// same directory: a reader walking the cache cannot tell a registry port from a
-// path segment, nor a digest from a tag. Reconstructing a ref from the path
-// therefore invents a different service domain AND has no manifest digest — so
-// the same published artifact enters the fleet twice, once under its immutable
-// registry identity and once under a derived content identity. The sidecar
-// removes the guess, and removes it OFFLINE: the disconnected reader gets the
-// exact identity from disk without dialing anything.
-func (c *CachedStore) saveRefRecord(ctx context.Context, dir, ref string) {
-	rec := CachedRef{Ref: ref, Digest: digestFromRef(ref)}
-	if rec.Digest == "" {
-		// A tag pull fetched the content but was never told its manifest digest.
-		// One HEAD, on the path that has just performed a FULL pull, is what lets
-		// the offline reader agree with the registry about identity; a cache hit
-		// never reaches here, so it costs once per artifact. Best effort: a
-		// registry that will not answer leaves the digest unknown, which is
-		// precisely what the reader then reports.
-		if d, err := c.inner.Resolve(ctx, ref); err == nil {
-			rec.Digest = d
-		}
+// An entry is two files a reader must agree about: a walker keys on
+// bundle.tar.gz and asks the ref.json beside it what that bundle IS. The cache
+// PATH cannot answer — cachePath maps every ':' to '/', so a registry port is
+// spelled like a path segment and a digest like a tag — so a reader that finds
+// no usable sidecar GUESSES an identity from the path, and the same published
+// artifact enters the fleet a second time under a derived content identity.
+//
+// Written in place the two files can disagree: a sidecar write that fails
+// (ref.json already exists as a directory) still leaves the bundle to be
+// published, and an interruption between the two pairs a fresh sidecar with the
+// previous pull's bytes. So the pair is built in a staging directory OUTSIDE the
+// tree cache walkers scan and swapped in whole. A reader sees the old entry or
+// the new entry, never a mixture, and any failure leaves the entry ABSENT — an
+// ordinary cache miss the next pull repairs, not a corrupt identity.
+func (c *CachedStore) writeCacheEntry(dir string, rec CachedRef, bundle *contract.Bundle) error {
+	// The entry's parent first: it is an ancestor of the staging root too, so one
+	// MkdirAll makes both usable.
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return err
+	}
+	// The staging root is the cache's PARENT: a half-written bundle.tar.gz inside
+	// the walked tree is exactly the incoherent entry this function exists to
+	// prevent. Same filesystem, so the commit below is a rename, not a copy.
+	staging, err := os.MkdirTemp(filepath.Dir(c.cacheDir), ".oci-staging-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(staging) }()
+
+	if err := stageCacheEntry(staging, rec, bundle); err != nil {
+		return err
+	}
+	// A directory rename cannot overwrite a directory, so the old entry goes
+	// first. Absence is coherent; a new bundle beside a stale sidecar is not. A
+	// RemoveAll that fails needs no report of its own: the rename then fails and
+	// says so, and what survives is the coherent entry that was already there.
+	_ = os.RemoveAll(dir)
+	return os.Rename(staging, dir)
+}
+
+// stageCacheEntry writes both files of an entry into an uncommitted directory.
+func stageCacheEntry(dir string, rec CachedRef, bundle *contract.Bundle) error {
+	if err := writeBundleFile(filepath.Join(dir, CachedBundleFile), bundle); err != nil {
+		return err
 	}
 	b, _ := json.Marshal(rec) // two string fields; marshalling cannot fail
-	_ = os.MkdirAll(dir, 0755)
-	_ = os.WriteFile(filepath.Join(dir, CachedRefFile), b, 0o600)
+	return os.WriteFile(filepath.Join(dir, CachedRefFile), b, 0o600)
 }
 
 // digestFromRef returns the manifest digest a reference already pins, else "".
@@ -269,15 +322,32 @@ func digestFromRef(ref string) string {
 	return ""
 }
 
-func (c *CachedStore) storePull(ref string, bundle *contract.Bundle) {
+// PinRefToDigest rewrites a reference to its immutable digest-pinned form
+// "<repository>@<digest>", dropping any scheme, tag or digest it already
+// carries. A tag is a ':' after the last '/', so a registry port
+// (localhost:5000/...) is never mistaken for a tag separator.
+func PinRefToDigest(ref, digest string) string {
+	r := strings.TrimPrefix(ref, "oci://")
+	if i := strings.Index(r, "@"); i >= 0 {
+		r = r[:i]
+	}
+	slash := strings.LastIndex(r, "/")
+	if colon := strings.LastIndex(r, ":"); colon > slash {
+		r = r[:colon]
+	}
+	return r + "@" + digest
+}
+
+func (c *CachedStore) storePull(ref string, bundle *contract.Bundle, digest string) {
 	c.pullMu.Lock()
 	defer c.pullMu.Unlock()
 	if el, ok := c.pullCache[ref]; ok {
-		el.Value.(*pullEntry).bundle = bundle
+		e := el.Value.(*pullEntry)
+		e.bundle, e.digest = bundle, digest
 		c.pullLRU.MoveToFront(el)
 		return
 	}
-	c.pullCache[ref] = c.pullLRU.PushFront(&pullEntry{ref: ref, bundle: bundle})
+	c.pullCache[ref] = c.pullLRU.PushFront(&pullEntry{ref: ref, digest: digest, bundle: bundle})
 	// Evict least-recently-used entries beyond the cap. Len > cap ≥ 0 guarantees
 	// a non-nil Back() each iteration.
 	for c.pullLRU.Len() > pullCacheMaxEntries {
@@ -289,10 +359,10 @@ func (c *CachedStore) storePull(ref string, bundle *contract.Bundle) {
 
 func (c *CachedStore) cachePath(ref string) string {
 	safe := strings.ReplaceAll(ref, ":", "/")
-	joined := filepath.Join(c.cacheDir, safe, "bundle.tar.gz")
+	joined := filepath.Join(c.cacheDir, safe, CachedBundleFile)
 	// Ensure the resolved path stays inside the cache directory.
 	if rel, err := filepath.Rel(c.cacheDir, joined); err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.Join(c.cacheDir, "_invalid", "bundle.tar.gz")
+		return filepath.Join(c.cacheDir, "_invalid", CachedBundleFile)
 	}
 	return joined
 }
@@ -317,16 +387,17 @@ func (c *CachedStore) loadFromCache(path string) (*contract.Bundle, error) {
 	return bundleFromFS(fsys)
 }
 
-func (c *CachedStore) saveToCache(path string, bundle *contract.Bundle) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-
+// writeBundleFile writes the bundle archive to path. Close is reported, not
+// deferred away: a gzip flush that fails on close would otherwise commit a
+// truncated archive under a valid identity.
+func writeBundleFile(path string, bundle *contract.Bundle) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
-
-	return writeBundleTarGz(f, bundle.FS)
+	if err := writeBundleTarGz(f, bundle.FS); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }

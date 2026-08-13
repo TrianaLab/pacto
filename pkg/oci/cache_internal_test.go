@@ -3,10 +3,14 @@ package oci
 import (
 	"container/list"
 	"context"
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
@@ -110,12 +114,109 @@ func TestCachedStore_PullCacheEvictsBeyondCap(t *testing.T) {
 	// not a duplicate entry.
 	before := c.pullLRU.Len()
 	b2 := &contract.Bundle{Contract: &contract.Contract{}}
-	c.storePull("a", b2)
+	c.storePull("a", b2, "sha256:a2")
 	if c.pullLRU.Len() != before {
 		t.Fatalf("re-store should not grow cache: len %d -> %d", before, c.pullLRU.Len())
 	}
-	if got := c.pullCache["a"].Value.(*pullEntry).bundle; got != b2 {
+	got := c.pullCache["a"].Value.(*pullEntry)
+	if got.bundle != b2 {
 		t.Fatal("re-store should replace the bundle in place")
+	}
+	// The recorded identity travels with the bundle: a stale digest left behind
+	// would make a memory hit report a digest for content it no longer holds.
+	if got.digest != "sha256:a2" {
+		t.Fatalf("re-store left digest %q, want the digest of the bundle now held", got.digest)
+	}
+}
+
+// unreadableFS is a bundle filesystem that refuses to be read, standing in for
+// the archive write failing partway. Its point is that a bundle that cannot be
+// written is a commit that must not happen at all.
+type unreadableFS struct{}
+
+func (unreadableFS) Open(string) (fs.File, error) { return nil, errors.New("unreadable") }
+
+func TestWriteBundleFile_ReportsWhatWentWrong(t *testing.T) {
+	dir := t.TempDir()
+
+	// The archive cannot be created at all.
+	if err := writeBundleFile(filepath.Join(dir, "missing", CachedBundleFile), markedBundle()); err == nil {
+		t.Error("writing into a directory that does not exist reported success")
+	}
+	// The archive is created but its content cannot be read.
+	path := filepath.Join(dir, CachedBundleFile)
+	if err := writeBundleFile(path, &contract.Bundle{FS: unreadableFS{}}); err == nil {
+		t.Error("an unreadable bundle filesystem reported a successful write")
+	}
+}
+
+// markedBundle is a minimal writable bundle for the write-path tests.
+func markedBundle() *contract.Bundle {
+	y := []byte("pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: \"1.0.0\"\n")
+	return &contract.Bundle{
+		Contract: &contract.Contract{},
+		FS:       fstest.MapFS{"pacto.yaml": &fstest.MapFile{Data: y}},
+	}
+}
+
+// A cache entry is committed or it is not. Every way the commit can fail must
+// leave what was already on disk alone, and say so — a silently skipped write is
+// the performance mystery this path used to be.
+func TestWriteCacheEntry_FailedCommitsAreReported(t *testing.T) {
+	rec := CachedRef{Ref: "reg:5000/demo/svc:1.0.0", Digest: "sha256:aaa"}
+
+	t.Run("the entry's parent cannot be created", func(t *testing.T) {
+		root := t.TempDir()
+		blocker := filepath.Join(root, "blocker")
+		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c := &CachedStore{cacheDir: filepath.Join(blocker, "oci")}
+		if err := c.writeCacheEntry(filepath.Join(c.cacheDir, "svc", "1.0.0"), rec, markedBundle()); err == nil {
+			t.Error("a cache path running through a regular file reported success")
+		}
+	})
+
+	t.Run("the staging area cannot be created", func(t *testing.T) {
+		root := t.TempDir()
+		c := &CachedStore{cacheDir: filepath.Join(root, "oci")}
+		dir := filepath.Join(c.cacheDir, "svc", "1.0.0")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// The staging root exists but refuses new entries, so MkdirAll is content
+		// and MkdirTemp is not.
+		if err := os.Chmod(root, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+		if err := c.writeCacheEntry(dir, rec, markedBundle()); err == nil {
+			t.Error("an unwritable staging root reported a successful commit")
+		}
+	})
+
+	t.Run("the bundle cannot be staged", func(t *testing.T) {
+		root := t.TempDir()
+		c := &CachedStore{cacheDir: filepath.Join(root, "oci")}
+		dir := filepath.Join(c.cacheDir, "svc", "1.0.0")
+		if err := c.writeCacheEntry(dir, rec, &contract.Bundle{FS: unreadableFS{}}); err == nil {
+			t.Error("an unreadable bundle reported a successful commit")
+		}
+		if _, err := os.Stat(dir); err == nil {
+			t.Error("a failed commit published an entry anyway")
+		}
+	})
+}
+
+func TestPinRefToDigest_DropsWhateverTheRefAlreadyPins(t *testing.T) {
+	for _, tc := range []struct{ ref, want string }{
+		{"localhost:5000/demo/svc:1.0.0", "localhost:5000/demo/svc@sha256:new"},
+		{"localhost:5000/demo/svc@sha256:old", "localhost:5000/demo/svc@sha256:new"},
+		{"oci://ghcr.io/org/svc", "ghcr.io/org/svc@sha256:new"},
+	} {
+		if got := PinRefToDigest(tc.ref, "sha256:new"); got != tc.want {
+			t.Errorf("PinRefToDigest(%q) = %q, want %q", tc.ref, got, tc.want)
+		}
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -220,6 +221,112 @@ func TestFleetDistinctDigestsSameVersionStayDistinct(t *testing.T) {
 		if r.Version != "1.0.0" {
 			t.Errorf("revision %s version = %q, want the declared 1.0.0", r.Key, r.Version)
 		}
+	}
+}
+
+// movingTagRegistry is the real registry with an adversary attached: the first
+// time an artifact is downloaded, the tag is RE-PUBLISHED before the download
+// returns. Nothing here is simulated — the re-push is a real push to a real
+// registry — only its timing is made deterministic, so the window that a
+// re-publishing CI job hits by luck is hit on every run.
+type movingTagRegistry struct {
+	oci.BundleStore
+	once   sync.Once
+	repush func()
+}
+
+func (m *movingTagRegistry) Pull(ctx context.Context, ref string) (*contract.Bundle, error) {
+	b, err := m.BundleStore.Pull(ctx, ref)
+	m.once.Do(m.repush)
+	return b, err
+}
+
+func cacheIdentityMarker(c *contract.Contract) string {
+	s, _ := c.Metadata["marker"].(string)
+	return s
+}
+
+// A version tag is NOT immutable. If the digest a revision carries is observed
+// separately from the bytes it describes, a re-push between the two observations
+// makes the fleet publish artifact A under artifact B's immutable identity — and
+// every offline reader of the resulting cache entry inherits it. The digest must
+// name what was actually downloaded.
+func TestFleetMovingTagBindsDigestToTheBytesPulled(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	reg := newTestRegistry(t)
+	ref := pushCacheIdentityBundle(t, reg, "demo/checkout", "1.0.0", "checkout", "1.0.0", "first")
+	tag := reg.host + "/demo/checkout:1.0.0"
+	published, err := reg.client.Resolve(context.Background(), tag)
+	if err != nil {
+		t.Fatalf("resolving the published tag: %v", err)
+	}
+
+	adversary := &movingTagRegistry{BundleStore: reg.client, repush: func() {
+		// --force because this IS the case the flag exists for: an occupied tag
+		// being made to point somewhere else.
+		dir := filepath.Join(t.TempDir(), "repush")
+		writeBundleDir(t, dir, cacheIdentityContract("checkout", "1.0.0", "second"), nil)
+		if out, err := runCommand(t, reg, "push", ref, "-p", dir, "--force"); err != nil {
+			t.Errorf("re-publishing the tag: %v\n%s", err, out)
+		}
+	}}
+	store := oci.NewCachedStore(adversary)
+	svc := app.NewService(store, &plugin.SubprocessRunner{})
+
+	snap, err := svc.Fleet(context.Background(), app.FleetOptions{OCIRefs: []string{ref}, IncludeCache: true})
+	if err != nil {
+		t.Fatalf("build over a moving tag: %v", err)
+	}
+	revs := revisionsOf(snap, "checkout")
+	if len(revs) != 1 {
+		t.Fatalf("checkout has %d revisions, want 1", len(revs))
+	}
+	rev := revs[0]
+
+	// The adversary must actually have fired, or the window never opened and the
+	// test would pass without exercising anything. Measured against what the tag
+	// pointed at BEFORE the build, never against the value under test.
+	moved, err := reg.client.Resolve(context.Background(), tag)
+	if err != nil {
+		t.Fatalf("resolving the re-published tag: %v", err)
+	}
+	if moved == published {
+		t.Fatalf("the tag still points at %s; the re-push never happened", moved)
+	}
+
+	// The claim under test: dereferencing the recorded digest yields the content
+	// the revision is actually made of. The registry is the arbiter, not the tag.
+	pinned, err := reg.client.Pull(context.Background(), oci.PinRefToDigest(tag, rev.Digest))
+	if err != nil {
+		t.Fatalf("pulling the recorded digest %s: %v", rev.Digest, err)
+	}
+	if got, want := cacheIdentityMarker(rev.Contract), cacheIdentityMarker(pinned.Contract); got != want {
+		t.Errorf("revision holds marker %q but its digest %s names the artifact marked %q", got, rev.Digest, want)
+	}
+	if !strings.Contains(rev.ResolvedRef, "@"+rev.Digest) {
+		t.Errorf("resolvedRef = %q, want it pinned to %s", rev.ResolvedRef, rev.Digest)
+	}
+	if rev.RequestedRef != ref {
+		t.Errorf("requestedRef = %q, want the originally requested %q kept as provenance", rev.RequestedRef, ref)
+	}
+
+	// The disk cache inherits the same binding, so the offline reader is not told
+	// the lie either.
+	dead := &deadRegistry{}
+	offline := app.NewService(oci.NewCachedStore(dead), &plugin.SubprocessRunner{})
+	offSnap, err := offline.Fleet(context.Background(), app.FleetOptions{IncludeCache: true})
+	if err != nil {
+		t.Fatalf("offline build: %v", err)
+	}
+	offRevs := revisionsOf(offSnap, "checkout")
+	if len(offRevs) != 1 {
+		t.Fatalf("offline snapshot has %d checkout revisions, want 1", len(offRevs))
+	}
+	if offRevs[0].Digest != rev.Digest {
+		t.Errorf("cached revision digest = %q, want the recorded %q", offRevs[0].Digest, rev.Digest)
+	}
+	if got := cacheIdentityMarker(offRevs[0].Contract); got != cacheIdentityMarker(rev.Contract) {
+		t.Errorf("cached bytes are marked %q under digest %s, which names %q", got, offRevs[0].Digest, cacheIdentityMarker(rev.Contract))
 	}
 }
 

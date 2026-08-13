@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -243,6 +244,16 @@ func (f fakeFleetStore) Resolve(context.Context, string) (string, error)    { re
 func (f fakeFleetStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
 	if b, ok := f.bundles[ref]; ok {
 		return b, nil
+	}
+	// A registry is content-addressed: the artifact a tag names is served just as
+	// well by its digest, which is how the OCI source now fetches it. The fixtures
+	// are keyed by tag, so a digest-pinned ref resolves to its repository's bundle.
+	if i := strings.Index(ref, "@"); i >= 0 {
+		for tagged, b := range f.bundles {
+			if strings.HasPrefix(tagged, ref[:i]+":") {
+				return b, nil
+			}
+		}
 	}
 	return nil, errors.New("not found")
 }
