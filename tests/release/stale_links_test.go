@@ -25,7 +25,7 @@ func isHistoricalRef(rel string) bool {
 		".changeset/",
 		// A faithful byte-for-byte snapshot of the published v4 chart (the real
 		// v4->v5 upgrade fixture); it MUST keep v4's original repo links.
-		"tests/e2e/kind/fixtures/pacto-operator-v4/",
+		"tests/acceptance/kind/fixtures/pacto-operator-v4/",
 		// This gate's own source names the pattern it forbids.
 		"tests/release/stale_links_test.go",
 	} {

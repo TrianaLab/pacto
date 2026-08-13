@@ -13,7 +13,8 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
+.PHONY: build test test-integration test-acceptance-local test-browser test-browser-live \
+        e2e demo-fleet coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
         e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
@@ -29,28 +30,42 @@ build:
 	rm -f "$(GOBIN)/pacto"
 	go build $(LDFLAGS) -o "$(GOBIN)/pacto" ./cmd/pacto
 
+# ── Test levels ─────────────────────────────────────────────────────
+# Target names state the SEMANTIC LEVEL, not the feature history. The taxonomy,
+# and how to pick the right level for a new test, is docs/maintainers/testing.md.
+
+# Level 1 — unit.
 test:
 	go test -race ./... -v
 
-e2e:
-	go test -tags e2e ./tests/e2e/ -v -count=1 -parallel 16 -timeout 120s
+# Level 2 — integration. The CLI driven IN PROCESS against a real in-process OCI
+# registry and a real plugin binary on PATH: several real components wired
+# together, but nothing a user could reach over a network. It was called `e2e`
+# for historical reasons only.
+test-integration:
+	go test -tags integration ./tests/integration/ -v -count=1 -parallel 16 -timeout 120s
 	# The kind acceptance gate is a Go program with its own tests, and it lives
 	# under /tests/ — which ci-test excludes. Without this line the gate that
 	# decides whether the live vertical passed is itself never tested.
-	go test ./tests/e2e/kind/productready/ -count=1 -timeout 120s
+	go test ./tests/acceptance/kind/... -count=1 -timeout 120s
 
-# Hermetic operational-graph acceptance (no cluster): builds pacto and drives the
-# whole fleet story end to end against local fixtures (graph, signed evidence
+# Level 4 — local acceptance, cluster-free: builds pacto and drives the whole
+# fleet story end to end against local fixtures (graph, signed evidence
 # ingestion, OTel observation, reconciliation, impact). Verifiable anywhere Go
 # runs — the live-Kubernetes source is covered by the kind acceptance.
-demo-fleet:
-	bash tests/e2e/fleet-graph.sh
+test-acceptance-local:
+	bash tests/acceptance/local/fleet-graph.sh
+
+# Compatibility aliases for the pre-Phase-8B names. Temporary: they exist so
+# muscle memory and any out-of-tree caller keep working, not as second names.
+e2e: test-integration
+demo-fleet: test-acceptance-local
 
 # ── Local e2e lifecycle ──────────────────────────────────────────────
 # Thin, user-facing aliases over the ci-e2e-* targets (in ci.mk) + demo-fleet so
 # a contributor can run ONE acceptance scenario without the whole `make ci` matrix.
 # Each -kind scenario self-provisions its own kind cluster (honoring KIND_CLUSTER
-# for reuse) and, on failure, dumps cluster diagnostics via tests/e2e/kind/lib.sh.
+# for reuse) and, on failure, dumps cluster diagnostics via tests/acceptance/kind/lib.sh.
 # To keep a failed cluster + namespace for interactive inspection instead of
 # tearing it down, set KEEP_E2E_CLUSTER=1 — the inspect knob for every -kind
 # scenario:  KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind
@@ -72,7 +87,7 @@ demo-fleet:
 # dependency edge) and a signed EvidenceEnvelope ingested as an external target —
 # everything a fully-configured install shows. Tears down unless KEEP_E2E_CLUSTER=1.
 e2e-operational-graph:
-	bash tests/e2e/kind/operational-graph.sh
+	bash tests/acceptance/kind/operational-graph.sh
 
 # Cluster-free core: the hermetic operational-graph acceptance (graph, evidence,
 # OTel, reconcile, impact) — the same run as demo-fleet, verifiable anywhere Go runs.
@@ -81,43 +96,46 @@ e2e-operational-graph-core: demo-fleet
 # Bring the full vertical UP and LEAVE it running for manual, end-to-end testing
 # (prints how to reach the dashboard). Inspect with -status/-logs; tear down with -down.
 e2e-operational-graph-up:
-	KEEP_E2E_CLUSTER=1 bash tests/e2e/kind/operational-graph.sh up
+	KEEP_E2E_CLUSTER=1 bash tests/acceptance/kind/operational-graph.sh up
 e2e-operational-graph-status:
-	bash tests/e2e/kind/operational-graph.sh status
+	bash tests/acceptance/kind/operational-graph.sh status
 e2e-operational-graph-logs:
-	bash tests/e2e/kind/operational-graph.sh logs
+	bash tests/acceptance/kind/operational-graph.sh logs
 e2e-operational-graph-down:
-	bash tests/e2e/kind/operational-graph.sh down
+	bash tests/acceptance/kind/operational-graph.sh down
 
 # OTel observation acceptance is step 3 of the operational-graph story above; there
 # is no collector-backed cluster scenario, so this runs the same cluster-free run.
 e2e-otel: demo-fleet
 
-# Browser E2E for the WASM dashboard demo. Builds the demo, ensures Chromium is
-# installed, then runs the Playwright suite against the built app.
-e2e-dashboard-wasm:
+# Level 6 — deterministic browser acceptance. Builds the WASM dashboard demo,
+# ensures Chromium is installed, then runs the Playwright suite against the built
+# app over FIXED data. Deliberately separate from test-browser-live: determinism
+# and liveness are different properties and a merged suite proves neither.
+test-browser:
 	$(MAKE) -C examples/demo build
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e
+e2e-dashboard-wasm: test-browser
 
-e2e-dashboard-kind: ci-e2e-kind-dashboard
-e2e-evidence-kind: ci-e2e-kind-evidence
-e2e-reconcile-kind: ci-e2e-kind-reconcile
-e2e-upgrade-kind: ci-e2e-kind-upgrade
+e2e-dashboard-kind: test-acceptance-kind-dashboard
+e2e-evidence-kind: test-acceptance-kind-evidence
+e2e-reconcile-kind: test-acceptance-kind-reconcile
+e2e-upgrade-kind: test-acceptance-kind-upgrade
 
 # Operator-managed offline observation packaging in a local kind cluster: an
 # externally managed PVC and a ConfigMap each carry a trace export, the operator
 # mounts them read-only under their declared names, and the live Product API is
 # asserted for identity, observed edges and failed-source behavior. Same
 # up/status/logs/down lifecycle as the operational-graph vertical.
-e2e-observation-kind: ci-e2e-kind-observation
+e2e-observation-kind: test-acceptance-kind-observation
 e2e-observation-kind-up:
-	KEEP_E2E_CLUSTER=1 bash tests/e2e/kind/observation.sh up
+	KEEP_E2E_CLUSTER=1 bash tests/acceptance/kind/observation.sh up
 e2e-observation-kind-status:
-	bash tests/e2e/kind/observation.sh status
+	bash tests/acceptance/kind/observation.sh status
 e2e-observation-kind-logs:
-	bash tests/e2e/kind/observation.sh logs
+	bash tests/acceptance/kind/observation.sh logs
 e2e-observation-kind-down:
-	bash tests/e2e/kind/observation.sh down
+	bash tests/acceptance/kind/observation.sh down
 
 # ── Operational-graph story acceptances (section M) ─────────────────────────
 # Observed relationships end to end in a real browser: the demo folds observed
@@ -132,15 +150,17 @@ e2e-docs:
 	$(MAKE) -C examples/demo build
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop e2e/mermaid.spec.ts
 
-# Live Kind dashboard browser acceptance (section I): the full vertical (operator +
-# dashboard + Evidence Server + registry + reconciled CRs + ingested evidence) plus
-# a Playwright/Chromium run against the LIVE, port-forwarded dashboard.
-e2e-dashboard-kind-browser:
-	bash tests/e2e/kind/operational-graph.sh browser
+# Level 7 — live-browser acceptance: the full vertical (operator + dashboard +
+# Evidence Server + registry + reconciled CRs + ingested evidence) plus a
+# Playwright/Chromium run against the LIVE, port-forwarded dashboard over keys
+# DISCOVERED from the real Product API.
+test-browser-live:
+	bash tests/acceptance/kind/operational-graph.sh browser
+e2e-dashboard-kind-browser: test-browser-live
 
-# The whole operational-graph story: cluster-free core, the WASM browser suite, and
-# the live-Kind vertical + browser acceptance.
-e2e-all-operational-graph: e2e-operational-graph-core e2e-dashboard-wasm e2e-dashboard-kind-browser
+# The whole operational-graph story: cluster-free core, the deterministic browser
+# suite, and the live-Kind vertical + live browser acceptance.
+e2e-all-operational-graph: e2e-operational-graph-core test-browser test-browser-live
 
 coverage:
 	go test -race $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/) -coverprofile=coverage.out

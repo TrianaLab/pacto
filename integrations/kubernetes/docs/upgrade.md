@@ -58,7 +58,7 @@ resolve it before running `helm upgrade`. See the [CRD reference](crd-reference.
 for the current field set.
 
 This exact flow is exercised end to end against a real cluster by
-`tests/e2e/kind/v4-to-v5-upgrade.sh` (the `ci-e2e-kind-upgrade` gate): it installs
+`tests/acceptance/kind/upgrade-v4-v5.sh` (the `ci-e2e-kind-upgrade` gate): it installs
 the real previous-major (v4) chart with its v4 CRDs, server-side applies the new
 CRDs, then `helm upgrade`s to the current chart and asserts the pre-existing
 resource survives and reconciles.

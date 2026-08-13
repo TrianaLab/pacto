@@ -8,7 +8,10 @@ BUNDLE_DIR := pactos/pacto-dashboard
 REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-e2e-kind-operational-graph ci-e2e-kind-observation ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
+       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-e2e-kind-operational-graph ci-e2e-kind-observation \
+       test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
+       test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
+       ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs demo-fleet \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check
 
@@ -18,11 +21,13 @@ REPOWISE_VERSION ?= 0.36.0
 # .github/workflows/ci.yml requires.
 ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-envtest ci-oci
 
-# Cross-cutting architecture + release gates. tests/architecture is the import-
-# boundary gate (core must stay k8s-free); tests/release holds the one-publisher,
-# demo-ref and release-plan gates. Both live under /tests/, which ci-test EXCLUDES
-# (grep -v /tests/), so they get their own leg here and an ALWAYS-run CI job — a
-# gate that never runs is not a gate.
+# Cross-cutting architecture/invariant + release-verification gates.
+# tests/architecture holds the structural rules about the repository itself (core
+# must stay k8s-free, collector docs exist, fleet routes stay neutral, the OTel
+# path stays offline, the U+00A7 checker really rejects the glyph); tests/release
+# holds the one-publisher, demo-ref and release-plan gates. Both live under
+# /tests/, which ci-test EXCLUDES (grep -v /tests/), so they get their own leg
+# here and an ALWAYS-run CI job — a gate that never runs is not a gate.
 ci-gates:
 	go test ./tests/architecture/... ./tests/release/...
 
@@ -37,9 +42,9 @@ ci-static: ci-static-engine
 # composite CI action provides the pinned Go for the OpenAPI export step.
 ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-drift check-dashboard-sdk-drift
 
-# Engine leg: unit tests (100% coverage gate) + engine e2e + the cluster-free
-# operational-graph acceptance (tests/e2e/fleet-graph.sh).
-ci-engine: ci-test e2e demo-fleet
+# Engine leg: unit tests (100% coverage gate) + the in-process CLI integration
+# suite + the cluster-free local acceptance (tests/acceptance/local/fleet-graph.sh).
+ci-engine: ci-test test-integration test-acceptance-local
 
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui
@@ -49,7 +54,10 @@ ci-integration-kubernetes:
 	$(MAKE) -C integrations/kubernetes ci-test
 	$(MAKE) -C integrations/kubernetes ci-chart
 
-# Operator acceptance matrix against envtest (no cluster required).
+# Operator acceptance matrix against envtest — a real API server, no cluster and
+# no kubelet, so this is LEVEL 2 (integration) despite the kubebuilder-standard
+# `test-e2e` name inside the module. The name is kept because it is the
+# convention of the module that owns it; the level is stated here.
 ci-e2e-envtest:
 	$(MAKE) -C integrations/kubernetes test-e2e
 
@@ -64,41 +72,54 @@ ci-e2e-envtest:
 #: a REAL cross-major chart + CRD migration (install the
 # published v4 chart + its v4 CRDs, server-side apply the new CRDs, helm upgrade to
 # the v5 chart, prove existing resources survive). dashboard-modes + upgrade run
-# first (fast guards); run.sh then covers the full enabled reconcile cycle.
+# first (fast guards); reconcile.sh then covers the full enabled reconcile cycle.
 # CI shards these self-provisioning scenarios across a matrix (each spins up its
-# own kind cluster, so they run independently in parallel); `make ci-e2e-kind`
-# still runs them all locally. The evidence scenario proves the operator-managed
-# Evidence Server component (Deployment/Service/retained PVC, readiness, dashboard
-# auto-wiring) in the existing operator chart.
-ci-e2e-kind: ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-e2e-kind-operational-graph ci-e2e-kind-observation
+# own kind cluster, so they run independently in parallel); `make
+# test-acceptance-kind` still runs them all locally. The evidence scenario proves
+# the operator-managed Evidence Server component (Deployment/Service/retained PVC,
+# readiness, dashboard auto-wiring) in the existing operator chart.
+#
+# Each scenario is ONE boundary. They are not merged: a merged cluster run cannot
+# say which boundary broke, and cannot be sharded.
+test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
+	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation
 
-ci-e2e-kind-dashboard:
-	bash tests/e2e/kind/dashboard-modes.sh
+test-acceptance-kind-dashboard:
+	bash tests/acceptance/kind/dashboard-modes.sh
 
 # Operator-managed OFFLINE observation packaging: a declared Helm observation
 # source becomes a read-only mount whose stable Data Source identity and observed
 # edge both show up in the live Product API — and a broken one is explicit
 # unavailable knowledge instead of a silently empty graph. Narrow by design (no
-# browser leg); the broad live journey is ci-e2e-kind-operational-graph.
-ci-e2e-kind-observation:
-	bash tests/e2e/kind/observation.sh
+# browser leg); the broad live journey is test-acceptance-kind-operational-graph.
+test-acceptance-kind-observation:
+	bash tests/acceptance/kind/observation.sh
 
 # Full operational-graph vertical + a LIVE browser acceptance: brings up operator +
 # dashboard + Evidence Server + registry with reconciled CRs and ingested evidence,
 # then drives the LIVE dashboard in Chromium via Playwright. Runs in CI's clean
 # Docker (classic image store), where `kind load docker-image` works — Docker
 # Desktop's containerd image store breaks it locally.
-ci-e2e-kind-operational-graph:
-	bash tests/e2e/kind/operational-graph.sh browser
+test-acceptance-kind-operational-graph:
+	bash tests/acceptance/kind/operational-graph.sh browser
 
-ci-e2e-kind-upgrade:
-	bash tests/e2e/kind/v4-to-v5-upgrade.sh
+test-acceptance-kind-upgrade:
+	bash tests/acceptance/kind/upgrade-v4-v5.sh
 
-ci-e2e-kind-reconcile:
-	bash tests/e2e/kind/run.sh
+test-acceptance-kind-reconcile:
+	bash tests/acceptance/kind/reconcile.sh
 
-ci-e2e-kind-evidence:
-	bash tests/e2e/kind/evidence.sh
+test-acceptance-kind-evidence:
+	bash tests/acceptance/kind/evidence.sh
+
+# Compatibility aliases for the pre-Phase-8B names. Temporary.
+ci-e2e-kind:                    test-acceptance-kind
+ci-e2e-kind-dashboard:          test-acceptance-kind-dashboard
+ci-e2e-kind-observation:        test-acceptance-kind-observation
+ci-e2e-kind-operational-graph:  test-acceptance-kind-operational-graph
+ci-e2e-kind-upgrade:            test-acceptance-kind-upgrade
+ci-e2e-kind-reconcile:          test-acceptance-kind-reconcile
+ci-e2e-kind-evidence:           test-acceptance-kind-evidence
 
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:

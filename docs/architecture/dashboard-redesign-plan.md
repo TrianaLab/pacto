@@ -1877,7 +1877,7 @@ section 8.
 | responsive (11)   | n/a                                                        | scenarios 21,22 |
 | projections (17)  | `pkg/evidencestore/*_test.go`                              | Kind evidence E2E |
 | invariants (19)   | `tests/architecture/*`                                     | n/a |
-| U+00A7 gate (24)  | `tests/scripts/check_section_test.go`                      | n/a |
+| U+00A7 gate (24)  | `tests/architecture/check_section_test.go`                      | n/a |
 | boundedness at scale | `pkg/fleet/product_test.go` (page bounds), `pkg/dashboard/product_test.go` | `e2e/product-scale.spec.ts` |
 | hostile identity  | `pkg/fleet/matchrevision_identity_test.go`, `pkg/dashboard/producttransport_test.go` (route escaping) | `e2e/product-scale.spec.ts` |
 | visualization system | n/a (presentation)                                      | `src/components/viz/viz.test.ts`, `src/lib/architecture.test.ts`, `e2e/viz-acceptance.spec.ts` |

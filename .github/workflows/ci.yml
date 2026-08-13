@@ -128,8 +128,8 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
-      - name: Browser E2E for the WASM dashboard demo
-        run: make e2e-dashboard-wasm
+      - name: Deterministic browser acceptance over the built WASM demo
+        run: make test-browser
 
   ci-integration-kubernetes:
     needs: changes
@@ -234,7 +234,7 @@ jobs:
         run: go install sigs.k8s.io/kind@v0.30.0
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-      - run: make ci-e2e-kind-${{ matrix.scenario }}
+      - run: make test-acceptance-kind-${{ matrix.scenario }}
 
   release-dry-run:
     needs: changes

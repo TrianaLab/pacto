@@ -22,7 +22,7 @@ For the runtime compliance story, see the real end-to-end journeys, which reconc
 a contract on a live cluster and drive its status through a Compliant → Unknown →
 Compliant transition:
 
-- kind acceptance harness: [`tests/e2e/kind/run.sh`](../../tests/e2e/kind/run.sh)
+- kind acceptance harness: [`tests/acceptance/kind/reconcile.sh`](../../tests/acceptance/kind/reconcile.sh)
 - operator envtest acceptance suite: `make -C integrations/kubernetes test-e2e`
 - scenario-to-proof map: [`docs/examples/compliance-scenarios.md`](../../docs/examples/compliance-scenarios.md)
 

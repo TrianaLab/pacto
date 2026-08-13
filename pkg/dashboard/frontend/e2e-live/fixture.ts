@@ -4,7 +4,7 @@
 // RevisionKey is a ServiceKey plus a content id, a TargetKey is scope/kind/name:
 // re-deriving those escapes in TypeScript would be a second implementation of the
 // identity rules that could agree with itself while disagreeing with the product.
-// tests/e2e/kind/productready discovers them through /api/fleet/entities, proves each
+// tests/acceptance/kind/productready discovers them through /api/fleet/entities, proves each
 // one resolves, and hands them here verbatim in PW_FIXTURE — so the browser layer
 // addresses exactly the entities the backend published, and a journey that navigates
 // somewhere else fails instead of quietly asserting about a different entity.
@@ -38,8 +38,8 @@ function load(): LiveFixture {
     // otherwise silently degrade into the smoke check this suite replaced.
     throw new Error(
       'PW_FIXTURE is not set. The live product journeys run only against the Kind '
-      + 'fixture: `bash tests/e2e/kind/operational-graph.sh browser` publishes it from '
-      + 'tests/e2e/kind/productready.',
+      + 'fixture: `bash tests/acceptance/kind/operational-graph.sh browser` publishes it from '
+      + 'tests/acceptance/kind/productready.',
     );
   }
   return JSON.parse(raw) as LiveFixture;

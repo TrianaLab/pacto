@@ -5,10 +5,10 @@ import { fixture, entityUrl } from './fixture';
 // LIVE Kind PRODUCT ACCEPTANCE in a real browser.
 //
 // These journeys run against the operator-managed dashboard container in a kind
-// cluster (port-forwarded), seeded by tests/e2e/kind/operational-graph.sh: real
+// cluster (port-forwarded), seeded by tests/acceptance/kind/operational-graph.sh: real
 // bundles published to an in-cluster registry, real Pacto CRs reconciled by the
 // operator, a real managed observation source and the real Evidence Server. The
-// keys they address were DISCOVERED by tests/e2e/kind/productready through the
+// keys they address were DISCOVERED by tests/acceptance/kind/productready through the
 // same Product API and handed over in PW_FIXTURE — nothing here constructs an
 // identity, and nothing here re-derives a product judgement (reconciliation,
 // compliance, retrievability) that the backend already made.

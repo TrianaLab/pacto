@@ -13,7 +13,7 @@ that proves it, so nothing is claimed where it is not actually exercised.
 | Surface | What runs | Fidelity | Where |
 |---|---|---|---|
 | Offline WASM demo | Engine + static contracts in the browser | Contract structure, graph, diff, readiness — **no runtime states** | [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo) |
-| kind acceptance | Packaged chart + real operator image on a real cluster | One live reconcile transition, real RBAC, chart lifecycle | [`tests/e2e/kind/run.sh`](https://github.com/TrianaLab/pacto/tree/main/tests/e2e/kind/run.sh) |
+| kind acceptance | Packaged chart + real operator image on a real cluster | One live reconcile transition, real RBAC, chart lifecycle | [`tests/acceptance/kind/reconcile.sh`](https://github.com/TrianaLab/pacto/tree/main/tests/acceptance/kind/reconcile.sh) |
 | Operator envtest | Controller against a real API server (no kubelet) | **Full per-dimension state matrix** | `make -C integrations/kubernetes test-e2e` |
 
 ## Scenario-to-proof map

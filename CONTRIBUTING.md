@@ -176,7 +176,12 @@ pacto/
     update/           #   Version update checker
     testutil/         #   Shared test utilities
   schema/             # Standalone JSON schema copy
-  tests/e2e/          # End-to-end tests
+  tests/              # Tests that are not about one package
+    integration/      #   CLI driven in process against a real registry
+    architecture/     #   Structural rules about the repository itself
+    acceptance/local/ #   Whole user stories, no cluster
+    acceptance/kind/  #   The product against a real Kubernetes cluster
+    release/          #   The release system produces what it claims
   docs/               # Documentation site (MkDocs)
   scripts/            # Build and install scripts
 ```
@@ -192,9 +197,23 @@ Core domain logic lives in `pkg/` and can be imported by external projects. Infr
 
 ### Testing
 
-- **Unit tests** live alongside the code they test (`_test.go` files).
-- **End-to-end tests** live in `tests/e2e/` and use the `e2e` build tag.
-- The project enforces **100% statement coverage**. `make ci` will fail if any package drops below 100%.
+Pacto has eight test levels. A test belongs to exactly one, chosen by what it
+proves — never by filename or language. **[Testing
+architecture](docs/maintainers/testing.md) is the full guide, including how to
+pick the level for a new test.** The short version:
+
+| Level | Lives in | Run with |
+|-------|----------|----------|
+| Unit | beside the code (`_test.go`, `*.test.ts`) | `make test`, `make ci-ui` |
+| Integration | `tests/integration/`, `integrations/kubernetes/test/` | `make test-integration` |
+| Architecture / invariant | `tests/architecture/` | `make ci-gates` |
+| Local acceptance, cluster-free | `tests/acceptance/local/` | `make test-acceptance-local` |
+| Kind / system acceptance | `tests/acceptance/kind/` | `make test-acceptance-kind` |
+| Browser acceptance, deterministic | `pkg/dashboard/frontend/e2e/` | `make test-browser` |
+| Live-browser acceptance | `pkg/dashboard/frontend/e2e-live/` | `make test-browser-live` |
+| Release verification | `tests/release/`, `release/orchestrator/` | `make ci-gates`, `make release-dry-run` |
+
+- The project enforces **100% statement coverage** on everything outside `tests/`. `make ci` will fail if any package drops below 100%.
 - Run `make coverage` to generate a coverage report and identify uncovered lines.
 
 ### CI Quality Gates
@@ -209,7 +228,9 @@ The `make ci` target runs all quality gates in order:
 | `ci-lint` | `golangci-lint` reports zero issues |
 | `ci-docs` | CLI reference docs are up to date |
 | `ci-test` | Unit tests pass with 100% coverage |
-| `e2e` | End-to-end tests pass |
+| `test-integration` | The in-process CLI integration suite passes |
+| `test-acceptance-local` | The cluster-free acceptance story passes |
+| `ci-gates` | Architecture/invariant and release-verification gates pass |
 
 ### Documentation
 
