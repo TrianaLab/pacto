@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`80c0e92ff6d09414ae21ebaa84debb40f6b5111c`
+`41fa3c02a2c73cff1a9e6f64dbb78a5a96aff0ff`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,18 +25,25 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-That review kept Phase 8 NARROWLY REOPENED a fourth time, on B4's one remaining
-boundary (section 2, "Fourth narrow reopen"). B5 is independently ACCEPTED and
-frozen, blocker A stays CLOSED, the registry resolve-once / pull-by-digest
-binding and the direct 14-fact post-cache gate stay accepted, Phase 8B stays NOT
-STARTED, and every other Phase-8 acceptance stays frozen.
+That review kept Phase 8 NARROWLY REOPENED a fifth time, on B4's RemoteAllowed
+half (section 2, "Fifth narrow reopen"). The LocalOnly repair in `234f01f8` is
+independently ACCEPTED and frozen, B5 is ACCEPTED and frozen, blocker A stays
+CLOSED, the registry resolve-once / pull-by-digest binding, the direct 14-fact
+post-cache gate, the two-snapshot requirement and journeys A–H stay accepted,
+Phase 8B stays NOT STARTED, and every other Phase-8 acceptance stays frozen.
 
-Commits appended on top of the reviewed HEAD `80c0e92f`, oldest first:
+Commits appended on top of the reviewed HEAD `41fa3c02`, oldest first:
+
+- `d58a6f93` — a cache entry belongs to the reference it says it does (blocker
+  B, B4's RemoteAllowed half)
+- this document's own commit — persist the Phase-8 candidate after the fifth
+  narrow reopen
+
+Commits appended on top of the earlier reviewed HEAD `80c0e92f`:
 
 - `234f01f8` — a cached revision is named by the generation that served it
-  (blocker B, B4's remaining boundary)
-- this document's own commit — persist the Phase-8 candidate after the fourth
-  narrow reopen
+  (blocker B, B4's LocalOnly half; ACCEPTED and frozen at `41fa3c02`)
+- `41fa3c02` — persist the Phase-8 candidate after the fourth narrow reopen
 
 Commits appended on top of the earlier reviewed HEAD `1741318d`:
 
@@ -91,8 +98,8 @@ For completeness, the full appended range since the reviewed HEAD `5f3d4ebb`:
 - `d18ca70e` — a port-forward is ready when it answers, not two seconds later
 - `6750c959` — the Phase-8 candidate is verified on the fixed harness
 - `d8ef5d5a`, `0cf0c69b`, `879724dc`, `6049f44e`, `caf88050`, `622ed857`,
-  `1741318d`, `a1159be0`, `60fe9919`, `80c0e92f`, `234f01f8` and this
-  document's commit, as listed above
+  `1741318d`, `a1159be0`, `60fe9919`, `80c0e92f`, `234f01f8`, `41fa3c02`,
+  `d58a6f93` and this document's commit, as listed above
 
 This section records the last INDEPENDENTLY REVIEWED state. It is not a Claude
 self-assessment and must not be re-closed by the session that implements against
@@ -156,6 +163,13 @@ counterexample.
   source-health arithmetic; `ProductMeta.Sources` is a bounded named preview.
   The Product renders one answer for one snapshot, at every level (Data Sources
   tally, `KnowledgeBanner`, knowledge severity).
+
+**Cache identity — the LocalOnly repair at `234f01f8`**
+
+- the bundle and the COMPLETE `CachedRef` come from one cache generation;
+- a cold (disk) read and a warm (memory) read both preserve `Ref` and `Digest`;
+- `CacheSource` derives bundle, `Digest`, `RequestedRef`, `Domain` and
+  `ResolvedRef` from that one generation.
 
 **Phases**
 
@@ -647,6 +661,87 @@ Verification for this candidate: the two counterfactuals with `-race`; `go test
 -race ./...`; `make lint`; `make coverage` at 100.0%; `make e2e`; `make
 demo-fleet`. The six Kind shards run in CI. Still disclosed and out of scope:
 the CodeQL PR-ref findings and the Evidence Server read-only-cache warning.
+
+#### Fifth narrow reopen at `41fa3c02` — B4's RemoteAllowed half, CANDIDATE
+
+The review at `41fa3c02` accepted the LocalOnly repair independently and froze
+it, and left B4 open on its other half: `RemoteAllowed` still published a mixed
+revision through the same aliased entry directory.
+
+`OCISource(refA)` → `Resolver.ResolvePinned(RemoteAllowed)` →
+`CachedStore.PullPinned(refA)` → `pullCached(refA)` reads bundle B and
+`CachedRef{Ref: refB, Digest: digestB}` from the shared directory → `PullPinned`
+returns the digest alone → `resolveWithFetch` has no `Ref` to carry, so it
+reports `CachedRef{Digest: digestB}` → `collectRefs` keeps `refA` and publishes
+B's bytes, B's digest and B's canonical key under A's `RequestedRef` and A's
+`Domain`. The resolver comment claiming that RemoteAllowed bytes came from the
+registry under the reference the call named was false on a `CachedStore` hit.
+
+Closed by two independent mechanisms, because the alias is a root cause and the
+entries it already wrote are still on disk.
+
+The on-disk key is now INJECTIVE. `CachedStore.entryDir` spells only a TAG's
+':' as a separator; every other one — a registry port, a digest algorithm — is
+escaped inside its path segment along with the '%' the escaping uses, and the
+tag always gets a segment of its own (`%00` when there is none). Distinct
+references can no longer name one directory, so pulling either of an aliasing
+pair no longer destroys the other's offline baseline. A reference with neither a
+port nor a digest keeps the path it has always had, so no existing entry is
+stranded or duplicated; `legacyEntryDir` is still READ, and an entry
+re-committed under the new key retires its own superseded directory —
+`retireLegacyEntry` never touches one whose sidecar names a different reference.
+
+And a lookup reports a hit only when the entry's recorded reference AGREES with
+the one asked for. Disagreement is a MISS: online the registry is asked for the
+artifact actually wanted, offline the caller is told it is not cached, and
+either way no revision is published for bytes that belong to something else. An
+entry that states nothing — written before the sidecar existed — contradicts
+nothing and is served identity-less, exactly as before. The guard sits in
+`pullCached`, above both the memory and the disk leg, so a warm read can never
+answer differently from the cold read that filled it.
+
+The second cache walker was inventoried and repaired with it:
+`pkg/dashboard.CacheSource.buildIndex` derived repository and tag from the path
+alone, which under the new key spells a ported registry as
+`localhost%3A5000/org/name`. It now prefers the recorded reference, and falls
+back to the path only for an entry that records no tag. The full inventory of
+cache-path readers, writers and walkers is `pkg/oci/cache.go` (writer and
+reader), `internal/fleetsrc.cachedRefs` (sidecar-first already),
+`pkg/dashboard.CacheSource.buildIndex` (now sidecar-first); `internal/app`,
+`internal/cli/dashboard.go` and `pkg/dashboard/detect.go` only resolve the cache
+DIRECTORY, and `internal/update/check.go` is an unrelated update-check file.
+
+Preserved unchanged: resolve-once then pull-by-digest; the complete LocalOnly
+`CachedRef`; zero-network offline reads; a MATCHING cache hit still asks no
+registry; the digest recorded at pull time still binds a mutable tag; ordinary
+remote `RequestedRef` behaviour; B5 and every accepted live Product behaviour.
+
+- `internal/fleetsrc/oci_test.go` —
+  `TestOCISource_Collect_ACachedAliasIsNotThisReferencesRevision`: the
+  production-wired counterexample. A real disk cache, a separate real
+  `CachedStore` installing B under `refB`, an `OCISource` for `refA` in
+  `RemoteAllowed`, and a real registry holding A under `refA`; bundle, `Digest`,
+  `RequestedRef`, `Domain` and `ResolvedRef` must all describe A, and B's
+  baseline is asserted intact afterwards. Without the guard it fails with
+  `bundle is "gen-b"` and B's digest and canonical key under `refA`.
+- `pkg/oci/cache_alias_test.go` — the alias entry is a miss on the cold disk
+  read AND on the warm memory read (the disk entry is removed between the two,
+  so only memory can answer; moving the guard onto the disk leg alone fails the
+  warm leg by itself); `RemoteAllowed` refetches from the registry; a MATCHING
+  hit asks no registry at all; a mismatch with the registry unreachable fails
+  honestly rather than mixing; two aliasing references keep separate baselines
+  across a cold `CachedStore` restart; the superseded legacy entry is retired,
+  and a retirement that cannot happen costs a warning, not the pull.
+- `pkg/oci/cache_internal_test.go` — nine references, no two of which spell to
+  one directory, plus the proof that a port-free reference did not move.
+- `pkg/dashboard/source_cache_test.go` — the index takes the ported reference
+  from the sidecar and keeps the path only for an entry recording no tag.
+
+Verification for this candidate: the counterfactuals with `-race` (including the
+two mutation checks above); `go test -race ./...`; `make lint`; `make coverage`
+at 100.0%; `make e2e`; `make demo-fleet`. The six Kind shards run in CI. Still
+disclosed and out of scope: the CodeQL PR-ref findings and the Evidence Server
+read-only-cache warning.
 
 ### Phase 8B — NOT STARTED
 
