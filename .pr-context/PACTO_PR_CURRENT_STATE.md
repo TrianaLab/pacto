@@ -1,6 +1,6 @@
 # Pacto PR #291 — Current Implementation State
 
-**Snapshot date:** 2026-08-13
+**Snapshot date:** 2026-08-14
 **Repository:** `TrianaLab/pacto`  
 **PR:** `#291`  
 **Branch:** `feat/operational-graph-fleet`
@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`837ef8bbe0e7495357d386b1de50a6defca74bd0`
+`5ffc72b3f64fc7bff364f69de67c6985390a03ac`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -25,28 +25,35 @@ PR state at review:
 - no authorized history rewrite;
 - no force-push authorization.
 
-That review kept Phase 8 NARROWLY REOPENED a seventh time, on ONE root boundary:
-a cache inventory must enumerate coherent artifact GENERATIONS, not pathnames
-and not reference spellings (section 2, "Seventh narrow reopen"). The `_v2`
-namespace, read-only legacy compatibility, the removal of destructive
-retirement, the two-order upgrade counterexample and exact-reference dashboard
-indexing are independently ACCEPTED and frozen. Everything frozen at the sixth
-reopen stays frozen: the complete LocalOnly `CachedRef` propagation, the
-cold/warm reference-agreement guard, RemoteAllowed miss-refetch-or-fail,
-resolve-once / pull-by-digest, B5, blocker A CLOSED, the 14-fact two-snapshot
-live gate and journeys A–H. Phase 8B stays NOT STARTED.
+**That review ACCEPTED and CLOSED Phase 8.** After seven narrow reopens the
+eighth review found no remaining counterexample: blockers B6 and B7 are closed
+and join the frozen accepted behaviour (see "Accepted at this review"). The
+Phase-8 live Kind Product acceptance — its vertical, its 14-fact two-snapshot
+gate, journeys A–H and the whole cache-identity repair series — is settled.
 
-Commits appended on top of the reviewed HEAD `837ef8bb`, oldest first:
+**Phase 8B is now the ACTIVE phase**: test architecture and harness
+consolidation, including the canonical scenario/projection boundary that TARGET
+section 1B added and TARGET Phase 10B is blocked on.
+
+Accepted Phase-8 behaviour is NOT reopened for stylistic improvement, theoretical
+hardening or refactor convenience. A reopen requires a CONCRETE correctness,
+security or data-loss counterexample against the accepted behaviour, stated as
+inputs and the wrong observable result they produce.
+
+Commits appended on top of the previously reviewed HEAD `837ef8bb`, oldest
+first — all three are independently reviewed and inside the accepted state:
 
 - `6be8719b` — a cache inventory enumerates generations, not pathnames (blockers
   B6 and B7)
 - `6e3a3627` — persist the Phase-8 candidate after the seventh narrow reopen,
   and record the TARGET-STATE additions
-- this document's own commit — record the check and thread state at `6e3a3627`
+- `5ffc72b3` — record the check and thread state at `6e3a3627`
 
-Final SHA to verify: `6e3a3627` for the code and the CI matrix, then this
-document's commit for the record of it. Merge-base with `origin/main` is
-unchanged.
+Reviewed final SHA: `5ffc72b3`. At that SHA CI is green including all six Kind
+shards. Merge-base with `origin/main` is unchanged. The CI result of `5ffc72b3`
+was verified directly in GitHub; it is deliberately NOT re-recorded in a further
+documentation-only commit, because recording the CI result of the commit that
+records CI results is recursive bookkeeping with no reviewer value.
 
 Commits appended on top of the earlier reviewed HEAD `797a49b3`:
 
@@ -173,7 +180,9 @@ commit an independent reviewer has to account for.
 
 The following are settled. Do not redesign them, and do not "improve" them as a
 side effect of the current phase. Reopening any of them requires a NEW concrete
-counterexample.
+correctness, security or data-loss counterexample — stated as inputs and the
+wrong observable result they produce. Style, symmetry, "theoretical hardening"
+and refactor convenience are NOT counterexamples.
 
 **Ownership identity and discovery**
 
@@ -236,9 +245,38 @@ counterexample.
   honest failure when the registry is unreachable — never mixed content;
 - resolve-once then pull-by-digest.
 
+**Cache inventory as generations — the B6/B7 repair at `6be8719b`**
+
+- a cache inventory enumerates coherent artifact GENERATIONS, not pathnames and
+  not reference spellings;
+- an inventory is COMPLETE over the generations present, PRESERVES different
+  digests that share one reference, and DEDUPLICATES only complete
+  `(Ref, Digest)` identities;
+- the offline inventory path carries no network-capable store;
+- fleet and dashboard both read bundle AND identity through the single
+  `oci.ReadCacheEntry`; no production cache walker reads bundle and sidecar
+  separately;
+- a dashboard lazy read REJECTS a generation different from the one it indexed;
+- the centralized OCI archive reader retains its traversal, entry-count,
+  per-file-size, total-size and non-regular-entry protections.
+
+**Phase-8 live Kind Product acceptance — accepted at `5ffc72b3`**
+
+- the live vertical (operator, dashboard, Evidence Server, in-cluster OCI
+  registry, reconciled digest-pinned Pacto CRs, managed observation source,
+  external signed evidence);
+- the coherent 14-fact / two-snapshot Product gate and its single-snapshot
+  `adopt()` coherence rule;
+- live browser journeys A–H over the real port-forwarded Product;
+- the `pf` readiness-waiting port-forward behaviour;
+- all six Kind scenario boundaries as scenario boundaries.
+
+Phase 8B may RELOCATE, RENAME and DEDUPLICATE the code that implements the
+above. It may not change what any of it proves.
+
 **Phases**
 
-- Phase 1 through Phase 7 are closed.
+- Phase 1 through Phase 8 are closed.
 
 ## 2. Current phase status
 
@@ -324,7 +362,7 @@ That verdict over an observation source stays proven hermetically in
 `internal/app` and by `make demo-fleet`. The fully live declared+observed
 Product reconciliation is **Phase 8 work**.
 
-### Phase 8 — CANDIDATE, NOT independently reviewed
+### Phase 8 — ACCEPTED and CLOSED at `5ffc72b3`
 
 Scope as commissioned: canonical LIVE Kind PRODUCT acceptance. Upgrade the
 EXISTING live Kind vertical from a deliberate browser SMOKE check into
@@ -337,11 +375,14 @@ target preserved.
 
 Not another Kind vertical. Not a test-architecture refactor. Not Phase 8B.
 
-Implemented at `d18ca70e`, NARROWLY REOPENED by the independent review at
-`6750c959` on two counterexamples, re-implemented at `0cf0c69b`, still narrowly
-reopened by the review at `879724dc` on three blocker-B boundaries, and
-re-implemented at `caf88050` and `622ed857`. This is a Claude self-report and closes nothing:
-the phase is a CANDIDATE until an independent review says otherwise.
+Implemented at `d18ca70e`, then narrowly reopened SEVEN times by successive
+independent reviews and repaired each time — `6750c959` (two counterexamples),
+`879724dc` (three blocker-B boundaries), `caf88050`/`622ed857`, `a1159be0`,
+`234f01f8`, `d58a6f93`, `b0020460` and finally `6be8719b` (B6 and B7). The
+eighth independent review, at `5ffc72b3`, found no remaining counterexample and
+**ACCEPTED and CLOSED the phase**. Its behaviour is frozen in section 1
+("Accepted at this review"). Reopening it requires a concrete correctness,
+security or data-loss counterexample.
 
 #### Narrow reopen at `6750c959` — blockers A and B, closed at `0cf0c69b`
 
@@ -1073,16 +1114,25 @@ Verification for this candidate is in section 8. Still disclosed and out of
 scope: the CodeQL PR-ref findings and the Evidence Server read-only-cache
 warning.
 
-### Phase 8B — NOT STARTED
+### Phase 8B — ACTIVE
 
 Test architecture & harness consolidation. See TARGET section 10. Phase 8B MUST
 close before Phase 9 or Phase 10 add their new acceptance harnesses.
 
-Phase 8B additionally now owns the canonical scenario/projection boundary added
-to TARGET section 1B ("Declarative > imperative"). TARGET Phase 10B — the
-canonical demo model and the clone-free OCI-distributed Compose demo — is
-BLOCKED on it. Both are FUTURE TARGET ONLY; nothing in them was implemented in
-this narrow repair.
+Phase 8B additionally owns the canonical scenario/projection boundary added to
+TARGET section 1B ("Declarative > imperative"). TARGET Phase 10B — the canonical
+demo model and the clone-free OCI-distributed Compose demo — is BLOCKED on it.
+Phase 8B establishes only the BOUNDARY; it does not implement the Compose or
+OCI-distributed projections.
+
+Semantic coverage must stay equal or increase. Nothing accepted in section 1 may
+change what it proves; Phase 8B may only relocate, rename and deduplicate the
+code that proves it.
+
+The transient inventory ledger for this phase lives in section 12 of this
+document. It is migration bookkeeping and is deleted with this document in Phase
+14; the durable repository documentation carries the resulting ARCHITECTURE, not
+the ledger.
 
 ### Phase 9 — NOT STARTED
 
@@ -1804,37 +1854,36 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
-**Phase 8 — canonical live Kind Product acceptance.** The branch already carries
-a full live vertical (operator, dashboard, Evidence Server, in-cluster OCI
-registry, reconciled Pacto CRs, external signed evidence, live HTTP Product API,
-Playwright over Chromium). Phase 8 makes that EXISTING vertical rich enough that
-a representative live Product journey has actual topology, revisions, targets,
-observed evidence and reconciliation. Its detailed target is TARGET section 10,
-"Phase 8 — live Kind Product acceptance breadth".
+**Phase 8B — test architecture and harness consolidation.** Phase 8 is closed
+(section 2). The branch now carries eight distinct kinds of test spread across
+directories named for their history rather than for what they prove, six Kind
+harnesses that each re-implement the same cluster lifecycle, and one canonical
+acceptance scenario duplicated across shell heredocs, Go gate flags and inline
+CRs. Phase 8B fixes the ARCHITECTURE of that, changing nothing about what any of
+it proves. Its detailed target is TARGET section 10.
 
-At `6be8719b` that vertical exists and every counterexample the seven reviews
-have raised against it is closed (section 2), including B6 and B7 from the
-seventh reopen. The next iteration objective is therefore the INDEPENDENT REVIEW
-of the Phase-8 candidate at its exact final SHA — not new Phase-8 breadth, and
-not Phase 8B, which remains NOT STARTED.
+Hard boundaries for the Phase-8B session:
 
-Hard boundaries for the Phase-8 session:
-
-1. do NOT create a new large `.sh` acceptance harness; extend the existing
-   `tests/e2e/kind/operational-graph.sh` vertical and classify every shell
-   addition as thin orchestration or explicitly deferred Phase-8B debt;
-2. do NOT begin Phase 8B; its target is persisted in TARGET section 10 and must
-   not be implemented in the Phase-8 pass;
-3. do NOT add a fixture-only Product shortcut; the dashboard must discover OCI
-   revisions through the actual operator status path;
-4. do NOT re-derive reconciliation in Playwright; the backend value is
-   authoritative and the browser proves consistent presentation;
-5. do NOT erase the open CodeQL item in section 8;
-6. Phases 1 through 7 must not be reopened or redesigned as a side effect;
-7. do NOT implement TARGET section 1B or TARGET Phase 10B — the canonical
-   scenario/projection boundary and the clone-free OCI-distributed Compose demo
-   are recorded as FUTURE TARGET ONLY, blocked on Phase 8B and sequenced after
-   Phase 10.
+1. semantic coverage stays equal or increases; a test or fixture may be removed
+   only when its invariant is duplicated and still proved elsewhere, obsolete by
+   an accepted architectural replacement, or temporary review residue;
+2. do NOT reopen Phase 8 (or 1 through 7) for stylistic improvement or
+   theoretical hardening; a reopen requires a concrete correctness, security or
+   data-loss counterexample;
+3. do NOT flatten deterministic WASM/browser acceptance and live-cluster browser
+   acceptance into one suite;
+4. do NOT mass-convert shell for language uniformity; audit each harness
+   individually and keep genuinely thin process orchestration in shell;
+5. do NOT build a speculative test framework; inventory the imperative traces
+   first and extract only stable, repeated semantics;
+6. do NOT implement TARGET Phase 10B's Docker Compose or OCI-distributed demo —
+   establish only the canonical data/projection boundary they will share;
+7. do NOT erase the open CodeQL item in section 8; it is out of Phase-8B scope
+   unless a Phase-8B change directly touches the alerted code;
+8. do NOT start Phase 9, Phase 10 or Phase 10B, and do not begin Phase 9 until
+   Phase 8B is independently reviewed and closed;
+9. do NOT publish the transient inventory ledger (section 12) as permanent
+   repository documentation.
 
 ## 11. Final-phase requirements already agreed
 
