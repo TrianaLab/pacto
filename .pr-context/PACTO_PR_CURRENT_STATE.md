@@ -2068,3 +2068,90 @@ check and renaming ids risks silently unsatisfiable protection rules. Only the
 human-facing `name:` fields and the invoked target names change. The inventory
 does not demonstrate that a broad workflow rewrite is required, so there is not
 one.
+
+### 12.6 Disposition AS EXECUTED
+
+Five appended commits, oldest first. Every path that moved, was rewritten or
+disappeared is accounted for below; nothing changed that is not in a row.
+
+| Commit | Scope |
+|---|---|
+| `66d39eb2` | relocation + retag: `tests/e2e` -> `tests/integration`, `tests/e2e/kind` -> `tests/acceptance/kind`, `tests/e2e/fleet-graph.sh` + `localregistry` -> `tests/acceptance/local`, `tests/scripts` -> `tests/architecture`; Make/CI nomenclature and aliases |
+| `a882f8ed` | shared harness consolidation into `tests/acceptance/kind/lib.sh` |
+| `a9943c9d` | the embedded `python3` observation assertions become `tests/acceptance/kind/obscheck` |
+| `174d41a7` | the canonical declarative scenario, `tests/acceptance/scenario` |
+| `5d98222e` | the durable `docs/maintainers/testing.md` + nav entry |
+
+**Relocations (`66d39eb2`).** Git recorded them as renames, so history follows
+the files.
+
+| From | To | Similarity | Content change |
+|---|---|---|---|
+| `tests/e2e/*.go` (20 files + `e2e_test.go` -> `main_test.go`) | `tests/integration/` | 96-99% | build tag `e2e` -> `integration`, package `e2e` -> `integration` only |
+| `tests/e2e/testplugin/main.go` | `tests/integration/testplugin/main.go` | 100% | none |
+| `tests/e2e/fleet-graph.sh` | `tests/acceptance/local/fleet-graph.sh` | 98% | its own path references only |
+| `tests/e2e/localregistry/main.go` | `tests/acceptance/local/localregistry/main.go` | 100% | none |
+| `tests/e2e/kind/run.sh` | `tests/acceptance/kind/reconcile.sh` | 73% | rename + harness refit |
+| `tests/e2e/kind/v4-to-v5-upgrade.sh` | `tests/acceptance/kind/upgrade-v4-v5.sh` | 86% | rename + harness refit |
+| `tests/e2e/kind/{dashboard-modes,evidence,observation,operational-graph}.sh` | `tests/acceptance/kind/` | 80 / 74 / 59 / 56% | harness refit; observation and operational-graph additionally in `a9943c9d` / `174d41a7` |
+| `tests/e2e/kind/fixtures/pacto-operator-v4/` (29 files) | `tests/acceptance/kind/fixtures/pacto-operator-v4/` | 100% except `SOURCE.md` (93%, its own path) | byte-identical chart; provenance note stays beside it |
+| `tests/e2e/kind/productready/{main.go,main_test.go}` | `tests/acceptance/kind/productready/` | 77 / 83% | scenario-sourced expectations (`174d41a7`) |
+| `tests/scripts/check_section_test.go` | `tests/architecture/check_section_test.go` | 99% | package + script path only |
+| `tests/e2e/kind/lib.sh` | `tests/acceptance/kind/lib.sh` | recorded as delete + add (101 -> 345 lines) | superset: `pf`, `dump_diag`, `keep_or_teardown` preserved verbatim |
+
+`tests/e2e/` and `tests/scripts/` no longer exist. Nothing was deleted: every
+file has a destination row.
+
+**Shared harness, one implementation each (`a882f8ed`).** `lib.sh` 101 -> 345
+lines; the six scenarios 1612 -> 1301 lines. Every function it now owns, and
+what it replaced:
+
+| `lib.sh` | Replaced |
+|---|---|
+| `pass` / `fail` | 4 copies (`fail` -> stderr preserved) |
+| `eventually` | many ad-hoc `for i in $(seq ...)` loops |
+| `ensure_cluster`, `use_existing_cluster`, `load_images`, `delete_cluster`, `down_cluster` | 6 copies of create-if-absent + `KUBECONFIG=$(mktemp)` + `kind load` |
+| `release_version` | 4 copies of `python3 -c 'import json...'` — now `node`, which the plan builder already requires, so the second interpreter is gone |
+| `build_operator_images` | 5 copies |
+| `package_chart` | 4 copies (each call packages into its own empty dir) |
+| `build_pacto` | 4 copies |
+| `wait_ready`, `deploy_exists`, `wait_managed_ready`, `pacto_status`, `wait_pacto_status` | 4 + 3 copies of rollout and CR-condition polling |
+| `install_registry` | 2 byte-identical in-cluster registry manifests |
+| `trust_keypair` | 2 identical keygen + Secret blocks |
+| `push_bundle` | 2 copies + a variant |
+| `dump_diag`, `pf`, `keep_or_teardown`, `helm_teardown` | already single; moved unchanged |
+
+Scenario-specific orchestration stayed explicit in each harness: EXIT traps,
+fixtures, assertions, and the `up/status/logs/down` subcommands. No helper
+acquired a boolean parameter to serve two callers.
+
+**Shell retained, and why each is thin (`a882f8ed`).** All six Kind harnesses
+were audited individually; none was converted for uniformity.
+
+| Harness | Lines | Why shell is correct |
+|---|---|---|
+| `dashboard-modes.sh` | 152 -> 144 | four `helm upgrade --set` transitions and a pod/restart count; no semantic decoding |
+| `reconcile.sh` | 133 -> 121 | install, upgrade, `kubectl auth can-i`, uninstall; verdicts come from CR conditions |
+| `upgrade-v4-v5.sh` | 224 -> 211 | a real chart+CRD migration is a command sequence; the pinned `V4_DIGEST` fail-closed check is preserved |
+| `evidence.sh` | 324 -> 249 | lifecycle: PVC retention, restart recovery, disable/re-enable |
+| `observation.sh` | 410 -> 310 | mounts and Helm wiring; every semantic assertion now goes through `obscheck` |
+| `operational-graph.sh` | 369 -> 266 | brings the vertical up and hands off; every semantic assertion already went through `productready` |
+| `local/fleet-graph.sh` | 179 | builds two binaries, runs real CLI commands, greps their output |
+| `release/orchestrator/*.sh` | unchanged | real release tooling, untouched by Phase 8B |
+
+**Rewrites, and the invariant each preserves.**
+
+| Item | Preserved invariant |
+|---|---|
+| `obscheck/main.go` (440) + `main_test.go` (513), new | the eight observation claims, unchanged in meaning. They were ~90 lines of `python3` embedded as here-strings — untestable, so an assertion could stop asserting and only a passing cluster run would show it. Now a typed decode with a suite over recorded payloads. `grep -rn python3 tests/acceptance/` returns nothing. |
+| `scenario/scenario.go` (340) + `operationalgraph.go` (126) + `scenario_test.go` (343) + `project/main.go` (54), new | ONE declaration of the operational-graph fixture. Projections: `Materialize` (the four bundle heredocs), `TraceExport` (the OTLP literal — verified byte-identical to the shell it replaced), `FactCount` (the gate's denominator). Two claims got STRONGER: the export can no longer name a service the contract does not depend on, and the fact count tracks the scenario instead of a hand-written `14`. |
+| `productready/main.go` 641 -> 686, `main_test.go` 480 -> 557 | all 14 facts, the two-snapshot rule and the `adopt()` coherence logic are unchanged. Flags 17 -> 6; expectations now come from the scenario. `TestGateProvesWhatTheScenarioDeclares` mutation-checks the move with 7 scenario mutations that each must fail the gate. |
+| `e2e-live/fixture.ts`, `product-journeys.spec.ts`, `playwright.live.config.ts` | path references only; journeys A-H untouched |
+| `tests/release/stale_links_test.go` | fixture-path allowlist follows the move |
+| `Makefile`, `ci.mk`, `.github/workflows/ci.yml`, `CONTRIBUTING.md`, four docs pages | target/path renames with aliases per 12.5; workflow job ids untouched |
+
+**Coverage.** Semantic coverage is equal or greater everywhere. Nothing was
+removed. Two additions: `check_section_test.go` now actually runs (it sat in
+`tests/scripts/`, which no CI leg invoked), and `make test-integration` widened
+from `./tests/e2e/kind/productready/` to `./tests/acceptance/kind/...`, so
+`obscheck` is tested by construction.
