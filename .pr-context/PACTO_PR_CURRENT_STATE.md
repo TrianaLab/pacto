@@ -40,8 +40,13 @@ Commits appended on top of the reviewed HEAD `837ef8bb`, oldest first:
 
 - `6be8719b` — a cache inventory enumerates generations, not pathnames (blockers
   B6 and B7)
-- this document's own commit — persist the Phase-8 candidate after the seventh
-  narrow reopen, and record the TARGET-STATE additions
+- `6e3a3627` — persist the Phase-8 candidate after the seventh narrow reopen,
+  and record the TARGET-STATE additions
+- this document's own commit — record the check and thread state at `6e3a3627`
+
+Final SHA to verify: `6e3a3627` for the code and the CI matrix, then this
+document's commit for the record of it. Merge-base with `origin/main` is
+unchanged.
 
 Commits appended on top of the earlier reviewed HEAD `797a49b3`:
 
@@ -1298,12 +1303,46 @@ Phase 8 stays a CANDIDATE; only an independent review closes it.
   exercise changed beyond the cache readers already covered above, and
   `evidence` and `operational-graph` still cannot run here for the Docker
   Desktop containerd reason recorded at `ci.mk:88-90`. They run in CI.
-- PR at `6be8719b`: open, DRAFT, mergeable. `6be8719b` and this document's
-  commit are APPENDS on top of `837ef8bb`; no amend, no rebase, no force-push,
-  no history rewrite. Merge-base with `origin/main` is unchanged at
-  `a56b69e375f1881d645d3b39f3366f23398e72cf`.
-- GitHub CI and review-thread state at `6be8719b` are recorded below once the
-  run completes.
+- `6be8719b`, `6e3a3627` and this document's commit are APPENDS on top of
+  `837ef8bb`; no amend, no rebase, no force-push, no history rewrite.
+- GitHub CI at `6be8719b` did NOT finish: pushing this document's commit
+  `6e3a3627` cancelled it. `ci.yml` sets `cancel-in-progress` on
+  `pull_request`, so the second push superseded the first run mid-flight — 26
+  success, 9 cancelled (the six Kind shards, `dashboard-e2e`, `release-dry-run`,
+  `repowise`), 2 skipped, plus `CodeQL` and the `required` aggregate failing
+  BECAUSE of the cancellations. Nothing there failed on its own merits, and the
+  full matrix is recorded at the final SHA below instead.
+- GitHub CI at `6e3a3627`, the final SHA and the tree the reviewer should
+  verify: 39 check runs — 36 success, `build` and `auto-merge` skipped, `CodeQL`
+  failure. Every workflow green on `run_attempt=1`, no reruns: `changes`,
+  `ci-static`, `ci-gates`, `ci-engine`, `ci-oci`, `ci-dashboard`,
+  `ci-e2e-envtest`, `ci-integration-kubernetes`, `dashboard-e2e`,
+  `operator-build`, `artifact-drift`, `release-version-test`, `release-dry-run`,
+  `required`, `bundle`, `docs-check`, `repowise`, `validate`, and all six Kind
+  shards individually — `ci-e2e-kind (dashboard)`, `ci-e2e-kind (upgrade)`,
+  `ci-e2e-kind (reconcile)`, `ci-e2e-kind (evidence)`, `ci-e2e-kind
+  (observation)`, `ci-e2e-kind (operational-graph)`. The whole run is green
+  except the explicitly carried CodeQL check.
+- Security is green and stays a DIFFERENT claim from the CodeQL alert
+  attribution. The Security WORKFLOW succeeded: `Trivy`, `Trivy (image)`,
+  `govulncheck`, `govulncheck (Go)`, `PR security summary` and all four
+  `Analyze` jobs — `actions`, `go`, `javascript-typescript`, `python`. The
+  separate `CodeQL` CHECK, published by `github-advanced-security` rather than
+  by that workflow, reports "8 new alerts including 8 high severity security
+  vulnerabilities": the carried PR-ref path-expression findings on
+  `pkg/oci/cache.go`. That item stays OPEN below and is NOT closed by the green
+  Security workflow.
+- Review threads re-queried at `6e3a3627` (paginated, all 199 fetched): 199
+  total, 189 resolved, 10 unresolved — unchanged in every count from
+  `837ef8bb`. Six are `github-code-quality` comments on the GENERATED minified
+  Mermaid chunk `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`
+  (one "Superfluous trailing arguments", five "Useless assignment to local
+  variable"), unchanged because no authored frontend input changed and the
+  bundle was not rebuilt. Four are `github-advanced-security` CodeQL comments on
+  AUTHORED code at `pkg/oci/cache.go` lines 375, 394, 395 and 666 — the same
+  four findings, re-anchored by this iteration's edits to that file.
+- PR at `6e3a3627`: open, DRAFT, mergeable. Merge-base with `origin/main` is
+  still `a56b69e375f1881d645d3b39f3366f23398e72cf`.
 
 ### Sixth-reopen verification — self-reported at `b0020460`
 
