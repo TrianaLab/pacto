@@ -1,12 +1,19 @@
 // Command project renders the canonical acceptance scenario into the artifacts a
-// harness has to hand to a real cluster: the contract bundle directories it
-// publishes to the registry, and one OTLP export per observation source for the
-// operator to mount.
+// harness has to hand to a real cluster.
 //
 // It exists so the harness stops declaring the fixture. Bundles used to be
 // heredocs and the observation export a 200-character JSON literal on a kubectl
 // line, both of which had to agree by hand with the versions and source ids the
-// Product gate expected — and silently did not have to.
+// Product gate expected — and silently did not have to. The same was true one
+// level up, of which directory went to which repository, which revision was
+// deployed, and who signed what evidence about whom.
+//
+// Two subcommands, because a digest does not exist until the push has happened:
+//
+//	bundles  before the push: the bundle directories, the observation exports and
+//	         the execution plan naming everything the harness has to do with them
+//	cluster  after it: the Pacto CRs and the evidence payloads, pinned to the
+//	         digests the registry assigned
 package main
 
 import (
@@ -14,16 +21,35 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
 )
 
 func main() {
-	dir := flag.String("dir", "", "directory to render the fixture into")
-	domain := flag.String("domain", "", "OCI domain (registry host + org) the fixture publishes to")
-	flag.Parse()
-
+	if len(os.Args) < 2 {
+		exit(fmt.Errorf("usage: project bundles|cluster [flags]"))
+	}
 	s := scenario.OperationalGraph
+	switch os.Args[1] {
+	case "bundles":
+		bundles(s, os.Args[2:])
+	case "cluster":
+		cluster(s, os.Args[2:])
+	default:
+		exit(fmt.Errorf("unknown subcommand %q: expected bundles or cluster", os.Args[1]))
+	}
+}
+
+// bundles renders everything that exists before anything has been published.
+func bundles(s scenario.Scenario, argv []string) {
+	fs := flag.NewFlagSet("bundles", flag.ExitOnError)
+	dir := fs.String("dir", "", "directory to render the fixture into")
+	domain := fs.String("domain", "", "OCI domain (registry host + org) the fixture publishes to")
+	plan := fs.String("plan", "", "file to write the execution plan to")
+	mustParse(fs, argv)
+
 	if err := s.Materialize(*dir, *domain); err != nil {
 		exit(err)
 	}
@@ -35,16 +61,100 @@ func main() {
 		if err != nil {
 			exit(err)
 		}
-		path := filepath.Join(*dir, src.ID+".json")
-		if err := os.WriteFile(path, append(export, '\n'), 0o600); err != nil {
-			exit(err)
-		}
-		fmt.Printf("  observation source %s -> %s\n", src.ID, path)
+		write(filepath.Join(*dir, src.ID+".json"), export)
+		fmt.Printf("  observation source %s\n", src.ID)
 	}
 	for _, svc := range s.Services {
 		for _, rev := range svc.Revisions {
 			fmt.Printf("  %s %s -> %s\n", svc.Name, rev.Version, filepath.Join(*dir, rev.Dir))
 		}
+	}
+	body, err := s.Plan(*dir)
+	if err != nil {
+		exit(err)
+	}
+	if *plan == "" {
+		exit(fmt.Errorf("-plan is required: the harness reads the plan rather than restating it"))
+	}
+	write(*plan, body)
+	fmt.Printf("  plan -> %s\n", *plan)
+}
+
+// cluster renders the projections that need real digests.
+func cluster(s scenario.Scenario, argv []string) {
+	fs := flag.NewFlagSet("cluster", flag.ExitOnError)
+	dir := fs.String("dir", "", "directory the fixture was rendered into")
+	domain := fs.String("domain", "", "OCI domain (registry host + org) the fixture published to")
+	namespace := fs.String("namespace", "", "namespace to declare the Pacto CRs in")
+	crs := fs.String("crs", "", "file to write the Pacto custom resources to")
+	var digests digestMap
+	fs.Var(&digests, "digest", "a published digest, as service@version=sha256:...; repeatable")
+	mustParse(fs, argv)
+
+	if *crs == "" {
+		exit(fmt.Errorf("-crs is required: the harness applies the projected CRs rather than writing its own"))
+	}
+	body, err := s.PactoCRs(*namespace, *domain, digests)
+	if err != nil {
+		exit(err)
+	}
+	write(*crs, body)
+	fmt.Printf("  pacto CRs -> %s\n", *crs)
+
+	payloads, err := s.EvidencePayloads(*dir, *domain, digests)
+	if err != nil {
+		exit(err)
+	}
+	for _, path := range sorted(payloads) {
+		write(path, payloads[path])
+		fmt.Printf("  evidence payload -> %s\n", path)
+	}
+}
+
+// digestMap collects repeated -digest key=value flags. Explicit about a duplicate
+// key: two digests for one published revision means the caller lost track of
+// which push produced which, and silently keeping the last is how a CR ends up
+// pinned to the wrong content.
+type digestMap map[string]string
+
+func (d digestMap) String() string { return fmt.Sprintf("%v", map[string]string(d)) }
+
+func (d *digestMap) Set(v string) error {
+	key, digest, ok := strings.Cut(v, "=")
+	if !ok || key == "" || digest == "" {
+		return fmt.Errorf("expected service@version=digest, got %q", v)
+	}
+	if *d == nil {
+		*d = digestMap{}
+	}
+	if prior, dup := (*d)[key]; dup {
+		return fmt.Errorf("%s was already published as %s", key, prior)
+	}
+	(*d)[key] = digest
+	return nil
+}
+
+func sorted(m map[string][]byte) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func mustParse(fs *flag.FlagSet, argv []string) {
+	if err := fs.Parse(argv); err != nil {
+		exit(err)
+	}
+	if fs.NArg() > 0 {
+		exit(fmt.Errorf("%s takes no positional arguments, got %q", fs.Name(), fs.Arg(0)))
+	}
+}
+
+func write(path string, body []byte) {
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		exit(err)
 	}
 }
 

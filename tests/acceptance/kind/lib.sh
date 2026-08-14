@@ -28,7 +28,7 @@
 #   pacto_status NS NAME           the CR's contractStatus (empty while unset)
 #   wait_pacto_status NS NAME WANT poll for it, dumping the CR when it never lands
 #   install_registry               an in-cluster OCI registry, ready to push to
-#   trust_keypair PACTO_BIN        producer keypair + the Secret evidence mounts
+#   trust_keypair BIN [KEY] [PROD] producer keypair + the Secret evidence mounts
 #   push_bundle BIN PORT DIR REF   publish a bundle -> prints the manifest digest
 #   dump_diag NS                   best-effort diagnostics for a failed run
 #   pf LOCAL_PORT TARGET REMOTE    a port-forward that is already answering
@@ -220,13 +220,24 @@ YAML
   wait_ready pacto-registry 120s
 }
 
-# trust_keypair PACTO_BIN — a producer keypair plus the Secret the Evidence
-# Server mounts as its trust store. Prints the key directory; the private half
-# stays there for the caller to sign with.
+# trust_keypair PACTO_BIN [KEY_ID] [PRODUCER] — a producer keypair plus the
+# Secret the Evidence Server mounts as its trust store. Prints the key directory;
+# the private half stays there for the caller to sign with.
+#
+# The public key's FILENAME is the trust binding: `<producer>__<keyId>.pub`
+# authorizes exactly that producer, and a bare `<keyId>.pub` authorizes a producer
+# named after the key id. So the filename is read back off disk rather than
+# reconstructed here — reconstructing it is how a scenario ends up installing one
+# binding and signing under another, which the server rejects at ingestion with a
+# producer mismatch that says nothing about the cause.
 trust_keypair() {
+  local bin="$1" keyid="${2:-demo}" producer="${3:-}"
   local keydir; keydir="$(mktemp -d)"
-  "$1" evidence keygen --out "$keydir" --key-id demo >/dev/null
-  kubectl -n "$NS" create secret generic pacto-evidence-trust --from-file=demo.pub="$keydir/demo.pub" \
+  local -a args=(evidence keygen --out "$keydir" --key-id "$keyid")
+  [ -n "$producer" ] && args+=(--producer "$producer")
+  "$bin" "${args[@]}" >/dev/null
+  local pub; pub="$(ls "$keydir"/*.pub)"
+  kubectl -n "$NS" create secret generic pacto-evidence-trust --from-file="$(basename "$pub")=$pub" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   echo "$keydir"
 }

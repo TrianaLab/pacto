@@ -14,6 +14,17 @@
 # discovered keys, and the `browser` subcommand then runs the live Product
 # journeys in `pkg/dashboard/frontend/e2e-live/` against the same dashboard.
 #
+# WHAT the fixture is, this script does not know. `tests/acceptance/scenario`
+# declares it once and projects an execution plan; everything below reads that
+# plan and acts on it. No service name, repository, tag, port, source id, subject
+# or producer is written here — change one in the scenario and this script follows
+# without being edited. The plan is DATA, read field by field and validated: it is
+# never sourced and never evaluated.
+#
+# What stays here is what cannot exist before the run: the registry address kind
+# assigned, the digests the registry chose, forwarded ports, temp directories,
+# waiting, diagnostics and cleanup.
+#
 # Subcommands (driven by the Makefile aliases):
 #   (default) / up   build + provision + assert, then keep or tear down
 #   status           show component health for the running cluster
@@ -30,11 +41,26 @@ DEMO_NS=demo
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5601
 LOCAL_EV_PORT=8687
-# The observation source's identity, as the operator configures it and as the
-# Product must publish it. It names the export the scenario projector writes.
-OBS_SOURCE=orders-traces
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
+
+# plan_records KIND — every plan record of one kind, with the kind stripped, one
+# per line, fields still TAB-separated.
+#
+# The plan is read, not executed: a record can only ever become arguments to a
+# command, never a command. Callers split with IFS=$'\t' into named fields plus a
+# trailing catch-all and reject anything of the wrong arity, so a record that
+# grew or lost a field fails loudly instead of shifting every value left. Feed the
+# loop with `< <(plan_records ...)`, never a pipe — a pipe would run the body in a
+# subshell where `fail` exits nothing.
+plan_records() {
+  local kind="$1" line
+  while IFS= read -r line; do
+    case "$line" in
+      "$kind"$'\t'*) printf '%s\n' "${line#*$'\t'}" ;;
+    esac
+  done < "$PLAN"
+}
 
 CMD="${1:-run}"
 case "$CMD" in
@@ -76,121 +102,131 @@ kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/d
 echo "== an in-cluster OCI registry makes contract revisions resolvable =="
 install_registry
 
-echo "== trust store: a producer keypair -> a Secret the Evidence Server mounts =="
+echo "== project the fixture: bundles, observation exports and the execution plan =="
+# Everything the Product reasons about downstream is REAL published content, not a
+# synthesized shortcut: the external-evidence subject, TWO revisions of one service
+# that differ by exactly one deterministic semantic change, and a consumer revision
+# that DECLARES the dependency between them. The refs the cluster later stores are
+# the in-cluster ones; only the push hop goes through a forwarded port.
+#
+# The projector writes both the artifacts and the PLAN naming what to do with them.
+# The gate below reads the same declaration, so nothing about the fixture is
+# written down in two places that can quietly disagree.
 PACTO_BIN="$(build_pacto)"
-KEYDIR="$(trust_keypair "$PACTO_BIN")"
+BDIR="$(mktemp -d)"
+PLAN="$BDIR/plan.tsv"
+CRS="$BDIR/pactos.yaml"
+( cd "$ROOT" && go run ./tests/acceptance/scenario/project bundles \
+    -dir "$BDIR" -domain "${REG_HOST}/demo" -plan "$PLAN" )
+
+echo "== trust store: the declared producer's keypair -> a Secret evidence mounts =="
+# WHO signs is the scenario's to declare, and the trust store binds the key to
+# exactly that producer: sign as anyone else and ingestion rejects it.
+SIGN_PRODUCER=""; SIGN_KEY_ID=""; SIGN_EXTRA=""
+IFS=$'\t' read -r SIGN_PRODUCER SIGN_KEY_ID SIGN_EXTRA < <(plan_records signer) || true
+[ -n "$SIGN_PRODUCER" ] && [ -n "$SIGN_KEY_ID" ] && [ -z "$SIGN_EXTRA" ] \
+  || fail "the plan declares no usable signer"
+KEYDIR="$(trust_keypair "$PACTO_BIN" "$SIGN_KEY_ID" "$SIGN_PRODUCER")"
 
 echo "== publish the fixture's contract revisions to the in-cluster registry =="
-# Everything the Product reasons about downstream is REAL published content, not a
-# synthesized shortcut: the external-evidence subject (payments), TWO checkout
-# revisions that differ by exactly one deterministic semantic change, and an orders
-# revision that DECLARES the checkout dependency. The refs the cluster later stores
-# are the in-cluster ones; only this push hop goes through a forwarded port.
-#
-# WHAT is published is declared once, in tests/acceptance/scenario, and rendered
-# here — bundles and the observation export together. The gate below reads the
-# same value, so nothing about the fixture is written down in two places that can
-# quietly disagree.
-BDIR="$(mktemp -d)"
-( cd "$ROOT" && go run ./tests/acceptance/scenario/project -dir "$BDIR" -domain "${REG_HOST}/demo" )
-
 REG_PF="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
-push() { push_bundle "$PACTO_BIN" "$LOCAL_REG_PORT" "$@"; }
-DIGEST="$(push "$BDIR/payments" payments:1.0.0)"
-CHECKOUT_A="$(push "$BDIR/checkout-a" checkout:1.0.0)"
-CHECKOUT_B="$(push "$BDIR/checkout-b" checkout:1.1.0)"
-ORDERS_DIGEST="$(push "$BDIR/orders" orders:1.0.0)"
+DIGESTS=()
+while IFS=$'\t' read -r key dir ref extra; do
+  [ -n "$key" ] && [ -n "$dir" ] && [ -n "$ref" ] && [ -z "${extra:-}" ] \
+    || fail "malformed push record in $PLAN"
+  digest="$(push_bundle "$PACTO_BIN" "$LOCAL_REG_PORT" "$dir" "$ref")"
+  [ -n "$digest" ] || fail "could not push/resolve a digest for $key"
+  DIGESTS+=(-digest "${key}=${digest}")
+  pass "published $ref"
+done < <(plan_records push)
 kill "$REG_PF" 2>/dev/null || true
-for d in "$DIGEST" "$CHECKOUT_A" "$CHECKOUT_B" "$ORDERS_DIGEST"; do
-  [ -n "$d" ] || fail "could not push/resolve every contract digest"
-done
-pass "published payments, checkout 1.0.0, checkout 1.1.0 and orders"
-CONTRACT_REF="oci://${REG_HOST}/demo/payments@${DIGEST}"
+[ "${#DIGESTS[@]}" -gt 0 ] || fail "the plan declares nothing to publish"
 
-echo "== a managed observation source: the orders -> checkout call, exported offline =="
-# The declarative Phase-7 form: a named source the OPERATOR mounts read-only into
+echo "== project what needs real digests: the Pacto CRs and the evidence payloads =="
+( cd "$ROOT" && go run ./tests/acceptance/scenario/project cluster \
+    -dir "$BDIR" -domain "${REG_HOST}/demo" -namespace "$DEMO_NS" -crs "$CRS" "${DIGESTS[@]}" )
+
+echo "== managed observation sources: the declared calls, exported offline =="
+# The declarative Phase-7 form: named sources the OPERATOR mounts read-only into
 # the dashboard it manages. Not the ad-hoc positional --traces path — the Product
-# has to show this as a Data Source with this stable identity, and the export it
+# has to show each as a Data Source with this stable identity, and the export it
 # carries is the one the scenario derived from the declared edge, so observed and
 # declared cannot drift apart.
-kubectl -n "$NS" create configmap "pacto-${OBS_SOURCE}" --dry-run=client -o yaml \
-  --from-file="traces.json=$BDIR/${OBS_SOURCE}.json" \
-  | kubectl apply -f - >/dev/null
+obs_sets=()
+obs_i=0
+while IFS=$'\t' read -r source_id configmap file_key export_path extra; do
+  [ -n "$source_id" ] && [ -n "$configmap" ] && [ -n "$file_key" ] && [ -n "$export_path" ] && [ -z "${extra:-}" ] \
+    || fail "malformed observation record in $PLAN"
+  kubectl -n "$NS" create configmap "$configmap" --dry-run=client -o yaml \
+    --from-file="${file_key}=${export_path}" | kubectl apply -f - >/dev/null
+  obs_sets+=(--set "dashboard.observation.sources[${obs_i}].name=${source_id}"
+             --set "dashboard.observation.sources[${obs_i}].file=${file_key}"
+             --set "dashboard.observation.sources[${obs_i}].configMap=${configmap}")
+  obs_i=$((obs_i + 1))
+done < <(plan_records observation)
+[ "${#obs_sets[@]}" -gt 0 ] || fail "the plan declares no observation source"
 
+# The remaining --set values are this RUN's, not the fixture's: the image kind
+# just loaded, the registry it just brought up, the components under test. They
+# have one consumer and no counterpart in the scenario, so they stay here.
 common_sets=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
              --set dashboard.enabled=true --set evidence.enabled=true
              --set evidence.trust.existingSecret=pacto-evidence-trust
              --set "insecureRegistries[0]=${REG_HOST}"
-             --set "dashboard.observation.sources[0].name=${OBS_SOURCE}"
-             --set 'dashboard.observation.sources[0].file=traces.json'
-             --set "dashboard.observation.sources[0].configMap=pacto-${OBS_SOURCE}")
+             "${obs_sets[@]}")
 
 echo "== install the operator with the dashboard + Evidence Server enabled =="
 helm install pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeout 240s
 wait_managed_ready pacto-dashboard
 wait_managed_ready pacto-evidence
 
-echo "== declared services: two Pacto CRs the operator resolves FROM THE REGISTRY =="
-# Both CRs point at an immutable digest, so the operator publishes a real resolved
+echo "== declared services: the projected Pacto CRs, resolved FROM THE REGISTRY =="
+# Every CR points at an immutable digest, so the operator publishes a real resolved
 # contract identity in status and the dashboard reaches the same content back
-# through the registry. The running checkout is pinned to revision A while B is
-# published but deployed nowhere — which is what makes the A -> B change analysis
-# a real question about the fleet rather than a fixture.
+# through the registry. WHICH revision each one pins is the scenario's Deployed
+# flag, projected: a service can be published without being deployed anywhere,
+# which is what makes a change analysis a real question about the fleet rather
+# than a fixture.
+#
+# A workload whose contract declares a public interface needs a Service and a
+# binding, or the operator has nothing to observe interface availability against
+# and its only honest answer is Unknown. A declared port produces both; a zero
+# port is the scenario saying this workload is deliberately unexposed.
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-for svc in checkout orders; do
-  kubectl -n "$DEMO_NS" create deployment "$svc" --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+workloads=()
+while IFS=$'\t' read -r service deployment port extra; do
+  [ -n "$service" ] && [ -n "$deployment" ] && [ -n "$port" ] && [ -z "${extra:-}" ] \
+    || fail "malformed workload record in $PLAN"
+  kubectl -n "$DEMO_NS" create deployment "$deployment" --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+  kubectl -n "$DEMO_NS" rollout status "deployment/$deployment" --timeout=90s
+  [ "$port" = 0 ] \
+    || kubectl -n "$DEMO_NS" expose deployment "$deployment" --name="$deployment" --port="$port" >/dev/null 2>&1 || true
+  workloads+=("$service")
+done < <(plan_records workload)
+[ "${#workloads[@]}" -gt 0 ] || fail "the plan declares no workload to reconcile"
+kubectl apply -f "$CRS" >/dev/null
+# Compliant is this run's readiness barrier, not a fact under test: the gate below
+# re-derives every verdict from the live Product API. Waiting here only keeps the
+# gate from starting before the operator has reconciled anything.
+for service in "${workloads[@]}"; do
+  wait_pacto_status "$DEMO_NS" "$service" Compliant \
+    && pass "$service reconciled Compliant" || fail "$service did not reconcile"
 done
-kubectl -n "$DEMO_NS" rollout status deployment/checkout --timeout=90s
-kubectl -n "$DEMO_NS" rollout status deployment/orders --timeout=90s
-# checkout's contract declares a public interface, and interface availability is
-# ALWAYS a required assertion. Without a Service and a binding the operator has
-# nothing to observe it against, so the only honest answer it can give is Unknown.
-# A real install binds the interface to the port that serves it; the fixture does
-# the same, so checkout's Compliant verdict below is observed, not assumed.
-kubectl -n "$DEMO_NS" expose deployment checkout --name=checkout --port=8080 >/dev/null 2>&1 || true
-kubectl apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
-kind: Pacto
-metadata: { name: checkout, namespace: ${DEMO_NS} }
-spec:
-  checkIntervalSeconds: 30
-  contractRef:
-    oci: ${REG_HOST}/demo/checkout@${CHECKOUT_A}
-  target:
-    serviceName: checkout
-    workloadRef: {name: checkout, kind: Deployment}
-    interfaceBindings: [ {interface: api, servicePort: 8080} ]
----
-apiVersion: pacto.trianalab.io/v1alpha1
-kind: Pacto
-metadata: { name: orders, namespace: ${DEMO_NS} }
-spec:
-  checkIntervalSeconds: 30
-  contractRef:
-    oci: ${REG_HOST}/demo/orders@${ORDERS_DIGEST}
-  target: {workloadRef: {name: orders, kind: Deployment}}
-YAML
-wait_pacto_status "$DEMO_NS" checkout Compliant && pass "checkout reconciled Compliant" || fail "checkout did not reconcile"
-wait_pacto_status "$DEMO_NS" orders Compliant && pass "orders reconciled Compliant" || fail "orders did not reconcile"
 
-echo "== ingest a signed EvidenceEnvelope from a 'remote' environment (payments) =="
-cat > /tmp/og-ev.json <<JSON
-{
-  "Subject": { "kind": "service", "name": "payments" },
-  "ContractRef": "${CONTRACT_REF}",
-  "Source": "remote-eu",
-  "ObservedAt": "2026-07-29T12:00:00Z",
-  "Observations": [
-    { "kind": "WorkloadObserved", "subject": { "kind": "service", "name": "payments" },
-      "outcome": "Observed", "value": { "type": "service" },
-      "provenance": { "collector": "remote-eu", "detectedAt": "2026-07-29T12:00:00Z" } }
-  ]
-}
-JSON
-"$PACTO_BIN" evidence sign /tmp/og-ev.json --key "$KEYDIR/demo.key" --key-id demo --producer demo --sequence 1 --id og-1 > /tmp/og-env.json
+echo "== ingest the declared signed EvidenceEnvelopes from a 'remote' environment =="
+# The payloads were projected with the real published ContractRef; signing and
+# sending them is all that is left. Sequence numbers are producer-scoped and
+# strictly increasing, so they come from the plan rather than from a counter here.
 EV_PF="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"
-"$PACTO_BIN" evidence send /tmp/og-env.json --url "http://127.0.0.1:${LOCAL_EV_PORT}" >/dev/null 2>&1 \
-  && pass "payments evidence accepted" || fail "payments evidence not accepted"
+while IFS=$'\t' read -r subject payload sequence envelope_id extra; do
+  [ -n "$subject" ] && [ -n "$payload" ] && [ -n "$sequence" ] && [ -n "$envelope_id" ] && [ -z "${extra:-}" ] \
+    || fail "malformed evidence record in $PLAN"
+  "$PACTO_BIN" evidence sign "$payload" --key "$KEYDIR/${SIGN_KEY_ID}.key" \
+    --key-id "$SIGN_KEY_ID" --producer "$SIGN_PRODUCER" \
+    --sequence "$sequence" --id "$envelope_id" > "$BDIR/${envelope_id}.envelope.json"
+  "$PACTO_BIN" evidence send "$BDIR/${envelope_id}.envelope.json" --url "http://127.0.0.1:${LOCAL_EV_PORT}" >/dev/null 2>&1 \
+    && pass "$subject evidence accepted" || fail "$subject evidence not accepted"
+done < <(plan_records evidence)
 kill "$EV_PF" 2>/dev/null || true
 
 echo "== the live Product API proves the fixture is ready =="

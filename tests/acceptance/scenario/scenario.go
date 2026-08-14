@@ -12,9 +12,12 @@
 //
 // The scenario is DATA here, and each surface is a projection of it:
 //
-//	Materialize   the contract bundle directories the harness publishes
-//	TraceExport   the OTLP export the operator mounts as an observation source
-//	FactCount     how many Product facts this scenario obliges the gate to prove
+//	Materialize       the contract bundle directories the harness publishes
+//	TraceExport       the OTLP export the operator mounts as an observation source
+//	Plan              the machine-readable execution plan the shell harness consumes
+//	PactoCRs          the cluster projection of the deployed targets, once digests exist
+//	EvidencePayloads  the EvidenceSet each declared envelope carries
+//	FactCount         how many Product facts this scenario obliges the gate to prove
 //
 // The expected Product facts are not a separate document: they ARE the scenario.
 // A declared revision must be one canonical retrievable revision, a deployed one
@@ -34,9 +37,16 @@
 // this package's tests instead.
 //
 // Only projections with a consumer today exist. A Helm or Docker Compose
-// projection would be a sibling of Materialize over the same value. The cluster
-// projection of a target — the Pacto CR — deliberately stays in the harness: it
-// has to carry digests that exist only after the push, and it has one consumer.
+// projection would be a sibling of Materialize over the same value; the one-off
+// Helm values the harness sets for the operator image, the insecure registry and
+// the enabled components are NOT projected — they have one consumer and no
+// counterpart anywhere else in the fixture, so declaring them would be uniformity
+// for its own sake.
+//
+// Values that cannot exist before execution stay runtime inputs, passed in: the
+// registry address the harness happened to bring up, the digests the registry
+// assigned, forwarded ports and temporary directories. Everything a projection
+// needs beyond those is in this value.
 package scenario
 
 import (
@@ -75,7 +85,29 @@ type Service struct {
 	// through the Evidence Server: it carries no OCI revisions in the fleet and
 	// lands in whatever domain the evidence names, not the fixture's.
 	EvidenceOnly bool
-	Revisions    []Revision
+	// Workload is what the deployed revision runs as in the cluster. Nil means the
+	// service publishes revisions but nothing runs them, so no Deployment and no
+	// Pacto CR are projected for it.
+	Workload  *Workload
+	Revisions []Revision
+}
+
+// Workload is the cluster side of a deployed service: the Deployment the harness
+// creates and the target the Pacto CR points at. It is declared here so the CR is
+// a projection of this value rather than a YAML heredoc the shell maintains in
+// parallel with it.
+type Workload struct {
+	// Name is the Deployment, and the CR's target workloadRef name.
+	Name string
+	// Interface and Port bind one contract interface to the port that serves it.
+	// A zero Port means the workload is deliberately unexposed: no Service, no
+	// binding, and the operator's only honest answer about interface availability
+	// is Unknown.
+	//
+	// ponytail: one binding per workload. A second would be a slice; no fixture
+	// has needed one, and a slice of one is harder to read than a pair.
+	Interface string
+	Port      int
 }
 
 // Revision is one published version of a service.
@@ -127,14 +159,41 @@ type Relationship struct {
 	Reconciliation string
 }
 
-// Evidence is a target that arrives from a remote environment.
+// Evidence is a target that arrives from a remote environment over the Evidence
+// Server.
+//
+// Two identities meet here that a single "producer" field used to conflate, with
+// the harness quietly picking a third value for the one that reaches the wire:
+//
+//	Source  WHERE the observations were collected — the environment. It is
+//	        payload data: the EvidenceSet's Source and each observation's
+//	        collector.
+//	Signer  WHO signed the envelope. Producer is the id the envelope claims and
+//	        the trust store binds the key to; KeyID selects that key.
+//
+// They can be the same string and in this fixture they are not, which is the
+// point: the signed envelope now consumes both from here, so neither can be
+// declared and then contradicted.
 type Evidence struct {
 	// Service is the subject of the envelope.
 	Service string
-	// Producer is the environment that signed it.
-	Producer string
+	// Source is the environment the observations were collected in.
+	Source string
+	// Signer is the identity that signs the envelope carrying them.
+	Signer Signer
+	// ObservedAt is when the remote environment saw it, RFC3339.
+	ObservedAt string
 	// Via is the Data Source id the resulting target must be attributed to.
 	Via string
+}
+
+// Signer is a producer identity and the key it signs with. The trust store binds
+// the two: a public key filed under this producer authorizes exactly this
+// producer id, so signing with a producer nobody generated a key for is rejected
+// at ingestion rather than silently accepted.
+type Signer struct {
+	Producer string
+	KeyID    string
 }
 
 // Journey names the parts the browser suite drives, so the discovered-keys

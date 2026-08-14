@@ -45,6 +45,12 @@ paths: {}
 	}, {
 		Name: "checkout",
 		Repo: "checkout",
+		// checkout's contract declares a PUBLIC interface, and interface
+		// availability is always a required assertion. Without a Service and a
+		// binding the operator has nothing to observe it against, so the only
+		// honest verdict it could reach is Unknown. Declaring the port here is what
+		// makes checkout's Compliant observed rather than assumed.
+		Workload: &Workload{Name: "checkout", Interface: "api", Port: 8080},
 		Revisions: []Revision{{
 			Version:  "1.0.0",
 			Dir:      "checkout-a",
@@ -88,6 +94,9 @@ paths:
 	}, {
 		Name: "orders",
 		Repo: "orders",
+		// orders declares no public interface, so it runs unexposed: a Deployment
+		// and a CR target, no Service and no binding.
+		Workload: &Workload{Name: "orders"},
 		Revisions: []Revision{{
 			Version:  "1.0.0",
 			Dir:      "orders",
@@ -119,8 +128,14 @@ dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: f
 		Reconciliation: "matched",
 	}},
 	Evidence: []Evidence{{
-		Service:  "payments",
-		Producer: "remote-eu",
-		Via:      "evidence-http",
+		Service: "payments",
+		// The environment the observations were collected in, and — separately —
+		// the identity that signs the envelope carrying them. The trust store the
+		// harness installs binds the key to this producer, so an envelope claiming
+		// any other id is rejected at ingestion.
+		Source:     "remote-eu",
+		Signer:     Signer{Producer: "remote-eu-collector", KeyID: "demo"},
+		ObservedAt: "2026-07-29T12:00:00Z",
+		Via:        "evidence-http",
 	}},
 }
