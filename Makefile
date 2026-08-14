@@ -44,10 +44,14 @@ test:
 # for historical reasons only.
 test-integration:
 	go test -tags integration ./tests/integration/ -v -count=1 -parallel 16 -timeout 120s
-	# The kind acceptance gate is a Go program with its own tests, and it lives
-	# under /tests/ — which ci-test excludes. Without this line the gate that
-	# decides whether the live vertical passed is itself never tested.
-	go test ./tests/acceptance/kind/... -count=1 -timeout 120s
+	# The acceptance layer's own Go code — the scenario fixture every surface
+	# projects from, its projector, and the kind gates — lives under /tests/,
+	# which ci-test excludes. Without this line the declaration that decides what
+	# the live vertical must prove is itself never tested. The path is the whole
+	# subtree, not the gates alone: a sibling package added beside them was
+	# silently outside CI, which is exactly how the fixture's own tests came to
+	# never run.
+	go test -race ./tests/acceptance/... -count=1 -timeout 180s
 
 # Level 4 — local acceptance, cluster-free: builds pacto and drives the whole
 # fleet story end to end against local fixtures (graph, signed evidence
