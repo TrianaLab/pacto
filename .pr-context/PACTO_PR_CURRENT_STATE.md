@@ -1122,8 +1122,14 @@ close before Phase 9 or Phase 10 add their new acceptance harnesses.
 The independent review at `2126fdcc` accepted the taxonomy, the relocations, the
 Make/CI wiring, the shared Kind harness, `obscheck`, the Product gate, the
 browser split and the preserved acceptance coverage. It left two blockers, both
-now repaired; the narrow closure is recorded in section 12.7. Phase 8B stays a
-CANDIDATE until an independent review verifies those repairs.
+now repaired; the narrow closure is recorded in section 12.7.
+
+A second independent review, at `1a04807d`, accepted that closure and left two
+further blockers: a fixture declaring two deployed revisions was silently
+collapsed to the first by every surface, and the scenario package's own tests
+were reached by no target `make ci` depends on. Both are repaired; that closure
+is recorded in section 12.8. Phase 8B stays a CANDIDATE until an independent
+review verifies these repairs.
 
 Phase 8B additionally owns the canonical scenario/projection boundary added to
 TARGET section 1B ("Declarative > imperative"). TARGET Phase 10B — the canonical
@@ -2294,3 +2300,109 @@ final SHA.
 path-expression item, the generated Mermaid findings, Phase 9, Phase 10 and
 Phase 10B. Phase 8 remains ACCEPTED and CLOSED. Phase 8B remains a CANDIDATE
 pending independent verification of exactly these repairs.
+
+### 12.8 Narrow closure at `1a04807d` — two blockers, repaired
+
+A second independent Phase 8B review, at `1a04807d`, accepted the 12.7 closure
+and left exactly two blockers. Neither reopens Phase 8, the inventory, or any
+accepted relocation. Repaired append-only in three commits; nothing was amended,
+rebased or force-pushed.
+
+**What the review found.**
+
+*A — an ambiguous deployment was resolved, unanimously and in silence.*
+`Service.DeployedRevision` returned the FIRST revision flagged `Deployed`. Every
+surface called it independently and every surface therefore agreed: a fixture
+marking two revisions deployed produced a plan, a CR pinning the first, and a
+Product gate proving that same first one. The second deployment was erased with
+nothing disagreeing. Zero deployed revisions was the same failure from the other
+side — a CR that would pin nothing — caught only by `Plan`, so `PactoCRs` and the
+gate each resolved it their own way. And a service with no workload at all could
+carry a `Deployed` flag indefinitely: no projection asks a workload-less service
+what it deploys, so nothing ever looked.
+
+*B — the fixture's own tests were in no CI leg.* `ci-test` excludes `/tests/`.
+`test-integration` named `./tests/acceptance/kind/...` explicitly to keep the
+live gates tested, but `tests/acceptance/scenario` — the canonical declaration
+every surface projects from, plus `plan_test.go` beside it — sat one directory
+over, reached by no target `make ci` depends on. The 12.7 counterexamples had
+never executed in required CI.
+
+**The counterexample that passed on `1a04807d`.** Set both `checkout` 1.0.0 and
+1.1.0 to `Deployed: true`:
+
+| Surface | Behavior at `1a04807d` | Behavior now |
+|---|---|---|
+| `Scenario.Plan` | no error | refused: *declares 2 deployed revisions (1.0.0, 1.1.0)* |
+| `Scenario.PactoCRs` | no error; the emitted CR pins 1.0.0 | refused, same diagnostic |
+| `Scenario.Validate` | did not exist | refused before any projection runs |
+| Product gate | selected the first revision and accepted a target linked to it | refuses before it polls; `probe` reports rather than resolves |
+| `Scenario.FactCount` | counted a target per `Deployed` flag — two | counts a target per WORKLOAD — one |
+
+**The repairs.**
+
+| Commit | Scope |
+|---|---|
+| `6e287a4f` | blocker A: `DeployedRevision` returns `(Revision, error)`, `Scenario.Validate`, both projections, `FactCount`, the Product gate, the counterexamples |
+| `30535f43` | blocker B: `test-integration` runs `./tests/acceptance/...` under `-race` |
+| *(this commit)* | this ledger section |
+
+*Blocker A (`6e287a4f`).* One rule, enforced where the fixture is read, not once
+per caller. `DeployedRevision` now returns exactly one revision or an error
+naming both the count and the versions, so the value that was being chosen can no
+longer be chosen at all. `Scenario.Validate` runs that rule over every service
+and adds the case no projection asks about — a service with no workload that
+marks a revision deployed — because a projection only interrogates services it
+projects, and that is precisely how deployment semantics were acquired
+accidentally. `Plan` and `PactoCRs` both validate before projecting, so the two
+phases cannot disagree about whether the fixture is answerable. The gate
+validates before it polls and, inside `probe`, reports the error instead of
+swallowing it. `FactCount` derives its target count from `svc.Workload != nil`
+and never reads the flags: counting them would be the derivation resolving an
+ambiguity on its own — the thing `Validate` exists to stop — and would hand the
+gate a denominator no projection agreed to.
+
+Written test-first, and the tests were proved to bite by mutation rather than
+assumed to: relaxing `len(deployed) == 1` to `>= 1` fails
+`TestPlan_RefusesADeploymentThatCannotMeanOneThing/two_deployed_revisions...`,
+`TestDeployedRevision_IsExactlyOneOrAnError/two_deployed_revisions...`,
+`TestValidate_TheFixtureMeansOneThing/two_deployed_revisions` and
+`TestGateRefusesAnAmbiguousDeployment`; relaxing the workload-less branch fails
+the other two subtests. Both mutations were reverted.
+
+No fixture-validation framework was added. `Validate` is one loop over one rule;
+everything else the fixture must satisfy is already proved by the
+counterexamples beside it.
+
+*Blocker B (`30535f43`).* The narrowest change that fixes the class rather than
+the instance: the path widens from the two gate packages to the acceptance
+subtree, so `scenario` and `scenario/project` are in required CI by construction
+and so is any sibling added later — which is the failure that made this
+necessary. `-race` was added to match every other test level, and the timeout
+raised to suit it. `make ci` -> `ci-engine` -> `test-integration` is unchanged;
+no workflow job was added, and no existing leg was weakened or removed.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| `make -n ci-engine \| grep tests/acceptance` | `go test -race ./tests/acceptance/... -count=1 -timeout 180s` — the scenario package is inside `make ci` by construction |
+| `go test -race ./tests/acceptance/scenario/...` | ok — 29 tests, 25 subtests, across the deployment, `Validate`, plan, CR, payload and grammar suites |
+| focused adversarial run | all of `TestDeployedRevision_IsExactlyOneOrAnError` (6), `TestValidate_TheFixtureMeansOneThing` (4), `TestPlan_RefusesADeploymentThatCannotMeanOneThing` (3), `TestPactoCRs_FollowTheDeployedRevision`, `TestFactCount_TracksTheScenario` (7) pass |
+| `TestGateRefusesAnAmbiguousDeployment` | pass — a fully-passing product plus an ambiguous scenario yields problems, not facts |
+| mutation run (both relaxations) | exactly the intended failures, listed above; reverted |
+| `go test -race ./tests/acceptance/...` | ok (`obscheck`, `productready`, `scenario`) |
+| `make test-integration` | ok — integration 65.8s, then the acceptance subtree under `-race` |
+| `make ci` | exit 0; total coverage 100.0%; the acceptance subtree runs inside it |
+| `make artifact-drift` | `artifact-drift: OK` |
+| `make release-dry-run` | `RELEASE-DRY-RUN OK` — real artifacts to `localhost:5001`, digest idempotency + immutability + resume proven, `K8S-MODULE-STANDALONE OK` |
+| `make test-browser` (offline WASM) | 219 passed, exit 0 — the same full deterministic suite recorded in 12.7 |
+| GitHub CI at the final SHA | RESULT_GH_CI |
+| GitHub Security at the final SHA | RESULT_GH_SEC |
+
+**Out of scope and untouched by this repair:** everything 12.7 lists — the
+carried CodeQL path-expression item, the generated Mermaid findings, Phase 9,
+Phase 10 and Phase 10B — plus TARGET itself, which is unmodified. The Go 1.26.6
+bump and its history stand as recorded in 12.7. Phase 8 remains ACCEPTED and
+CLOSED. Phase 8B remains a CANDIDATE: this section records a repair, not a
+closure, and an independent review has not yet verified it.
