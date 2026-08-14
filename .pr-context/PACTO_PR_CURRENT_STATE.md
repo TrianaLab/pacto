@@ -2071,7 +2071,7 @@ one.
 
 ### 12.6 Disposition AS EXECUTED
 
-Five appended commits, oldest first. Every path that moved, was rewritten or
+Appended commits, oldest first. Every path that moved, was rewritten or
 disappeared is accounted for below; nothing changed that is not in a row.
 
 | Commit | Scope |
@@ -2081,6 +2081,13 @@ disappeared is accounted for below; nothing changed that is not in a row.
 | `a9943c9d` | the embedded `python3` observation assertions become `tests/acceptance/kind/obscheck` |
 | `174d41a7` | the canonical declarative scenario, `tests/acceptance/scenario` |
 | `5d98222e` | the durable `docs/maintainers/testing.md` + nav entry |
+| `cf75e5ea` | this section |
+| `8a68ef1c` | verification fix: `ineffassign` on `obscheck`'s unreachable first timeout report (`ci-lint`) |
+| `e1a73567` | verification fix: `fleet-graph.sh` moved one level deeper, so its `ROOT` resolved to `tests/` (`test-acceptance-local`) |
+
+The last two are the matrix doing its job on the move itself: the relocation
+changed a script's depth and the rewrite left a dead initializer, and both were
+caught by `make ci` before the push rather than by a reviewer.
 
 **Relocations (`66d39eb2`).** Git recorded them as renames, so history follows
 the files.
