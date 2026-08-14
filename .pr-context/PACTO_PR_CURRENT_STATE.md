@@ -2397,8 +2397,11 @@ no workflow job was added, and no existing leg was weakened or removed.
 | `make artifact-drift` | `artifact-drift: OK` |
 | `make release-dry-run` | `RELEASE-DRY-RUN OK` — real artifacts to `localhost:5001`, digest idempotency + immutability + resume proven, `K8S-MODULE-STANDALONE OK` |
 | `make test-browser` (offline WASM) | 219 passed, exit 0 — the same full deterministic suite recorded in 12.7 |
-| GitHub CI at the final SHA | RESULT_GH_CI |
-| GitHub Security at the final SHA | RESULT_GH_SEC |
+| GitHub CI at `bf0b932e` (run 31806146823) | success — every job, including all six `ci-e2e-kind` shards (`operational-graph`, `dashboard`, `evidence`, `observation`, `reconcile`, `upgrade`), `dashboard-e2e`, `artifact-drift`, `release-dry-run`, `ci-e2e-envtest`, `ci-integration-kubernetes`, `release-version-test` |
+| `required` at `bf0b932e` | SUCCESS |
+| GitHub Security at `bf0b932e` (run 31806146827) | success — `govulncheck (Go)`, `Trivy (image)`, `PR security summary` |
+| Docs check / Pacto Contract CI / Validate PR title / Repowise at `bf0b932e` | success |
+| CodeQL at `bf0b932e` | failure, unchanged and carried: the same 8 high `go/path-injection` alerts in `internal/app/resolve.go` and `pkg/oci/cache.go`, byte-identical to `1a04807d`. Neither file is touched by these commits; `required` does not include CodeQL |
 
 **Out of scope and untouched by this repair:** everything 12.7 lists — the
 carried CodeQL path-expression item, the generated Mermaid findings, Phase 9,
