@@ -326,6 +326,33 @@ func TestGateProvesWhatTheScenarioDeclares(t *testing.T) {
 	}
 }
 
+// A scenario that cannot say which revision is running must not be EVALUATED at
+// all, however healthy the product is.
+//
+// The gate reads which revision must be running out of the scenario. Two
+// revisions flagged Deployed has no answer to that — and the first-match scan
+// answered anyway, proving a target against checkout 1.0.0 while the declared
+// deployment of 1.1.0 went unmentioned by the gate, the plan and the applied CR
+// alike. The product served below is the fully passing one, so the declaration
+// is the only thing wrong; a pass here would be the gate certifying a fixture
+// half of which it had silently discarded.
+func TestGateRefusesAnAmbiguousDeployment(t *testing.T) {
+	scn := cloneScenario(scenario.OperationalGraph)
+	scn.Services[1].Revisions[0].Deployed = true
+	scn.Services[1].Revisions[1].Deployed = true
+
+	keys, problems := newProberFor(t, &fakeProduct{}, 1, scn).run(io.Discard)
+	if len(problems) == 0 {
+		t.Fatal("the gate proved a fixture that declares two deployed revisions of one service")
+	}
+	if !containsSubstring(problems, "exactly one") {
+		t.Errorf("problems do not name the ambiguous declaration: %v", problems)
+	}
+	if keys != (discovered{}) {
+		t.Errorf("an ambiguous scenario emitted fixture keys: %+v", keys)
+	}
+}
+
 func cloneScenario(s scenario.Scenario) scenario.Scenario {
 	s.Sources = append([]scenario.Source(nil), s.Sources...)
 	s.Relationships = append([]scenario.Relationship(nil), s.Relationships...)

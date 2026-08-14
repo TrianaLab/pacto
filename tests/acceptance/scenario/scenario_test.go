@@ -196,12 +196,17 @@ func TestFactCount_TracksTheScenario(t *testing.T) {
 		}, 1},
 		{"an evidence-only service carries no revision or target facts", func(s *Scenario) {
 			s.Services = append(s.Services, Service{Name: "x", EvidenceOnly: true,
+				Workload:  &Workload{Name: "x"},
 				Revisions: []Revision{{Version: "1.0.0", Deployed: true}}})
 		}, 0},
-		{"a deployed revision owes a revision fact and a target fact", func(s *Scenario) {
-			s.Services = append(s.Services, Service{Name: "x",
+		{"a running workload owes a revision fact and a target fact", func(s *Scenario) {
+			s.Services = append(s.Services, Service{Name: "x", Workload: &Workload{Name: "x"},
 				Revisions: []Revision{{Version: "1.0.0", Deployed: true}}})
 		}, 2},
+		{"a service that runs nothing owes only its revision fact", func(s *Scenario) {
+			s.Services = append(s.Services, Service{Name: "x",
+				Revisions: []Revision{{Version: "1.0.0"}}})
+		}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := OperationalGraph
@@ -242,8 +247,8 @@ func TestScenario_IsSelfConsistent(t *testing.T) {
 	// The browser journeys drive a change analysis, which needs a provider with
 	// one deployed revision and one published-but-undeployed alternative.
 	provider := mustExist(t, s, s.Journey.Provider)
-	if _, ok := provider.DeployedRevision(); !ok {
-		t.Errorf("journey provider %s runs nothing, so it has no operational target to open", provider.Name)
+	if _, err := provider.DeployedRevision(); err != nil {
+		t.Errorf("journey provider %s has no operational target to open: %v", provider.Name, err)
 	}
 	if _, ok := provider.PublishedOnlyRevision(); !ok {
 		t.Errorf("journey provider %s has no undeployed revision, so there is no change to analyse", provider.Name)
@@ -276,8 +281,97 @@ func TestSourceID_AndServiceLookupsMiss(t *testing.T) {
 	if _, ok := empty.PublishedOnlyRevision(); ok {
 		t.Error("a fully deployed service reported an undeployed revision")
 	}
-	if _, ok := (Service{}).DeployedRevision(); ok {
-		t.Error("a service with no revisions reported a deployed one")
+}
+
+// Deployed is only meaningful against a Workload, and a workload runs EXACTLY
+// one revision. Both halves fail here, in the one accessor every surface reads,
+// rather than in whichever of them happens to consume the fixture first.
+func TestDeployedRevision_IsExactlyOneOrAnError(t *testing.T) {
+	runs := &Workload{Name: "x"}
+	for _, tc := range []struct {
+		name string
+		svc  Service
+		want string
+	}{{
+		name: "one deployed revision is the one that runs",
+		svc: Service{Name: "x", Workload: runs, Revisions: []Revision{
+			{Version: "1.0.0", Deployed: true}, {Version: "1.1.0"}}},
+	}, {
+		name: "the flag is read, not the position",
+		svc: Service{Name: "x", Workload: runs, Revisions: []Revision{
+			{Version: "0.9.0"}, {Version: "1.0.0", Deployed: true}}},
+	}, {
+		name: "a workload that deploys nothing",
+		svc:  Service{Name: "x", Workload: runs, Revisions: []Revision{{Version: "1.0.0"}}},
+		want: "deploys no revision",
+	}, {
+		name: "two deployed revisions name both, and choose neither",
+		svc: Service{Name: "x", Workload: runs, Revisions: []Revision{
+			{Version: "1.0.0", Deployed: true}, {Version: "1.1.0", Deployed: true}}},
+		want: "1.0.0, 1.1.0",
+	}, {
+		name: "a service that runs nothing has no deployed revision to return",
+		svc:  Service{Name: "x", Revisions: []Revision{{Version: "1.0.0", Deployed: true}}},
+		want: "runs no workload",
+	}, {
+		name: "and neither has an empty one",
+		svc:  Service{Name: "x"},
+		want: "runs no workload",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			rev, err := tc.svc.DeployedRevision()
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("DeployedRevision: %v", err)
+				}
+				if rev.Version != "1.0.0" {
+					t.Errorf("deployed revision = %q, want 1.0.0", rev.Version)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %v, want an error mentioning %q", err, tc.want)
+			}
+			if rev.Version != "" {
+				t.Errorf("a refused declaration still yielded revision %q", rev.Version)
+			}
+		})
+	}
+}
+
+// Validate is the rule every surface reads the fixture through. The canonical
+// fixture must satisfy it, and a fixture that cannot mean one thing must not
+// reach any projection — including the surfaces that never call DeployedRevision
+// for the offending service, which is how a workload-less "deployment" used to
+// pass the projections and still oblige the gate to find a target for it.
+func TestValidate_TheFixtureMeansOneThing(t *testing.T) {
+	if err := OperationalGraph.Validate(); err != nil {
+		t.Fatalf("the canonical fixture is not valid: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		svc  Service
+		want string
+	}{
+		{"two deployed revisions", Service{Name: "x", Workload: &Workload{Name: "x"},
+			Revisions: []Revision{{Version: "1.0.0", Deployed: true}, {Version: "1.1.0", Deployed: true}}},
+			"exactly one"},
+		{"nothing deployed", Service{Name: "x", Workload: &Workload{Name: "x"},
+			Revisions: []Revision{{Version: "1.0.0"}}}, "deploys no revision"},
+		{"a deployment nothing runs", Service{Name: "x",
+			Revisions: []Revision{{Version: "1.0.0", Deployed: true}}}, "runs no workload"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := OperationalGraph
+			s.Services = append(append([]Service(nil), s.Services...), tc.svc)
+			err := s.Validate()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Validate = %v, want an error mentioning %q", err, tc.want)
+			}
+			if err != nil && !strings.Contains(err.Error(), s.Name) {
+				t.Errorf("the error does not name the scenario it rejects: %v", err)
+			}
+		})
 	}
 }
 

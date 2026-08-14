@@ -79,6 +79,13 @@ func main() {
 	if *snapshots < 1 {
 		exit("-snapshots must be at least 1")
 	}
+	// A fixture that cannot mean one thing is refused BEFORE the poll. The facts
+	// below would refuse it too, but only after burning the whole timeout on a
+	// cluster that was never going to satisfy a contradiction — reporting it as a
+	// product that never converged rather than as the declaration it is.
+	if err := scenario.OperationalGraph.Validate(); err != nil {
+		exit(err.Error())
+	}
 
 	p := &prober{
 		base:      strings.TrimSuffix(*base, "/"),
@@ -363,9 +370,20 @@ func (p *prober) probe() (discovered, []string) {
 		for _, rev := range svc.Revisions {
 			revKey[svc.Name+"@"+rev.Version] = p.revisionKey(svcKey[svc.Name], rev.Version)
 		}
-		if rev, ok := svc.DeployedRevision(); ok {
-			tgtKey[svc.Name] = p.runningTarget(svcKey[svc.Name], revKey[svc.Name+"@"+rev.Version])
+		// A target is owed by RUNNING something. Which revision it must link to is
+		// then a question the scenario has to have exactly one answer to: a service
+		// declaring two deployed revisions is a fixture the gate cannot evaluate, and
+		// proving a target against whichever came first would be the gate certifying
+		// half a declaration it had quietly discarded the rest of.
+		if svc.Workload == nil {
+			continue
 		}
+		rev, err := svc.DeployedRevision()
+		if err != nil {
+			p.failf("%v", err)
+			continue
+		}
+		tgtKey[svc.Name] = p.runningTarget(svcKey[svc.Name], revKey[svc.Name+"@"+rev.Version])
 	}
 
 	// Facts 10-12: declared, observed, and reconciled as one edge.
@@ -617,10 +635,14 @@ func (p *prober) evidenceTarget(serviceKey, via string) string {
 func (p *prober) journeyInput(svcKey, revKey, tgtKey, evTgtKey map[string]string) discovered {
 	provider, _ := p.scn.Service(p.scn.Journey.Provider)
 	consumer, _ := p.scn.Service(p.scn.Journey.Consumer)
-	revA, _ := provider.DeployedRevision()
 	revB, _ := provider.PublishedOnlyRevision()
-	consumerRev, _ := consumer.DeployedRevision()
 	external := p.scn.Journey.External
+	// The handoff names a running revision on each side, so it asks the same
+	// question the target checks did and must fail the same way. An unanswerable
+	// declaration cannot be reduced here to an empty version the browser would then
+	// go looking for a picker option under.
+	revA := p.journeyRevision(provider)
+	consumerRev := p.journeyRevision(consumer)
 
 	return discovered{
 		Domain:            p.domain,
@@ -643,6 +665,17 @@ func (p *prober) journeyInput(svcKey, revKey, tgtKey, evTgtKey map[string]string
 		ObservationSource: p.scn.SourceID(scenario.SourceObservation),
 		EvidenceSource:    p.scn.SourceID(scenario.SourceEvidence),
 	}
+}
+
+// journeyRevision is the running revision of one part of the journey. It reports
+// rather than swallows, because the parts are named by the scenario's Journey and
+// nothing guarantees the loop above visited every one of them.
+func (p *prober) journeyRevision(svc scenario.Service) scenario.Revision {
+	rev, err := svc.DeployedRevision()
+	if err != nil {
+		p.failf("the browser handoff cannot name a running revision: %v", err)
+	}
+	return rev
 }
 
 func hasSource(p fleet.ObservationSourcesPreview, id string) bool {

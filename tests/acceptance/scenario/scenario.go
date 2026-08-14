@@ -227,14 +227,85 @@ func (s Scenario) SourceID(kind SourceKind) string {
 	return ""
 }
 
-// DeployedRevision returns the revision a workload runs, if any.
-func (svc Service) DeployedRevision() (Revision, bool) {
-	for _, r := range svc.Revisions {
-		if r.Deployed {
-			return r, true
+// Validate refuses a fixture that cannot mean one thing.
+//
+// One rule, because one rule is what the surfaces disagreed about: Deployed
+// means "the workload runs THIS". A service that runs something declares exactly
+// one deployed revision; a service that runs nothing declares none.
+//
+// It is called by the projections and by the Product gate rather than left to
+// DeployedRevision alone, because a surface only asks about the services it
+// projects. Nothing asks a workload-less service what it deploys — so a Deployed
+// flag on one used to sail through every projection untouched while still
+// obliging the gate to find an operational target for a service the cluster had
+// no reason to run.
+//
+// ponytail: one rule, checked where the fixture is read. Not a validation
+// framework — everything else this fixture must satisfy is already proved by the
+// counterexamples beside it.
+func (s Scenario) Validate() error {
+	for _, svc := range s.Services {
+		if svc.Workload != nil {
+			if _, err := svc.DeployedRevision(); err != nil {
+				return fmt.Errorf("scenario %s: %w", s.Name, err)
+			}
+			continue
+		}
+		if deployed := svc.deployedRevisions(); len(deployed) > 0 {
+			return fmt.Errorf("scenario %s: service %s runs no workload but marks %s deployed; nothing would run it, and no CR would ever pin it",
+				s.Name, svc.Name, versionsOf(deployed))
 		}
 	}
-	return Revision{}, false
+	return nil
+}
+
+// DeployedRevision returns the ONE revision the service's workload runs.
+//
+// This used to be a scan returning the first revision flagged Deployed, and
+// every surface ran it independently: a fixture declaring two deployments got a
+// plan, a CR pinning the first and a gate proving that same first one — the
+// second deployment erased, unanimously and in silence. Zero is the same failure
+// from the other side: a CR that pins nothing. Neither is a revision this can
+// return, so both are errors.
+//
+// Whether the service is deployed AT ALL is Workload, not this. A service that
+// runs nothing has no deployed revision, so asking is the caller skipping its own
+// Workload check, and the honest answer is an error rather than a zero Revision
+// that reads like an answer.
+func (svc Service) DeployedRevision() (Revision, error) {
+	deployed := svc.deployedRevisions()
+	switch {
+	case svc.Workload == nil:
+		return Revision{}, fmt.Errorf("service %s runs no workload, so no revision of it is deployed", svc.Name)
+	case len(deployed) == 1:
+		return deployed[0], nil
+	case len(deployed) == 0:
+		return Revision{}, fmt.Errorf("service %s declares a workload but deploys no revision, so its CR would pin nothing", svc.Name)
+	default:
+		return Revision{}, fmt.Errorf("service %s declares %d deployed revisions (%s); a workload runs exactly one, and pinning either would erase the other",
+			svc.Name, len(deployed), versionsOf(deployed))
+	}
+}
+
+// deployedRevisions is every revision the service flags Deployed.
+func (svc Service) deployedRevisions() []Revision {
+	var out []Revision
+	for _, r := range svc.Revisions {
+		if r.Deployed {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// versionsOf names revisions in a diagnostic, so a refusal says WHICH
+// declarations contradict each other rather than only how many.
+func versionsOf(revs []Revision) string {
+	out := make([]string, len(revs))
+	for i, r := range revs {
+		out[i] = r.Version
+	}
+	return strings.Join(out, ", ")
 }
 
 // PublishedOnlyRevision returns a revision that exists in the registry but runs
@@ -264,7 +335,11 @@ func (s Scenario) FactCount() int {
 			continue
 		}
 		n += len(svc.Revisions) // one canonical, exact, retrievable revision each
-		if _, ok := svc.DeployedRevision(); ok {
+		// A target is owed by RUNNING something, not by a Deployed flag. Counting
+		// the flags would be this derivation resolving an ambiguous declaration on
+		// its own — the thing Validate exists to stop — and it would hand the gate a
+		// denominator no projection agreed to.
+		if svc.Workload != nil {
 			n++ // exactly one operational target, linking exactly to it
 		}
 	}

@@ -90,6 +90,9 @@ func (s Scenario) Plan(dir string) ([]byte, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("scenario %s: no output directory to plan against", s.Name)
 	}
+	if err := s.Validate(); err != nil {
+		return nil, err
+	}
 	var b planBuilder
 	for _, svc := range s.Services {
 		for _, rev := range svc.Revisions {
@@ -98,10 +101,10 @@ func (s Scenario) Plan(dir string) ([]byte, error) {
 		if svc.Workload == nil {
 			continue
 		}
-		if _, ok := svc.DeployedRevision(); !ok {
-			return nil, fmt.Errorf("scenario %s: service %s declares a workload but deploys no revision, so its CR would pin nothing",
-				s.Name, svc.Name)
-		}
+		// The plan says WHAT runs, never which revision it runs: that is the CR's
+		// business, after the push. So a workload record is identical whichever
+		// revision the fixture deploys, and moving the deployment cannot reach the
+		// shell at all.
 		b.add(RecordWorkload, svc.Name, svc.Workload.Name, strconv.Itoa(svc.Workload.Port))
 	}
 	for _, src := range s.Sources {
@@ -198,6 +201,9 @@ func (s Scenario) PactoCRs(namespace, domain string, digests map[string]string) 
 	if namespace == "" || domain == "" {
 		return nil, fmt.Errorf("scenario %s: a Pacto CR needs both a namespace and an OCI domain", s.Name)
 	}
+	if err := s.Validate(); err != nil {
+		return nil, err
+	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -205,9 +211,9 @@ func (s Scenario) PactoCRs(namespace, domain string, digests map[string]string) 
 		if svc.Workload == nil {
 			continue
 		}
-		rev, ok := svc.DeployedRevision()
-		if !ok {
-			return nil, fmt.Errorf("scenario %s: service %s declares a workload but deploys no revision", s.Name, svc.Name)
+		rev, err := svc.DeployedRevision()
+		if err != nil {
+			return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
 		}
 		ref, err := s.digestRef(svc, rev, domain, digests)
 		if err != nil {

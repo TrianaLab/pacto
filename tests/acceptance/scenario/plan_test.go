@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -135,17 +136,32 @@ func TestPlan_FollowsTheDeclaredVersion(t *testing.T) {
 }
 
 // Which revision runs is the whole point of the fixture: checkout is published
-// twice and deployed once, so moving the flag has to move the applied CR.
+// twice and deployed once, so moving the flag has to move the applied CR — and
+// nothing else. What the harness PUBLISHES and RUNS is the same either way, so a
+// plan that moved with the flag would mean deployment had leaked into the shell's
+// half of the fixture, where the scenario can no longer be the one authority on it.
 func TestPactoCRs_FollowTheDeployedRevision(t *testing.T) {
-	before := projection(t, OperationalGraph)
-	after := projection(t, mutate(func(s *Scenario) {
+	flip := func(s *Scenario) {
 		revs := declared(s, "checkout").Revisions
 		revs[0].Deployed, revs[1].Deployed = false, true
-	}))
+	}
+	before := projection(t, OperationalGraph)
+	after := projection(t, mutate(flip))
 	moved(t, before, after, "checkout@sha256:checkout-1.0.0", "checkout@sha256:checkout-1.1.0")
 	// Both revisions are still published — only the deployment moved.
 	if !strings.Contains(after, "\tcheckout:1.0.0\n") {
 		t.Error("checkout 1.0.0 stopped being published when it stopped being deployed")
+	}
+	planBefore, err := OperationalGraph.Plan("/out")
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	planAfter, err := mutate(flip).Plan("/out")
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if !bytes.Equal(planBefore, planAfter) {
+		t.Errorf("moving the deployment moved the shell's plan too:\n%s---\n%s", planBefore, planAfter)
 	}
 }
 
@@ -251,19 +267,59 @@ func TestPlan_NeedsSomewhereToRenderInto(t *testing.T) {
 	}
 }
 
-// A workload is the promise that something runs; a CR pinning nothing is the
-// fixture contradicting itself.
-func TestPlan_RefusesAWorkloadThatDeploysNothing(t *testing.T) {
-	s := mutate(func(s *Scenario) {
-		for i := range declared(s, "orders").Revisions {
-			declared(s, "orders").Revisions[i].Deployed = false
-		}
-	})
-	if _, err := s.Plan("/out"); err == nil || !strings.Contains(err.Error(), "deploys no revision") {
-		t.Errorf("Plan accepted a workload with nothing deployed: %v", err)
-	}
-	if _, err := s.PactoCRs("demo", domain, digestsFor(s)); err == nil {
-		t.Error("PactoCRs projected a CR pinning nothing")
+// Deployed is the fixture saying "the workload runs THIS". A declaration that
+// cannot mean exactly that has to be refused by every projection, because each
+// one used to resolve it independently by taking the FIRST revision flagged
+// Deployed — the plan, the CR the harness applies and the Product gate all
+// agreeing on one side of a contradiction and erasing the other without a word.
+//
+// Both projections are asserted for every case: a rule enforced in one of them
+// is a rule the other can be reached around.
+func TestPlan_RefusesADeploymentThatCannotMeanOneThing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		f    func(*Scenario)
+		want string
+	}{{
+		// A workload is the promise that something runs; a CR pinning nothing is the
+		// fixture contradicting itself.
+		name: "a workload that deploys nothing would pin nothing",
+		f: func(s *Scenario) {
+			for i := range declared(s, "orders").Revisions {
+				declared(s, "orders").Revisions[i].Deployed = false
+			}
+		},
+		want: "deploys no revision",
+	}, {
+		// The counterexample. Both checkout revisions deployed: the scan returned
+		// 1.0.0, so the plan, the CR and the gate silently agreed on it and the
+		// second declared deployment simply ceased to exist.
+		name: "two deployed revisions would erase one another",
+		f: func(s *Scenario) {
+			revs := declared(s, "checkout").Revisions
+			revs[0].Deployed, revs[1].Deployed = true, true
+		},
+		want: "exactly one",
+	}, {
+		// Deployed on a service that runs nothing is deployment semantics acquired
+		// by accident: no CR would ever pin it, and the gate would sit out its whole
+		// timeout waiting for an operational target the cluster has no reason to
+		// produce.
+		name: "a service that runs nothing cannot deploy anything",
+		f: func(s *Scenario) {
+			declared(s, "payments").Revisions[0].Deployed = true
+		},
+		want: "runs no workload",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := mutate(tc.f)
+			if _, err := s.Plan("/out"); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Plan accepted it: %v", err)
+			}
+			if _, err := s.PactoCRs("demo", domain, digestsFor(s)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("PactoCRs accepted it: %v", err)
+			}
+		})
 	}
 }
 
@@ -297,7 +353,10 @@ func TestPactoCRs_DeclareEveryRunningWorkloadAndOnlyThose(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s runs a workload but was given no CR", svc.Name)
 		}
-		rev, _ := svc.DeployedRevision()
+		rev, err := svc.DeployedRevision()
+		if err != nil {
+			t.Fatalf("%s runs a workload but has no one deployed revision: %v", svc.Name, err)
+		}
 		if want := domain + "/" + svc.Repo + "@sha256:" + svc.Name + "-" + rev.Version; cr.Spec.ContractRef.OCI != want {
 			t.Errorf("%s pins %q, want %q", svc.Name, cr.Spec.ContractRef.OCI, want)
 		}
