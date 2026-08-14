@@ -7,7 +7,7 @@
 # emulation for the non-native arch — the arm64 build was the multi-arch release
 # pole. The distroless/static runtime stage has no RUN, so nothing executes under the
 # target platform. Matches the root Dockerfile's cross-compile pattern.
-FROM --platform=$BUILDPLATFORM golang:1.26.5 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.6 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
