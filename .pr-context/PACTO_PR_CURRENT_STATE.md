@@ -1114,10 +1114,16 @@ Verification for this candidate is in section 8. Still disclosed and out of
 scope: the CodeQL PR-ref findings and the Evidence Server read-only-cache
 warning.
 
-### Phase 8B — ACTIVE
+### Phase 8B — CANDIDATE, pending the narrow-closure verification
 
 Test architecture & harness consolidation. See TARGET section 10. Phase 8B MUST
 close before Phase 9 or Phase 10 add their new acceptance harnesses.
+
+The independent review at `2126fdcc` accepted the taxonomy, the relocations, the
+Make/CI wiring, the shared Kind harness, `obscheck`, the Product gate, the
+browser split and the preserved acceptance coverage. It left two blockers, both
+now repaired; the narrow closure is recorded in section 12.7. Phase 8B stays a
+CANDIDATE until an independent review verifies those repairs.
 
 Phase 8B additionally owns the canonical scenario/projection boundary added to
 TARGET section 1B ("Declarative > imperative"). TARGET Phase 10B — the canonical
@@ -2162,3 +2168,129 @@ removed. Two additions: `check_section_test.go` now actually runs (it sat in
 `tests/scripts/`, which no CI leg invoked), and `make test-integration` widened
 from `./tests/e2e/kind/productready/` to `./tests/acceptance/kind/...`, so
 `obscheck` is tested by construction.
+
+### 12.7 Narrow closure at `2126fdcc` — two blockers, repaired
+
+The independent Phase 8B review at `2126fdcc` accepted everything in 12.1
+through 12.6 and left exactly two blockers. Neither reopens Phase 8, the
+inventory, or any accepted relocation. Repaired append-only in three commits;
+nothing was amended, rebased or force-pushed.
+
+**What the review found.**
+
+*A — the canonical scenario was not yet the ONLY semantic declaration.* The
+scenario package removed the bundle heredocs and the OTLP literal, but one level
+up the harness still knew the fixture on its own. `operational-graph.sh`
+restated: four directory-to-tag `push` mappings; `OBS_SOURCE=orders-traces`; a
+Pacto CR heredoc naming `checkout` and `orders` and choosing which checkout
+revision was deployed; an evidence payload heredoc naming `payments` and
+`remote-eu`. And one restatement DISAGREED with the declaration: the harness
+signed `--producer demo` while `scenario.Evidence.Producer` said `remote-eu`.
+Nothing failed, because `Producer` had no consumer — a declarative field that
+was never read.
+
+*B — a real security failure.* `govulncheck` reported seven reachable standard
+library vulnerabilities on Go 1.26.5, all fixed in 1.26.6.
+
+**The counterexamples that failed on `2126fdcc`.** Each names a value the
+scenario declares and the harness independently restated, so changing the
+declaration changed nothing the cluster saw. At `2126fdcc` the harness carried
+each as a literal:
+
+| Declaration | Restated at `2126fdcc` |
+|---|---|
+| repository | `push "$BDIR/checkout-a" checkout:1.0.0` (L100) |
+| bundle directory / version | the same four `push` lines (L99-102) |
+| deployed revision | `oci: ${REG_HOST}/demo/checkout@${CHECKOUT_A}` (L158) |
+| observation source id | `OBS_SOURCE=orders-traces` (L35) |
+| evidence subject | `"name": "payments"` (L179, L184) |
+| evidence source environment | `"Source": "remote-eu"`, `"collector": "remote-eu"` (L181, L186) |
+| signer producer | `--producer demo` (L190) — contradicting the declaration |
+
+**The repairs.**
+
+| Commit | Scope |
+|---|---|
+| `6a532459` | blocker B: all six Go declarations 1.26.5 -> 1.26.6 |
+| `078554bf` | blocker A: `Plan` / `PactoCRs` / `EvidencePayloads`, the `bundles`/`cluster` projector, the plan-reading harness, `trust_keypair` |
+| `e5c2eb8a` | the `dashboard-redesign-plan.md` build-tag correction |
+
+*Blocker A (`078554bf`).* Three projections, in two phases because a digest does
+not exist until the push has happened: `Plan` (before — what to publish, run,
+mount and sign), `PactoCRs` and `EvidencePayloads` (after — pinned to the real
+digests). The shell reads tab-delimited records; it never sources or evaluates
+generated code. Every field is validated on the way out (non-empty, and free of
+the tab, newline and carriage return that could forge a record) and each loop
+re-checks its record's arity, so a record that grew or lost a field fails loudly
+instead of shifting every value left.
+
+Two identities were separated where one field had conflated them and the harness
+had quietly picked a third value for the one that reached the wire:
+
+- `Evidence.Source` — WHERE observations were collected. Payload data: the
+  EvidenceSet's `Source` and each observation's collector.
+- `Evidence.Signer{Producer, KeyID}` — WHO signed the envelope. The trust store
+  binds the key to this producer, so signing as anyone else is rejected at
+  ingestion rather than silently accepted.
+
+Both are now consumed by the real signed envelope. `trust_keypair` takes the key
+id and producer and reads the public key's FILENAME back off disk, because that
+filename is the binding; reconstructing it is how a scenario installs one binding
+and signs under another. `evidence.sh`'s call is unchanged by the defaults.
+
+`Service.Workload{Name, Interface, Port}` is new: the CRs are marshalled from
+typed Go values rather than interpolated into a heredoc, a zero port means the
+workload is deliberately unexposed (no Service, no binding, so the operator's
+only honest verdict on interface availability is Unknown), and which revision a
+CR pins comes from the scenario's `Deployed` flag. The evidence payload reports
+the workload type read back out of the SUBJECT'S OWN published contract, so an
+envelope cannot claim something its bundle contradicts.
+
+Scope held: runtime values stay runtime inputs (registry address, digests,
+forwarded ports, temp directories), and the one-consumer Helm values for the
+operator image, the insecure registry and the enabled components are NOT
+projected — they have no counterpart in the fixture, so declaring them would be
+uniformity for its own sake. `operational-graph.sh` 266 -> 285 lines: the
+semantic restatements are gone, replaced by validated readers.
+
+*Blocker B (`6a532459`).* All six declarations move together, because the
+toolchain that matters is the one the PRODUCTION image is built with: `go.mod`,
+`go.work`, `Dockerfile`, `integrations/kubernetes/go.mod`,
+`integrations/kubernetes/Dockerfile`, and the consumer module
+`release/orchestrator/verify-k8s-standalone.sh` synthesizes. A `go.mod` bump
+alone would let a builder pinned to 1.26.5 satisfy the requirement by
+downloading a newer toolchain in some contexts and not others, hiding the old
+builder rather than replacing it. `git grep '1\.26\.5'` over the tracked tree
+returns nothing, and every workflow resolves Go via `go-version-file: go.mod`.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| `govulncheck` at `2126fdcc` (detached worktree, Go 1.26.5) | 7 error-level: GO-2026-5026, -5972, -6088, -6089, -6090, -6091, -6218 |
+| `govulncheck` after the bump (Go 1.26.6) | 0 error-level |
+| `git grep '1\.26\.5'` (tracked tree) | no match |
+| `go test -race ./tests/acceptance/scenario/...` | ok — the 7 counterexamples plus the grammar, CR and payload suites |
+| `go test -race ./tests/acceptance/...` | ok (`obscheck`, `productready`, `scenario`) |
+| `go vet ./...` and `go vet -tags integration ./...` | clean |
+| `make ci` | exit 0 |
+| `make artifact-drift` | OK |
+| `make release-dry-run` | `RELEASE-DRY-RUN OK` — real artifacts to `localhost:5001`, digest idempotency + immutability + resume proven, `K8S-MODULE-STANDALONE OK` |
+| `go test -tags integration ./tests/integration/...` | ok, 88.6s |
+| `make test-browser` (offline WASM) | 219 passed, exit 0 |
+| offline evidence chain | the projected payload signs under `remote-eu-collector__demo.pub` and verifies; the SAME trust store rejects an envelope claiming any other producer |
+| plan reader | the real plan parses to the expected push / observation / workload / signer / evidence records with no `eval` and no sourcing |
+| GitHub CI at `e5c2eb8a` (run 31782344077) | success — every job, including all six `ci-e2e-kind` shards (`operational-graph`, `dashboard`, `evidence`, `observation`, `reconcile`, `upgrade`), `dashboard-e2e`, `artifact-drift`, `release-dry-run` |
+| GitHub Security at `e5c2eb8a` (run 31782344066) | success — `govulncheck (Go)`, `Trivy (image)`, `PR security summary` |
+| tracked tree | no agent files (`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md` untracked) and no generated test artifacts |
+
+The live browser journeys A-H and the six Kind shards run in GitHub CI; the
+local Docker Desktop containerd store breaks `kind load`, which is why the live
+vertical is proved there rather than here. The `operational-graph` shard is the
+one that exercises the rewritten harness end to end, and it is green at the
+final SHA.
+
+**Out of scope and untouched by this repair:** the carried CodeQL
+path-expression item, the generated Mermaid findings, Phase 9, Phase 10 and
+Phase 10B. Phase 8 remains ACCEPTED and CLOSED. Phase 8B remains a CANDIDATE
+pending independent verification of exactly these repairs.
