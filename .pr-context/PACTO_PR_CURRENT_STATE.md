@@ -37,8 +37,9 @@ section 1B added and TARGET Phase 10B is blocked on. An independent review
 verified both blockers left at `1a04807d` — the ambiguous deployment and the
 untested fixture package — as closed by the repairs recorded in section 12.8.
 
-**Phase 9 is now the ACTIVE phase**: real browser E2E against the built MkDocs
-site, including the diagrams it renders.
+**Phase 9 is a CANDIDATE** at `2124661b`: real browser E2E against the built
+MkDocs site, including the diagrams it renders. The implementation is recorded in
+section 13; only an independent review may close it.
 
 Accepted Phase-8 behaviour is NOT reopened for stylistic improvement, theoretical
 hardening or refactor convenience. A reopen requires a CONCRETE correctness,
@@ -1154,7 +1155,7 @@ document. It is migration bookkeeping and is deleted with this document in Phase
 14; the durable repository documentation carries the resulting ARCHITECTURE, not
 the ledger.
 
-### Phase 9 — ACTIVE
+### Phase 9 — CANDIDATE at `2124661b`, pending independent review
 
 Real built MkDocs browser E2E. What the existing gates prove, and what they do
 not: `mermaid-check` proves every fenced diagram is renderable by mermaid-cli
@@ -1164,6 +1165,10 @@ output, so neither can see the theme integration, the hook-injected integration
 pages, or Material instant navigation. Phase 9 adds exactly that surface, into
 the taxonomy Phase 8B established rather than beside it, and does not weaken
 either existing gate.
+
+Implemented, verified locally and green in GitHub CI. The record — the failing
+test, the defect it exposed, the fix, the rejected alternatives, the mutation
+proof and the workflow results per SHA — is section 13. CANDIDATE, not CLOSED.
 
 ### Phase 10 — NOT STARTED
 
@@ -2431,3 +2436,195 @@ Phase 10 and Phase 10B — plus TARGET itself, which is unmodified. The Go 1.26.
 bump and its history stand as recorded in 12.7. Phase 8 remains ACCEPTED and
 CLOSED. This section records a repair, not a closure; the closure is the
 independent review at `93dca214`, recorded in the Phase 8B section above.
+
+## 13. Phase 9 record — CANDIDATE at `2124661b`
+
+Real browser E2E over the built MkDocs site. Written test-first on top of the
+Phase 8B taxonomy, appended in five commits on `93dca214`; nothing amended,
+rebased or force-pushed. CANDIDATE, not CLOSED — only an independent review
+closes a phase.
+
+**What the existing gates could not see.** Three of them run today and all three
+stop short of the artifact a reader actually opens:
+
+| Gate | What it proves | What it cannot see |
+|---|---|---|
+| `make mermaid-check` | every fenced `mermaid` block parses and renders under mermaid-cli — 19/19 | renders OUTSIDE the site, with its own runtime and no theme |
+| `pkg/dashboard/frontend/e2e/mermaid.spec.ts` | contract documentation renders inside the DASHBOARD | a different product, a different bundle, a different renderer path |
+| `mkdocs build --strict` (inside `make docs-check`) | the site builds, links and anchors resolve, nav is complete | never loads a page in a browser; `superfences` emits `<pre class="mermaid">` for CLIENT-side rendering, so a built page carries diagram SOURCE and the build is happy either way |
+
+The gap is exact: nothing asserted that the shipped HTML turns into diagrams.
+
+**The failing test at `93dca214`.** `e2e-docs-site/mermaid.spec.ts` builds the
+real site through a one-key overlay on the real `mkdocs.yml`, serves it over
+localhost, and drives Chromium at three pages: a core page
+(`/operational-graph/`, two diagrams), a page written by the integration hook
+(`/integrations/kubernetes/overview/`, one diagram), and an instant navigation
+from the core page to `/impact/`. Every off-site request is aborted at
+`page.route`, so the site may use only what it ships.
+
+All three failed, identically and for the intended reason:
+
+```
+Expected: 2   Received: 0     locator('div.mermaid svg')   (34 retries)
+```
+
+The declared-count assertions passed in the same runs — the spec reads
+`<pre class="mermaid">` straight out of the served HTML and found 2, 1 and 2 —
+so the failure was the runtime, not the harness. The one flaw the test found is
+one no build-time gate can find: **the site had no Mermaid runtime of its own.**
+
+**The defect.** Material's `mountMermaid`, extracted from the theme's own
+sourcemap in the built site:
+
+```ts
+typeof mermaid === "undefined" || mermaid instanceof Element
+  ? watchScript("https://unpkg.com/mermaid@11/dist/mermaid.min.js")
+  : of(undefined)
+```
+
+With no global `mermaid`, every published page fetched an UNPINNED floating
+`mermaid@11` from unpkg at read time. Online it looked fine; offline, behind a
+proxy, or the day unpkg ships a breaking `11.x`, the diagrams are gone — and no
+gate in the repository would have said so. Aborting cross-origin requests is what
+turned that latent supply-chain dependency into a red test.
+
+**The fix — the site brings its own runtime.** `ed0caa86`, 48 lines of hook plus
+9 lines of `mkdocs.yml`:
+
+- `release/scripts/mkdocs_mermaid_hook.py` — `on_files` appends
+  `File.generated(config, "javascripts/mermaid.min.js", abs_src_path=...)`
+  pointing at `pkg/dashboard/frontend/node_modules/mermaid/dist/mermaid.min.js`,
+  the copy the frontend lockfile already pins (11.15.0). MkDocs copies it into
+  the site. Missing runtime raises `PluginError` naming `make docs-build`,
+  because a docs build that silently reverts to the CDN is the failure this
+  phase exists to prevent.
+- `mkdocs.yml` — `extra_javascript: [{path: javascripts/mermaid.min.js, defer: true}]`.
+  Deferred puts the global in place after parsing and before `DOMContentLoaded`,
+  which is when Material mounts diagrams and looks for it; finding one, the
+  unpkg branch is never taken.
+
+No new dependency, no vendored blob, no version to keep in sync: the runtime the
+docs ship and the runtime the dashboard bundles are the same pinned artifact.
+
+*No `startOnLoad` guard is needed, and this was verified rather than assumed.*
+mermaid registers `window.addEventListener("load", contentLoaded)`, and
+`contentLoaded` requires BOTH `mermaid.startOnLoad` and `getConfig().startOnLoad`.
+Material calls `initialize({startOnLoad: false, ...})` at `DOMContentLoaded`,
+strictly before `load`. On diagram-free pages the runtime is inert.
+
+**Alternatives rejected.**
+
+| Considered | Why not |
+|---|---|
+| Material's `privacy` plugin | still resolves the floating `mermaid@11` at BUILD time — pinned per build, unpinned across builds, and no gate would notice the change |
+| vendor `mermaid.min.js` into the tree | a 3.3 MB generated blob in git that drifts from the lockfile the moment either moves |
+| pre-render with `mmdc` at build time | needs puppeteer for `mkdocs serve` and freezes the diagrams against Material's palette switching |
+| pinned CDN URL + SRI | still a network fetch at read time; still fails offline |
+| rename the fence class and hand-roll the mount | loses the theme's `themeCSS` and its palette integration — a redesign, not a fix |
+| inject the runtime only on pages that have diagrams | instant navigation does NOT re-execute `{% block scripts %}`; landing first on a diagram-free page would silently restore the CDN fallback |
+
+**Instant navigation is proved to be instant navigation.** Material only
+intercepts a click whose URL appears in `sitemap.xml`, and the sitemap is written
+from `site_url`. Served at `127.0.0.1` against the production `site_url` every
+entry is a different origin, no click is intercepted, and the case would have
+"passed" while measuring two full page loads. Hence `mkdocs.test.yml`: `INHERIT:
+mkdocs.yml` plus exactly one changed key, `site_url: http://127.0.0.1:4322/`
+(and `site_dir: site-test`, gitignored). Theme, overrides, extensions, hooks and
+`--strict` are the production ones. The test then plants a witness on `window`,
+clicks the sidebar link, and asserts the witness SURVIVED the navigation — a full
+load would have wiped it.
+
+**What each diagram must do, in the browser.** Material renders into a CLOSED
+shadow root, so an `addInitScript` forces `attachShadow({mode: 'open'})` before
+any page script runs; the assertions read the real rendered output rather than
+the source. Per page: declared `<pre class="mermaid">` count in the served HTML
+equals the count the spec declares (an undeclared new diagram fails the suite
+rather than sliding by uncovered); `div.mermaid svg` reaches that count — the
+auto-retrying expectation IS the readiness signal, no sleep; zero leftover
+`pre.mermaid` / `code.language-mermaid`; zero `.error-icon`. Per diagram: visible,
+bounding box with width and height > 0, non-empty text once `<style>` is
+stripped, no `Syntax error`, and every expected label present.
+
+**The commits.**
+
+| Commit | Scope |
+|---|---|
+| `4decda3c` | this document: Phase 8B CLOSED at `93dca214`, Phase 9 ACTIVE, and the two counts 12.8 got wrong |
+| `35f5993a` | RED — `mkdocs.test.yml`, `playwright.docs-site.config.ts`, `e2e-docs-site/mermaid.spec.ts`, `/site-test/` ignored |
+| `ed0caa86` | GREEN — the runtime hook and its `mkdocs.yml` registration |
+| `c0c8a474` | wiring — `Makefile`, `ci.mk`, `.github/workflows/docs-check.yml`, `docs/maintainers/testing.md` |
+| `2124661b` | `vite.config.js`: vitest stops collecting a Playwright spec it cannot run |
+| this section | the Phase 9 record |
+
+*Two counts 12.8 got wrong (`4decda3c`).* The old `FactCount` did not count two
+targets — it selected the first deployed revision and counted ONE, silently
+erasing the second; and the 12.8 repair range is FOUR commits, not three,
+`93dca214` being the fourth. Both are non-blocking corrections to the narrative,
+not to any repair. `PACTO_PR_TARGET_STATE.md` is untouched.
+
+*Wiring (`c0c8a474`).* The gate joins level 6 of the Phase 8B taxonomy — a real
+shipped artifact over fixed data — as a SECOND suite at that level, not a new
+architecture: same pinned Playwright, same Chromium install, separate `testDir`,
+separate config, separate product. `make test-browser-docs-site` — named for the
+site rather than the brief's `test-browser-docs`, because `e2e-docs` already
+means the dashboard's bundle-documentation spec and the two would be misread. It
+depends on `$(MERMAID_RUNTIME)`, a real file target that runs `npm ci` only when
+`package-lock.json` is newer, and `docs` / `docs-build` / `docs-check` now depend
+on it too, so no path can build the site without the runtime it ships. The
+workflow step is appended to the existing required Docs check job — not Kind, not
+dashboard E2E, not a new job — and its path filter now covers the overlay, the
+spec, the Playwright config, the hook, `package.json`, `package-lock.json`,
+`Makefile` and `ci.mk`. `docs/maintainers/testing.md` records the two products at
+level 6 and the ownership boundary between them.
+
+*`2124661b`.* `vite.config.js` excluded `e2e/**` and `e2e-live/**` by name, so
+vitest's default `**/*.spec.ts` collected the new suite and `ci-ui` failed with
+`Playwright Test did not expect test.beforeEach() to be called here`. Added
+`e2e-docs-site/**` to the same explicit list — kept explicit, so the list stays
+the inventory of browser suites.
+
+**Mutation proof.** Both mutations were applied to the GREEN tree and reverted
+before committing:
+
+| Mutation | Result |
+|---|---|
+| remove the `extra_javascript` runtime entry (disable the renderer) | all three tests fail on the SVG-count assertion — `Expected 2/1/2, Received 0` |
+| remove `- navigation.instant` from `theme.features` | exactly ONE test fails, the instant-navigation one, on the witness assertion (`Expected: true, Received: undefined`); the other two still pass |
+
+The second is the one that matters: it proves the instant-navigation case
+measures client-side navigation and not two direct loads.
+
+**Verification.**
+
+| Check | Result |
+|---|---|
+| `make test-browser-docs-site` at `93dca214` (RED) | 3 failed — `div.mermaid svg` 0 of 2 / 0 of 1 / 0 of 2; declared-count assertions passed |
+| `make test-browser-docs-site` after the fix (GREEN) | 3 passed in 4.3s; `GET /javascripts/mermaid.min.js 200`; zero requests to unpkg |
+| `npx playwright test -c playwright.docs-site.config.ts` | 3 passed — same result direct, without Make |
+| mutation runs (renderer, instant navigation) | exactly the intended failures, above; both reverted |
+| `make docs-check` | 9/9 including `(c) mkdocs build --strict`; `check_mermaid: 19/19 mermaid blocks valid` |
+| `make test-browser` | 219 passed — the dashboard suite, unchanged in count and content |
+| `make ci` | exit 0; total coverage 100.0% |
+| `make check-section` | exit 0 — zero U+00A7 in authored files |
+| `git diff --check` | exit 0 |
+| tracked tree | clean; no screenshots, traces, `site-test/` or temporary servers committed. `make ci` regenerated `integrations/kubernetes/charts/pacto-dev-gateway/README.md` (inherited helm-docs drift, out of scope) — inspected and restored with `git checkout --`; the four agent files (`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`) remain untracked |
+| GitHub CI at `2124661b` (run 31964688735) | success — `required` SUCCESS, all six `ci-e2e-kind` shards, `dashboard-e2e`, `artifact-drift`, `release-dry-run`, `ci-e2e-envtest`, `ci-integration-kubernetes`, `release-version-test`, `ci-static`, `ci-engine`, `ci-oci`, `ci-dashboard`, `ci-gates`, `operator-build` |
+| Docs check at `2124661b` (run 31964688756) | success — including the new `Browser acceptance over the built site` step |
+| Security at `2124661b` (run 31964688863) | success — `govulncheck (Go)`, `Trivy (image)`, `PR security summary` |
+| Pacto Contract CI / Validate PR title / Repowise at `2124661b` | success (runs 31964688758, 31964688759, 31964688724) |
+| CodeQL at `2124661b` (run 31964686066 / 31964686092) | every `Analyze` job success (actions, go, javascript-typescript, python). The `CodeQL` results check is `failure`, CARRIED and byte-identical to `93dca214`: the same 8 high `go/path-injection` alerts in `internal/app/resolve.go` (#40-43, opened 2026-07-29) and `pkg/oci/cache.go` (#59-62, opened 2026-08-13). Neither file is touched by Phase 9; no alert names any Phase 9 file; `required` does not include CodeQL |
+| review threads | 199 total, 0 unresolved — nothing inherited open, nothing introduced |
+| PR state | open, draft, mergeable |
+
+The workflow results above belong to `2124661b`, the implementation head. This
+section is committed after them, so its own commit necessarily triggers a further
+round; those run IDs are reported in the handoff rather than in a further
+self-referential commit.
+
+**Out of scope and untouched by Phase 9:** the carried CodeQL path-injection
+alerts; the `pacto-dev-gateway/README.md` helm-docs drift; Phase 10, 10B and
+everything after; `PACTO_PR_TARGET_STATE.md`. No existing gate was weakened,
+replaced or removed — `mermaid-check`, the dashboard browser suite, required CI,
+Security, artifact drift and the release gates all run exactly as before. Phase 8
+and Phase 8B remain ACCEPTED and CLOSED.
