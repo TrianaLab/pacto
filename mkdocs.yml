@@ -134,6 +134,9 @@ plugins:
 # Manifest-driven discovery via integrations/*/integration.yaml; see the hook.
 hooks:
   - release/scripts/mkdocs_integration_hook.py
+  # Stage the pinned Mermaid runtime into the site, so no page fetches it from a
+  # CDN at read time. See the hook; a missing runtime fails the build.
+  - release/scripts/mkdocs_mermaid_hook.py
 
 extra_css:
   - stylesheets/extra.css
@@ -141,6 +144,12 @@ extra_css:
 extra_javascript:
   - javascripts/logo-spin.js
   - javascripts/version-selector.js
+  # Staged by release/scripts/mkdocs_mermaid_hook.py. Deferred, so it evaluates
+  # after the parser finishes but still before DOMContentLoaded -- which is when
+  # Material mounts the diagrams and looks for a `mermaid` global. Finding one, it
+  # never reaches for the unpinned unpkg fallback baked into the theme.
+  - path: javascripts/mermaid.min.js
+    defer: true
 
 nav:
   - Home: index.md
