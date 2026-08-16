@@ -64,11 +64,24 @@ async function serveOnlyFromTheSite(page: Page, origin: string) {
   const offSite: string[] = [];
   await page.route('**/*', route => {
     const url = route.request().url();
-    if (url.startsWith(origin)) return route.continue();
+    // Parsed origins compared exactly, never a string prefix: `http://127.0.0.1:43220`
+    // starts with the text of `http://127.0.0.1:4322`, so a prefix test would let a
+    // whole family of foreign origins through the one barrier this suite rests on.
+    if (sameOrigin(url, origin)) return route.continue();
     offSite.push(`${route.request().resourceType()} ${url}`);
     return route.abort();
   });
   return offSite;
+}
+
+function sameOrigin(url: string, origin: string) {
+  try {
+    return new URL(url).origin === origin;
+  } catch {
+    // Unparseable, and opaque schemes parse to the origin "null" — either way it is
+    // not the site, so it does not get to load.
+    return false;
+  }
 }
 
 function watchForErrors(page: Page) {
@@ -151,6 +164,24 @@ test('a core page renders its diagrams from the site itself', async ({ page, req
     'the diagram runtime is served by the site, not fetched from a third party',
   ).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test('a look-alike origin is still off-site', async ({ page, baseURL }) => {
+  const offSite = await serveOnlyFromTheSite(page, new URL(baseURL!).origin);
+  await page.goto(CORE.path);
+
+  // The whole suite rests on one barrier: nothing loads unless the site served it.
+  // Port 43220 starts with the text of port 4322, so a prefix comparison would have
+  // called this the site and let it through. Drive the real handler and prove it did
+  // not, or every other test here can pass on someone else's runtime.
+  const lookAlike = new URL(baseURL!);
+  lookAlike.port = `${lookAlike.port}0`;
+  const probe = `${lookAlike.origin}/probe.js`;
+  await page.evaluate(url => fetch(url).catch(() => {}), probe);
+
+  await expect
+    .poll(() => offSite.some(attempt => attempt.endsWith(probe)))
+    .toBe(true);
 });
 
 test('an injected integration page renders its diagram', async ({ page, request, baseURL }) => {
