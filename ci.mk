@@ -11,7 +11,7 @@ REPOWISE_VERSION ?= 0.36.0
        ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-e2e-kind-operational-graph ci-e2e-kind-observation \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-       ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
+       ci-oci ci-gates docs-generate docs-check docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs demo-fleet \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check
 
@@ -144,8 +144,18 @@ docs-generate: gen-cli-docs
 	done
 
 # Preview the assembled site locally (the hook assembles integration docs at build time).
-docs-serve:
+# Every mkdocs/mike entry point in this repository carries $(MERMAID_RUNTIME): the
+# site serves its own diagram runtime and the hook fails closed without it, so a
+# target that reaches mkdocs without the prerequisite is a clean-checkout failure.
+docs-serve: $(MERMAID_RUNTIME)
 	mkdocs serve
+
+# The strict build on its own, against a throwaway dir: the post-merge validation
+# net in .github/workflows/docs.yml. It exists so that workflow calls a target that
+# owns the runtime prerequisite instead of invoking mkdocs directly — on a clean
+# runner a direct `mkdocs build --strict` aborts in the Mermaid hook.
+docs-build-strict: $(MERMAID_RUNTIME)
+	mkdocs build --strict --site-dir "$$(mktemp -d)"
 
 # Publish the versioned site with mike. The site version tracks Pacto CORE (from
 # release/release-manifest.json). Integration docs carry their OWN version stamp in
@@ -166,7 +176,12 @@ docs-serve:
 # RELEASE docs deploy (release.yml, unit k8s-docs): publish the EXACT released core
 # version and move the `latest` alias + default. Only a release transaction may
 # touch a stable version or latest.
-docs-deploy: docs-generate
+#
+# mike runs mkdocs internally, so the release publisher needs the same pinned
+# Mermaid runtime every other entry point stages. Expressing it here is what lets
+# release.yml keep calling plain `make docs-deploy` on a clean runner: the
+# prerequisite travels with the target instead of being re-implemented in the job.
+docs-deploy: docs-generate $(MERMAID_RUNTIME)
 	@ver=$${PACTO_DOCS_CORE_VERSION:-$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])")}; \
 	echo "==> mike deploy --push --update-aliases $$ver latest (release)"; \
 	mike deploy --push --update-aliases "$$ver" latest; \

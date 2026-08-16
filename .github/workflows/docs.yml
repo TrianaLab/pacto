@@ -15,6 +15,15 @@ on:
       # cross-module sources before mike publishes, so a change to any of them must
       # redeploy the site (same inputs docs-check guards on PRs).
       - 'release/scripts/gen_integration_docs.py'
+      # The site stages its own Mermaid runtime from the frontend's locked
+      # dependency, and the hook fails the build when it is missing. The hook, the
+      # lockfile that pins the bytes and the Make wiring that installs them are all
+      # inputs to whether this validation can build the site at all.
+      - 'release/scripts/mkdocs_mermaid_hook.py'
+      - 'pkg/dashboard/frontend/package.json'
+      - 'pkg/dashboard/frontend/package-lock.json'
+      - 'Makefile'
+      - 'ci.mk'
       - 'integrations/**/api/**'
       - 'integrations/**/config/crd/**'
       - 'integrations/**/config/rbac/**'
@@ -65,6 +74,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Build the WASM dashboard demo
         run: make -C examples/demo build
       - name: Smoke test the wasm engine
@@ -79,10 +90,16 @@ jobs:
       # build the PR "Docs check" enforces, against a throwaway dir. This is a
       # main-push validation net; it does NOT deploy.
       #
+      # Through `make`, never `mkdocs` directly: the site stages its own pinned
+      # Mermaid runtime and the hook fails closed without it, so on a clean runner a
+      # bare `mkdocs build --strict` aborts before building. docs-build-strict owns
+      # that prerequisite, which keeps the install expressed once in Make rather
+      # than duplicated into this job.
+      #
       # The versioned public site is deployed only by the release transaction
       # (release.yml, unit k8s-docs). We intentionally do NOT publish an
       # unreleased `next` snapshot: it cluttered the public version selector (and
       # was the fallback the selector landed on). Preview unreleased docs locally
       # with `make docs` / `mkdocs serve`.
       - name: Strict docs build gate
-        run: mkdocs build --strict --site-dir "$(mktemp -d)"
+        run: make docs-build-strict
