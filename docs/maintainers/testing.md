@@ -17,7 +17,7 @@ how you pick a home for a test you are about to write.
 | 3 | Architecture / invariant | Structural rules about the repository itself | `tests/architecture/` | Go | `make ci-gates` |
 | 4 | Local acceptance, cluster-free | A whole user story, anywhere Go runs | `tests/acceptance/local/` | Shell + Go | `make test-acceptance-local` |
 | 5 | Kind / system acceptance | The product against a real Kubernetes cluster | `tests/acceptance/kind/` | Shell + Go | `make test-acceptance-kind` |
-| 6 | Browser acceptance, deterministic | The real frontend bundle over fixed data | `pkg/dashboard/frontend/e2e/` | TypeScript | `make test-browser` |
+| 6 | Browser acceptance, deterministic | A real shipped artifact over fixed data | `pkg/dashboard/frontend/e2e/` (dashboard), `pkg/dashboard/frontend/e2e-docs-site/` (documentation site) | TypeScript | `make test-browser`, `make test-browser-docs-site` |
 | 7 | Live-browser acceptance | The real frontend against a real cluster | `pkg/dashboard/frontend/e2e-live/` | TypeScript | `make test-browser-live` |
 | 8 | Release verification | The release system produces what it claims | `tests/release/`, `release/orchestrator/` | Go, Node | `make ci-gates`, `make release-dry-run` |
 
@@ -166,6 +166,55 @@ A test that could pass without a cluster belongs in level 6. Only journeys that
 need real operator data belong in level 7, and level 7 does not duplicate what
 level 6 already covers.
 
+## Two products at level 6
+
+Level 6 has two suites because Pacto ships two things a browser opens: the
+dashboard and the documentation site. They are one level and two ownerships, and
+the boundary between them is the artifact under test — never the subject matter.
+
+**`pkg/dashboard/frontend/e2e/`** owns the dashboard bundle, run by
+`make test-browser`, gated by the `dashboard-e2e` job in CI. `e2e/mermaid.spec.ts`
+lives here and proves that *bundle documentation renders inside the dashboard*.
+
+**`pkg/dashboard/frontend/e2e-docs-site/`** owns the MkDocs output, run by
+`make test-browser-docs-site`, gated by the Docs check workflow. It builds the
+real site with `mkdocs build --strict` through `mkdocs.test.yml` — an `INHERIT`
+overlay on the real `mkdocs.yml` — serves it over HTTP and drives Chromium
+against it.
+
+Sharing stops at the pinned Playwright and Chromium installation, which is why
+the second suite lives in the frontend package rather than growing a second
+browser toolchain somewhere else. Config, `testDir`, project name, Make target
+and CI job are all separate: a dashboard regression and a documentation
+regression must not be able to mask each other.
+
+Four things about the docs-site suite are load-bearing:
+
+- **The overlay changes exactly one key that matters.** Material's instant
+  navigation only intercepts a click whose URL appears in `sitemap.xml`, and the
+  sitemap is written from `site_url`. Served at `127.0.0.1` against the
+  production `site_url`, nothing is ever intercepted and the instant-navigation
+  case would silently measure two ordinary page loads. The overlay points
+  `site_url` at the test origin, so the port in `mkdocs.test.yml` and the one in
+  `playwright.docs-site.config.ts` have to agree.
+- **Every cross-origin request is aborted.** The site has to be self-sufficient.
+  This is what keeps the diagram runtime pinned: Material's own fallback fetches
+  an unpinned `mermaid@11` from unpkg, and `release/scripts/mkdocs_mermaid_hook.py`
+  stages the lockfile-resolved copy into the site instead. Delete the hook or its
+  `extra_javascript` entry and all three tests fail.
+- **Rendered output is asserted, not source text.** Material renders each diagram
+  into a *closed* shadow root, so the suite forces open mode via an init script —
+  the encapsulation flag changes, nothing else does — then asserts a non-empty
+  SVG with a real layout box and the labels a reader would read.
+- **Coverage is declared, so it cannot rot.** Each covered page lists its
+  diagrams and their expected labels, and the count is checked against the built
+  HTML. Adding a diagram to a covered page fails the gate until it is declared.
+
+The site's diagrams as a whole are still covered by `make mermaid-check`, which
+parses every fence in the repository. That is the syntax gate; this is the
+behaviour gate, on the pages worth driving a browser through: a core page, a page
+the integration hook injects, and an instant navigation between two of them.
+
 ## Choosing a home for a new test
 
 Ask, in order:
@@ -184,7 +233,8 @@ Ask, in order:
 6. **Does it need a real Kubernetes cluster?** → level 5,
    `tests/acceptance/kind/`, as one of the existing scenarios or a new one.
 7. **Is it browser-visible?** → level 6 if fixed data can prove it, level 7 only
-   if it genuinely needs live cluster data.
+   if it genuinely needs live cluster data. At level 6, pick the suite by the
+   artifact under test: the dashboard bundle or the built documentation site.
 
 Two more rules once you have picked:
 

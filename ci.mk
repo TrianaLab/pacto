@@ -175,15 +175,19 @@ docs-deploy: docs-generate
 # Blocking Mermaid syntax gate: every fenced ```mermaid block in docs/ +
 # integrations/ must render via mermaid-cli (mmdc). mkdocs --strict does NOT parse
 # mermaid (pymdownx.superfences only wraps it for client-side render), so a broken
-# diagram ships silently — this is the only gate that catches it. See check_mermaid.py.
+# diagram ships silently — this is the only gate that covers EVERY fence. What it
+# cannot see is the site: test-browser-docs-site drives the built pages in a real
+# browser, for a few of them. Syntax everywhere, behaviour where it matters.
 mermaid-check:
 	python3 release/scripts/check_mermaid.py
 
 # Full documentation gate: regenerate from scratch, prove zero drift and zero
 # second-run diff, strict build, and validate every fenced contract / CR example /
 # flag / chart / artifact coordinate against the real sources. Runs mermaid-check
-# first so a broken diagram fails the same gate. See docs_check.py + check_mermaid.py.
-docs-check: mermaid-check
+# first so a broken diagram fails the same gate. The strict build stages the pinned
+# Mermaid runtime into the site, so it needs the frontend dependency installed.
+# See docs_check.py + check_mermaid.py.
+docs-check: mermaid-check $(MERMAID_RUNTIME)
 	python3 release/scripts/docs_check.py
 
 # artifact-drift = one-publisher-per-artifact gate + apply-release-plan

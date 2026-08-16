@@ -20,11 +20,20 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
         e2e-observation-kind e2e-observation-kind-up e2e-observation-kind-status \
         e2e-observation-kind-logs e2e-observation-kind-down \
-        e2e-dashboard-kind-browser e2e-all-operational-graph \
+        e2e-dashboard-kind-browser e2e-all-operational-graph test-browser-docs-site \
         generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift
 
 # Local docs preview includes the in-browser WASM dashboard demo at /demo/.
 DOCS_DEMO := docs/demo
+
+# The docs site serves its own Mermaid rather than fetching one from a CDN, so
+# every mkdocs build needs the frontend's pinned copy staged into the site by
+# release/scripts/mkdocs_mermaid_hook.py. A real file target, not .PHONY: present
+# means installed, so this costs nothing once node_modules exists.
+MERMAID_RUNTIME := pkg/dashboard/frontend/node_modules/mermaid/dist/mermaid.min.js
+$(MERMAID_RUNTIME): pkg/dashboard/frontend/package-lock.json
+	cd pkg/dashboard/frontend && npm ci --ignore-scripts --no-audit --no-fund
+	@touch $@
 
 build:
 	rm -f "$(GOBIN)/pacto"
@@ -149,6 +158,17 @@ e2e-observed:
 	$(MAKE) -C examples/demo build
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npx playwright test --project=desktop --grep "observed"
 
+# Level 6 — deterministic browser acceptance for the DOCUMENTATION SITE, which is
+# a different product from the dashboard: `mkdocs build --strict` with the real
+# config, served over HTTP, driven in Chromium. Proves the diagrams a reader opens
+# actually render — on a core page, on a page the integration hook injects, and
+# after Material's instant navigation, with every cross-origin request aborted so
+# the site cannot pass by borrowing someone else's runtime.
+# Named for the site, not for "docs", because e2e-docs below is the dashboard's
+# bundle-documentation tab.
+test-browser-docs-site: $(MERMAID_RUNTIME)
+	cd pkg/dashboard/frontend && npx playwright install chromium && npx playwright test -c playwright.docs-site.config.ts
+
 # Bundle-doc Mermaid diagrams actually render to SVG in a real browser.
 e2e-docs:
 	$(MAKE) -C examples/demo build
@@ -215,10 +235,10 @@ check-dashboard-sdk-drift: generate-dashboard-sdk
 # in-browser WASM demo into docs/demo/ so the local preview exposes it, mirroring
 # the deployed site. mkdocs honors site_url, so it serves at root locally
 # and the demo lives at /demo/ both locally and in production.
-docs: $(DOCS_DEMO)/app.wasm
+docs: $(DOCS_DEMO)/app.wasm $(MERMAID_RUNTIME)
 	mkdocs serve
 
-docs-build: $(DOCS_DEMO)/app.wasm
+docs-build: $(DOCS_DEMO)/app.wasm $(MERMAID_RUNTIME)
 	mkdocs build
 
 # Build the WASM dashboard demo into docs/demo/ (gitignored) with a relative
