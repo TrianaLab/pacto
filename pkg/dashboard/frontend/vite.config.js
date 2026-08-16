@@ -16,9 +16,9 @@ export default defineConfig(({ mode }) => ({
   },
   test: {
     environment: 'jsdom',
-    // e2e/ and e2e-live/ hold Playwright browser specs (*.spec.ts) driven by a real
-    // browser, not vitest/jsdom — exclude them from the unit run.
-    exclude: ['e2e/**', 'e2e-live/**', '**/node_modules/**', '**/dist/**'],
+    // e2e/, e2e-live/ and e2e-docs-site/ hold Playwright browser specs (*.spec.ts)
+    // driven by a real browser, not vitest/jsdom — exclude them from the unit run.
+    exclude: ['e2e/**', 'e2e-live/**', 'e2e-docs-site/**', '**/node_modules/**', '**/dist/**'],
   },
   ...(mode === 'test' ? { resolve: { conditions: ['browser'] } } : {}),
 }));
