@@ -43,11 +43,12 @@ runtime prerequisite the new hook demands was carried by the PR gate alone, so
 the clean build and deployment paths bypassed it — and the review at `5fce48e6`
 verified that repair (section 13.1) closed. Nothing in it is reopened by Phase 10.
 
-**Phase 10 is ACTIVE** from `5fce48e6`: closing the local Kind acceptance path
-where Docker Desktop's containerd image store behaves differently from CI's
-classic Docker image store. It repairs the SHARED Phase-8B harness boundary; it
-adds no second Kind suite and changes no scenario's claims. Its record is
-section 14.
+**Phase 10 is a CANDIDATE** at `de5432ba`, implemented from `5fce48e6`: closing
+the local Kind acceptance path where Docker Desktop's containerd image store
+behaves differently from CI's classic Docker image store. It repairs the SHARED
+Phase-8B harness boundary; it adds no second Kind suite and changes no
+scenario's claims. Its record is section 14. It is not closed here; a phase is
+closed by review, not by its author.
 
 Accepted Phase-8 behaviour is NOT reopened for stylistic improvement, theoretical
 hardening or refactor convenience. A reopen requires a CONCRETE correctness,
@@ -1179,7 +1180,7 @@ test, the defect it exposed, the fix, the rejected alternatives, the mutation
 proof and the workflow results per SHA — is section 13. An independent review at
 `5fce48e6` verified the 13.1 repair and CLOSED the phase.
 
-### Phase 10 — ACTIVE
+### Phase 10 — CANDIDATE at `de5432ba`
 
 Docker Desktop/containerd/local-registry Kind path. Close the local Kind path
 where Docker Desktop's containerd image-store behaviour differs from CI's
@@ -1194,6 +1195,8 @@ Product gate or the browser journeys, and does not start Phase 10B.
 Its record — the reproduced failure, the identity/platform root cause, the
 loading strategy and its rejected alternatives, the regression and mutation
 proof, and the local plus GitHub verification per SHA — is section 14.
+Implemented and locally verified, including the complete six-scenario Kind suite
+in one invocation on a Docker Desktop workstation.
 
 ### Phase 11 — NOT STARTED
 
@@ -2821,3 +2824,251 @@ clone with its remote removed. Nothing was published to `gh-pages`.
 closed here; a phase is closed by review, not by the author of its repair. The
 reopen was narrow: the accepted suite and its design are untouched, the hook
 still fails closed and no gate was weakened, replaced or removed.
+
+## 14. Phase 10 record — CANDIDATE at `de5432ba`
+
+Phase 10 closes the local Kind acceptance path on a Docker Desktop workstation,
+where the containerd image store behaves differently from CI's classic Docker
+image store. It repairs the SHARED Phase-8B boundary every scenario already went
+through. No second Kind suite exists, the six scenarios keep their own cluster
+lifecycles and claims, `imagePullPolicy: Never` is unchanged, and nothing about
+Phase 8, 8B or 9 is reopened. Phase 10B is not started.
+
+Commits appended on top of the reviewed HEAD `5fce48e6`, oldest first:
+
+- `79e2c3e5` — close Phase 9 at `5fce48e6`, open Phase 10 (this document only)
+- `984bede3` — `tests/acceptance/kind/kindload`, the loader and its unit tests
+- `4d88f452` — `load_images` delegates to it; architecture gates that keep every
+  scenario on the one boundary
+- `8d8fe368` — the stale `ci.mk` claim, the durable maintainer documentation, the
+  now-inaccurate comment in `upgrade-v4-v5.sh`
+- `de5432ba` — the loader's diagnostic ends as an error string (staticcheck
+  ST1005), wording otherwise unchanged
+
+### The failure, reproduced before any harness code was changed
+
+| | |
+|---|---|
+| Docker Desktop / Engine | 29.6.2 |
+| image store | containerd — `Driver: overlayfs`, `DriverStatus [["driver-type","io.containerd.snapshotter.v1"]]` |
+| kind | v0.31.0 go1.25.5 darwin/arm64 |
+| host architecture | arm64 |
+| node architecture | `uname -m` inside the node: `aarch64`, so `linux/arm64` |
+| failing command | `kind load docker-image registry:2 --name pacto-repro`, from `install_registry` |
+
+```text
+ctr: content digest sha256:46faa9a1ae6813194b53921a370f2f4f8c5e1aae228a89bceafef5847a6a3278: not found
+```
+
+`kind load docker-image` is `docker save` piped into
+`ctr --namespace=k8s.io images import --all-platforms --digests --snapshotter=overlayfs -`
+inside the node. The digest it cannot find is not a layer and not the image: it
+is the linux/amd64 MANIFEST advertised by `registry:2`'s index.
+
+The export census makes it exact. A full `docker save registry:2` on this host
+carries 13 blobs; its `index.json` advertises the pulled tag's whole index — six
+platform manifests plus six attestation manifests — while the amd64 manifest blob
+`sha256:46faa9a1…` is simply absent, because this host never pulled that
+platform. `--all-platforms` then demands what the archive promised.
+
+`docker save --platform linux/arm64 registry:2` carries 12 blobs and advertises
+only `sha256:fa647fc1…` (linux/arm64/v8) and its attestation manifest. It is
+self-contained.
+
+Failing scenarios and their boundary: `evidence.sh` and `operational-graph.sh`
+through `install_registry` (the `registry:2` pull is multi-platform);
+`dashboard-modes.sh`, `reconcile.sh`, `observation.sh` and `upgrade-v4-v5.sh`
+through `load_images` with locally built single-platform images, which failed
+less often but through the same call.
+
+### Four identities, and the one the node actually reports
+
+| identity | value for `registry:2` on this host | who reports it |
+|---|---|---|
+| index (manifest list) digest | `sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373` | `docker image inspect --format '{{.Id}}'` |
+| platform manifest digest | `sha256:fa647fc1…a793` (arm64/v8), `sha256:46faa9a1…3278` (amd64) | the index's own descriptors |
+| config digest | `sha256:33eeff39e0aaabe61ca826fd7502396183462451be0783133e1a8fa944fc7350` | `crictl images --output json` as `id` |
+| Docker image ID | under the containerd store this IS the index digest above | `docker images` |
+
+That table is the root cause. Under the containerd store the host keeps the
+tag's multi-platform INDEX identity while materializing only its own platform.
+kind decides whether the node already has an image by comparing the host's ID
+with what the node reports; an index digest can never equal a config digest, so
+the check never matches, kind always re-imports, and `--all-platforms` always
+asks for platforms this host never fetched. Retagging changes nothing: the
+underlying content and the advertised index are the same. The failure is
+structural, not a stale cache.
+
+### What the harness does now
+
+`load_images` is still the single call every scenario makes. It delegates to
+`go run ./tests/acceptance/kind/kindload`, which performs, per reference:
+
+1. read the node's own architecture (`uname -m` in the node, mapped to
+   `linux/amd64` or `linux/arm64`) — behaviour, not an OS label;
+2. `docker save`, narrowed with `--platform` when `docker save --help` advertises
+   the flag, plain otherwise, so an older CLI still works;
+3. verify the exported archive is SELF-CONTAINED — walk `index.json` recursively
+   and require every referenced manifest, config and layer blob to be present;
+   a missing blob fails closed, naming the digest and its platform;
+4. select the node's platform manifest (attestation manifests skipped) and read
+   its config digest;
+5. `kind load image-archive`, then read `crictl images --output json` on EVERY
+   node and require the reference to be present with exactly that config digest.
+
+Step 5 is what makes `imagePullPolicy: Never` a real guarantee instead of an
+assumption: the kubelet's own view must report the image the harness intended,
+under the intended name, by config digest. A different public image under the
+same tag would be a different config digest and the scenario would never start.
+`kind load image-archive` is used because it has no identity short-circuit — it
+imports what the archive contains, so a narrowed archive is imported honestly.
+
+Every image goes through this, including the ones `install_registry` needs, so
+`registry:2` cannot later be re-pulled under a spelling that discards the
+platform-safe artifact: `install_registry` still runs `docker pull registry:2`
+and then `load_images registry:2`, and the narrowing happens at LOAD time, on
+whatever the host has. There is no prepared artifact to overwrite.
+
+Shell stays thin: `load_images` is now three lines. Archive parsing, platform
+selection, self-containment and node verification are Go, unit-tested without a
+cluster.
+
+### Rejected alternatives
+
+| alternative | why not |
+|---|---|
+| pre-flatten `registry:2` by hand (`docker pull --platform` + retag) | not durable — `install_registry` re-pulls, and it is a workstation-only manual setting |
+| ask `docker image inspect --format '{{json .Manifests}}'` which platforms are local | returns `null` on this store; it cannot decide anything |
+| try `kind load docker-image` and fall back on failure | failure as control flow: double work on every image, and it hides real errors behind a retry |
+| parse the legacy `manifest.json` as a fallback | unnecessary — modern `docker save` always writes `index.json`; an archive without one now fails closed with a diagnostic |
+| skip the affected scenarios when Docker Desktop is detected | forbidden and pointless: the scenarios must run |
+| a general container-runtime abstraction | one consumer, no second one in sight |
+
+### Permanent regression proof
+
+Unit level, `tests/acceptance/kind/kindload/main_test.go` — a synthetic OCI tar
+builder producing real sha256 digests, so the tests exercise the same parsing the
+runtime does:
+
+- `TestPartialMultiPlatformArchiveIsRejected` — the reproduced failure as a test:
+  an index advertising amd64 and arm64 with the amd64 manifest blob omitted. The
+  diagnostic must name `not self-contained`, the missing digest and
+  `(linux/amd64)`.
+- `TestMissingLayerContentIsRejected`, `TestArchiveWithoutIndexIsRejected`,
+  `TestAmbiguousArchiveFailsClosed`, `TestArchiveWithNoNodePlatformFailsClosed` —
+  the other fail-closed arms.
+- `TestNarrowedMultiPlatformArchiveSelectsTheNodePlatform`,
+  `TestCompleteMultiPlatformArchiveSelectsTheNodePlatform`,
+  `TestSinglePlatformArchiveLoads` — selection, including a normal
+  single-platform image, which is what CI's classic store produces.
+- `TestSaveArgsNarrowOnlyWhenTheCLICanSupportIt` — narrowing is a capability read
+  off `docker save --help`, not a version check.
+- `TestVerifyNodeAcceptsTheLoadedImage`,
+  `TestVerifyNodeRejectsADifferentImageUnderTheSameName`,
+  `TestVerifyNodeRejectsAnAbsentImage`, `TestVerifyNodeRejectsUnreadableOutput` —
+  the in-node identity gate, including the silent-substitution case.
+
+Architecture level, `tests/architecture/kind_image_loading_test.go`, run by
+`ci-gates` and `make test-integration`:
+
+- `TestScenariosLoadImagesThroughTheSharedBoundary` — no scenario may call
+  `kind load` itself; at least six scenarios must be found.
+- `TestLoadImagesDelegatesToTheKindloadHelper` — `lib.sh` must reach the helper
+  and must not contain `kind load docker-image`.
+- `TestInstallRegistryLoadsThroughTheSharedBoundary` — `install_registry` must
+  load through `load_images registry:2` with `imagePullPolicy: Never`, and must
+  not tag, save or import around it.
+
+RED against `5fce48e6`: `git checkout 5fce48e6 -- tests/acceptance/kind/lib.sh`
+makes `TestLoadImagesDelegatesToTheKindloadHelper` fail with "load_images must
+delegate to the kindload helper"; restoring the file makes it pass.
+
+Mutation-checked, one at a time, each reverted and the file compared byte for
+byte afterwards:
+
+| mutation | killed by |
+|---|---|
+| `verifyComplete` always returns nil | `TestPartialMultiPlatformArchiveIsRejected`, `TestMissingLayerContentIsRejected` |
+| `saveArgs` never passes `--platform` | `TestSaveArgsNarrowOnlyWhenTheCLICanSupportIt` |
+| `verifyNode` always returns nil | `TestVerifyNodeRejectsADifferentImageUnderTheSameName`, `TestVerifyNodeRejectsAnAbsentImage` |
+| `selectImage` ignores the node platform | `TestCompleteMultiPlatformArchiveSelectsTheNodePlatform`, `TestArchiveWithNoNodePlatformFailsClosed` |
+
+### Local verification
+
+| Check | Result |
+|---|---|
+| `kind load docker-image registry:2` on a fresh cluster at `5fce48e6` | `ctr: content digest sha256:46faa9a1…: not found` |
+| `go test ./tests/acceptance/kind/kindload/...` | ok |
+| `go test ./tests/architecture/...` | ok |
+| `make test-integration` | ok — includes the kindload package and the acceptance Go layer |
+| `make ci` | exit 0 |
+| `make artifact-drift` | OK — one-publisher gate plus apply-release-plan idempotency |
+| `make release-dry-run` | `RELEASE-DRY-RUN OK` and `K8S-MODULE-STANDALONE OK` |
+| `make test-browser` | 219 passed |
+| `make test-acceptance-kind` — all six scenarios, ONE invocation | exit 0 |
+| `git diff --check` | exit 0 |
+| tracked tree | clean; only `.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md` untracked |
+
+The complete suite, in order, on a workstation with no pre-seeded images and with
+every scenario cluster deleted first: `DASHBOARD-MODES E2E PASS`,
+`V4-TO-V5-UPGRADE PASS`, `KIND E2E PASS` (reconcile),
+`full in-cluster Evidence Server lifecycle acceptance PASSED`, the
+operational-graph vertical including `PASS: the live Product API proves the
+fixture, twice, across a refresh` (14 facts, two distinct snapshots) and
+`8 passed` for live journeys A–H, then
+`operator-managed observation packaging verified`.
+
+In-node identity evidence, printed by the loader before any workload starts —
+name, the platform actually imported, the node count that reported it, and the
+config digest the kubelet sees:
+
+```text
+kindload: localhost:5001/pacto-dashboard:e2e-modes (linux/arm64) present on 1 node(s) as sha256:3f031b72…a29ea
+kindload: localhost:5001/pacto-operator/pacto-controller:e2e-modes (linux/arm64) present on 1 node(s) as sha256:be76e525…eaf582
+kindload: pacto/operator:5.0.0-e2e (linux/arm64) present on 1 node(s) as sha256:4e506d59…92db92
+kindload: localhost:5001/pacto-dashboard:3.1.4 (linux/arm64) present on 1 node(s) as sha256:3f031b72…a29ea
+kindload: localhost:5001/pacto-operator/pacto-controller:5.1.2 (linux/arm64) present on 1 node(s) as sha256:f4858e6b…194b7c
+kindload: registry:2 (linux/arm64) present on 1 node(s) as sha256:33eeff39…fc7350
+```
+
+Three environment flakes were seen in earlier full-suite attempts, all in cluster
+PROVISIONING and none at the image boundary: `kind create cluster` failing to
+bind a randomly chosen API-server port already taken by an ephemeral connection;
+the Docker daemon socket disappearing mid-run; and one `kind get clusters` that
+did not list a running cluster, so `ensure_cluster` tried to create it and hit
+"node(s) already exist". Each disappeared on re-run and the recorded complete run
+is clean. They are reported rather than papered over with a sleep or a retry:
+none of them is a claim this phase owns.
+
+### GitHub state at the implementation head `8d8fe368`
+
+Only CodeQL ran: `31973874581` (go, javascript-typescript, python — all success)
+and `31973874168` (actions — success). The `CI`, `Docs check`, `Security`,
+`Pacto Contract CI`, `Repowise` and `Validate PR title` workflows did NOT run,
+because they are `pull_request`-triggered and the PR is currently
+`mergeable: CONFLICTING`, `mergeStateStatus: DIRTY` — GitHub produces no merge
+ref, so no `pull_request` run is created. The conflict is inherited and confined
+to dependency metadata: `origin/main` advanced past the merge-base `a56b69e3`
+with three Dependabot bumps (`go-containerregistry` 0.21.7 to 0.21.9,
+`ginkgo/v2` 2.32.0 to 2.32.1, `otel/exporters/prometheus` 0.66.0 to 0.67.0) that
+collide with this branch's `go.mod`/`go.sum`. Nothing in Phase 10 touches those
+files. Resolving it needs a merge from `main` into the branch — the same
+append-only merge this branch has taken three times before — which is a
+maintenance decision outside Phase 10's mandate and is left to the reviewer.
+
+The CodeQL check reports 8 high alerts, all `go/path-injection`, all in files
+this phase does not touch: `pkg/oci/cache.go` (375, 394, 395, 666) and
+`internal/app/resolve.go` (35, 43, 57, 67). Inherited, unchanged in count and
+location.
+
+Review threads, fully paginated until `hasNextPage` is false: page 1 — 100 nodes,
+100 resolved, 0 unresolved; page 2 — 99 nodes, 89 resolved, 10 unresolved. Total
+199 / 189 resolved / 10 unresolved: 6 inherited `github-code-quality` on the
+generated `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` and 4
+inherited CodeQL on `pkg/oci/cache.go`. Phase 10 introduced none, resolved none
+and published no comment.
+
+**Phase 10 state: CANDIDATE, pending independent review.** The scenarios, their
+claims, the Product gate, the live browser journeys and the external Evidence
+Server vertical are untouched; the only behavioural change is how an image
+reaches a kind node.
