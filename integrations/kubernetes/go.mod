@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/google/go-containerregistry v0.21.9
-	github.com/onsi/ginkgo/v2 v2.32.0
+	github.com/onsi/ginkgo/v2 v2.32.1
 	github.com/onsi/gomega v1.42.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	go.opentelemetry.io/otel/exporters/prometheus v0.67.0
