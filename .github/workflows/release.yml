@@ -68,7 +68,7 @@ jobs:
       - run: pip install pyyaml
       - run: npm ci --ignore-scripts
       - name: Open or update the Version Packages PR
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a # v2.1.0
         with:
           version: npm run release:version:docs
           title: "chore: version packages"
