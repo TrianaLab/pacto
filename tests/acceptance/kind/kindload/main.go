@@ -119,7 +119,7 @@ func loadOne(cluster string, nodes []string, plat string, narrow bool, ref strin
 			"    Docker's containerd image store keeps a pulled tag's multi-platform INDEX identity while\n"+
 			"    materializing only this host's platform, so `ctr images import --all-platforms` inside the\n"+
 			"    kind node cannot resolve the platforms that were never fetched. `docker save --platform`\n"+
-			"    narrows the export to the node's platform; this docker CLI %s it.", ref, err, supports(narrow))
+			"    narrows the export to the node's platform; this docker CLI %s it", ref, err, supports(narrow))
 	}
 	img, err := a.selectImage(plat)
 	if err != nil {
