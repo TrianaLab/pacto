@@ -85,12 +85,27 @@ use_existing_cluster() { # HINT — the command that would have created it
   _kubeconfig_for_cluster
 }
 
-# load_images IMG... — import each image into $CLUSTER ONE AT A TIME. A combined
-# `kind load docker-image A B C` streams a single ctr import that can fail with
-# "content digest ... not found" when the images share base layers.
+# load_images IMG... — import images into $CLUSTER. The ONE image-loading
+# boundary: every scenario goes through it, on CI's classic Docker image store
+# and on a Docker Desktop workstation alike.
+#
+# It is not `kind load docker-image`, which streams `docker save` into `ctr
+# images import --all-platforms` inside the node and therefore breaks under the
+# containerd image store, where a pulled tag keeps its multi-platform INDEX
+# identity locally while only this host's platform is materialized: the node is
+# asked for manifests that were never fetched and answers "content digest
+# sha256:...: not found". Loading images one at a time (which this used to do,
+# for the same class of symptom on shared base layers) does not help — the
+# missing content is another PLATFORM, not another image.
+#
+# The decision logic lives in Go, in tests/acceptance/kind/kindload: which
+# platform the NODE runs, whether this docker CLI can narrow an export to it,
+# whether the resulting archive is self-contained before the node ever sees it,
+# and — after loading — whether the reference resolves on every node to the
+# config digest that was exported. That last check is what makes a scenario's
+# `imagePullPolicy: Never` a guarantee rather than a hope.
 load_images() {
-  local img
-  for img in "$@"; do kind load docker-image "$img" --name "$CLUSTER"; done
+  ( cd "$_PACTO_ROOT" && go run ./tests/acceptance/kind/kindload -cluster "$CLUSTER" "$@" )
 }
 
 delete_cluster() { kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true; }
@@ -194,6 +209,13 @@ wait_pacto_status() {
 # Plain HTTP, so callers must also teach whatever resolves from it to treat the
 # service host as insecure. imagePullPolicy: Never, because the image is loaded
 # into the node rather than pulled from Docker Hub by every kind node in CI.
+#
+# The pull stays unconditional and needs no protecting: registry:2 is a
+# multi-platform tag, and the host's copy of it is a multi-platform index whose
+# other platforms are not present — the very artifact that used to break the
+# load. load_images narrows it at load time, so re-pulling cannot restore a
+# broken state and there is no pre-flattened local image for a later pull to
+# overwrite.
 install_registry() {
   docker pull registry:2 >/dev/null
   load_images registry:2
