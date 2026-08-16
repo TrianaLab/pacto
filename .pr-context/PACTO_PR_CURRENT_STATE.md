@@ -31,9 +31,14 @@ and join the frozen accepted behaviour (see "Accepted at this review"). The
 Phase-8 live Kind Product acceptance — its vertical, its 14-fact two-snapshot
 gate, journeys A–H and the whole cache-identity repair series — is settled.
 
-**Phase 8B is now the ACTIVE phase**: test architecture and harness
+**Phase 8B is ACCEPTED and CLOSED** at `93dca214`: test architecture and harness
 consolidation, including the canonical scenario/projection boundary that TARGET
-section 1B added and TARGET Phase 10B is blocked on.
+section 1B added and TARGET Phase 10B is blocked on. An independent review
+verified both blockers left at `1a04807d` — the ambiguous deployment and the
+untested fixture package — as closed by the repairs recorded in section 12.8.
+
+**Phase 9 is now the ACTIVE phase**: real browser E2E against the built MkDocs
+site, including the diagrams it renders.
 
 Accepted Phase-8 behaviour is NOT reopened for stylistic improvement, theoretical
 hardening or refactor convenience. A reopen requires a CONCRETE correctness,
@@ -1114,10 +1119,11 @@ Verification for this candidate is in section 8. Still disclosed and out of
 scope: the CodeQL PR-ref findings and the Evidence Server read-only-cache
 warning.
 
-### Phase 8B — CANDIDATE, pending the narrow-closure verification
+### Phase 8B — ACCEPTED and CLOSED
 
 Test architecture & harness consolidation. See TARGET section 10. Phase 8B MUST
-close before Phase 9 or Phase 10 add their new acceptance harnesses.
+close before Phase 9 or Phase 10 add their new acceptance harnesses — it has,
+so Phase 9 may add its harness INTO the taxonomy this phase established.
 
 The independent review at `2126fdcc` accepted the taxonomy, the relocations, the
 Make/CI wiring, the shared Kind harness, `obscheck`, the Product gate, the
@@ -1128,8 +1134,10 @@ A second independent review, at `1a04807d`, accepted that closure and left two
 further blockers: a fixture declaring two deployed revisions was silently
 collapsed to the first by every surface, and the scenario package's own tests
 were reached by no target `make ci` depends on. Both are repaired; that closure
-is recorded in section 12.8. Phase 8B stays a CANDIDATE until an independent
-review verifies these repairs.
+is recorded in section 12.8.
+
+A third independent review, at `93dca214`, verified both of those repairs
+closed and CLOSED Phase 8B. Nothing in it is reopened by Phase 9.
 
 Phase 8B additionally owns the canonical scenario/projection boundary added to
 TARGET section 1B ("Declarative > imperative"). TARGET Phase 10B — the canonical
@@ -1146,9 +1154,16 @@ document. It is migration bookkeeping and is deleted with this document in Phase
 14; the durable repository documentation carries the resulting ARCHITECTURE, not
 the ledger.
 
-### Phase 9 — NOT STARTED
+### Phase 9 — ACTIVE
 
-Real built MkDocs browser E2E.
+Real built MkDocs browser E2E. What the existing gates prove, and what they do
+not: `mermaid-check` proves every fenced diagram is renderable by mermaid-cli
+OUTSIDE the site; `pkg/dashboard/frontend/e2e/mermaid.spec.ts` proves contract
+documentation renders INSIDE the dashboard. Neither loads the real MkDocs
+output, so neither can see the theme integration, the hook-injected integration
+pages, or Material instant navigation. Phase 9 adds exactly that surface, into
+the taxonomy Phase 8B established rather than beside it, and does not weaken
+either existing gate.
 
 ### Phase 10 — NOT STARTED
 
@@ -1866,6 +1881,10 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 
 ## 10. Next iteration objective
 
+*Superseded at `93dca214`: Phase 8B is CLOSED and Phase 9 is ACTIVE. The
+Phase-8B brief below is kept because its nine boundaries still bind every later
+phase — boundary 8 is now satisfied, not waived.*
+
 **Phase 8B — test architecture and harness consolidation.** Phase 8 is closed
 (section 2). The branch now carries eight distinct kinds of test spread across
 directories named for their history rather than for what they prove, six Kind
@@ -2305,8 +2324,10 @@ pending independent verification of exactly these repairs.
 
 A second independent Phase 8B review, at `1a04807d`, accepted the 12.7 closure
 and left exactly two blockers. Neither reopens Phase 8, the inventory, or any
-accepted relocation. Repaired append-only in three commits; nothing was amended,
-rebased or force-pushed.
+accepted relocation. Repaired append-only in four commits — the two repairs,
+this ledger section, and the commit that recorded the workflow results this
+section could only carry after they existed; nothing was amended, rebased or
+force-pushed.
 
 **What the review found.**
 
@@ -2337,7 +2358,7 @@ never executed in required CI.
 | `Scenario.PactoCRs` | no error; the emitted CR pins 1.0.0 | refused, same diagnostic |
 | `Scenario.Validate` | did not exist | refused before any projection runs |
 | Product gate | selected the first revision and accepted a target linked to it | refuses before it polls; `probe` reports rather than resolves |
-| `Scenario.FactCount` | counted a target per `Deployed` flag — two | counts a target per WORKLOAD — one |
+| `Scenario.FactCount` | selected the first deployed revision and counted ONE target, silently erasing the second deployment | counts a target per WORKLOAD — one, derived rather than selected |
 
 **The repairs.**
 
@@ -2345,7 +2366,8 @@ never executed in required CI.
 |---|---|
 | `6e287a4f` | blocker A: `DeployedRevision` returns `(Revision, error)`, `Scenario.Validate`, both projections, `FactCount`, the Product gate, the counterexamples |
 | `30535f43` | blocker B: `test-integration` runs `./tests/acceptance/...` under `-race` |
-| *(this commit)* | this ledger section |
+| `bf0b932e` | this ledger section |
+| `93dca214` | the GitHub workflow results for this range, recorded once they existed |
 
 *Blocker A (`6e287a4f`).* One rule, enforced where the fixture is read, not once
 per caller. `DeployedRevision` now returns exactly one revision or an error
@@ -2407,5 +2429,5 @@ no workflow job was added, and no existing leg was weakened or removed.
 carried CodeQL path-expression item, the generated Mermaid findings, Phase 9,
 Phase 10 and Phase 10B — plus TARGET itself, which is unmodified. The Go 1.26.6
 bump and its history stand as recorded in 12.7. Phase 8 remains ACCEPTED and
-CLOSED. Phase 8B remains a CANDIDATE: this section records a repair, not a
-closure, and an independent review has not yet verified it.
+CLOSED. This section records a repair, not a closure; the closure is the
+independent review at `93dca214`, recorded in the Phase 8B section above.
