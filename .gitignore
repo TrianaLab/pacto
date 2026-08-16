@@ -19,8 +19,9 @@ coverage.html
 # Local Go build cache (created when GOCACHE points into the tree)
 .gocache/
 
-# MkDocs build output
+# MkDocs build output (/site is `make docs-build`; /site-test is the browser gate)
 /site/
+/site-test/
 
 # Python tooling caches (release/scripts docs generator + checker)
 __pycache__/
