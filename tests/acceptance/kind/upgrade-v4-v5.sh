@@ -64,10 +64,11 @@ V4_CHART="$(package_chart "$FIXTURE" --version 4.7.0 --app-version 4.7.0)"
 V5_CHART="$(package_chart "$PACTO_CHART" --version 5.0.0 --app-version "$V5_TAG")"
 
 ensure_cluster
-# Only the locally built v5 image is kind-loaded. The real v4 image is multi-arch;
-# the kind node pulls it directly from ghcr at install time (pullPolicy=IfNotPresent,
-# public image) — a host-side `docker pull --platform` + `kind load` fails because
-# kind imports all platforms and the other arch's blobs are not present locally.
+# Only the locally built v5 image is loaded. The real v4 image is a published,
+# public, multi-arch one and the kind node pulls it directly from ghcr at install
+# time (pullPolicy=IfNotPresent) — pulling it host-side first would only add a
+# copy of what the node can fetch itself. (load_images could carry it: it narrows
+# every export to the node's platform. Nothing here needs that.)
 echo "== load the freshly built v5 image into kind =="
 load_images "$V5_IMG"
 

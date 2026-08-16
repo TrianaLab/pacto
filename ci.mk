@@ -97,9 +97,11 @@ test-acceptance-kind-observation:
 
 # Full operational-graph vertical + a LIVE browser acceptance: brings up operator +
 # dashboard + Evidence Server + registry with reconciled CRs and ingested evidence,
-# then drives the LIVE dashboard in Chromium via Playwright. Runs in CI's clean
-# Docker (classic image store), where `kind load docker-image` works — Docker
-# Desktop's containerd image store breaks it locally.
+# then drives the LIVE dashboard in Chromium via Playwright. Runs on CI's classic
+# Docker image store and on a Docker Desktop workstation alike: images reach the
+# node through tests/acceptance/kind/kindload, which narrows each export to the
+# node's own platform instead of asking containerd to import platforms this host
+# never pulled. See docs/maintainers/testing.md.
 test-acceptance-kind-operational-graph:
 	bash tests/acceptance/kind/operational-graph.sh browser
 

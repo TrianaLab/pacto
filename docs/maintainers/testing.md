@@ -99,6 +99,60 @@ change them only with a reason:
 `tests/acceptance/local/` has no cluster to manage and keeps its own small
 helpers; `integrations/kubernetes/test/utils` serves the operator module.
 
+### Getting an image into the kind node
+
+`load_images` is the only way an image reaches a node, and it is deliberately
+**not** `kind load docker-image`. That command pipes `docker save` into `ctr
+images import --all-platforms` inside the node, which cannot work when the host
+holds only part of a multi-platform image — the state Docker Desktop's
+containerd image store leaves a pulled tag such as `registry:2` in. The node is
+asked for a platform that was never fetched and the run dies at the loading
+boundary:
+
+```text
+ERROR: failed to load image: command "docker exec ... ctr --namespace=k8s.io
+images import --all-platforms --digests --snapshotter=overlayfs -" failed
+Command Output: ctr: content digest sha256:46faa9a1...: not found
+```
+
+That digest is another platform's **manifest**, not the image. Four identities
+are in play and none is interchangeable: the Docker image ID, the multi-platform
+**index** digest, a per-platform **manifest** digest, and the **config** digest.
+Under the containerd image store `docker image inspect --format {{.Id}}` reports
+the index digest while the node reports the config digest, so kind's "already
+present?" short-circuit can never match — it re-imports every time, and fails
+every time. Flattening the image by hand does not survive either: the scenario
+pulls the tag again on the next run.
+
+`tests/acceptance/kind/kindload` (Go, unit-tested) owns the decisions:
+
+1. the **node** is asked which platform it runs (`uname -m` in the node
+   container) — not the host, not `runtime.GOARCH`, not an OS name;
+2. the export is narrowed with `docker save --platform` when the docker CLI in
+   front of it accepts that flag, read off `docker save --help`: a capability
+   check, not a product check;
+3. the archive is proven **self-contained** before the node sees it — every
+   descriptor it references, recursively, must have its content inside. This is
+   exactly what `--all-platforms` demands, checked where the diagnostic can name
+   the missing platform instead of inside the node where it is a bare digest;
+4. `kind load image-archive` imports it, which has no identity short-circuit to
+   get wrong;
+5. `crictl` is asked, **on every node**, whether the reference now resolves to
+   the config digest that was exported.
+
+Step 5 is what lets a scenario write `imagePullPolicy: Never` and mean it: an
+image the node pulled from Docker Hub under the same name carries a different
+config digest and fails the check. Nothing on this path branches on an operating
+system, so CI's classic image store and a Docker Desktop workstation execute the
+same code.
+
+When it fails: `archive is not self-contained` means the export still carried a
+platform whose content is not local, and the message names both the digest and
+the platform — on a docker CLI older than 28 there is no `docker save
+--platform` to narrow with, so upgrade it. `resolves to ... not the loaded ...`
+means the node already holds a different image under that name; remove it with
+`ctr -n k8s.io images rm` in the node and re-run.
+
 ## Declarative scenarios and their projections
 
 When several surfaces describe the *same* fixture, the fixture is declared once
