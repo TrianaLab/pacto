@@ -37,9 +37,12 @@ section 1B added and TARGET Phase 10B is blocked on. An independent review
 verified both blockers left at `1a04807d` — the ambiguous deployment and the
 untested fixture package — as closed by the repairs recorded in section 12.8.
 
-**Phase 9 is a CANDIDATE** at `2124661b`: real browser E2E against the built
-MkDocs site, including the diagrams it renders. The implementation is recorded in
-section 13; only an independent review may close it.
+**Phase 9 is a CANDIDATE** again after a narrow reopen: real browser E2E against
+the built MkDocs site, including the diagrams it renders. An independent review
+accepted the suite and reopened one blocker — the runtime prerequisite the new
+hook demands was carried by the PR gate alone, so the clean build and deployment
+paths bypassed it. Repaired in section 13.1. Only an independent review may close
+it.
 
 Accepted Phase-8 behaviour is NOT reopened for stylistic improvement, theoretical
 hardening or refactor convenience. A reopen requires a CONCRETE correctness,
@@ -1155,7 +1158,7 @@ document. It is migration bookkeeping and is deleted with this document in Phase
 14; the durable repository documentation carries the resulting ARCHITECTURE, not
 the ledger.
 
-### Phase 9 — CANDIDATE at `2124661b`, pending independent review
+### Phase 9 — CANDIDATE, pending independent review (reopened once, repaired in 13.1)
 
 Real built MkDocs browser E2E. What the existing gates prove, and what they do
 not: `mermaid-check` proves every fenced diagram is renderable by mermaid-cli
@@ -2614,7 +2617,7 @@ measures client-side navigation and not two direct loads.
 | Security at `2124661b` (run 31964688863) | success — `govulncheck (Go)`, `Trivy (image)`, `PR security summary` |
 | Pacto Contract CI / Validate PR title / Repowise at `2124661b` | success (runs 31964688758, 31964688759, 31964688724) |
 | CodeQL at `2124661b` (run 31964686066 / 31964686092) | every `Analyze` job success (actions, go, javascript-typescript, python). The `CodeQL` results check is `failure`, CARRIED and byte-identical to `93dca214`: the same 8 high `go/path-injection` alerts in `internal/app/resolve.go` (#40-43, opened 2026-07-29) and `pkg/oci/cache.go` (#59-62, opened 2026-08-13). Neither file is touched by Phase 9; no alert names any Phase 9 file; `required` does not include CodeQL |
-| review threads | 199 total, 0 unresolved — nothing inherited open, nothing introduced |
+| review threads | **WRONG AS FIRST RECORDED — see 13.1.** Reported here as "199 total, 0 unresolved"; the fully paginated result at `2124661b` and at `ffdde98e` is 199 total, 189 resolved, 10 unresolved (6 inherited generated, 4 inherited CodeQL). The query read only the first page, and that page happens to hold no unresolved thread |
 | PR state | open, draft, mergeable |
 
 The workflow results above belong to `2124661b`, the implementation head. This
@@ -2628,3 +2631,175 @@ everything after; `PACTO_PR_TARGET_STATE.md`. No existing gate was weakened,
 replaced or removed — `mermaid-check`, the dashboard browser suite, required CI,
 Security, artifact drift and the release gates all run exactly as before. Phase 8
 and Phase 8B remain ACCEPTED and CLOSED.
+
+## 13.1 Phase 9 — narrow reopen and repair, CANDIDATE again
+
+An independent review at `ffdde98e` ACCEPTED the Phase 9 suite and reopened one
+blocker. Accepted and frozen, not redesigned here: the `e2e-docs-site` Playwright
+suite and its core, integration-injected and instant-navigation coverage; the
+one-key `site_url` test overlay; the window witness that proves same-document
+navigation; the MkDocs hook staging the lockfile-solved Mermaid 11.15.0 runtime;
+`extra_javascript` with deferred loading; reuse of the existing frontend
+Playwright/Mermaid toolchain; the level-6 taxonomy and the separate
+dashboard/docs-site suites; existing Mermaid syntax, dashboard browser, CI,
+Security and release gates. No dependency was added, no CDN restored, no Mermaid
+vendored, no second test framework created. Phase 8 and Phase 8B remain CLOSED.
+Phase 10 is not started.
+
+### The blocker: the gate carried the prerequisite, the real paths did not
+
+The hook fails closed unless `pkg/dashboard/frontend/node_modules/mermaid/dist/mermaid.min.js`
+exists. Phase 9 hung that prerequisite off `docs-check` and `test-browser-docs-site`
+— the two targets the PR gate runs — and nowhere else. The dependency graph at
+`ffdde98e`: `docs-serve` had no prerequisite, `docs-deploy` depended only on
+`docs-generate`, and `.github/workflows/docs.yml` invoked `mkdocs build --strict`
+directly. So the PR gate went green while the post-merge validation and the
+versioned release publisher both aborted before building a page.
+
+Reproduced on clean checkouts of `ffdde98e` with no frontend `node_modules`:
+
+```
+$ mkdocs build --strict --site-dir "$(mktemp -d)"          # the docs.yml command
+ERROR   -  diagram runtime missing: pkg/dashboard/frontend/node_modules/mermaid/dist/mermaid.min.js
+Aborted with a BuildError!                                  # exit 1
+
+$ make docs-deploy                                          # the release.yml command
+==> mike deploy --push --update-aliases 3.1.4 latest (release)
+ERROR   -  diagram runtime missing: pkg/dashboard/frontend/node_modules/mermaid/dist/mermaid.min.js
+error: Command '['mkdocs', 'build', '--clean', ...]' returned non-zero exit status 1.
+make: *** [docs-deploy] Error 1
+```
+
+The release counterexample is the stronger one: it is not a hypothetical about a
+runner, it is `make docs-deploy` failing inside mike's own build.
+
+### The repair: one prerequisite, expressed once in Make
+
+`$(MERMAID_RUNTIME)` is a real file target whose recipe is the frontend `npm ci`,
+so "present means installed" and it costs nothing once node_modules exists. Every
+repository-owned MkDocs/Mike entry point now depends on it:
+
+| Entry point | Before | After |
+|---|---|---|
+| `make docs` | had it | unchanged |
+| `make docs-build` | had it | unchanged |
+| `make docs-check` | had it | unchanged |
+| `make test-browser-docs-site` | had it | unchanged |
+| `make docs-serve` | **none** | `docs-serve: $(MERMAID_RUNTIME)` |
+| `make docs-deploy` | `docs-generate` only | `docs-deploy: docs-generate $(MERMAID_RUNTIME)` |
+| `.github/workflows/docs.yml` strict build | raw `mkdocs build --strict` | `make docs-build-strict`, a new target carrying the prerequisite |
+| `.github/workflows/release.yml` docs job | `make docs-deploy` | unchanged — it inherits the guarantee |
+
+The release job needed no edit at all, which is the point: the prerequisite
+travels with the target instead of being re-implemented as an `npm ci` pasted
+into each job. `docs-build-strict` exists so docs.yml has a target to call rather
+than a second copy of the dependency. docs.yml's path filter gains
+`release/scripts/mkdocs_mermaid_hook.py`, both frontend dependency manifests,
+`Makefile` and `ci.mk`, so a change to the hook, to the lockfile that pins the
+runtime bytes or to the Make wiring that installs them can trigger the post-merge
+validation that these inputs decide the outcome of. The hook's fail-closed
+behaviour is untouched.
+
+### Permanent regression proof
+
+Added to the existing release-architecture level — `tests/release/docs_versioning_test.go`,
+the file that already owns "who may publish the docs site" — with no new
+framework and no shell harness. It interrogates the dependency GRAPH, because
+Makefile text is not the invariant and a laptop cannot see the failure at all:
+`node_modules` is already there, so every entry point passes locally regardless.
+
+- `TestEveryDocsEntryPointInstallsTheDiagramRuntime` — `make -n -B <target>` for
+  all seven entry points must schedule the frontend install. `-B` forces every
+  prerequisite out of date, so a present `node_modules` cannot hide a missing
+  edge; `-n` prints without executing.
+- `TestTheDiagramRuntimeIsInstalledBeforeTheSiteIsBuilt` — for the two paths the
+  PR gate never exercises, the install must be scheduled BEFORE the builder:
+  `docs-serve` before `mkdocs serve`, `docs-deploy` before `mike deploy`.
+- `TestDocsWorkflowsBuildTheSiteThroughMake` — neither docs.yml nor release.yml
+  may run `mkdocs` or `mike` as a shell command (comments and step names are
+  skipped); docs.yml must reach the site through `make docs-build-strict` and
+  release.yml through the guarded `make docs-deploy`; and the docs.yml path
+  filter must cover the runtime inputs.
+
+RED at `ffdde98e` (the new test file copied onto the unrepaired tree), GREEN
+after the repair:
+
+| Assertion | `ffdde98e` | repaired |
+|---|---|---|
+| `docs-serve` installs the runtime | FAIL | PASS |
+| `docs-deploy` installs the runtime | FAIL | PASS |
+| `docs-build-strict` installs the runtime | FAIL (no such target) | PASS |
+| install scheduled before `mkdocs serve` | FAIL — install at -1 | PASS |
+| install scheduled before `mike deploy` | FAIL — install at -1, mike at 460 | PASS |
+| docs.yml does not invoke the builder directly | FAIL | PASS |
+| docs.yml reaches the site via `make docs-build-strict` | FAIL | PASS |
+| docs.yml path filter covers the runtime inputs | FAIL, all 5 | PASS |
+| `docs`, `docs-build`, `docs-check`, `test-browser-docs-site` | PASS | PASS |
+
+### Exact-origin correction in the browser gate
+
+Everything the docs-site suite proves rests on one barrier — abort every request
+the site did not serve — and the barrier compared strings. `url.startsWith(origin)`
+admits `http://127.0.0.1:43220` for an origin of `http://127.0.0.1:4322`, and
+every longer port sharing that prefix with it. Now parsed origins compared
+exactly, with unparseable and opaque URLs treated as off-site.
+
+The focused assertion drives the real route handler with a look-alike port rather
+than testing the predicate in isolation. Mutation-verified: restoring
+`startsWith` makes the probe be admitted as the site and never recorded, and the
+new test fails on both attempts (`4 passed` becomes `1 failed, 3 passed`). The
+mutation was reverted. The three accepted tests are unchanged.
+
+### The review-thread ledger was wrong, and so was the query
+
+Section 13 recorded "199 total, 0 unresolved". That is false. The fully paginated
+GraphQL result at `ffdde98e` — and at `2124661b`, unchanged — is:
+
+| | count |
+|---|---|
+| total | 199 |
+| resolved | 189 |
+| unresolved | 10 |
+| unresolved inherited `github-code-quality`, generated Mermaid dashboard chunk `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` | 6 |
+| unresolved inherited CodeQL, `pkg/oci/cache.go` (lines 375, 394, 395, 666) | 4 |
+| introduced by Phase 9 | 0 |
+
+The cause is mechanical and worth stating, because it will recur: `reviewThreads`
+returns 100 per page, this PR has 199, and the first page contains no unresolved
+thread at all. A single-page query therefore reports a perfect ledger with total
+confidence. Every count must come from a loop that follows `pageInfo.hasNextPage`
+until it is false and sums the pages; `totalCount` on page one is not permission
+to stop reading. Reported per page, this run: page 1 — 100 nodes, 100 resolved, 0
+unresolved; page 2 — 99 nodes, 89 resolved, 10 unresolved.
+
+The corrected numbers match what the earlier passes recorded at `6e3a3627`,
+`b0020460` and `c9d52bb9`: the same 199/189/10 with the same 6 generated and 4
+authored-file inherited threads. Nothing changed; only the Phase 9 report of it
+was wrong.
+
+### Local verification
+
+| Check | Result |
+|---|---|
+| clean checkout of `ffdde98e`, `mkdocs build --strict` | exit 1 — `diagram runtime missing` |
+| clean clone of `ffdde98e`, `make docs-deploy` (mike, no push) | fails inside mike's `mkdocs build` |
+| clean checkout of the repair, `make docs-build-strict` | exit 0 — `npm ci` (340 packages) then `Documentation built in 3.45 seconds` |
+| clean clone of the repair, `make docs-deploy` (mike, no push) | full path succeeds: docs-generate, `npm ci`, `mike deploy`, `mike set-default` |
+| the published snapshot carries the pinned runtime | `gh-pages:3.1.4/javascripts/mermaid.min.js` sha256 `70137e77bb27…65de`, byte-identical to `node_modules/mermaid/dist/mermaid.min.js` |
+| `make -n -B docs-deploy` | `npm ci` at line 7, `mike deploy` at line 11 — install precedes publish |
+| `make -n -B docs-serve` | `npm ci` at line 1, `mkdocs serve` at line 3 |
+| new regression test | RED against `ffdde98e` on every arm above, GREEN after the repair |
+| `CI=1 make test-browser-docs-site` | 4 passed in 4.8s — the three accepted tests plus the exact-origin assertion |
+| mutation run (prefix comparison restored) | `1 failed, 3 passed`; the failure is the intended one; reverted |
+| `make docs-check` | 9/9 including `(c) mkdocs build --strict`; `check_mermaid: 19/19 mermaid blocks valid` |
+| `go test ./tests/release/...` | ok |
+| `make artifact-drift` | OK — one-publisher gate plus apply-release-plan idempotency |
+| `git diff --check` | exit 0 |
+
+Deployment was validated with `--push` stripped by a local shim, in a throwaway
+clone with its remote removed. Nothing was published to `gh-pages`.
+
+**Phase 9 state: CANDIDATE, pending another independent review.** It is not
+closed here; a phase is closed by review, not by the author of its repair. The
+reopen was narrow: the accepted suite and its design are untouched, the hook
+still fails closed and no gate was weakened, replaced or removed.
