@@ -1,6 +1,6 @@
 # Pacto PR #291 — Current Implementation State
 
-**Snapshot date:** 2026-08-14
+**Snapshot date:** 2026-08-16
 **Repository:** `TrianaLab/pacto`  
 **PR:** `#291`  
 **Branch:** `feat/operational-graph-fleet`
@@ -11,7 +11,7 @@
 
 Latest independently reviewed HEAD:
 
-`5ffc72b3f64fc7bff364f69de67c6985390a03ac`
+`5fce48e6708cbd47f9ebe03244898647305fcca5`
 
 Current synchronized `main` / merge-base at that review:
 
@@ -37,12 +37,17 @@ section 1B added and TARGET Phase 10B is blocked on. An independent review
 verified both blockers left at `1a04807d` — the ambiguous deployment and the
 untested fixture package — as closed by the repairs recorded in section 12.8.
 
-**Phase 9 is a CANDIDATE** again after a narrow reopen: real browser E2E against
-the built MkDocs site, including the diagrams it renders. An independent review
-accepted the suite and reopened one blocker — the runtime prerequisite the new
-hook demands was carried by the PR gate alone, so the clean build and deployment
-paths bypassed it. Repaired in section 13.1. Only an independent review may close
-it.
+**Phase 9 is ACCEPTED and CLOSED** at `5fce48e6`: real browser E2E against the
+built MkDocs site, including the diagrams it renders. It was reopened once — the
+runtime prerequisite the new hook demands was carried by the PR gate alone, so
+the clean build and deployment paths bypassed it — and the review at `5fce48e6`
+verified that repair (section 13.1) closed. Nothing in it is reopened by Phase 10.
+
+**Phase 10 is ACTIVE** from `5fce48e6`: closing the local Kind acceptance path
+where Docker Desktop's containerd image store behaves differently from CI's
+classic Docker image store. It repairs the SHARED Phase-8B harness boundary; it
+adds no second Kind suite and changes no scenario's claims. Its record is
+section 14.
 
 Accepted Phase-8 behaviour is NOT reopened for stylistic improvement, theoretical
 hardening or refactor convenience. A reopen requires a CONCRETE correctness,
@@ -1158,7 +1163,7 @@ document. It is migration bookkeeping and is deleted with this document in Phase
 14; the durable repository documentation carries the resulting ARCHITECTURE, not
 the ledger.
 
-### Phase 9 — CANDIDATE, pending independent review (reopened once, repaired in 13.1)
+### Phase 9 — ACCEPTED and CLOSED (reopened once, repaired in 13.1)
 
 Real built MkDocs browser E2E. What the existing gates prove, and what they do
 not: `mermaid-check` proves every fenced diagram is renderable by mermaid-cli
@@ -1171,11 +1176,24 @@ either existing gate.
 
 Implemented, verified locally and green in GitHub CI. The record — the failing
 test, the defect it exposed, the fix, the rejected alternatives, the mutation
-proof and the workflow results per SHA — is section 13. CANDIDATE, not CLOSED.
+proof and the workflow results per SHA — is section 13. An independent review at
+`5fce48e6` verified the 13.1 repair and CLOSED the phase.
 
-### Phase 10 — NOT STARTED
+### Phase 10 — ACTIVE
 
-Docker Desktop/containerd/local-registry Kind path.
+Docker Desktop/containerd/local-registry Kind path. Close the local Kind path
+where Docker Desktop's containerd image-store behaviour differs from CI's
+classic `kind load`, by repairing the SHARED Phase-8B harness so the existing
+six scenarios run through the same semantic boundaries in both places.
+
+Blocked on Phase 8B, which is CLOSED, so the repair goes INTO the consolidated
+test architecture rather than beside it. It does not create another Kind suite,
+merge or re-scope the six scenarios, weaken `imagePullPolicy`, readiness, the
+Product gate or the browser journeys, and does not start Phase 10B.
+
+Its record — the reproduced failure, the identity/platform root cause, the
+loading strategy and its rejected alternatives, the regression and mutation
+proof, and the local plus GitHub verification per SHA — is section 14.
 
 ### Phase 11 — NOT STARTED
 
