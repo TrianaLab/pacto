@@ -2363,7 +2363,7 @@ returns nothing, and every workflow resolves Go via `go-version-file: go.mod`.
 | `go test -race ./tests/acceptance/scenario/...` | ok — the 7 counterexamples plus the grammar, CR and payload suites |
 | `go test -race ./tests/acceptance/...` | ok (`obscheck`, `productready`, `scenario`) |
 | `go vet ./...` and `go vet -tags integration ./...` | clean |
-| `make ci` | exit 0 |
+| `make ci` | exit 0, re-run at `76ed7fee` after the filter change |
 | `make artifact-drift` | OK |
 | `make release-dry-run` | `RELEASE-DRY-RUN OK` — real artifacts to `localhost:5001`, digest idempotency + immutability + resume proven, `K8S-MODULE-STANDALONE OK` |
 | `go test -tags integration ./tests/integration/...` | ok, 88.6s |
@@ -3755,3 +3755,262 @@ and Phase 10B opened none.
 CANDIDATE. Not closed, not self-declared. Phase 11 is not started, no PR comment
 was published, no review thread was resolved, no PR metadata was changed and the
 PR remains a draft.
+
+## 15.2 Phase 10B narrow closure repair — CANDIDATE at `76ed7fee`
+
+Phase 10B was reopened for two blockers and repaired narrowly. It remains a
+CANDIDATE: a phase is closed by review, not by its author. Nothing in this
+section closes it, and Phase 11 is not started.
+
+`PACTO_PR_TARGET_STATE.md` was not touched by this repair. It was extended by a
+separate authored commit, `40a1f0ae` "docs: define OCI-native evidence referrers
+phase", which landed on the branch during the verification window and is not
+part of Phase 10B.
+
+### The two blockers, as found
+
+1. **Immutability stopped at the artifact.** The demo artifact is pulled by
+   digest, and then ran images named by tag. One immutable demo digest could
+   execute different bytes after a tag moved, so the immutability the artifact
+   advertises was true of the artifact and not of what it runs.
+2. **The offline stage proved something smaller than the claim.** It ran
+   `docker compose up --pull never` on a runner that still had Internet egress,
+   with the artifact-distribution registry still serving. That is evidence that
+   Docker pulled no images. It is not evidence that the demo needs no network,
+   and the documents said the larger thing.
+
+### Commits appended, in order
+
+| SHA | Subject |
+|---|---|
+| `ef385031` | fix(scenario): the demo artifact refuses an image a tag could move |
+| `d44195d2` | style(scenario): the hex check is a Trim, not a loop |
+| `49f5b654` | build(release): the demo pins the dashboard image this transaction published |
+| `da358659` | test(acceptance): the offline claim is a network boundary, not a pull flag |
+| `aa967b42` | docs: say exactly what the demo is tested to mean by offline |
+| `76ed7fee` | fix(acceptance): a packet to the host itself never reaches DOCKER-USER |
+
+`40a1f0ae`, the authored TARGET commit, sits between `aa967b42` and `76ed7fee`
+and is not part of this repair.
+
+Starting point `84435c23`, confirmed to be the remote head before the first
+change and still the remote head immediately before the push. 10 files,
++734 / -53. No rebase, amend, reset, force-push, squash or rewrite: the branch
+is append-only from `84435c23`.
+
+| File | What changed |
+|---|---|
+| `tests/acceptance/scenario/compose.go` | `checkPinnedImage`, applied to both images; `ComposeDefaultRegistryImage` |
+| `tests/acceptance/scenario/compose_test.go` | the adversarial cases below |
+| `tests/acceptance/scenario/project/main.go` | `-registry-image` defaulting to the pinned index; `-pacto-image` with no default |
+| `.github/workflows/release.yml` | the `demo-compose` step that resolves and requires the transaction's dashboard-image digest |
+| `release/orchestrator/dry-run.sh` | ITEM 3b now publishes a dashboard image and pins the demo to the recorded digest |
+| `tests/release/demo_image_pin_test.go` | new; four tests over the workflow and the dry run |
+| `tests/acceptance/local/compose-demo.sh` | digest-pinned local path; stage 10 rewritten as a network boundary |
+| `tests/acceptance/scenario/project/demo/README.md.tmpl` | the artifact's own offline section |
+| `docs/examples/compose-demo.md` | the public offline section and the image-pinning paragraph |
+| `docs/maintainers/testing.md` | the reasoning behind both claims |
+
+### Blocker A — the images are bound to digests
+
+`checkPinnedImage` refuses any reference that is not `…@sha256:` followed by 64
+lower-case hex characters, and it refuses it where the projection is built, so
+every consumer inherits it: the acceptance harness, the `project` CLI, the
+release workflow and the dry run. `repo:tag@sha256:…` is accepted, because the
+tag is then documentation and the digest still resolves the bytes. The message
+names the offending field and says what a pinned reference looks like.
+
+The registry image defaults to `registry:2@sha256:a3d8aaa6…`, which is the
+published multi-platform INDEX. Its children are separate manifests —
+`sha256:46faa9a1…` is the linux/amd64 one, `sha256:fa647fc1…` the linux/arm64 —
+and pinning one of those would run a single architecture everywhere and emulate
+it on the others. Because the pin is an index, Docker still selects the
+host-native child, so no `platform:` key is emitted anywhere and none is needed.
+
+In production the pin comes from the ledger. `demo-compose` reads
+`release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" dashboard-image`,
+which is where `publish-oci-unit.sh` recorded the index digest `imagetools
+create` assembled in this same transaction, and projects
+`ghcr.io/trianalab/pacto/dashboard@sha256:…`. No second lock format and no
+second adapter: it is the same ledger every other unit reads, which is also why
+a single-unit recovery dispatch, where no job output survives, resolves the
+right image. The step fails closed — a transaction with no recorded
+dashboard-image digest publishes no demo artifact at all, rather than one
+pointing at an image this release never verified.
+
+The local acceptance runs the same shape. It builds the production image from
+the production Dockerfile, pushes it, re-pins to the digest the registry
+assigned and pulls that back, so what is exercised is a digest pin and not a
+convenient local tag.
+
+### Blocker B — the boundary, stated and proved
+
+The claim, as written in the artifact's README, the public page and the test:
+
+> After the demo artifact and its digest-pinned images have been pulled, the
+> stack requires no external network access. Its private Compose service network
+> remains available because the dashboard, Evidence Server and embedded registry
+> must communicate with each other.
+
+Stage 10 proves that claim and no larger one:
+
+1. `docker compose down -v`, then `create --pull never` — `create` is the only
+   window in which a filter can precede the one-shot `seed`'s first packet,
+   because before it runs the seed has no network namespace to filter.
+2. A control probe from inside the demo's own network reaches the artifact
+   registry through `host-gateway`. Without that the isolation below would be
+   unfalsifiable.
+3. Two chains refuse every packet leaving that network, with an
+   `ESTABLISHED,RELATED` accept ahead of each so replies to the published ports
+   still return: `DOCKER-USER` for what the host forwards, and `INPUT` for what
+   is addressed to the host itself, which is never forwarded and so is invisible
+   to `DOCKER-USER`. The backend is chosen by asking which of `iptables-nft` and
+   `iptables-legacy` owns the `DOCKER-USER` chain, since writing to the other
+   one would install a rule that filters nothing. The control probe is repeated
+   and must now fail.
+4. The artifact-distribution registry is stopped, and proved unreachable.
+5. `up --pull never` from empty volumes, on observed readiness only — the demo's
+   own health checks and `--wait`; no unconditional sleep was added anywhere.
+6. The Product gate runs against the isolated stack and reaches the same 12
+   facts, and in `browser` mode the same live journeys run against it.
+7. The counterexample: one startup dependency is redirected at an endpoint
+   outside the network, via a `run --rm --no-deps seed` override against the
+   still-isolated stack, and is required to fail.
+
+`internal: true` is still rejected, for the reason recorded in section 15: it
+would take the published ports with it, and the boundary explicitly keeps them.
+
+### Mutation evidence
+
+Every mutation was applied to production or workflow code, run, and reverted;
+the tree was confirmed identical to the commit afterwards in each case.
+
+| # | Mutation | Test run | Result |
+|---|---|---|---|
+| A1 | `checkPinnedImage` always returns nil | `TestCompose_RefusesAnImageATagCouldMove`, `TestCompose_EmitsThePinnedReferencesUnchanged` | FAIL — every table case reported "the projection accepted …, so the demo is not pinned" |
+| A2 | the registry-image call site removed, the pacto one kept | `TestCompose_RefusesAnImageATagCouldMove` | FAIL on the four registry cases: tag-only, no tag, `@md5:`, digest with no repository |
+| A3 | the default registry pin switched from the index to its linux/amd64 child `sha256:46faa9a1…` | full Compose acceptance | FAIL at stage 5: "resolves to amd64 on a arm64 host — that pin is one architecture's manifest, not the multi-platform index" |
+| A4 | `demo-compose` pins `…/dashboard:${core-version}` instead of the ledger digest | `TestDemoComposePinsTheImageTheTransactionPublished` | FAIL — "which a tag could move; it must be repo@sha256:…" |
+| A5 | the fail-closed digest guard deleted from the workflow step | `TestDemoComposeRefusesToPublishWithoutTheDigest` | FAIL — "would publish an artifact pinning an unverified image" |
+| A6 | none — found naturally | `TestDryRunPinsTheDemoImageToo` | FAIL against the dry run as it stood, which is what ITEM 3b repaired |
+| A7 | the harness's own pin guard deleted, run with `PACTO_DEMO_IMAGE=ghcr.io/trianalab/pacto/dashboard:3.1.1` | full Compose acceptance | aborts at stage 3 with the projection's message, proving the refusal is the projection's and not the harness's |
+| B1 | `deny_egress` made a no-op | full Compose acceptance | FAIL at stage 10: "the filter is not denying egress, so the isolation below would be a claim rather than a test" |
+| B2 | the artifact registry left serving | full Compose acceptance | FAIL at stage 10: "the artifact registry is still serving, so this is not a cold start without it" |
+| B5 | none — found by CI. The filter was `DOCKER-USER` only, which is FORWARD; on Linux `host-gateway` is a host address, delivered locally, so the control probe went straight through | `ci-e2e-compose` at `40a1f0ae`, job `95427465636` | FAIL at stage 10 with B1's message. The stage refused to claim an isolation it had not established, on a platform the author's machine is not. Repaired in `76ed7fee` by filtering `INPUT` by ingress interface as well, and the whole acceptance re-run locally |
+| B4 | the counterexample redirected at an INTERNAL endpoint (`registry:5000/demo`) instead of an external one | full Compose acceptance | FAIL: "a startup dependency pointed outside the demo's network still succeeded, so stage 10 does not test what it says" — the counterexample discriminates on the endpoint being outside, not on there being a redirect |
+
+A7 also exposed a defect in the harness itself: bash does not propagate
+`errexit` out of a failing subshell inside a function called from a command
+substitution, so a refused projection was pushed as an empty artifact and only
+surfaced four stages later as a missing `compose.yaml`. `project_and_push` now
+returns non-zero, and the run stops where the refusal happens.
+
+### Local verification at `76ed7fee`
+
+| Command | Result |
+|---|---|
+| `git diff --check` | clean |
+| `gofmt -l` over the touched trees | clean |
+| `shellcheck tests/acceptance/local/compose-demo.sh` | clean |
+| `go test -race ./tests/acceptance/scenario/...` | ok |
+| `go test -race ./tests/acceptance/kind/productready` | ok |
+| `go test ./tests/release/...` | ok |
+| `make ci` | exit 0 |
+| `make artifact-drift` | OK — one-publisher gate and apply-release-plan idempotency |
+| `make release-dry-run` | OK — "demo pinned to the dashboard image this transaction published (sha256:e0a0b43f…)", "no recorded dashboard-image digest -> no demo artifact (fail closed)", "demo artifact adopted from its manifest annotations (no re-push)" |
+| `make test-browser` | exit 0 — 219 deterministic journeys |
+| `make test-browser-compose` | exit 0 — all 12 stages, 7 live journeys against the pulled demo and the same 7 against the isolated one, journey D skipped for the absent `operational-target` capability |
+| `python3 release/scripts/docs_check.py` | 9/9 |
+
+The Compose acceptance was re-run end to end after the last code change, not
+inherited from an earlier tree.
+
+### Preserved, unchanged
+
+The 14-vs-12 fact accounting and the explicit `operational-target` capability
+gap; the semantic parity tests over rendered projections; digest-pinned
+demo-artifact pulls; run directories outside the checkout; runtime-generated
+credentials; restart and replay behaviour; deterministic overridable ports;
+two-version independence; cleanup verification; all six Kind shards; the shared
+Product gate and browser suite; release ledger, adoption and conflict behaviour;
+the CodeQL carry-out; and the Phase 14 `verify-k8s-standalone.sh` wording
+warning, which this repair did not touch.
+
+### GitHub Actions at `76ed7fee`
+
+Every workflow the branch runs, at the final code SHA:
+
+| Run | Workflow | Result |
+|---|---|---|
+| `32044972187` | CI | success (attempt 2) |
+| `32044972202` | Security | success |
+| `32044972294` | Docs check | success |
+| `32044972179` | Pacto Contract CI | success |
+| `32044972172` | Repowise (architecture health) | success |
+| `32044972176` | Validate PR title | success |
+| `32044972242` | Rebuild dashboard UI | skipped (not a UI change) |
+| `32044972188` | Auto-merge Dependabot PRs | skipped |
+
+Jobs inside run `32044972187`, all success: `changes` `95436082426`,
+`ci-static` `95436121027`, `ci-gates` `95436121396`, `ci-engine` `95436105145`,
+`ci-dashboard` `95436105962`, `ci-oci` `95436103600`, `ci-e2e-envtest`
+`95436116840`, `ci-integration-kubernetes` `95436107219`, `operator-build`
+`95436110420`, `dashboard-e2e` `95436117695`, `artifact-drift` `95436082715`,
+`release-dry-run` `95436082782`, `release-version-test` `95436108345`,
+**`ci-e2e-compose` `95436082841`**, all six Kind shards — `dashboard`
+`95436082224`, `operational-graph` `95436082286`, `evidence` `95436082661`,
+`upgrade` `95436082725`, `observation` `95436109872`, `reconcile` `95436113361`
+— and `required` `95438151161`.
+
+Two attempts, and the reason matters for reading the evidence. GitHub was
+returning `429 Too Many Requests` for action downloads for part of this window,
+which fails jobs in `Set up job` before any repository code runs. At `40a1f0ae`
+that took out most of the matrix; attempt 1 at `76ed7fee` lost two Kind shards
+to it, `ci-e2e-kind (dashboard)` and `(operational-graph)`, both in `Set up job`.
+Attempt 2 re-ran exactly those and both passed. No repository step was re-run to
+turn a red into a green: the only substantive failure in this whole window was
+`ci-e2e-compose` at `40a1f0ae`, which was a real defect in the new stage and is
+recorded as mutation B5 above.
+
+### CodeQL at `76ed7fee`
+
+Nine open alerts, the same nine numbers, rules and locations as at `84435c23`
+and as at `f2a181b1` before it: `#38` `py/incomplete-url-substring-sanitization`
+in `release/scripts/docs_check.py:197`, `#40`–`#43` `go/path-injection` in
+`internal/app/resolve.go`, `#59`–`#62` `go/path-injection` in `pkg/oci/cache.go`.
+Delta from the starting SHA: zero added, zero removed. Re-queried at this SHA
+rather than inherited.
+
+### Review threads at `76ed7fee`
+
+199 threads, fully paginated — page one caps at 100 and hides every unresolved
+one. 10 unresolved, all bot-authored and all inherited: six
+`github-code-quality` findings on the committed mermaid asset bundle
+`pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` (one "superfluous
+trailing arguments", five "useless assignment to local variable") and four
+`github-advanced-security` path-expression notices on `pkg/oci/cache.go`, which
+are four of the nine alerts above. Section 15.1 counted five code-quality
+threads; six is the correct figure and the total of ten is unchanged. No human
+review thread is unresolved, and this repair opened none.
+
+### Diff hygiene
+
+`git diff --check` clean. Working tree clean of tracked changes at
+`76ed7fee`. The only untracked paths are the pre-existing local tool
+directories `.claude/`, `.codex/`, `.mcp.json` and `AGENTS.md`, which were
+untracked before Phase 10B opened and are not this branch's to add.
+
+Two local side effects were observed and reverted rather than committed:
+`go.work.sum` gained 19 indirect `/go.mod` hash lines during a toolchain
+resolution, and a `helm-docs` pass regenerated
+`integrations/kubernetes/charts/pacto-dev-gateway/README.md` over its
+hand-written content. Neither is part of this repair. The second is worth a look
+by whoever owns that chart: a local `make` run rewrites a tracked, hand-written
+README.
+
+### Phase 10B repair verdict
+
+CANDIDATE. Not closed, not self-declared. Phase 11 is not started, no PR comment
+was published, no review thread was resolved, no PR metadata was changed, the PR
+remains an open draft, and `PACTO_PR_TARGET_STATE.md` was not altered by this
+repair.
