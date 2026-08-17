@@ -1,6 +1,6 @@
 # Pacto PR #291 — Current Implementation State
 
-**Snapshot date:** 2026-08-16
+**Snapshot date:** 2026-08-17
 **Repository:** `TrianaLab/pacto`  
 **PR:** `#291`  
 **Branch:** `feat/operational-graph-fleet`
@@ -43,12 +43,21 @@ runtime prerequisite the new hook demands was carried by the PR gate alone, so
 the clean build and deployment paths bypassed it — and the review at `5fce48e6`
 verified that repair (section 13.1) closed. Nothing in it is reopened by Phase 10.
 
-**Phase 10 is a CANDIDATE** at `de5432ba`, implemented from `5fce48e6`: closing
+**Phase 10 is a CANDIDATE** at `b2157a09`, implemented from `5fce48e6`: closing
 the local Kind acceptance path where Docker Desktop's containerd image store
 behaves differently from CI's classic Docker image store. It repairs the SHARED
 Phase-8B harness boundary; it adds no second Kind suite and changes no
-scenario's claims. Its record is section 14. It is not closed here; a phase is
-closed by review, not by its author.
+scenario's claims. Its record is section 14, its implementation acceptance and
+main synchronization are section 14.1. It is not closed here; a phase is closed
+by review, not by its author.
+
+The Phase-10 IMPLEMENTATION passed independent review at `6c8ba9fe`, with the
+shared `kindload` boundary verified on both image stores. Phase 10 stayed open
+only because the PR was `CONFLICTING` / `DIRTY`, so GitHub produced no merge ref
+and none of the required pull-request workflows could run. `b2157a09` is the
+append-only merge from `origin/main` that removes that blocker: the PR is
+`MERGEABLE` again and the full required suite, all six Kind shards included, has
+now run green on that exact SHA. Section 14.1 records it.
 
 Accepted Phase-8 behaviour is NOT reopened for stylistic improvement, theoretical
 hardening or refactor convenience. A reopen requires a CONCRETE correctness,
@@ -3072,3 +3081,273 @@ and published no comment.
 claims, the Product gate, the live browser journeys and the external Evidence
 Server vertical are untouched; the only behavioural change is how an image
 reaches a kind node.
+
+## 14.1 Phase 10 main synchronization — CANDIDATE at `b2157a09`
+
+Section 14 records the Phase-10 implementation and closes with the reason it
+could not be verified on GitHub: the PR was `mergeable: CONFLICTING`,
+`mergeStateStatus: DIRTY`, so GitHub produced no merge ref and every
+`pull_request`-triggered workflow — `CI` and its six Kind shards, `required`,
+`Docs check`, `Security`, `Pacto Contract CI`, `Repowise`, `Validate PR title` —
+simply never ran. This section records the append-only merge that removed that
+blocker and the evidence produced on the merged SHA. It supersedes only the
+"GitHub state at the implementation head `8d8fe368`" subsection of section 14.
+Nothing else in section 14 changes.
+
+### The implementation was accepted before this merge
+
+The Phase-10 implementation at `6c8ba9fe` passed independent code review. The
+shared `kindload` boundary was verified independently on BOTH image stores —
+Docker Desktop with the containerd store, and Docker 28 with the classic
+overlay2 store — and on each a disposable Kind cluster loaded `registry:2` with
+`crictl` reporting the expected config digest
+`sha256:33eeff39e0aaabe61ca826fd7502396183462451be0783133e1a8fa944fc7350`. The
+focused race tests, the architecture and release gates and `go vet` passed. No
+Phase-10 implementation blocker was found.
+
+So the work recorded in section 14 was NOT reopened here. The only thing missing
+was PR-workflow evidence, and the only thing standing between Phase 10 and that
+evidence was a dependency-metadata conflict inherited from `main`.
+
+### Main synchronization
+
+`origin/main` was re-read at the start of this work and had NOT advanced: it is
+still `83f2e66d5cd4fab56099991d39e64fc11f107b3d`, the same commit last observed.
+No additional main-line commits had to be disclosed or absorbed. The branch also
+still started exactly at `6c8ba9fe`, matching `origin/feat/operational-graph-fleet`.
+
+The merge-base was `a56b69e375f1881d645d3b39f3366f23398e72cf`, and `main` carried
+exactly three Dependabot commits past it:
+
+- `319661c7` — `github.com/google/go-containerregistry` 0.21.7 to 0.21.9
+- `cc0c49bc` — `go.opentelemetry.io/otel/exporters/prometheus` 0.66.0 to 0.67.0
+- `83f2e66d` — `github.com/onsi/ginkgo/v2` 2.32.0 to 2.32.1
+
+Merge commit: `b2157a09aee33be337b4674c603e10fcb8e82d60`, a normal `--no-ff`
+merge with parents `6c8ba9fe` and `83f2e66d`. No rebase, no amend, no reset, no
+force-push, no history rewrite. It is the branch's fourth such merge.
+
+### Conflict resolutions
+
+Git reported conflicts in the root `go.mod` and `go.sum` only. The Kubernetes
+module's two files auto-merged. Each was resolved semantically, never as a union
+of both sides:
+
+| file | conflict | resolution |
+|---|---|---|
+| `go.mod` | one hunk: `klauspost/compress` 1.19.0 against 1.19.1, with the branch's `kylelemons/godebug` indirect adjacent | main's 1.19.1 taken, `kylelemons/godebug` kept |
+| `go.sum` | four interleaved hunks | conflict markers discarded and the file REGENERATED with `go mod tidy`, so the sums follow the real module graph rather than a hand-picked union |
+| `integrations/kubernetes/go.mod` | none — auto-merged | main's `go-containerregistry` 0.21.9, `ginkgo/v2` 2.32.1 and `otel/exporters/prometheus` 0.67.0 land on top of the branch's `go 1.26.6` |
+| `integrations/kubernetes/go.sum` | none — auto-merged | byte-identical to `origin/main`, because the branch never touched this file |
+| `go.work.sum` | none | three graph-only `go.mod` hashes the new closure needs for a readonly workspace build |
+
+The coordinated Go state is preserved and consistent in all three places that
+declare it: `go.work`, `go.mod` and `integrations/kubernetes/go.mod` all say
+`go 1.26.6`. There is no `toolchain` directive anywhere, so nothing else had to
+be reconciled. The branch's own accepted dependency work — `gocloud.dev` v0.46.0
+and its closure for the Evidence Server, and `opencontainers/go-digest` promoted
+to a direct requirement — is intact.
+
+`go mod tidy` was deliberately NOT run in the Kubernetes module. That module
+depends on `github.com/trianalab/pacto/v3 v3.1.4`, which the workspace redirects
+to the working tree with `replace ... => .`; a plain tidy ignores the workspace,
+resolves the published v3.1.4 and cannot see the packages this branch adds. Its
+two files needed no repair anyway, and the correctness of leaving them alone is
+proven independently below by `verify-k8s-standalone`, which builds that module
+with `GOWORK=off` and no replace.
+
+### The dependency diff is exactly the main-line upgrades
+
+Against the branch tip `6c8ba9fe` the merge changes five files and no source
+file at all:
+
+```text
+ go.mod                         |  6 +++---
+ go.sum                         | 20 ++++++++++----------
+ go.work.sum                    |  3 +++
+ integrations/kubernetes/go.mod | 18 +++++++++---------
+ integrations/kubernetes/go.sum | 36 ++++++++++++++++++------------------
+```
+
+Every version move is a main-line upgrade or its transitive consequence:
+`go-containerregistry` 0.21.7 to 0.21.9, `docker/cli` 29.5.3 to 29.6.2,
+`klauspost/compress` 1.19.0 to 1.19.1, `golang.org/x/mod` 0.37.0 to 0.38.0,
+`golang.org/x/tools` 0.47.0 to 0.48.0, plus `ginkgo/v2` 2.32.1,
+`otel/exporters/prometheus` 0.67.0, `prometheus/client_golang` 1.24.1 and
+`prometheus/procfs` 0.21.1 in the Kubernetes module. No unrelated upgrade was
+introduced and no generated file was regenerated.
+
+Two incidental generated changes appeared during local verification and were
+REVERTED rather than committed:
+
+- `integrations/kubernetes/charts/pacto-dev-gateway/README.md` — the known
+  helm-docs drift. The merge does not touch that chart's source, so the drift is
+  not legitimate output of this change.
+- nineteen further `go.work.sum` graph hashes written once by a tool-install and
+  plugin-build step inside `make ci`. Re-running the root and module builds,
+  vets and test compiles against the committed `go.work.sum` produces zero
+  drift, so those entries are not required by the merged closure.
+
+### Local verification at `b2157a09`
+
+| Check | Result |
+|---|---|
+| `go test -race -count=1 ./tests/acceptance/kind/kindload/...` | ok |
+| `go test -count=1 ./tests/architecture/... ./tests/release/...` | ok, both |
+| `go vet ./...` | exit 0 |
+| `make test-integration` | ok — the integration suite plus the whole `tests/acceptance` Go layer |
+| `make ci` | exit 0, total coverage 100.0% |
+| `make artifact-drift` | `artifact-drift: OK` |
+| `make release-dry-run` | `RELEASE-DRY-RUN OK` and `K8S-MODULE-STANDALONE OK` |
+| `make test-browser` | 219 passed |
+| `make test-acceptance-kind` — all six scenarios, ONE invocation | exit 0 |
+| `git diff --check` | exit 0 |
+| tracked tree | clean; only `.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md` untracked |
+
+`K8S-MODULE-STANDALONE OK` is the load-bearing line for the conflict resolution:
+it is a throwaway module that `go get`s the Kubernetes integration with
+`GOWORK=off` and no replace, so it proves the merged
+`integrations/kubernetes/go.mod` and `go.sum` are complete and consistent on
+their own, without the workspace.
+
+The workstation is the Phase-10 hard case, unchanged: Docker Engine 29.6.2 with
+the containerd image store (`overlayfs`,
+`driver-type io.containerd.snapshotter.v1`), kind v0.31.0, arm64 host. The six
+scenarios reported, in order: `DASHBOARD-MODES E2E PASS`, `V4-TO-V5-UPGRADE
+PASS`, `KIND E2E PASS`, `full in-cluster Evidence Server lifecycle acceptance
+PASSED`, the operational-graph vertical including `PASS: the live Product API
+proves the fixture, twice, across a refresh` and `8 passed` for the live browser
+journeys A to H, then `operator-managed observation packaging verified`. No
+environment flake was seen in this run.
+
+The in-node identity evidence, printed by the loader before any workload starts:
+
+```text
+kindload: localhost:5001/pacto-dashboard:e2e-modes (linux/arm64) present on 1 node(s) as sha256:3904042d4de59597ecb973069a98b92a52d490fb21d4bb32a32ffa7d5153b85c
+kindload: localhost:5001/pacto-operator/pacto-controller:e2e-modes (linux/arm64) present on 1 node(s) as sha256:d45351154e0dd748a27f6f61738abefc486e5cc48e0b456e74e771cc1f1b6eb7
+kindload: pacto/operator:5.0.0-e2e (linux/arm64) present on 1 node(s) as sha256:f304bdaf3c435e4ade12178a0d03833bbce6502a490cd297afa73e6063eba53f
+kindload: localhost:5001/pacto-dashboard:3.1.4 (linux/arm64) present on 1 node(s) as sha256:3904042d4de59597ecb973069a98b92a52d490fb21d4bb32a32ffa7d5153b85c
+kindload: localhost:5001/pacto-operator/pacto-controller:5.1.2 (linux/arm64) present on 1 node(s) as sha256:9596e19c3790a0c82050df3ce12edf9941f5972ac2bb92e915a9206c04bcbcd1
+kindload: registry:2 (linux/arm64) present on 1 node(s) as sha256:33eeff39e0aaabe61ca826fd7502396183462451be0783133e1a8fa944fc7350
+```
+
+`registry:2` reports config digest `sha256:33eeff39...fc7350`, the same value the
+independent review measured on both image stores. The image identity the node
+actually sees is reproducible across hosts and stores, which is the whole claim
+of Phase 10.
+
+### GitHub state at `b2157a09`
+
+The merge did what it was for. The PR is `mergeable: MERGEABLE` again;
+`mergeStateStatus` is `BLOCKED`, which is the expected state for a DRAFT PR, not
+a failing one. Every previously blocked `pull_request` workflow ran.
+
+`CI` — run `32007273093`, conclusion **success**. All twenty jobs:
+
+| job | conclusion |
+|---|---|
+| `changes` | success |
+| `ci-static` | success |
+| `ci-gates` | success |
+| `ci-engine` | success |
+| `ci-dashboard` | success |
+| `dashboard-e2e` | success |
+| `ci-integration-kubernetes` | success |
+| `ci-e2e-envtest` | success |
+| `ci-oci` | success |
+| `operator-build` | success |
+| `ci-e2e-kind (reconcile)` | success |
+| `ci-e2e-kind (dashboard)` | success |
+| `ci-e2e-kind (upgrade)` | success |
+| `ci-e2e-kind (evidence)` | success |
+| `ci-e2e-kind (operational-graph)` | success |
+| `ci-e2e-kind (observation)` | success |
+| `release-dry-run` | success |
+| `release-version-test` | success |
+| `artifact-drift` | success |
+| `required` | success |
+
+All six `ci-e2e-kind` shards are green on CI's classic Docker image store, which
+together with the local containerd-store run is the two-store evidence Phase 10
+needs.
+
+The other workflow runs on the same SHA:
+
+| workflow | run | jobs | conclusion |
+|---|---|---|---|
+| `Validate PR title` | `32007273059` | `validate` | success |
+| `Pacto Contract CI` | `32007273122` | `bundle` | success |
+| `Repowise (architecture health)` | `32007273132` | `repowise` | success |
+| `Docs check` | `32007273163` | `docs-check` | success |
+| `Security` | `32007273107` | `Trivy (image)`, `govulncheck (Go)`, `PR security summary` | success |
+| `PR #291` (CodeQL default setup) | `32007270766` | `Analyze (actions)`, `Analyze (python)`, `Analyze (javascript-typescript)`, `Analyze (go)` | success |
+| `Code Quality: PR #291` | `32007270518` | `Analyze (python)`, `Analyze (go)`, `Analyze (javascript-typescript)` | success |
+| `Rebuild dashboard UI` | `32007273210` | — | skipped |
+| `Auto-merge Dependabot PRs` | `32007273128` | — | skipped |
+
+Across the whole commit, thirty-five check runs report success, two are skipped
+and exactly one reports failure: the `github-advanced-security` `CodeQL` check
+summary, check run `95319363719`.
+
+### CodeQL: the check summary is not the alert inventory
+
+The `CodeQL` check summary reads "8 new alerts including 8 high severity
+security vulnerabilities". That title is wrong about "new" in two independent
+ways, and it is not the inventory.
+
+The code-scanning API, queried on `refs/pull/291/head` after the push, returns
+NINE open alerts — the eight Go ones the check annotates plus one Python alert
+the check does not surface at all:
+
+| alert | severity | rule | location | first created |
+|---|---|---|---|---|
+| 40 | high | `go/path-injection` | `internal/app/resolve.go:35` | 2026-07-29 |
+| 41 | high | `go/path-injection` | `internal/app/resolve.go:43` | 2026-07-29 |
+| 42 | high | `go/path-injection` | `internal/app/resolve.go:57` | 2026-07-29 |
+| 43 | high | `go/path-injection` | `internal/app/resolve.go:67` | 2026-07-29 |
+| 59 | high | `go/path-injection` | `pkg/oci/cache.go:375` | 2026-08-13 |
+| 60 | high | `go/path-injection` | `pkg/oci/cache.go:394` | 2026-08-13 |
+| 61 | high | `go/path-injection` | `pkg/oci/cache.go:395` | 2026-08-13 |
+| 62 | high | `go/path-injection` | `pkg/oci/cache.go:666` | 2026-08-13 |
+| 38 | high | `py/incomplete-url-substring-sanitization` | `release/scripts/docs_check.py:197` | 2026-07-27 |
+
+Delta introduced by this merge: **zero**. The same query run before the merge
+returned the same nine alerts, the same alert numbers, the same rules and the
+same paths and lines. Every one predates this work — the newest was created four
+days before it. They are the inherited set section 14 already recorded, plus the
+Python alert that section undercounted by reading the check summary instead of
+the API.
+
+The merge could not have introduced any of them: it changes five
+dependency-metadata files and not one line of Go or Python. The check's own body
+concedes the point — "Alerts not introduced by this pull request might have been
+detected because the code changes were too large."
+
+### Review threads at `b2157a09`
+
+Fully paginated until `hasNextPage` is false: two pages, 199 nodes, matching the
+reported `totalCount` of 199.
+
+| dimension | count |
+|---|---|
+| total | 199 |
+| resolved | 189 |
+| unresolved | 10 |
+| outdated | 187 |
+| current (not outdated) | 12 |
+| authored by a human | 0 |
+| generated by `github-code-quality` | 182 |
+| generated by `github-advanced-security` | 17 |
+
+The ten unresolved threads are unchanged and all generated: six from
+`github-code-quality` on the minified generated bundle
+`pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, and four from
+`github-advanced-security` on `pkg/oci/cache.go`, which are the same inherited
+`go/path-injection` alerts 59 to 62 in review-thread form. This work introduced
+no thread, resolved no thread, published no comment and changed no PR metadata.
+
+**Phase 10 state: CANDIDATE, pending independent review.** The implementation was
+independently accepted at `6c8ba9fe`; this section adds the main synchronization
+and the PR-workflow evidence that the conflict had made impossible. Phase 10B is
+not started and `PACTO_PR_TARGET_STATE.md` is untouched. A phase is closed by
+review, not by its author.
