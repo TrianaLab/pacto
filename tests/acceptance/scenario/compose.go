@@ -369,10 +369,8 @@ func checkPinnedImage(what, ref string) error {
 	case !isSHA256 || len(hex) != 64:
 		return fmt.Errorf("the %s %q is pinned to %q, which is not an @sha256: digest of 64 hex characters", what, ref, digest)
 	}
-	for _, r := range hex {
-		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') {
-			return fmt.Errorf("the %s %q is pinned to %q, which is not lower-case hex, so no registry would serve it as an @sha256: digest", what, ref, digest)
-		}
+	if strings.Trim(hex, "0123456789abcdef") != "" {
+		return fmt.Errorf("the %s %q is pinned to %q, which is not lower-case hex, so no registry would serve it as an @sha256: digest", what, ref, digest)
 	}
 	return nil
 }
