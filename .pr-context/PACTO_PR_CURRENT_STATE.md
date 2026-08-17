@@ -1189,7 +1189,7 @@ test, the defect it exposed, the fix, the rejected alternatives, the mutation
 proof and the workflow results per SHA — is section 13. An independent review at
 `5fce48e6` verified the 13.1 repair and CLOSED the phase.
 
-### Phase 10 — CANDIDATE at `de5432ba`
+### Phase 10 — ACCEPTED and CLOSED at `f2a181b1`
 
 Docker Desktop/containerd/local-registry Kind path. Close the local Kind path
 where Docker Desktop's containerd image-store behaviour differs from CI's
@@ -1203,9 +1203,30 @@ Product gate or the browser journeys, and does not start Phase 10B.
 
 Its record — the reproduced failure, the identity/platform root cause, the
 loading strategy and its rejected alternatives, the regression and mutation
-proof, and the local plus GitHub verification per SHA — is section 14.
-Implemented and locally verified, including the complete six-scenario Kind suite
-in one invocation on a Docker Desktop workstation.
+proof, and the local plus GitHub verification per SHA — is section 14, and the
+main synchronization that unblocked its PR workflows is section 14.1. An
+independent review CLOSED the phase at `f2a181b1`. Its behaviour is frozen:
+reopening it requires a concrete correctness, security or data-loss
+counterexample.
+
+### Phase 10B — IN PROGRESS
+
+Canonical demo model and clone-free OCI-distributed Compose demo. ONE canonical
+declarative demo model, projected into the EXISTING Helm/Kubernetes surface and
+into a Docker Compose surface that is distributed as an immutable, digest-pinned
+OCI artifact and runs without cloning this repository.
+
+Unblocked: Phase 8B established the canonical scenario/projection boundary
+(`tests/acceptance/scenario`), so the Compose surface is a sibling projection
+over that value rather than another imperative duplicated harness; and Phase 10
+resolved the container-runtime image-identity differences a locally run Compose
+demo meets.
+
+Out of scope, per target: a second product architecture, a Compose-only product
+feature, a hosted demo service and any Helm-surface change made only to make the
+Compose projection easier.
+
+Its record is section 15.
 
 ### Phase 11 — NOT STARTED
 
@@ -1922,6 +1943,12 @@ Do not rebase/filter-history/force-push to solve that unless Eduardo explicitly 
 *Superseded at `93dca214`: Phase 8B is CLOSED and Phase 9 is ACTIVE. The
 Phase-8B brief below is kept because its nine boundaries still bind every later
 phase — boundary 8 is now satisfied, not waived.*
+
+*Superseded again: Phases 9 and 10 are CLOSED and Phase 10B is ACTIVE (section
+15). Boundary 6 above is now satisfied rather than waived — Phase 8B did
+establish the canonical data/projection boundary without building the Compose or
+OCI-distributed demo, and Phase 10B builds them on top of exactly that boundary.
+Boundaries 1 to 5, 7 and 9 still bind.*
 
 **Phase 8B — test architecture and harness consolidation.** Phase 8 is closed
 (section 2). The branch now carries eight distinct kinds of test spread across
@@ -3351,3 +3378,145 @@ independently accepted at `6c8ba9fe`; this section adds the main synchronization
 and the PR-workflow evidence that the conflict had made impossible. Phase 10B is
 not started and `PACTO_PR_TARGET_STATE.md` is untouched. A phase is closed by
 review, not by its author.
+
+### Phase 10 verdict — ACCEPTED and CLOSED at `f2a181b1`
+
+The independent review of the candidate recorded above ACCEPTED it and CLOSED
+Phase 10 at `f2a181b1`, the documentation commit on top of the merge. Nothing in
+sections 14 and 14.1 is reopened by that verdict; they become the frozen record.
+Reopening Phase 10 now requires a concrete correctness, security or data-loss
+counterexample.
+
+Two items were carried OUT of Phase 10 rather than fixed inside it:
+
+- the nine open CodeQL alerts, all inherited, none introduced by Phase 10. They
+  are not Phase-10B work either: Phase 10B re-queries them at its own final SHA
+  and reports the delta it introduced, which is expected to be zero.
+- a non-blocking warning about `release/orchestrator/verify-k8s-standalone.sh`:
+  it builds an external consumer importing only `api/v1alpha1` and does not
+  compile the complete Kubernetes module, despite its description implying it
+  does. The complete standalone operator build IS performed, by
+  `release/scripts/verify-standalone.sh` inside `release-dry-run`, so nothing is
+  unproven — only the script's description overstates its own reach. Carried to
+  Phase 14 unless a later phase has to touch that gate for its own reasons. It
+  must not be repaired as an unrelated tidy-up.
+
+## 15. Phase 10B record — OPENED
+
+Phase 10 is CLOSED (section 14.1 above). This section opens Phase 10B and is
+appended by a documentation-only commit, before any implementation commit.
+`PACTO_PR_TARGET_STATE.md` is untouched; TARGET section 1B and TARGET
+"Phase 10B — canonical demo model and clone-free OCI-distributed Compose demo"
+bind this work unchanged.
+
+### The commission
+
+ONE canonical declarative demo model, projected into (1) the existing
+Helm/Kubernetes surface and (2) a Docker Compose surface distributed as an
+immutable OCI artifact that runs WITHOUT cloning this repository. The user
+journey to satisfy end to end: obtain a pinned artifact with standard OCI
+tooling; materialize its Compose manifest, fixture data and configuration; start
+it with Docker Compose; wait on observed readiness; open the dashboard and
+exercise the documented journeys; stop, clean up and upgrade to another pinned
+version using documented commands.
+
+### Inspection before choosing an architecture
+
+The existing implementation was inspected first, and the findings below are what
+the architecture is chosen against.
+
+- **The canonical model already exists and already sanctions this direction.**
+  `tests/acceptance/scenario` holds the Phase-8B value `OperationalGraph` and its
+  projections `Materialize`, `TraceExport`, `Plan`, `PactoCRs`,
+  `EvidencePayloads` and `FactCount`. The package doc states the rule directly:
+  a Helm or Docker Compose projection "would be a sibling of Materialize over the
+  same value". `docs/maintainers/testing.md` rule 2 says the same: a projection
+  exists only when it has a consumer.
+- **There is no Compose asset anywhere in the repository.** The Compose surface
+  is greenfield; nothing is being migrated, and no existing demo is duplicated.
+- **A cluster-free acceptance precedent already exists.**
+  `tests/acceptance/local/fleet-graph.sh` proves the registry, evidence,
+  observation and reconciliation vertical with NO cluster, including durable
+  replay rejection across an evidence-server restart. The Compose surface needs
+  no capability that this precedent has not already shown to work k8s-free.
+- **Exactly ONE capability is platform-imposed.** Operational TARGETS require a
+  controller that reconciles workloads and publishes deployed revisions. Compose
+  has no controller, so it has no operational target. Everything else the
+  fixture declares — registry and cache sources, revisions, an observation
+  source, an evidence source, and the declared/observed/reconciled relationship
+  — is reachable without Kubernetes.
+- **Digests can be computed without a push.** `oci.BundleImage` produces the same
+  deterministic digest a real push assigns, which is what the shipped evidence
+  payloads need, since evidence ingestion requires an immutable digest reference.
+- **The release machinery has exactly one sanctioned OCI publishing adapter.**
+  `release/orchestrator/publish-oci-unit.sh`, used today by
+  `dashboard-contract-bundle`, with `verify-oci.sh` deciding
+  `absent|identical|adopt|conflict` and `ledger.sh` recording the result. The
+  one-publisher gate in `tests/release` requires exactly one
+  `pacto-publishes:` marker per manifest unit.
+
+### Selected architecture
+
+A sibling projection over the existing canonical value. No framework, no generic
+runtime abstraction, no new dependency, no second fixture.
+
+1. **Surface capability, declared as data.** The scenario gains an explicit
+   surface/capability notion so the ONE platform-imposed difference is declared
+   in the model, never hidden in imperative code. `FactCount` becomes
+   surface-aware, and the existing live Product gate
+   `tests/acceptance/kind/productready` gains a surface flag so it REPORTS the
+   capability a surface does not have instead of silently skipping a check. The
+   same gate binary proves both surfaces; there is no second gate.
+2. **Helm projection.** The Kind harness today builds the observation
+   `--set` strings inline. Those move into a projection on the scenario, with two
+   consumers — the harness and the parity test — which is what justifies the
+   projection existing at all. This is a change genuinely required to project the
+   shared canonical model, not a Helm change made to ease Compose.
+3. **Compose projection.** A sibling function over the same value emitting the
+   Compose manifest, the environment defaults and the fixture data, plus a
+   subcommand on the existing `tests/acceptance/scenario/project` tool. The
+   stack: a registry, a one-shot local keygen, a one-shot publisher that pushes
+   the plan's push records, an evidence server, a one-shot evidence seeder and
+   the dashboard, wired with health checks and dependency conditions so
+   readiness is observed and never slept on.
+4. **Parity test.** An automated comparison that both projections express the
+   same canonical scenario, and that the only divergence is the declared
+   capability difference.
+5. **Distribution.** A new release unit published through the SAME
+   `publish-oci-unit.sh` adapter, so integrity, provenance, immutability, the
+   ledger and the one-publisher policy are inherited rather than re-invented.
+6. **Clone-free proof in CI.** A clean run directory containing only the pulled
+   artifact and standard tooling. The execution path reads no fixture and no
+   configuration from a repository checkout.
+
+### Rejected alternatives
+
+- **A standalone Compose fixture.** Rejected: it is a semantically independent
+  second demo model, which the commission forbids and which is exactly the
+  duplication Phase 8B removed.
+- **Folding the Compose artifact into the existing `demo-bundles` unit.** Fewer
+  files, but the release ledger keys by unit name, so a second
+  `publish-oci-unit.sh` record under `demo-bundles` would collide with the record
+  that job already writes, forcing a hand-rolled immutability and ledger path.
+  That is a second publishing system. Rejected.
+- **A second, Compose-specific product gate.** Rejected: the existing Product
+  gate already encodes the semantics; a surface flag reuses it.
+- **Marking the demo network `internal: true` to claim strong offline
+  isolation.** Rejected: published host ports are not reliable on an internal
+  network, and the stronger claim would not be honestly testable. The offline
+  claim is narrowed to what CI can prove.
+- **Baking any credential, key or token into the artifact.** Rejected by the
+  commission and by design: the keypair is generated locally at run time into a
+  volume that the artifact does not contain.
+
+### Boundaries for this phase
+
+- The current Helm surface stays intact except for changes genuinely required to
+  project the shared canonical model.
+- No second product architecture, no Compose-only product feature, no hosted demo
+  service.
+- No parallel test taxonomy: new permanent tests are wired into the existing Make
+  and CI levels described in `docs/maintainers/testing.md`, and no current gate is
+  weakened.
+- Append-only history: no rebase, amend, reset, force-push or rewrite.
+- Phase 10B ends as CANDIDATE. A phase is closed by review, not by its author.
