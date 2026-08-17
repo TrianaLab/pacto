@@ -170,13 +170,35 @@ func TestTraceExport_GroupsEveryCallOfOneCaller(t *testing.T) {
 // it cannot quietly keep claiming a number the fixture stopped justifying — and
 // 14 is the count section 8 requires, so this is also the pin on that gate.
 func TestFactCount_IsTheFourteenTheGateOwes(t *testing.T) {
-	if n := OperationalGraph.FactCount(); n != 14 {
-		t.Errorf("FactCount() = %d, want 14 (3 sources + 1 service list + 3 revisions + 2 targets + 3 for the edge + 1 evidence target + 1 coherence)", n)
+	if n := OperationalGraph.FactCount(SurfaceKubernetes); n != 14 {
+		t.Errorf("FactCount(kubernetes) = %d, want 14 (3 sources + 1 service list + 3 revisions + 2 targets + 3 for the edge + 1 evidence target + 1 coherence)", n)
+	}
+}
+
+// The Compose surface owes every fact except the ones its missing capability
+// makes unprovable — and exactly those. A count that matched Kubernetes would
+// mean the gate was going to wait out its timeout on targets nothing there can
+// create; a smaller one would mean the surface had quietly dropped a fact it
+// does owe.
+func TestFactCount_ASurfaceOnlyDropsWhatItCannotProvide(t *testing.T) {
+	k8s := OperationalGraph.FactCount(SurfaceKubernetes)
+	compose := OperationalGraph.FactCount(SurfaceCompose)
+	targets := 0
+	for _, svc := range OperationalGraph.Services {
+		if !svc.EvidenceOnly && svc.Workload != nil {
+			targets++
+		}
+	}
+	if targets == 0 {
+		t.Fatal("no service runs anything, so the surfaces cannot differ and this proves nothing")
+	}
+	if got := k8s - compose; got != targets {
+		t.Errorf("Compose owes %d fewer facts than Kubernetes, want %d (one per running workload)", got, targets)
 	}
 }
 
 func TestFactCount_TracksTheScenario(t *testing.T) {
-	base := OperationalGraph.FactCount()
+	base := OperationalGraph.FactCount(SurfaceKubernetes)
 	for _, tc := range []struct {
 		name  string
 		apply func(s *Scenario)
@@ -215,7 +237,7 @@ func TestFactCount_TracksTheScenario(t *testing.T) {
 			s.Relationships = append([]Relationship(nil), s.Relationships...)
 			s.Evidence = append([]Evidence(nil), s.Evidence...)
 			tc.apply(&s)
-			if got := s.FactCount() - base; got != tc.delta {
+			if got := s.FactCount(SurfaceKubernetes) - base; got != tc.delta {
 				t.Errorf("fact count moved by %d, want %d", got, tc.delta)
 			}
 		})

@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
-import { fixture, entityUrl } from './fixture';
+import {
+  fixture, entityUrl, surfaceProvides, CAPABILITY_OPERATIONAL_TARGET,
+} from './fixture';
 
 // LIVE Kind PRODUCT ACCEPTANCE in a real browser.
 //
@@ -182,6 +184,13 @@ test('C: the orders revision carries real OCI content identity and its declarati
 // D — the operational target is its own entity: where the service RUNS, matched to a
 // revision. Target and revision are never flattened into one page.
 test('D: the checkout target is a distinct entity matched to the running revision', async ({ page }) => {
+  // Only where something reconciles a declared contract against a running workload.
+  // Skipping is not the same as omitting: the surface DECLARED it has no controller,
+  // the gate subtracted these facts from the count it proved, and the report says so.
+  test.skip(
+    !surfaceProvides(CAPABILITY_OPERATIONAL_TARGET),
+    `the ${fixture.surface} surface provides no ${CAPABILITY_OPERATIONAL_TARGET}: nothing there reconciles a Pacto CR`,
+  );
   await page.goto(entityUrl('service', fixture.checkoutService));
   await section(page, 'Operational targets').getByRole('listitem').first().getByRole('link').click();
 

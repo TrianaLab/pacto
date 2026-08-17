@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -80,6 +81,11 @@ type fakeProduct struct {
 	// truncatedProvenance serves a bounded provenance list that dropped a source,
 	// so the answer cannot say which sources contributed.
 	truncatedProvenance bool
+	// noController is the Compose surface: the same fixture, published and observed
+	// identically, with nothing reconciling a Pacto CR — so the two workloads have
+	// no operational target. The EXTERNAL target still exists; it comes from the
+	// Evidence Server, which Compose runs.
+	noController bool
 }
 
 // revisionSources is the provenance the fake serves for every revision.
@@ -165,9 +171,13 @@ func (f *fakeProduct) list(id string, q url.Values) fleet.EntityList {
 	case "target":
 		switch service {
 		case fxCheckout:
-			refs = []fleet.EntityRef{{Kind: "target", Key: fxTgtC, Label: "checkout"}}
+			if !f.noController {
+				refs = []fleet.EntityRef{{Kind: "target", Key: fxTgtC, Label: "checkout"}}
+			}
 		case fxOrders:
-			refs = []fleet.EntityRef{{Kind: "target", Key: fxTgtO, Label: "orders"}}
+			if !f.noController {
+				refs = []fleet.EntityRef{{Kind: "target", Key: fxTgtO, Label: "orders"}}
+			}
 		case fxPayments:
 			refs = []fleet.EntityRef{{Kind: "target", Key: fxTgtP, Label: "payments"}}
 		}
@@ -249,7 +259,7 @@ func newProberFor(t *testing.T, f *fakeProduct, snapshots int, scn scenario.Scen
 	t.Helper()
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
-	return &prober{
+	return (&prober{
 		base: srv.URL,
 		http: srv.Client(),
 		// Short and impatient: these tests are about verdicts, not waiting. A case
@@ -262,8 +272,7 @@ func newProberFor(t *testing.T, f *fakeProduct, snapshots int, scn scenario.Scen
 		// the gate would mishandle fails here rather than in a Kind shard.
 		scn:    scn,
 		domain: fxDomain,
-		facts:  scn.FactCount(),
-	}
+	}).on(scenario.SurfaceKubernetes)
 }
 
 // The gate reads WHAT must hold out of the scenario. If any of it were still
@@ -348,7 +357,7 @@ func TestGateRefusesAnAmbiguousDeployment(t *testing.T) {
 	if !containsSubstring(problems, "exactly one") {
 		t.Errorf("problems do not name the ambiguous declaration: %v", problems)
 	}
-	if keys != (discovered{}) {
+	if !reflect.DeepEqual(keys, discovered{}) {
 		t.Errorf("an ambiguous scenario emitted fixture keys: %+v", keys)
 	}
 }
@@ -379,6 +388,78 @@ func TestGateCoherentSnapshotPasses(t *testing.T) {
 		keys.OrdersTarget != fxTgtO || keys.EvidenceTarget != fxTgtP {
 		t.Errorf("discovered keys = %+v", keys)
 	}
+}
+
+// The Compose surface has no controller, so nothing reconciles a Pacto CR into an
+// operational target. Everything else the fixture obliges — both OCI sources, all
+// three revisions with both provenances, the reconciled edge attributed to the
+// managed observation source, the signed external target — is owed there exactly
+// as it is on Kubernetes.
+//
+// The pair of subtests is the whole point. The first alone would pass if the gate
+// had simply stopped checking targets everywhere; the second is what shows the
+// check is still live and that it is the DECLARED capability, not the surface
+// flag, doing the work.
+func TestGateOnASurfaceWithoutAController(t *testing.T) {
+	t.Run("passes, and says what it did not prove", func(t *testing.T) {
+		var out strings.Builder
+		p := newProberFor(t, &fakeProduct{noController: true}, 1, scenario.OperationalGraph).on(scenario.SurfaceCompose)
+		keys, problems := p.run(&out)
+		if len(problems) != 0 {
+			t.Fatalf("the Compose fixture must pass without operational targets, got: %v", problems)
+		}
+		// Fewer facts, and the smaller number is the one printed: a run that proved
+		// twelve facts must not report the fourteen the reference surface owes.
+		if p.facts != scenario.OperationalGraph.FactCount(scenario.SurfaceCompose) {
+			t.Errorf("the gate owes %d facts on Compose, want %d", p.facts,
+				scenario.OperationalGraph.FactCount(scenario.SurfaceCompose))
+		}
+		if p.facts >= scenario.OperationalGraph.FactCount(scenario.SurfaceKubernetes) {
+			t.Error("Compose owes as many facts as Kubernetes, so the missing capability cost nothing")
+		}
+		if !strings.Contains(out.String(), string(scenario.CapabilityOperationalTarget)) {
+			t.Errorf("the run never named the capability it could not prove:\n%s", out.String())
+		}
+		// The handoff carries the gap, so the browser suite skips journey D visibly
+		// rather than navigating to an empty key.
+		if keys.Surface != string(scenario.SurfaceCompose) {
+			t.Errorf("the handoff reports surface %q", keys.Surface)
+		}
+		if len(keys.MissingCapabilities) != 1 ||
+			keys.MissingCapabilities[0] != string(scenario.CapabilityOperationalTarget) {
+			t.Errorf("the handoff reports missing %v", keys.MissingCapabilities)
+		}
+		if keys.CheckoutTarget != "" || keys.OrdersTarget != "" {
+			t.Errorf("the handoff names an operational target the surface cannot have: %+v", keys)
+		}
+		// What Compose DOES owe is unchanged, including the external target that
+		// arrives over the Evidence Server rather than from a controller.
+		if keys.CheckoutRevisionA != fxRevA || keys.CheckoutRevisionB != fxRevB ||
+			keys.OrdersRevision != fxRevOrders || keys.EvidenceTarget != fxTgtP {
+			t.Errorf("discovered keys = %+v", keys)
+		}
+	})
+
+	t.Run("the same product fails on the surface that does have one", func(t *testing.T) {
+		_, problems := newProber(t, &fakeProduct{noController: true}, 1).run(io.Discard)
+		if len(problems) == 0 {
+			t.Fatal("Kubernetes accepted a fixture with no operational targets at all")
+		}
+		if !containsSubstring(problems, "operational target") {
+			t.Errorf("problems do not name the missing targets: %v", problems)
+		}
+	})
+
+	t.Run("a surface still owes every fact its platform can produce", func(t *testing.T) {
+		// One perturbation Compose cannot excuse: the observed edge. Dropping the
+		// target checks must not have loosened anything else.
+		scn := cloneScenario(scenario.OperationalGraph)
+		scn.Relationships[0].ObservedBy = "other-traces"
+		_, problems := newProberFor(t, &fakeProduct{noController: true}, 1, scn).on(scenario.SurfaceCompose).run(io.Discard)
+		if !containsSubstring(problems, `observation is not attributed to "other-traces"`) {
+			t.Errorf("Compose did not hold the fixture to its observed edge: %v", problems)
+		}
+	})
 }
 
 // spliceCases are the ways one refresh mid-round can splice two system views.
@@ -441,7 +522,7 @@ func TestGateRejectsSplicedRounds(t *testing.T) {
 			}
 			// A failed round hands on nothing: PW_FIXTURE must never be written from
 			// facts that were never shown to describe one system state.
-			if keys != (discovered{}) {
+			if !reflect.DeepEqual(keys, discovered{}) {
 				t.Errorf("a failed round emitted fixture keys: %+v", keys)
 			}
 		})
@@ -524,7 +605,7 @@ func TestGateRequiresCacheContribution(t *testing.T) {
 		if !containsSubstring(problems, "the registry and the disk cache must reach the SAME canonical revision") {
 			t.Errorf("problems do not name the missing cache contribution: %v", problems)
 		}
-		if keys != (discovered{}) {
+		if !reflect.DeepEqual(keys, discovered{}) {
 			t.Errorf("a failed round emitted fixture keys: %+v", keys)
 		}
 	})

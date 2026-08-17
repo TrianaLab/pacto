@@ -1,0 +1,106 @@
+# The Pacto demo
+
+A complete Pacto fleet on your machine: an OCI registry with real published
+contract revisions, an Evidence Server ingesting a signed envelope from a
+"remote" environment, and the dashboard showing the operational graph they add
+up to.
+
+Everything you need is in this directory. There is no repository to clone and
+nothing to build.
+
+## Run it
+
+```sh
+docker compose up -d --wait
+```
+
+Then open <http://localhost:{{.DashboardPort}}/#/fleet>.
+
+The first `up` pulls two images, publishes the demo's contract bundles into the
+registry it starts, and ingests one signed evidence envelope. `--wait` returns
+when every service reports itself healthy — nothing here is timed.
+
+## What you are looking at
+
+| | |
+|---|---|
+| `checkout` | two published revisions, one of them deployed |
+| `orders` | declares a dependency on `checkout`, and is observed calling it |
+| `payments` | never published to this fleet — it arrives as signed evidence from another environment |
+
+Follow the graph from `orders` to `checkout`, open a revision to see its
+contract, and compare `checkout` 1.0.0 with 1.1.0 to see a change analysed.
+
+## Stop, and start again
+
+```sh
+docker compose down          # stop; the registry and evidence keep their data
+docker compose up -d --wait  # back where you were
+```
+
+State lives in two named volumes. The demo re-publishes on every `up`, which is
+a no-op against a registry that already has the content, and re-sends the
+evidence envelope, which the Evidence Server correctly refuses as a replay.
+
+## Clean up
+
+```sh
+docker compose down -v
+```
+
+That removes the volumes too — the published bundles, the ingested evidence and
+the keypair the demo generated. Nothing is left on your machine but the two
+pulled images.
+
+## Offline
+
+After the first `up` has pulled the images, the demo needs no network:
+
+```sh
+docker compose up -d --wait --pull never
+```
+
+Every registry it talks to is the one it starts itself.
+
+## Ports
+
+Defaults are in `.env` beside this file, and any of them can be overridden in
+the environment:
+
+| Service | Variable | Default |
+|---|---|---|
+{{range .Ports}}| {{.Service}} | `{{.Env}}` | {{.Default}} |
+{{end}}
+```sh
+PACTO_DEMO_DASHBOARD_PORT=9090 docker compose up -d --wait
+```
+
+## Another version
+
+Each demo version is an immutable artifact, addressable by digest. To move to
+one, pull it into a fresh directory and start that:
+
+```sh
+docker compose down                     # in the old directory
+mkdir ../pacto-demo-next && cd ../pacto-demo-next
+oras pull {{.ArtifactRepo}}:<version>
+docker compose up -d --wait
+```
+
+The two directories are independent. Keeping the old one lets you go back to it;
+`docker compose down -v` in it releases its volumes.
+
+## Credentials
+
+There are none in this artifact. The Evidence Server generates its own signing
+keypair the first time it starts and keeps it in a volume, so the demo signs as
+an identity that only ever existed on your machine.
+
+## Provenance
+
+This artifact was built from `{{.Source}}` at version `{{.Version}}`, and runs
+`{{.PactoImage}}`. The demo is a projection of the same canonical scenario
+Pacto's Kubernetes acceptance suite runs against a real cluster: the same
+services, revisions, dependency edge, observation source and signed evidence.
+The one thing missing here is the operational targets a Kubernetes controller
+reconciles — Compose has no controller, so no workload is claimed to be running.

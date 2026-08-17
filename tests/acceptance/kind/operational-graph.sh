@@ -152,19 +152,29 @@ echo "== managed observation sources: the declared calls, exported offline =="
 # has to show each as a Data Source with this stable identity, and the export it
 # carries is the one the scenario derived from the declared edge, so observed and
 # declared cannot drift apart.
-obs_sets=()
 obs_i=0
 while IFS=$'\t' read -r source_id configmap file_key export_path extra; do
   [ -n "$source_id" ] && [ -n "$configmap" ] && [ -n "$file_key" ] && [ -n "$export_path" ] && [ -z "${extra:-}" ] \
     || fail "malformed observation record in $PLAN"
   kubectl -n "$NS" create configmap "$configmap" --dry-run=client -o yaml \
     --from-file="${file_key}=${export_path}" | kubectl apply -f - >/dev/null
-  obs_sets+=(--set "dashboard.observation.sources[${obs_i}].name=${source_id}"
-             --set "dashboard.observation.sources[${obs_i}].file=${file_key}"
-             --set "dashboard.observation.sources[${obs_i}].configMap=${configmap}")
   obs_i=$((obs_i + 1))
 done < <(plan_records observation)
-[ "${#obs_sets[@]}" -gt 0 ] || fail "the plan declares no observation source"
+[ "$obs_i" -gt 0 ] || fail "the plan declares no observation source"
+
+# WHICH sources the dashboard is told about is the scenario's to say, so the chart
+# values are PROJECTED rather than assembled here — the same declaration the
+# Compose surface renders into its dashboard command. tests/acceptance/scenario/
+# parity_test.go compares the two, so neither surface can quietly start naming a
+# source the other does not.
+HELM_VALUES="$BDIR/helm-values.txt"
+( cd "$ROOT" && go run ./tests/acceptance/scenario/project helm -out "$HELM_VALUES" )
+obs_sets=()
+while IFS= read -r value; do
+  [ -n "$value" ] || continue
+  obs_sets+=(--set "$value")
+done < "$HELM_VALUES"
+[ "${#obs_sets[@]}" -gt 0 ] || fail "the projection produced no chart values"
 
 # The remaining --set values are this RUN's, not the fixture's: the image kind
 # just loaded, the registry it just brought up, the components under test. They

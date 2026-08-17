@@ -69,6 +69,7 @@ func main() {
 		interval  = flag.Duration("interval", 5*time.Second, "poll interval")
 		snapshots = flag.Int("snapshots", 1, "how many DISTINCT snapshots must each prove the whole fixture")
 		outPath   = flag.String("out", "", "write the discovered canonical keys here as JSON")
+		surface   = flag.String("surface", string(scenario.SurfaceKubernetes), "the surface the fixture is deployed on (kubernetes, compose)")
 	)
 	flag.Parse()
 	// The domain is the one thing the scenario cannot declare: it is the address
@@ -78,6 +79,15 @@ func main() {
 	}
 	if *snapshots < 1 {
 		exit("-snapshots must be at least 1")
+	}
+	// The surface decides which facts are OWED, so an unrecognised name is refused
+	// rather than defaulted: silently treating it as the reference surface would
+	// wait out the timeout on facts the platform cannot produce, and silently
+	// treating it as the smaller one would pass a run that proved less than it
+	// printed.
+	sf, err := scenario.ParseSurface(*surface)
+	if err != nil {
+		exit(err.Error())
 	}
 	// A fixture that cannot mean one thing is refused BEFORE the poll. The facts
 	// below would refuse it too, but only after burning the whole timeout on a
@@ -96,7 +106,7 @@ func main() {
 		scn:       scenario.OperationalGraph,
 		domain:    *domain,
 	}
-	p.facts = p.scn.FactCount()
+	p.on(sf)
 
 	keys, problems := p.run(os.Stdout)
 	if len(problems) > 0 {
@@ -125,6 +135,13 @@ func main() {
 // each prove the whole fixture, so the post-cache state must also be STABLE
 // across a refresh rather than true once.
 func (p *prober) run(w io.Writer) (discovered, []string) {
+	// The surface and what it cannot do are stated BEFORE the first round, in the
+	// output a reader of a failed run scrolls back through. A run that proves fewer
+	// facts must never look like a run that proved them all.
+	_, _ = fmt.Fprintf(w, "  surface %s: %d facts owed\n", p.surface, p.facts)
+	for _, c := range p.surface.Missing() {
+		_, _ = fmt.Fprintf(w, "  surface %s does not provide %q; the facts that depend on it are not owed here\n", p.surface, c)
+	}
 	deadline := time.Now().Add(p.timeout)
 	proven := map[string]bool{}
 	var last discovered
@@ -175,8 +192,16 @@ func emit(k discovered, path string) {
 // discovered is the canonical identity the product published for each fixture
 // entity, handed to the browser journeys verbatim.
 type discovered struct {
-	SnapshotID        string `json:"snapshotId"`
-	Domain            string `json:"domain"`
+	SnapshotID string `json:"snapshotId"`
+	Domain     string `json:"domain"`
+	// Surface and MissingCapabilities travel with the keys so the browser suite
+	// skips — visibly, with a reason in its own report — the journeys that address
+	// something the platform cannot produce. A journey silently dropped from a
+	// smaller run is the failure this pair exists to prevent; the keys for such an
+	// entity are empty below, and an empty key is not a thing to navigate to.
+	Surface             string   `json:"surface"`
+	MissingCapabilities []string `json:"missingCapabilities"`
+
 	CheckoutService   string `json:"checkoutService"`
 	OrdersService     string `json:"ordersService"`
 	EvidenceService   string `json:"evidenceService"`
@@ -207,6 +232,10 @@ type prober struct {
 	// domain is the OCI domain the harness published into; the only part of the
 	// fixture that is decided at run time.
 	domain string
+	// surface is where the fixture is deployed. It changes WHICH facts are owed —
+	// and only through a capability the platform declares it does not have, never
+	// through a check this gate decided to skip on its own.
+	surface scenario.Surface
 	// facts is how many facts scn obliges a round to prove, so the progress line
 	// reports a denominator the scenario justifies rather than a written-down
 	// constant that can drift away from it.
@@ -221,6 +250,16 @@ type prober struct {
 	// mixed records that some response of this round disagreed with it.
 	snapshotID string
 	mixed      bool
+}
+
+// on places the gate on a surface. Surface and fact count are set together and
+// only here: a gate told to skip a capability's checks while still printing the
+// reference surface's denominator would report a strictly smaller run as a
+// complete one, and the two values living apart is how that happens.
+func (p *prober) on(s scenario.Surface) *prober {
+	p.surface = s
+	p.facts = p.scn.FactCount(s)
+	return p
 }
 
 func (p *prober) failf(format string, a ...any) {
@@ -370,12 +409,18 @@ func (p *prober) probe() (discovered, []string) {
 		for _, rev := range svc.Revisions {
 			revKey[svc.Name+"@"+rev.Version] = p.revisionKey(svcKey[svc.Name], rev.Version)
 		}
-		// A target is owed by RUNNING something. Which revision it must link to is
-		// then a question the scenario has to have exactly one answer to: a service
-		// declaring two deployed revisions is a fixture the gate cannot evaluate, and
-		// proving a target against whichever came first would be the gate certifying
-		// half a declaration it had quietly discarded the rest of.
-		if svc.Workload == nil {
+		// A target is owed by RUNNING something ON A SURFACE THAT RECONCILES IT.
+		// Which revision it must link to is then a question the scenario has to have
+		// exactly one answer to: a service declaring two deployed revisions is a
+		// fixture the gate cannot evaluate, and proving a target against whichever
+		// came first would be the gate certifying half a declaration it had quietly
+		// discarded the rest of.
+		//
+		// Compose runs the same workloads with no controller behind them, so no
+		// operational target can exist there. That is a DECLARED capability gap, it
+		// is subtracted from the fact count the progress line prints, and it is named
+		// in the handoff — not a check this loop decided to walk past.
+		if svc.Workload == nil || !p.surface.Has(scenario.CapabilityOperationalTarget) {
 			continue
 		}
 		rev, err := svc.DeployedRevision()
@@ -644,8 +689,16 @@ func (p *prober) journeyInput(svcKey, revKey, tgtKey, evTgtKey map[string]string
 	revA := p.journeyRevision(provider)
 	consumerRev := p.journeyRevision(consumer)
 
+	missing := make([]string, 0, len(p.surface.Missing()))
+	for _, c := range p.surface.Missing() {
+		missing = append(missing, string(c))
+	}
+
 	return discovered{
-		Domain:            p.domain,
+		Domain:              p.domain,
+		Surface:             string(p.surface),
+		MissingCapabilities: missing,
+
 		CheckoutName:      provider.Name,
 		OrdersName:        consumer.Name,
 		CheckoutVersionA:  revA.Version,

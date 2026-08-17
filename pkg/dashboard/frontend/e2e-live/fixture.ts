@@ -12,6 +12,12 @@
 export interface LiveFixture {
   snapshotId: string;
   domain: string;
+  // Where the fixture is deployed, and what that platform cannot produce. Compose
+  // has no controller, so no Pacto CR is reconciled into an operational target
+  // there; the journey that addresses one skips with that reason in the report
+  // rather than being quietly absent from a shorter run.
+  surface: string;
+  missingCapabilities: string[];
   checkoutService: string;
   ordersService: string;
   evidenceService: string;
@@ -46,6 +52,14 @@ function load(): LiveFixture {
 }
 
 export const fixture: LiveFixture = load();
+
+// CAPABILITY_OPERATIONAL_TARGET is scenario.CapabilityOperationalTarget. The gate
+// writes the string it declares; this side only compares.
+export const CAPABILITY_OPERATIONAL_TARGET = 'operational-target';
+
+export function surfaceProvides(capability: string): boolean {
+  return !(fixture.missingCapabilities ?? []).includes(capability);
+}
 
 // The product's own route grammar, mirroring lib/router.ts. Only the ROUTE is built
 // here; every key in it was discovered.

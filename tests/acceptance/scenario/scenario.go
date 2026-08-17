@@ -14,9 +14,11 @@
 //
 //	Materialize       the contract bundle directories the harness publishes
 //	TraceExport       the OTLP export the operator mounts as an observation source
-//	Plan              the machine-readable execution plan the shell harness consumes
+//	Plan              the machine-readable execution plan both harnesses consume
 //	PactoCRs          the cluster projection of the deployed targets, once digests exist
 //	EvidencePayloads  the EvidenceSet each declared envelope carries
+//	HelmValues        the chart values that configure the Kubernetes surface
+//	Compose           the Docker Compose surface, distributed as an OCI artifact
 //	FactCount         how many Product facts this scenario obliges the gate to prove
 //
 // The expected Product facts are not a separate document: they ARE the scenario.
@@ -36,12 +38,17 @@
 // schema. The declared identity beside it is proved to agree with the literal by
 // this package's tests instead.
 //
-// Only projections with a consumer today exist. A Helm or Docker Compose
-// projection would be a sibling of Materialize over the same value; the one-off
-// Helm values the harness sets for the operator image, the insecure registry and
-// the enabled components are NOT projected — they have one consumer and no
-// counterpart anywhere else in the fixture, so declaring them would be uniformity
-// for its own sake.
+// Only projections with a consumer today exist. HelmValues projects the chart
+// values that come from the SCENARIO and nothing else: the operator image, the
+// insecure registry and the enabled components stay in the harness, because they
+// are properties of the run and have no counterpart on the other surface.
+//
+// TWO surfaces now, which is what Surface is for. Kubernetes and Compose owe
+// different facts, and the difference is DECLARED as a capability Compose does
+// not provide rather than discovered as a shorter run: nothing there reconciles a
+// Pacto CR, so no operational target is expected, and the gate subtracts exactly
+// those facts and says which capability it skipped. Every other fact is owed on
+// both, and parity_test.go compares the rendered projections to prove it.
 //
 // Values that cannot exist before execution stay runtime inputs, passed in: the
 // registry address the harness happened to bring up, the digests the registry
@@ -320,9 +327,17 @@ func (svc Service) PublishedOnlyRevision() (Revision, bool) {
 }
 
 // FactCount is how many facts the live Product gate is obliged to prove for this
-// scenario. It is derived rather than written down so the gate's progress line
-// cannot claim a denominator the fixture stopped justifying.
-func (s Scenario) FactCount() int {
+// scenario ON THE GIVEN SURFACE. It is derived rather than written down so the
+// gate's progress line cannot claim a denominator the fixture stopped
+// justifying.
+//
+// The surface is a parameter because the two surfaces owe different numbers of
+// facts, and only one reason for that is legitimate: a capability the platform
+// does not have. Compose has no controller, so nothing there can reconcile an
+// operational target, and the target facts are not owed. Every other fact is.
+// An unknown surface provides nothing, so it owes the smallest count — which is
+// why the gate parses its surface rather than accepting a bare string.
+func (s Scenario) FactCount(surface Surface) int {
 	n := 1 // the round read every fact from ONE snapshot
 	for _, src := range s.Sources {
 		if src.Kind != SourceEvidence {
@@ -339,7 +354,7 @@ func (s Scenario) FactCount() int {
 		// the flags would be this derivation resolving an ambiguous declaration on
 		// its own — the thing Validate exists to stop — and it would hand the gate a
 		// denominator no projection agreed to.
-		if svc.Workload != nil {
+		if svc.Workload != nil && surface.Has(CapabilityOperationalTarget) {
 			n++ // exactly one operational target, linking exactly to it
 		}
 	}
