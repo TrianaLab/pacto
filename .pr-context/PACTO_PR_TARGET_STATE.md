@@ -803,6 +803,75 @@ Requirements to define and satisfy:
 
 Explicitly out of scope for this phase: a second product architecture, a Compose-only feature, a hosted demo service and any change to the Helm surface made only to make the Compose projection easier.
 
+### Phase 10C — OCI-native evidence referrers and stateless ingestion
+
+Replace the custom evidence persistence engine completely with OCI 1.1
+Referrers. Every accepted evidence record is an OCI artifact attached to the
+exact immutable contract digest already carried by `EvidenceSet.ContractRef`.
+The Container Registry is the only evidence persistence system.
+
+The Evidence Server remains the single verification, evaluation and read-model
+boundary. It stays responsible for Ed25519 verification, contract-reference
+authorization, producer-global replay protection, contract evaluation and the
+bounded DTO consumed by Dashboard/Fleet clients, but it holds no durable local
+state. It discovers accepted records from a finite configured set of exact
+contract digest references and writes referrer artifacts to those same contract
+repositories.
+
+Requirements:
+
+- **Complete replacement, never a hybrid.** Delete `pkg/evidencestore`, the
+  append-only bucket log, recovery and repair machinery, materialized manifests,
+  `file://`/S3/GCS/Azure bucket configuration, PVC provisioning and evidence
+  storage inspection. No code path may dual-write or fall back to a bucket.
+- **Contract digest is the only OCI subject.** An evidence artifact's manifest
+  `subject` must equal the exact digest reference in
+  `EvidenceSet.ContractRef`. Image subjects and mutable tags are out of scope.
+- **Bounded discovery.** The server receives an explicit non-empty set of exact
+  contract digest references. Ingestion outside that set fails closed. Registry
+  catalog scans, repository-name inference and mutable subject discovery are
+  forbidden.
+- **OCI 1.1 semantics.** Publish, enumerate and fetch a versioned Pacto evidence
+  artifact type through the native Referrers API. Legacy referrers-tag fallback
+  is not a correctness boundary and must not be used. ORAS interoperability and
+  paginated enumeration are acceptance requirements.
+- **No functional regression.** Preserve signed-envelope verification,
+  authorization, evaluation, duplicate-envelope rejection, producer-global
+  monotonic sequence rejection, latest-target selection, bounded findings and
+  targets, explicit partial/unavailable knowledge, Dashboard/Fleet consumption
+  and CLI send/serve workflows.
+- **Fail closed.** A subject that cannot be enumerated completely, an invalid
+  Pacto evidence artifact or an unsupported registry blocks ingestion because
+  the replay index is incomplete. Reads may retain valid records only while
+  reporting the incomplete contribution explicitly; an entirely unavailable
+  registry is never presented as an authoritative empty result.
+- **Single active writer.** One Evidence Server replica and in-process
+  serialization preserve scan-then-publish replay semantics. Multi-writer and
+  horizontal scaling are out of scope until the registry can provide a suitable
+  cross-process compare-and-swap boundary.
+- **Smaller infrastructure.** A fresh Kubernetes installation needs no evidence
+  PVC or bucket. Keep only the stateless Evidence Server Deployment and Service,
+  the existing producer-trust Secret, optional registry credentials and the
+  configured contract subjects. Existing PVCs are never deleted automatically;
+  upgrade documentation explains their manual retirement after any required
+  backup.
+- **One OCI implementation for this responsibility.** Use stable
+  `oras.land/oras-go/v2` for evidence artifact packing, native Referrers
+  pagination and registry transport. Reuse Pacto's existing credential policy;
+  do not create a second login/config format. Remove `gocloud.dev` when the old
+  evidence store is deleted. Existing `go-containerregistry` usage for contract
+  bundles remains separate and unchanged.
+- **Same canonical scenario, updated projections.** Helm/Kind and Compose derive
+  the subject list from the canonical scenario. The Compose registry volume, not
+  an Evidence Server data volume, proves persistence across server restart.
+- **No speculative migration engine.** This PR has not shipped the bucket store,
+  so Phase 10C provides no bucket-to-OCI data migrator. If real external data is
+  later identified, migration is commissioned separately rather than preserved
+  as permanent dual-storage complexity.
+
+The detailed architecture and closure criteria live in
+`docs/superpowers/specs/2026-08-17-oci-native-evidence-referrers-design.md`.
+
 ### Phase 11 — MCP catalog core
 Implement bounded multi-root catalog semantics over arbitrary Pacto contract roots. This is the CATALOG model over arbitrary roots — distinct from the operational Fleet MCP tools (`pacto_fleet_*`) this branch already ships, which stay as they are.
 
