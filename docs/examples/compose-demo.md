@@ -19,7 +19,7 @@ Then open <http://localhost:8080/#/fleet>.
 You need [Docker Compose](https://docs.docker.com/compose/) and
 [ORAS](https://oras.land/docs/installation) — nothing else, not even the Pacto
 CLI. The artifact carries its own `README.md` with the full reference: ports,
-restart, cleanup, offline use and moving between versions.
+restart, cleanup, running offline and moving between versions.
 
 The containers run as a non-root user and read the artifact from the directory
 you pulled it into, so that directory has to be readable by them. A default
@@ -56,6 +56,26 @@ oras pull ghcr.io/trianalab/pacto/demo@sha256:<digest>
 Each version is independent. Pull it into its own directory and Compose gives it
 its own containers and volumes, so you can keep the old one running, go back to
 it, or remove it with `docker compose down -v` when you are done.
+
+The images inside are pinned the same way. Both are named by digest rather than
+by tag, so the artifact you pinned runs the bytes it was released with, however
+long ago that was — and because those digests are multi-platform indexes, Docker
+still picks the build that matches your machine.
+
+## Offline
+
+Once the artifact and those two images are on your machine, the demo needs no
+external network:
+
+```sh
+docker compose up -d --wait --pull never
+```
+
+Acceptance proves that with the registry the artifact came from stopped and every
+route out of the demo's Compose network refused: it starts from empty volumes and
+serves the same fleet. The private network the registry, the Evidence Server and
+the dashboard use to reach each other stays up, because they have to, and so do
+the ports published to your machine.
 
 ## Credentials
 

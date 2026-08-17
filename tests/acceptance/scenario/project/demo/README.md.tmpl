@@ -60,13 +60,20 @@ pulled images.
 
 ## Offline
 
-After the first `up` has pulled the images, the demo needs no network:
+Once this artifact and the two images it pins are on your machine, the demo
+needs no external network:
 
 ```sh
 docker compose up -d --wait --pull never
 ```
 
-Every registry it talks to is the one it starts itself.
+That is what is tested, and tested as exactly that: with the registry this
+artifact was pulled from stopped and every route out of the demo's own Compose
+network refused, it still starts from empty volumes and serves the same fleet.
+
+What keeps working is the private network the four services use to reach each
+other — they have to — and the ports below, which are published to your machine.
+Every registry the demo talks to is the one it starts itself.
 
 ## Ports
 

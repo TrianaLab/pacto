@@ -224,6 +224,48 @@ of that scenario, not incidental data. `tests/acceptance/local/fleet-graph.sh`
 describes a different story with different services and is not a projection of
 anything.
 
+### The two claims the Compose demo makes about itself
+
+`tests/acceptance/local/compose-demo.sh` proves the demo the way a stranger meets
+it. Two of its claims are easy to state loosely and both are stated here as
+narrowly as they are tested.
+
+**Immutability reaches the images.** The artifact is published once and pulled by
+digest, which is worth nothing while the compose file inside it names its images
+by tag: the tag moves, and the same artifact digest starts executing different
+bytes. `scenario.Compose` therefore refuses any reference without an `@sha256:`
+of 64 lower-case hex characters, so a tag fails at projection rather than in
+somebody's demo. In the release, the dashboard pin is the digest the ledger
+recorded for the `dashboard-image` unit — read back with `ledger.sh digest`, and
+`demo-compose` fails closed if the transaction has none, because a narrowed
+recovery must not publish an artifact naming an image nothing verified. The
+registry pin is `scenario.ComposeDefaultRegistryImage`, a constant this
+repository updates by hand.
+
+Both are **index** digests, which matters for the same reason it matters to
+`kind load` above: an index digest still lets Docker resolve the child that
+matches the host, while a per-platform manifest digest is the same string shape
+and would emulate everywhere else. The acceptance re-derives the difference
+rather than trusting the comment — it resolves every pin the pulled artifact
+names and asserts each one came back as the host's own architecture, which a
+child digest could not.
+
+**The network boundary is a boundary, not an absence of pulls.** The claim is:
+*after the demo artifact and its digest-pinned images have been pulled, the stack
+requires no external network access; its private Compose service network remains
+available because the dashboard, Evidence Server and embedded registry must
+communicate with each other.* `docker compose up --pull never` on its own proves
+only the first four words of that, on a runner that still has the whole Internet
+and still has the registry the artifact came from. So stage 10 removes both: the
+artifact-distribution registry is stopped, and a `DOCKER-USER` rule keyed to the
+project's own bridge refuses anything that leaves it. The rule goes in between
+`docker compose create` and `up`, which is the only window where it precedes the
+one-shot `seed`'s first packet. Then the stack starts from empty volumes, the
+Product gate and the live browser journeys run against it, and a counterexample
+redirects `seed` at an endpoint outside the network and requires the bring-up to
+fail. `internal: true` is not used — it takes the published ports away with the
+egress, which would contradict the second half of the claim.
+
 ## Deterministic browser tests versus live-browser tests
 
 These are levels 6 and 7, and they stay apart. Determinism and liveness are
