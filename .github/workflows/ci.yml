@@ -68,6 +68,10 @@ jobs:
               - 'go.mod'
               - '**/Dockerfile'
               - 'examples/demo/**'
+              # The acceptance tree holds the canonical scenario every vertical
+              # projects — the kind fixture AND the distributed Compose artifact —
+              # plus the shared harness. A change there changes what they prove.
+              - 'tests/acceptance/**'
 
   ci-static:
     needs: changes
@@ -236,6 +240,29 @@ jobs:
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - run: make test-acceptance-kind-${{ matrix.scenario }}
 
+  # The same product vertical on the OTHER surface, proved the way a stranger meets
+  # it: the demo artifact is pushed to a local registry, pulled BY DIGEST into an
+  # empty directory OUTSIDE this checkout, and started there. Nothing on the
+  # execution path reads the repository — which is the claim, so it is the test.
+  # Same `e2e` filter as the kind shards: the heavy verticals run for anything that
+  # can change what they prove, plus the nightly schedule + manual dispatch.
+  ci-e2e-compose:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      # The demo's browser leg drives the LIVE dashboard in Chromium via Playwright.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+      - name: Install ORAS
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      - run: make ci-e2e-compose
+
   release-dry-run:
     needs: changes
     # Skip on the changesets Version PR: its changesets are already consumed, so the
@@ -331,6 +358,7 @@ jobs:
       - artifact-drift
       - operator-build
       - ci-e2e-kind
+      - ci-e2e-compose
       - release-dry-run
       - release-version-test
     runs-on: ubuntu-latest

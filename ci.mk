@@ -9,6 +9,7 @@ REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-e2e-kind-operational-graph ci-e2e-kind-observation \
+       ci-e2e-compose test-acceptance-compose test-browser-compose \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        ci-oci ci-gates docs-generate docs-check docs-build-strict artifact-drift release-dry-run \
@@ -44,7 +45,21 @@ ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-dri
 
 # Engine leg: unit tests (100% coverage gate) + the in-process CLI integration
 # suite + the cluster-free local acceptance (tests/acceptance/local/fleet-graph.sh).
+# The Compose demo acceptance is NOT here: it needs a Docker daemon and an image
+# build, and ci-engine is the leg a contributor runs on a laptop with nothing
+# installed. It has its own job, ci-e2e-compose.
 ci-engine: ci-test test-integration test-acceptance-local
+
+# The distributed Compose demo, end to end from a registry: push the artifact,
+# pull it BY DIGEST into an empty directory outside the checkout, start it there
+# and prove the same canonical fixture the Kind vertical proves — minus the
+# capability Compose declares it does not have. See docs/maintainers/testing.md.
+#
+# test-browser-compose rather than test-acceptance-compose: same script, browser
+# leg on. The Playwright run costs a couple of minutes on top of a bring-up that
+# already happened, and the demo's claim is that the DASHBOARD works — proving only
+# the JSON API would leave the part users actually look at untested on this surface.
+ci-e2e-compose: test-browser-compose
 
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui

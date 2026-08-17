@@ -15,10 +15,10 @@ how you pick a home for a test you are about to write.
 | 1 | Unit | One package, in isolation | beside the code (`*_test.go`, `*.test.ts`) | Go, TypeScript | `make test`, `make ci-ui` |
 | 2 | Integration | Several real components wired together, nothing over a network a user could reach | `tests/integration/`, `integrations/kubernetes/test/` | Go | `make test-integration`, `make ci-e2e-envtest` |
 | 3 | Architecture / invariant | Structural rules about the repository itself | `tests/architecture/` | Go | `make ci-gates` |
-| 4 | Local acceptance, cluster-free | A whole user story, anywhere Go runs | `tests/acceptance/local/` | Shell + Go | `make test-acceptance-local` |
+| 4 | Local acceptance, cluster-free | A whole user story, with no Kubernetes | `tests/acceptance/local/` | Shell + Go | `make test-acceptance-local`, `make test-acceptance-compose` |
 | 5 | Kind / system acceptance | The product against a real Kubernetes cluster | `tests/acceptance/kind/` | Shell + Go | `make test-acceptance-kind` |
 | 6 | Browser acceptance, deterministic | A real shipped artifact over fixed data | `pkg/dashboard/frontend/e2e/` (dashboard), `pkg/dashboard/frontend/e2e-docs-site/` (documentation site) | TypeScript | `make test-browser`, `make test-browser-docs-site` |
-| 7 | Live-browser acceptance | The real frontend against a real cluster | `pkg/dashboard/frontend/e2e-live/` | TypeScript | `make test-browser-live` |
+| 7 | Live-browser acceptance | The real frontend against a real running deployment | `pkg/dashboard/frontend/e2e-live/` | TypeScript | `make test-browser-live`, `make test-browser-compose` |
 | 8 | Release verification | The release system produces what it claims | `tests/release/`, `release/orchestrator/` | Go, Node | `make ci-gates`, `make release-dry-run` |
 
 Two names in the tree predate the taxonomy and are kept for the convention of
@@ -165,9 +165,33 @@ browser journeys. Its projections:
 
 | Projection | Consumer |
 |------------|----------|
-| `Materialize` | the contract bundle directories the Kind harness publishes |
+| `Materialize` | the contract bundle directories both harnesses publish |
 | `TraceExport` | the OTLP export the operator mounts as an observation source |
+| `Plan` | the tab-delimited execution plan both harnesses read as data |
+| `PactoCRs` | the cluster projection of the deployed targets, once digests exist |
+| `EvidencePayloads` | the EvidenceSet each declared envelope carries |
+| `HelmValues` | the observation sources the Kubernetes surface configures |
+| `Compose` | the Docker Compose surface, distributed as an OCI artifact |
+| `Digests` | the demo's evidence pins, computed before any registry exists |
 | `FactCount` | the denominator the Product gate reports progress against |
+
+### Two surfaces, and the difference between them
+
+The scenario is projected onto **Kubernetes** and onto **Compose**. They are the
+same fixture — same services, revisions, dependency edge, observation source and
+signed evidence — and `tests/acceptance/scenario/parity_test.go` proves it by
+comparing the *rendered* projections rather than the fields they came from.
+
+Where a platform genuinely cannot do something, that is **declared as a missing
+capability**, never expressed as a shorter run. `Surface` names what each
+provides; Compose does not provide `operational-target`, because nothing there
+reconciles a Pacto CR. `FactCount(surface)` subtracts exactly the facts that
+depend on the missing capability, the gate prints which capability it skipped,
+and the browser journey that opens a target skips with the same reason. A parity
+test asserts the difference is *only* that, so a Compose leg cannot quietly
+become a weaker run while still reporting "N of N facts".
+
+Adding a surface therefore means adding a `Capability`, not adding a branch.
 
 The **expected Product facts are not a separate document — they are the
 scenario**. `productready` walks the value: a declared revision must be one
@@ -181,11 +205,13 @@ Three rules keep this from becoming a framework:
    a generator for it would be a second, untested implementation of the contract
    schema. The package's tests materialize the literals and parse them back with
    the real `contract.Parse`, proving the declared identity and the file agree.
-2. **A projection exists only when it has a consumer.** The Pacto CRs and the
-   Helm `--set` block are deliberately *not* projected: they must carry digests
-   that exist only after the push, and they have one consumer each. A Helm or
-   Docker Compose projection, when something needs one, is a sibling function
-   over the same value.
+2. **A projection exists only when it has a consumer.** Each one above earned its
+   place by having a surface that reads it. The Helm values projected are the
+   ones the *scenario* decides — which observation sources exist, under which
+   identities; the operator image, the insecure registry and the enabled
+   components stay in the harness, because they are properties of the run and
+   have no counterpart on the other surface. Projecting those too would be
+   uniformity for its own sake.
 3. **Journey inputs are discovered, not declared.** A `ServiceKey` is
    domain-escaped and a `RevisionKey` carries a content id. Reconstructing those
    escapes in a test would be a second implementation of the identity rules that
@@ -210,15 +236,23 @@ anything about rendering, layout, accessibility, keyboard interaction,
 responsiveness, graph behaviour and visual state. Because the data cannot move,
 it can assert exact content.
 
-**Level 7, `pkg/dashboard/frontend/e2e-live/`** runs against the port-forwarded
-dashboard of a real Kind cluster, on keys discovered from the live Product API.
-It proves the real bundle, real HTTP API and real operator data render together.
-It cannot assert fixed content — the fixture's identities are discovered at run
-time — so it asserts the *journeys*.
+**Level 7, `pkg/dashboard/frontend/e2e-live/`** runs against a real running
+deployment, on keys discovered from the live Product API. It proves the real
+bundle, real HTTP API and real data render together. It cannot assert fixed
+content — the fixture's identities are discovered at run time — so it asserts the
+*journeys*.
 
-A test that could pass without a cluster belongs in level 6. Only journeys that
-need real operator data belong in level 7, and level 7 does not duplicate what
-level 6 already covers.
+One suite, two deployments: the port-forwarded dashboard of a Kind cluster
+(`make test-browser-live`) and the pulled Compose demo (`make
+test-browser-compose`). Both are driven by the same specs over the same
+discovered fixture, and the fixture carries the surface it was discovered on, so
+the journey that opens an operational target **skips with a stated reason** on
+Compose instead of being quietly absent. A second suite would have been a second
+set of journeys to keep in step with the product.
+
+A test that could pass against fixed data belongs in level 6. Only journeys that
+need real data belong in level 7, and level 7 does not duplicate what level 6
+already covers.
 
 ## Two products at level 6
 

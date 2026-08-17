@@ -13,7 +13,8 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test test-integration test-acceptance-local test-browser test-browser-live \
+.PHONY: build test test-integration test-acceptance-local test-acceptance-compose \
+        test-browser test-browser-live test-browser-compose \
         e2e demo-fleet coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
@@ -68,6 +69,14 @@ test-integration:
 # runs — the live-Kubernetes source is covered by the kind acceptance.
 test-acceptance-local:
 	bash tests/acceptance/local/fleet-graph.sh
+
+# Level 4 — the distributed Compose demo, proved the way a stranger meets it:
+# the artifact is pushed, pulled BY DIGEST into an empty directory outside this
+# checkout, and started there. Separate from test-acceptance-local on purpose —
+# that one is cluster-free AND daemon-free and has to stay runnable anywhere Go
+# runs, while this needs Docker, oras and a few minutes to build the image.
+test-acceptance-compose:
+	bash tests/acceptance/local/compose-demo.sh
 
 # Compatibility aliases for the pre-Phase-8B names. Temporary: they exist so
 # muscle memory and any out-of-tree caller keep working, not as second names.
@@ -181,6 +190,13 @@ e2e-docs:
 test-browser-live:
 	bash tests/acceptance/kind/operational-graph.sh browser
 e2e-dashboard-kind-browser: test-browser-live
+
+# Level 7 on the OTHER surface: the same journeys, in the same browser, against
+# the demo a stranger pulled — so what ships as "try Pacto" is held to the product
+# acceptance rather than to a screenshot. The journey that opens an operational
+# target skips here, naming the capability Compose declares it lacks.
+test-browser-compose:
+	bash tests/acceptance/local/compose-demo.sh browser
 
 # The whole operational-graph story: cluster-free core, the deterministic browser
 # suite, and the live-Kind vertical + live browser acceptance.
