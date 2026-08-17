@@ -131,8 +131,13 @@ func helm(s scenario.Scenario, argv []string) {
 func demo(s scenario.Scenario, argv []string) {
 	fs := flag.NewFlagSet("demo", flag.ExitOnError)
 	dir := fs.String("dir", "", "directory to assemble the artifact in")
-	pactoImage := fs.String("pacto-image", "", "the pinned pacto image the demo runs")
-	registryImage := fs.String("registry-image", "registry:2", "the OCI registry image the demo runs")
+	// Both must be digest-qualified; the projection refuses anything else. The
+	// registry image has a default because its pin is a decision this repository
+	// makes once (scenario.ComposeDefaultRegistryImage) rather than a per-release
+	// input, while the pacto image is whatever the transaction just published and
+	// cannot be known here.
+	pactoImage := fs.String("pacto-image", "", "the pinned pacto image the demo runs, as repo@sha256:...")
+	registryImage := fs.String("registry-image", scenario.ComposeDefaultRegistryImage, "the OCI registry image the demo runs, as repo@sha256:...")
 	artifactRepo := fs.String("artifact-repo", "", "the OCI repository the artifact is published to, for the README")
 	version := fs.String("version", "", "the version being built, for the README")
 	source := fs.String("source", "github.com/trianalab/pacto", "the project the artifact was built from")

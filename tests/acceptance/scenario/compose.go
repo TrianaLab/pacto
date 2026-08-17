@@ -109,10 +109,32 @@ func ComposeEnv() []byte {
 	return []byte(b.String())
 }
 
+// ComposeDefaultRegistryImage is the OCI registry the demo starts, pinned to the
+// MULTI-PLATFORM INDEX digest of registry:2.
+//
+// The index, not one of its children. An index digest still lets Docker resolve
+// the child matching the host, so the demo stays native on amd64 and arm64 alike
+// with no `platform:` anywhere; a per-architecture MANIFEST digest would pin one
+// of them and emulate it everywhere else. The two are indistinguishable as
+// strings, which is exactly how they get confused — this repository has already
+// paid for that once, in the `kind load` failure documented in
+// docs/maintainers/testing.md, where sha256:46faa9a1… is the amd64 CHILD of this
+// same image. The local acceptance re-derives it: it asserts the pulled registry
+// image is the host's own architecture, which a child digest could not be.
+//
+// Refreshing it is `crane digest registry:2` — deliberately a human act, since a
+// new digest is a new demo and the artifact says which one it ran.
+const ComposeDefaultRegistryImage = "registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
+
 // ComposeOptions are the values the Compose projection cannot derive: the images
 // it runs. They are required rather than defaulted because the whole point of
 // the distributed artifact is that it is pinned — a default would produce a demo
 // that meant whatever `latest` meant on the day it was started.
+//
+// Both must be DIGEST-QUALIFIED. Everything else about the artifact is already
+// immutable — it is published, pulled and documented by digest — so a tag left
+// in here is the one way the same demo artifact can execute different bytes
+// tomorrow than it did today, silently, with its own digest unchanged.
 type ComposeOptions struct {
 	// PactoImage runs the dashboard, the Evidence Server and the seed.
 	PactoImage string
@@ -124,6 +146,12 @@ type ComposeOptions struct {
 func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 	if opts.PactoImage == "" || opts.RegistryImage == "" {
 		return nil, fmt.Errorf("scenario %s: the Compose projection needs both a pacto image and a registry image; a default would unpin the demo", s.Name)
+	}
+	if err := checkPinnedImage("pacto image", opts.PactoImage); err != nil {
+		return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
+	}
+	if err := checkPinnedImage("registry image", opts.RegistryImage); err != nil {
+		return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
 	}
 	if err := s.Validate(); err != nil {
 		return nil, err
@@ -318,6 +346,35 @@ func portMapping(service string) string {
 		}
 	}
 	panic("no port declared for compose service " + service)
+}
+
+// checkPinnedImage refuses an image reference a tag could move.
+//
+// Fail-closed and by NAME: the caller is a release step or a harness several
+// files away, and "the demo came up running last week's dashboard" is not a
+// failure anything downstream can see. `repo:tag@sha256:…` is accepted alongside
+// the bare digest form — the tag is then documentation and Docker resolves the
+// digest — but the digest itself has to be one: 64 LOWER-CASE hex characters
+// under sha256, which is the only spelling a registry serves. Half a digest and
+// the upper-case form both satisfy "contains @sha256:" and neither addresses
+// content.
+func checkPinnedImage(what, ref string) error {
+	name, digest, found := strings.Cut(ref, "@")
+	hex, isSHA256 := strings.CutPrefix(digest, "sha256:")
+	switch {
+	case !found:
+		return fmt.Errorf("the %s %q is not pinned: it must end in @sha256:<64 hex>, or one immutable demo artifact runs whatever the tag points at on the day it is started", what, ref)
+	case name == "":
+		return fmt.Errorf("the %s %q names no repository before its @sha256: digest", what, ref)
+	case !isSHA256 || len(hex) != 64:
+		return fmt.Errorf("the %s %q is pinned to %q, which is not an @sha256: digest of 64 hex characters", what, ref, digest)
+	}
+	for _, r := range hex {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') {
+			return fmt.Errorf("the %s %q is pinned to %q, which is not lower-case hex, so no registry would serve it as an @sha256: digest", what, ref, digest)
+		}
+	}
+	return nil
 }
 
 // checkComposeValue refuses a scenario value that could forge a command.

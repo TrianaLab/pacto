@@ -10,9 +10,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// The references the projection is exercised with. Digest-qualified, because
+// that is the only form it accepts: the pacto image stands in for whatever the
+// release transaction published, the registry image is the real pin the demo
+// ships with.
 var composeOpts = ComposeOptions{
-	PactoImage:    "ghcr.io/trianalab/pacto/dashboard:9.9.9",
-	RegistryImage: "registry:2",
+	PactoImage:    "ghcr.io/trianalab/pacto/dashboard@sha256:" + strings.Repeat("9", 64),
+	RegistryImage: ComposeDefaultRegistryImage,
 }
 
 // composeFileOf decodes the projection the way Docker Compose reads it, so every
@@ -370,8 +374,8 @@ func TestCompose_RefusesToInventAnImage(t *testing.T) {
 		name string
 		opts ComposeOptions
 	}{
-		{"no pacto image", ComposeOptions{RegistryImage: "registry:2"}},
-		{"no registry image", ComposeOptions{PactoImage: "pacto:1"}},
+		{"no pacto image", ComposeOptions{RegistryImage: composeOpts.RegistryImage}},
+		{"no registry image", ComposeOptions{PactoImage: composeOpts.PactoImage}},
 		{"neither", ComposeOptions{}},
 	} {
 		// The refusal has to SAY it is about the image: a missing one otherwise
@@ -382,6 +386,88 @@ func TestCompose_RefusesToInventAnImage(t *testing.T) {
 			t.Errorf("%s: the projection invented an image", tc.name)
 		case !strings.Contains(err.Error(), "image"):
 			t.Errorf("%s: refused with %q, which does not say an image is missing", tc.name, err)
+		}
+	}
+}
+
+// An image reference a tag could move is refused, fail-closed.
+//
+// The artifact is published, pulled and documented BY DIGEST, so its identity is
+// immutable everywhere except the two image references inside it. Leave either
+// one on a tag and one unchanged demo artifact executes different bytes the day
+// after the tag moves, with nothing about the artifact saying so — the pin is
+// worth exactly as much as its weakest reference. The refusal names the option,
+// because the caller that has to fix it is a release step several files away.
+func TestCompose_RefusesAnImageATagCouldMove(t *testing.T) {
+	pinnedPacto, pinnedRegistry := composeOpts.PactoImage, composeOpts.RegistryImage
+	sixtyFour := strings.Repeat("a", 64)
+	for _, tc := range []struct {
+		name, says string
+		opts       ComposeOptions
+	}{
+		{"tag-only pacto image", "pacto image",
+			ComposeOptions{PactoImage: "ghcr.io/trianalab/pacto/dashboard:1.2.3", RegistryImage: pinnedRegistry}},
+		{"pacto image with no tag at all", "pacto image",
+			ComposeOptions{PactoImage: "ghcr.io/trianalab/pacto/dashboard", RegistryImage: pinnedRegistry}},
+		{"tag-only registry image", "registry image",
+			ComposeOptions{PactoImage: pinnedPacto, RegistryImage: "registry:2"}},
+		{"registry image with no tag at all", "registry image",
+			ComposeOptions{PactoImage: pinnedPacto, RegistryImage: "registry"}},
+		// A digest that is not one. Half a digest, an algorithm nothing publishes
+		// under and the upper-case form no registry serves would each satisfy a
+		// "contains @sha256:" check and none of them addresses content.
+		{"truncated digest", "pacto image",
+			ComposeOptions{PactoImage: "ghcr.io/x@sha256:abc", RegistryImage: pinnedRegistry}},
+		{"upper-case digest", "pacto image",
+			ComposeOptions{PactoImage: "ghcr.io/x@sha256:" + strings.ToUpper(sixtyFour), RegistryImage: pinnedRegistry}},
+		{"another algorithm", "registry image",
+			ComposeOptions{PactoImage: pinnedPacto, RegistryImage: "registry@md5:" + sixtyFour}},
+		{"digest with no repository", "registry image",
+			ComposeOptions{PactoImage: pinnedPacto, RegistryImage: "@sha256:" + sixtyFour}},
+	} {
+		switch _, err := OperationalGraph.Compose(tc.opts); {
+		case err == nil:
+			t.Errorf("%s: the projection accepted %q, so the demo is not pinned", tc.name, tc.opts)
+		case !strings.Contains(err.Error(), tc.says):
+			t.Errorf("%s: refused with %q, which does not say which image is unpinned", tc.name, err)
+		case !strings.Contains(err.Error(), "sha256:"):
+			t.Errorf("%s: refused with %q, which does not say what a pinned reference looks like", tc.name, err)
+		}
+	}
+}
+
+// The pinned reference reaches the compose file unchanged, and nothing beside it
+// narrows what that reference resolves to.
+//
+// Both images ship a MULTI-PLATFORM INDEX, and an index digest is the one digest
+// form that still lets Docker pick the child matching the host. Rewriting the
+// reference — normalising it, splitting the digest off, adding a `platform:` next
+// to it — would either break the pin or turn a multi-architecture demo into an
+// emulated one. So the projection copies it, and this is the assertion that it
+// copies rather than interprets.
+func TestCompose_EmitsThePinnedReferencesUnchanged(t *testing.T) {
+	f := composeFileOf(t, OperationalGraph)
+	want := map[string]string{
+		"registry":  composeOpts.RegistryImage,
+		"evidence":  composeOpts.PactoImage,
+		"seed":      composeOpts.PactoImage,
+		"dashboard": composeOpts.PactoImage,
+	}
+	services, ok := f["services"].(map[string]any)
+	if !ok {
+		t.Fatal("the projection declares no services")
+	}
+	if len(services) != len(want) {
+		t.Fatalf("the projection runs %v; this checks %v", keysOfAny(services), keysOfAny(map[string]any{
+			"registry": nil, "evidence": nil, "seed": nil, "dashboard": nil}))
+	}
+	for name, img := range want {
+		svc := composeSvc(t, f, name)
+		if got := svc["image"]; got != img {
+			t.Errorf("service %s runs %v, want the pinned reference %q byte for byte", name, got, img)
+		}
+		if p, pinned := svc["platform"]; pinned {
+			t.Errorf("service %s pins platform %v, so the index digest could not resolve to the host's own child", name, p)
 		}
 	}
 }
