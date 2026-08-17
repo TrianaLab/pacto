@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,8 +25,16 @@ import (
 // The projection renders the file through Go structs, like PactoCRs, so every
 // value is escaped by the YAML encoder instead of interpolated into text. The
 // irreducibly imperative part — push these bundles, sign these envelopes — is
-// NOT generated: it is a static script in the artifact that reads the same
-// tab-delimited Plan the Kind harness reads.
+// NOT generated: it is a static script that reads the same tab-delimited Plan
+// the Kind harness reads.
+//
+// The artifact IS this file. Docker Compose owns the OCI artifact type for a
+// Compose application (`docker compose publish`, `docker compose -f oci://…`),
+// and that type carries a compose file and nothing else — no directory, no
+// second layer, no README. So every immutable fixture input the demo reads
+// travels INLINE, as a Compose `configs` entry mounted read-only into the one
+// service that reads it. Nothing is bind-mounted, and there is no run directory
+// to be in: a user runs the artifact straight out of the registry by digest.
 //
 // Three things stay outside the artifact, because an artifact is immutable and
 // they are not: the keypair (minted at run time into a volume), the registry's
@@ -41,9 +50,9 @@ const (
 	ComposeRegistryHost = "registry:5000"
 	// ComposeDomain is the OCI domain the demo's bundles are published under.
 	ComposeDomain = ComposeRegistryHost + "/demo"
-	// ComposeArtifactMount is where the pulled artifact is mounted, read-only. It is
-	// the only path the demo reads fixture data from, which is what makes the run
-	// directory — and nothing else — the whole input.
+	// ComposeArtifactMount is the directory every inline fixture config is targeted
+	// into, read-only. It is the only path the demo reads fixture data from, which
+	// is what makes the published compose file — and nothing else — the whole input.
 	ComposeArtifactMount = "/demo"
 	// ComposeEvidenceURL is the in-network address of the Evidence Server.
 	ComposeEvidenceURL = "http://evidence:8686"
@@ -52,6 +61,33 @@ const (
 	// ComposeSeedScript is the static script the one-shot seed runs.
 	ComposeSeedScript = ComposeArtifactMount + "/seed.sh"
 )
+
+// ComposeMinVersion is the oldest Docker Compose that owns this artifact type:
+// 2.34.0 added `docker compose publish` and `-f oci://…`. Declared once, here,
+// because the projection, the release unit, CI and the documented user journey
+// all have to mean the same floor — and a user on an older Compose sees a file
+// it will not load rather than an actionable version error.
+const ComposeMinVersion = "2.34.0"
+
+// The provenance a Compose OCI artifact CAN carry. The artifact type is a
+// compose file, so there is no layer to put a README in; `x-` extensions are the
+// native way to attach metadata, and they survive publication verbatim, so
+// `docker compose -f oci://…@sha256:… config` shows a user what they pulled and
+// where the instructions are.
+const (
+	// ComposeSourceURL is the project the artifact is built from.
+	ComposeSourceURL = "https://github.com/trianalab/pacto"
+	// ComposeDocsURL is where the authoritative instructions live. The artifact
+	// cannot carry them: see the extension's own comment.
+	ComposeDocsURL = ComposeSourceURL + "/blob/main/docs/examples/compose-demo.md"
+)
+
+// seedScript is the artifact's one static document: the imperative half of the
+// demo, embedded so it travels inline instead of being read off a disk that,
+// after publication, no longer exists.
+//
+//go:embed seed.sh
+var seedScript string
 
 // The container-side paths of the state volume. It is mounted at the image's
 // HOME, which exists in the image and is owned by the non-root user: a named
@@ -84,29 +120,17 @@ type ComposePort struct {
 
 // ComposePorts is every port the demo publishes.
 //
-// One declaration, three consumers: the `ports` entries, the .env file shipped
-// beside the compose file, and the acceptance harness that has to know where to
-// reach the dashboard. The defaults avoid the ports the repository's other
-// harnesses bind, so a demo and a test run can coexist on one machine.
+// One declaration, two consumers: the `ports` entries and the acceptance harness
+// that has to know where to reach the dashboard. The defaults avoid the ports the
+// repository's other harnesses bind, so a demo and a test run can coexist on one
+// machine — and each is overridable by its variable, which is how two versions of
+// the artifact run side by side without colliding.
 func ComposePorts() []ComposePort {
 	return []ComposePort{
 		{Service: "dashboard", Env: "PACTO_DEMO_DASHBOARD_PORT", Default: 8080, Container: composeDashboardPort},
 		{Service: "evidence", Env: "PACTO_DEMO_EVIDENCE_PORT", Default: 8686, Container: composeEvidencePort},
 		{Service: "registry", Env: "PACTO_DEMO_REGISTRY_PORT", Default: 5051, Container: composeRegistryPort},
 	}
-}
-
-// ComposeEnv is the .env file shipped in the artifact: the same defaults the
-// compose file falls back to, written where a user can edit them. Compose reads
-// .env from the run directory, so editing the file and exporting the variable
-// have to mean the same thing — a test proves the two agree.
-func ComposeEnv() []byte {
-	var b strings.Builder
-	b.WriteString("# Host ports the Pacto demo publishes. Change one if it is taken.\n")
-	for _, p := range ComposePorts() {
-		b.WriteString(p.Env + "=" + strconv.Itoa(p.Default) + "\n")
-	}
-	return []byte(b.String())
 }
 
 // ComposeDefaultRegistryImage is the OCI registry the demo starts, pinned to the
@@ -140,6 +164,11 @@ type ComposeOptions struct {
 	PactoImage string
 	// RegistryImage runs the OCI registry the demo publishes into.
 	RegistryImage string
+	// Version is the release this artifact was built for. It is part of the
+	// application rather than a label on it: the artifact carries no file a user
+	// could read a version out of, and two releases whose compose files were
+	// byte-identical would be one artifact under one digest.
+	Version string
 }
 
 // Compose renders the Docker Compose projection of the scenario.
@@ -152,6 +181,9 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 	}
 	if err := checkPinnedImage("registry image", opts.RegistryImage); err != nil {
 		return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
+	}
+	if opts.Version == "" {
+		return nil, fmt.Errorf("scenario %s: the Compose projection needs the version it is being built for; the artifact carries no other file to record it in", s.Name)
 	}
 	if err := s.Validate(); err != nil {
 		return nil, err
@@ -167,17 +199,26 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, v := range []string{opts.PactoImage, opts.RegistryImage, signer.Producer, signer.KeyID} {
+	for _, v := range []string{opts.PactoImage, opts.RegistryImage, opts.Version, signer.Producer, signer.KeyID} {
 		if err := checkComposeValue(v); err != nil {
 			return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
 		}
 	}
+	seedInputs, dashInputs, err := s.composeInputs()
+	if err != nil {
+		return nil, err
+	}
 
-	f := composeFile{Services: composeServices{
+	f := composeFile{Extension: composeExtension{
+		Version:        opts.Version,
+		Source:         ComposeSourceURL,
+		Documentation:  ComposeDocsURL,
+		MinimumCompose: ComposeMinVersion,
+	}, Services: composeServices{
 		Registry: composeService{
 			Image:   opts.RegistryImage,
 			Restart: "unless-stopped",
-			Ports:   []string{portMapping("registry")},
+			Ports:   []composePort{portMapping("registry")},
 			Volumes: []string{composeRegistryVolume + ":/var/lib/registry"},
 		},
 		Evidence: composeService{
@@ -189,7 +230,7 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			// the server reaches the registry itself; without this it answers 502
 			// contract_resolution_failed on a plain-HTTP demo registry.
 			Environment: map[string]string{"PACTO_INSECURE_REGISTRIES": ComposeRegistryHost},
-			Ports:       []string{portMapping("evidence")},
+			Ports:       []composePort{portMapping("evidence")},
 			Volumes:     []string{composeStateVolume + ":" + composeStateMount},
 			// The image's baked healthcheck probes the dashboard, which is not what
 			// runs here; left inherited it would never pass and `up --wait` would sit
@@ -224,10 +265,8 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 				"registry": {Condition: "service_started"},
 				"evidence": {Condition: "service_healthy"},
 			},
-			Volumes: []string{
-				composeStateVolume + ":" + composeStateMount,
-				"." + ":" + ComposeArtifactMount + ":ro",
-			},
+			Volumes: []string{composeStateVolume + ":" + composeStateMount},
+			Configs: mounts(seedInputs),
 			// A one-shot container that exits 0 is not unhealthy, but the image's
 			// inherited probe would call it that and block everything downstream.
 			Healthcheck: &composeHealth{Disable: true},
@@ -244,13 +283,11 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			// one a user sees, and a snapshot taken against an empty registry would
 			// show an empty fleet until the next refresh.
 			DependsOn: map[string]composeDep{"seed": {Condition: "service_completed_successfully"}},
-			Ports:     []string{portMapping("dashboard")},
-			Volumes: []string{
-				composeStateVolume + ":" + composeStateMount,
-				"." + ":" + ComposeArtifactMount + ":ro",
-			},
+			Ports:     []composePort{portMapping("dashboard")},
+			Volumes:   []string{composeStateVolume + ":" + composeStateMount},
+			Configs:   mounts(dashInputs),
 		},
-	}}
+	}, Configs: contents(seedInputs, dashInputs)}
 
 	var buf bytes.Buffer
 	buf.WriteString("# Generated by tests/acceptance/scenario. Do not edit: the Pacto demo is a\n" +
@@ -264,6 +301,142 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// composeInput is one immutable fixture document the artifact carries INLINE:
+// the name Compose knows it by, the path its one consumer reads it at, and the
+// bytes.
+type composeInput struct {
+	name, target, content string
+}
+
+// composeInputs is every fixture document the demo reads, split by the ONE
+// service that reads it.
+//
+// This is the whole reason there is no run directory. The Kubernetes surface
+// hands these to a cluster as ConfigMaps and the harness writes them to disk;
+// here they are `configs` with inline content, because the published artifact is
+// a compose file and a compose file is all a user has. Same projection, same
+// canonical scenario, three transports.
+//
+// Split by consumer rather than mounted everywhere: the dashboard has no
+// business reading the seed's private key plan, and the seed has no business
+// reading an observation export. Compose only creates the files a service
+// declares, so the split is enforced by the runtime and not by convention.
+func (s Scenario) composeInputs() (seed, dashboard []composeInput, err error) {
+	files, err := s.MaterializeFiles(ComposeDomain)
+	if err != nil {
+		return nil, nil, err
+	}
+	plan, err := s.Plan(ComposeArtifactMount)
+	if err != nil {
+		return nil, nil, err
+	}
+	// No registry exists yet, so the digests come from the bytes above. The seed
+	// re-checks each one against what it actually publishes.
+	digests, err := s.Digests(files)
+	if err != nil {
+		return nil, nil, err
+	}
+	payloads, err := s.EvidencePayloads(ComposeArtifactMount, ComposeDomain, digests)
+	if err != nil {
+		return nil, nil, err
+	}
+	seedFiles := map[string]string{"plan.tsv": string(plan), "seed.sh": seedScript}
+	for rel, body := range files {
+		seedFiles[rel] = body
+	}
+	for abs, body := range payloads {
+		seedFiles[strings.TrimPrefix(abs, ComposeArtifactMount+"/")] = string(body)
+	}
+	dashFiles := map[string]string{}
+	for _, src := range s.Sources {
+		if src.Kind != SourceObservation {
+			continue
+		}
+		export, err := s.TraceExport(src.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		dashFiles[src.ID+".json"] = string(export)
+	}
+
+	// One namespace for both consumers, so a bundle document and an export that
+	// projected onto the same config name would be caught here rather than
+	// silently overwrite each other in the published application.
+	taken := map[string]string{}
+	convert := func(m map[string]string) ([]composeInput, error) {
+		out := make([]composeInput, 0, len(m))
+		for _, rel := range sortedKeys(m) {
+			name := strings.ReplaceAll(rel, "/", "_")
+			if prior, dup := taken[name]; dup {
+				return nil, fmt.Errorf("scenario %s: %q and %q both project onto the Compose config name %q", s.Name, prior, rel, name)
+			}
+			taken[name] = rel
+			if err := checkConfigName(name); err != nil {
+				return nil, fmt.Errorf("scenario %s: %q: %w", s.Name, rel, err)
+			}
+			out = append(out, composeInput{name: name, target: ComposeArtifactMount + "/" + rel, content: literal(m[rel])})
+		}
+		return out, nil
+	}
+	if seed, err = convert(seedFiles); err != nil {
+		return nil, nil, err
+	}
+	if dashboard, err = convert(dashFiles); err != nil {
+		return nil, nil, err
+	}
+	return seed, dashboard, nil
+}
+
+// literal is inline config content that survives Compose's interpolation pass.
+//
+// Compose interpolates a config's `content` exactly as it interpolates the rest
+// of the file, so `$WORK` in the seed script becomes the empty string and the
+// script silently runs against nothing. `$$` is the spec's escape and expands
+// back to a single `$` when the config is materialized, so what the container
+// reads is byte-for-byte what the projection produced — which is also what makes
+// a bundle's published digest match the one computed here.
+//
+// The ports keep their single `$`: `published: ${PACTO_DEMO_…}` is the one place
+// the artifact WANTS the user's environment to reach in.
+func literal(body string) string { return strings.ReplaceAll(body, "$", "$$") }
+
+// checkConfigName refuses a name Compose would not accept as a top-level key.
+// The projection derives names from artifact paths, so this is a projection bug
+// caught at build time rather than a load failure on a user's laptop.
+func checkConfigName(name string) error {
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("._-", r):
+		default:
+			return fmt.Errorf("projects onto the Compose config name %q, which contains %q", name, string(r))
+		}
+	}
+	return nil
+}
+
+// mounts is the service side of the inputs: read-only at the declared path, at
+// the default 0444 the Compose spec gives a config, which is what makes them
+// readable by the image's non-root user without a chmod pass over a directory.
+func mounts(in []composeInput) []composeServiceConfig {
+	out := make([]composeServiceConfig, 0, len(in))
+	for _, i := range in {
+		out = append(out, composeServiceConfig{Source: i.name, Target: i.target})
+	}
+	return out
+}
+
+// contents is the top-level side: the bytes themselves, once.
+func contents(groups ...[]composeInput) map[string]composeConfig {
+	out := map[string]composeConfig{}
+	for _, g := range groups {
+		for _, i := range g {
+			out[i.name] = composeConfig{Content: i.content}
+		}
+	}
+	return out
 }
 
 // composeDashboardArgs is what the dashboard is told to read.
@@ -339,10 +512,21 @@ func evidenceScript(signer Signer) string {
 
 // portMapping is a published port as Compose reads it: the default, overridable
 // by the declared variable, in front of the fixed container port.
-func portMapping(service string) string {
+//
+// The LONG form. `docker compose publish` refuses the `host:container` short
+// string, and the long form says what the short one only implies — which side is
+// the container's. The interpolation survives publication byte-for-byte, so the
+// variable still moves the port on a host that has something on 8080, which is
+// what lets two versions of the artifact run at once.
+func portMapping(service string) composePort {
 	for _, p := range ComposePorts() {
 		if p.Service == service {
-			return "${" + p.Env + ":-" + strconv.Itoa(p.Default) + "}:" + strconv.Itoa(p.Container)
+			return composePort{
+				Target:    p.Container,
+				Published: "${" + p.Env + ":-" + strconv.Itoa(p.Default) + "}",
+				Protocol:  "tcp",
+				Mode:      "ingress",
+			}
 		}
 	}
 	panic("no port declared for compose service " + service)
@@ -401,15 +585,56 @@ func checkComposeValue(v string) error {
 // generated file reads in startup order; there are four of them because the demo
 // runs four containers, not because the scenario declares any.
 //
-// No `name:`. Compose then takes the project name from the RUN DIRECTORY, which
-// is what makes two pulled versions two independent demos: pinning a name here
-// would silently hand a freshly pulled artifact the previous version's registry
-// and evidence volumes, and "upgrade" would mean "run the new demo over the old
-// demo's state". The cost is that the volume names carry the directory as a
-// prefix, which the artifact's own README says.
+// No `name:`. There is no run directory to derive one from either, so the
+// project name is the user's `-p`, always — which is what the documented journey
+// says and what makes two pulled versions two independent demos. A name pinned
+// here would silently hand a freshly pulled artifact the previous version's
+// registry and evidence volumes, and "upgrade" would mean "run the new demo over
+// the old demo's state"; worse, it would collide across USERS of the same
+// artifact on one machine, which a run directory at least could not do.
 type composeFile struct {
-	Services composeServices `yaml:"services"`
-	Volumes  composeVolumes  `yaml:"volumes"`
+	Extension composeExtension         `yaml:"x-pacto-demo"`
+	Services  composeServices          `yaml:"services"`
+	Configs   map[string]composeConfig `yaml:"configs"`
+	Volumes   composeVolumes           `yaml:"volumes"`
+}
+
+// composeExtension is what an application-type OCI artifact can say about
+// itself.
+//
+// The artifact carries a compose file and nothing else — no layer to put a
+// README in — so the instructions live in the repository's documentation and
+// this points at them. `x-` keys survive `docker compose publish` verbatim and
+// are visible in `docker compose -f oci://…@sha256:… config`, so a user who has
+// only a digest can still find out what they pulled. That is a smaller claim
+// than a README and an honest one: nothing here pretends the application exposes
+// a file Compose cannot hand back.
+type composeExtension struct {
+	Version        string `yaml:"version"`
+	Source         string `yaml:"source"`
+	Documentation  string `yaml:"documentation"`
+	MinimumCompose string `yaml:"minimum-compose-version"`
+}
+
+// composeConfig is one inline fixture document. `content`, never `file`: a
+// published application has no directory beside it to read a file from.
+type composeConfig struct {
+	Content string `yaml:"content"`
+}
+
+// composeServiceConfig mounts one of them into the service that reads it.
+type composeServiceConfig struct {
+	Source string `yaml:"source"`
+	Target string `yaml:"target"`
+}
+
+// composePort is a published port in the long form `docker compose publish`
+// accepts.
+type composePort struct {
+	Target    int    `yaml:"target"`
+	Published string `yaml:"published"`
+	Protocol  string `yaml:"protocol"`
+	Mode      string `yaml:"mode"`
 }
 
 type composeServices struct {
@@ -420,15 +645,16 @@ type composeServices struct {
 }
 
 type composeService struct {
-	Image       string                `yaml:"image"`
-	Restart     string                `yaml:"restart,omitempty"`
-	DependsOn   map[string]composeDep `yaml:"depends_on,omitempty"`
-	Entrypoint  []string              `yaml:"entrypoint,omitempty"`
-	Command     []string              `yaml:"command,omitempty"`
-	Environment map[string]string     `yaml:"environment,omitempty"`
-	Ports       []string              `yaml:"ports,omitempty"`
-	Volumes     []string              `yaml:"volumes,omitempty"`
-	Healthcheck *composeHealth        `yaml:"healthcheck,omitempty"`
+	Image       string                 `yaml:"image"`
+	Restart     string                 `yaml:"restart,omitempty"`
+	DependsOn   map[string]composeDep  `yaml:"depends_on,omitempty"`
+	Entrypoint  []string               `yaml:"entrypoint,omitempty"`
+	Command     []string               `yaml:"command,omitempty"`
+	Environment map[string]string      `yaml:"environment,omitempty"`
+	Ports       []composePort          `yaml:"ports,omitempty"`
+	Volumes     []string               `yaml:"volumes,omitempty"`
+	Configs     []composeServiceConfig `yaml:"configs,omitempty"`
+	Healthcheck *composeHealth         `yaml:"healthcheck,omitempty"`
 }
 
 type composeDep struct {

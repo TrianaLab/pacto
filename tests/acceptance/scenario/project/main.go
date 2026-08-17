@@ -17,35 +17,26 @@
 //	cluster  after it: the Pacto CRs and the evidence payloads, pinned to the
 //	         digests the registry assigned
 //
-// The Compose surface is projected in one, because it has no registry until it
-// is already running:
+// The Compose surface is projected in one, into ONE FILE, because it has no
+// registry until it is already running and no directory at all once it is
+// published:
 //
-//	demo     the whole distributable artifact — the same bundles and plan, a
-//	         compose file, and evidence payloads pinned to digests computed from
-//	         the bundle bytes rather than read back from a registry
+//	demo     the whole distributable artifact as a single compose file — the same
+//	         bundles and plan carried inline as configs, and evidence payloads
+//	         pinned to digests computed from the bundle bytes rather than read
+//	         back from a registry
 package main
 
 import (
-	"embed"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"text/template"
 
 	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
 )
-
-// The demo artifact's two static files. They are static because they are
-// PROCESS, not fixture: seed.sh reads the projected plan and knows nothing about
-// the scenario, and the README explains Docker Compose to a person. Generating
-// either would be templating for its own sake — the README's ports are the one
-// thing that must agree with the projection, so they alone are substituted.
-//
-//go:embed demo
-var static embed.FS
 
 func main() {
 	if len(os.Args) < 2 {
@@ -123,14 +114,16 @@ func helm(s scenario.Scenario, argv []string) {
 	fmt.Printf("  %d chart values -> %s\n", len(values), *out)
 }
 
-// demo renders the whole distributable Compose artifact into one directory.
+// demo renders the whole distributable Compose artifact as one compose file.
 //
-// Every path INSIDE the artifact is a container path, because the artifact is
-// read where it is mounted and not where it was built: the plan and the evidence
-// payloads name /demo, while the files themselves are written under -dir.
+// One file because that is the artifact: `docker compose publish` uploads the
+// compose file, so anything not in it is not distributed. Every fixture document
+// the demo reads is carried inline by the projection as a config, and every path
+// INSIDE the artifact is a container path, because the artifact is read where
+// Compose materializes it and not where it was built.
 func demo(s scenario.Scenario, argv []string) {
 	fs := flag.NewFlagSet("demo", flag.ExitOnError)
-	dir := fs.String("dir", "", "directory to assemble the artifact in")
+	out := fs.String("out", "", "compose file to write the artifact to")
 	// Both must be digest-qualified; the projection refuses anything else. The
 	// registry image has a default because its pin is a decision this repository
 	// makes once (scenario.ComposeDefaultRegistryImage) rather than a per-release
@@ -138,122 +131,25 @@ func demo(s scenario.Scenario, argv []string) {
 	// cannot be known here.
 	pactoImage := fs.String("pacto-image", "", "the pinned pacto image the demo runs, as repo@sha256:...")
 	registryImage := fs.String("registry-image", scenario.ComposeDefaultRegistryImage, "the OCI registry image the demo runs, as repo@sha256:...")
-	artifactRepo := fs.String("artifact-repo", "", "the OCI repository the artifact is published to, for the README")
-	version := fs.String("version", "", "the version being built, for the README")
-	source := fs.String("source", "github.com/trianalab/pacto", "the project the artifact was built from")
+	version := fs.String("version", "", "the version being built; the artifact records it in x-pacto-demo")
 	mustParse(fs, argv)
 
-	if *dir == "" {
-		exit(fmt.Errorf("-dir is required"))
+	if *out == "" {
+		exit(fmt.Errorf("-out is required"))
 	}
-	if err := os.MkdirAll(*dir, 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*out), 0o750); err != nil {
 		exit(err)
 	}
-
-	// The bundles and the observation exports are the SAME projection the cluster
-	// harness publishes; only the domain differs, because the demo brings its own
-	// registry up under a name it chooses.
-	if err := s.Materialize(*dir, scenario.ComposeDomain); err != nil {
-		exit(err)
-	}
-	for _, src := range s.Sources {
-		if src.Kind != scenario.SourceObservation {
-			continue
-		}
-		export, err := s.TraceExport(src.ID)
-		if err != nil {
-			exit(err)
-		}
-		write(filepath.Join(*dir, src.ID+".json"), export)
-	}
-
-	plan, err := s.Plan(scenario.ComposeArtifactMount)
-	if err != nil {
-		exit(err)
-	}
-	write(filepath.Join(*dir, "plan.tsv"), plan)
-
-	// No registry exists yet, so the digests come from the bytes just written. The
-	// seed re-checks them against what it actually publishes.
-	digests, err := s.Digests(*dir)
-	if err != nil {
-		exit(err)
-	}
-	payloads, err := s.EvidencePayloads(scenario.ComposeArtifactMount, scenario.ComposeDomain, digests)
-	if err != nil {
-		exit(err)
-	}
-	for _, path := range sorted(payloads) {
-		write(filepath.Join(*dir, filepath.Base(path)), payloads[path])
-	}
-
-	compose, err := s.Compose(scenario.ComposeOptions{PactoImage: *pactoImage, RegistryImage: *registryImage})
-	if err != nil {
-		exit(err)
-	}
-	write(filepath.Join(*dir, "compose.yaml"), compose)
-	write(filepath.Join(*dir, ".env"), scenario.ComposeEnv())
-
-	seed, err := static.ReadFile("demo/seed.sh")
-	if err != nil {
-		exit(err)
-	}
-	write(filepath.Join(*dir, "seed.sh"), seed)
-	write(filepath.Join(*dir, "README.md"), readme(*pactoImage, *artifactRepo, *version, *source))
-
-	if err := readableByTheContainers(*dir); err != nil {
-		exit(err)
-	}
-	fmt.Printf("  demo artifact -> %s\n", *dir)
-}
-
-// readableByTheContainers opens the artifact to every uid.
-//
-// The demo bind-mounts this directory into containers that run as a non-root
-// user the host has never heard of, so a file only its owner can read is a file
-// the demo cannot read. The default 0600 the other projections write is right for
-// them — nothing but the harness ever opens those — and wrong here, where the
-// failure would be a container exiting on a permission error several minutes into
-// somebody's first look at Pacto.
-func readableByTheContainers(dir string) error {
-	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return os.Chmod(path, 0o755)
-		}
-		return os.Chmod(path, 0o644)
+	compose, err := s.Compose(scenario.ComposeOptions{
+		PactoImage:    *pactoImage,
+		RegistryImage: *registryImage,
+		Version:       *version,
 	})
-}
-
-// readme renders the artifact's own instructions. The ports are substituted
-// rather than written down, because a README that disagreed with the compose
-// file would send a user to a port nothing is listening on.
-func readme(pactoImage, artifactRepo, version, source string) []byte {
-	body, err := static.ReadFile("demo/README.md.tmpl")
 	if err != nil {
 		exit(err)
 	}
-	t, err := template.New("readme").Option("missingkey=error").Parse(string(body))
-	if err != nil {
-		exit(err)
-	}
-	data := struct {
-		Ports                                     []scenario.ComposePort
-		DashboardPort                             int
-		PactoImage, ArtifactRepo, Version, Source string
-	}{Ports: scenario.ComposePorts(), PactoImage: pactoImage, ArtifactRepo: artifactRepo, Version: version, Source: source}
-	for _, p := range data.Ports {
-		if p.Service == "dashboard" {
-			data.DashboardPort = p.Default
-		}
-	}
-	var out strings.Builder
-	if err := t.Execute(&out, data); err != nil {
-		exit(err)
-	}
-	return []byte(out.String())
+	write(*out, compose)
+	fmt.Printf("  demo artifact -> %s\n", *out)
 }
 
 // cluster renders the projections that need real digests.

@@ -1,6 +1,8 @@
 package scenario
 
 import (
+	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,6 +19,7 @@ import (
 var composeOpts = ComposeOptions{
 	PactoImage:    "ghcr.io/trianalab/pacto/dashboard@sha256:" + strings.Repeat("9", 64),
 	RegistryImage: ComposeDefaultRegistryImage,
+	Version:       "9.9.9",
 }
 
 // composeFileOf decodes the projection the way Docker Compose reads it, so every
@@ -143,7 +146,13 @@ func TestCompose_ASourceIsOwedByPublishing_NotByRunning(t *testing.T) {
 	s := mutate(func(s *Scenario) {
 		s.Services = append(s.Services, Service{
 			Name: "catalog", Repo: "catalog",
-			Revisions: []Revision{{Version: "1.0.0", Dir: "catalog", Files: map[string]string{"pacto.yaml": "x"}}},
+			Revisions: []Revision{{Version: "1.0.0", Dir: "catalog", Files: map[string]string{
+				"pacto.yaml": `pactoVersion: "2.0"
+service: { name: catalog, version: "1.0.0" }
+workload: service
+state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
+`,
+			}}},
 		})
 	})
 	cmd := argsOf(t, composeSvc(t, composeFileOf(t, s), "dashboard"), "command")
@@ -246,23 +255,42 @@ func assertNoSecretMaterial(t *testing.T, name string, body []byte) {
 	}
 }
 
-// Every host port is a deterministic default that the environment can override,
-// and the shipped .env states the SAME defaults. A user who edits .env and a user
-// who exports the variable must get the same demo.
-func TestCompose_PublishesOverridablePortsThatAgreeWithTheEnvFile(t *testing.T) {
+// portsOf is a service's published ports, in the long form the projection emits.
+func portsOf(t *testing.T, svc map[string]any) []map[string]any {
+	t.Helper()
+	raw, _ := svc["ports"].([]any)
+	out := make([]map[string]any, 0, len(raw))
+	for i, v := range raw {
+		p, ok := v.(map[string]any)
+		if !ok {
+			t.Fatalf("ports[%d] is %T, not the long form `docker compose publish` accepts", i, v)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// Every host port is a deterministic default the environment can override.
+//
+// There is no .env to state them in twice: a published application is one file,
+// so the defaults live in the interpolation itself and a user who exports the
+// variable and a user who does not get the same demo on different ports. The
+// override is what lets two pulled versions run at once.
+func TestCompose_PublishesOverridablePortsInTheFormPublishAccepts(t *testing.T) {
 	f := composeFileOf(t, OperationalGraph)
-	env := string(ComposeEnv())
 	if len(ComposePorts()) == 0 {
 		t.Fatal("the demo publishes no port at all")
 	}
 	for _, p := range ComposePorts() {
-		ports := listOf(t, composeSvc(t, f, p.Service), "ports")
-		want := "${" + p.Env + ":-" + strconv.Itoa(p.Default) + "}:" + strconv.Itoa(p.Container)
-		if !slices.Contains(ports, want) {
-			t.Errorf("service %s publishes %v, want %q", p.Service, ports, want)
+		ports := portsOf(t, composeSvc(t, f, p.Service))
+		want := map[string]any{
+			"target":    p.Container,
+			"published": "${" + p.Env + ":-" + strconv.Itoa(p.Default) + "}",
+			"protocol":  "tcp",
+			"mode":      "ingress",
 		}
-		if line := p.Env + "=" + strconv.Itoa(p.Default); !strings.Contains(env, line+"\n") {
-			t.Errorf(".env does not carry %q:\n%s", line, env)
+		if !slices.ContainsFunc(ports, func(got map[string]any) bool { return maps.Equal(got, want) }) {
+			t.Errorf("service %s publishes %v, want %v", p.Service, ports, want)
 		}
 	}
 	// Nothing is published that the file did not declare overridable: a hardcoded
@@ -270,9 +298,9 @@ func TestCompose_PublishesOverridablePortsThatAgreeWithTheEnvFile(t *testing.T) 
 	// around.
 	for name, raw := range f["services"].(map[string]any) {
 		svc, _ := raw.(map[string]any)
-		for _, p := range listOf(t, svc, "ports") {
-			if !strings.HasPrefix(p, "${") {
-				t.Errorf("service %s publishes the fixed host port %q", name, p)
+		for _, p := range portsOf(t, svc) {
+			if pub, _ := p["published"].(string); !strings.HasPrefix(pub, "${") {
+				t.Errorf("service %s publishes the fixed host port %q", name, pub)
 			}
 		}
 	}
@@ -292,13 +320,15 @@ func TestCompose_PinsNoArchitecture(t *testing.T) {
 
 // Two pulled versions are two demos, not one demo twice.
 //
-// Compose scopes containers and volumes by PROJECT, and takes the project name
-// from the run directory unless the file pins one. Pinning one would make the
-// documented upgrade — pull the next version into a fresh directory and start it
-// — quietly reuse the previous version's registry content and ingested evidence,
-// so the new demo would be showing the old demo's state and going back would have
-// nothing to go back to.
-func TestCompose_ScopesItsStateToTheRunDirectory(t *testing.T) {
+// Compose scopes containers and volumes by PROJECT. An application run from
+// `-f oci://…` has no run directory to derive a project name from, so the name is
+// whatever the user's `-p` says — and the documented journey always says one.
+// Pinning a `name:` here would take that away: the second version pulled would
+// silently reuse the first's registry content and ingested evidence, so "upgrade"
+// would mean "run the new demo over the old demo's state" and going back would
+// have nothing to go back to. It would collide across USERS of one artifact on one
+// machine too, which even a run directory could not do.
+func TestCompose_ScopesItsStateToTheUsersProjectName(t *testing.T) {
 	if name, pinned := composeFileOf(t, OperationalGraph)["name"]; pinned {
 		t.Errorf("the projection pins the Compose project name to %q, so a second pulled version would share this one's volumes", name)
 	}
@@ -323,16 +353,37 @@ func TestCompose_LetsTheHostArchitectureDecide(t *testing.T) {
 }
 
 // After the images are on the host, the demo reaches no registry but the one it
-// starts itself. Every OCI reference in the projection is to that service.
+// starts itself. Every OCI reference the services are CONFIGURED with is to that
+// service.
+//
+// The services and not the whole file: the seed script travels inline now, and it
+// builds its references out of $PACTO_DEMO_PUBLISH_TO, which is that same
+// registry — read as text those look like a reference to a host called
+// "$PACTO_DEMO_PUBLISH_TO". The environment it reads is checked here instead,
+// which is the value that decides where the push lands.
 func TestCompose_ResolvesOnlyAgainstTheRegistryItStarts(t *testing.T) {
-	body, err := OperationalGraph.Compose(composeOpts)
-	if err != nil {
-		t.Fatalf("Compose: %v", err)
-	}
-	for _, ref := range regexp.MustCompile(`oci://[^\s"']+`).FindAllString(string(body), -1) {
-		if !strings.HasPrefix(ref, "oci://"+ComposeRegistryHost+"/") {
-			t.Errorf("the demo resolves %s, which is not the registry it starts", ref)
+	f := composeFileOf(t, OperationalGraph)
+	refs := regexp.MustCompile(`oci://[^\s"']+`)
+	n := 0
+	for name, raw := range f["services"].(map[string]any) {
+		svc, _ := raw.(map[string]any)
+		configured := argsOf(t, svc, "command") + " " + argsOf(t, svc, "entrypoint")
+		env, _ := svc["environment"].(map[string]any)
+		for _, v := range env {
+			configured += " " + fmt.Sprint(v)
 		}
+		for _, ref := range refs.FindAllString(configured, -1) {
+			n++
+			if !strings.HasPrefix(ref, "oci://"+ComposeRegistryHost+"/") {
+				t.Errorf("service %s resolves %s, which is not the registry the demo starts", name, ref)
+			}
+		}
+		if got := env["PACTO_DEMO_PUBLISH_TO"]; got != nil && got != ComposeDomain {
+			t.Errorf("service %s publishes to %v, which is not the registry the demo starts", name, got)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no service is configured with an OCI reference, so this proves nothing")
 	}
 }
 
@@ -519,37 +570,164 @@ func TestCompose_OrdersStartupOnObservedReadiness(t *testing.T) {
 	}
 }
 
-// State that must survive a restart is in a named volume, and the artifact is
-// mounted READ-ONLY: nothing the demo writes can end up in the run directory, so
-// a second run from the same pinned artifact starts from the same bytes.
-func TestCompose_KeepsMutableStateOutOfTheArtifact(t *testing.T) {
+// Mutable state is in a named volume, and NOTHING is bind-mounted.
+//
+// A bind mount is a path on the machine that started the demo. There is no such
+// path: the artifact is one compose file pulled from a registry by digest, so a
+// bind mount would resolve against whatever directory the user happened to be in
+// and the demo would come up reading someone else's files, or nothing at all.
+// This is the assertion that the projection never regrows the run directory it
+// used to have.
+func TestCompose_BindMountsNothing(t *testing.T) {
 	f := composeFileOf(t, OperationalGraph)
 	vols, ok := f["volumes"].(map[string]any)
 	if !ok || len(vols) == 0 {
 		t.Fatal("the demo declares no named volume, so nothing it writes survives a restart")
 	}
 	services, _ := f["services"].(map[string]any)
-	mounts := 0
 	for name, raw := range services {
 		svc, _ := raw.(map[string]any)
 		for _, m := range listOf(t, svc, "volumes") {
-			source, rest, _ := strings.Cut(m, ":")
-			if source == "." {
-				mounts++
-				if !strings.HasSuffix(rest, ":ro") {
-					t.Errorf("service %s mounts the run directory writable (%q)", name, m)
-				}
-				continue
-			}
-			if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "/") {
-				t.Errorf("service %s bind-mounts %q; the run directory is all the demo may read", name, m)
-			}
+			source, _, _ := strings.Cut(m, ":")
 			if _, declared := vols[source]; !declared {
-				t.Errorf("service %s mounts the undeclared volume %q", name, source)
+				t.Errorf("service %s mounts %q, which is not one of this application's named volumes; a published artifact has no host path to bind", name, m)
+			}
+		}
+		// The long form says it outright, so refuse it by type too rather than
+		// only by the shape of a short string.
+		raws, _ := svc["volumes"].([]any)
+		for _, v := range raws {
+			if long, isLong := v.(map[string]any); isLong && long["type"] != "volume" {
+				t.Errorf("service %s declares a %v mount; only named volumes may appear", name, long["type"])
 			}
 		}
 	}
-	if mounts == 0 {
-		t.Fatal("nothing mounts the run directory, so the artifact is never read")
+}
+
+// Every immutable fixture input travels INLINE and is mounted only into the one
+// service that reads it.
+//
+// `content`, never `file`: a `file` config would point at the run directory the
+// artifact does not have. Read-only at 0444 — Compose's own default — so the
+// demo's own processes cannot rewrite the fixture they are being measured
+// against. Split by consumer so the runtime, and not a convention, is what keeps
+// the dashboard away from the seed's plan and the seed away from an observation
+// export.
+func TestCompose_CarriesEveryFixtureInputInline(t *testing.T) {
+	f := composeFileOf(t, OperationalGraph)
+	configs, ok := f["configs"].(map[string]any)
+	if !ok || len(configs) == 0 {
+		t.Fatal("the application carries no configs, so the demo has no fixture to read")
+	}
+	for name, raw := range configs {
+		c, _ := raw.(map[string]any)
+		if _, external := c["file"]; external {
+			t.Errorf("config %s reads a file from the host; a published application has no directory beside it", name)
+		}
+		if body, _ := c["content"].(string); body == "" {
+			t.Errorf("config %s carries no inline content", name)
+		}
+	}
+	mounted := map[string]int{}
+	for svcName, raw := range f["services"].(map[string]any) {
+		svc, _ := raw.(map[string]any)
+		declared, _ := svc["configs"].([]any)
+		for i, v := range declared {
+			m, ok := v.(map[string]any)
+			if !ok {
+				t.Fatalf("%s configs[%d] is %T, not the long form that names a target", svcName, i, v)
+			}
+			source, _ := m["source"].(string)
+			if _, declared := configs[source]; !declared {
+				t.Errorf("service %s mounts the undeclared config %q", svcName, source)
+			}
+			target, _ := m["target"].(string)
+			if !strings.HasPrefix(target, ComposeArtifactMount+"/") {
+				t.Errorf("service %s mounts config %s at %q, outside %s", svcName, source, target, ComposeArtifactMount)
+			}
+			mounted[source]++
+		}
+	}
+	for name := range configs {
+		switch mounted[name] {
+		case 1:
+		case 0:
+			t.Errorf("config %s is carried but never mounted, so it is weight in the artifact nothing reads", name)
+		default:
+			t.Errorf("config %s is mounted into %d services; each input belongs to the one service that reads it", name, mounted[name])
+		}
+	}
+}
+
+// TestCompose_CarriesTheCanonicalBytes: what travels inside the artifact is the
+// scenario's own material, byte for byte. Content that drifted, was hand-written
+// into the projection or was swapped for a path to something on a host would
+// still be an inline config mounted into the right service — this is what
+// compares it to the one canonical source.
+func TestCompose_CarriesTheCanonicalBytes(t *testing.T) {
+	files, err := OperationalGraph.MaterializeFiles(ComposeDomain)
+	if err != nil {
+		t.Fatalf("MaterializeFiles: %v", err)
+	}
+	f := composeFileOf(t, OperationalGraph)
+	// Where each config lands is what says which canonical document it is.
+	rel := map[string]string{}
+	for _, raw := range f["services"].(map[string]any) {
+		svc, _ := raw.(map[string]any)
+		declared, _ := svc["configs"].([]any)
+		for _, v := range declared {
+			m, _ := v.(map[string]any)
+			source, _ := m["source"].(string)
+			target, _ := m["target"].(string)
+			rel[source] = strings.TrimPrefix(target, ComposeArtifactMount+"/")
+		}
+	}
+	var checked int
+	configs, _ := f["configs"].(map[string]any)
+	for name, raw := range configs {
+		want, ok := files[rel[name]]
+		if !ok { // the plan, the seed script, the evidence payloads and the trace
+			continue // exports are generated per run, not materialized documents
+		}
+		c, _ := raw.(map[string]any)
+		if got, _ := c["content"].(string); got != literal(want) {
+			t.Errorf("config %s is not the canonical %s the scenario materializes", name, rel[name])
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no config was matched to a canonical document, so this compared nothing")
+	}
+}
+
+// The artifact says which release it is and which Compose can run it.
+//
+// It carries no README and no second layer to put either in — the OCI artifact
+// type for a Compose application is the compose file — so this is an `x-`
+// extension, which survives publication verbatim and is what a user with only a
+// digest gets back from `docker compose -f oci://…@sha256:… config`. The version
+// also keeps two releases two artifacts: byte-identical compose files would be
+// one digest and one demo.
+func TestCompose_SaysWhatItIsAndWhatCanRunIt(t *testing.T) {
+	ext, ok := composeFileOf(t, OperationalGraph)["x-pacto-demo"].(map[string]any)
+	if !ok {
+		t.Fatal("the application says nothing about itself, so a user holding only a digest cannot tell what they pulled")
+	}
+	for key, want := range map[string]any{
+		"version":                 composeOpts.Version,
+		"source":                  ComposeSourceURL,
+		"documentation":           ComposeDocsURL,
+		"minimum-compose-version": ComposeMinVersion,
+	} {
+		if got := ext[key]; got != want {
+			t.Errorf("x-pacto-demo.%s is %v, want %q", key, got, want)
+		}
+	}
+	// And it is REQUIRED, because the alternative is a release that publishes an
+	// artifact identical to the last one and a ledger that records two.
+	if _, err := OperationalGraph.Compose(ComposeOptions{
+		PactoImage: composeOpts.PactoImage, RegistryImage: composeOpts.RegistryImage,
+	}); err == nil || !strings.Contains(err.Error(), "version") {
+		t.Errorf("the projection built an unversioned artifact: %v", err)
 	}
 }

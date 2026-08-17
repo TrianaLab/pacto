@@ -71,10 +71,13 @@ test-acceptance-local:
 	bash tests/acceptance/local/fleet-graph.sh
 
 # Level 4 — the distributed Compose demo, proved the way a stranger meets it:
-# the artifact is pushed, pulled BY DIGEST into an empty directory outside this
-# checkout, and started there. Separate from test-acceptance-local on purpose —
-# that one is cluster-free AND daemon-free and has to stay runnable anywhere Go
-# runs, while this needs Docker, oras and a few minutes to build the image.
+# the application is published with `docker compose publish` and then executed
+# straight out of the registry BY DIGEST, with no local compose file anywhere on
+# the path. Separate from test-acceptance-local on purpose — that one is
+# cluster-free AND daemon-free and has to stay runnable anywhere Go runs, while
+# this needs Docker, a Compose new enough to own this artifact type (the
+# projection declares the floor, and the harness checks it) and a few minutes to
+# build the image.
 test-acceptance-compose:
 	bash tests/acceptance/local/compose-demo.sh
 

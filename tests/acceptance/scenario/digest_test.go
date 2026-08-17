@@ -5,14 +5,16 @@ import (
 	"testing"
 )
 
-// materialized renders the fixture into a temporary directory and returns it.
-func materialized(t *testing.T, s Scenario) string {
+// materialized is the fixture's documents, keyed by their path inside the
+// artifact — the same bytes the Compose projection carries inline and the Kind
+// harness writes to disk.
+func materialized(t *testing.T, s Scenario) map[string]string {
 	t.Helper()
-	dir := t.TempDir()
-	if err := s.Materialize(dir, ComposeDomain); err != nil {
-		t.Fatalf("Materialize: %v", err)
+	files, err := s.MaterializeFiles(ComposeDomain)
+	if err != nil {
+		t.Fatalf("MaterializeFiles: %v", err)
 	}
-	return dir
+	return files
 }
 
 // The digests are keyed the way the projections LOOK THEM UP. A map that is right
@@ -20,8 +22,7 @@ func materialized(t *testing.T, s Scenario) string {
 // render, and this is the test that says so rather than the harness discovering
 // it at run time.
 func TestDigests_AreWhatTheProjectionsAskFor(t *testing.T) {
-	dir := materialized(t, OperationalGraph)
-	digests, err := OperationalGraph.Digests(dir)
+	digests, err := OperationalGraph.Digests(materialized(t, OperationalGraph))
 	if err != nil {
 		t.Fatalf("Digests: %v", err)
 	}
@@ -46,8 +47,7 @@ func TestDigests_AreWhatTheProjectionsAskFor(t *testing.T) {
 // bytes — or stayed put across different bytes — would put the demo's evidence on
 // content that is not there.
 func TestDigests_FollowTheBytesAndNothingElse(t *testing.T) {
-	dir := materialized(t, OperationalGraph)
-	first, err := OperationalGraph.Digests(dir)
+	first, err := OperationalGraph.Digests(materialized(t, OperationalGraph))
 	if err != nil {
 		t.Fatalf("Digests: %v", err)
 	}
@@ -84,10 +84,18 @@ func TestDigests_FollowTheBytesAndNothingElse(t *testing.T) {
 // A revision the fixture declares but nothing materialized has no digest, and
 // saying so beats returning a map the caller then fails to find a key in.
 func TestDigests_RefuseToInventOneForAMissingBundle(t *testing.T) {
-	if _, err := OperationalGraph.Digests(t.TempDir()); err == nil {
-		t.Error("digests were computed for bundles that were never written")
+	if _, err := OperationalGraph.Digests(map[string]string{}); err == nil {
+		t.Error("digests were computed for bundles whose documents are not there")
 	}
-	if _, err := OperationalGraph.Digests(""); err == nil {
-		t.Error("digests were computed from no directory at all")
+	if _, err := OperationalGraph.Digests(nil); err == nil {
+		t.Error("digests were computed from no documents at all")
+	}
+	// A bundle missing only its contract is the interesting one: the other
+	// documents are present, so a projection that digested whatever it found would
+	// happily pin evidence to content no push could produce.
+	partial := materialized(t, OperationalGraph)
+	delete(partial, OperationalGraph.Services[0].Revisions[0].Dir+"/pacto.yaml")
+	if _, err := OperationalGraph.Digests(partial); err == nil {
+		t.Error("a bundle with no contract was still given a digest")
 	}
 }

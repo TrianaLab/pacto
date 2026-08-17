@@ -69,7 +69,18 @@ func TestParity_BothSurfacesObserveTheSameSourcesUnderTheSameIdentities(t *testi
 	}
 	// A source identity is what the Product publishes it as, so a surface that
 	// renamed one would show a different Data Source for the same export.
-	s := mutate(func(s *Scenario) { s.Sources[2].ID = "renamed-traces" })
+	s := mutate(func(s *Scenario) {
+		old := s.Sources[2].ID
+		s.Sources[2].ID = "renamed-traces"
+		// Rename it everywhere, because that is what renaming a Data Source is: the
+		// Compose projection now carries the export itself, and a relationship left
+		// pointing at the old id would fail to project rather than project a rename.
+		for i, rel := range s.Relationships {
+			if rel.ObservedBy == old {
+				s.Relationships[i].ObservedBy = "renamed-traces"
+			}
+		}
+	})
 	if got := composeObservationSources(t, s); slices.Equal(got, compose) {
 		t.Errorf("renaming a source did not reach the Compose projection: still %v", got)
 	}

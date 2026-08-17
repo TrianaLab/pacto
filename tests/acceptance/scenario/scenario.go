@@ -60,6 +60,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -363,30 +364,52 @@ func (s Scenario) FactCount(surface Surface) int {
 	return n
 }
 
+// MaterializeFiles is every bundle document the fixture declares, keyed by its
+// SLASH-SEPARATED path relative to the fixture root and rendered against the
+// fixture's OCI domain.
+//
+// The bytes, not a directory, because only one of the two surfaces wants a
+// directory. Kubernetes publishes from disk, so Materialize writes these out; the
+// Compose surface distributes a Docker Compose OCI artifact, which carries no
+// files at all and projects each document into the application as an inline
+// config. One derivation either way, so the two surfaces cannot publish
+// different bundles.
+func (s Scenario) MaterializeFiles(domain string) (map[string]string, error) {
+	if domain == "" {
+		return nil, fmt.Errorf("scenario %s: no OCI domain to render refs against", s.Name)
+	}
+	out := map[string]string{}
+	for _, svc := range s.Services {
+		for _, rev := range svc.Revisions {
+			for _, name := range sortedKeys(rev.Files) {
+				body, err := render(rev.Files[name], domain)
+				if err != nil {
+					return nil, fmt.Errorf("%s/%s: %w", rev.Dir, name, err)
+				}
+				out[path.Join(rev.Dir, name)] = body
+			}
+		}
+	}
+	return out, nil
+}
+
 // Materialize writes every service's bundle directories under dir, rendering
 // each file against the fixture's OCI domain.
 func (s Scenario) Materialize(dir, domain string) error {
 	if dir == "" {
 		return fmt.Errorf("scenario %s: no output directory", s.Name)
 	}
-	if domain == "" {
-		return fmt.Errorf("scenario %s: no OCI domain to render refs against", s.Name)
+	files, err := s.MaterializeFiles(domain)
+	if err != nil {
+		return err
 	}
-	for _, svc := range s.Services {
-		for _, rev := range svc.Revisions {
-			bundle := filepath.Join(dir, rev.Dir)
-			if err := os.MkdirAll(bundle, 0o750); err != nil {
-				return err
-			}
-			for _, name := range sortedKeys(rev.Files) {
-				body, err := render(rev.Files[name], domain)
-				if err != nil {
-					return fmt.Errorf("%s/%s: %w", rev.Dir, name, err)
-				}
-				if err := os.WriteFile(filepath.Join(bundle, name), []byte(body), 0o600); err != nil {
-					return err
-				}
-			}
+	for _, name := range sortedKeys(files) {
+		out := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
+			return err
+		}
+		if err := os.WriteFile(out, []byte(files[name]), 0o600); err != nil {
+			return err
 		}
 	}
 	return nil
