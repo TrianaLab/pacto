@@ -153,7 +153,17 @@ test('B: services search reaches orders, which reconciles its checkout dependenc
 // that declares the checkout dependency. A K8s-synthetic revision could not.
 test('C: the orders revision carries real OCI content identity and its declaration', async ({ page }) => {
   await page.goto(entityUrl('service', fixture.ordersService));
-  await section(page, 'Revisions in use')
+
+  // The way in is whichever list the SURFACE fills. "Revisions in use" means "matched
+  // to a running target", so where the surface declares no operational target it is
+  // correctly empty and the product opens "All revisions" in its place. Reaching for
+  // the empty one instead would report a missing controller as a broken revision page.
+  // The revision itself is the same either way, and so is every assertion below: what
+  // a revision IS comes out of its OCI content, not out of anything running it.
+  const from = surfaceProvides(CAPABILITY_OPERATIONAL_TARGET) ? 'Revisions in use' : 'All revisions';
+  const list = section(page, from);
+  await expandSection(list, from);
+  await list
     .getByRole('listitem')
     .filter({ hasText: fixture.ordersVersion })
     .first()
