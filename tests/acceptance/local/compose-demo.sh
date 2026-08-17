@@ -46,10 +46,32 @@ esac
 WORK="$(mktemp -d)"
 RUN1="$(mktemp -d)"
 RUN2="$(mktemp -d)"
+# `mkdir pacto-demo` is what the documented journey says, and under a normal umask
+# that is 0755. `mktemp -d` is 0700, which no user typing the documented command
+# would get -- and the demo's containers run as a non-root user, so on Linux 0700
+# means they cannot even traverse into the directory they mount. Docker Desktop
+# virtualizes bind-mount ownership and hides that difference completely, which is
+# precisely how a green local run became a red CI one. Prove the documented mode.
+chmod 755 "$RUN1" "$RUN2"
 
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "$1 is required and not on PATH"; }
+
+# up_or_dump DIR VAR=VAL... — start one run directory and WAIT on its own health
+# checks, printing what the containers said if it never gets there. `up -d` keeps
+# service output off the terminal, so without this a failure is one line ("service
+# seed didn't complete successfully: exit 2") and no way at all to learn why --
+# which is exactly how much a CI log gave the first time this went red.
+up_or_dump() {
+	dir="$1"
+	shift
+	# shellcheck disable=SC2086 # UP_FLAGS is a deliberate word list, empty by default
+	(cd "$dir" && env "$@" docker compose up -d --wait ${UP_FLAGS:-} >/dev/null) && return 0
+	echo "  --- the demo did not come up. What its containers said: ---" >&2
+	(cd "$dir" && env "$@" docker compose ps -a && env "$@" docker compose logs --no-color) >&2 || true
+	fail "the demo in $dir never reached a healthy state"
+}
 
 # down_quiet DIR — tear a run directory's project down without caring whether it
 # was ever up. Used by the trap, so it must never be the thing that fails.
@@ -151,7 +173,7 @@ pass "no key, token or password in the pulled artifact"
 echo "== 6. start it, and wait on OBSERVED readiness =="
 # --wait returns when every service reports itself healthy. No sleep anywhere in
 # this file: the demo's own health checks are the clock.
-( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose up -d --wait >/dev/null )
+up_or_dump "$RUN1" "${V1_PORTS[@]}"
 pass "the stack is up and healthy"
 
 # Asked of the RUNNING containers rather than of the file, because the file is
@@ -197,7 +219,7 @@ echo "== 8. restart persistence =="
 # that already has the bundles and an Evidence Server that already has the
 # envelope. The README says that works; this is the claim, tested.
 ( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose down >/dev/null 2>&1 )
-( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose up -d --wait >/dev/null )
+up_or_dump "$RUN1" "${V1_PORTS[@]}"
 seedlog="$(cd "$RUN1" && env "${V1_PORTS[@]}" docker compose logs seed --no-log-prefix 2>&1)"
 grep -q "already in the registry" <<<"$seedlog" || { echo "$seedlog" >&2; fail "a restarted demo re-published instead of finding its content"; }
 grep -q "already ingested" <<<"$seedlog" || { echo "$seedlog" >&2; fail "a restarted demo did not recognize its own envelope as a replay"; }
@@ -208,13 +230,15 @@ echo "== 9. offline after the pull =="
 # Fresh volumes, no image pulls: everything the demo needs is on the host and in
 # the run directory. The registry it publishes into is the one it starts.
 ( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose down -v >/dev/null 2>&1 )
-( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose up -d --wait --pull never >/dev/null )
+UP_FLAGS="--pull never"
+up_or_dump "$RUN1" "${V1_PORTS[@]}"
+UP_FLAGS=""
 "$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose
 pass "a cold start with no registry access reaches the same fleet"
 
 echo "== 10. upgrade to another pinned version, alongside the first =="
 oras pull --plain-http -o "$RUN2" "$ART_REPO@$D2" >/dev/null
-( cd "$RUN2" && env "${V2_PORTS[@]}" docker compose up -d --wait >/dev/null )
+up_or_dump "$RUN2" "${V2_PORTS[@]}"
 "$WORK/productready" -base "$V2_BASE" -domain registry:5000/demo -surface compose
 # Ports moved because the environment said so, and the older version is still
 # serving on its own — two run directories, two projects, two sets of volumes.

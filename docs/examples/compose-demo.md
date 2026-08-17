@@ -21,6 +21,11 @@ You need [Docker Compose](https://docs.docker.com/compose/) and
 CLI. The artifact carries its own `README.md` with the full reference: ports,
 restart, cleanup, offline use and moving between versions.
 
+The containers run as a non-root user and read the artifact from the directory
+you pulled it into, so that directory has to be readable by them. A default
+`umask` gives you that; if yours is restrictive and the `seed` service exits
+immediately, `chmod o+rx .` in the run directory and start it again.
+
 ## What you get
 
 | | |

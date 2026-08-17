@@ -20,6 +20,11 @@ The first `up` pulls two images, publishes the demo's contract bundles into the
 registry it starts, and ingests one signed evidence envelope. `--wait` returns
 when every service reports itself healthy — nothing here is timed.
 
+The containers run as a non-root user and read this directory read-only, so it
+has to be readable by them. A default `umask` gives you that. If yours is
+restrictive, `seed` exits immediately with a permission error in
+`docker compose logs seed`; `chmod o+rx .` here and start it again.
+
 ## What you are looking at
 
 | | |
