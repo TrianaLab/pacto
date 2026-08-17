@@ -224,11 +224,37 @@ of that scenario, not incidental data. `tests/acceptance/local/fleet-graph.sh`
 describes a different story with different services and is not a projection of
 anything.
 
-### The two claims the Compose demo makes about itself
+### The three claims the Compose demo makes about itself
 
 `tests/acceptance/local/compose-demo.sh` proves the demo the way a stranger meets
-it. Two of its claims are easy to state loosely and both are stated here as
-narrowly as they are tested.
+it. Three of its claims are easy to state loosely and all three are stated here
+as narrowly as they are tested.
+
+**Docker Compose owns this artifact, end to end.** The demo is not a directory
+someone tarred into a registry. `docker compose publish` writes it and
+`docker compose -f oci://…@sha256:… -p <name> up` runs it, with no generic OCI
+tool anywhere on either path — the harness does not install ORAS and CI does not
+either. The published application is one layer holding the projected compose file
+verbatim, so `sha256` of what the projector emitted is the artifact's content
+identity; the acceptance asserts exactly that equality against the manifest it
+reads back. There is no run directory, no local `compose.yaml` on the execution
+path and no bind mount in the published model: every immutable fixture input —
+the plan, the seed script, the bundle documents, the observation fixture — travels
+inside the application as a Compose `config` with inline `content`, and only the
+mutable runtime state (the embedded registry, the Evidence Server's keys) lives in
+a named volume. Project identity is the user's: an explicit `-p` per copy, never a
+top-level `name:` that would make two versions collide.
+
+That ownership reaches the release. `demo-compose` publishes through the same
+`publish-oci-unit.sh` adapter as every other OCI unit, with
+`docker compose publish` as its push command. Compose stamps
+`org.opencontainers.image.created` into the manifest and writes no
+revision/version annotations, so neither a precomputed digest nor provenance
+adoption can recover its crash window — which is why the adapter learned
+`PACTO_EXPECT_CONTENT`: the one-layer content digest, asserted after the push and
+used as the adoption key. `dry-run.sh` ITEM 3b exercises that path for real
+against the staging registry, including the fail-closed case where the content
+does not match.
 
 **Immutability reaches the images.** The artifact is published once and pulled by
 digest, which is worth nothing while the compose file inside it names its images
@@ -256,21 +282,56 @@ requires no external network access; its private Compose service network remains
 available because the dashboard, Evidence Server and embedded registry must
 communicate with each other.* `docker compose up --pull never` on its own proves
 only the first four words of that, on a runner that still has the whole Internet
-and still has the registry the artifact came from. So stage 10 removes both: the
+and still has the registry the artifact came from. So stage 11 removes both: the
 artifact-distribution registry is stopped, and rules keyed to the project's own
-bridge refuse anything that leaves it. Two chains, because a packet leaving the
-demo can leave by two paths: `DOCKER-USER` for what the host forwards, and
-`INPUT` for what is addressed to the host itself — on Linux `host-gateway` is a
-host address, so a FORWARD rule alone still lets the demo reach everything the
-machine publishes, which is most of what "outside" means to a container. An
-`ESTABLISHED,RELATED` accept goes ahead of both so the reply leg of a
-host-to-published-port connection survives. The rules go in between
-`docker compose create` and `up`, which is the only window where they precede the
-one-shot `seed`'s first packet. Then the stack starts from empty volumes, the
-Product gate and the live browser journeys run against it, and a counterexample
-redirects `seed` at an endpoint outside the network and requires the bring-up to
-fail. `internal: true` is not used — it takes the published ports away with the
-egress, which would contradict the second half of the claim.
+bridge refuse anything that leaves it.
+
+Two chains, because a packet leaving the demo can leave by two paths that share
+no netfilter hook: `INPUT` for what is addressed to the host itself, `FORWARD` —
+and so `DOCKER-USER` — for what the host routes onward. A rule in one is
+invisible to the other, so one control cannot stand for both, and a stage that
+installed rules in both while only ever probing a host address would stay green
+with the whole `DOCKER-USER` arm deleted. The stage therefore builds one
+deliberately different endpoint per hook and probes each:
+
+- **host-local** — a `registry:2` in the *host's* network namespace, addressed at
+  the demo bridge's own gateway. A packet to a host address is delivered locally
+  and never reaches `FORWARD`.
+- **forwarded** — the artifact registry again, reached over a veth pair
+  (`198.18.53.1/30` on the host, `198.18.53.2/30` moved into the registry's
+  namespace; RFC 2544 space, so it cannot collide with a real route). That
+  address is nobody's local address, so getting to it is routing, which is
+  `FORWARD` and therefore `DOCKER-USER`. Docker's own MASQUERADE makes the reply
+  path work without a second rule.
+
+Both are proved reachable before any filter — otherwise "could not reach out" and
+"was never able to" are the same observation. Then the `DOCKER-USER` arm goes in
+alone and the forwarded route must close **while the host-local one stays open**,
+which is simultaneously the independence proof and the proof that the forwarded
+endpoint really is forwarded. Then the `INPUT` arm closes the other one. An
+`ESTABLISHED,RELATED` accept leads both chains so the reply leg of a
+host-to-published-port connection survives. Two counterexamples follow, one per
+route: the one startup dependency that talks to a registry is redirected at each
+endpoint in turn and the run must fail, so a filter that silently stopped applying
+cannot leave the assertions above passing. `internal: true` is not used — it takes
+the published ports away with the egress, which would contradict the second half
+of the claim.
+
+The stage keeps two operations apart that are easy to conflate. **Fetching the
+application** is a registry read that `-f oci://…` performs on every invocation;
+Compose has no offline mode for it, and the stage proves that by asserting the
+application becomes unreadable the moment its registry stops. **Pulling the
+service images** is a separate daemon operation that `--pull never` refuses. So
+the application is fetched once, online, with `--pull never` proving no image
+moved; the volumes are then emptied, the arms installed, the registry stopped, and
+the project restarted **by project name** — which is why a project created online
+can be operated offline. The Product gate and the live browser journeys then run
+against that isolated stack.
+
+Everything the stage installs lives in the host's network namespace and outlives
+the script if it dies, so each installer records what it did and the exit trap
+takes the rules, the veth pair, the host-local endpoint, both projects and the
+Compose OCI cache entries back down.
 
 ## Deterministic browser tests versus live-browser tests
 

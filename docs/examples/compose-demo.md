@@ -5,26 +5,60 @@ published contract revisions, an Evidence Server ingesting a signed envelope
 from a "remote" environment and the dashboard showing the operational graph
 they add up to.
 
-There is no repository to clone and nothing to build. The demo is distributed
-as an immutable OCI artifact, so pulling it is the whole install:
+There is no repository to clone, nothing to build and no file to download. The
+demo is published as an OCI artifact that Docker Compose owns and runs directly:
 
 ```sh
-mkdir pacto-demo && cd pacto-demo
-oras pull ghcr.io/trianalab/pacto/demo:<version>
-docker compose up -d --wait
+docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
+  -p pacto-demo up -d --wait
 ```
 
 Then open <http://localhost:8080/#/fleet>.
 
-You need [Docker Compose](https://docs.docker.com/compose/) and
-[ORAS](https://oras.land/docs/installation) — nothing else, not even the Pacto
-CLI. The artifact carries its own `README.md` with the full reference: ports,
-restart, cleanup, running offline and moving between versions.
+You need [Docker Compose](https://docs.docker.com/compose/) 2.34 or newer —
+nothing else, not even the Pacto CLI. 2.34 is the release that added
+`docker compose publish` and `-f oci://…`; older versions cannot run this
+artifact at all, and the application says so itself in
+`x-pacto-demo.minimum-compose-version`.
 
-The containers run as a non-root user and read the artifact from the directory
-you pulled it into, so that directory has to be readable by them. A default
-`umask` gives you that; if yours is restrictive and the `seed` service exits
-immediately, `chmod o+rx .` in the run directory and start it again.
+The demo's registry is public, so no login is needed. Against a private
+registry, `docker login <registry>` first.
+
+## The digest
+
+The artifact is immutable and addressed by digest — that is what makes "the demo
+you ran" a thing that can be named. Each release publishes its digest in the
+release notes, and Docker resolves it from the tag for you:
+
+```sh
+docker manifest inspect -v ghcr.io/trianalab/pacto/demo:<version>
+```
+
+The `Descriptor.digest` it prints is the value to pass to `-f oci://…@`. Run the
+demo by digest, not by tag: a tag is a publication convenience and can be moved,
+and the whole point of this artifact is that it cannot.
+
+The images inside are pinned the same way. Both are named by digest rather than
+by tag, so the artifact you pinned runs the bytes it was released with, however
+long ago that was — and because those digests are multi-platform indexes, Docker
+still picks the build that matches your machine.
+
+## The project name
+
+`-p pacto-demo` above is not decoration. It names the containers, the network
+and the volumes, and it is how you talk to the demo afterwards — no `-f`, no
+file, no directory:
+
+```sh
+docker compose -p pacto-demo ps
+docker compose -p pacto-demo logs seed
+docker compose -p pacto-demo stop
+docker compose -p pacto-demo start
+docker compose -p pacto-demo down -v      # containers and volumes, all of it
+```
+
+Every version and every user picks their own project name, so two of anything
+never collide.
 
 ## What you get
 
@@ -39,49 +73,71 @@ contract, and compare `checkout` 1.0.0 with 1.1.0 to see a change analysed.
 
 The fixture is the same canonical scenario Pacto's acceptance suite runs against
 a real Kubernetes cluster: the same services, revisions, dependency edge,
-observation source and signed evidence. The one thing absent is the operational
-targets a controller reconciles — Compose has no controller, so the demo claims
-no running workload. Everything else is identical, and a parity test keeps it
-that way.
+observation source and signed evidence. Every fixture input travels inside the
+application itself as a Compose `config`, so there is nothing on your disk for
+the demo to read and nothing for you to keep. The one thing absent is the
+operational targets a controller reconciles — Compose has no controller, so the
+demo claims no running workload. Everything else is identical, and a parity test
+keeps it that way.
 
-## Pinning a version
+## Ports
 
-Tags are a convenience; the digest is the identity. To pin the exact artifact
-you ran, record the digest `oras pull` reports and use it:
+`8080` (dashboard), `8686` (Evidence Server) and `5051` (the demo's registry).
+Override any of them with `PACTO_DEMO_DASHBOARD_PORT`,
+`PACTO_DEMO_EVIDENCE_PORT` and `PACTO_DEMO_REGISTRY_PORT`, which is what a second
+copy needs:
 
 ```sh
-oras pull ghcr.io/trianalab/pacto/demo@sha256:<digest>
+PACTO_DEMO_DASHBOARD_PORT=8081 PACTO_DEMO_EVIDENCE_PORT=8687 \
+PACTO_DEMO_REGISTRY_PORT=5052 \
+  docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<other-digest> \
+    -p pacto-demo-next up -d --wait
 ```
 
-Each version is independent. Pull it into its own directory and Compose gives it
-its own containers and volumes, so you can keep the old one running, go back to
-it, or remove it with `docker compose down -v` when you are done.
-
-The images inside are pinned the same way. Both are named by digest rather than
-by tag, so the artifact you pinned runs the bytes it was released with, however
-long ago that was — and because those digests are multi-platform indexes, Docker
-still picks the build that matches your machine.
+Two digests, two project names, two sets of ports: both run at once, and
+`down -v` on one leaves the other untouched. That is also how you move between
+versions — start the new one beside the old, compare them, then remove the one
+you do not want.
 
 ## Offline
 
-Once the artifact and those two images are on your machine, the demo needs no
-external network:
+Two different things get fetched, and only one of them can be skipped.
+
+The **service images** are pulled once and then cached by Docker, so
+`--pull never` runs the demo without reaching for them again:
 
 ```sh
-docker compose up -d --wait --pull never
+docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
+  -p pacto-demo up -d --wait --pull never
 ```
 
-Acceptance proves that with the registry the artifact came from stopped and every
-route out of the demo's Compose network refused: it starts from empty volumes and
-serves the same fleet. The private network the registry, the Evidence Server and
-the dashboard use to reach each other stays up, because they have to, and so do
-the ports published to your machine.
+The **application** is read from the registry by `-f oci://…` on every
+invocation, cache or no cache — Compose has no offline mode for it. So creating
+a project needs the artifact registry reachable, once. After the project exists,
+operating it needs nothing: `stop`, `start`, `restart`, `logs` and `down -v`
+address it by project name, and the demo itself never leaves your machine.
+
+Acceptance proves the strong form of that: with the registry the artifact came
+from stopped, both routes out of the demo's Compose network refused (host-local
+and forwarded, independently) and the volumes emptied first, the fleet comes up
+and serves the same facts. After the demo artifact and its digest-pinned images
+have been pulled, the stack requires no external network access. Its private
+Compose service network remains available because the dashboard, Evidence Server
+and embedded registry must communicate with each other.
 
 ## Credentials
 
 There are none in the artifact. The Evidence Server generates its own signing
 keypair the first time it starts and keeps it in a volume, so the demo signs as
 an identity that only ever existed on your machine.
+
+## Where the instructions live
+
+A Compose OCI application is exactly one compose file — there is no second layer
+to carry a README, and Compose offers no way to hand you one. So this page is the
+reference, and the application points at it: `x-pacto-demo.documentation` in the
+file you just ran is the URL of this document. Nothing in the artifact pretends
+to expose a file you cannot get out of it.
 
 ## The other demos
 

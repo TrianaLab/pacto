@@ -89,8 +89,12 @@ path (both production `release.yml` and the staging dry-run call them). For each
   (idempotent) and skip.
 - **adopt** — the remote exists with no recorded digest (a push-before-record crash)
   but its identity proves it is *this* transaction's artifact: a content-addressed
-  digest match (bundles, chart) or matching OCI `revision`+`version` provenance
-  labels (images). Record the remote digest and skip re-pushing.
+  digest match (bundles, chart), matching OCI `revision`+`version` provenance
+  labels (images), or a matching single-layer content digest (`demo-compose`, whose
+  publisher is `docker compose publish` — it stamps a moving `created` timestamp
+  into the manifest and writes no provenance, so `PACTO_EXPECT_CONTENT` — the
+  `sha256` of the projected compose file — is its identity). Record the remote
+  digest and skip re-pushing.
 - **conflict** — anything else: fail closed, never overwrite an immutable tag.
 
 **Crash recovery** is two-phase: record the plan (expected digest) before touching
