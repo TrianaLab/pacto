@@ -38,9 +38,10 @@ docker compose down          # stop; the registry and evidence keep their data
 docker compose up -d --wait  # back where you were
 ```
 
-State lives in two named volumes. The demo re-publishes on every `up`, which is
-a no-op against a registry that already has the content, and re-sends the
-evidence envelope, which the Evidence Server correctly refuses as a replay.
+State lives in two volumes, named after this directory. The demo re-publishes on
+every `up`, which is a no-op against a registry that already has the content, and
+re-sends the evidence envelope, which the Evidence Server correctly refuses as a
+replay.
 
 ## Clean up
 
@@ -87,8 +88,12 @@ oras pull {{.ArtifactRepo}}:<version>
 docker compose up -d --wait
 ```
 
-The two directories are independent. Keeping the old one lets you go back to it;
-`docker compose down -v` in it releases its volumes.
+The two directories are independent: Compose names a project after the directory
+it runs in, so each version gets its own containers and its own volumes. Keeping
+the old directory lets you go back to it exactly as you left it; `docker compose
+down -v` in it releases its volumes when you are done.
+
+To run both at once, give the second one ports of its own — see above.
 
 ## Credentials
 

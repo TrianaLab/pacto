@@ -286,6 +286,20 @@ func TestCompose_PinsNoArchitecture(t *testing.T) {
 	}
 }
 
+// Two pulled versions are two demos, not one demo twice.
+//
+// Compose scopes containers and volumes by PROJECT, and takes the project name
+// from the run directory unless the file pins one. Pinning one would make the
+// documented upgrade — pull the next version into a fresh directory and start it
+// — quietly reuse the previous version's registry content and ingested evidence,
+// so the new demo would be showing the old demo's state and going back would have
+// nothing to go back to.
+func TestCompose_ScopesItsStateToTheRunDirectory(t *testing.T) {
+	if name, pinned := composeFileOf(t, OperationalGraph)["name"]; pinned {
+		t.Errorf("the projection pins the Compose project name to %q, so a second pulled version would share this one's volumes", name)
+	}
+}
+
 // After the images are on the host, the demo reaches no registry but the one it
 // starts itself. Every OCI reference in the projection is to that service.
 func TestCompose_ResolvesOnlyAgainstTheRegistryItStarts(t *testing.T) {

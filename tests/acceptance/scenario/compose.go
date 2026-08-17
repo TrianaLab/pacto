@@ -145,7 +145,7 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 		}
 	}
 
-	f := composeFile{Name: "pacto-demo", Services: composeServices{
+	f := composeFile{Services: composeServices{
 		Registry: composeService{
 			Image:   opts.RegistryImage,
 			Restart: "unless-stopped",
@@ -345,8 +345,14 @@ func checkComposeValue(v string) error {
 // The Compose file shape. Services are named fields rather than a map so the
 // generated file reads in startup order; there are four of them because the demo
 // runs four containers, not because the scenario declares any.
+//
+// No `name:`. Compose then takes the project name from the RUN DIRECTORY, which
+// is what makes two pulled versions two independent demos: pinning a name here
+// would silently hand a freshly pulled artifact the previous version's registry
+// and evidence volumes, and "upgrade" would mean "run the new demo over the old
+// demo's state". The cost is that the volume names carry the directory as a
+// prefix, which the artifact's own README says.
 type composeFile struct {
-	Name     string          `yaml:"name"`
 	Services composeServices `yaml:"services"`
 	Volumes  composeVolumes  `yaml:"volumes"`
 }
