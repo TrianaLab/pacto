@@ -332,21 +332,30 @@ dump_diag() {
 #
 # ANY HTTP response means ready: the request reached the pod and bytes came back.
 # A 404 from a registry root proves the tunnel exactly as well as a 200 from the
-# dashboard does, which is why this is a bare `curl`, not `curl -f`. A dead
-# kubectl (port already bound, target gone) is detected rather than waited out.
+# dashboard does, which is why this is a bare `curl`, not `curl -f`.
+#
+# The forward is RESPAWNED rather than waited on, because `kubectl port-forward`
+# to a Service with no ready endpoint does not wait — it exits immediately. Every
+# caller that reconnects after a restart hits exactly that: the pod is
+# ContainerCreating, kubectl dies at once, and a single spawn turns a
+# sixty-second readiness wait into a one-second failure. Respawning keeps the
+# window the window.
+#
 # The failure goes to STDERR on purpose — stdout is the pid, and every call site
 # captures it in `$(...)`, so a message written to stdout would be swallowed too.
 pf() {
-  local lport="$1" target="$2" rport="$3"
-  kubectl -n "$NS" port-forward "$target" "${lport}:${rport}" >/dev/null 2>&1 &
-  local pid=$!
+  local lport="$1" target="$2" rport="$3" pid=""
   for _ in $(seq 1 60); do
+    if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+      kubectl -n "$NS" port-forward "$target" "${lport}:${rport}" >/dev/null 2>&1 &
+      pid=$!
+    fi
     if curl -sS -o /dev/null --max-time 3 "http://127.0.0.1:${lport}/" 2>/dev/null; then
       echo "$pid"; return 0
     fi
-    kill -0 "$pid" 2>/dev/null || break
     sleep 1
   done
+  kill "$pid" 2>/dev/null || true
   echo "  FAIL: port-forward to $target never answered on 127.0.0.1:${lport}" >&2
   return 1
 }
