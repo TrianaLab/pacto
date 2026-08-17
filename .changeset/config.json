@@ -5,7 +5,7 @@
   "access": "restricted",
   "baseBranch": "main",
   "fixed": [
-    ["@pacto/core", "@pacto/cli", "@pacto/dashboard-image", "@pacto/demo-bundles", "@pacto/dashboard-contract-bundle"],
+    ["@pacto/core", "@pacto/cli", "@pacto/dashboard-image", "@pacto/demo-bundles", "@pacto/demo-compose", "@pacto/dashboard-contract-bundle"],
     ["@pacto/k8s-module", "@pacto/operator-image", "@pacto/operator-chart", "@pacto/k8s-docs"]
   ],
   "linked": [],

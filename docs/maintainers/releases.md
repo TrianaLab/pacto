@@ -12,7 +12,7 @@ groups (a group releases together or not at all):
 
 | Group | Units | Coordinate kind |
 |-------|-------|-----------------|
-| **core** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles |
+| **core** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles`, `demo-compose` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles, OCI demo artifact |
 | **kubernetes** | `k8s-module`, `operator-image`, `operator-chart`, `k8s-docs` | Go module tag, OCI image, Helm/OCI chart, versioned docs |
 
 `release/release-manifest.json` is the source of truth for the units, their

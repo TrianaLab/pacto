@@ -46,7 +46,7 @@ echo "== TRANSACTION SELECTION: drive the REAL orchestrator (detect.mjs) per sce
 # coordinated and recovery each decide the correct unit set. This is the same
 # detect.mjs release.yml runs; the release.yml job `if:` selection over these
 # units is separately gated by tests/release/dag_test.go.
-CORE_UNITS="core,cli,dashboard-image,dashboard-contract-bundle,demo-bundles"
+CORE_UNITS="core,cli,dashboard-image,dashboard-contract-bundle,demo-bundles,demo-compose"
 K8S_UNITS="k8s-module,operator-image,operator-chart,k8s-docs"
 mk_txn() { # <id> <groups-csv> <units-csv> <ready 0|1> -> transaction json
   python3 - "$@" <<'PY'
@@ -180,13 +180,14 @@ echo "   verify MISMATCH refused (fail closed)"
 
 echo "== ITEM 2: parallel per-unit records lose nothing; idempotent; conflict fails =="
 CTX="dryrun-conc-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$CTX" "$SHA" "$MSHA" >/dev/null
-CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles k8s-module operator-image operator-chart k8s-docs"
+CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles demo-compose k8s-module operator-image operator-chart k8s-docs"
 i=0
 for u in $CUNITS; do i=$((i+1)); led record "$CTX" "$u" "coord/$u" "1.0.0" "sha256:$(printf '%064x' $((i*7)))" complete >/dev/null 2>&1 & done
 wait
 n=0; for u in $CUNITS; do [ "$(led status "$CTX" "$u")" = complete ] && n=$((n+1)) || echo "   LOST $u"; done
-[ "$n" -eq 9 ] || { echo "   FAIL: parallel records lost $((9-n)) unit(s)"; exit 1; }
-echo "   9/9 parallel records survived (no lost updates), attributable to $CTX"
+u=$(printf '%s\n' $CUNITS | wc -l | tr -d ' ')
+[ "$n" -eq "$u" ] || { echo "   FAIL: parallel records lost $((u-n)) unit(s)"; exit 1; }
+echo "   $n/$u parallel records survived (no lost updates), attributable to $CTX"
 led record "$CTX" core "coord/core" 1.0.0 "sha256:$(printf '%064x' 7)" complete >/dev/null 2>&1 \
   && echo "   duplicate-identical record idempotent" || { echo "   FAIL idempotent"; exit 1; }
 if led record "$CTX" core "coord/core" 1.0.0 "sha256:$(printf '%064x' 999)" complete >/dev/null 2>&1; then

@@ -71,6 +71,12 @@ function buildPlan(u) {
           // maintainer publishes to the production coordinate; the PR proof pushes
           // to a staging registry (release/scripts/publish-demo-bundles.sh).
           { unit: 'demo-bundles', kind: 'oci-image', coordinate: u['demo-bundles'].coordinate, tag: core },
+          // The Compose demo artifact (tests/acceptance/scenario projected into a run
+          // directory, pushed as one OCI layer). It is the ONLY way a stranger gets the
+          // demo without cloning, so it ships on the core line like everything else the
+          // core version promises. Not byte-deterministic — oras stamps its own layer —
+          // so publish-oci-unit.sh adopts it by revision+version annotation, not digest.
+          { unit: 'demo-compose', kind: 'oci-image', coordinate: u['demo-compose'].coordinate, tag: core },
         ],
       },
       kubernetes: {
@@ -95,7 +101,7 @@ function buildPlan(u) {
     // resolves), then k8s group. Every step leaves published modules resolvable.
     publishOrder: [
       'core:go-module', 'core:dashboard-image', 'core:dashboard-contract-bundle',
-      'core:cli', 'core:demo-bundles',
+      'core:cli', 'core:demo-bundles', 'core:demo-compose',
       'kubernetes:go-mod-pin', 'kubernetes:go-module', 'kubernetes:operator-image',
       'kubernetes:operator-chart', 'kubernetes:docs',
     ],

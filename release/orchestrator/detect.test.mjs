@@ -68,7 +68,7 @@ test('unchanged transaction on a later commit does NOT re-release', () => {
 
 // ---- component selection matrix ----
 
-const CORE = ['core', 'cli', 'dashboard-image', 'dashboard-contract-bundle', 'demo-bundles'];
+const CORE = ['core', 'cli', 'dashboard-image', 'dashboard-contract-bundle', 'demo-bundles', 'demo-compose'];
 const K8S = ['k8s-module', 'operator-image', 'operator-chart', 'k8s-docs'];
 
 test('core-only release selects only the core group', () => {
