@@ -15,16 +15,35 @@
 # drives, which is the point: one set of journeys, two deployments.
 #
 # The claims each stage proves are the ones the artifact's own README makes:
-# digest identity, no embedded credentials, observed readiness, restart
-# persistence, offline-after-pull, port overrides, independence of two pinned
-# versions, and complete cleanup.
+# digest identity of the artifact AND of every image it runs, no embedded
+# credentials, observed readiness, restart persistence, port overrides,
+# independence of two pinned versions, complete cleanup — and the network
+# boundary, which is the one claim worth stating exactly:
+#
+#   After the demo artifact and its digest-pinned images have been pulled, the
+#   stack requires no external network access. Its private Compose service
+#   network remains available because the dashboard, Evidence Server and embedded
+#   registry must communicate with each other.
+#
+# Stage 10 proves that boundary and nothing weaker: the registry the artifact
+# came from is stopped, every route out of the demo's own network is refused, and
+# the stack still comes up from empty volumes and serves the same fleet.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-IMAGE="${PACTO_DEMO_IMAGE:-pacto-demo:acceptance}"
-REGISTRY_IMAGE="${PACTO_DEMO_REGISTRY_IMAGE:-registry:2}"
 ART_PORT="${PACTO_DEMO_ARTIFACT_REGISTRY_PORT:-15071}"
 ART_REPO="127.0.0.1:${ART_PORT}/pacto/demo"
+IMAGE_REPO="127.0.0.1:${ART_PORT}/pacto/dashboard"
+REG_NAME="pacto-demo-acceptance-registry"
+NETFILTER_IMAGE="pacto-demo-netfilter:acceptance"
+# Empty means "whatever pin the artifact ships with" — the projection's own
+# default, which is the reference a released demo actually runs.
+REGISTRY_IMAGE="${PACTO_DEMO_REGISTRY_IMAGE:-}"
+# A digest-qualified reference, or empty to build the production image here and
+# pin it to the digest the registry assigns. The projection refuses a tag either
+# way, so an override that names one fails at stage 3 rather than silently
+# running a different demo.
+IMAGE="${PACTO_DEMO_IMAGE:-}"
 
 # Two run directories, because the upgrade story is two pinned versions side by
 # side. The second takes ports of its own so both can be up at once — which is
@@ -80,16 +99,77 @@ down_quiet() {
 	(cd "$1" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true
 }
 
+# The demo's egress is denied by a filter installed in the HOST's netns, so it
+# outlives this script if the script dies. Everything that installs one records
+# the bridge here, and the trap takes it back down.
+DENIED_BR=""
+
+# deny_egress BRIDGE — refuse every packet that leaves the demo's own network.
+#
+# In DOCKER-USER, which is the one FORWARD hook Docker guarantees it will not
+# rewrite, keyed to this project's bridge: in on it and out somewhere else is
+# refused, in on it and out on it is untouched, so the four services keep talking
+# to each other. REJECT rather than DROP because a demo that fails should fail in
+# seconds with a connection error, not hang until something times out.
+#
+# The ESTABLISHED,RELATED accept comes first and is not decoration: where Docker
+# publishes ports with DNAT (Linux, so CI), the reply leg of a host->published
+# connection is also "in on the bridge, out somewhere else", and dropping it
+# would take away the host access the boundary explicitly keeps.
+#
+# This is a HARNESS mechanism. The shipped compose file is not touched, and in
+# particular nothing here makes the network `internal:` — that was tried, and it
+# takes the published ports away with the egress.
+#
+# netfilter SCRIPT — run SCRIPT in the host's netns with $ipt bound to whichever
+# iptables backend Docker itself used. alpine ships both nft and legacy, and a
+# rule written to the one Docker is not using is not an error — it is simply
+# invisible, which would turn this whole stage into a no-op that passes. Only the
+# backend Docker built DOCKER-USER in has that chain, so that is the tell.
+netfilter() {
+	docker run --rm --net host --privileged "$NETFILTER_IMAGE" sh -euc '
+		for b in iptables-nft iptables-legacy; do
+			if "$b" -S DOCKER-USER >/dev/null 2>&1; then ipt="$b"; break; fi
+		done
+		[ -n "${ipt:-}" ] || { echo "no iptables backend has a DOCKER-USER chain" >&2; exit 1; }
+		eval "$1"
+	' sh "$1" >/dev/null
+}
+
+deny_egress() {
+	netfilter "
+		ip link show '$1' >/dev/null
+		\$ipt -I DOCKER-USER 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+		\$ipt -I DOCKER-USER 2 -i '$1' ! -o '$1' -j REJECT
+	" || fail "could not deny the demo's egress on $1 — without it stage 10 would prove only that Docker pulled no images"
+	DENIED_BR="$1"
+}
+
+allow_egress() {
+	[ -n "$DENIED_BR" ] || return 0
+	netfilter "
+		\$ipt -D DOCKER-USER -i '$DENIED_BR' ! -o '$DENIED_BR' -j REJECT
+		\$ipt -D DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+	" 2>/dev/null || true
+	DENIED_BR=""
+}
+
+# reaches NETWORK HOSTPORT... — can a container on NETWORK open this connection?
+# The probe is a container of its own rather than one of the demo's, so it says
+# what the NETWORK allows and cannot be confused with what a service happens to
+# have configured.
+reaches() {
+	net="$1"
+	shift
+	docker run --rm --net "$net" --add-host "pacto-outside:host-gateway" \
+		"$NETFILTER_IMAGE" nc -w 4 -z "$@" >/dev/null 2>&1
+}
+
 cleanup() {
+	allow_egress
 	down_quiet "$RUN1"
 	down_quiet "$RUN2"
-	# wait, so the shell reaps the registry here instead of announcing "Terminated"
-	# on its own after the last PASS — a script that ends in a signal notice reads
-	# like a failure to everybody who runs it.
-	if [ -n "${REG_PID:-}" ]; then
-		kill "$REG_PID" 2>/dev/null || true
-		wait "$REG_PID" 2>/dev/null || true
-	fi
+	docker rm -f "$REG_NAME" >/dev/null 2>&1 || true
 	rm -rf "$WORK" "$RUN1" "$RUN2"
 	true
 }
@@ -108,30 +188,59 @@ for d in "$RUN1" "$RUN2"; do
 done
 pass "two empty run directories outside $ROOT"
 
-echo "== 1. build the pacto image the demo pins =="
-# The REAL production image, from the production Dockerfile. A purpose-built test
-# image would prove the demo works against something nobody ships.
-docker build -q -t "$IMAGE" "$ROOT" >/dev/null
-pass "built $IMAGE"
-
-echo "== 2. build the observers =="
+echo "== 1. build the observers, start the artifact registry =="
 # From the checkout, before anything is running: the Product gate that will
-# interrogate the live demo, and the in-memory registry that will distribute the
-# artifact. Both talk over the network only.
+# interrogate the live demo, and a small privileged image that installs and
+# removes stage 10's egress filter. Both talk over the network only.
 go build -o "$WORK/productready" "$ROOT/tests/acceptance/kind/productready"
-go build -o "$WORK/localregistry" "$ROOT/tests/acceptance/local/localregistry"
-"$WORK/localregistry" --port "$ART_PORT" >/dev/null 2>&1 &
-REG_PID=$!
+printf 'FROM alpine:3\nRUN apk add --no-cache iptables\n' | docker build -q -t "$NETFILTER_IMAGE" - >/dev/null
+
+# A registry CONTAINER, not an in-process one: the artifact is distributed by
+# `oras`, but the image it pins has to be pushed and pulled by the Docker daemon,
+# and on Docker Desktop the daemon lives in a VM that cannot reach a process
+# listening on the host's loopback. A container's published port it can reach.
+#
+# Published on every interface because stage 10's control probe has to reach it
+# from inside a container as a genuinely EXTERNAL endpoint, which loopback is not.
+# It is an empty throwaway registry that exists for the length of this run.
+docker rm -f "$REG_NAME" >/dev/null 2>&1 || true
+docker run -d --name "$REG_NAME" -p "$ART_PORT:5000" registry:2 >/dev/null
 for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:${ART_PORT}/v2/" >/dev/null 2>&1 && break; sleep 0.2; done
 curl -fsS "http://127.0.0.1:${ART_PORT}/v2/" >/dev/null || fail "the artifact registry did not come up"
 pass "product gate built, artifact registry serving"
 
+echo "== 2. build the pacto image the demo pins, and pin it by DIGEST =="
+# The REAL production image, from the production Dockerfile. A purpose-built test
+# image would prove the demo works against something nobody ships.
+#
+# Then pushed, so it has a digest at all: a locally built image has an id, which
+# is not a name any compose file can address. Pinning to the digest the registry
+# assigns is what makes the local path the same shape as the released one, where
+# the pin comes from the ledger record the dashboard-image unit left behind.
+if [ -z "$IMAGE" ]; then
+	docker build -q -t "$IMAGE_REPO:acceptance" "$ROOT" >/dev/null
+	docker push "$IMAGE_REPO:acceptance" >/dev/null
+	IMAGE="$(docker image inspect "$IMAGE_REPO:acceptance" \
+		--format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -m1 "^$IMAGE_REPO@")"
+	docker pull "$IMAGE" >/dev/null
+fi
+case "$IMAGE" in
+*@sha256:*) ;;
+*) fail "the pacto image $IMAGE is not pinned to a digest" ;;
+esac
+pass "the demo will run $IMAGE"
+
 # project_and_push VERSION DIR — render the artifact for one version and publish
 # it, echoing the digest the registry assigned.
+#
+# `|| return 1` because this runs inside a command substitution: bash does not
+# propagate errexit out of a failing subshell in a function called that way, so
+# without it a refused projection would be pushed as an empty artifact and only
+# surface four stages later as a missing compose.yaml.
 project_and_push() {
 	( cd "$ROOT" && go run ./tests/acceptance/scenario/project demo \
-		-dir "$2" -pacto-image "$IMAGE" -registry-image "$REGISTRY_IMAGE" \
-		-artifact-repo "$ART_REPO" -version "$1" >/dev/null )
+		-dir "$2" -pacto-image "$IMAGE" ${REGISTRY_IMAGE:+-registry-image "$REGISTRY_IMAGE"} \
+		-artifact-repo "$ART_REPO" -version "$1" >/dev/null ) || return 1
 	( cd "$2" && oras push --plain-http --format go-template='{{.digest}}' "$ART_REPO:$1" . )
 }
 
@@ -157,7 +266,39 @@ for want in compose.yaml .env plan.tsv seed.sh README.md; do
 done
 pass "the run directory is the whole input: $(find "$RUN1" -type f | wc -l | tr -d ' ') files"
 
-echo "== 5. the artifact carries no credential =="
+echo "== 5. every image the artifact runs is pinned, and still lets the host decide =="
+# An immutable artifact that names a mutable image is not immutable: the digest
+# stays the same and the bytes it executes change. Asked of the PULLED compose
+# file, which is what a user runs.
+images="$(sed -n 's/^ *image: *//p' "$RUN1/compose.yaml" | sort -u)"
+[ -n "$images" ] || fail "the artifact's compose file names no images"
+while IFS= read -r img; do
+	case "$img" in
+	*@sha256:*) ;;
+	*) fail "the artifact runs $img, which a tag could move" ;;
+	esac
+done <<<"$images"
+
+# A multi-platform INDEX digest and one of its per-architecture CHILD manifest
+# digests are the same string shape, and only the first keeps the demo native:
+# pinning a child would run one architecture everywhere and emulate it on the
+# other. The difference is observable — resolve each pin and ask what Docker got.
+# For the pacto image built above this is a tautology, since a local build is the
+# host's architecture either way; for `registry:2`, which the artifact pins to a
+# real published index, it is the check.
+if grep -qE '^ *platform:' "$RUN1/compose.yaml"; then
+	fail "the artifact selects a platform, so it is not letting the host decide"
+fi
+hostarch="$(docker version --format '{{.Server.Arch}}')"
+while IFS= read -r img; do
+	docker pull -q "$img" >/dev/null || fail "cannot resolve $img"
+	got="$(docker image inspect "$img" --format '{{.Architecture}}')"
+	[ "$got" = "$hostarch" ] ||
+		fail "$img resolves to $got on a $hostarch host — that pin is one architecture's manifest, not the multi-platform index"
+done <<<"$images"
+pass "$(wc -l <<<"$images" | tr -d ' ') pinned images, each resolving to $hostarch here"
+
+echo "== 6. the artifact carries no credential =="
 # A private key, a token or a password baked into an immutable artifact is one
 # every user of it shares. The demo signs as an identity minted at run time into a
 # volume, so there is nothing of the sort to find.
@@ -170,7 +311,7 @@ if find "$RUN1" -type f \( -name '*.key' -o -name '*.pem' -o -name '*.pub' -o -n
 fi
 pass "no key, token or password in the pulled artifact"
 
-echo "== 6. start it, and wait on OBSERVED readiness =="
+echo "== 7. start it, and wait on OBSERVED readiness =="
 # --wait returns when every service reports itself healthy. No sleep anywhere in
 # this file: the demo's own health checks are the clock.
 up_or_dump "$RUN1" "${V1_PORTS[@]}"
@@ -195,7 +336,7 @@ while IFS= read -r src; do
 done <<<"$binds"
 pass "the only host path the demo mounts is its own run directory"
 
-echo "== 7. the live demo proves the canonical fixture =="
+echo "== 8. the live demo proves the canonical fixture =="
 "$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose \
 	-out "$WORK/fixture.json"
 
@@ -203,18 +344,24 @@ echo "== 7. the live demo proves the canonical fixture =="
 # a cluster. The suite reads the fixture the gate just discovered, so it addresses
 # THIS deployment's entities by name — and skips, with a reason, the one journey
 # that needs the operational target Compose declares it does not provide.
-if [ -n "${RUN_BROWSER:-}" ]; then
-	echo "== live Product journeys against the pulled demo (Playwright/Chromium) =="
+#
+# browser_journeys BASE FIXTURE — the browser leg, so stage 10 can run the same
+# journeys against the isolated stack rather than only against this one.
+browser_journeys() {
 	( cd "$ROOT/pkg/dashboard/frontend" &&
 		npm ci --ignore-scripts >/dev/null 2>&1 &&
 		npx playwright install --with-deps chromium >/dev/null 2>&1 &&
-		PW_BASE_URL="$V1_BASE/" PW_FIXTURE="$(cat "$WORK/fixture.json")" \
-			npx playwright test --config playwright.live.config.ts ) ||
+		PW_BASE_URL="$1/" PW_FIXTURE="$(cat "$2")" \
+			npx playwright test --config playwright.live.config.ts )
+}
+if [ -n "${RUN_BROWSER:-}" ]; then
+	echo "== live Product journeys against the pulled demo (Playwright/Chromium) =="
+	browser_journeys "$V1_BASE" "$WORK/fixture.json" ||
 		fail "the live product journeys failed against the Compose demo"
 	pass "the documented browser journeys work on the pulled demo"
 fi
 
-echo "== 8. restart persistence =="
+echo "== 9. restart persistence =="
 # `down` keeps the volumes, so the second `up` re-runs the seed against a registry
 # that already has the bundles and an Evidence Server that already has the
 # envelope. The README says that works; this is the claim, tested.
@@ -226,17 +373,92 @@ grep -q "already ingested" <<<"$seedlog" || { echo "$seedlog" >&2; fail "a resta
 "$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose
 pass "the fleet survived a stop and start"
 
-echo "== 9. offline after the pull =="
-# Fresh volumes, no image pulls: everything the demo needs is on the host and in
-# the run directory. The registry it publishes into is the one it starts.
+echo "== 10. the documented network boundary =="
+# The claim, exactly: after the artifact and its digest-pinned images have been
+# pulled, the stack requires no external network access; its private Compose
+# service network stays up because the four services must reach each other.
+#
+# `up --pull never` alone would not prove that. It proves Docker pulled nothing,
+# on a runner that still has the whole Internet and still has the registry the
+# artifact came from. So both of those are taken away first.
 ( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose down -v >/dev/null 2>&1 )
+# `create` rather than `up`: it makes the network and the containers without
+# starting any of them, which is the only window in which the filter can be in
+# place BEFORE the one-shot seed's first packet. A per-container rule cannot do
+# this — the seed has no netns until it runs.
+( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose create --pull never >/dev/null 2>&1 ) ||
+	fail "the demo could not even be created without pulling, so nothing here is local"
+cid="$(cd "$RUN1" && env "${V1_PORTS[@]}" docker compose ps -aq | head -1)"
+[ -n "$cid" ] || fail "compose created no containers"
+proj="$(docker inspect "$cid" --format '{{index .Config.Labels "com.docker.compose.project"}}')"
+netline="$(docker network ls --format '{{.ID}} {{.Name}}' --filter "label=com.docker.compose.project=$proj" | head -1)"
+netid="${netline%% *}"
+NET="${netline#* }"
+[ -n "$netid" ] && [ -n "$NET" ] || fail "cannot find the demo's own network"
+# Docker names a user-defined bridge after its own network id. deny_egress
+# refuses to install anything if that interface is not there.
+BR="br-${netid}"
+
+# Control first, or "it could not reach out" would be indistinguishable from "it
+# was never able to". This is a real, listening, external endpoint: the host, on
+# the port the artifact registry publishes.
+reaches "$NET" pacto-outside "$ART_PORT" ||
+	fail "the demo's network cannot reach $ART_PORT on the host even before the filter, so the control proves nothing"
+deny_egress "$BR"
+if reaches "$NET" pacto-outside "$ART_PORT"; then
+	fail "the filter is not denying egress, so the isolation below would be a claim rather than a test"
+fi
+pass "external egress from the demo's network is refused"
+
+# And the registry the artifact came from goes away entirely.
+docker stop "$REG_NAME" >/dev/null
+if curl -fsS --max-time 3 "http://127.0.0.1:${ART_PORT}/v2/" >/dev/null 2>&1; then
+	fail "the artifact registry is still serving, so this is not a cold start without it"
+fi
+pass "the registry the artifact was pulled from is stopped"
+
 UP_FLAGS="--pull never"
 up_or_dump "$RUN1" "${V1_PORTS[@]}"
 UP_FLAGS=""
-"$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose
-pass "a cold start with no registry access reaches the same fleet"
+# Internal service communication survived — that is the half of the boundary the
+# demo depends on, and the half `internal: true` would have taken with it.
+reaches "$NET" evidence 8686 ||
+	fail "the demo's services cannot reach each other, so the boundary is drawn in the wrong place"
+# Host access to the documented published ports survived, which is what these two
+# say by succeeding at all.
+"$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose \
+	-out "$WORK/fixture-isolated.json"
+if [ -n "${RUN_BROWSER:-}" ]; then
+	echo "== the same live journeys, against the isolated demo =="
+	browser_journeys "$V1_BASE" "$WORK/fixture-isolated.json" ||
+		fail "the live product journeys failed against the isolated demo"
+fi
+pass "empty volumes, no image pulls, no registry, no route out — the same fleet"
 
-echo "== 10. upgrade to another pinned version, alongside the first =="
+# The counterexample. Redirect the one startup dependency that talks to a
+# registry at the endpoint the control above proved is reachable from this
+# network when the filter is not there, and the stack must fail. Without this,
+# a filter that quietly stopped applying would leave every assertion above
+# passing.
+docker start "$REG_NAME" >/dev/null
+for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:${ART_PORT}/v2/" >/dev/null 2>&1 && break; sleep 0.2; done
+cat >"$WORK/external.override.yaml" <<YAML
+services:
+  seed:
+    extra_hosts:
+      - "pacto-outside:host-gateway"
+    environment:
+      PACTO_DEMO_PUBLISH_TO: "pacto-outside:${ART_PORT}/pacto/redirected"
+YAML
+if ( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose \
+	-f compose.yaml -f "$WORK/external.override.yaml" \
+	run --rm --no-deps seed >/dev/null 2>&1 ); then
+	fail "a startup dependency pointed outside the demo's network still succeeded, so stage 10 does not test what it says"
+fi
+pass "a startup dependency redirected outside the network fails the stack"
+allow_egress
+
+echo "== 11. upgrade to another pinned version, alongside the first =="
 oras pull --plain-http -o "$RUN2" "$ART_REPO@$D2" >/dev/null
 up_or_dump "$RUN2" "${V2_PORTS[@]}"
 "$WORK/productready" -base "$V2_BASE" -domain registry:5000/demo -surface compose
@@ -245,7 +467,7 @@ up_or_dump "$RUN2" "${V2_PORTS[@]}"
 curl -fsS "$V1_BASE/health" >/dev/null || fail "starting 0.0.2 disturbed the running 0.0.1"
 pass "both pinned versions run at once, on the ports each was given"
 
-echo "== 11. cleanup leaves nothing behind =="
+echo "== 12. cleanup leaves nothing behind =="
 ( cd "$RUN2" && env "${V2_PORTS[@]}" docker compose down -v >/dev/null 2>&1 )
 ( cd "$RUN1" && env "${V1_PORTS[@]}" docker compose down -v >/dev/null 2>&1 )
 left="$(docker volume ls --format '{{.Name}}' | grep -E "pacto-demo-(state|registry)$" || true)"
