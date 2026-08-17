@@ -13,9 +13,10 @@
 #                     precomputed expected digest when given), record complete.
 #        identical -> the remote already equals the expected digest — a crashed
 #                     push or an idempotent re-run; record complete (if not yet) + skip.
-#        adopt     -> the remote carries no recorded digest but its OCI provenance
-#                     (revision + version labels) proves it is THIS transaction's
-#                     artifact (image crash window); record its digest + skip.
+#        adopt     -> the remote carries no recorded digest but its identity proves
+#                     it is THIS transaction's artifact — OCI provenance labels
+#                     (image crash window) or its one content layer; record its
+#                     digest + skip.
 #        conflict  -> remote differs / unattributable -> fail closed, never overwrite.
 #
 # Identity inputs (how recovery adopts a remote artifact — pick per artifact type):
@@ -26,6 +27,11 @@
 #   PACTO_EXPECT_VERSION   org.opencontainers.image.version  the remote must carry
 #                          (OCI images built by buildx, where the digest is only
 #                          known post-push -> provenance-label adoption instead).
+#   PACTO_EXPECT_CONTENT   digest of the artifact's ONE content layer, for a publisher
+#                          that owns its own manifest and writes neither a reproducible
+#                          digest nor provenance annotations (`docker compose publish`:
+#                          a moving created timestamp, one verbatim compose.yaml layer).
+#                          Asserted after the push and used for crash-window adoption.
 #
 #   PACTO_LEDGER_REPO=... PACTO_RELEASE_TXN=... [PACTO_EXPECT_*=...] \
 #     publish-oci-unit.sh <unit> <ref> <version> -- <push command...>
@@ -38,9 +44,12 @@ TXN="$PACTO_RELEASE_TXN"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 led() { "$DIR/ledger.sh" "$@"; }
 digest() { crane digest "$1" 2>/dev/null || crane digest --insecure "$1" 2>/dev/null; }
+manifest() { crane manifest "$1" 2>/dev/null || crane manifest --insecure "$1" 2>/dev/null; }
+content() { manifest "$1" | jq -r 'if (.layers | length) == 1 then .layers[0].digest else "" end'; }
 EXPECT_D="${PACTO_EXPECT_DIGEST:-}"
 EXPECT_R="${PACTO_EXPECT_REVISION:-}"
 EXPECT_V="${PACTO_EXPECT_VERSION:-}"
+EXPECT_C="${PACTO_EXPECT_CONTENT:-}"
 
 recorded="$(led digest "$TXN" "$UNIT")"
 if [ -n "$recorded" ]; then
@@ -54,13 +63,16 @@ fi
 [ -n "$EXPECT_D" ] && led plan "$TXN" "$UNIT" "$EXPECT_D" >/dev/null
 
 # verify-oci exits non-zero (fails us) on conflict.
-state="$("$DIR/verify-oci.sh" "$REF" "$EXPECT_D" "$EXPECT_R" "$EXPECT_V")"
+state="$("$DIR/verify-oci.sh" "$REF" "$EXPECT_D" "$EXPECT_R" "$EXPECT_V" "$EXPECT_C")"
 case "$state" in
   absent)
     "$@"                                       # run the caller's push command
     d="$(digest "$REF")"
     if [ -n "$EXPECT_D" ] && [ "$d" != "$EXPECT_D" ]; then
       echo "::error::$UNIT: pushed digest $d != precomputed expected $EXPECT_D" >&2; exit 1
+    fi
+    if [ -n "$EXPECT_C" ] && [ "$(content "$REF")" != "$EXPECT_C" ]; then
+      echo "::error::$UNIT: published content $(content "$REF") != expected $EXPECT_C" >&2; exit 1
     fi
     led record "$TXN" "$UNIT" "$REF" "$VER" "$d" complete >/dev/null
     echo "$UNIT: published + recorded ($d)" ;;

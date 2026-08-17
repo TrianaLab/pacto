@@ -485,14 +485,20 @@ jobs:
 
   # pacto-publishes: demo-compose
   # The clone-free Compose demo: the canonical acceptance scenario (tests/acceptance/
-  # scenario) projected into a run directory and pushed as ONE OCI layer, so `oras
-  # pull` is the entire install. The demo runs the dashboard image THIS transaction
-  # published, which is why the job depends on it; `always()` keeps a single-unit
-  # recovery runnable on its own, exactly as the final `release` job does.
+  # scenario) projected into ONE compose file and published by Docker Compose
+  # itself, because Compose owns this OCI artifact type — `docker compose publish`
+  # writes it and `docker compose -f oci://…@sha256:…` runs it, with no generic OCI
+  # tool and no install step in between. The demo runs the dashboard image THIS
+  # transaction published, which is why the job depends on it; `always()` keeps a
+  # single-unit recovery runnable on its own, exactly as the final `release` job does.
   #
-  # oras stamps its own layer, so the digest is not knowable before the push. The
-  # unit is therefore adopted the way the buildx images are — by the revision +
-  # version provenance annotations — not by a precomputed content digest.
+  # Compose owns the manifest too, and it stamps org.opencontainers.image.created
+  # into it — so the artifact digest moves between two publishes of identical bytes
+  # and cannot be precomputed — while emitting no revision/version annotations to
+  # adopt by. What it does emit is ONE layer holding the compose file verbatim, so
+  # sha256 of the projected file IS the artifact's content identity. That is what
+  # this unit hands the adapter (PACTO_EXPECT_CONTENT): asserted after the push, and
+  # the crash-window adoption rule.
   demo-compose:
     needs: [detect, ledger-init, dashboard-image]
     if: >-
@@ -514,9 +520,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - name: Install ORAS
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
-      - name: Install crane (provenance adoption reads the manifest annotations)
+      - name: Install Docker Compose (it publishes this unit)
+        uses: docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2 # v2.3.0
+        with:
+          version: v5.5.0
+      - name: Install crane (content adoption reads the published manifest)
         run: |
           go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
@@ -549,30 +557,27 @@ jobs:
           fi
           echo "digest=$d" >> "$GITHUB_OUTPUT"
           echo "demo pins the dashboard image at $d"
-      - name: Project the demo artifact
+      - name: Project the demo application
+        id: project
         env:
           VER: ${{ needs.detect.outputs.core_version }}
         run: |
           go run ./tests/acceptance/scenario/project demo \
-            -dir "$RUNNER_TEMP/demo" \
+            -out "$RUNNER_TEMP/compose.yaml" \
             -pacto-image "ghcr.io/trianalab/pacto/dashboard@${{ steps.image.outputs.digest }}" \
-            -artifact-repo "ghcr.io/trianalab/pacto/demo" \
             -version "$VER"
-      - name: Publish the demo artifact (shared adapter)
+          # The content identity, computed before anything is uploaded: this is the
+          # blob `docker compose publish` puts in the artifact's one layer, so it is
+          # both the post-push assertion and the crash-window adoption key.
+          echo "content=sha256:$(sha256sum "$RUNNER_TEMP/compose.yaml" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Publish the demo application (shared adapter)
         env:
           REF: ghcr.io/trianalab/pacto/demo:${{ needs.detect.outputs.core_version }}
           VER: ${{ needs.detect.outputs.core_version }}
-          SRC: ${{ needs.detect.outputs.source_sha }}
-          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
-          PACTO_EXPECT_REVISION: ${{ needs.detect.outputs.source_sha }}
-          PACTO_EXPECT_VERSION: ${{ needs.detect.outputs.core_version }}
+          PACTO_EXPECT_CONTENT: ${{ steps.project.outputs.content }}
         run: |
           bash release/orchestrator/publish-oci-unit.sh demo-compose "$REF" "$VER" -- \
-            bash -c 'cd "$RUNNER_TEMP/demo" && oras push \
-              --annotation "org.opencontainers.image.revision=$SRC" \
-              --annotation "org.opencontainers.image.version=$VER" \
-              --annotation "org.opencontainers.image.source=$SOURCE_URL" \
-              "$REF" .'
+            docker compose -f "$RUNNER_TEMP/compose.yaml" publish -y "$REF"
 
   # pacto-publishes: k8s-module
   # The nested integration module tag. Needs core-tag: the integration go.mod pins

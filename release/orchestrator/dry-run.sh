@@ -207,12 +207,15 @@ PACTO_RELEASE_TXN="$CRTXN" PACTO_EXPECT_REVISION="$SHA" PACTO_EXPECT_VERSION="$D
 [ -n "$(led digest "$CRTXN" operator-image)" ] || { echo "   FAIL: crash window not recovered"; exit 1; }
 echo "   crash window recovered: remote adopted via provenance + recorded (no re-push)"
 
-echo "== ITEM 3b: the same crash window on the ORAS-pushed demo artifact =="
-# demo-compose is the one unit no builder produces: `oras push` writes provenance
-# into the OCI MANIFEST annotations, not a config Labels block, and its digest is
-# unknowable before the push — so annotation adoption is the ONLY thing standing
-# between a crashed demo publish and a fail-closed conflict. verify-oci reads both
-# places; this proves the one this unit actually depends on.
+echo "== ITEM 3b: the same crash window on the Compose-published demo application =="
+# demo-compose is the one unit no builder produces and the one `docker compose
+# publish` owns: Compose stamps org.opencontainers.image.created into the manifest
+# (so two publishes of identical bytes have different manifest digests) and writes
+# NO revision/version annotation. Neither a precomputed digest nor provenance
+# adoption can fire here. What it does write is one verbatim
+# application/vnd.docker.compose.file+yaml layer, so sha256(the projected file) is
+# the artifact's content identity — and content adoption is the ONLY thing standing
+# between a crashed demo publish and a fail-closed conflict.
 DTXN="dryrun-demo-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$DTXN" "$SHA" "$MSHA" >/dev/null
 
 # The artifact is immutable and pulled by digest, so the images inside it are
@@ -229,12 +232,17 @@ PACTO_RELEASE_TXN="$DTXN" PACTO_EXPECT_REVISION="$SHA" PACTO_EXPECT_VERSION="$DV
 DD="$(led digest "$DTXN" dashboard-image)"
 case "$DD" in sha256:*) ;; *) echo "   FAIL: dashboard-image recorded no digest to pin the demo to"; exit 1;; esac
 
-DEMODIR="$WORK/demo-artifact"
+DEMOFILE="$WORK/demo-compose.yaml"
 DEMOREF="$REG/pacto/demo:$DV"
-( cd "$ROOT" && go run ./tests/acceptance/scenario/project demo -dir "$DEMODIR" \
-    -pacto-image "$REG/pacto/dashboard@$DD" -artifact-repo "$REG/pacto/demo" -version "$DV" >/dev/null )
-grep -q "pacto/dashboard@$DD" "$DEMODIR/compose.yaml" \
+( cd "$ROOT" && go run ./tests/acceptance/scenario/project demo -out "$DEMOFILE" \
+    -pacto-image "$REG/pacto/dashboard@$DD" -version "$DV" >/dev/null )
+grep -q "pacto/dashboard@$DD" "$DEMOFILE" \
   || { echo "   FAIL: the demo does not run the image this transaction published"; exit 1; }
+# The floor is declared by the artifact itself, so nothing here restates a version.
+MINC="$(sed -n 's/^ *minimum-compose-version: *//p' "$DEMOFILE" | tr -d '"' | head -1)"
+HAVEC="$(docker compose version --short 2>/dev/null | sed 's/^v//')"
+[ "$(printf '%s\n%s\n' "$MINC" "$HAVEC" | sort -V | head -1)" = "$MINC" ] \
+  || { echo "   FAIL: this unit is published by 'docker compose publish', which needs Compose >= $MINC; found ${HAVEC:-none}"; exit 1; }
 echo "   demo pinned to the dashboard image this transaction published ($DD)"
 
 # Fail closed, which is the narrowed-recovery case: demo-compose dispatched alone,
@@ -242,21 +250,29 @@ echo "   demo pinned to the dashboard image this transaction published ($DD)"
 # produce an artifact naming an image nothing verified.
 NODIGEST="$(led digest "dryrun-demo-none-$DV" dashboard-image 2>/dev/null || true)"
 [ -z "$NODIGEST" ] || { echo "   FAIL: a transaction that published nothing reported a digest"; exit 1; }
-if ( cd "$ROOT" && go run ./tests/acceptance/scenario/project demo -dir "$WORK/demo-unpinned" \
-      -pacto-image "$REG/pacto/dashboard@$NODIGEST" -artifact-repo "$REG/pacto/demo" -version "$DV" ) >/dev/null 2>&1; then
+if ( cd "$ROOT" && go run ./tests/acceptance/scenario/project demo -out "$WORK/demo-unpinned.yaml" \
+      -pacto-image "$REG/pacto/dashboard@$NODIGEST" -version "$DV" ) >/dev/null 2>&1; then
   echo "   FAIL: the projection accepted an unpinned pacto image"; exit 1
 fi
 echo "   no recorded dashboard-image digest -> no demo artifact (fail closed)"
 
-( cd "$DEMODIR" && oras push --plain-http \
-    --annotation "org.opencontainers.image.revision=$SHA" \
-    --annotation "org.opencontainers.image.version=$DV" \
-    "$DEMOREF" . >/dev/null )   # simulate: artifact pushed, runner died before the record
+# The content key release.yml computes, from the same bytes it publishes.
+if command -v sha256sum >/dev/null 2>&1; then DC="sha256:$(sha256sum "$DEMOFILE" | cut -d' ' -f1)"
+else DC="sha256:$(shasum -a 256 "$DEMOFILE" | cut -d' ' -f1)"; fi
+# simulate: application published by Compose, runner died before the record.
+docker compose -f "$DEMOFILE" publish --insecure-registry -y "$DEMOREF" >/dev/null
 # `-- false` is the assertion: a re-push would run it, and it fails.
-PACTO_RELEASE_TXN="$DTXN" PACTO_EXPECT_REVISION="$SHA" PACTO_EXPECT_VERSION="$DV" \
+PACTO_RELEASE_TXN="$DTXN" PACTO_EXPECT_CONTENT="$DC" \
   adapter demo-compose "$DEMOREF" "$DV" -- false >/dev/null
 [ -n "$(led digest "$DTXN" demo-compose)" ] || { echo "   FAIL: the demo artifact's crash window was not recovered"; exit 1; }
-echo "   demo artifact adopted from its manifest annotations (no re-push)"
+echo "   demo application adopted from its published compose layer $DC (no re-push)"
+# Fail closed on foreign content: same occupied tag, a different projection.
+FTXN="dryrun-demo-foreign-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$FTXN" "$SHA" "$MSHA" >/dev/null
+if PACTO_RELEASE_TXN="$FTXN" PACTO_EXPECT_CONTENT="sha256:$(printf '%064x' 1)" \
+     adapter demo-compose "$DEMOREF" "$DV" -- true >/dev/null 2>&1; then
+  echo "   FAIL: the adapter adopted an application it did not publish"; exit 1
+fi
+echo "   foreign compose content refused (fail closed)"
 
 echo "== PARTIAL FAILURE + RESUME: go tags in an isolated clone =="
 CLONE="$WORK/clone"; git clone -q "$ROOT" "$CLONE"

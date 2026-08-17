@@ -241,11 +241,12 @@ jobs:
       - run: make test-acceptance-kind-${{ matrix.scenario }}
 
   # The same product vertical on the OTHER surface, proved the way a stranger meets
-  # it: the demo artifact is pushed to a local registry, pulled BY DIGEST into an
-  # empty directory OUTSIDE this checkout, and started there. Nothing on the
-  # execution path reads the repository — which is the claim, so it is the test.
-  # Same `e2e` filter as the kind shards: the heavy verticals run for anything that
-  # can change what they prove, plus the nightly schedule + manual dispatch.
+  # it: the demo application is published to a local registry with `docker compose
+  # publish` and then executed straight out of it BY DIGEST. Nothing on the
+  # execution path reads the repository — not even a compose file — which is the
+  # claim, so it is the test. Same `e2e` filter as the kind shards: the heavy
+  # verticals run for anything that can change what they prove, plus the nightly
+  # schedule + manual dispatch.
   ci-e2e-compose:
     needs: changes
     if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -259,8 +260,12 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
-      - name: Install ORAS
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      # A Compose that owns this artifact type. The runner's own version is not a
+      # thing this repository controls, and the floor the demo declares
+      # (scenario.ComposeMinVersion) is what the harness enforces against it.
+      - uses: docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2 # v2.3.0
+        with:
+          version: v5.5.0
       - run: make ci-e2e-compose
 
   release-dry-run:
@@ -288,6 +293,10 @@ jobs:
         # stores + reads the ledger as an OCI artifact via oras — exactly as the
         # production publishers do.
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      # The dry run rehearses the demo-compose unit, which Docker Compose publishes.
+      - uses: docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2 # v2.3.0
+        with:
+          version: v5.5.0
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - run: make release-dry-run
