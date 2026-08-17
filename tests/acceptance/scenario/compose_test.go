@@ -300,6 +300,24 @@ func TestCompose_ScopesItsStateToTheRunDirectory(t *testing.T) {
 	}
 }
 
+// Both images the demo runs ship multi-architecture indexes, so Docker resolves
+// whichever one the host is. A `platform:` key would override that resolution and
+// silently hand an Apple Silicon or arm64 server user an emulated amd64 stack —
+// the plausible "fix" for one arm64 bug, and a permanent tax on everybody else.
+// The demo has no reason to care what it runs on, so it may not say.
+func TestCompose_LetsTheHostArchitectureDecide(t *testing.T) {
+	f := composeFileOf(t, OperationalGraph)
+	services, ok := f["services"].(map[string]any)
+	if !ok {
+		t.Fatal("the projection declares no services")
+	}
+	for _, name := range keysOfAny(services) {
+		if p, pinned := composeSvc(t, f, name)["platform"]; pinned {
+			t.Errorf("%s pins platform %v, so every other architecture runs it emulated", name, p)
+		}
+	}
+}
+
 // After the images are on the host, the demo reaches no registry but the one it
 // starts itself. Every OCI reference in the projection is to that service.
 func TestCompose_ResolvesOnlyAgainstTheRegistryItStarts(t *testing.T) {
