@@ -110,7 +110,8 @@ func TestDemoComposeRefusesToPublishWithoutTheDigest(t *testing.T) {
 	_, runs := demoComposeJob(t, root)
 
 	// The guard has to live in the same shell that reads the digest: a later
-	// check would run after `oras push` in the recovery orderings that matter.
+	// check would run after `docker compose publish` in the recovery orderings
+	// that matter.
 	var guarded bool
 	for _, step := range strings.Split(runs, "ledger.sh digest")[1:] {
 		body := step
