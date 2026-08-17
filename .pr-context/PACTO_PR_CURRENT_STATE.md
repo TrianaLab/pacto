@@ -3520,3 +3520,238 @@ runtime abstraction, no new dependency, no second fixture.
   weakened.
 - Append-only history: no rebase, amend, reset, force-push or rewrite.
 - Phase 10B ends as CANDIDATE. A phase is closed by review, not by its author.
+
+## 15.1 Phase 10B implementation — CANDIDATE at `b91e534d`
+
+Phase 10B is implemented. It remains a CANDIDATE: a phase is closed by review,
+not by its author. `PACTO_PR_TARGET_STATE.md` is untouched.
+
+### Commits appended, in order
+
+| SHA | Subject |
+|---|---|
+| `589a672c` | docs: Phase 10 closed at f2a181b1, Phase 10B opened |
+| `da3093c2` | test(acceptance): the canonical scenario grows a second surface |
+| `2450a11d` | fix(scenario): the demo's state belongs to the directory it runs in |
+| `4fb70daf` | test(acceptance): the Compose demo, proved the way a stranger meets it |
+| `724da131` | build(release): the demo artifact is a release unit |
+| `92cd9e10` | test(release): the dry run proves the demo artifact's crash window too |
+| `8f8a6060` | test(scenario): the demo may not choose the host's architecture for it |
+| `10dd6c36` | fix(e2e-live): journey C enters through the list the surface actually fills |
+| `b91e534d` | fix(demo): the run directory has to be readable by the user the demo runs as |
+
+Starting point `f2a181b1`. 41 files, +3046 / -77. No rebase, amend, reset,
+force-push or rewrite: the branch is append-only from `f2a181b1` to `b91e534d`.
+
+### The canonical model, and the two projections over it
+
+`tests/acceptance/scenario` still holds exactly ONE demo fixture, the Phase-8B
+value `OperationalGraph`. Phase 10B adds no second fixture and no framework.
+
+- **`surface.go` — the platform difference, declared as data.** `Surface` and
+  `Capability`: `SurfaceKubernetes` provides `CapabilityOperationalTarget`,
+  `SurfaceCompose` provides nothing, and `Missing()` names the gap. `FactCount`
+  became surface-aware and subtracts the facts that depend on a capability the
+  surface does not have. Nothing anywhere branches on a platform name; every
+  consumer asks the model what the surface provides.
+- **`helm.go` — the Kubernetes projection.** The observation `--set` strings the
+  Kind harness used to build inline moved onto the scenario. Two consumers, the
+  harness and the parity test, which is what rule 2 of
+  `docs/maintainers/testing.md` requires before a projection may exist. The Helm
+  surface is otherwise untouched.
+- **`compose.go` — the Compose projection.** A sibling over the same value,
+  emitting `compose.yaml`, `.env` and the fixture data. Four services: the
+  registry, the Evidence Server, a one-shot seed and the dashboard, wired with
+  health checks and `depends_on` conditions.
+- **`digest.go` — the digests the evidence payloads pin.** Computed from the
+  bundle bytes with `oci.BundleImage`, so the shipped envelopes reference content
+  that exists before any registry does.
+- **`parity_test.go` — the comparison.** Both projections express the same
+  scenario, and the ONLY divergence is the declared capability.
+
+### The artifact, and what identifies it
+
+`go run ./tests/acceptance/scenario/project demo -dir …` renders a run
+directory; `oras push <ref> .` turns that directory into ONE tar+gzip layer.
+14 files: `compose.yaml`, `.env`, `plan.tsv`, `seed.sh`, `README.md` and the
+bundle directories the plan publishes.
+
+The digest the registry assigns is the identity; the tag is the convenience. The
+acceptance run publishes two versions, records both digests, asserts they differ
+and materializes by `@sha256:…`, never by tag.
+
+`plan.tsv` is the whole imperative surface: `seed.sh` reads it field by field,
+checks every record's arity, and never sources or evaluates it. No service name,
+repository, tag, subject, sequence or producer is written in the script, so the
+demo cannot describe a fixture different from the one CI proves.
+
+### Distribution: one publisher, no second system
+
+`demo-compose` is a release unit (`release/units/demo-compose/package.json`,
+coordinate `ghcr.io/trianalab/pacto/demo`), on the core line, published by ONE
+job carrying `# pacto-publishes: demo-compose` through the SAME
+`release/orchestrator/publish-oci-unit.sh` adapter every other OCI unit uses.
+Integrity, provenance, immutability, the ledger and the one-publisher policy are
+inherited, not re-invented.
+
+`oras push` is not byte-deterministic and stamps its own layer, so the digest is
+unknowable before the push. The unit is therefore adopted the way the buildx
+images are: by the `org.opencontainers.image.revision` and `.version`
+annotations, which `verify-oci.sh` reads from the OCI manifest when there is no
+docker config Label. `dry-run.sh` ITEM 3b proves that path end to end — push the
+artifact, lose the runner before the ledger record, then re-run the adapter with
+`-- false` as the assertion that no re-push happens, and watch it adopt.
+
+### The claims, and where each is proved
+
+`tests/acceptance/local/compose-demo.sh`, eleven stages, no `sleep` anywhere:
+
+| Claim | Stage |
+|---|---|
+| the run directory is outside the checkout, and empty | 0 |
+| the demo pins the REAL production image | 1 |
+| two pinned versions, two different digests | 3 |
+| materialized BY DIGEST, byte-identical to what was pushed | 4 |
+| no key, token or password in the artifact | 5 |
+| observed readiness (`up -d --wait`), and the only bind mount is the run directory | 6 |
+| the live Product API proves the canonical fixture on this surface | 7 |
+| the documented browser journeys work on the pulled demo | 7 (`browser`) |
+| restart persistence: a re-push is a no-op, a replayed envelope is a 409 | 8 |
+| offline after the pull: fresh volumes, `--pull never` | 9 |
+| upgrade: two pinned versions running at once on their own ports | 10 |
+| cleanup leaves no container, no volume, nothing but the pulled images | 11 |
+
+Nothing under the checkout is on the execution path. What runs from the checkout
+is the JUDGE — the Product gate and the browser suite — talking to the demo over
+HTTP, exactly as an outside observer would.
+
+### Secrets, ports, readiness
+
+- **Secrets: none.** The Evidence Server mints its own keypair at first start
+  into a volume. Stage 5 greps the pulled tree for key material and key file
+  names and fails on either.
+- **Ports.** Deterministic defaults in `.env`, overridable by environment. Stage
+  10 runs two versions at once on different ports and checks the first is still
+  serving, which is the same claim observed rather than asserted.
+- **Readiness.** Docker health checks and `depends_on` conditions; `--wait` is
+  the clock. The dashboard starts only after the seed has completed
+  successfully, so the first snapshot a user sees is not an empty fleet.
+- **Project identity.** The Compose file pins no `name:`, so the project name
+  comes from the run directory. That is what makes two pulled versions
+  independent rather than one overwriting the other.
+
+### Two failures found by running it, and what they were
+
+Neither was found by reading. Both are recorded because the fix is only half the
+evidence.
+
+1. **Journey C entered through a list the Compose surface does not fill.** The
+   first live browser run against the pulled demo failed journey C on a 60s
+   locator timeout: it reached for "Revisions in use", which means "matched to a
+   running target", on a surface that declares no operational target. The
+   product already handles this — it opens "All revisions" in its place — so the
+   journey was reporting an absent controller as a broken revision page. The
+   entry path now follows the declared capability, the way journey D's skip
+   already does; every assertion is unchanged and still runs on both surfaces.
+   After: 7 passed, 1 skipped naming the missing capability, 0 failed. On
+   Kubernetes the path is byte-for-byte the one the Kind vertical proves, which
+   the local `test-acceptance-kind-operational-graph` run confirms with 8/8.
+2. **The run directory's mode.** CI went red where local was green, which is the
+   whole difference between the machines: Docker Desktop virtualizes bind-mount
+   ownership and Linux does not. The containers run as the image's non-root
+   `pacto` user, the acceptance script created the run directory with
+   `mktemp -d` (0700), and on Linux busybox could not open the seed script —
+   `can't open '<script>': Permission denied`, exit 2, reproduced directly. The
+   script now creates the directory at 0755, which is what `mkdir pacto-demo`
+   under a normal umask gives the user the documented journey describes. The
+   artifact README and the docs page state the requirement and the one-line fix.
+   `up_or_dump` now prints `compose ps -a` and every container log on a failed
+   bring-up, because the original failure arrived as one line and nothing else.
+
+### Mutation evidence (every mutation reverted, and verified reverted)
+
+| Mutation | What bit |
+|---|---|
+| remove `# pacto-publishes: demo-compose` | `TestExactlyOnePublisherPerUnit`: `release unit "demo-compose" has NO publisher` |
+| add a second `oras push …/demo:sneaky` to ci.yml | `TestNoDuplicateRegistryCoordinate` fails for `demo-compose` AND `demo-bundles` |
+| add a `platform:` field to `composeService` | `TestCompose_LetsTheHostArchitectureDecide` fails on evidence, seed and dashboard |
+| wrong revision annotation on a pushed artifact | `verify-oci.sh` answers `conflict`, exit 3 (matching pair answers `adopt`; no annotations answers `conflict`) |
+
+Two more counterexamples were produced by the work itself rather than staged:
+run `32031872043`'s first `ci-e2e-compose` attempt failed on the 0700 directory,
+and the first live browser run failed journey C. Both are the counterfactual for
+the fix that followed.
+
+### Local verification at `b91e534d`
+
+| Command | Result |
+|---|---|
+| `make ci` | pass (incidental helm-docs README drift reverted, not committed) |
+| `make lint` | pass |
+| `make test-browser` | 219 passed |
+| `make test-browser-compose` | 11 stages pass; 7 journeys passed, 1 skipped, 0 failed |
+| `make test-acceptance-kind-operational-graph` | pass, 14 facts, 8/8 live journeys |
+| `make test-acceptance-kind-dashboard` / `-upgrade` / `-reconcile` | pass |
+| `make test-acceptance-kind-evidence` / `-observation` | pass on a rerun; the first attempt failed on a local port-forward that never answered, with four leftover kind clusters competing for this workstation |
+| `make artifact-drift` | OK |
+| `make release-dry-run` | `RELEASE-DRY-RUN OK`, including ITEM 3b and 10/10 parallel records |
+| `node --test release/orchestrator/*.test.mjs` | 16/16 |
+| `git diff --check` | clean |
+
+### GitHub state at `b91e534d`
+
+| Run | Workflow | Conclusion |
+|---|---|---|
+| `32031872043` | CI | success |
+| `32031871745` | Pacto Contract CI | success |
+| `32031871987` | Security | success |
+| `32031871741` | Docs check | success |
+| `32031871734` | Repowise (architecture health) | success |
+| `32031871992` | Validate PR title | success |
+| `32031871959` | Rebuild dashboard UI | skipped |
+| `32031872055` | Auto-merge Dependabot PRs | skipped |
+
+Every CI job green, including all six Kind shards and the new `ci-e2e-compose`
+leg, `required`, `release-dry-run` and `artifact-drift`. `ci-e2e-kind (upgrade)`
+failed once on `kindload: … is not present after loading it` and passed on
+rerun with no code change; the same scenario passes locally. One observation is
+not a pattern, so nothing was changed for it — it is recorded here so a second
+occurrence is recognised as a pattern rather than met fresh.
+
+CodeQL analyses (`Analyze (go)`, `(javascript-typescript)`, `(python)`,
+`(actions)`) all succeeded. The aggregate `CodeQL` check is red for the same
+reason section 14.1 records: it summarizes open alerts, and there are nine, all
+inherited.
+
+### CodeQL delta introduced by Phase 10B: zero
+
+The nine open alerts at `b91e534d` are the same nine numbers, rules and
+locations as at `f2a181b1`: `#38` `py/incomplete-url-substring-sanitization` in
+`release/scripts/docs_check.py:197`, `#40`–`#43` `go/path-injection` in
+`internal/app/resolve.go`, `#59`–`#62` `go/path-injection` in `pkg/oci/cache.go`.
+Nothing added, nothing removed. They were re-queried at this SHA rather than
+inherited as work, exactly as the carry-out in section 14.1 requires.
+
+### Review threads at `b91e534d`
+
+199 threads, fully paginated (page one caps at 100 and hides every unresolved
+one). 10 unresolved, all bot-authored and all inherited: five
+`github-code-quality` findings on the committed mermaid asset bundle
+`pkg/dashboard/ui/assets/ganttDiagram-*.js`, and four
+`github-advanced-security` CodeQL path-expression notices on `pkg/oci/cache.go`,
+which are four of the nine alerts above. No human review thread is unresolved
+and Phase 10B opened none.
+
+### Carried out of Phase 10B, unchanged
+
+- The nine inherited CodeQL alerts. Re-queried here, delta zero, still not this
+  phase's work.
+- The `release/orchestrator/verify-k8s-standalone.sh` description warning,
+  carried to Phase 14. Phase 10B did not touch that gate and did not repair it
+  as a tidy-up.
+
+### Phase 10B verdict
+
+CANDIDATE. Not closed, not self-declared. Phase 11 is not started, no PR comment
+was published, no review thread was resolved, no PR metadata was changed and the
+PR remains a draft.
