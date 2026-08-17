@@ -106,16 +106,26 @@ DENIED_BR=""
 
 # deny_egress BRIDGE — refuse every packet that leaves the demo's own network.
 #
-# In DOCKER-USER, which is the one FORWARD hook Docker guarantees it will not
-# rewrite, keyed to this project's bridge: in on it and out somewhere else is
-# refused, in on it and out on it is untouched, so the four services keep talking
-# to each other. REJECT rather than DROP because a demo that fails should fail in
-# seconds with a connection error, not hang until something times out.
+# Two chains, because a packet leaving the demo can leave by two paths and only
+# one of them is forwarding:
 #
-# The ESTABLISHED,RELATED accept comes first and is not decoration: where Docker
-# publishes ports with DNAT (Linux, so CI), the reply leg of a host->published
-# connection is also "in on the bridge, out somewhere else", and dropping it
-# would take away the host access the boundary explicitly keeps.
+#   FORWARD, via DOCKER-USER — the one FORWARD hook Docker guarantees it will not
+#   rewrite. In on this project's bridge and out somewhere else is refused; in on
+#   it and out on it is untouched, so the four services keep talking.
+#
+#   INPUT — a packet addressed to the HOST ITSELF is delivered locally and never
+#   reaches FORWARD. On Linux `host-gateway` is a host address, so DOCKER-USER
+#   alone leaves the demo able to reach everything the machine publishes, which
+#   is most of what "outside" means to a container. Refused by ingress interface,
+#   so it covers every host address rather than the one the probe happened to use.
+#
+# REJECT rather than DROP because a demo that fails should fail in seconds with a
+# connection error, not hang until something times out.
+#
+# The ESTABLISHED,RELATED accept comes first in both chains and is not
+# decoration: where Docker publishes ports with DNAT (Linux, so CI), the reply
+# leg of a host->published connection arrives on the bridge headed for the host,
+# and dropping it would take away the host access the boundary explicitly keeps.
 #
 # This is a HARNESS mechanism. The shipped compose file is not touched, and in
 # particular nothing here makes the network `internal:` — that was tried, and it
@@ -141,15 +151,21 @@ deny_egress() {
 		ip link show '$1' >/dev/null
 		\$ipt -I DOCKER-USER 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 		\$ipt -I DOCKER-USER 2 -i '$1' ! -o '$1' -j REJECT
+		\$ipt -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+		\$ipt -I INPUT 2 -i '$1' -j REJECT
 	" || fail "could not deny the demo's egress on $1 — without it stage 10 would prove only that Docker pulled no images"
 	DENIED_BR="$1"
 }
 
 allow_egress() {
 	[ -n "$DENIED_BR" ] || return 0
+	# Each deletion tolerated on its own: a rule that is already gone must not
+	# stop the shell before it removes the ones that are still there.
 	netfilter "
-		\$ipt -D DOCKER-USER -i '$DENIED_BR' ! -o '$DENIED_BR' -j REJECT
-		\$ipt -D DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+		\$ipt -D INPUT -i '$DENIED_BR' -j REJECT || true
+		\$ipt -D INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT || true
+		\$ipt -D DOCKER-USER -i '$DENIED_BR' ! -o '$DENIED_BR' -j REJECT || true
+		\$ipt -D DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT || true
 	" 2>/dev/null || true
 	DENIED_BR=""
 }

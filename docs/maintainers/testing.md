@@ -257,9 +257,15 @@ available because the dashboard, Evidence Server and embedded registry must
 communicate with each other.* `docker compose up --pull never` on its own proves
 only the first four words of that, on a runner that still has the whole Internet
 and still has the registry the artifact came from. So stage 10 removes both: the
-artifact-distribution registry is stopped, and a `DOCKER-USER` rule keyed to the
-project's own bridge refuses anything that leaves it. The rule goes in between
-`docker compose create` and `up`, which is the only window where it precedes the
+artifact-distribution registry is stopped, and rules keyed to the project's own
+bridge refuse anything that leaves it. Two chains, because a packet leaving the
+demo can leave by two paths: `DOCKER-USER` for what the host forwards, and
+`INPUT` for what is addressed to the host itself — on Linux `host-gateway` is a
+host address, so a FORWARD rule alone still lets the demo reach everything the
+machine publishes, which is most of what "outside" means to a container. An
+`ESTABLISHED,RELATED` accept goes ahead of both so the reply leg of a
+host-to-published-port connection survives. The rules go in between
+`docker compose create` and `up`, which is the only window where they precede the
 one-shot `seed`'s first packet. Then the stack starts from empty volumes, the
 Product gate and the live browser journeys run against it, and a counterexample
 redirects `seed` at an endpoint outside the network and requires the bring-up to
