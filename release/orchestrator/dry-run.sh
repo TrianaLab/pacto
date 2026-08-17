@@ -185,7 +185,7 @@ i=0
 for u in $CUNITS; do i=$((i+1)); led record "$CTX" "$u" "coord/$u" "1.0.0" "sha256:$(printf '%064x' $((i*7)))" complete >/dev/null 2>&1 & done
 wait
 n=0; for u in $CUNITS; do [ "$(led status "$CTX" "$u")" = complete ] && n=$((n+1)) || echo "   LOST $u"; done
-u=$(printf '%s\n' $CUNITS | wc -l | tr -d ' ')
+u=$(printf '%s' "$CUNITS" | wc -w | tr -d ' ')
 [ "$n" -eq "$u" ] || { echo "   FAIL: parallel records lost $((u-n)) unit(s)"; exit 1; }
 echo "   $n/$u parallel records survived (no lost updates), attributable to $CTX"
 led record "$CTX" core "coord/core" 1.0.0 "sha256:$(printf '%064x' 7)" complete >/dev/null 2>&1 \
@@ -206,6 +206,27 @@ PACTO_RELEASE_TXN="$CRTXN" PACTO_EXPECT_REVISION="$SHA" PACTO_EXPECT_VERSION="$D
   adapter operator-image "$CRIMG" "$DV" -- false >/dev/null
 [ -n "$(led digest "$CRTXN" operator-image)" ] || { echo "   FAIL: crash window not recovered"; exit 1; }
 echo "   crash window recovered: remote adopted via provenance + recorded (no re-push)"
+
+echo "== ITEM 3b: the same crash window on the ORAS-pushed demo artifact =="
+# demo-compose is the one unit no builder produces: `oras push` writes provenance
+# into the OCI MANIFEST annotations, not a config Labels block, and its digest is
+# unknowable before the push — so annotation adoption is the ONLY thing standing
+# between a crashed demo publish and a fail-closed conflict. verify-oci reads both
+# places; this proves the one this unit actually depends on.
+DEMODIR="$WORK/demo-artifact"
+DEMOREF="$REG/pacto/demo:$DV"
+( cd "$ROOT" && go run ./tests/acceptance/scenario/project demo -dir "$DEMODIR" \
+    -pacto-image "$REG/pacto/dashboard:$DV" -artifact-repo "$REG/pacto/demo" -version "$DV" >/dev/null )
+( cd "$DEMODIR" && oras push --plain-http \
+    --annotation "org.opencontainers.image.revision=$SHA" \
+    --annotation "org.opencontainers.image.version=$DV" \
+    "$DEMOREF" . >/dev/null )   # simulate: artifact pushed, runner died before the record
+DTXN="dryrun-demo-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$DTXN" "$SHA" "$MSHA" >/dev/null
+# `-- false` is the assertion: a re-push would run it, and it fails.
+PACTO_RELEASE_TXN="$DTXN" PACTO_EXPECT_REVISION="$SHA" PACTO_EXPECT_VERSION="$DV" \
+  adapter demo-compose "$DEMOREF" "$DV" -- false >/dev/null
+[ -n "$(led digest "$DTXN" demo-compose)" ] || { echo "   FAIL: the demo artifact's crash window was not recovered"; exit 1; }
+echo "   demo artifact adopted from its manifest annotations (no re-push)"
 
 echo "== PARTIAL FAILURE + RESUME: go tags in an isolated clone =="
 CLONE="$WORK/clone"; git clone -q "$ROOT" "$CLONE"
