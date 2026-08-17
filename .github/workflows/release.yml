@@ -526,13 +526,36 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the dashboard image this transaction published
+        id: image
+        run: |
+          # The demo artifact is immutable and pulled by digest, so the images it
+          # runs have to be pinned the same way — a tag here would let one demo
+          # digest execute different bytes after the tag moved. The digest comes
+          # from the LEDGER, which is where publish-oci-unit.sh recorded what
+          # `dashboard-image` actually published (the multi-arch INDEX digest
+          # `imagetools create` assembled). No second store and no second adapter:
+          # the same ledger.sh every other unit reads, which is also why a
+          # single-unit recovery dispatch — where no job output survives — still
+          # resolves the right image.
+          #
+          # Fail closed. If this transaction has no recorded dashboard-image
+          # digest, the demo would pin an image nothing in this release verified,
+          # and a narrowed recovery must not publish that.
+          d="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" dashboard-image)"
+          if ! [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::transaction $PACTO_RELEASE_TXN records no dashboard-image digest (got '${d:-<empty>}') — refusing to publish a demo artifact pinned to an unverified image"
+            exit 1
+          fi
+          echo "digest=$d" >> "$GITHUB_OUTPUT"
+          echo "demo pins the dashboard image at $d"
       - name: Project the demo artifact
         env:
           VER: ${{ needs.detect.outputs.core_version }}
         run: |
           go run ./tests/acceptance/scenario/project demo \
             -dir "$RUNNER_TEMP/demo" \
-            -pacto-image "ghcr.io/trianalab/pacto/dashboard:$VER" \
+            -pacto-image "ghcr.io/trianalab/pacto/dashboard@${{ steps.image.outputs.digest }}" \
             -artifact-repo "ghcr.io/trianalab/pacto/demo" \
             -version "$VER"
       - name: Publish the demo artifact (shared adapter)

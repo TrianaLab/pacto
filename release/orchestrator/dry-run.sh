@@ -213,15 +213,45 @@ echo "== ITEM 3b: the same crash window on the ORAS-pushed demo artifact =="
 # unknowable before the push — so annotation adoption is the ONLY thing standing
 # between a crashed demo publish and a fail-closed conflict. verify-oci reads both
 # places; this proves the one this unit actually depends on.
+DTXN="dryrun-demo-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$DTXN" "$SHA" "$MSHA" >/dev/null
+
+# The artifact is immutable and pulled by digest, so the images inside it are
+# pinned by digest too, and the pin comes from the ledger record dashboard-image
+# left behind — not from a tag the release itself moves. Publishing a stand-in
+# through the SAME adapter, then reading the digest back the way release.yml
+# does, is what makes this a proof of the production path rather than of a
+# hand-written string.
+DASHREF="$REG/pacto/dashboard:$DV"
+printf 'FROM busybox\nLABEL org.opencontainers.image.revision=%s\nLABEL org.opencontainers.image.version=%s\n' "$SHA" "$DV" \
+  | DOCKER_BUILDKIT=0 docker build -q -t "$DASHREF" - >/dev/null
+PACTO_RELEASE_TXN="$DTXN" PACTO_EXPECT_REVISION="$SHA" PACTO_EXPECT_VERSION="$DV" \
+  adapter dashboard-image "$DASHREF" "$DV" -- docker push "$DASHREF" >/dev/null
+DD="$(led digest "$DTXN" dashboard-image)"
+case "$DD" in sha256:*) ;; *) echo "   FAIL: dashboard-image recorded no digest to pin the demo to"; exit 1;; esac
+
 DEMODIR="$WORK/demo-artifact"
 DEMOREF="$REG/pacto/demo:$DV"
 ( cd "$ROOT" && go run ./tests/acceptance/scenario/project demo -dir "$DEMODIR" \
-    -pacto-image "$REG/pacto/dashboard:$DV" -artifact-repo "$REG/pacto/demo" -version "$DV" >/dev/null )
+    -pacto-image "$REG/pacto/dashboard@$DD" -artifact-repo "$REG/pacto/demo" -version "$DV" >/dev/null )
+grep -q "pacto/dashboard@$DD" "$DEMODIR/compose.yaml" \
+  || { echo "   FAIL: the demo does not run the image this transaction published"; exit 1; }
+echo "   demo pinned to the dashboard image this transaction published ($DD)"
+
+# Fail closed, which is the narrowed-recovery case: demo-compose dispatched alone,
+# with nothing in this transaction having published a dashboard image. It must not
+# produce an artifact naming an image nothing verified.
+NODIGEST="$(led digest "dryrun-demo-none-$DV" dashboard-image 2>/dev/null || true)"
+[ -z "$NODIGEST" ] || { echo "   FAIL: a transaction that published nothing reported a digest"; exit 1; }
+if ( cd "$ROOT" && go run ./tests/acceptance/scenario/project demo -dir "$WORK/demo-unpinned" \
+      -pacto-image "$REG/pacto/dashboard@$NODIGEST" -artifact-repo "$REG/pacto/demo" -version "$DV" ) >/dev/null 2>&1; then
+  echo "   FAIL: the projection accepted an unpinned pacto image"; exit 1
+fi
+echo "   no recorded dashboard-image digest -> no demo artifact (fail closed)"
+
 ( cd "$DEMODIR" && oras push --plain-http \
     --annotation "org.opencontainers.image.revision=$SHA" \
     --annotation "org.opencontainers.image.version=$DV" \
     "$DEMOREF" . >/dev/null )   # simulate: artifact pushed, runner died before the record
-DTXN="dryrun-demo-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$DTXN" "$SHA" "$MSHA" >/dev/null
 # `-- false` is the assertion: a re-push would run it, and it fails.
 PACTO_RELEASE_TXN="$DTXN" PACTO_EXPECT_REVISION="$SHA" PACTO_EXPECT_VERSION="$DV" \
   adapter demo-compose "$DEMOREF" "$DV" -- false >/dev/null
