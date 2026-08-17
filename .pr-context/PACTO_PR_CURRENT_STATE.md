@@ -4014,3 +4014,88 @@ CANDIDATE. Not closed, not self-declared. Phase 11 is not started, no PR comment
 was published, no review thread was resolved, no PR metadata was changed, the PR
 remains an open draft, and `PACTO_PR_TARGET_STATE.md` was not altered by this
 repair.
+
+## 15.3 Independent review at `430b2159` — one blocker remains
+
+The independent review accepts blocker A and most of blocker B, but does not
+close Phase 10B. One falsifiable gap remains in the permanent proof of the
+network boundary. Phase 10C is defined in TARGET and in its design document but
+is not started.
+
+### Repository and GitHub state independently verified
+
+- PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE; its remote head is
+  exactly `430b2159e96494f9b2f034edd03b3ed3382a5101` on
+  `feat/operational-graph-fleet`.
+- `84435c23` is an ancestor of that head. The range is the eight linear commits
+  recorded in 15.2, including the separate documentation-only `40a1f0ae`; no
+  parent changed and no rebase, amend, squash or force-push is present.
+- Blocker A is accepted. Both image options are refused at the projection unless
+  they are exact lower-case `sha256` digest references; the production demo
+  reads the dashboard-image digest from the release ledger and fails closed
+  without it; the dry run exercises the same path. The default registry
+  reference is the multi-platform index, and the Compose projection emits
+  neither rewritten references nor a `platform` override.
+- The final CI run `32047603367` is success on attempt 1. All twenty jobs are
+  green, including `ci-e2e-compose` `95439062238`, all six Kind shards,
+  `release-dry-run`, `artifact-drift` and `required`. The Compose log shows the
+  isolated stage starting from empty volumes, the registry stopped, 12 Product
+  facts, both browser legs and the redirected dependency failing. Security
+  `32047603288`, Docs check `32047603265`, Pacto Contract CI `32047603280`,
+  Repowise `32047603418` and title validation `32047603453` are also success.
+- Code scanning still has the same nine inherited alerts: `#38`, `#40`-`#43`
+  and `#59`-`#62`; this range touches none of their three files. The aggregate
+  CodeQL summary remains red and the analyses themselves succeed.
+- Review threads were fully paginated: 199 total, 189 resolved and 10
+  unresolved. All ten are inherited bot threads: six on the generated Mermaid
+  bundle and four CodeQL path-expression threads in `pkg/oci/cache.go`.
+- Focused independent checks pass: the scenario race suite, the release suite,
+  shellcheck, gofmt and `git diff --check`. The tracked tree is clean; only the
+  four pre-existing local agent paths are untracked.
+
+### Accepted portion of blocker B
+
+The repair correctly distinguishes the host-local path from forwarded traffic.
+`INPUT` is necessary for `host-gateway`, `DOCKER-USER` is the Docker-supported
+FORWARD hook, replies to published ports are preserved by an
+`ESTABLISHED,RELATED` rule, the artifact registry is stopped, startup uses empty
+volumes and `--pull never`, internal service communication and host access are
+observed, and the Product gate plus live browser journeys run against the
+isolated stack. The documentation now states the same bounded claim as the
+harness.
+
+### Remaining blocker — the FORWARD arm is asserted, not proved to bite
+
+Every external control currently uses `pacto-outside:host-gateway`. On Linux
+that destination is local to the host, so those packets traverse `INPUT`, never
+FORWARD or `DOCKER-USER`. The post-filter control and the redirected-seed
+counterexample use that same address. Consequently this mutation leaves the
+whole stage green:
+
+1. keep the two `INPUT` rules;
+2. remove only the `DOCKER-USER` `ESTABLISHED,RELATED` and bridge-egress rules;
+3. run stage 10 unchanged.
+
+The host-gateway probe is still rejected by `INPUT`; the stack needs only its
+private network; the Product and browser gates still pass; and the redirected
+seed still fails at `INPUT`. But ordinary Internet-bound traffic is now
+forwarded out of the bridge. The test therefore does not permanently establish
+the larger claim that every route out is refused, and a future regression of
+the FORWARD arm would be reported as offline success.
+
+Closure requires two discriminating controls, both reachable before isolation
+and both refused afterwards: one host-local path that proves `INPUT`, and one
+genuinely forwarded path that proves `DOCKER-USER`. They must have independent
+mutation proof: removing either arm alone makes the acceptance fail for that
+arm. Prefer a deterministic local endpoint over a public Internet dependency;
+reuse the existing throwaway registry if it can be reached through a distinct
+forwarded route. Preserve the accepted boundary, the existing live Product and
+browser proof, the exact documentation claim and all blocker-A work. Do not add
+a generic networking framework.
+
+### Verdict
+
+**Phase 10B remains CANDIDATE.** Blocker A is CLOSED. Blocker B is narrowed to
+the missing FORWARD/`DOCKER-USER` discriminator above. Phase 10C must not start
+until an append-only repair is independently reviewed and this counterexample
+is closed.
