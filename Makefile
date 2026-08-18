@@ -14,6 +14,7 @@ endif
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
 .PHONY: build test test-integration test-acceptance-local test-acceptance-compose \
+        test-acceptance-compose-selftest \
         test-browser test-browser-live test-browser-compose \
         e2e demo-fleet coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
@@ -80,6 +81,13 @@ test-acceptance-local:
 # build the image.
 test-acceptance-compose:
 	bash tests/acceptance/local/compose-demo.sh
+
+# That harness runs privileged in the host's network namespace, so the property
+# that it only ever destroys what it itself created is one the machine it runs on
+# depends on. Cheap (no demo, no images) and first, because the acceptance is the
+# thing being trusted.
+test-acceptance-compose-selftest:
+	bash tests/acceptance/local/compose-demo.sh selftest
 
 # Compatibility aliases for the pre-Phase-8B names. Temporary: they exist so
 # muscle memory and any out-of-tree caller keep working, not as second names.

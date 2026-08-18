@@ -59,7 +59,12 @@ ci-engine: ci-test test-integration test-acceptance-local
 # leg on. The Playwright run costs a couple of minutes on top of a bring-up that
 # already happened, and the demo's claim is that the DASHBOARD works — proving only
 # the JSON API would leave the part users actually look at untested on this surface.
-ci-e2e-compose: test-browser-compose
+#
+# The selftest goes first and is separate: it proves the harness only destroys
+# resources it created itself, which is a property of the harness rather than of
+# the demo, and it costs seconds. Running it after the acceptance would mean
+# learning that the privileged script is unsafe only once it had already run.
+ci-e2e-compose: test-acceptance-compose-selftest test-browser-compose
 
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui
