@@ -255,6 +255,14 @@ run_owned() {
 # comes from having found the names holding nothing at all first — which is also
 # the preflight the demo run needs anyway, since a leftover project would answer
 # every health check below.
+#
+# "Holding nothing" has to mean every class that `down -v --remove-orphans`
+# removes, not the classes a demo happens to leave behind. It removes three:
+# containers, named volumes and networks. The network is the one that can be
+# there alone — `up` creates it before anything else and `down` without `-v`
+# leaves it — so a claim that reads only the first two calls a project that is
+# nothing BUT a network empty, arms the trap over it, and deletes a network this
+# invocation never made. The loop below therefore ends with no class unread.
 claim_projects() {
 	local p
 	for p in "$@"; do
@@ -262,7 +270,11 @@ claim_projects() {
 			fail "project $p already has containers; run \`docker compose -p $p down -v\` first"
 		[ -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$p")" ] ||
 			fail "project $p already has volumes; run \`docker compose -p $p down -v\` first"
+		[ -z "$(docker network ls -q --filter "label=com.docker.compose.project=$p")" ] ||
+			fail "project $p already has networks; run \`docker compose -p $p down -v\` first"
 	done
+	# One assignment after the whole loop, so the authority is all or nothing: a
+	# refusal on the second name must not leave the first one armed.
 	OWNED_PROJECTS="$*"
 }
 
