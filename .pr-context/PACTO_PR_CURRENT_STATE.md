@@ -5726,3 +5726,156 @@ each proved to bite by its own mutation, and the maintainer wording now matches
 the implementation. Everything section 15.9 accepted stays accepted and
 untouched. The next step is an independent review of `bec4cb33` — not a closure
 by its author. Phase 10C and Phase 11 were not started.
+
+## 15.11 Independent review at `bec4cb33` — Phase 10B ACCEPTED and CLOSED
+
+Reviewed independently on 2026-08-18. The network-only project counterexample
+from section 15.9 is closed. The accepted native Compose artifact identity,
+digest pins, clone-free execution, two-hook network boundary, canonical
+scenario projections, browser/Product journeys and earlier ownership repairs
+remain intact. No Phase 10B blocker remains.
+
+### Repository and GitHub state independently verified
+
+- PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE on
+  `feat/operational-graph-fleet`. The implementation independently reviewed is
+  exactly `bec4cb33c5ffe09acfbeb97a66f6efed3ce3dc9e`; the branch head carrying
+  its author-written candidate record is
+  `7ae07d237c16ab6bb00b3f97562e8499a571dab3`. `origin/main` and the merge-base
+  remain `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+- `c8626030` is an ancestor of `7ae07d23`. The range is exactly the four linear
+  append-only commits in section 15.10, each parented on the previous one. No
+  merge, rebase, amend, reset, squash, force-push or rewritten parent was found.
+  `PACTO_PR_TARGET_STATE.md` is untouched.
+- Exact implementation-SHA CI `32134424578` is success on attempt 1. All 21
+  jobs are green, including `ci-e2e-compose` `95702439336`,
+  `release-dry-run` `95702439352`, all six Kind shards and `required`
+  `95706665808`. Security `32134424527`, Docs check `32134424552`, Pacto
+  Contract CI `32134424516`, Repowise `32134424525`, title validation
+  `32134424600`, Code Quality `32134419825` and PR review `32134419938` are
+  success. Ledger-head CI `32136215491` is also success on attempt 1, including
+  `ci-e2e-compose` `95708089263`, `release-dry-run` `95708089240` and
+  `required` `95711973791`.
+- The range changes only the Compose acceptance shell, its maintainer
+  documentation and the candidate ledger. It introduces no CodeQL delta. The
+  aggregate CodeQL check remains red for the inherited findings recorded in
+  sections 15.5 through 15.10; no file carrying one is touched here.
+- Review threads were fully paginated: 199 total, 189 resolved and 10
+  unresolved. All ten are inherited bot threads: six `github-code-quality`
+  threads on the generated Mermaid asset and four `github-advanced-security`
+  threads on `pkg/oci/cache.go`. No human thread is unresolved.
+
+### The final counterexample is closed
+
+`claim_projects` now reads all three resource classes its cleanup can remove:
+containers, labelled named volumes and labelled networks. It fills
+`OWNED_PROJECTS` once, after every requested name has passed, so a refusal on
+the second name arms no partial teardown authority.
+
+The reviewer independently planted a Compose-labelled network under
+`pacto-demo-next` while `pacto-demo` was free and ran the real
+`claim-and-exit` path. The exact result was:
+
+```text
+exit:   1
+before: 01fadddea6938afbccd7ac308fe1c87cd5a1883b01018296dbdc179a187dd4a9
+after:  01fadddea6938afbccd7ac308fe1c87cd5a1883b01018296dbdc179a187dd4a9
+error:  project pacto-demo-next already has networks
+```
+
+That is the same ordering and resource shape that section 15.9 proved the old
+code destroyed. It now fails closed and preserves identity. The reviewer-owned
+network was removed afterwards.
+
+S12 and S13 are permanent, non-vacuous guards: they require network-only state,
+exercise the real child claim and EXIT trap under both documented names, compare
+exact project/network state, and keep an unrelated bystander project unchanged.
+Removing the network read makes S12 fail; moving the all-project assignment into
+the loop makes S13 fail. The production repair is the one additional native
+Docker label query in the existing loop; no abstraction, dependency or parallel
+ownership system was added.
+
+### Independent local verification and hygiene
+
+On the committed bytes: `bash -n`, `shellcheck`, `git diff --check`,
+`make check-section`, the complete thirteen-case ownership selftest,
+`go test ./tests/release/...` and
+`go test -race ./tests/acceptance/... -count=1 -timeout 180s` all pass. The
+exact implementation CI log also contains PASS for S12 and S13 followed by
+`SELFTEST OK`, proving the cases execute on the Linux runner.
+
+The tracked tree is clean. Only the four pre-existing local agent paths remain
+untracked and untouched. No reviewer or test resource remains: no documented
+project container, labelled network or volume, netfilter image, or selftest
+interface is present. No PR comment was published, no thread was resolved and
+no PR metadata was changed.
+
+### Phase 10B verdict
+
+**Phase 10B is ACCEPTED and CLOSED at `bec4cb33`, with candidate ledger head
+`7ae07d23`.** Reopening it now requires a new concrete correctness, security,
+data-loss or user-journey counterexample. The following are frozen accepted
+boundaries and must not be redesigned incidentally by later phases:
+
+- one canonical declarative scenario with Helm and Compose projections;
+- native Docker Compose OCI publication and digest-addressed execution;
+- immutable Compose and service-image identity;
+- clone-free Product and live-browser acceptance;
+- the explicit offline/restart/upgrade semantics and two independent netfilter
+  controls;
+- per-invocation host-resource ownership and complete project preflight over
+  containers, named volumes and networks.
+
+The nine inherited code-scanning findings and ten inherited bot review threads
+are carried to Phase 14 unless a later phase touches their code for its own
+in-scope reason. They are not Phase 10C scope by default.
+
+## 16. Phase 10C record — OPENED
+
+Phase 10B is CLOSED above. This section opens Phase 10C and is appended before
+any Phase 10C implementation commit. `PACTO_PR_TARGET_STATE.md` is untouched.
+TARGET "Phase 10C — OCI-native evidence referrers and stateless ingestion" and
+`docs/superpowers/specs/2026-08-17-oci-native-evidence-referrers-design.md` are
+the binding approved architecture.
+
+### Commission and exact next objective
+
+Completely replace the custom evidence persistence engine with OCI 1.1 native
+Referrers. Every accepted record becomes a versioned Pacto evidence artifact
+attached to the exact immutable contract digest in
+`EvidenceSet.ContractRef`. The configured contract registry becomes the only
+durable evidence store, and the Evidence Server remains the stateless security,
+evaluation, replay and bounded-DTO boundary.
+
+The implementation starts append-only from the reviewer state commit following
+this section. It must follow the approved design end to end, including:
+
+- exact, non-empty configured contract-digest subjects and bounded discovery;
+- native Referrers pagination with `oras.land/oras-go/v2`, no legacy tag
+  fallback and no registry catalog scan;
+- strict versioned artifact codec, subject binding and size/count limits;
+- Ed25519 verification, authorization, evaluation and producer-global replay
+  protection reconstructed from all configured subjects;
+- serialized single-writer scan/publish/read-after-write semantics;
+- honest ready/partial/unavailable health and the v2 `/targets` DTO;
+- removal of `pkg/evidencestore`, bucket recovery/repair, bucket configuration,
+  evidence PVCs, storage inspection and `gocloud.dev`;
+- stateless CLI, operator, Helm, Kind and Compose projections derived from the
+  canonical scenario;
+- registry-volume restart persistence, ORAS interoperability and the full
+  deletion/documentation/acceptance criteria in design section 13.
+
+There is no hybrid period, dual write, bucket fallback, migration engine,
+mutable subject, image subject, multi-writer emulation or direct Dashboard
+registry access. Existing PVCs are not deleted automatically. Phase 10C ends as
+a CANDIDATE and is closed only by a later independent review.
+
+### Current phase map
+
+- Phases 1 through 10B: ACCEPTED and CLOSED.
+- Phase 10C: ACTIVE / OPENED; implementation not started at this state commit.
+- Phases 11 through 14: NOT STARTED.
+
+Phase 11 must not start while Phase 10C is only a candidate. The PR remains an
+open draft, and the append-only/no-history-rewrite and independent-review
+protocol continues unchanged.
