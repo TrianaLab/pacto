@@ -205,21 +205,38 @@ wait_pacto_status() {
 
 # --- fixtures ---------------------------------------------------------------
 
+# PACTO_REGISTRY_IMAGE is the in-cluster registry every scenario runs against.
+#
+# It is zot, not `registry:2`, because the OCI 1.1 Referrers API is not optional
+# here: accepted evidence IS a referrer of a contract revision, and Pacto refuses
+# oras-go's legacy referrers-tag fallback, so a registry without the native
+# endpoint makes the Evidence Server permanently not-ready. CNCF distribution
+# implements no referrers endpoint at all — not in 2.x and not in 3.x — and the
+# ORAS CLI hides that by falling back to the tag scheme client-side, which is
+# exactly the silence this harness must not run on. zot-minimal is the smallest
+# conformant option: same port, same /var/lib/registry, no CVE-database
+# downloads to make a demo depend on the network.
+#
+# Pinned to a released tag so a scenario's `imagePullPolicy: Never` names a
+# version rather than whatever `latest` moved to this morning.
+# shellcheck disable=SC2034  # read by the scenarios that source this file
+PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20"
+
 # install_registry — an in-cluster OCI registry in $NS, ready to be pushed to.
 # Plain HTTP, so callers must also teach whatever resolves from it to treat the
 # service host as insecure. imagePullPolicy: Never, because the image is loaded
-# into the node rather than pulled from Docker Hub by every kind node in CI.
+# into the node rather than pulled from the internet by every kind node in CI.
 #
-# The pull stays unconditional and needs no protecting: registry:2 is a
+# The pull stays unconditional and needs no protecting: the registry image is a
 # multi-platform tag, and the host's copy of it is a multi-platform index whose
 # other platforms are not present — the very artifact that used to break the
 # load. load_images narrows it at load time, so re-pulling cannot restore a
 # broken state and there is no pre-flattened local image for a later pull to
 # overwrite.
 install_registry() {
-  docker pull registry:2 >/dev/null
-  load_images registry:2
-  kubectl -n "$NS" apply -f - >/dev/null <<'YAML'
+  docker pull "$PACTO_REGISTRY_IMAGE" >/dev/null
+  load_images "$PACTO_REGISTRY_IMAGE"
+  kubectl -n "$NS" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: pacto-registry, labels: { app: pacto-registry } }
@@ -230,7 +247,7 @@ spec:
     metadata: { labels: { app: pacto-registry } }
     spec:
       containers:
-      - { name: registry, image: registry:2, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
+      - { name: registry, image: $PACTO_REGISTRY_IMAGE, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
 ---
 apiVersion: v1
 kind: Service
@@ -310,14 +327,17 @@ dump_diag() {
   done
   echo "--- pvc ($ns) ---"
   kubectl get pvc -n "$ns" -o wide || true
-  # Evidence-specific diagnostics (best-effort; only when the component exists):
-  # readiness/health and a durable-store inspection make an ingestion failure
-  # diagnosable without leaking secrets.
+  # Evidence-specific diagnostics (best-effort; only when the component exists).
+  # The store is the contract registry, so the diagnosable question is whether the
+  # server can READ it: readiness names the subject that would not resolve, and
+  # the targets DTO carries the health block (ready / partial / unavailable, with
+  # the failed-subject and unreadable-artifact counts) that distinguishes "nothing
+  # was reported" from "the registry could not be read". Neither leaks a secret.
   if kubectl -n "$ns" get deploy pacto-evidence >/dev/null 2>&1; then
     echo "--- evidence readiness/health ($ns) ---"
     kubectl -n "$ns" exec deploy/pacto-evidence -- sh -c 'wget -qO- http://127.0.0.1:8686/api/evidence/v1/ready; echo; wget -qO- http://127.0.0.1:8686/api/evidence/v1/health; echo' 2>/dev/null || true
-    echo "--- evidence store inspection ($ns) ---"
-    kubectl -n "$ns" exec deploy/pacto-evidence -- pacto evidence inspect --bucket-url file:///var/lib/pacto/evidence 2>/dev/null | head -30 || true
+    echo "--- evidence registry read state ($ns) ---"
+    kubectl -n "$ns" exec deploy/pacto-evidence -- sh -c 'wget -qO- http://127.0.0.1:8686/api/evidence/v1/targets' 2>/dev/null | head -30 || true
   fi
 }
 

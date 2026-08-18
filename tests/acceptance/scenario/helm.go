@@ -47,6 +47,30 @@ func (s Scenario) HelmValues() ([]string, error) {
 	return out, nil
 }
 
+// HelmEvidenceValues configures the chart's Evidence Server with the scenario's
+// canonical contract subjects, as `evidence.registry.subjects[i]=<ref>` strings.
+//
+// Separate from HelmValues because it needs the digests, and on Kubernetes those
+// are the REAL ones the push returned rather than the ones computed from bytes:
+// the cluster surface has a registry before it projects anything. Same subjects
+// as the Compose surface all the same — both call EvidenceSubjects — because the
+// registry is the evidence store and two surfaces storing against different
+// revisions would be two different demos.
+func (s Scenario) HelmEvidenceValues(domain string, digests map[string]string) ([]string, error) {
+	subjects, err := s.EvidenceSubjects(domain, digests)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(subjects))
+	for i, subj := range subjects {
+		if err := checkHelmValue(subj); err != nil {
+			return nil, fmt.Errorf("scenario %s: evidence subject %q: %w", s.Name, subj, err)
+		}
+		out = append(out, "evidence.registry.subjects["+strconv.Itoa(i)+"]="+subj)
+	}
+	return out, nil
+}
+
 // checkHelmValue refuses a value `helm --set` would not carry verbatim.
 //
 // `--set` has its own grammar over the VALUE as well as the key: a comma starts

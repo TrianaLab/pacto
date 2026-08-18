@@ -164,6 +164,45 @@ func TestParity_EveryPublishedBundleIsReachableOnCompose(t *testing.T) {
 	}
 }
 
+// Both surfaces store evidence against the SAME contract revisions.
+//
+// The registry is the evidence store, so the subject set is where the two demos
+// would silently diverge: a Kubernetes run publishing referrers of one revision
+// and a Compose run publishing them under another would each look complete and
+// neither would be reading the other's evidence. Compared as EXTRACTIONS from
+// the two rendered projections — the compose container's argument list against
+// the chart's --set arguments — so a surface that stopped carrying a subject is
+// caught rather than a shared derivation that both sides trivially agree on.
+func TestParity_BothSurfacesStoreEvidenceAgainstTheSameSubjects(t *testing.T) {
+	files, err := OperationalGraph.MaterializeFiles(ComposeDomain)
+	if err != nil {
+		t.Fatalf("MaterializeFiles: %v", err)
+	}
+	digests, err := OperationalGraph.Digests(files)
+	if err != nil {
+		t.Fatalf("Digests: %v", err)
+	}
+	set, err := OperationalGraph.HelmEvidenceValues(ComposeDomain, digests)
+	if err != nil {
+		t.Fatalf("HelmEvidenceValues: %v", err)
+	}
+	var k8s []string
+	for _, v := range set {
+		key, value, _ := strings.Cut(v, "=")
+		if strings.HasPrefix(key, "evidence.registry.subjects[") {
+			k8s = append(k8s, value)
+		}
+	}
+	slices.Sort(k8s)
+	compose := composeEvidenceSubjects(t, OperationalGraph)
+	if len(k8s) == 0 {
+		t.Fatal("neither surface stores against any subject, so this proves nothing")
+	}
+	if !slices.Equal(k8s, compose) {
+		t.Errorf("the surfaces store evidence against different revisions:\n  kubernetes %v\n  compose    %v", k8s, compose)
+	}
+}
+
 // The surfaces owe DIFFERENT numbers of facts, and the difference is accounted
 // for to the fact: one operational target per running service, and nothing else.
 // This is the assertion that stops a Compose leg from quietly becoming a weaker

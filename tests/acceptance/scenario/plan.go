@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -314,6 +315,38 @@ func (s Scenario) EvidencePayloads(dir, domain string, digests map[string]string
 		}
 		out[evidencePayloadPath(dir, s.Name, i)] = append(body, '\n')
 	}
+	return out, nil
+}
+
+// EvidenceSubjects is the exact set of contract revisions the Evidence Server is
+// configured with: the deduplicated, sorted ContractRefs of every envelope the
+// scenario declares.
+//
+// One derivation for both surfaces. The registry holding these manifests IS the
+// evidence store — each accepted record is published as an OCI 1.1 referrer of
+// one of them — so a surface configured with a different set would store its
+// evidence somewhere the other surface never looks, and the two demos would stop
+// being one demo. It is exact digests only, never the repository: a subject the
+// server could re-resolve is a subject whose stored evidence could come to
+// describe different content.
+func (s Scenario) EvidenceSubjects(domain string, digests map[string]string) ([]string, error) {
+	seen := map[string]bool{}
+	var out []string
+	for _, ev := range s.Evidence {
+		set, err := s.evidenceSet(ev, domain, digests)
+		if err != nil {
+			return nil, err
+		}
+		if seen[set.ContractRef] {
+			continue
+		}
+		seen[set.ContractRef] = true
+		out = append(out, set.ContractRef)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("scenario %s: no evidence is declared, so the Evidence Server would have no subject to store against", s.Name)
+	}
+	slices.Sort(out)
 	return out, nil
 }
 

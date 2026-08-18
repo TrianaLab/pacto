@@ -82,10 +82,12 @@ func TestLoadImagesDelegatesToTheKindloadHelper(t *testing.T) {
 	}
 }
 
-// install_registry pulls registry:2 — a multi-platform tag whose local copy is
-// the artifact that used to break the load. It must hand that pull to the shared
+// install_registry pulls a multi-platform registry tag whose local copy is the
+// artifact that used to break the load. It must hand that pull to the shared
 // boundary, and it must not carry a private flattening step whose result a later
-// pull would silently overwrite.
+// pull would silently overwrite. It must also pull, load and DEPLOY the same
+// image: a pull narrowed for one reference and a Deployment naming another is a
+// node that silently reaches for the internet.
 func TestInstallRegistryLoadsThroughTheSharedBoundary(t *testing.T) {
 	body := code(t, filepath.Join(kindDir(t), "lib.sh"))
 	_, after, ok := strings.Cut(body, "install_registry() {")
@@ -96,8 +98,14 @@ func TestInstallRegistryLoadsThroughTheSharedBoundary(t *testing.T) {
 	if !ok {
 		t.Fatal("install_registry has no closing brace")
 	}
-	if !strings.Contains(fn, "load_images registry:2") {
-		t.Error("install_registry must load registry:2 through load_images")
+	for _, want := range []string{
+		`docker pull "$PACTO_REGISTRY_IMAGE"`,
+		`load_images "$PACTO_REGISTRY_IMAGE"`,
+		"image: $PACTO_REGISTRY_IMAGE",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Errorf("install_registry must contain %q so one pin covers pull, load and deploy", want)
+		}
 	}
 	for _, forbidden := range []string{"kind load", "docker tag", "docker save", "docker import"} {
 		if strings.Contains(fn, forbidden) {
@@ -105,9 +113,25 @@ func TestInstallRegistryLoadsThroughTheSharedBoundary(t *testing.T) {
 		}
 	}
 	// imagePullPolicy: Never is the reason any of this matters. Without it the
-	// node would quietly pull registry:2 from Docker Hub and the scenario would
-	// pass while proving nothing about what was loaded.
+	// node would quietly pull the registry from the internet and the scenario
+	// would pass while proving nothing about what was loaded.
 	if !strings.Contains(fn, "imagePullPolicy: Never") {
 		t.Error("the in-cluster registry must keep imagePullPolicy: Never")
+	}
+}
+
+// The in-cluster registry must serve the native OCI 1.1 Referrers API, because
+// accepted evidence is a referrer of a contract revision and Pacto refuses the
+// legacy referrers-tag fallback. CNCF distribution (`registry:2`, `registry:3`)
+// implements no referrers endpoint, and the ORAS CLI papers over that with a
+// client-side tag fallback — so a harness on distribution would look healthy
+// while the Evidence Server could never become ready.
+func TestInClusterRegistrySupportsNativeReferrers(t *testing.T) {
+	body := code(t, filepath.Join(kindDir(t), "lib.sh"))
+	if strings.Contains(body, "PACTO_REGISTRY_IMAGE=\"registry:") {
+		t.Error("the in-cluster registry is CNCF distribution, which serves no Referrers API")
+	}
+	if !strings.Contains(body, `PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:`) {
+		t.Error("PACTO_REGISTRY_IMAGE must pin a registry with a native Referrers API")
 	}
 }

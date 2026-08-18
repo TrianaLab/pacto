@@ -97,7 +97,6 @@ const (
 	composeStateMount = "/home/pacto"
 	composeTrustDir   = composeStateMount + "/trust"
 	composeKeyDir     = composeStateMount + "/keys"
-	composeStoreDir   = composeStateMount + "/evidence"
 )
 
 const (
@@ -134,7 +133,17 @@ func ComposePorts() []ComposePort {
 }
 
 // ComposeDefaultRegistryImage is the OCI registry the demo starts, pinned to the
-// MULTI-PLATFORM INDEX digest of registry:2.
+// MULTI-PLATFORM INDEX digest of zot-minimal.
+//
+// zot, not CNCF distribution, because the demo's registry is also its EVIDENCE
+// STORE: accepted evidence is published as an OCI 1.1 referrer of the contract
+// revision it reports on, and Pacto refuses oras-go's legacy referrers-tag
+// fallback. `registry:2` and `registry:3` implement no referrers endpoint at
+// all, so the Evidence Server would never pass its own readiness probe and the
+// demo would come up with a permanently unhealthy container. zot-minimal keeps
+// the same port and the same /var/lib/registry, and its "minimal" build carries
+// no CVE-database downloader, so the demo needs nothing from the network once
+// its images are pulled.
 //
 // The index, not one of its children. An index digest still lets Docker resolve
 // the child matching the host, so the demo stays native on amd64 and arm64 alike
@@ -146,9 +155,10 @@ func ComposePorts() []ComposePort {
 // same image. The local acceptance re-derives it: it asserts the pulled registry
 // image is the host's own architecture, which a child digest could not be.
 //
-// Refreshing it is `crane digest registry:2` — deliberately a human act, since a
-// new digest is a new demo and the artifact says which one it ran.
-const ComposeDefaultRegistryImage = "registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
+// Refreshing it is `crane digest ghcr.io/project-zot/zot-minimal:<tag>` —
+// deliberately a human act, since a new digest is a new demo and the artifact
+// says which one it ran.
+const ComposeDefaultRegistryImage = "ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b341f4a319963f7c5e169858663a10565e4037e71605737daee202ee"
 
 // ComposeOptions are the values the Compose projection cannot derive: the images
 // it runs. They are required rather than defaulted because the whole point of
@@ -204,9 +214,14 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
 		}
 	}
-	seedInputs, dashInputs, err := s.composeInputs()
+	seedInputs, dashInputs, subjects, err := s.composeInputs()
 	if err != nil {
 		return nil, err
+	}
+	for _, subj := range subjects {
+		if err := checkComposeValue(subj); err != nil {
+			return nil, fmt.Errorf("scenario %s: evidence subject: %w", s.Name, err)
+		}
 	}
 
 	f := composeFile{Extension: composeExtension{
@@ -225,7 +240,7 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			Image:      opts.PactoImage,
 			Restart:    "unless-stopped",
 			Entrypoint: []string{"/bin/sh", "-euc"},
-			Command:    []string{evidenceScript(signer)},
+			Command:    []string{evidenceScript(signer, subjects)},
 			// Ingestion RESOLVES each envelope's ContractRef before accepting it, so
 			// the server reaches the registry itself; without this it answers 502
 			// contract_resolution_failed on a plain-HTTP demo registry.
@@ -234,8 +249,9 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			Volumes:     []string{composeStateVolume + ":" + composeStateMount},
 			// The image's baked healthcheck probes the dashboard, which is not what
 			// runs here; left inherited it would never pass and `up --wait` would sit
-			// until it timed out. Readiness is the server's own: 503 until it has
-			// recovered its store, 200 after.
+			// until it timed out. Readiness is the server's own: 503 until every
+			// configured subject resolves and answers native Referrers discovery,
+			// 200 after.
 			Healthcheck: &composeHealth{
 				Test:        []string{"CMD-SHELL", "wget -q --spider http://127.0.0.1:" + strconv.Itoa(composeEvidencePort) + "/api/evidence/v1/ready || exit 1"},
 				Interval:    "3s",
@@ -323,24 +339,24 @@ type composeInput struct {
 // business reading the seed's private key plan, and the seed has no business
 // reading an observation export. Compose only creates the files a service
 // declares, so the split is enforced by the runtime and not by convention.
-func (s Scenario) composeInputs() (seed, dashboard []composeInput, err error) {
+func (s Scenario) composeInputs() (seed, dashboard []composeInput, subjects []string, err error) {
 	files, err := s.MaterializeFiles(ComposeDomain)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	plan, err := s.Plan(ComposeArtifactMount)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// No registry exists yet, so the digests come from the bytes above. The seed
 	// re-checks each one against what it actually publishes.
 	digests, err := s.Digests(files)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	payloads, err := s.EvidencePayloads(ComposeArtifactMount, ComposeDomain, digests)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	seedFiles := map[string]string{"plan.tsv": string(plan), "seed.sh": seedScript}
 	for rel, body := range files {
@@ -356,7 +372,7 @@ func (s Scenario) composeInputs() (seed, dashboard []composeInput, err error) {
 		}
 		export, err := s.TraceExport(src.ID)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		dashFiles[src.ID+".json"] = string(export)
 	}
@@ -381,12 +397,18 @@ func (s Scenario) composeInputs() (seed, dashboard []composeInput, err error) {
 		return out, nil
 	}
 	if seed, err = convert(seedFiles); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if dashboard, err = convert(dashFiles); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return seed, dashboard, nil
+	// The subjects come from the SAME digests the payloads were built against, so
+	// the server is configured with exactly the revisions the envelopes name — it
+	// cannot be told to store evidence anywhere else.
+	if subjects, err = s.EvidenceSubjects(ComposeDomain, digests); err != nil {
+		return nil, nil, nil, err
+	}
+	return seed, dashboard, subjects, nil
 }
 
 // literal is inline config content that survives Compose's interpolation pass.
@@ -494,19 +516,21 @@ func (s Scenario) composeDashboardArgs() ([]string, error) {
 // signing material in the directory whose job is to hold only public keys. The
 // guard makes a restart reuse the identity it already published, so an envelope
 // signed before the restart still verifies after it.
-func evidenceScript(signer Signer) string {
+func evidenceScript(signer Signer, subjects []string) string {
+	serve := "exec pacto evidence serve" +
+		" --listen-address 0.0.0.0:" + strconv.Itoa(composeEvidencePort) +
+		" --trust " + composeTrustDir
+	for _, subj := range subjects {
+		serve += " --subject " + subj
+	}
 	return strings.Join([]string{
-		"mkdir -p " + composeTrustDir + " " + composeKeyDir + " " + composeStoreDir,
+		"mkdir -p " + composeTrustDir + " " + composeKeyDir,
 		"if [ ! -f " + composeKeyDir + "/" + signer.KeyID + ".key ]; then",
 		"  pacto evidence keygen --out " + composeTrustDir +
 			" --key-id " + signer.KeyID + " --producer " + signer.Producer,
 		"  mv " + composeTrustDir + "/" + signer.KeyID + ".key " + composeKeyDir + "/" + signer.KeyID + ".key",
 		"fi",
-		"exec pacto evidence serve" +
-			" --listen-address 0.0.0.0:" + strconv.Itoa(composeEvidencePort) +
-			" --trust " + composeTrustDir +
-			" --bucket-url file://" + composeStoreDir +
-			" --producer " + signer.Producer,
+		serve + " --producer " + signer.Producer,
 	}, "\n") + "\n"
 }
 

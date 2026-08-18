@@ -234,6 +234,11 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
+      # The evidence scenario's store is the OCI registry itself, so it needs an
+      # INDEPENDENT OCI client: ORAS is the observer that proves a third party
+      # discovers what Pacto published, and publishes evidence Pacto reads back.
+      - if: matrix.scenario == 'evidence'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         run: go install sigs.k8s.io/kind@v0.30.0
       - name: Install Helm

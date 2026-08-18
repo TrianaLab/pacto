@@ -118,30 +118,33 @@ assert_contains "$VOUT" "is valid" "signed envelope verifies"
 PORT=18787
 API="http://localhost:$PORT/api/evidence/v1"
 start_server() {
-  # The server resolves the evidence's oci ContractRef from the ephemeral
-  # plain-HTTP registry, so mark it insecure.
-  PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" evidence serve --port "$PORT" --trust "$WORK/keys" --bucket-url "file://$WORK/store" --producer prod-eu >/dev/null 2>&1 &
+  # The registry IS the evidence store: the server resolves the contract subject
+  # and publishes accepted records as referrers of it, over the ephemeral
+  # plain-HTTP registry, so mark it insecure. No local state, no data directory.
+  PACTO_INSECURE_REGISTRIES="$REG_HOST" "$BIN" evidence serve --port "$PORT" --trust "$WORK/keys" --subject "$CONTRACT_REF" --producer prod-eu >/dev/null 2>&1 &
   SERVE_PID=$!
 }
-wait_ready() { # readiness is gated on completed storage recovery
+wait_ready() { # readiness is gated on resolving every subject and enumerating its referrers
   for _ in $(seq 1 50); do curl -fsS "$API/ready" >/dev/null 2>&1 && return 0; sleep 0.2; done
-  fail "evidence server did not become ready (recovery)"
+  fail "evidence server did not become ready (subject unresolvable)"
 }
 stop_server() { kill "$SERVE_PID" 2>/dev/null || true; wait "$SERVE_PID" 2>/dev/null || true; SERVE_PID=""; }
 
 start_server; wait_ready
 SEND="$("$BIN" evidence send --url "$API/envelopes" "$WORK/env1.json")"
 assert_contains "$SEND" "accepted" "ingestion accepts the envelope"
-FOUT="$("$BIN" fleet search --local "$WORK/ws" --evidence-store "$WORK/store" --scope prod-eu)"
+FOUT="$("$BIN" fleet search --local "$WORK/ws" --evidence-url "http://localhost:$PORT" --scope prod-eu)"
 assert_contains "$FOUT" "payments" "ingested evidence appears as a fleet target"
 
 echo "== 2b. durable replay protection survives a restart =="
 stop_server
-start_server; wait_ready   # recovery rebuilds the replay state from the bucket
+# The replacement server keeps NO local state whatsoever: it rebuilds the accepted
+# history by enumerating the contract revision's referrers in the registry.
+start_server; wait_ready
 if "$BIN" evidence send --url "$API/envelopes" "$WORK/env1.json" >/dev/null 2>&1; then
   fail "a replayed envelope was accepted after restart"
 else
-  pass "replayed envelope rejected after restart (recovery rebuilt the replay state from the PVC-equivalent bucket)"
+  pass "replayed envelope rejected after restart (history reconstructed from the registry)"
 fi
 
 echo "== 2c. a newer sequence is accepted, an older one rejected =="

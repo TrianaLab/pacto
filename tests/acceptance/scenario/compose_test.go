@@ -215,6 +215,37 @@ func TestCompose_FollowsTheDeclaredSigner(t *testing.T) {
 	moved(t, string(before), string(after), "remote-eu-collector", "other-collector")
 }
 
+// The Evidence Server is configured with EXACT contract revisions and stores its
+// accepted records against them in the registry — so the artifact carries no
+// place for evidence to live, and none of its volumes is one.
+func TestCompose_StoresEvidenceInTheRegistry(t *testing.T) {
+	body, err := OperationalGraph.Compose(composeOpts)
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	f := composeFileOf(t, OperationalGraph)
+	cmd := argsOf(t, composeSvc(t, f, "evidence"), "command")
+	subjects := composeEvidenceSubjects(t, OperationalGraph)
+	if len(subjects) == 0 {
+		t.Fatal("the Evidence Server is configured with no subject, so it could store nothing")
+	}
+	for _, subj := range subjects {
+		// An exact digest, never a tag: a tag can be moved onto another manifest and
+		// the evidence stored under it would silently come to describe other content.
+		if !strings.Contains(subj, "@sha256:") {
+			t.Errorf("subject %q is not an exact contract revision", subj)
+		}
+	}
+	if strings.Contains(cmd, "--bucket-url") || strings.Contains(cmd, "--store-dir") {
+		t.Errorf("the Evidence Server still has a local store:\n%s", cmd)
+	}
+	// The state volume stays — it holds the trust store and the minted key — but
+	// nothing in the artifact names an evidence directory any more.
+	if strings.Contains(string(body), composeStateMount+"/evidence") {
+		t.Error("the artifact still mounts an evidence data directory")
+	}
+}
+
 // NOTHING secret is in the artifact. The keypair is generated at run time into a
 // volume the artifact never contains, so an artifact that shipped a key — or a
 // projection that grew a password, token or inline private key — is a different
@@ -234,6 +265,22 @@ func TestCompose_EmbedsNoCredential(t *testing.T) {
 	if strings.Contains(cmd, "keygen --out "+ComposeArtifactMount) {
 		t.Error("the keypair is written into the artifact mount rather than the state volume")
 	}
+}
+
+// composeEvidenceSubjects is every contract revision the Evidence Server
+// container is configured with, read back out of its generated command.
+func composeEvidenceSubjects(t *testing.T, s Scenario) []string {
+	t.Helper()
+	cmd := argsOf(t, composeSvc(t, composeFileOf(t, s), "evidence"), "command")
+	fields := strings.Fields(cmd)
+	var out []string
+	for i, f := range fields {
+		if f == "--subject" && i+1 < len(fields) {
+			out = append(out, fields[i+1])
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // secretMarkers are what a credential looks like in a file that must hold none.

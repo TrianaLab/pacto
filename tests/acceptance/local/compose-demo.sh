@@ -1023,8 +1023,8 @@ done <<<"$images"
 # pinning a child would run one architecture everywhere and emulate it on the
 # other. The difference is observable — resolve each pin and ask what Docker got.
 # For the pacto image built above this is a tautology, since a local build is the
-# host's architecture either way; for `registry:2`, which the artifact pins to a
-# real published index, it is the check.
+# host's architecture either way; for the registry image, which the artifact pins
+# to a real published index, it is the check.
 if grep -qE '^ *platform:' "$WORK/published-1.yaml"; then
 	fail "the application selects a platform, so it is not letting the host decide"
 fi
@@ -1126,6 +1126,26 @@ grep -q "already in the registry" <<<"$seedlog" || { echo "$seedlog" >&2; fail "
 grep -q "already ingested" <<<"$seedlog" || { echo "$seedlog" >&2; fail "a restarted demo did not recognize its own envelope as a replay"; }
 "$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose
 pass "the fleet survived a stop and start"
+
+# `stop`/`start` keeps the container, so it proves nothing about where evidence
+# lives: a writable layer survives it. This REPLACES the Evidence Server's
+# container. Whatever the fleet still knows afterwards was re-read from the
+# registry, because that is the only place left that could be holding it.
+vols="$(docker volume ls --format '{{.Name}}' --filter "label=com.docker.compose.project=$PROJ1" | sort | tr '\n' ' ')"
+[ "$vols" = "${PROJ1}_pacto-demo-registry ${PROJ1}_pacto-demo-state " ] ||
+	fail "the demo's volumes are '$vols'; expected exactly the registry and the trust/state pair, and no evidence data volume"
+before_ev="$(docker compose -p "$PROJ1" ps -q evidence)"
+[ -n "$before_ev" ] || fail "no evidence container to recreate"
+up_or_dump "$PROJ1" env "${V1_PORTS[@]}" \
+	docker compose --insecure-registry="$ART_HOST" -f "oci://$ART_REPO@$D1" -p "$PROJ1" \
+	up -d --wait --force-recreate -y evidence seed
+after_ev="$(docker compose -p "$PROJ1" ps -q evidence)"
+[ -n "$after_ev" ] && [ "$after_ev" != "$before_ev" ] ||
+	fail "the evidence container was not replaced ($before_ev), so its filesystem is still in play"
+seedlog="$(docker compose -p "$PROJ1" logs seed --no-log-prefix 2>&1)"
+grep -q "already ingested" <<<"$seedlog" || { echo "$seedlog" >&2; fail "a rebuilt Evidence Server did not reject the re-sent envelope as a replay, so it did not recover the accepted history"; }
+"$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose
+pass "a brand-new Evidence Server container serves the same target and still refuses the replay"
 
 echo "== 11. the documented network boundary =="
 # The claim, exactly: after the artifact and its digest-pinned images have been
