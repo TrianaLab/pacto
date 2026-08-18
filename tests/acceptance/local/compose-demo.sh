@@ -79,11 +79,13 @@ MODE="${1:-run}"
 case "$MODE" in
 run) ;;
 browser) RUN_BROWSER=1 ;;
-# selftest proves the harness's own host-safety contract; own-and-exit is the
-# child it spawns to watch a real EXIT trap take a real invocation's resources
-# back down. Neither runs the demo.
+# selftest proves the harness's own host-safety contract; own-and-exit and
+# claim-and-exit are the children it spawns to watch a real EXIT trap decide what
+# a real invocation may take back down — the host resources it created, and the
+# project names it was allowed to claim. None of the three runs the demo.
 selftest) ;;
 own-and-exit) ;;
+claim-and-exit) ;;
 *)
 	echo "unknown subcommand: $1 (use run|browser|selftest)" >&2
 	exit 2
@@ -561,6 +563,29 @@ bad_address_wire() {
 	wire_forwarded_route
 }
 
+# sentinel_network PROJECT — a project that holds NOTHING BUT a Compose network.
+#
+# The network is the class that can stand alone: `up` creates it before anything
+# else, `down` without `-v` leaves it, and a stack whose containers have all been
+# removed by hand still has it. It is also destructible — `down -v
+# --remove-orphans` takes it — so it is precisely the state a claim that reads
+# only containers and volumes mistakes for an empty project.
+#
+# The two emptiness assertions are the vacuity guard: if anything else were under
+# this name the claim would refuse for a reason that is not the one under test,
+# and the case below would pass without proving anything.
+sentinel_network() {
+	docker network create \
+		--label com.docker.compose.project="$1" \
+		--label com.docker.compose.network=default "${1}_default" >/dev/null
+	[ -z "$(docker compose -p "$1" ps -aq 2>/dev/null)" ] ||
+		fail "the planted project $1 has containers, so the claim's container check is what would refuse"
+	[ -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$1")" ] ||
+		fail "the planted project $1 has volumes, so the claim's volume check is what would refuse"
+	[ -n "$(docker network ls -q --filter "label=com.docker.compose.project=$1")" ] ||
+		fail "the planted network for $1 carries no project label, so nothing below would be under test"
+}
+
 # sentinel_project PROJECT — a project standing in for the demo somebody already
 # has running under one of the documented names.
 #
@@ -569,14 +594,14 @@ bad_address_wire() {
 # nothing else, so a container, a network and a named volume wearing this
 # project's labels are exactly as exposed as ones Compose wrote — with no local
 # compose file anywhere near the demo's own journey. Created and not started,
-# because created is already the whole exposure.
+# because created is already the whole exposure. The network comes from
+# sentinel_network so the two sentinels cannot drift apart on what a Compose
+# network looks like.
 sentinel_project() {
+	sentinel_network "$1"
 	docker volume create \
 		--label com.docker.compose.project="$1" \
 		--label com.docker.compose.volume=sentinel-data "${1}_sentinel-data" >/dev/null
-	docker network create \
-		--label com.docker.compose.project="$1" \
-		--label com.docker.compose.network=default "${1}_default" >/dev/null
 	docker create --name "$1-sentinel-1" \
 		--label com.docker.compose.project="$1" \
 		--label com.docker.compose.service=sentinel \
@@ -600,6 +625,63 @@ proj_state() {
 		"$(docker compose -p "$1" ps -aq | sort | tr '\n' ' ')" \
 		"$(docker network ls -q --filter "label=com.docker.compose.project=$1" | sort | tr '\n' ' ')" \
 		"$(docker volume ls -q --filter "label=com.docker.compose.project=$1" | sort | tr '\n' ' ')"
+}
+
+# A project under a name the documentation does not use, planted by this run and
+# so this run's to remove. Nothing below may touch it: it is how the selftest
+# tells a refusal that is specific from cleanup that sweeps `pacto-demo-*`.
+PROJ_BYSTANDER="pacto-demo-bystander-$RUN_ID"
+
+# claim_and_exit — take the two documented project names the way stage 0 takes
+# them, say whether that succeeded, and leave. The real EXIT trap then does the
+# real thing with whatever the claim armed, so what is under test is the
+# production claim and the production cleanup rather than a reading of either.
+#
+# The CLAIMED line is the parent's only way to tell a refusal from a run that
+# armed the trap and then happened to find nothing left to remove.
+claim_and_exit() {
+	claim_projects "$PROJ1" "$PROJ2"
+	echo "CLAIMED $OWNED_PROJECTS"
+}
+
+# refuses_network_only LABEL PROJECT — put a project that is nothing but a
+# Compose network under one of the documented names, and require a real
+# invocation to refuse it and leave it exactly where it was.
+#
+# `down -v --remove-orphans` would have removed that network, which is what makes
+# arming the trap over it a loss and not a near miss; the teardown at the end
+# demonstrates it on the sentinel this run does own, rather than asserting it.
+refuses_network_only() {
+	local label="$1" proj="$2" id out rc=0 b1 b2 bb
+	sentinel_network "$proj"
+	id="$(docker network inspect -f '{{.Id}}' "${proj}_default")"
+	b1="$(proj_state "$PROJ1")"
+	b2="$(proj_state "$PROJ2")"
+	bb="$(proj_state "$PROJ_BYSTANDER")"
+	out="$(bash "$0" claim-and-exit 2>&1)" || rc=$?
+	if [ "$rc" = 0 ]; then
+		echo "$out" >&2
+		fail "$label: the invocation claimed $proj instead of refusing it"
+	fi
+	# Not "not fully armed": not armed at all. A claim that had taken the first
+	# name before refusing the second would have said so here, and its trap would
+	# have torn that first name down on the way out.
+	if printf '%s\n' "$out" | grep -q '^CLAIMED'; then
+		echo "$out" >&2
+		fail "$label: the invocation armed its project cleanup before refusing"
+	fi
+	[ "$(docker network inspect -f '{{.Id}}' "${proj}_default" 2>/dev/null)" = "$id" ] ||
+		fail "$label: the network $id, which was all $proj had, did not survive the refusal"
+	[ "$b1" = "$(proj_state "$PROJ1")" ] ||
+		fail "$label: $PROJ1 changed: '$b1' -> '$(proj_state "$PROJ1")'"
+	[ "$b2" = "$(proj_state "$PROJ2")" ] ||
+		fail "$label: $PROJ2 changed: '$b2' -> '$(proj_state "$PROJ2")'"
+	[ "$bb" = "$(proj_state "$PROJ_BYSTANDER")" ] ||
+		fail "$label: the unrelated project $PROJ_BYSTANDER changed: '$bb' -> '$(proj_state "$PROJ_BYSTANDER")'"
+	down_quiet "$proj"
+	if docker network inspect "${proj}_default" >/dev/null 2>&1; then
+		fail "$label: \`down -v --remove-orphans\` left $id standing, so the refusal above cost nothing"
+	fi
 }
 
 # own_and_exit — create this invocation's host resources, name them on stdout,
@@ -663,18 +745,34 @@ own_and_clean() {
 }
 
 run_selftest() {
-	local id p1 p2 decoy reg foreign s1 s2
+	local id p1 p2 decoy reg foreign s1 s2 sb
 	# The two documented project names, taken the way a demo run takes them and
 	# then made to hold a real project. Claiming them first is not a loophole in
 	# what follows: it is the rule itself — the authority to tear one of these
 	# names down comes from having found it empty — and it is what keeps a selftest
 	# that fails halfway from leaving its own scenery behind. What is under test is
 	# the modes below, which claim nothing and must therefore take nothing.
-	claim_projects "$PROJ1" "$PROJ2"
+	claim_projects "$PROJ1" "$PROJ2" "$PROJ_BYSTANDER"
+	# Planted before S12/S13 rather than with the other two, because those cases
+	# need the documented names holding a network and nothing else, and this one is
+	# the bystander they watch.
+	sentinel_project "$PROJ_BYSTANDER"
+
+	echo "== S12. a documented name holding only a Compose network is not claimed =="
+	refuses_network_only "S12 the first documented name" "$PROJ1"
+	pass "S12: $PROJ1 held nothing but a network, and the invocation refused it and kept it"
+
+	echo "== S13. the second documented name is read even when the first is free =="
+	# The occupied name is the one the claim reaches last, so a claim that armed
+	# itself as it went would already have taken $PROJ1 by the time it refused.
+	refuses_network_only "S13 the second documented name" "$PROJ2"
+	pass "S13: $PROJ2 was refused with $PROJ1 free, and nothing was armed on the way"
+
 	sentinel_project "$PROJ1"
 	sentinel_project "$PROJ2"
 	s1="$(proj_state "$PROJ1")"
 	s2="$(proj_state "$PROJ2")"
+	sb="$(proj_state "$PROJ_BYSTANDER")"
 
 	build_netfilter_image
 	run_owned "$REG_NAME" registry:2
@@ -772,6 +870,9 @@ run_selftest() {
 	[ "$s2" = "$(proj_state "$PROJ2")" ] ||
 		fail "S11: something tore down $PROJ2: '$s2' -> '$(proj_state "$PROJ2")'"
 	pass "S11: $PROJ1 and $PROJ2 kept every container, network and volume they had"
+	[ "$sb" = "$(proj_state "$PROJ_BYSTANDER")" ] ||
+		fail "S11: something swept the unrelated $PROJ_BYSTANDER: '$sb' -> '$(proj_state "$PROJ_BYSTANDER")'"
+	pass "S11: the unrelated $PROJ_BYSTANDER kept everything it had too"
 
 	echo "SELFTEST OK: the harness owns what it creates, refuses what it does not, and gives all of it back"
 }
@@ -783,6 +884,10 @@ selftest)
 	;;
 own-and-exit)
 	own_and_exit
+	exit 0
+	;;
+claim-and-exit)
+	claim_and_exit
 	exit 0
 	;;
 esac
