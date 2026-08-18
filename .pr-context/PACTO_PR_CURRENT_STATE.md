@@ -4099,3 +4099,366 @@ a generic networking framework.
 the missing FORWARD/`DOCKER-USER` discriminator above. Phase 10C must not start
 until an append-only repair is independently reviewed and this counterexample
 is closed.
+
+## 15.4 Phase 10B narrow closure repair, second pass — CANDIDATE at `4399c63a`
+
+Two things were asked for and both are in this repair: the FORWARD/`DOCKER-USER`
+discriminator that section 15.3 left open, and a correction that had nothing to
+do with it — the Compose demo was being distributed as a generic ORAS-pushed
+directory, and Docker Compose owns this OCI artifact type natively. They landed
+together because the second one rewrites the very stage the first one repairs.
+
+Phase 10B remains a CANDIDATE. A phase is closed by review, not by its author.
+Nothing here closes it, `PACTO_PR_TARGET_STATE.md` was not touched, no PR comment
+was published, no review thread was resolved, no PR metadata was changed, and
+Phase 10C is NOT started.
+
+### Commits appended, in order
+
+| SHA | Subject |
+|---|---|
+| `65a4c192` | feat(acceptance): the demo artifact is one compose file, not a directory |
+| `5a421228` | fix(acceptance): two netfilter hooks, and a demo run with no local files |
+| `45abda33` | feat(release): demo-compose is published by Docker Compose, adopted by content |
+| `19d64373` | test(release): gates that fail if the Compose demo stops owning its artifact |
+| `c25b6125` | docs: the demo runs from the registry, and the isolation proof has two arms |
+| `4399c63a` | fix(acceptance): pf must outlive a pod that is still being created |
+
+Starting point `7c69ba43`, confirmed to be the remote head before the first
+change. `7c69ba43` is an ancestor of `4399c63a`; the range is exactly those six
+linear commits and every parent is the previous one. 22 files, +1931 / -775. No
+rebase, amend, reset, force-push, squash or rewrite.
+
+| File | What changed |
+|---|---|
+| `tests/acceptance/scenario/compose.go` | the application is the artifact: inline `configs` for every fixture input, long-form `ports`, named volumes for mutable state only, `x-pacto-demo.minimum-compose-version` |
+| `tests/acceptance/scenario/compose_test.go` | the projection's own gates, including `TestCompose_BindMountsNothing`, `TestCompose_CarriesEveryFixtureInputInline` and `TestCompose_CarriesTheCanonicalBytes` |
+| `tests/acceptance/scenario/scenario.go` | `MaterializeFiles` renders the bundle documents to bytes; `Materialize` writes those same bytes for the surface that still needs a directory |
+| `tests/acceptance/scenario/digest.go` | `Digests` reads those bytes rather than a directory, because the Compose surface no longer has one |
+| `tests/acceptance/scenario/digest_test.go`, `parity_test.go` | follow the two signatures |
+| `tests/acceptance/scenario/project/main.go` | `demo -out <file>` replaces `demo -dir <dir>`; the README template and the chmod pass are gone with the directory |
+| `tests/acceptance/scenario/project/demo/README.md.tmpl` | deleted (see "the artifact has no README", below) |
+| `tests/acceptance/scenario/project/demo/seed.sh` -> `tests/acceptance/scenario/seed.sh` | renamed, byte-identical; there is no demo directory for it to belong to |
+| `tests/acceptance/local/compose-demo.sh` | native publish + `-f oci://` execution; stage 11 rewritten with two independent netfilter controls |
+| `.github/workflows/release.yml` | `demo-compose` publishes with `docker compose publish` and adopts by `PACTO_EXPECT_CONTENT` |
+| `.github/workflows/ci.yml` | `ci-e2e-compose` and `release-dry-run` install a pinned Compose; ORAS removed from the compose job |
+| `release/orchestrator/verify-oci.sh` | content-layer adoption, refusing to answer for any layer count but one |
+| `release/orchestrator/publish-oci-unit.sh` | `PACTO_EXPECT_CONTENT` threaded through, asserted after the push |
+| `release/orchestrator/dry-run.sh` | ITEM 3b rehearses the native publish, content adoption and a foreign-content refusal |
+| `tests/release/compose_native_test.go` | new; the permanent regression gates |
+| `tests/release/demo_image_pin_test.go` | one comment corrected |
+| `docs/examples/compose-demo.md`, `docs/maintainers/testing.md`, `docs/maintainers/releases.md` | the native journey and the two-armed boundary |
+| `Makefile` | comment only |
+| `tests/acceptance/kind/lib.sh` | `pf` respawns (see "the one CI failure", below) |
+
+### The RED, before anything was built
+
+Three counterexamples, each run against the starting tree `7c69ba43` in a
+separate worktree and each reverted.
+
+1. **The missing FORWARD arm is not detected.** Section 15.3's mutation is to
+   delete only the `DOCKER-USER` rules and keep `INPUT`. Run on this machine it
+   behaves in MIRROR IMAGE, and the asymmetry is itself worth recording: Docker
+   Desktop runs the engine in a VM where `host-gateway` is ROUTED, so there the
+   surviving arm is `DOCKER-USER` and the mutation that leaves stage 10 green is
+   deleting only `INPUT`. Either way the finding is the same and it is the
+   finding that matters: with one shared probe, a whole arm of the firewall can
+   be removed and the stage still passes. One probe cannot attribute a hook. The
+   mirror mutation was run and the starting tree passed green with the `INPUT`
+   arm gone.
+2. **The old artifact is only publishable by a generic tool.** The starting tree
+   assembles a directory and pushes it with `oras push`, which will package any
+   local files at all. `docker compose publish` refuses that model outright: it
+   loads the compose file more strictly than `up` does, and the short-form
+   `ports` strings the old projection emitted are rejected before anything is
+   uploaded.
+3. **The old artifact cannot be executed the documented way.** An ORAS-pushed
+   directory has `artifactType: application/vnd.unknown.artifact.v1`, and
+   `docker compose -f oci://<repo>@sha256:<digest>` refuses to run it. The old
+   journey therefore had no way to exist without `oras pull` and a materialized
+   directory first — the thing the correction removes.
+
+### The network boundary: two routes, two hooks
+
+Stage 11 now installs two control endpoints and proves each one is only
+reachable through the hook it names.
+
+**Host-local, through `INPUT`.** A `registry:2` in the HOST's own network
+namespace (`docker run --net host`), addressed from inside the demo at the
+demo bridge's own gateway address. A packet whose destination is an address the
+host owns is delivered locally: it traverses `INPUT` and never reaches `FORWARD`.
+`deny_hostlocal_egress` refuses it with two `INPUT` rules, by INGRESS INTERFACE
+rather than by destination, so it covers every host address and not the one the
+probe happened to use.
+
+**Forwarded, through `FORWARD`/`DOCKER-USER`.** A veth pair: `198.18.53.1/30`
+stays in the host namespace, `198.18.53.2/30` is moved into the artifact
+registry's namespace with `nsenter`. RFC 2544 benchmarking space, so it cannot
+collide with anything real on a developer's machine or a runner. That address
+belongs to no interface of the demo's bridge, so reaching it is a ROUTING
+decision and the packet is seen by `FORWARD` and therefore by `DOCKER-USER`.
+Docker's own `MASQUERADE` gives the return path; nothing else is wired.
+`deny_forwarded_egress` refuses it with two `DOCKER-USER` rules, in on this
+bridge and out somewhere else, so the four services keep talking to each other.
+
+Both arms lead with an `ESTABLISHED,RELATED` accept and use `REJECT` rather than
+`DROP`, so a demo that fails fails in seconds.
+
+The order of the stage is the proof:
+
+1. both endpoints are probed BEFORE any filter and must be reachable, else "it
+   could not reach out" would be indistinguishable from "it never could";
+2. `deny_forwarded_egress` alone: the forwarded endpoint must go AND the
+   host-local one must remain — this is the independence proof, and it is also
+   what establishes that the forwarded endpoint really is forwarded. A filter in
+   `DOCKER-USER` that could close the host-local route would prove that route was
+   never host-local;
+3. `deny_hostlocal_egress`: the host-local endpoint goes too;
+4. two counterexamples, one per route: the demo's one startup dependency that
+   talks to a registry is redirected at each endpoint in turn and the stack must
+   fail, so a filter that quietly stopped applying cannot leave the assertions
+   above passing.
+
+Every rule, the veth pair, the host-local container and both projects are
+removed by the existing `cleanup` trap. A failed run leaves no host firewall
+state: `allow_egress` tolerates each deletion separately so a rule that is
+already gone cannot stop the shell before it removes the ones that are still
+there.
+
+### Docker Compose owns the artifact
+
+**Publication.** `docker compose -f <projected file> publish -y <repo>:<version>`.
+No `oras push`, and nothing is added to the manifest afterwards. The projection
+stays digest-pinned on its own; `--resolve-image-digests` is not used.
+
+**Identity.** The published artifact is
+`artifactType: application/vnd.docker.compose.project` with exactly ONE
+`application/vnd.docker.compose.file+yaml` layer holding the compose file
+verbatim, so `sha256(the projected file)` IS the artifact's content identity. The
+harness asserts that equality against the real manifest immediately after
+publishing.
+
+**Execution.** `docker compose -f oci://<repo>@sha256:<digest> -p <project> up -d
+--wait`. There is no `oras pull`, no run directory and no local `compose.yaml`
+anywhere on the path: the harness DELETES both projections before it runs
+anything, and then asserts that the running project's only configuration file is
+Compose's own cache of the digest it was asked for.
+
+**Fixture inputs, without bind mounts.** Every document the demo reads — bundles,
+plan, observation exports, evidence payloads, the seed script — is a Compose
+`config` with inline `content`, projected from the one canonical scenario. The
+running stack is asserted to have ZERO bind mounts. Named volumes carry only
+mutable runtime state.
+
+**The artifact has no README, and that is stated rather than worked around.** The
+native format has one layer and it is the compose file; there is nowhere to put a
+file a user could retrieve, and smuggling one into an extra layer would both
+break the content identity above and be a lie about what the artifact exposes.
+`docs/examples/compose-demo.md` records the limitation and holds the
+authoritative instructions.
+
+**Project names.** `pacto-demo` for the normal demo, `pacto-demo-next` for the
+second version, both documented. Stage 12 runs two digest-pinned versions at
+once and asserts separate projects, ports, containers and volumes, that starting
+0.0.2 does not disturb 0.0.1, and that `down -v` on one leaves the other serving.
+No top-level `name:` is emitted, so nothing collides between users or versions.
+
+**The version floor is declared once.** `scenario.ComposeMinVersion` is `2.34.0`,
+emitted into the artifact as `x-pacto-demo.minimum-compose-version`. The harness
+and the dry run read it OUT OF THE PROJECTED ARTIFACT rather than restating it,
+and fail early with an actionable message naming the release that added
+`docker compose publish`. CI installs `docker/setup-compose-action` at `v5.5.0`
+on both jobs that need it.
+
+**Fetching the application is not pulling the images.** `-f oci://` contacts the
+registry on every invocation and Compose has no offline mode for it; `--pull
+never` refuses only IMAGE pulls. Stage 11 therefore fetches the application ONCE
+with `--pull never` (proving no image moved), then empties the volumes, stops the
+artifact registry, asserts the application can no longer be fetched at all, and
+runs the rest of the stage against the already-created project by name.
+
+**The release path.** `demo-compose` still goes through the one sanctioned
+publisher, `publish-oci-unit.sh`, and still owns its ledger record. What changed
+is the adoption handle. Compose stamps `org.opencontainers.image.created` into
+the manifest, so two publishes of identical bytes have different manifest digests
+and no digest can be precomputed; it emits no revision or version annotation, so
+provenance adoption cannot fire either. `PACTO_EXPECT_CONTENT` carries the
+content-layer digest instead: asserted after the push, and the crash-window
+adoption rule. `verify-oci.sh` refuses to answer for an artifact with any layer
+count but one, because a multi-layer artifact has no single content identity.
+The occupied-tag conflict path is unchanged and still fails closed. No second
+ledger and no new lock format.
+
+### Permanent regression gates
+
+`tests/release/compose_native_test.go`, plus `TestCompose_CarriesTheCanonicalBytes`
+and the existing bind-mount and tag gates in `tests/acceptance/scenario/compose_test.go`.
+They are structural, not greps: the workflow YAML is parsed and re-marshalled,
+shell is reduced to command lines (continuations joined, comments dropped,
+assignments stripped) and markdown to fenced blocks only, and the jobs on the
+Compose path are found by RESOLVING THE MAKE GRAPH rather than by naming them, so
+a new job that starts running the demo cannot skip the gate.
+
+| Gate | Fails if |
+|---|---|
+| `TestDemoComposeIsPublishedByComposeItself` | the unit does not run the shared adapter, does not invoke `publish`, or carries no content key |
+| `TestNothingOnTheComposeDemoPathTouchesOras` | the harness, the documentation or a workflow job on the path invokes `oras` |
+| `TestTheDemoIsExecutedFromTheArtifactByDigest` | any non-publish `-f` is a local file or an `oci://` reference by tag |
+| `TestEveryDemoProjectIsNamedExplicitly` | an `up` has no `-p`, or two versions share one project name |
+| `TestCIRunsAComposeThatOwnsThisArtifact` | a CI job on the path pins a Compose below `scenario.ComposeMinVersion` |
+| `TestTheDemoDocumentationTeachesTheNativeJourney` | the documentation stops teaching the native digest-pinned journey |
+| `TestCompose_BindMountsNothing` | the published model contains a bind mount |
+| `TestCompose_CarriesTheCanonicalBytes` | a fixture input is restated instead of projected from the canonical scenario |
+| `TestCompose_RefusesAnImageATagCouldMove` | a service image is tag-only |
+
+Two earlier drafts of these gates were thrown away for being grep-shaped: one
+matched the text of a `fail` diagnostic that quotes the rule, another matched a
+sentence of prose, and a third put `ledger-init` on the Compose path because a
+COMMENT mentioned `dry-run.sh`. A gate that fires on documentation about the rule
+is a gate nobody keeps.
+
+### Mutation evidence (every mutation reverted, and verified reverted)
+
+Sixteen mutations, each applied alone, each run, each reverted with the file's
+`sha256` compared before and after. No general-purpose mutation framework was
+added; the mutations were applied and reverted by hand.
+
+| # | Mutation | Killed by |
+|---|---|---|
+| 1 | `oras push` instead of `docker compose publish` in the release unit | `TestDemoComposeIsPublishedByComposeItself`, `TestNothingOnTheComposeDemoPathTouchesOras` |
+| 2 | `oras pull` before execution in the acceptance harness | `TestNothingOnTheComposeDemoPathTouchesOras` |
+| 3 | `oras pull` in the public documentation | `TestNothingOnTheComposeDemoPathTouchesOras` |
+| 4 | a bind mount in the published model | `TestCompose_BindMountsNothing` |
+| 5 | execute by tag (`-f oci://repo:1.2.3`) | `TestTheDemoIsExecutedFromTheArtifactByDigest` |
+| 6 | a local materialized `compose.yaml` on the executable journey | `TestTheDemoIsExecutedFromTheArtifactByDigest` |
+| 7 | a service image pinned by tag only | `TestCompose_RefusesAnImageATagCouldMove` |
+| 8 | the release unit bypasses the shared adapter | `TestDemoComposeIsPublishedByComposeItself` |
+| 9 | one project name for both versions | `TestEveryDemoProjectIsNamedExplicitly` |
+| 10 | a config dropped from the projection | `TestCompose_CarriesEveryFixtureInputInline` |
+| 11 | a config whose content is a checkout path instead of the canonical bytes | `TestCompose_CarriesTheCanonicalBytes` |
+| 12 | CI pinned to a Compose below the declared floor | `TestCIRunsAComposeThatOwnsThisArtifact` |
+| 13 | delete only the `DOCKER-USER` rules | "the DOCKER-USER arm did not refuse the forwarded route to 198.18.53.2:5000" |
+| 14 | delete only the `INPUT` rules | "the INPUT arm did not refuse the host-local route to <gateway>:15072" |
+| 15 | point the forwarded control at a host-local address | "the DOCKER-USER arm did not refuse the forwarded route" — which is exactly section 15.3's counterexample, now fatal |
+| 16 | disable isolation entirely | same assertion, at the first arm |
+
+Mutations 8 and 11 are the two that mattered most, because both SURVIVED their
+first gate and the gate had to be strengthened. 8 survived a
+`strings.Contains` check that a `true `-prefixed line still satisfied — the gate
+now requires the adapter to actually be RUN. 11 survived because nothing compared
+a config's content to the canonical bytes the scenario materializes;
+`TestCompose_CarriesTheCanonicalBytes` was written for it. A discarded seventeenth
+mutation, replacing a config with a checkout path in a way that produced a
+duplicate YAML key, was thrown out as a vacuous kill: it failed to compile, which
+proves nothing about the gate.
+
+### Local verification at `4399c63a`
+
+All green.
+
+- `bash tests/acceptance/local/compose-demo.sh browser` — the FULL Compose
+  acceptance, rerun after the last change to any file it reads. 29 assertions,
+  both live browser legs (7 passed, 1 skipped, twice), the two-armed isolation
+  stage and the two-version stage. Local Compose is 5.3.1 against the artifact's
+  declared floor of 2.34.0. The two published applications were
+  `sha256:18013cb7…` (0.0.1) and `sha256:c73e0b60…` (0.0.2), each equal to the
+  `sha256` of its projected file.
+- `make ci` (`ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes
+  ci-e2e-envtest ci-oci`), `make test-browser` (219 passed), `make artifact-drift`,
+  `make release-dry-run`.
+- `go test ./tests/release/...`, `go test ./tests/acceptance/scenario/...`,
+  `go test -race ./tests/acceptance/scenario/...`,
+  `go test -race ./tests/acceptance/kind/productready`.
+- `shellcheck tests/acceptance/local/compose-demo.sh` clean.
+  `shellcheck tests/acceptance/kind/lib.sh` reports one pre-existing SC2153 info
+  at an untouched line. `shellcheck release/orchestrator/dry-run.sh` reports three
+  pre-existing SC2015 infos at untouched lines 105, 192 and 286.
+- `bash scripts/check-section-sign.sh` — zero U+00A7 in authored files, and none
+  in any commit message in this range.
+- `gofmt`, `go vet` and the repository lint over every touched file;
+  `git diff --check` clean.
+
+### GitHub Actions at `4399c63a`
+
+CI run `32082237095`, conclusion success on attempt 1, all 21 jobs green:
+
+`changes` `95547324521`, `ci-static` `95547364444`, `ci-gates` `95547364520`,
+`ci-engine` `95547364557`, `ci-dashboard` `95547364458`, `ci-oci` `95547364544`,
+`ci-integration-kubernetes` `95547364375`, `ci-e2e-envtest` `95547364406`,
+`ci-e2e-compose` `95547364433`, `release-dry-run` `95547364447`,
+`artifact-drift` `95547364410`, `release-version-test` `95547364470`,
+`operator-build` `95547364460`, `dashboard-e2e` `95547364495`, all six Kind
+shards — `observation` `95547364509`, `upgrade` `95547364513`, `evidence`
+`95547364521`, `dashboard` `95547364526`, `operational-graph` `95547364570`,
+`reconcile` `95547364622` — and `required` `95550039392`.
+
+Also green at this SHA: Security `32082236970`, Docs check `32082237014`,
+Pacto Contract CI `32082236975`, Repowise `32082236990` and Validate PR title
+`32082237045`. `Rebuild dashboard UI` and `Auto-merge Dependabot PRs` are
+skipped, as they are on every push here.
+
+**The one CI failure, disclosed and fixed rather than rerun.** The first push of
+this repair, `c25b6125`, went red at `ci-e2e-kind (evidence)` `95544102722` in run
+`32081089200` — "port-forward to svc/pacto-evidence never answered". It was not
+rerun. The diagnostics show the replacement pod one second old and
+`ContainerCreating` at the restart-recovery step, and `kubectl port-forward` to a
+Service with no ready endpoint does not wait for one, it exits immediately. The
+shared `pf` helper spawned once and broke out of its own sixty-second retry loop
+the moment that child died, so the loop could not survive the single case it
+exists for. `4399c63a` makes `pf` respawn inside the window. Proved by stubbing a
+`kubectl` that exits for its first three spawns and then serves: the old `pf`
+fails on the first, the new one connects on the fourth. The shard is green at
+`4399c63a`. This is a pre-existing flake in the Kind harness, unrelated to the
+Compose and netfilter work, fixed because it was this branch's CI that was red.
+
+### CodeQL at `4399c63a`
+
+Zero delta. The analyses succeed and report exactly what they reported at the
+starting SHA: go 9, python 1, javascript-typescript 0, actions 0 — identical
+counts at `7c69ba43` (`20:09:31Z`) and at `4399c63a` (`23:56:10Z`). The open-alert
+inventory on the PR ref is the same nine inherited alerts: `#59`-`#62`
+(`pkg/oci/cache.go`), `#40`-`#43` (`internal/app/resolve.go`) and `#38`
+(`release/scripts/docs_check.py`), first seen between 2026-07-27 and 2026-08-13.
+This range touches none of those three files. The aggregate CodeQL check remains
+red for the same reason it was red before this repair: it reports the eight Go
+path-injection alerts as "new alerts in code changed by this pull request".
+
+### Review threads at `4399c63a`
+
+199 threads, fully paginated (page one caps at 100 and hides every unresolved
+one). 189 resolved, 10 unresolved — unchanged from `76ed7fee` and `430b2159`. All
+ten are inherited bot threads: six `github-code-quality` findings on the
+committed Mermaid asset bundle and four `github-advanced-security` path-expression
+notices on `pkg/oci/cache.go`. No human review thread is unresolved and this
+repair opened none.
+
+### Diff hygiene
+
+`git diff --check` clean across `7c69ba43..4399c63a`. The tracked tree is clean;
+the only untracked paths are the four pre-existing local tool paths `.claude/`,
+`.codex/`, `.mcp.json` and `AGENTS.md`.
+
+One incidental local side effect was reverted rather than committed: a `helm-docs`
+pass regenerated `integrations/kubernetes/charts/pacto-dev-gateway/README.md` over
+its hand-written content, as it did during the previous repair. `go.work.sum` was
+not touched this time. The chart README remains worth a look by whoever owns that
+chart: a local `make` run rewrites a tracked, hand-written file.
+
+### Preserved, unchanged
+
+Observed readiness, empty-volume startup, `--pull never`, the Product gate, both
+live browser runs, the exact bounded-offline claim, blocker A's digest pinning in
+full, the multi-platform index default, the release transaction's ownership of the
+production dashboard pin, crash recovery and adoption, conflict detection,
+single-unit recovery, the one-publisher gate, clone-free execution,
+runtime-generated credentials, restart and replay, two-version independence and
+cleanup. No `internal: true`, no sleeps, no public-Internet dependency, no generic
+networking framework, no new dependency. ORAS is untouched everywhere it still
+has a legitimate consumer, including the release ledger.
+
+### Phase 10B repair verdict
+
+CANDIDATE. Not closed, not self-declared. Phase 10C is NOT started. Phase 11 is
+not started. No PR comment was published, no review thread was resolved, no PR
+metadata was changed, the PR remains an open draft, and
+`PACTO_PR_TARGET_STATE.md` was not altered by this repair.
