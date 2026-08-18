@@ -4865,3 +4865,135 @@ interface remains.
 and proved, the accepted work from that section is intact, and the next step is
 an independent review of `3bd509b1` — not a closure by its author. Phase 10C and
 Phase 11 were not started.
+
+## 15.7 Independent review at `3bd509b1` — ownership blocker remains
+
+Reviewed independently on 2026-08-18. Blocker A from section 15.5 is CLOSED.
+The functional network discriminator remains accepted. Blocker B is not closed:
+the new ownership selftest can itself destroy a project it did not create, a
+failed container start escapes the ownership ledger, and the veth failure path
+still contains a check-then-delete race. Phase 10B therefore remains narrowly
+reopened; Phase 10C and Phase 11 are still NOT started.
+
+### Repository and GitHub state independently verified
+
+- PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE on
+  `feat/operational-graph-fleet`. The implementation reviewed is exactly
+  `3bd509b1846f37eda6ed9d6aeef64ff22110be53`; the branch head is its
+  documentation-only candidate record
+  `907db2bbf3a5868d2db75031d60994ced887a063`. `origin/main` remains
+  `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+- `603b7299` is an ancestor of `907db2bb`. The range is exactly the seven linear
+  commits recorded in 15.6 plus its ledger commit, every parent is the previous
+  SHA, and there is no merge, rebase, amend, reset, squash, force-push or
+  rewritten parent.
+- Exact implementation-SHA CI `32107259844` is success on attempt 1. All 21
+  jobs are green, including `ci-e2e-compose` `95619152979`,
+  `release-dry-run` `95619153059`, all six Kind shards and `required`
+  `95622611419`. Security `32107260136`, Docs check `32107259848`, Pacto
+  Contract CI `32107259846`, Repowise `32107259803` and title validation
+  `32107259845` are success. The same suite is green at ledger head `907db2bb`
+  in CI run `32109523745`, including `required` `95629033781`.
+- CodeQL has zero delta: the PR ref still reports the same nine inherited alerts
+  `#38`, `#40`-`#43` and `#59`-`#62`, at the same three untouched files. The
+  analyses succeed and the aggregate check remains red for those inherited
+  alerts.
+- Review threads were fully paginated: 199 total, 189 resolved and 10
+  unresolved. All ten are inherited bot threads: six `github-code-quality` on
+  the generated Mermaid asset and four `github-advanced-security` on
+  `pkg/oci/cache.go`. No human thread is unresolved.
+- Focused independent checks pass: release tests, scenario tests and race suite,
+  shellcheck apart from the three disclosed inherited SC2015 infos, and
+  `git diff --check`. The tracked tree remains clean; only the four pre-existing
+  local agent paths are untracked.
+
+### Blocker A accepted and closed
+
+Content recovery now matches the complete native Compose identity in the one
+load-bearing place: exact `application/vnd.docker.compose.project` artifact
+type, exactly one `application/vnd.docker.compose.file+yaml` layer, and its
+expected digest. `publish-oci-unit.sh` asks `verify-oci.sh` for the same verdict
+before recording an absent-tag publication, so there is no second weaker tuple.
+The release dry run constructs real foreign artifacts with the same bytes and
+refuses wrong artifact type, wrong layer media type, extra layer, no compose
+layer and wrong bytes, while a real native publication still adopts. Other OCI
+units and the real Compose publication/execution path are unchanged. Do not
+reopen this without a new concrete counterexample.
+
+### Accepted portion of blocker B
+
+The random per-invocation names, interface-length guard and runtime `/30`
+selection remove the old fixed `pactoout`/`pactoin` and fixed-address collision.
+The picker detects an occupied local prefix and steps over it. The full
+acceptance and final-SHA CI still prove the two independent hooks: removing
+`DOCKER-USER` kills the forwarded control while host-local remains reachable;
+`INPUT` then kills the host-local control; the redirected dependency fails over
+both routes; the isolated Product/browser journeys remain green. This semantic
+network proof is accepted and must not be redesigned.
+
+### Remaining blocker B1 — `selftest` destroys an unrelated Compose project
+
+`cleanup()` is installed for every mode and unconditionally calls
+`down_quiet "$PROJ1"` and `down_quiet "$PROJ2"`. The new `selftest` and
+`own-and-exit` modes exit before the normal stage-0 ownership preflight, so their
+EXIT trap runs `docker compose -p pacto-demo down -v --remove-orphans` against
+whatever a user already has under the documented project name.
+
+This was reproduced with a reviewer-owned sentinel, not inferred. Before the
+selftest, project `pacto-demo` had container
+`f0a959aaccdb039335e22a061217fb80c871616c8f5c7abcb63e97bc7dffe661`
+and volume `pacto-demo_sentinel-data`. The unmodified
+`compose-demo.sh selftest` exited 0 and printed `SELFTEST OK`; afterwards both
+the container and volume were gone. The selftest therefore reports that it
+leaves foreign resources alone while its generic trap has just deleted them.
+
+Closure requires helper modes to have no project-cleanup authority. More
+generally, project teardown may run only for a normal/browser invocation that
+has established ownership of those project names. Add a sentinel Compose
+project/volume case that survives `selftest` and both `own-and-exit` success and
+failure children unchanged.
+
+### Remaining blocker B2 — `run_owned` records too late
+
+`run_owned` executes `docker run -d --name ...` and appends the name to
+`OWNED_CONTAINERS` only after that command returns success. Docker can create a
+container and then fail to start it. Reproduced with a reviewer-owned port
+collision: the second `docker run` exited 125 but left its named container in
+state `created`. In `run_owned`, `set -e` exits before the append, so the EXIT
+trap has no record and leaks the container.
+
+Closure requires create and start to be separate: atomically create, record the
+returned container identity immediately, then start. A start failure must be
+removed by the real EXIT trap. Track immutable container IDs, or verify the ID
+before deletion, so later name reuse can never make cleanup delete a different
+container. The early stage-11 removal of the host-local endpoint must either
+retain ownership (for example by stopping it) or retire its ownership record at
+the same time; cleanup must not later delete a new container that reused the
+freed name. Add an induced start-failure case and a name-reuse sentinel.
+
+### Remaining blocker B3 — the veth failure cleanup can delete a racing owner
+
+`wire_forwarded_route` checks both interface names, then performs route selection,
+then attempts `ip link add`. If another process creates `VETH_HOST` in that
+window, `ip link add` fails because the foreign interface exists. The outer
+failure handler nevertheless runs `ip link del $VETH_HOST`, deleting the racing
+owner. The comment that the names "were free a moment ago" is precisely the
+TOCTOU gap; past freedom is not ownership.
+
+Closure requires the privileged create sequence to arm cleanup only after this
+invocation's `ip link add` has succeeded. Failure before successful creation
+must never delete by candidate name. Failure after creation must remove the
+pair this invocation created. Add a deterministic adversarial hook/test for a
+sentinel appearing after preflight but before create, plus a later-step failure
+that proves the invocation still removes its own partially configured pair.
+
+### Verdict and exact next objective
+
+**Phase 10B remains NARROWLY REOPENED / CANDIDATE.** Blocker A is CLOSED.
+Blocker B is narrowed to the three ownership/cleanup defects above. Repair them
+append-only from the reviewer state commit that follows this section, preserving
+the accepted native Compose identity and the two-hook network semantics. Rerun
+the ownership selftest, full Compose/browser acceptance, release dry run and
+exact-final-SHA CI. Phase 10C and Phase 11 must not start until that narrow
+repair is independently reviewed. No PR comment was published, no review thread
+was resolved and no PR metadata was changed.
