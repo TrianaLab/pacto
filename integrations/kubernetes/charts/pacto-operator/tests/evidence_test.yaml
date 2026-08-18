@@ -60,7 +60,10 @@ tests:
       evidence.trust.existingSecret: my-keys
     asserts:
       - failedTemplate:
-          errorPattern: "'/evidence/registry/subjects': minItems"
+          # `.` for the separator on purpose: helm's bundled schema validator and
+          # the standalone plugin spell the failing path differently, and a gate
+          # that only fires on one of them is a gate that silently stops firing.
+          errorPattern: "evidence.registry.subjects"
 
   # --- RBAC ---
   # A fresh install grants no storage permission at all. Regaining PVC RBAC would
