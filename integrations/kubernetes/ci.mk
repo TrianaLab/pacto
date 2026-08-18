@@ -29,9 +29,16 @@ ci-vet:
 	@echo "==> Running go vet..."
 	go vet ./...
 
+# Its OWN analysis cache. This module lints with a custom build (the logcheck
+# plugin); the engine module lints with the stock binary. Left to the default they
+# share one directory under $HOME — which CI additionally restores from an earlier
+# commit — so what a linter reports comes to depend on which build wrote the cache
+# first and on what the tree looked like when it did. That is how this leg started
+# reporting SA5011 against `t.Fatal` guards on CI that no local run, cold cache
+# included, could reproduce. A per-module cache makes the answer the code's.
 ci-lint: golangci-lint
 	@echo "==> Running linter..."
-	"$(GOLANGCI_LINT)" run
+	GOLANGCI_LINT_CACHE="$(LOCALBIN)/.golangci-lint-cache" "$(GOLANGCI_LINT)" run
 
 .PHONY: helm-template
 helm-template: ## Render chart templates and validate output.
