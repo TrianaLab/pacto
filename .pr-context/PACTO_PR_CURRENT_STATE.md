@@ -5453,3 +5453,276 @@ Update the maintainer wording to match the actual complete claim. Phase 10C and
 Phase 11 must not start until this one-resource-class repair is independently
 reviewed. No PR comment was published, no review thread was resolved and no PR
 metadata was changed.
+
+## 15.10 Phase 10B network-ownership repair — CANDIDATE at `bec4cb33`
+
+The one remaining blocker section 15.9 named — B1's incomplete project claim —
+and nothing else. Blocker A, B2, B3, the native Compose identity and digest
+pinning, the two independent `DOCKER-USER` and `INPUT` controls, the run-time
+`/30`, per-invocation resource names, container ownership by id, the
+create/record/start split, veth ownership from `ip link add`, helper modes
+without project-teardown authority and the eleven existing selftest cases are
+untouched.
+
+Phase 10B remains a CANDIDATE. A phase is closed by review, not by its author.
+Sections 15.1 through 15.9 are unchanged, `PACTO_PR_TARGET_STATE.md` was not
+touched, no PR comment was published, no review thread was resolved, no PR
+metadata was changed, the PR is still a draft, and Phase 10C and Phase 11 are
+NOT started.
+
+### Range
+
+Starting point `c86260301f5912158708f1a900a6a6b75ac078a1`, the branch head
+carrying the section 15.9 review record. Final SHA
+`bec4cb33c5ffe09acfbeb97a66f6efed3ce3dc9e`. `c8626030` is an ancestor of
+`bec4cb33`; the range is exactly three linear commits, each parented on the
+previous one. 2 files, +151 / -20. No rebase, amend, reset, force-push, squash
+or rewrite. `origin/main` is still
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d` and was not touched.
+
+| SHA | Subject |
+|---|---|
+| `812b74fb` | fix(acceptance): a network alone is a project the harness must not claim |
+| `c4532a62` | test(acceptance): a network-only project under either documented name |
+| `bec4cb33` | docs: "holding nothing" names every class the teardown removes |
+
+| File | What changed |
+|---|---|
+| `tests/acceptance/local/compose-demo.sh` | `claim_projects` reads labelled networks as well as containers and volumes; `sentinel_network`, the `claim-and-exit` child mode, `refuses_network_only`, selftest cases S12 and S13, and an unrelated bystander project the whole selftest watches |
+| `docs/maintainers/testing.md` | what "holding nothing" means, why the network is the class that can be there alone, that the authority is armed in one assignment, and the two new cases in the selftest paragraph |
+
+### RED, reproduced against the starting implementation
+
+A Compose-labelled network planted under a documented project name by something
+that is not the harness, then `c8626030`'s harness in `selftest` mode. Under the
+first documented name:
+
+```text
+network: pacto-demo_default
+before:  f5c072eb1cb5d43e7af6818997146217593fa4eedede49092018ec3907076a34
+claim sees: containers=[] volumes=[]
+selftest exit: 1
+error: Error response from daemon: network with name pacto-demo_default already exists
+after:   GONE
+```
+
+And with the FIRST name free and only the second occupied, which is the ordering
+section 15.9 asked for:
+
+```text
+network: pacto-demo-next_default   (pacto-demo itself is free)
+before:  3f30bfeba976d00418dc6b5986c9a465897206e01919765d431fc124399ebf0d
+selftest exit: 1
+error: Error response from daemon: network with name pacto-demo-next_default already exists
+after:   GONE
+```
+
+Both are the same mechanism the reviewer recorded. The claim read no container
+and no volume, called the project empty, filled `OWNED_PROJECTS`, and the real
+EXIT trap ran `docker compose -p NAME down -v --remove-orphans` over a network
+this invocation never made. Both networks were created solely for these
+reproductions; nothing else on the machine was at risk, and the leftovers were
+verified gone afterwards.
+
+### The repair
+
+One more read in the loop that was already there, with the same label filter
+`proj_state` already uses for networks:
+
+```sh
+[ -z "$(docker network ls -q --filter "label=com.docker.compose.project=$p")" ] ||
+	fail "project $p already has networks; run \`docker compose -p $p down -v\` first"
+```
+
+`down -v --remove-orphans` removes three classes — containers, named volumes and
+networks — and the claim now reads all three. The network is the one that can be
+there alone: `up` creates it before anything else, `down` without `-v` leaves it,
+and a stack whose containers have all been removed by hand still has one, so a
+project that is nothing but a network is the exact state the two-class claim
+mistook for empty.
+
+The single `OWNED_PROJECTS="$*"` after the loop was already there and is now
+load-bearing rather than incidental: arming is all or nothing, so a refusal on
+the second name cannot leave the first one claimed. It is commented as such.
+
+No framework, no new helper on the production path, no behaviour change to any
+mode that already refused.
+
+### Selftest: two new cases, thirteen in total
+
+| Case | What it proves |
+|---|---|
+| S12 | **new** — the first documented name holding nothing but a Compose network is refused by a real invocation, which keeps that exact network and arms nothing |
+| S13 | **new** — the same for the second name with the first FREE, which is where a claim that armed itself as it went would already have taken `pacto-demo` |
+| S11 | extended — the unrelated bystander project is byte-identical at the end of the whole run, alongside the two planted demo projects |
+
+S1 through S11 are unchanged and all still run.
+
+Three pieces carry the two cases, each the smallest thing that would do:
+
+- `sentinel_network PROJECT` plants a real `docker network create` carrying
+  `com.docker.compose.project` and `com.docker.compose.network`, then asserts the
+  project holds no container and no volume. That is the vacuity guard: without
+  it, the case could pass on the container or the volume arm and prove nothing
+  about the network. `sentinel_project` now takes its network from this function,
+  so the two sentinels cannot drift apart on what a Compose network looks like.
+- `claim-and-exit` is a child mode beside the existing `own-and-exit`: it runs
+  the same `claim_projects` stage 0 runs, prints `CLAIMED <projects>` if that
+  succeeded, and leaves through the same `cleanup` EXIT trap. What is under test
+  is therefore the production claim and the production teardown, not a re-reading
+  of either, and a refusal is observable without standing a demo up.
+- `refuses_network_only LABEL PROJECT` spawns that child and requires: a non-zero
+  exit; NO `CLAIMED` line at all — not armed, rather than not fully armed; the
+  exact network id still present; and `proj_state` byte-identical for both
+  documented names AND for an unrelated bystander project
+  (`pacto-demo-bystander-$RUN_ID`, planted with a container, a network and a
+  volume). It ends by running `down_quiet` on the sentinel this selftest does
+  own and requiring the network to be gone — which demonstrates rather than
+  asserts that the refusal saved something `down -v --remove-orphans` really
+  would have taken.
+
+The ordering inside `run_selftest` is what makes the cases discriminating: the
+outer selftest claims both documented names and the bystander first, plants the
+bystander, runs S12 and S13 while the documented names can still be made to hold
+a network and nothing else, and only then plants the mixed sentinel projects S11
+watches. S11 could not have caught this: it plants its container, network and
+volume only after the claim has already happened.
+
+### GREEN
+
+```text
+== S12. a documented name holding only a Compose network is not claimed ==
+  PASS: S12: pacto-demo held nothing but a network, and the invocation refused it and kept it
+== S13. the second documented name is read even when the first is free ==
+  PASS: S13: pacto-demo-next was refused with pacto-demo free, and nothing was armed on the way
+...
+  PASS: S11: pacto-demo and pacto-demo-next kept every container, network and volume they had
+  PASS: S11: the unrelated pacto-demo-bystander-6d1dc6 kept everything it had too
+SELFTEST OK: the harness owns what it creates, refuses what it does not, and gives all of it back
+```
+
+### Mutation evidence
+
+Each mutation was applied to the repaired file, run, observed to fail at exactly
+the case meant to catch it, then discarded and the file verified byte-identical
+(`sha256 faf169ccac063973a2b714d7e16483e54e4b98ae997b2b067ac347de89af890e` before
+and after both).
+
+| Mutation | Selftest result |
+|---|---|
+| M6 — the network check deleted from `claim_projects` | child printed `CLAIMED pacto-demo pacto-demo-next`; `FAIL: S12 the first documented name: the invocation claimed pacto-demo instead of refusing it` |
+| M7 — `OWNED_PROJECTS="$*"` moved INSIDE the loop, so the claim arms as it goes | S12 still passes; `FAIL: S13 the second documented name: the network b92bf3a4eaaff8404137078aff300f7168f97ca7bdbe28cb369e900f315398f8, which was all pacto-demo-next had, did not survive the refusal` (exit 1) |
+
+M7 is the "bypasses the check" shape and is why S13 exists as a separate case
+from S12: with the arming moved inside the loop, the network check still runs and
+still refuses, but the first name is already claimed by then and the trap tears
+the second one's network down on the way out. S12, where the FIRST name is the
+occupied one, cannot see that.
+
+### Local verification, all green
+
+`bash -n` and `shellcheck -s bash` on `compose-demo.sh` at each of the three
+commits; `git diff --check`; `make check-section` (zero U+00A7);
+`make test-acceptance-compose-selftest` on the committed tree, all thirteen cases;
+`go test ./tests/release/...`; `go test -race ./tests/acceptance/... -count=1`
+(the scenario suite and the three Kind gates, race detector on);
+`make ci-e2e-compose` in full including the live Playwright journeys against the
+published demo (7 passed twice, `clone-free Compose demo acceptance PASSED`);
+`make release-dry-run` (`K8S-MODULE-STANDALONE OK`, `RELEASE-DRY-RUN OK`);
+`make artifact-drift` (`artifact-drift: OK`); `make ci` (exit 0);
+`make test-browser` (219 passed). No `shfmt` is installed and no Make target or
+workflow gates shell formatting; the file's inline shellcheck directives are
+unchanged.
+
+### GitHub at the exact final SHA `bec4cb33`
+
+PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE, head
+`bec4cb33c5ffe09acfbeb97a66f6efed3ce3dc9e`, base `main`. Run `32134424578` (CI)
+is success on attempt 1; all 21 jobs are green:
+
+| Job | ID | Conclusion |
+|---|---|---|
+| `changes` | `95702376046` | success |
+| `ci-oci` | `95702439116` | success |
+| `ci-dashboard` | `95702439161` | success |
+| `ci-engine` | `95702439167` | success |
+| `dashboard-e2e` | `95702439180` | success |
+| `ci-static` | `95702439195` | success |
+| `ci-integration-kubernetes` | `95702439239` | success |
+| `operator-build` | `95702439272` | success |
+| `ci-e2e-envtest` | `95702439332` | success |
+| `ci-e2e-compose` | `95702439336` | success |
+| `release-dry-run` | `95702439352` | success |
+| `ci-e2e-kind (observation)` | `95702439363` | success |
+| `artifact-drift` | `95702439371` | success |
+| `release-version-test` | `95702439424` | success |
+| `ci-gates` | `95702439425` | success |
+| `ci-e2e-kind (reconcile)` | `95702439443` | success |
+| `ci-e2e-kind (evidence)` | `95702439516` | success |
+| `ci-e2e-kind (operational-graph)` | `95702439529` | success |
+| `ci-e2e-kind (upgrade)` | `95702439593` | success |
+| `ci-e2e-kind (dashboard)` | `95702439608` | success |
+| `required` | `95706665808` | success |
+
+Other workflows at the same SHA: Security `32134424527` (govulncheck
+`95702375923`, Trivy `95702375958`, PR security summary `95702932858`, all
+success), Docs check `32134424552`, Pacto Contract CI `32134424516`, Repowise
+`32134424525`, Validate PR title `32134424600`, Code Quality `32134419825` and
+PR review `32134419938` are all success; Rebuild dashboard UI `32134424569` and
+Auto-merge Dependabot `32134424524` skipped. Of the 37 rollup entries, 34 are
+success, two are skipped (`auto-merge`, `build`) and one is the aggregate
+`CodeQL` check — the same shape sections 15.6 through 15.8 recorded.
+
+The `ci-e2e-compose` job log confirms both new cases run on the Linux runner and
+not only on the author's machine:
+
+```text
+PASS: S12: pacto-demo held nothing but a network, and the invocation refused it and kept it
+PASS: S13: pacto-demo-next was refused with pacto-demo free, and nothing was armed on the way
+PASS: S3: 198.18.118.205/30 stayed with its owner; the link moved to 198.18.118.209
+SELFTEST OK: the harness owns what it creates, refuses what it does not, and gives all of it back
+```
+
+**CodeQL delta: none.** The PR ref reports the same nine inherited open alerts as
+the starting SHA — `#38` (`release/scripts/docs_check.py:197`), `#40`-`#43`
+(`internal/app/resolve.go`) and `#59`-`#62` (`pkg/oci/cache.go`). This range
+touches one shell file and one Markdown file and no Go, Python, JavaScript or
+workflow file at all. All four analyses at `bec4cb33` (`actions`, `go`,
+`javascript-typescript`, `python`) are success; the aggregate check remains red
+for the inherited alerts exactly as sections 15.5 through 15.9 recorded.
+
+**Review threads, fully paginated** (two pages of 100): 199 total, 189 resolved,
+10 unresolved — byte-identical to the reviewed baseline. All ten are inherited
+bot threads: six from `github-code-quality` on the generated Mermaid asset
+`pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` and four from
+`github-advanced-security` on `pkg/oci/cache.go`. No human thread is unresolved,
+none was resolved here and no comment was published.
+
+### Hygiene and incidental side effects
+
+The tracked tree is clean at `bec4cb33`; the four pre-existing local agent paths
+(`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`) remain untracked and
+unmodified. `git diff --check` is silent across the range. During `make ci`,
+`integrations/kubernetes/charts/pacto-dev-gateway/README.md` was again rewritten
+by the `helm-docs` step; it is unrelated to this repair, it was reverted rather
+than committed, and `make ci` passed. `go.work.sum` was not touched this time.
+
+Every network, project, container, volume, image and interface created by the two
+reproductions, the two mutation runs and the passing runs was removed and its
+absence verified: no `pacto-demo*` network or volume, no `pacto-demo-*` or
+`pacto-demo-bystander-*` container, no `pacto-demo-netfilter` image. The one
+`pacto*` container left on the machine is `pacto-evidence-control-plane`, a Kind
+node created on 2026-08-17, before this session, and untouched by it. The demo
+images the Compose acceptance is documented to leave behind are unchanged.
+
+### Verdict
+
+**Phase 10B remains CANDIDATE.** The one blocker section 15.9 left open is
+repaired: no normal, browser or selftest invocation can now acquire
+project-teardown authority while a container, a named volume OR a network exists
+under either documented project name, and arming is all or nothing. It was proved
+RED against `c8626030` under both names first, is guarded by two selftest cases
+each proved to bite by its own mutation, and the maintainer wording now matches
+the implementation. Everything section 15.9 accepted stays accepted and
+untouched. The next step is an independent review of `bec4cb33` — not a closure
+by its author. Phase 10C and Phase 11 were not started.
