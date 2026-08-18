@@ -34,13 +34,27 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+
+# RUN_ID — this invocation's identity, and the reason nothing below is a fixed
+# name any more. This harness installs real state in the HOST: containers, a veth
+# pair, an address, an image tag. It used to claim those under fixed names by
+# force — `docker rm -f`, `ip link del` — which is fine on a throwaway runner and
+# destructive on the machine of anyone who happened to have one. Everything it
+# creates now carries this id, is refused rather than reclaimed if something is
+# already there, and is recorded only once the daemon or the kernel says it
+# exists, so cleanup can only ever remove what this run made.
+#
+# Six hex digits: enough that two runs do not pick the same names, and short
+# enough to leave the interface names inside Linux's 15-character limit.
+RUN_ID="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+
 ART_PORT="${PACTO_DEMO_ARTIFACT_REGISTRY_PORT:-15071}"
 ART_HOST="127.0.0.1:${ART_PORT}"
 ART_PATH="pacto/demo"
 ART_REPO="${ART_HOST}/${ART_PATH}"
 IMAGE_REPO="${ART_HOST}/pacto/dashboard"
-REG_NAME="pacto-demo-acceptance-registry"
-NETFILTER_IMAGE="pacto-demo-netfilter:acceptance"
+REG_NAME="pacto-demo-acceptance-registry-$RUN_ID"
+NETFILTER_IMAGE="pacto-demo-netfilter:$RUN_ID"
 # Empty means "whatever pin the artifact ships with" — the projection's own
 # default, which is the reference a released demo actually runs.
 REGISTRY_IMAGE="${PACTO_DEMO_REGISTRY_IMAGE:-}"
@@ -61,11 +75,17 @@ V2_PORTS=(PACTO_DEMO_DASHBOARD_PORT=18081 PACTO_DEMO_EVIDENCE_PORT=18687 PACTO_D
 V1_BASE="http://127.0.0.1:18080"
 V2_BASE="http://127.0.0.1:18081"
 
-case "${1:-run}" in
+MODE="${1:-run}"
+case "$MODE" in
 run) ;;
 browser) RUN_BROWSER=1 ;;
+# selftest proves the harness's own host-safety contract; own-and-exit is the
+# child it spawns to watch a real EXIT trap take a real invocation's resources
+# back down. Neither runs the demo.
+selftest) ;;
+own-and-exit) ;;
 *)
-	echo "unknown subcommand: $1 (use run|browser)" >&2
+	echo "unknown subcommand: $1 (use run|browser|selftest)" >&2
 	exit 2
 	;;
 esac
@@ -128,27 +148,44 @@ uncache() {
 # --- the network boundary's machinery -------------------------------------
 #
 # Everything below installs state in the HOST's netns, so it outlives this script
-# if the script dies. Each installer records what it did and the trap takes it
-# back down.
+# if the script dies. Each installer refuses to touch anything it did not create,
+# records what it did create, and the trap takes exactly that back down.
 
 # The host-local endpoint: a real registry listening in the host's own network
 # namespace. A packet a container addresses to a host address is delivered
 # LOCALLY — it is never forwarded — so this is the endpoint that exercises INPUT.
 HL_PORT="${PACTO_DEMO_HOSTLOCAL_PORT:-15072}"
-HL_NAME="pacto-demo-hostlocal-endpoint"
+HL_NAME="pacto-demo-hostlocal-endpoint-$RUN_ID"
 
 # The forwarded endpoint: the artifact registry again, reached over a point-to-
-# point link instead of over its published port. A packet addressed to 198.18.53.2
-# is not the host's, so it is ROUTED — in on the demo's bridge, out on pactoout —
-# which is FORWARD, and therefore DOCKER-USER. 198.18.53.0/15 is the RFC 2544
-# benchmarking range: reserved, never routed on a real network, so this cannot
-# collide with anything the machine actually uses.
-VETH_HOST="pactoout"
-VETH_PEER="pactoin"
-FWD_ADDR="198.18.53.2"
+# point link instead of over its published port. A packet addressed to the far end
+# of that link is not the host's, so it is ROUTED — in on the demo's bridge, out
+# on the host end — which is FORWARD, and therefore DOCKER-USER.
+#
+# The link lives in 198.18.0.0/15, RFC 2544's reserved benchmarking space: nothing
+# on the public Internet routes it, which is what makes it the right range to
+# borrow an address from. That is a statement about the Internet and not about
+# this machine — a lab, a VPN or a second copy of this harness can perfectly well
+# have a route into it here — so the range is only where we look. Which /30 we
+# take is decided at run time, from what this host is demonstrably not using.
+VETH_HOST="pactoout-$RUN_ID"
+VETH_PEER="pactoin-$RUN_ID"
+FWD_LOCAL=""
+FWD_ADDR=""
 FWD_PORT=5000
 DENIED_BR=""
-VETH_UP=0
+
+# What this invocation created, recorded as it succeeds. Cleanup reads only these.
+OWNED_CONTAINERS=""
+OWNED_VETH=""
+OWNED_IMAGE=""
+
+# Linux caps an interface name at IFNAMSIZ-1 = 15 characters and refuses a longer
+# one outright, so this is a build-time property of the naming scheme, checked
+# where the scheme is, not discovered as a wiring failure two minutes in.
+for n in "$VETH_HOST" "$VETH_PEER"; do
+	[ "${#n}" -le 15 ] || fail "interface name $n is ${#n} characters; Linux allows 15"
+done
 
 # netfilter SCRIPT — run SCRIPT in the host's netns with $ipt bound to whichever
 # iptables backend Docker itself used. alpine ships both nft and legacy, and a
@@ -159,6 +196,53 @@ VETH_UP=0
 # --pid host as well as --net host: wiring the forwarded route means moving one
 # end of a veth pair into another container's network namespace, which is
 # addressed by that container's pid.
+
+# hostns SCRIPT [ARG...] — run SCRIPT in the host's netns, READ ONLY: it looks at
+# links, routes and addresses and changes none of them, so unlike netfilter() it
+# needs neither --privileged nor --pid host.
+hostns() {
+	local s="$1"
+	shift
+	docker run --rm --net host "$NETFILTER_IMAGE" sh -euc "$s" sh "$@"
+}
+
+# refuse_existing KIND NAME CHECK... — stop if NAME is already taken.
+#
+# Everything this harness installs carries $RUN_ID, so nothing should be in the
+# way. "Should" is not "is", and the alternative to stopping is what this harness
+# used to do: `docker rm -f` a fixed container name and `ip link del` a fixed
+# interface name, which on a developer's machine destroys whatever was there and
+# cannot put it back. Refusing costs a rerun. Reclaiming costs someone their lab.
+refuse_existing() {
+	local kind="$1" name="$2"
+	shift 2
+	if "$@" >/dev/null 2>&1; then
+		fail "a $kind named $name already exists; this harness will not delete, replace or reuse one it did not create"
+	fi
+}
+
+# run_owned NAME DOCKER-RUN-ARGS... — start a container this invocation owns.
+# Recorded only after the daemon has actually created it, so the trap can never
+# remove a container this run did not start.
+run_owned() {
+	local name="$1"
+	shift
+	refuse_existing container "$name" docker container inspect "$name"
+	docker run -d --name "$name" "$@" >/dev/null
+	OWNED_CONTAINERS="$OWNED_CONTAINERS $name"
+}
+
+# The small privileged image that installs and removes the boundary stage's two
+# egress filters and the point-to-point link the forwarded one needs. Tagged per
+# invocation like everything else, so it never takes a tag off someone's image;
+# the layer cache makes rebuilding it free.
+build_netfilter_image() {
+	refuse_existing image "$NETFILTER_IMAGE" docker image inspect "$NETFILTER_IMAGE"
+	printf 'FROM alpine:3\nRUN apk add --no-cache iptables iproute2 util-linux\n' |
+		docker build -q -t "$NETFILTER_IMAGE" - >/dev/null
+	OWNED_IMAGE="$NETFILTER_IMAGE"
+}
+
 netfilter() {
 	docker run --rm --net host --pid host --privileged "$NETFILTER_IMAGE" sh -euc '
 		for b in iptables-nft iptables-legacy; do
@@ -166,7 +250,7 @@ netfilter() {
 		done
 		[ -n "${ipt:-}" ] || { echo "no iptables backend has a DOCKER-USER chain" >&2; exit 1; }
 		eval "$1"
-	' sh "$1" >/dev/null
+	' sh "$1"
 }
 
 # deny_forwarded_egress BRIDGE — refuse every packet the demo's network FORWARDS.
@@ -223,31 +307,74 @@ allow_egress() {
 	DENIED_BR=""
 }
 
+# pick_forwarded_net — take a /30 out of 198.18.0.0/15 that this machine is
+# demonstrably not using, and set both ends of the link from it.
+#
+# "Reserved for benchmarking" is not "free here": a route into the range, a
+# supernet route over it (a VPN), or a local address in it all mean somebody is
+# using it, and installing our own on top would both disturb them and silently
+# invalidate the forwarded proof — the probe would be answered by their route,
+# not ours. Candidates are walked from an offset derived from $RUN_ID so two
+# concurrent runs start in different places, and if none is free we refuse.
+#
+# The default route matches every prefix and is not a claim on this one, so it is
+# the single exclusion; anything else `to match` reports really does cover us.
+pick_forwarded_net() {
+	local i m cands=()
+	for i in $(seq 0 31); do
+		m=$(( (0x$RUN_ID + i) % 16384 ))
+		cands+=("198.18.$((m / 64)).$(((m % 64) * 4))")
+	done
+	local free
+	# shellcheck disable=SC2016  # "$@" is the container shell's, not ours.
+	free="$(hostns '
+		for c in "$@"; do
+			[ -z "$(ip -4 route show to match "$c/30" | grep -v "^default" || true)" ] || continue
+			[ -z "$(ip -4 route show to root "$c/30")" ] || continue
+			[ -z "$(ip -4 -o addr show to "$c/30")" ] || continue
+			echo "$c"
+			break
+		done
+	' "${cands[@]}")" || fail "could not read this machine's routes, so no link address can be shown to be free"
+	[ -n "$free" ] || fail "none of 32 candidate /30s in 198.18.0.0/15 is free on this machine; the harness will not route over an address it did not create"
+	FWD_LOCAL="${free%.*}.$((${free##*.} + 1))"
+	FWD_ADDR="${free%.*}.$((${free##*.} + 2))"
+}
+
 # wire_forwarded_route — give the artifact registry a second address that is only
 # reachable by ROUTING to it. One veth end stays in the host's netns with
-# 198.18.53.1/30; the other is moved into the registry's netns as 198.18.53.2/30.
+# $FWD_LOCAL/30; the other is moved into the registry's netns as $FWD_ADDR/30.
 # Docker's own MASQUERADE rule makes the return path symmetric, so nothing else is
 # needed. Deleting the host end deletes the pair, which is also what happens by
 # itself if the registry container goes away.
 wire_forwarded_route() {
 	regpid="$(docker inspect -f '{{.State.Pid}}' "$REG_NAME" 2>/dev/null || true)"
 	[ -n "$regpid" ] && [ "$regpid" != "0" ] || fail "the artifact registry is not running, so there is nothing to route to"
+	# Both names carry $RUN_ID, so an interface holding one is not ours.
+	refuse_existing interface "$VETH_HOST" hostns "ip link show $VETH_HOST"
+	refuse_existing interface "$VETH_PEER" hostns "ip link show $VETH_PEER"
+	pick_forwarded_net
 	netfilter "
-		ip link del $VETH_HOST 2>/dev/null || true
 		ip link add $VETH_HOST type veth peer name $VETH_PEER
-		ip addr add 198.18.53.1/30 dev $VETH_HOST
+		ip addr add $FWD_LOCAL/30 dev $VETH_HOST
 		ip link set $VETH_HOST up
 		ip link set $VETH_PEER netns $regpid
 		nsenter -t $regpid -n ip addr add $FWD_ADDR/30 dev $VETH_PEER
 		nsenter -t $regpid -n ip link set $VETH_PEER up
-	" || fail "could not wire a forwarded route to the artifact registry"
-	VETH_UP=1
+	" || {
+		# `ip link add` may have succeeded before a later step failed. The pair is
+		# ours either way — the names were free a moment ago — so take it back
+		# rather than leave half a link behind.
+		netfilter "ip link del $VETH_HOST 2>/dev/null || true" 2>/dev/null || true
+		fail "could not wire a forwarded route to the artifact registry"
+	}
+	OWNED_VETH="$VETH_HOST"
 }
 
 unwire_forwarded_route() {
-	[ "$VETH_UP" = 1 ] || return 0
-	netfilter "ip link del $VETH_HOST 2>/dev/null || true" 2>/dev/null || true
-	VETH_UP=0
+	[ -n "$OWNED_VETH" ] || return 0
+	netfilter "ip link del $OWNED_VETH 2>/dev/null || true" 2>/dev/null || true
+	OWNED_VETH=""
 }
 
 # reaches NETWORK HOST PORT — can a container on NETWORK open this connection?
@@ -260,12 +387,24 @@ reaches() {
 	docker run --rm --net "$net" "$NETFILTER_IMAGE" nc -w 4 -z "$@" >/dev/null 2>&1
 }
 
+# release_owned — give the host back exactly what this invocation took from it,
+# by the names recorded as each one was created. Nothing here is a fixed name and
+# nothing here is a wildcard, so there is no path by which it removes a container,
+# an interface or an image that belongs to the machine. Runs on success and on
+# failure, and must never itself be the thing that fails.
+release_owned() {
+	unwire_forwarded_route
+	for c in $OWNED_CONTAINERS; do docker rm -f "$c" >/dev/null 2>&1 || true; done
+	OWNED_CONTAINERS=""
+	[ -z "$OWNED_IMAGE" ] || docker rmi -f "$OWNED_IMAGE" >/dev/null 2>&1 || true
+	OWNED_IMAGE=""
+}
+
 cleanup() {
 	allow_egress
-	unwire_forwarded_route
 	down_quiet "$PROJ1"
 	down_quiet "$PROJ2"
-	docker rm -f "$REG_NAME" "$HL_NAME" >/dev/null 2>&1 || true
+	release_owned
 	[ -n "${D1:-}" ] && uncache "$D1"
 	[ -n "${D2:-}" ] && uncache "$D2"
 	rm -rf "$WORK"
@@ -277,6 +416,157 @@ need docker
 need go
 need curl
 need jq
+
+# --- the harness's own host-safety contract --------------------------------
+#
+# This file is privileged: it creates containers, a veth pair, an address and an
+# image tag in the HOST, and those outlive it if it dies. The contract is that it
+# never deletes, replaces, reuses or hijacks anything it did not create in THIS
+# invocation, and that it removes everything it did, on success and on failure
+# alike. That is a property of the harness rather than of the demo, so it is
+# proved here rather than by a demo run — against sentinels this selftest creates
+# and therefore owns, so nothing on the machine is put at risk in the course of
+# demonstrating that nothing is put at risk.
+#
+# It exists because the contract used to be broken in exactly the way it is now
+# checked: `ip link del pactoout` and `docker rm -f <fixed name>` ran before every
+# create, and on somebody's machine they took whatever was there.
+
+# sentinel_link NAME [CIDR] — a dummy interface standing in for the one somebody
+# else's work already had. Created here, so removing it later is ours to do.
+sentinel_link() {
+	netfilter "
+		ip link add $1 type dummy
+		${2:+ip addr add $2 dev $1}
+		ip link set $1 up
+	" >/dev/null
+}
+sentinel_gone() { netfilter "ip link del $1 2>/dev/null || true" >/dev/null 2>&1 || true; }
+
+# link_state NAME — ifindex and addresses. Enough that a delete-and-recreate,
+# which is exactly what the old code did, cannot pass for "untouched".
+link_state() { hostns "ip -o addr show dev $1" 2>/dev/null || printf 'GONE'; }
+
+# filter_state — both netfilter hooks, verbatim. Compared across a refusal: a
+# harness that had begun mutating before it refused shows up as a difference,
+# whatever rules the machine already had of its own.
+filter_state() { netfilter "\$ipt -S DOCKER-USER; \$ipt -S INPUT"; }
+
+# refuses_to_touch LABEL CMD... — CMD must fail. Run in a subshell so its `fail`
+# ends the attempt rather than this selftest.
+refuses_to_touch() {
+	local label="$1"
+	shift
+	if ("$@") >/dev/null 2>&1; then
+		fail "$label: the harness went ahead instead of refusing"
+	fi
+}
+
+# own_and_exit — create this invocation's host resources, name them on stdout,
+# then leave: cleanly, or through `fail` when PACTO_SELFTEST_DIE is set. The
+# parent watches the REAL EXIT trap take them back down, on both paths.
+own_and_exit() {
+	build_netfilter_image
+	run_owned "$REG_NAME" registry:2
+	wire_forwarded_route
+	echo "OWNED image=$NETFILTER_IMAGE container=$REG_NAME veth=$OWNED_VETH"
+	[ -z "${PACTO_SELFTEST_DIE:-}" ] || fail "induced failure, with everything this invocation created still installed"
+}
+
+# own_and_clean LABEL EXPECTED-EXIT [DIE] — run that child and prove its trap left
+# nothing of its own behind and nothing of anyone else's missing.
+own_and_clean() {
+	local label="$1" want="$2" die="${3:-}" out rc=0 img cont veth
+	out="$(PACTO_SELFTEST_DIE="$die" bash "$0" own-and-exit 2>&1)" || rc=$?
+	if [ "$rc" != "$want" ]; then
+		echo "$out" >&2
+		fail "$label: the child exited $rc, expected $want"
+	fi
+	img="$(printf '%s\n' "$out" | sed -n 's/^OWNED image=\([^ ]*\).*/\1/p')"
+	cont="$(printf '%s\n' "$out" | sed -n 's/^OWNED .*container=\([^ ]*\).*/\1/p')"
+	veth="$(printf '%s\n' "$out" | sed -n 's/^OWNED .*veth=\([^ ]*\)$/\1/p')"
+	if [ -z "$img" ] || [ -z "$cont" ] || [ -z "$veth" ]; then
+		echo "$out" >&2
+		fail "$label: the child never reported what it created, so there is nothing to check"
+	fi
+	if docker container inspect "$cont" >/dev/null 2>&1; then fail "$label: the container $cont survived its own cleanup"; fi
+	if hostns "ip link show $veth" >/dev/null 2>&1; then fail "$label: the interface $veth survived its own cleanup"; fi
+	if docker image inspect "$img" >/dev/null 2>&1; then fail "$label: the image $img survived its own cleanup"; fi
+	pass "$label: it removed its own container, interface and image ($cont, $veth, $img)"
+}
+
+run_selftest() {
+	local before after id p1 p2 filters decoy
+	build_netfilter_image
+	run_owned "$REG_NAME" registry:2
+
+	echo "== S1. a pre-existing interface with this run's candidate name survives =="
+	sentinel_link "$VETH_HOST" 203.0.113.1/30
+	before="$(link_state "$VETH_HOST")"
+	filters="$(filter_state)"
+	refuses_to_touch "the veth host end" wire_forwarded_route
+	after="$(link_state "$VETH_HOST")"
+	[ "$before" = "$after" ] || fail "the sentinel interface $VETH_HOST changed: '$before' -> '$after'"
+	[ "$filters" = "$(filter_state)" ] || fail "the harness installed or removed a netfilter rule before refusing"
+	sentinel_gone "$VETH_HOST"
+	pass "S1/S4: $VETH_HOST was refused, not deleted, and no filter was touched"
+
+	echo "== S2. a pre-existing endpoint container with this run's name survives =="
+	docker create --name "$HL_NAME" registry:2 >/dev/null
+	id="$(docker container inspect -f '{{.Id}}' "$HL_NAME")"
+	refuses_to_touch "the host-local endpoint" run_owned "$HL_NAME" --net host registry:2
+	[ "$(docker container inspect -f '{{.Id}}' "$HL_NAME")" = "$id" ] ||
+		fail "the sentinel container $HL_NAME was replaced"
+	[ "$(docker container inspect -f '{{.State.Running}}' "$HL_NAME")" = false ] ||
+		fail "the sentinel container $HL_NAME was started"
+	docker rm -f "$HL_NAME" >/dev/null
+	pass "S2: $HL_NAME was refused, not force-removed"
+
+	echo "== S3. an occupied /30 in the benchmarking range is not hijacked =="
+	pick_forwarded_net
+	p1="$FWD_LOCAL"
+	sentinel_link "pdsen-$RUN_ID" "$p1/30"
+	pick_forwarded_net
+	p2="$FWD_LOCAL"
+	[ "$p1" != "$p2" ] || fail "the harness chose $p2 again with that /30 already in use"
+	[ "${p2%.*}" != "${p1%.*}" ] || [ "$((${p2##*.} / 4))" != "$((${p1##*.} / 4))" ] ||
+		fail "the harness chose $p2, which is inside the occupied $p1/30"
+	hostns "ip -o addr show to $p1/30" | grep -q "pdsen-$RUN_ID" ||
+		fail "$p1/30 is no longer held by the sentinel that had it"
+	sentinel_gone "pdsen-$RUN_ID"
+	pass "S3: $p1/30 stayed with its owner; the link moved to $p2"
+
+	# A container named the way this harness names its own, that this run did not
+	# create. It must survive both children below: cleanup that ever went back to a
+	# fixed name or a `pacto-demo-*` sweep would take it.
+	decoy="pacto-demo-hostlocal-endpoint-000000"
+	refuse_existing container "$decoy" docker container inspect "$decoy"
+	docker create --name "$decoy" registry:2 >/dev/null
+
+	echo "== S5. a run that succeeds gives everything back =="
+	own_and_clean "S5" 0
+
+	echo "== S6. a run that fails after creating everything gives it back too =="
+	own_and_clean "S6" 1 1
+
+	docker container inspect "$decoy" >/dev/null 2>&1 ||
+		fail "a harness-shaped container this run did not create was removed by someone else's cleanup"
+	docker rm -f "$decoy" >/dev/null
+	pass "S5/S6: a harness-shaped container neither run created was left alone"
+
+	echo "SELFTEST OK: the harness owns what it creates, refuses what it does not, and gives all of it back"
+}
+
+case "$MODE" in
+selftest)
+	run_selftest
+	exit 0
+	;;
+own-and-exit)
+	own_and_exit
+	exit 0
+	;;
+esac
 
 echo "== 0. nothing of this demo is running or cached here =="
 # Both project names are free, so what comes up below came up now. A leftover
@@ -292,8 +582,7 @@ echo "== 1. build the observers, start the artifact registry =="
 # removes the boundary stage's two egress filters and the point-to-point link the
 # forwarded one needs.
 go build -o "$WORK/productready" "$ROOT/tests/acceptance/kind/productready"
-printf 'FROM alpine:3\nRUN apk add --no-cache iptables iproute2 util-linux\n' |
-	docker build -q -t "$NETFILTER_IMAGE" - >/dev/null
+build_netfilter_image
 
 # A registry CONTAINER, not an in-process one: the image the artifact pins has to
 # be pushed and pulled by the Docker daemon, and on Docker Desktop the daemon
@@ -303,8 +592,7 @@ printf 'FROM alpine:3\nRUN apk add --no-cache iptables iproute2 util-linux\n' |
 # Published on every interface because the boundary stage's controls have to reach
 # it from inside a container as genuinely EXTERNAL endpoints, which loopback is
 # not. It is an empty throwaway registry that exists for the length of this run.
-docker rm -f "$REG_NAME" >/dev/null 2>&1 || true
-docker run -d --name "$REG_NAME" -p "$ART_PORT:5000" registry:2 >/dev/null
+run_owned "$REG_NAME" -p "$ART_PORT:5000" registry:2
 wait_http "http://$ART_HOST/v2/" || fail "the artifact registry did not come up"
 pass "product gate built, artifact registry serving"
 
@@ -558,8 +846,7 @@ GW="$(docker network inspect "$NET" --format '{{(index .IPAM.Config 0).Gateway}}
 #               gateway. Delivered locally: INPUT, never FORWARD.
 #   forwarded   the artifact registry, addressed over a point-to-point link.
 #               Routed: FORWARD, and therefore DOCKER-USER, never INPUT.
-docker rm -f "$HL_NAME" >/dev/null 2>&1 || true
-docker run -d --name "$HL_NAME" --net host -e REGISTRY_HTTP_ADDR="0.0.0.0:$HL_PORT" registry:2 >/dev/null
+run_owned "$HL_NAME" --net host -e REGISTRY_HTTP_ADDR="0.0.0.0:$HL_PORT" registry:2
 for _ in $(seq 1 100); do
 	docker run --rm --net host "$NETFILTER_IMAGE" nc -w 2 -z 127.0.0.1 "$HL_PORT" >/dev/null 2>&1 && break
 	sleep 0.2
