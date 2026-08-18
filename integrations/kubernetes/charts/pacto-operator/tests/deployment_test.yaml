@@ -139,7 +139,8 @@ tests:
 
   - it: should include no trace-source arg by default
     asserts:
-      - notMatchRegexRaw:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
           pattern: "--dashboard-trace-source"
 
   - it: should include a PVC-backed observation source arg
@@ -238,12 +239,14 @@ tests:
           file: traces.json
           existingClaim: orders-trace-export
     asserts:
-      - notMatchRegexRaw:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
           pattern: "--dashboard-trace-source"
 
   - it: should not declare a plain-HTTP registry allowance by default
     asserts:
-      - notMatchRegexRaw:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[*].name
           pattern: "PACTO_INSECURE_REGISTRIES"
 
   - it: should pass the plain-HTTP registry hosts to the controller environment

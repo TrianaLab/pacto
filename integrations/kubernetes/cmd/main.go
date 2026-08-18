@@ -83,11 +83,10 @@ func main() {
 	var dashboardMemoryRequest, dashboardMemoryLimit string
 	var dashboardObservation []dashboard.ObservationSource
 	var enableEvidence bool
-	var evidenceBucketURL, evidencePrefix, evidenceTrustSecret string
+	var evidenceTrustSecret, evidenceCredentialsSecret string
+	var evidenceSubjects []string
 	var evidenceCPURequest, evidenceCPULimit string
 	var evidenceMemoryRequest, evidenceMemoryLimit string
-	var evidencePersistenceSize, evidenceExistingClaim, evidenceStorageClass string
-	var evidencePersistenceEnabled bool
 	var showVersion bool
 	var stabilizationWindow time.Duration
 	var enableMetricsObservation bool
@@ -145,11 +144,17 @@ func main() {
 		})
 	flag.BoolVar(&enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
-	flag.StringVar(&evidenceBucketURL, "evidence-bucket-url", "file:///var/lib/pacto/evidence",
-		"Durable evidence bucket URL. Default file:// needs no external infrastructure; "+
-			"s3://, gs:// and azblob:// use cloud storage.")
-	flag.StringVar(&evidencePrefix, "evidence-prefix", "pacto-evidence/v1",
-		"Logical key prefix scoping every evidence object; installations can share a bucket via distinct prefixes.")
+	flag.Func("evidence-subject",
+		"Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. "+
+			"The registry holding it IS the durable evidence store — accepted records are published as OCI 1.1 "+
+			"referrers of that manifest. At least one is required when the Evidence Server is enabled.",
+		func(subject string) error {
+			evidenceSubjects = append(evidenceSubjects, subject)
+			return nil
+		})
+	flag.StringVar(&evidenceCredentialsSecret, "evidence-credentials-secret", "",
+		"Optional: name of an existing kubernetes.io/dockerconfigjson Secret with contract-registry credentials, "+
+			"mounted read-only. Empty means anonymous or in-cluster registry access.")
 	flag.StringVar(&evidenceTrustSecret, "evidence-trust-secret", "",
 		"Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled.")
 	flag.StringVar(&evidenceCPURequest, "evidence-cpu-request", "",
@@ -160,14 +165,6 @@ func main() {
 		"Memory request for the Evidence Server container. Empty uses the built-in default.")
 	flag.StringVar(&evidenceMemoryLimit, "evidence-memory-limit", "",
 		"Memory limit for the Evidence Server container. Empty uses the built-in default.")
-	flag.StringVar(&evidencePersistenceSize, "evidence-persistence-size", evidence.DefaultPVCSize,
-		"Size of the provisioned PVC backing a file:// evidence bucket.")
-	flag.StringVar(&evidenceExistingClaim, "evidence-existing-claim", "",
-		"Use an externally-managed PVC for the evidence bucket instead of provisioning one.")
-	flag.StringVar(&evidenceStorageClass, "evidence-storage-class", "",
-		"StorageClass for the provisioned evidence PVC. Empty uses the cluster default.")
-	flag.BoolVar(&evidencePersistenceEnabled, "evidence-persistence-enabled", true,
-		"Provision a PVC for a file:// evidence bucket. Set false for cloud buckets or an externally-managed claim.")
 	flag.BoolVar(&showVersion, "version", false, "Print version information and exit.")
 	flag.DurationVar(&stabilizationWindow, "stabilization-window", 2*time.Minute,
 		"The stabilization window duration for compliance assertions before they trigger a false condition. "+
@@ -416,16 +413,10 @@ func main() {
 		Enabled:            enableEvidence,
 		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
 		Namespace:          dashboardNamespace,
-		BucketURL:          evidenceBucketURL,
-		Prefix:             evidencePrefix,
+		Subjects:           evidenceSubjects,
 		TrustSecret:        evidenceTrustSecret,
+		CredentialsSecret:  evidenceCredentialsSecret,
 		InsecureRegistries: insecureRegistries,
-		Persistence: evidence.PersistenceConfig{
-			Enabled:       evidencePersistenceEnabled,
-			ExistingClaim: evidenceExistingClaim,
-			Size:          evidencePersistenceSize,
-			StorageClass:  evidenceStorageClass,
-		},
 		Resources: evidence.ResourcesConfig{
 			CPURequest:    evidenceCPURequest,
 			CPULimit:      evidenceCPULimit,

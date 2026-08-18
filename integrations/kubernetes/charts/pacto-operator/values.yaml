@@ -190,33 +190,24 @@ evidence:
   # the dashboard and is not user-configurable. The Evidence Server is single-
   # writer, so its replica count is fixed at one.
   enabled: false
-  storage:
-    # -- Durable evidence bucket URL. The default file:// needs no external
-    # infrastructure (just the PVC below); s3://, gs:// and azblob:// use cloud
-    # storage with the same evidence logic.
-    bucketURL: file:///var/lib/pacto/evidence
-    # -- Logical key prefix; every object is scoped below it, so installations
-    # can safely share one bucket via distinct prefixes.
-    prefix: pacto-evidence/v1
-    persistence:
-      # -- Provision a PVC for a file:// bucket. Set false for cloud buckets or
-      # when using an existing claim.
-      enabled: true
-      # -- Use an externally-managed PVC instead of provisioning one.
-      existingClaim: ""
-      # -- Requested PVC size.
-      size: 1Gi
-      # -- StorageClass for the provisioned PVC. Empty uses the cluster default.
-      storageClass: ""
-      # -- PVC access modes. ReadWriteOnce is correct for a single writer.
-      accessModes:
-        - ReadWriteOnce
-      # NOTE: the evidence PVC is ALWAYS retained on component disable and chart
-      # uninstall — it carries no owner reference and is never garbage-collected
-      # with the operator. To delete persisted evidence, remove the PVC manually
-      # (kubectl delete pvc pacto-evidence-data). There is deliberately no toggle:
-      # auto-deleting signed, accepted audit evidence would defeat the component,
-      # and it is unimplementable at uninstall (the operator is already gone).
+  registry:
+    # -- Required when evidence is enabled: the exact, immutable contract
+    # revisions evidence may be reported against, each an
+    # oci://<repo>@sha256:<digest> reference. The registry holding them IS the
+    # durable evidence store — every accepted record is published as an OCI 1.1
+    # referrer of one of these manifests — so the chart installs nothing durable
+    # in the cluster. A mutable tag is rejected: it could be moved onto another
+    # manifest and silently change what the stored evidence reports on.
+    subjects: []
+    # -- Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with
+    # credentials for that registry, mounted read-only. The chart never creates
+    # it and never renders its contents. Empty means anonymous or in-cluster
+    # access.
+    credentialsSecret: ""
+    # NOTE: retention, backup and garbage collection of accepted evidence are the
+    # registry's responsibility. Deleting a contract subject or its referrers in
+    # the registry deletes the evidence reported against it; nothing in this
+    # cluster holds a copy.
   trust:
     # -- Name of an existing Secret of trusted producer public keys, mounted
     # read-only. Signature verification is mandatory, so this is required when

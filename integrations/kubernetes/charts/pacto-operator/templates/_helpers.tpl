@@ -112,20 +112,14 @@ Controller arguments derived from values
 {{- end }}
 {{- if .Values.evidence.enabled }}
 - --enable-evidence-server
-- --evidence-bucket-url={{ .Values.evidence.storage.bucketURL }}
-- --evidence-prefix={{ .Values.evidence.storage.prefix }}
 {{- if .Values.evidence.trust.existingSecret }}
 - --evidence-trust-secret={{ .Values.evidence.trust.existingSecret }}
 {{- end }}
-- --evidence-persistence-enabled={{ .Values.evidence.storage.persistence.enabled }}
-{{- if .Values.evidence.storage.persistence.existingClaim }}
-- --evidence-existing-claim={{ .Values.evidence.storage.persistence.existingClaim }}
+{{- range (required "evidence.registry.subjects is required when evidence is enabled: the registry holding those contract revisions IS the evidence store" .Values.evidence.registry.subjects) }}
+- --evidence-subject={{ . }}
 {{- end }}
-{{- if .Values.evidence.storage.persistence.size }}
-- --evidence-persistence-size={{ .Values.evidence.storage.persistence.size }}
-{{- end }}
-{{- if .Values.evidence.storage.persistence.storageClass }}
-- --evidence-storage-class={{ .Values.evidence.storage.persistence.storageClass }}
+{{- if .Values.evidence.registry.credentialsSecret }}
+- --evidence-credentials-secret={{ .Values.evidence.registry.credentialsSecret }}
 {{- end }}
 {{- with .Values.evidence.resources }}
 {{- if .requests }}

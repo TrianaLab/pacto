@@ -9,8 +9,6 @@ package evidence
 
 import (
 	"fmt"
-	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -30,14 +28,13 @@ type Config struct {
 	// Namespace is the operator's own namespace, where evidence resources live.
 	Namespace string
 
-	// BucketURL is the gocloud.dev bucket URL. The default file:// needs no
-	// external infrastructure; s3://, gs:// and azblob:// use cloud storage with
-	// the same evidence logic.
-	BucketURL string
-
-	// Prefix scopes every object key below it, so installations can safely share a
-	// bucket via distinct prefixes.
-	Prefix string
+	// Subjects are the exact, immutable contract revisions evidence is stored on,
+	// each an oci://<repo>@sha256:<digest> reference. The registry holding them IS
+	// the durable evidence store: accepted records are published as OCI 1.1
+	// referrers of these manifests, so at least one is required. The reference
+	// syntax is enforced by the chart schema at install time and authoritatively by
+	// the Evidence Server at startup, which fails fast on anything else.
+	Subjects []string
 
 	// TrustSecret is the name of a Secret of trusted producer public keys, mounted
 	// read-only. Signature verification is mandatory, so it is required.
@@ -50,41 +47,19 @@ type Config struct {
 	// Empty means every registry is https-only.
 	InsecureRegistries string
 
-	// Persistence configures the PVC backing a file:// bucket.
-	Persistence PersistenceConfig
+	// CredentialsSecret is the OPTIONAL name of an existing Secret holding a Docker
+	// config (a kubernetes.io/dockerconfigjson Secret), mounted read-only so the
+	// server reads and writes the contract registry under Pacto's ordinary
+	// credential policy. Empty means anonymous or in-cluster access.
+	CredentialsSecret string
 
 	// Resources overrides the container's resource requirements.
 	Resources ResourcesConfig
 
 	// OwnerRef is an optional owner reference to the operator's own Deployment.
 	// It is attached to the Deployment and Service so a GitOps tool shows them in
-	// the resource tree — but NEVER to the PVC, which must survive the operator.
+	// the resource tree.
 	OwnerRef *metav1ac.OwnerReferenceApplyConfiguration
-}
-
-// PersistenceConfig configures the evidence PVC. Persistent evidence is retained
-// by default; the PVC is never garbage-collected with the operator.
-type PersistenceConfig struct {
-	// Enabled provisions a PVC for a file:// bucket. Ignored when ExistingClaim
-	// is set or the bucket is cloud-backed.
-	Enabled bool
-	// ExistingClaim uses an externally-managed PVC instead of provisioning one.
-	ExistingClaim string
-	// Size is the requested storage (e.g. 1Gi).
-	Size string
-	// StorageClass is the optional storage class.
-	StorageClass string
-	// AccessModes default to [ReadWriteOnce] (single writer).
-	AccessModes []string
-}
-
-// ClaimName returns the PVC name to mount: the existing claim when set, else the
-// managed default.
-func (p PersistenceConfig) ClaimName() string {
-	if p.ExistingClaim != "" {
-		return p.ExistingClaim
-	}
-	return PVCName
 }
 
 // ResourcesConfig holds optional resource quantity overrides.
@@ -162,34 +137,10 @@ func (c Config) Validate() error {
 	if c.TrustSecret == "" {
 		return fmt.Errorf("evidence enabled but no trust secret set: signature verification is mandatory (set --evidence-trust-secret)")
 	}
-	if err := validatePrefix(c.Prefix); err != nil {
-		return err
-	}
-	if isFileBucket(c.BucketURL) && !c.Persistence.Enabled && c.Persistence.ExistingClaim == "" {
-		return fmt.Errorf("file:// evidence storage requires a PVC: set persistence.enabled or persistence.existingClaim")
+	if len(c.Subjects) == 0 {
+		return fmt.Errorf("evidence enabled but no contract subject set: the registry is the evidence store (set evidence.registry.subjects)")
 	}
 	return c.Resources.Validate()
-}
-
-// isFileBucket reports whether the bucket URL is a local file bucket.
-func isFileBucket(bucketURL string) bool {
-	return strings.HasPrefix(bucketURL, "file://")
-}
-
-// validatePrefix rejects an unsafe object-key prefix (absolute path or parent
-// traversal). It mirrors the store's NormalizePrefix without importing it (the
-// operator integration must not pull the pure-domain gocloud package chain).
-func validatePrefix(prefix string) error {
-	if prefix == "" {
-		return nil
-	}
-	if strings.HasPrefix(prefix, "/") {
-		return fmt.Errorf("evidence prefix %q must be relative, not absolute", prefix)
-	}
-	if slices.Contains(strings.Split(prefix, "/"), "..") {
-		return fmt.Errorf("evidence prefix %q must not contain parent traversal", prefix)
-	}
-	return nil
 }
 
 // hasLatestTag reports whether an image ref uses the :latest tag or no tag.

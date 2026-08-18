@@ -13,49 +13,69 @@ tests:
     set:
       evidence.enabled: true
       evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --enable-evidence-server
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --evidence-bucket-url=file:///var/lib/pacto/evidence
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: --evidence-prefix=pacto-evidence/v1
-      - contains:
-          path: spec.template.spec.containers[0].args
           content: --evidence-trust-secret=my-keys
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-subject=oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      # The bucket store is gone: no flag may reintroduce a second place evidence
+      # could live.
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: evidence-(bucket-url|prefix|persistence|existing-claim|storage-class)
 
-  - it: passes a cloud bucket url and existing claim
+  - it: passes every configured subject and the credentials secret
     template: templates/deployment.yaml
     set:
       evidence.enabled: true
       evidence.trust.existingSecret: my-keys
-      evidence.storage.bucketURL: s3://my-bucket
-      evidence.storage.persistence.existingClaim: my-claim
+      evidence.registry.credentialsSecret: registry-creds
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        - oci://ghcr.io/acme/payments@sha256:2222222222222222222222222222222222222222222222222222222222222222
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --evidence-bucket-url=s3://my-bucket
+          content: --evidence-subject=oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --evidence-existing-claim=my-claim
+          content: --evidence-subject=oci://ghcr.io/acme/payments@sha256:2222222222222222222222222222222222222222222222222222222222222222
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-credentials-secret=registry-creds
+
+  # Enabling evidence without naming a subject is an install-time failure, not a
+  # server that starts and reports an authoritative empty world.
+  - it: fails when evidence is enabled with no subject
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/evidence/registry/subjects': minItems"
 
   # --- RBAC ---
-  - it: grants PVC lifecycle RBAC only when evidence is enabled
+  # A fresh install grants no storage permission at all. Regaining PVC RBAC would
+  # mean the operator could once again create a place evidence lives outside the
+  # registry.
+  - it: never grants PVC RBAC
     template: templates/clusterrole.yaml
     set:
       evidence.enabled: true
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
     asserts:
-      - contains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: [persistentvolumeclaims]
-            verbs: [create, get, list, patch, update, watch]
+      - notExists:
+          path: $.rules[?(@.resources[*]=="persistentvolumeclaims")]
 
-  - it: always grants evidence teardown RBAC (never PVC delete)
+  - it: always grants evidence teardown RBAC
     template: templates/clusterrole.yaml
     set:
       evidence.enabled: false
@@ -67,12 +87,6 @@ tests:
             resources: [deployments]
             verbs: [get, delete]
             resourceNames: [pacto-evidence]
-      - notContains:
-          path: rules
-          content:
-            apiGroups: [""]
-            resources: [persistentvolumeclaims]
-            verbs: [create, get, list, patch, update, watch]
 
   # --- optional exposure ---
   - it: renders no chart external evidence Service by default (ClusterIP, no exposure)
@@ -80,6 +94,7 @@ tests:
     set:
       evidence.enabled: true
       evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
     asserts:
       - hasDocuments:
           count: 0
@@ -89,6 +104,7 @@ tests:
     set:
       evidence.enabled: true
       evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
       evidence.service.type: NodePort
       evidence.service.nodePort: 30686
     asserts:
@@ -108,6 +124,7 @@ tests:
     set:
       evidence.enabled: true
       evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
       evidence.ingress.enabled: true
     asserts:
       - isKind:
@@ -118,6 +135,7 @@ tests:
     set:
       evidence.enabled: true
       evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
     asserts:
       - hasDocuments:
           count: 0
@@ -127,6 +145,7 @@ tests:
     set:
       evidence.enabled: true
       evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
       evidence.httpRoute.enabled: true
     asserts:
       - isKind:

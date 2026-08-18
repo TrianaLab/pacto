@@ -11,28 +11,27 @@ import (
 	"testing"
 )
 
+// testSubject is an exact, immutable contract revision — the only shape a
+// subject may take.
+const testSubject = "oci://ghcr.io/acme/payments@sha256:" +
+	"1111111111111111111111111111111111111111111111111111111111111111"
+
 func validEnabledConfig() Config {
 	return Config{
 		Enabled:     true,
 		Image:       "ghcr.io/trianalab/pacto:0.1.0",
 		Namespace:   "pacto-system",
-		BucketURL:   "s3://bucket",
+		Subjects:    []string{testSubject},
 		TrustSecret: "trusted-keys",
 	}
 }
 
 func TestConfigValidate(t *testing.T) {
-	fileNoPVC := validEnabledConfig()
-	fileNoPVC.BucketURL = "file:///data/evidence"
+	noSubjects := validEnabledConfig()
+	noSubjects.Subjects = nil
 
-	fileWithPVC := fileNoPVC
-	fileWithPVC.Persistence = PersistenceConfig{Enabled: true}
-
-	badPrefix := validEnabledConfig()
-	badPrefix.Prefix = "../escape"
-
-	absPrefix := validEnabledConfig()
-	absPrefix.Prefix = "/absolute"
+	withCredentials := validEnabledConfig()
+	withCredentials.CredentialsSecret = "registry-creds"
 
 	badResources := validEnabledConfig()
 	badResources.Resources = ResourcesConfig{MemoryRequest: "not-a-quantity"}
@@ -49,9 +48,6 @@ func TestConfigValidate(t *testing.T) {
 	noTrust := validEnabledConfig()
 	noTrust.TrustSecret = ""
 
-	validPrefix := validEnabledConfig()
-	validPrefix.Prefix = "team-a/evidence"
-
 	tests := []struct {
 		name    string
 		cfg     Config
@@ -64,13 +60,12 @@ func TestConfigValidate(t *testing.T) {
 		{"enabled with latest tag fails", latest, true, "must not use 'latest'"},
 		{"enabled without namespace fails", noNamespace, true, "namespace must be set"},
 		{"enabled without trust secret fails", noTrust, true, "no trust secret set"},
-		{"enabled with parent-traversal prefix fails", badPrefix, true, "parent traversal"},
-		{"enabled with absolute prefix fails", absPrefix, true, "must be relative"},
-		{"file bucket without persistence fails", fileNoPVC, true, "requires a PVC"},
+		// The registry is the store, so an Evidence Server with no subject has
+		// nowhere to write: that is a configuration error, not an empty store.
+		{"enabled without a subject fails", noSubjects, true, "no contract subject set"},
 		{"enabled with bad resource quantity fails", badResources, true, "invalid evidence memory-request quantity"},
-		{"enabled cloud bucket valid", validEnabledConfig(), false, ""},
-		{"enabled file bucket with persistence valid", fileWithPVC, false, ""},
-		{"enabled with valid prefix succeeds", validPrefix, false, ""},
+		{"enabled with a subject valid", validEnabledConfig(), false, ""},
+		{"enabled with registry credentials valid", withCredentials, false, ""},
 	}
 
 	for _, tt := range tests {
@@ -87,15 +82,6 @@ func TestConfigValidate(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
-	}
-}
-
-func TestClaimName(t *testing.T) {
-	if got := (PersistenceConfig{}).ClaimName(); got != PVCName {
-		t.Errorf("expected default %q, got %q", PVCName, got)
-	}
-	if got := (PersistenceConfig{ExistingClaim: "my-claim"}).ClaimName(); got != "my-claim" {
-		t.Errorf("expected existing claim %q, got %q", "my-claim", got)
 	}
 }
 
@@ -170,44 +156,6 @@ func TestBuildResources_AllOverrides(t *testing.T) {
 	}
 	if res.Limits.Memory().String() != "1Gi" {
 		t.Errorf("expected memory limit 1Gi, got %s", res.Limits.Memory().String())
-	}
-}
-
-func TestIsFileBucket(t *testing.T) {
-	tests := []struct {
-		url  string
-		want bool
-	}{
-		{"file:///data/evidence", true},
-		{"s3://bucket", false},
-		{"", false},
-	}
-	for _, tt := range tests {
-		if got := isFileBucket(tt.url); got != tt.want {
-			t.Errorf("isFileBucket(%q) = %v, want %v", tt.url, got, tt.want)
-		}
-	}
-}
-
-func TestValidatePrefix(t *testing.T) {
-	tests := []struct {
-		prefix  string
-		wantErr bool
-	}{
-		{"", false},
-		{"team-a/evidence", false},
-		{"/absolute", true},
-		{"../escape", true},
-		{"a/../b", true},
-	}
-	for _, tt := range tests {
-		err := validatePrefix(tt.prefix)
-		if tt.wantErr && err == nil {
-			t.Errorf("validatePrefix(%q) expected error, got nil", tt.prefix)
-		}
-		if !tt.wantErr && err != nil {
-			t.Errorf("validatePrefix(%q) unexpected error: %v", tt.prefix, err)
-		}
 	}
 }
 

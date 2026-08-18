@@ -47,14 +47,14 @@ func (r *Reconciler) reader() client.Reader {
 }
 
 // Reconcile ensures Evidence Server resources match the desired state. When
-// enabled it applies the PVC (for a file:// bucket), Deployment and internal
-// Service; when disabled it deletes the Deployment and Service but PRESERVES the
-// PVC so persistent evidence is retained.
+// enabled it applies the Deployment and internal Service; when disabled it
+// deletes them. Nothing durable is deleted either way: accepted evidence lives in
+// the contract registry, not in the cluster.
 func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx).WithName("evidence")
 
 	if !r.Config.Enabled {
-		log.V(1).Info("Evidence Server disabled, cleaning up runtime resources (evidence PVC retained)")
+		log.V(1).Info("Evidence Server disabled, cleaning up runtime resources (evidence lives in the registry)")
 		if err := r.cleanup(ctx); err != nil {
 			log.Error(err, "Failed to clean up evidence resources")
 			return ctrl.Result{RequeueAfter: time.Minute}, err
@@ -67,11 +67,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 	if err := r.ensureNamespace(ctx); err != nil {
 		return ctrl.Result{}, fmt.Errorf("namespace: %w", err)
 	}
-	if r.needsPVC() {
-		if err := r.apply(ctx, pvcAC(r.Config)); err != nil {
-			return ctrl.Result{}, fmt.Errorf("pvc: %w", err)
-		}
-	}
 	if err := r.apply(ctx, deploymentAC(r.Config)); err != nil {
 		return ctrl.Result{}, fmt.Errorf("deployment: %w", err)
 	}
@@ -81,14 +76,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 
 	log.Info("Evidence Server resources reconciled successfully")
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
-}
-
-// needsPVC reports whether the operator should provision a PVC: only for a
-// file:// bucket with persistence enabled and no externally-managed claim.
-func (r *Reconciler) needsPVC() bool {
-	return isFileBucket(r.Config.BucketURL) &&
-		r.Config.Persistence.Enabled &&
-		r.Config.Persistence.ExistingClaim == ""
 }
 
 func (r *Reconciler) apply(ctx context.Context, ac runtime.ApplyConfiguration) error {
@@ -139,9 +126,8 @@ func (r *Reconciler) ensureNamespace(ctx context.Context) error {
 	return r.Create(ctx, ns)
 }
 
-// cleanup deletes the managed Deployment and Service. It deliberately never
-// touches the PVC: accepted evidence is retained across disablement and
-// uninstall.
+// cleanup deletes the managed Deployment and Service. There is nothing else to
+// consider: the server is stateless, so removing it cannot lose evidence.
 func (r *Reconciler) cleanup(ctx context.Context) error {
 	log := logf.FromContext(ctx).WithName("evidence")
 

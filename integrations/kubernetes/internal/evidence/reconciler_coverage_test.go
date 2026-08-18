@@ -42,7 +42,7 @@ func newReconcilerWithInterceptors(cfg Config, funcs interceptor.Funcs, objs ...
 // --- ensureNamespace: non-NotFound Get error ---
 
 func TestEnsureNamespace_GetNonNotFoundError(t *testing.T) {
-	r := newReconcilerWithInterceptors(enabledCloudCfg(), interceptor.Funcs{
+	r := newReconcilerWithInterceptors(enabledCfg(), interceptor.Funcs{
 		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			if _, ok := obj.(*corev1.Namespace); ok {
 				return fmt.Errorf("simulated namespace get error")
@@ -60,25 +60,10 @@ func TestEnsureNamespace_GetNonNotFoundError(t *testing.T) {
 	}
 }
 
-// --- apply errors: PVC / Deployment / Service ---
-
-func TestReconcile_PVCApplyError(t *testing.T) {
-	r := newReconcilerWithInterceptors(enabledFileCfg(), interceptor.Funcs{
-		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
-			if _, ok := obj.(*corev1ac.PersistentVolumeClaimApplyConfiguration); ok {
-				return fmt.Errorf("simulated pvc apply error")
-			}
-			return c.Apply(ctx, obj, opts...)
-		},
-	})
-	_, err := r.Reconcile(context.Background(), ctrl.Request{})
-	if err == nil || !containsString(err.Error(), "pvc: simulated pvc apply error") {
-		t.Fatalf("expected wrapped pvc error, got: %v", err)
-	}
-}
+// --- apply errors: Deployment / Service ---
 
 func TestReconcile_DeploymentApplyError(t *testing.T) {
-	r := newReconcilerWithInterceptors(enabledCloudCfg(), interceptor.Funcs{
+	r := newReconcilerWithInterceptors(enabledCfg(), interceptor.Funcs{
 		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
 			if _, ok := obj.(*appsv1ac.DeploymentApplyConfiguration); ok {
 				return fmt.Errorf("simulated deploy apply error")
@@ -93,7 +78,7 @@ func TestReconcile_DeploymentApplyError(t *testing.T) {
 }
 
 func TestReconcile_ServiceApplyError(t *testing.T) {
-	r := newReconcilerWithInterceptors(enabledCloudCfg(), interceptor.Funcs{
+	r := newReconcilerWithInterceptors(enabledCfg(), interceptor.Funcs{
 		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
 			if _, ok := obj.(*corev1ac.ServiceApplyConfiguration); ok {
 				return fmt.Errorf("simulated svc apply error")
@@ -208,7 +193,7 @@ func TestStart_Disabled(t *testing.T) {
 }
 
 func TestStart_Enabled_ContextCancel(t *testing.T) {
-	r := newReconciler(enabledCloudCfg())
+	r := newReconciler(enabledCfg())
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // exit ticker loop on first select
 	if err := r.Start(ctx); err != nil {
@@ -217,7 +202,7 @@ func TestStart_Enabled_ContextCancel(t *testing.T) {
 }
 
 func TestStart_InitialReconcileFailure(t *testing.T) {
-	r := newReconcilerWithInterceptors(enabledCloudCfg(), interceptor.Funcs{
+	r := newReconcilerWithInterceptors(enabledCfg(), interceptor.Funcs{
 		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			if _, ok := obj.(*corev1.Namespace); ok {
 				return fmt.Errorf("simulated start failure")
@@ -236,7 +221,7 @@ func TestStart_InitialReconcileFailure(t *testing.T) {
 }
 
 func TestStart_Enabled_TickerFire(t *testing.T) {
-	r := newReconciler(enabledCloudCfg())
+	r := newReconciler(enabledCfg())
 	r.tickInterval = 10 * time.Millisecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -254,7 +239,7 @@ func TestStart_Enabled_TickerFire(t *testing.T) {
 func TestStart_Enabled_TickerReconcileError(t *testing.T) {
 	errored := make(chan struct{}, 1)
 	callCount := 0 // touched only from the Start goroutine's sequential loop
-	r := newReconcilerWithInterceptors(enabledCloudCfg(), interceptor.Funcs{
+	r := newReconcilerWithInterceptors(enabledCfg(), interceptor.Funcs{
 		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			if _, ok := obj.(*corev1.Namespace); ok {
 				callCount++

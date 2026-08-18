@@ -392,41 +392,19 @@
         "enabled": {
           "type": "boolean"
         },
-        "storage": {
+        "registry": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "bucketURL": {
-              "type": "string",
-              "pattern": "^(file|s3|gs|azblob|mem)://"
-            },
-            "prefix": {
-              "type": "string",
-              "pattern": "^[^/].*$"
-            },
-            "persistence": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "enabled": {
-                  "type": "boolean"
-                },
-                "existingClaim": {
-                  "type": "string"
-                },
-                "size": {
-                  "type": "string"
-                },
-                "storageClass": {
-                  "type": "string"
-                },
-                "accessModes": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
+            "subjects": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^oci://[^@]+@sha256:[0-9a-f]{64}$"
               }
+            },
+            "credentialsSecret": {
+              "type": "string"
             }
           }
         },
@@ -540,7 +518,38 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "registry"
+            ],
+            "properties": {
+              "registry": {
+                "required": [
+                  "subjects"
+                ],
+                "properties": {
+                  "subjects": {
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "nodeSelector": {
       "type": "object"

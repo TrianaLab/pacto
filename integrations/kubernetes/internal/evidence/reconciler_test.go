@@ -41,23 +41,12 @@ func newReconciler(cfg Config, objs ...client.Object) *Reconciler {
 	}
 }
 
-func enabledFileCfg() Config {
+func enabledCfg() Config {
 	return Config{
 		Enabled:     true,
 		Image:       "ghcr.io/trianalab/pacto:0.1.0",
 		Namespace:   "test-ns",
-		BucketURL:   "file:///var/evidence",
-		TrustSecret: "trusted-keys",
-		Persistence: PersistenceConfig{Enabled: true},
-	}
-}
-
-func enabledCloudCfg() Config {
-	return Config{
-		Enabled:     true,
-		Image:       "ghcr.io/trianalab/pacto:0.1.0",
-		Namespace:   "test-ns",
-		BucketURL:   "s3://bucket",
+		Subjects:    []string{testSubject},
 		TrustSecret: "trusted-keys",
 	}
 }
@@ -88,9 +77,11 @@ func TestReconcile_Disabled_NoResources(t *testing.T) {
 	}
 }
 
-func TestReconcile_Enabled_FileBucket_AppliesPVCDeploymentService(t *testing.T) {
-	cfg := enabledFileCfg()
-	r := newReconciler(cfg)
+// A fresh install creates the runtime pair and NOTHING durable. An evidence PVC
+// appearing here would mean the cluster had become a second place evidence can
+// live, competing with the registry that is supposed to be the only one.
+func TestReconcile_Enabled_AppliesDeploymentServiceAndNoPVC(t *testing.T) {
+	r := newReconciler(enabledCfg())
 	ctx := context.Background()
 
 	result, err := r.Reconcile(ctx, ctrl.Request{})
@@ -101,43 +92,43 @@ func TestReconcile_Enabled_FileBucket_AppliesPVCDeploymentService(t *testing.T) 
 		t.Error("expected requeue when enabled")
 	}
 
-	assertExists(t, r.Client, ctx, &corev1.PersistentVolumeClaim{}, PVCName)
 	assertExists(t, r.Client, ctx, &appsv1.Deployment{}, Name)
 	assertExists(t, r.Client, ctx, &corev1.Service{}, Name)
+
+	pvcs := &corev1.PersistentVolumeClaimList{}
+	if err := r.List(ctx, pvcs, client.InNamespace("test-ns")); err != nil {
+		t.Fatalf("list PVCs: %v", err)
+	}
+	if len(pvcs.Items) != 0 {
+		t.Errorf("the evidence store is the registry; expected no PVC, got %d", len(pvcs.Items))
+	}
 }
 
-func TestReconcile_Enabled_CloudBucket_NoPVC(t *testing.T) {
-	cfg := enabledCloudCfg()
+func TestReconcile_Enabled_ExistingNamespace(t *testing.T) {
 	// Pre-create the namespace to exercise the ensureNamespace "exists" branch.
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "test-ns"}}
-	r := newReconciler(cfg, ns)
+	r := newReconciler(enabledCfg(), ns)
 	ctx := context.Background()
 
 	if _, err := r.Reconcile(ctx, ctrl.Request{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-
-	pvc := &corev1.PersistentVolumeClaim{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: PVCName}, pvc); !apierrors.IsNotFound(err) {
-		t.Errorf("expected no PVC for cloud bucket, got err=%v", err)
 	}
 	assertExists(t, r.Client, ctx, &appsv1.Deployment{}, Name)
 	assertExists(t, r.Client, ctx, &corev1.Service{}, Name)
 }
 
-func TestReconcile_DisabledAfterEnabled_CleansUpButRetainsPVC(t *testing.T) {
+// Disabling the component removes the whole runtime footprint. Nothing is
+// retained because nothing durable was ever created: the accepted evidence is
+// still in the registry, untouched by this.
+func TestReconcile_DisabledAfterEnabled_RemovesEverything(t *testing.T) {
 	cfg := Config{Enabled: false, Namespace: "test-ns"}
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: PVCName, Namespace: "test-ns", Labels: Labels()},
-	}
-	r := newReconciler(cfg, managedDeployment("test-ns"), managedService("test-ns"), pvc)
+	r := newReconciler(cfg, managedDeployment("test-ns"), managedService("test-ns"))
 	ctx := context.Background()
 
 	if _, err := r.Reconcile(ctx, ctrl.Request{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Deployment and Service deleted.
 	d := &appsv1.Deployment{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, d); !apierrors.IsNotFound(err) {
 		t.Errorf("expected deployment deleted, got err=%v", err)
@@ -146,8 +137,6 @@ func TestReconcile_DisabledAfterEnabled_CleansUpButRetainsPVC(t *testing.T) {
 	if err := r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, s); !apierrors.IsNotFound(err) {
 		t.Errorf("expected service deleted, got err=%v", err)
 	}
-	// PVC retained.
-	assertExists(t, r.Client, ctx, &corev1.PersistentVolumeClaim{}, PVCName)
 }
 
 func TestReconcile_Cleanup_SkipsUnmanaged(t *testing.T) {
@@ -170,30 +159,6 @@ func TestReconcile_Cleanup_NoResources_NotFoundSkipped(t *testing.T) {
 	r := newReconciler(Config{Enabled: false, Namespace: "test-ns"})
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{}); err != nil {
 		t.Fatalf("cleanup with no resources should not error: %v", err)
-	}
-}
-
-func TestNeedsPVC(t *testing.T) {
-	base := func() Config {
-		return Config{BucketURL: "file:///data", Persistence: PersistenceConfig{Enabled: true}}
-	}
-	tests := []struct {
-		name string
-		cfg  Config
-		want bool
-	}{
-		{"file + persistence + no existing claim", base(), true},
-		{"cloud bucket", func() Config { c := base(); c.BucketURL = "s3://bucket"; return c }(), false},
-		{"persistence disabled", func() Config { c := base(); c.Persistence.Enabled = false; return c }(), false},
-		{"existing claim set", func() Config { c := base(); c.Persistence.ExistingClaim = "x"; return c }(), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := &Reconciler{Config: tt.cfg}
-			if got := r.needsPVC(); got != tt.want {
-				t.Errorf("needsPVC() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 

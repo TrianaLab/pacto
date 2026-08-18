@@ -10,16 +10,16 @@ See LICENSE file in the project root for full license text.
 // configuration and reconciles a SEPARATE Evidence Server Deployment and an
 // internal Service. The Evidence Server is a distinct process (it runs
 // `pacto evidence serve`), never inside the controller, the dashboard or a
-// sidecar. Its persistent evidence is retained across disablement and upgrade —
-// the managed PVC carries no owner reference, so it is never garbage-collected
-// with the operator.
+// sidecar. It is STATELESS: accepted evidence is published to the contract
+// registry as OCI 1.1 referrers of the exact contract revision each report is
+// about, so there is no PersistentVolumeClaim, no data volume and nothing to
+// retain in the cluster. Evidence is retained across disablement, upgrade and
+// cluster loss because the registry holds it.
 package evidence
 
 const (
 	// Name is the resource name for all managed Evidence Server resources.
 	Name = "pacto-evidence"
-	// PVCName is the default PersistentVolumeClaim name backing a file:// bucket.
-	PVCName = "pacto-evidence-data"
 
 	// Labels
 	LabelManagedBy = "app.kubernetes.io/managed-by"
@@ -35,24 +35,25 @@ const (
 
 	// EvidencePort is the Evidence Server's ingestion port.
 	EvidencePort = 8686
-	// ReadyPath gates on completed storage recovery; HealthPath is liveness.
+	// ReadyPath gates on every configured subject resolving and answering native
+	// Referrers discovery; HealthPath is liveness.
 	ReadyPath  = "/api/evidence/v1/ready"
 	HealthPath = "/api/evidence/v1/health"
 
 	// TrustMountPath is where the trusted-producer-keys Secret is mounted.
 	TrustMountPath = "/etc/pacto/trust"
 
-	// DefaultPVCSize is the default requested size for a provisioned evidence PVC.
-	DefaultPVCSize = "1Gi"
+	// RegistryMountPath is where an optional Docker config Secret is mounted. It is
+	// a DOCKER_CONFIG directory, so the server reads the registry through exactly
+	// the same credential policy as `pacto pull` — no second auth model.
+	RegistryMountPath = "/etc/pacto/registry"
 
-	volumeTrust = "trust"
-	volumeData  = "data"
-	// volumeTmp backs a writable /tmp: the readOnlyRootFilesystem container needs a
-	// writable temp dir because gocloud fileblob writes each object to a temp file
-	// (in os.TempDir) and atomically renames it into place. Without it, every
-	// durable write fails with "read-only file system".
-	volumeTmp    = "tmp"
-	tmpMountPath = "/tmp"
+	// DockerConfigEnvVar points go-containerregistry's docker keychain at the
+	// mounted Secret.
+	DockerConfigEnvVar = "DOCKER_CONFIG"
+
+	volumeTrust    = "trust"
+	volumeRegistry = "registry-credentials"
 )
 
 // Labels returns the standard labels applied to all evidence resources.

@@ -8,11 +8,9 @@ See LICENSE file in the project root for full license text.
 package evidence
 
 import (
-	"strings"
-
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
@@ -20,48 +18,28 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// fileBucketPath returns the on-disk path a file:// bucket URL points at (the
-// mount point for the PVC), or "" for a non-file bucket.
-func fileBucketPath(bucketURL string) string {
-	if !isFileBucket(bucketURL) {
-		return ""
-	}
-	return strings.TrimPrefix(bucketURL, "file://")
-}
-
 // deploymentAC returns the server-side apply configuration for the Evidence
-// Server Deployment. Exactly one replica (single-writer); readiness gates on
-// completed storage recovery; liveness is independent.
+// Server Deployment. Exactly one replica with a Recreate strategy: the registry
+// offers no compare-and-set, so exactly one writer may exist and a rolling update
+// (which briefly runs two) could let a replay through the gap. Readiness gates on
+// the registry being readable; liveness is independent, so a registry outage
+// makes the server unready without restarting it.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
-	args := []string{
-		"evidence", "serve",
-		"--bucket-url", cfg.BucketURL,
-		"--prefix", cfg.Prefix,
-		"--trust", TrustMountPath,
-		"--listen-address", ":8686",
+	args := []string{"evidence", "serve", "--trust", TrustMountPath, "--listen-address", ":8686"}
+	for _, subject := range cfg.Subjects {
+		args = append(args, "--subject", subject)
 	}
 
+	// The container is stateless: a read-only root filesystem, a read-only trust
+	// store and — when configured — read-only registry credentials. Nothing here
+	// is writable, because nothing durable lives in the pod.
 	volumeMounts := []*corev1ac.VolumeMountApplyConfiguration{
 		corev1ac.VolumeMount().WithName(volumeTrust).WithMountPath(TrustMountPath).WithReadOnly(true),
-		// A writable /tmp for gocloud fileblob's atomic temp-write+rename; the root
-		// filesystem is read-only.
-		corev1ac.VolumeMount().WithName(volumeTmp).WithMountPath(tmpMountPath),
 	}
 	volumes := []*corev1ac.VolumeApplyConfiguration{
 		corev1ac.Volume().WithName(volumeTrust).WithSecret(
 			corev1ac.SecretVolumeSource().WithSecretName(cfg.TrustSecret),
 		),
-		corev1ac.Volume().WithName(volumeTmp).WithEmptyDir(corev1ac.EmptyDirVolumeSource()),
-	}
-	if path := fileBucketPath(cfg.BucketURL); path != "" {
-		volumeMounts = append(volumeMounts,
-			corev1ac.VolumeMount().WithName(volumeData).WithMountPath(path),
-		)
-		volumes = append(volumes,
-			corev1ac.Volume().WithName(volumeData).WithPersistentVolumeClaim(
-				corev1ac.PersistentVolumeClaimVolumeSource().WithClaimName(cfg.Persistence.ClaimName()),
-			),
-		)
 	}
 
 	// Only set when configured: an empty list leaves the container env unset
@@ -70,6 +48,22 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	if cfg.InsecureRegistries != "" {
 		env = append(env, corev1ac.EnvVar().
 			WithName(loader.InsecureRegistriesEnvVar).WithValue(cfg.InsecureRegistries))
+	}
+	if cfg.CredentialsSecret != "" {
+		volumeMounts = append(volumeMounts,
+			corev1ac.VolumeMount().WithName(volumeRegistry).WithMountPath(RegistryMountPath).WithReadOnly(true),
+		)
+		// Projected as config.json so the directory IS a Docker config dir; the
+		// Secret itself keeps its standard .dockerconfigjson key.
+		volumes = append(volumes,
+			corev1ac.Volume().WithName(volumeRegistry).WithSecret(
+				corev1ac.SecretVolumeSource().
+					WithSecretName(cfg.CredentialsSecret).
+					WithItems(corev1ac.KeyToPath().
+						WithKey(corev1.DockerConfigJsonKey).WithPath("config.json")),
+			),
+		)
+		env = append(env, corev1ac.EnvVar().WithName(DockerConfigEnvVar).WithValue(RegistryMountPath))
 	}
 
 	res := cfg.Resources.BuildResources()
@@ -85,9 +79,9 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		).
 		WithVolumeMounts(volumeMounts...).
 		WithStartupProbe(
-			// Give a first recovery generous startup budget (up to ~5 min) before
-			// liveness/readiness engage. /ready stays 503 until recovery completes,
-			// so a long-but-progressing recovery can never trip the liveness loop.
+			// A generous startup budget (up to ~5 min) before liveness/readiness
+			// engage, so a registry that is slow or briefly unreachable at rollout
+			// time can never trip the liveness loop.
 			corev1ac.Probe().
 				WithHTTPGet(corev1ac.HTTPGetAction().WithPath(ReadyPath).WithPort(intstr.FromInt32(EvidencePort))).
 				WithPeriodSeconds(5).
@@ -117,6 +111,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		WithLabels(Labels()).
 		WithSpec(appsv1ac.DeploymentSpec().
 			WithReplicas(1).
+			WithStrategy(appsv1ac.DeploymentStrategy().WithType(appsv1.RecreateDeploymentStrategyType)).
 			WithSelector(metav1ac.LabelSelector().WithMatchLabels(SelectorLabels())).
 			WithTemplate(corev1ac.PodTemplateSpec().
 				WithLabels(Labels()).
@@ -158,34 +153,4 @@ func serviceAC(cfg Config) runtime.ApplyConfiguration {
 		svc.WithOwnerReferences(cfg.OwnerRef)
 	}
 	return svc
-}
-
-// pvcAC returns the apply configuration for the evidence PVC. It deliberately
-// carries NO owner reference: the persistent evidence must never be
-// garbage-collected with the operator.
-func pvcAC(cfg Config) runtime.ApplyConfiguration {
-	modes := cfg.Persistence.AccessModes
-	if len(modes) == 0 {
-		modes = []string{string(corev1.ReadWriteOnce)}
-	}
-	accessModes := make([]corev1.PersistentVolumeAccessMode, 0, len(modes))
-	for _, m := range modes {
-		accessModes = append(accessModes, corev1.PersistentVolumeAccessMode(m))
-	}
-	size := cfg.Persistence.Size
-	if size == "" {
-		size = DefaultPVCSize
-	}
-	spec := corev1ac.PersistentVolumeClaimSpec().
-		WithAccessModes(accessModes...).
-		WithResources(corev1ac.VolumeResourceRequirements().
-			WithRequests(corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(size)}),
-		)
-	if cfg.Persistence.StorageClass != "" {
-		spec.WithStorageClassName(cfg.Persistence.StorageClass)
-	}
-	// No owner reference: the PVC outlives the operator so evidence is retained.
-	return corev1ac.PersistentVolumeClaim(PVCName, cfg.Namespace).
-		WithLabels(Labels()).
-		WithSpec(spec)
 }
