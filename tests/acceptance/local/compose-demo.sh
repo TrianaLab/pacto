@@ -384,25 +384,33 @@ pick_forwarded_net() {
 wire_forwarded_route() {
 	regpid="$(docker inspect -f '{{.State.Pid}}' "$REG_NAME" 2>/dev/null || true)"
 	[ -n "$regpid" ] && [ "$regpid" != "0" ] || fail "the artifact registry is not running, so there is nothing to route to"
-	# Both names carry $RUN_ID, so an interface holding one is not ours.
+	# Both names carry $RUN_ID, so an interface holding one is not ours. This is
+	# here for the diagnostic and for nothing else: a name that is free when it is
+	# read can be taken before the next line runs, so nothing below may depend on
+	# the answer still being true.
 	refuse_existing interface "$VETH_HOST" hostns "ip link show $VETH_HOST"
 	refuse_existing interface "$VETH_PEER" hostns "ip link show $VETH_PEER"
 	pick_forwarded_net
+	# The create is on its own, and ownership begins exactly where it returns 0.
+	# Until then these are candidate names: `ip link add` is atomic and fails
+	# outright on a name somebody took in the meantime, and deleting that name on
+	# the way out would delete THEIR interface. "It was free a moment ago" is the
+	# race, not a claim.
+	netfilter "ip link add $VETH_HOST type veth peer name $VETH_PEER" ||
+		fail "could not create the point-to-point link $VETH_HOST/$VETH_PEER"
+	OWNED_VETH="$VETH_HOST"
+	# Past that line the pair is this invocation's, so a failure in the rest of
+	# the wiring takes it back down — and it is the only thing that can.
 	netfilter "
-		ip link add $VETH_HOST type veth peer name $VETH_PEER
 		ip addr add $FWD_LOCAL/30 dev $VETH_HOST
 		ip link set $VETH_HOST up
 		ip link set $VETH_PEER netns $regpid
 		nsenter -t $regpid -n ip addr add $FWD_ADDR/30 dev $VETH_PEER
 		nsenter -t $regpid -n ip link set $VETH_PEER up
 	" || {
-		# `ip link add` may have succeeded before a later step failed. The pair is
-		# ours either way — the names were free a moment ago — so take it back
-		# rather than leave half a link behind.
-		netfilter "ip link del $VETH_HOST 2>/dev/null || true" 2>/dev/null || true
+		unwire_forwarded_route
 		fail "could not wire a forwarded route to the artifact registry"
 	}
-	OWNED_VETH="$VETH_HOST"
 }
 
 unwire_forwarded_route() {
