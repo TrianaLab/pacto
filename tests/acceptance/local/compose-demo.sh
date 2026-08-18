@@ -1136,9 +1136,16 @@ vols="$(docker volume ls --format '{{.Name}}' --filter "label=com.docker.compose
 	fail "the demo's volumes are '$vols'; expected exactly the registry and the trust/state pair, and no evidence data volume"
 before_ev="$(docker compose -p "$PROJ1" ps -q evidence)"
 [ -n "$before_ev" ] || fail "no evidence container to recreate"
+# The dashboard is in the set for a mechanical reason, not a semantic one:
+# `--wait` tolerates a container that EXITS only while something still in the
+# selection declares it a completed dependency, and the declaration
+# (`seed: service_completed_successfully`) belongs to the dashboard. Selecting
+# evidence and seed alone drops it, and the seed's clean exit reads as a failure.
+# Recreating the dashboard too costs nothing here and takes its in-memory
+# snapshot with it, which only sharpens the question below.
 up_or_dump "$PROJ1" env "${V1_PORTS[@]}" \
 	docker compose --insecure-registry="$ART_HOST" -f "oci://$ART_REPO@$D1" -p "$PROJ1" \
-	up -d --wait --force-recreate -y evidence seed
+	up -d --wait --force-recreate -y evidence seed dashboard
 after_ev="$(docker compose -p "$PROJ1" ps -q evidence)"
 [ -n "$after_ev" ] && [ "$after_ev" != "$before_ev" ] ||
 	fail "the evidence container was not replaced ($before_ev), so its filesystem is still in play"
