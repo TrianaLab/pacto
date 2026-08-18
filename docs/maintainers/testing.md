@@ -385,19 +385,33 @@ authority to run it comes from stage 0 having found both names holding nothing,
 and the helper modes below, which exit long before stage 0, have no authority to
 tear down a demo somebody is running.
 
+**"Holding nothing" means every class that teardown removes.** `down -v
+--remove-orphans` removes three — containers, named volumes and networks — and a
+claim is only as good as the class it forgets. The network is the one that can be
+there alone: `up` creates it before anything else and a `down` without `-v`
+leaves it standing, so a project that is nothing but a network reads as empty to
+anything that looks only for containers and volumes. Stage 0 therefore reads all
+three under each name and refuses on any of them, and it arms the authority in a
+single assignment after both names are through, so a refusal on the second never
+leaves the first one claimed.
+
 `bash tests/acceptance/local/compose-demo.sh selftest` is the proof, and
 `make test-acceptance-compose-selftest` runs it ahead of the acceptance in CI. It
-plants sentinels — an interface, a harness-shaped container, an occupied `/30`
-and, under each documented project name, a container, a network and a volume
-wearing the labels `down -v` reads — then drives the harness into every path that
-could take one. It asserts that a name already held is refused rather than
-deleted; that an interface appearing *after* the preflight survives the create
-that loses the race to it; that a failure later in the wiring removes only the
-pair this run made; that no netfilter rule is touched on any of those ways out;
-that a claimed `/30` is stepped over rather than hijacked; that a normal run, an
-induced failure and a container the daemon refuses to start all end with the real
-`EXIT` trap taking that run's resources and nothing else; and that the planted
-projects still hold every container, network and volume they did.
+plants sentinels — an interface, a harness-shaped container, an occupied `/30`,
+an unrelated project under a name the documentation never uses and, under each
+documented project name, a container, a network and a volume wearing the labels
+`down -v` reads — then drives the harness into every path that could take one. It
+asserts that a name already held is refused rather than deleted; that an
+interface appearing *after* the preflight survives the create that loses the race
+to it; that a failure later in the wiring removes only the pair this run made;
+that no netfilter rule is touched on any of those ways out; that a claimed `/30`
+is stepped over rather than hijacked; that a normal run, an induced failure and a
+container the daemon refuses to start all end with the real `EXIT` trap taking
+that run's resources and nothing else; that a documented name holding nothing but
+a Compose network is refused by a real invocation — under either name, including
+when the *second* is the occupied one — which keeps that exact network and arms
+nothing; and that the planted projects, and the unrelated one beside them, still
+hold every container, network and volume they did.
 
 ## Deterministic browser tests versus live-browser tests
 
