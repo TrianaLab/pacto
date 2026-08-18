@@ -176,10 +176,17 @@ FWD_PORT=5000
 DENIED_BR=""
 
 # What this invocation created, recorded as it succeeds. Cleanup reads only these.
+#
+# Containers are recorded by immutable ID and never by name. A name is a lease:
+# it ends with the container holding it, and whoever takes it next is a stranger
+# a list of names would have cleanup delete. An id names one container for good.
 OWNED_CONTAINERS=""
 OWNED_VETH=""
 OWNED_IMAGE=""
 OWNED_PROJECTS=""
+# The id of the container `run_owned` created most recently, for the call sites
+# that go on to address their own container afterwards.
+OWNED_ID=""
 
 # Linux caps an interface name at IFNAMSIZ-1 = 15 characters and refuses a longer
 # one outright, so this is a build-time property of the naming scheme, checked
@@ -222,15 +229,22 @@ refuse_existing() {
 	fi
 }
 
-# run_owned NAME DOCKER-RUN-ARGS... — start a container this invocation owns.
-# Recorded only after the daemon has actually created it, so the trap can never
-# remove a container this run did not start.
+# run_owned NAME DOCKER-RUN-ARGS... — start a container this invocation owns, and
+# leave its id in $OWNED_ID.
+#
+# Create and start are two commands rather than one `docker run -d`, because the
+# daemon really does perform the first and refuse the second — a host port
+# somebody else already published is enough — and what it leaves behind is a
+# created container under this name that `docker run`'s non-zero exit says
+# nothing about. The id is therefore recorded BETWEEN the two: a container that
+# never started is still this invocation's to take away.
 run_owned() {
 	local name="$1"
 	shift
 	refuse_existing container "$name" docker container inspect "$name"
-	docker run -d --name "$name" "$@" >/dev/null
-	OWNED_CONTAINERS="$OWNED_CONTAINERS $name"
+	OWNED_ID="$(docker create --name "$name" "$@")" || fail "could not create the container $name"
+	OWNED_CONTAINERS="$OWNED_CONTAINERS $OWNED_ID"
+	docker start "$OWNED_ID" >/dev/null || fail "created but could not start $name ($OWNED_ID)"
 }
 
 # claim_projects PROJECT... — the only thing that ever fills $OWNED_PROJECTS.
@@ -874,6 +888,7 @@ GW="$(docker network inspect "$NET" --format '{{(index .IPAM.Config 0).Gateway}}
 #   forwarded   the artifact registry, addressed over a point-to-point link.
 #               Routed: FORWARD, and therefore DOCKER-USER, never INPUT.
 run_owned "$HL_NAME" --net host -e REGISTRY_HTTP_ADDR="0.0.0.0:$HL_PORT" registry:2
+HL_ID="$OWNED_ID"
 for _ in $(seq 1 100); do
 	docker run --rm --net host "$NETFILTER_IMAGE" nc -w 2 -z 127.0.0.1 "$HL_PORT" >/dev/null 2>&1 && break
 	sleep 0.2
@@ -925,9 +940,12 @@ redirected_seed_fails host-local "$GW:$HL_PORT"
 pass "a startup dependency redirected over either route fails the stack"
 
 # And the registry the artifact came from goes away entirely, along with the
-# host-local endpoint and the link to it.
+# host-local endpoint and the link to it. Both registries are STOPPED rather than
+# removed: what the boundary has to lose is the listener, and a container this
+# invocation still holds is one whose name cannot be taken by anybody else in the
+# meantime. Final cleanup removes them, by the ids it recorded.
 unwire_forwarded_route
-docker rm -f "$HL_NAME" >/dev/null 2>&1 || true
+docker stop "$HL_ID" >/dev/null
 docker stop "$REG_NAME" >/dev/null
 if curl -fsS --max-time 3 "http://$ART_HOST/v2/" >/dev/null 2>&1; then
 	fail "the artifact registry is still serving, so this is not a cold start without it"
