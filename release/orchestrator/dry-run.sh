@@ -265,14 +265,64 @@ docker compose -f "$DEMOFILE" publish --insecure-registry -y "$DEMOREF" >/dev/nu
 PACTO_RELEASE_TXN="$DTXN" PACTO_EXPECT_CONTENT="$DC" \
   adapter demo-compose "$DEMOREF" "$DV" -- false >/dev/null
 [ -n "$(led digest "$DTXN" demo-compose)" ] || { echo "   FAIL: the demo artifact's crash window was not recovered"; exit 1; }
-echo "   demo application adopted from its published compose layer $DC (no re-push)"
+# Adoption matches the WHOLE native identity, so this line also proves what
+# `docker compose publish` actually writes: it goes red if Compose ever stops
+# emitting one application/vnd.docker.compose.file+yaml layer under an
+# application/vnd.docker.compose.project manifest.
+echo "   real Compose publication adopted from its native compose layer $DC (no re-push)"
 # Fail closed on foreign content: same occupied tag, a different projection.
 FTXN="dryrun-demo-foreign-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$FTXN" "$SHA" "$MSHA" >/dev/null
 if PACTO_RELEASE_TXN="$FTXN" PACTO_EXPECT_CONTENT="sha256:$(printf '%064x' 1)" \
      adapter demo-compose "$DEMOREF" "$DV" -- true >/dev/null 2>&1; then
   echo "   FAIL: the adapter adopted an application it did not publish"; exit 1
 fi
-echo "   foreign compose content refused (fail closed)"
+echo "   different bytes under the native types refused (fail closed)"
+
+# Bytes are not a type. Every artifact below carries the demo's EXACT compose
+# bytes — a layer digesting to $DC — and every one of them is something
+# `docker compose -f oci://…` cannot run, so adoption must refuse all of them.
+# Matching a layer count and a digest would adopt the first two. A generic OCI
+# tool builds these deliberately foreign negatives; it never appears on the real
+# Compose publication or execution path, which stays `docker compose publish` /
+# `docker compose -f oci://…`.
+FDIR="$WORK/foreign"; mkdir -p "$FDIR"
+cp "$DEMOFILE" "$FDIR/compose.yaml"; printf 'name: not-the-demo\n' > "$FDIR/other.yaml"
+CTYPE=application/vnd.docker.compose.project
+LTYPE=application/vnd.docker.compose.file+yaml
+oras_push() { # <tag-suffix> <artifact-type> [<file>:<layer-media-type>...] -> ref
+  local ref="$REG/pacto/demo-$1:$DV" at="$2"; shift 2
+  ( cd "$FDIR" && oras push --plain-http --artifact-type "$at" "$ref" "$@" ) >/dev/null
+  printf '%s' "$ref"
+}
+refuses() { # <label> <ref>: must be the conflict verdict, not merely a non-zero exit
+  local out; out="$(vfy "$2" "" "" "" "$DC" 2>/dev/null || true)"
+  [ "$out" = conflict ] || { echo "   FAIL: $1 -> '$out' (expected conflict)"; exit 1; }
+  echo "   $1 -> conflict"
+}
+refuses "same bytes, one layer, foreign artifactType"      "$(oras_push foreign-type application/vnd.example.not-compose "compose.yaml:$LTYPE")"
+refuses "same bytes, native artifactType, foreign layer"   "$(oras_push foreign-layer "$CTYPE" compose.yaml:application/octet-stream)"
+refuses "native types, the compose layer plus an extra"    "$(oras_push extra-layer "$CTYPE" "compose.yaml:$LTYPE" "other.yaml:$LTYPE")"
+refuses "native artifactType with no compose layer at all" "$(oras_push no-layer "$CTYPE")"
+
+# The absent-tag path: the SAME identity is asserted after the push and BEFORE
+# the ledger records the unit complete, so a run that pushes the wrong thing
+# leaves nothing recorded to resume from.
+ATXN="dryrun-demo-absent-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$ATXN" "$SHA" "$MSHA" >/dev/null
+ABSREF="$REG/pacto/demo-absent:$DV"
+[ "$(vfy "$ABSREF" "" "" "" "$DC")" = absent ] || { echo "   FAIL: the fresh demo tag is not absent"; exit 1; }
+PACTO_RELEASE_TXN="$ATXN" PACTO_EXPECT_CONTENT="$DC" \
+  adapter demo-compose "$ABSREF" "$DV" -- docker compose -f "$DEMOFILE" publish --insecure-registry -y "$ABSREF" >/dev/null
+[ "$(led status "$ATXN" demo-compose)" = complete ] || { echo "   FAIL: a native publication was not recorded"; exit 1; }
+echo "   absent -> published by Compose, native identity asserted, recorded complete"
+BTXN="dryrun-demo-absent-foreign-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$BTXN" "$SHA" "$MSHA" >/dev/null
+BADREF="$REG/pacto/demo-absent-foreign:$DV"
+if PACTO_RELEASE_TXN="$BTXN" PACTO_EXPECT_CONTENT="$DC" \
+     adapter demo-compose "$BADREF" "$DV" -- \
+     bash -c "cd '$FDIR' && oras push --plain-http --artifact-type application/vnd.example.not-compose '$BADREF' compose.yaml:application/octet-stream" >/dev/null 2>&1; then
+  echo "   FAIL: a non-Compose artifact was recorded as this unit's publication"; exit 1
+fi
+[ "$(led status "$BTXN" demo-compose)" = complete ] && { echo "   FAIL: the ledger recorded a unit whose identity assertion failed"; exit 1; }
+echo "   absent -> a push of the same bytes as a non-Compose artifact records nothing"
 
 echo "== PARTIAL FAILURE + RESUME: go tags in an isolated clone =="
 CLONE="$WORK/clone"; git clone -q "$ROOT" "$CLONE"

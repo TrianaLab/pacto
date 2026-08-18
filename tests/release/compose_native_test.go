@@ -172,6 +172,72 @@ func TestNothingOnTheComposeDemoPathTouchesOras(t *testing.T) {
 	}
 }
 
+// composeMediaTypes are the two strings that, with a layer count and a layer
+// digest, ARE the native Compose application's OCI identity.
+var composeMediaTypes = []string{
+	"application/vnd.docker.compose.project",
+	"application/vnd.docker.compose.file+yaml",
+}
+
+// TestTheNativeComposeIdentityHasOneDefinition: the rule that decides whether a
+// remote artifact IS this unit's Compose application lives in exactly one place.
+// It was two, and the second one — the assertion publish-oci-unit.sh ran after
+// its own push — had drifted down to a layer count and a digest, which any
+// artifact can carry: an `application/vnd.example.not-compose` manifest with one
+// octet-stream layer of the very same bytes was adopted and recorded. The
+// assertion and the adoption it guards cannot drift apart if there is only one
+// of them, so this gate keeps it that way.
+func TestTheNativeComposeIdentityHasOneDefinition(t *testing.T) {
+	root := repoRoot(t)
+	scripts, err := filepath.Glob(filepath.Join(root, "release", "orchestrator", "*.sh"))
+	if err != nil {
+		t.Fatalf("glob release/orchestrator/*.sh: %v", err)
+	}
+	if len(scripts) == 0 {
+		t.Fatal("no orchestrator scripts found — this gate would silently pass")
+	}
+	var definers []string
+	for _, f := range scripts {
+		name := filepath.Base(f)
+		if name == "dry-run.sh" {
+			continue // the adversarial prover: naming the types is its job
+		}
+		body := readFile(t, root, "release", "orchestrator", name)
+		for _, mt := range composeMediaTypes {
+			if strings.Contains(body, mt) {
+				definers = append(definers, name)
+				break
+			}
+		}
+	}
+	if len(definers) != 1 || definers[0] != "verify-oci.sh" {
+		t.Errorf("the native Compose identity is decided in %v, want only [verify-oci.sh] — a second copy is how the post-push assertion drifted weaker than the adoption rule it guards", definers)
+	}
+	verify := readFile(t, root, "release", "orchestrator", "verify-oci.sh")
+	for _, mt := range composeMediaTypes {
+		if !strings.Contains(verify, mt) {
+			t.Errorf("verify-oci.sh never mentions %q — a layer count and a digest are not an identity, and adoption would take any artifact carrying those bytes", mt)
+		}
+	}
+	// publish-oci-unit.sh reads the digest it just pushed and nothing else about
+	// the remote. The moment it inspects a manifest itself it has begun forming a
+	// second opinion on identity, which is where the weaker one came from.
+	publish := readFile(t, root, "release", "orchestrator", "publish-oci-unit.sh")
+	for _, probe := range []string{"crane manifest", "crane config", "oras manifest", "imagetools inspect"} {
+		if strings.Contains(publish, probe) {
+			t.Errorf("publish-oci-unit.sh inspects the remote itself (%q) — it must ask verify-oci.sh, the one place the identity is defined, or its post-push assertion will drift weaker than the adoption it guards", probe)
+		}
+	}
+	// The other side of the same invariant: something that RUNS has to build the
+	// deliberately foreign artifacts, or nothing demonstrates they are refused.
+	dry := readFile(t, root, "release", "orchestrator", "dry-run.sh")
+	for _, mt := range append(append([]string{}, composeMediaTypes...), "application/vnd.example.not-compose") {
+		if !strings.Contains(dry, mt) {
+			t.Errorf("dry-run.sh never builds an artifact carrying %q — the counterexamples that proved this bug are gone", mt)
+		}
+	}
+}
+
 // composeInvocation is one logical `docker compose` command line.
 type composeInvocation struct {
 	file, text string
