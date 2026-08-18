@@ -5335,3 +5335,121 @@ selftest case proved to bite by mutation. Blocker A stays closed and untouched,
 the accepted network semantics are unchanged, and the next step is an
 independent review of `b63ea2ed` — not a closure by its author. Phase 10C and
 Phase 11 were not started.
+
+## 15.9 Independent review at `b63ea2ed` — network-only project ownership blocker remains
+
+Reviewed independently on 2026-08-18. Blocker A remains CLOSED. The container
+identity/start repair and the veth create/failure repair close B2 and B3 from
+section 15.7. The helper-mode part of B1 is also repaired: helper modes no
+longer receive unconditional authority to tear down the two documented Compose
+projects. B1 is not fully closed, however, because the new project claim omits
+one of the resource classes that `docker compose down` destroys. Phase 10B
+therefore remains narrowly reopened; Phase 10C and Phase 11 are still NOT
+started.
+
+### Repository and GitHub state independently verified
+
+- PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE on
+  `feat/operational-graph-fleet`. The implementation independently reviewed is
+  exactly `b63ea2edbdce768e629161fc70570fb0bd9184b3`; the branch head carrying its
+  author-written candidate record is
+  `ba2718553a7c1971241db82cfd14632393eeb7f0`. `origin/main` remains
+  `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+- `d48b296e` is an ancestor of `ba271855`. The range is exactly the six linear
+  append-only commits recorded in section 15.8, every parent is the previous
+  SHA, and the merge-base with `origin/main` is unchanged. No merge, rebase,
+  amend, reset, squash, force-push or rewritten parent was found.
+- Exact implementation-SHA CI `32124980402` is success on attempt 1. All 21
+  jobs are green, including `ci-e2e-compose` `95673463838`,
+  `release-dry-run` `95673463898`, all six Kind shards and `required`
+  `95677494718`. Security `32124980469`, Docs check `32124980444`, Pacto
+  Contract CI `32124980480`, Repowise `32124980373`, title validation
+  `32124980514`, Code Quality `32124977194` and PR review `32124977102` are
+  success. Ledger-head CI `32126921988` is also success on attempt 1, including
+  `required` `95683189423`.
+- This range changes only the Compose acceptance shell, its maintainer
+  documentation and the candidate ledger. It introduces no CodeQL delta. The
+  inherited aggregate CodeQL check remains red; no file carrying its existing
+  findings is touched here.
+- Review threads were fully paginated: 199 total, 189 resolved and 10
+  unresolved. All ten are inherited bot threads: six `github-code-quality`
+  threads on the generated Mermaid asset and four `github-advanced-security`
+  threads on `pkg/oci/cache.go`. No human thread is unresolved.
+- Independent focused checks pass on the committed bytes: the complete
+  eleven-case ownership selftest, `go test ./tests/release/...`, the scenario
+  suite, `bash -n`, `shellcheck`, and `git diff --check`. The tracked tree is
+  clean; only the four pre-existing local agent paths remain untracked.
+
+### B2 accepted and closed
+
+`run_owned` now separates creation from start, records the immutable container
+ID between those events, and cleanup addresses only those IDs. An induced start
+failure is removed by the real EXIT trap, and the name-reuse case leaves the
+replacement container intact. Stage 11 stops rather than removes its
+host-local endpoint, so the normal path also retains the name until ID-based
+cleanup. The independent selftest run passed S7 and S10. Do not reopen this
+without a new concrete counterexample.
+
+### B3 accepted and closed
+
+The veth create is a separate `ip link add`; `OWNED_VETH` is armed only after
+that atomic operation succeeds. A losing create therefore deletes nothing, and
+a later configuration failure removes the pair this invocation created. The
+independent selftest run passed S8 and S9, including unchanged sentinel-link and
+netfilter state. Do not reopen the accepted two-hook network semantics or this
+failure boundary without a new concrete counterexample.
+
+### Remaining B1 — a network-only Compose project is declared free and destroyed
+
+`claim_projects` checks `docker compose -p NAME ps -aq` and labelled volumes,
+then puts the project name in `OWNED_PROJECTS`. It never checks labelled Compose
+networks. But `down_quiet` later executes
+`docker compose -p NAME down -v --remove-orphans`, and that command removes a
+project network even when the project has no container and no volume. The
+preflight can therefore grant teardown authority over a resource this
+invocation did not create.
+
+This was reproduced independently against a reviewer-created, labelled network
+and the unmodified committed selftest:
+
+```text
+network: pacto-demo_default
+before:  0f80365bab432055878cb987e2abf52c27fd2db3db8efdc0334765fc83fb9080
+selftest exit: 1
+error: Error response from daemon: network with name pacto-demo_default already exists
+after:   GONE
+```
+
+At entry, the project had no container and no volume, so `claim_projects`
+accepted it and armed `OWNED_PROJECTS`. `sentinel_project` then failed when it
+met the pre-existing network. The real EXIT trap ran `down_quiet` and deleted
+that network. The reviewer created the network solely for this reproduction and
+removed all remaining test resources afterwards.
+
+S11 does not cover this counterexample. It plants a container, network and
+volume together only *after* the outer selftest has already claimed the empty
+project names; it then proves that child helper modes do not tear that mixed
+project down. A separate handoff reproduction with a pre-existing mixed project
+also stops at the container check. Neither path asks whether a network by itself
+prevents the stage-0 claim. The maintainer statement that stage 0 found the
+names "holding nothing" is consequently stronger than the implementation.
+
+### Verdict and exact next objective
+
+**Phase 10B remains NARROWLY REOPENED / CANDIDATE.** Blocker A, B2, B3, the
+native Compose identity, the two-hook network semantics and helper-mode cleanup
+are accepted and must not be redesigned. Repair only B1's remaining project
+claim: no normal, browser or selftest invocation may acquire project-teardown
+authority while any Compose resource that `down -v --remove-orphans` can remove
+already exists under either documented project name. At minimum this includes
+containers, named volumes and networks.
+
+Add a deterministic adversarial case with a network-only project under each
+documented name. It must enter through the real claim/EXIT path, fail closed,
+preserve the exact network ID, leave `OWNED_PROJECTS` unarmed and prove the
+current code bites before the repair. Keep the existing eleven ownership cases,
+full Compose/browser acceptance, release dry run and exact-final-SHA CI green.
+Update the maintainer wording to match the actual complete claim. Phase 10C and
+Phase 11 must not start until this one-resource-class repair is independently
+reviewed. No PR comment was published, no review thread was resolved and no PR
+metadata was changed.
