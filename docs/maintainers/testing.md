@@ -251,10 +251,20 @@ That ownership reaches the release. `demo-compose` publishes through the same
 `org.opencontainers.image.created` into the manifest and writes no
 revision/version annotations, so neither a precomputed digest nor provenance
 adoption can recover its crash window — which is why the adapter learned
-`PACTO_EXPECT_CONTENT`: the one-layer content digest, asserted after the push and
-used as the adoption key. `dry-run.sh` ITEM 3b exercises that path for real
-against the staging registry, including the fail-closed case where the content
-does not match.
+`PACTO_EXPECT_CONTENT`. What that key matches is the whole native Compose
+identity, never the bytes on their own: `artifactType`
+`application/vnd.docker.compose.project`, exactly one layer, layer media type
+`application/vnd.docker.compose.file+yaml`, layer digest the expected one. The
+same tuple is the adoption rule and the post-push assertion, because it is
+literally the same code — `publish-oci-unit.sh` asks `verify-oci.sh` rather than
+keeping its own copy, which is how the assertion had drifted down to a layer
+count and a digest and would adopt an `application/vnd.example.not-compose`
+artifact carrying the same file. `dry-run.sh` ITEM 3b exercises all of it for real
+against the staging registry: a genuine `docker compose publish` is adopted, and
+the same bytes under a foreign artifact type, under a foreign layer media type,
+with an extra layer, with no compose layer, or with different bytes are each
+refused — on the crash-window path and on the absent-tag path, where the
+assertion has to run before the ledger records anything.
 
 **Immutability reaches the images.** The artifact is published once and pulled by
 digest, which is worth nothing while the compose file inside it names its images
@@ -297,12 +307,17 @@ deliberately different endpoint per hook and probes each:
 - **host-local** — a `registry:2` in the *host's* network namespace, addressed at
   the demo bridge's own gateway. A packet to a host address is delivered locally
   and never reaches `FORWARD`.
-- **forwarded** — the artifact registry again, reached over a veth pair
-  (`198.18.53.1/30` on the host, `198.18.53.2/30` moved into the registry's
-  namespace; RFC 2544 space, so it cannot collide with a real route). That
-  address is nobody's local address, so getting to it is routing, which is
-  `FORWARD` and therefore `DOCKER-USER`. Docker's own MASQUERADE makes the reply
-  path work without a second rule.
+- **forwarded** — the artifact registry again, reached over a veth pair whose
+  `/30` is chosen at run time out of `198.18.0.0/15`. That address is nobody's
+  local address, so getting to it is routing, which is `FORWARD` and therefore
+  `DOCKER-USER`. Docker's own MASQUERADE makes the reply path work without a
+  second rule. `198.18.0.0/15` is RFC 2544's reserved benchmarking space: nothing
+  on the public Internet routes it, which is a statement about the Internet and
+  not about this machine. A lab, a VPN or a second copy of this harness can
+  perfectly well have a route into it here, so the range is only where the
+  harness *looks* — it derives candidate `/30`s from its run id and takes the
+  first one no local route and no local address already claims, and fails rather
+  than picking one if all of them are taken.
 
 Both are proved reachable before any filter — otherwise "could not reach out" and
 "was never able to" are the same observation. Then the `DOCKER-USER` arm goes in
@@ -332,6 +347,27 @@ Everything the stage installs lives in the host's network namespace and outlives
 the script if it dies, so each installer records what it did and the exit trap
 takes the rules, the veth pair, the host-local endpoint, both projects and the
 Compose OCI cache entries back down.
+
+**The harness owns only what it created.** It runs privileged, in the host's
+namespace, on machines it does not know — so every fixed name it once used was a
+name it could have taken from something else, and `ip link del` or `docker rm -f`
+before claiming one is destroying a stranger's resource to make room. So each
+invocation derives a random `RUN_ID` and suffixes its interfaces, its endpoint
+containers, its registry and its image with it (inside `IFNAMSIZ`'s 15
+characters, which `ip link add` enforces rather than truncates). If a name is
+somehow already taken, or every candidate `/30` is routed, the harness refuses
+before it mutates anything. Cleanup is the same rule read backwards: a resource
+is recorded only once *this* invocation has successfully created it, and only
+recorded resources are removed.
+
+`bash tests/acceptance/local/compose-demo.sh selftest` is the proof, and
+`make test-acceptance-compose-selftest` runs it ahead of the acceptance in CI. It
+plants a sentinel interface and a harness-shaped container, re-invokes the
+harness with the run id that would collide with them, and asserts the harness
+refused rather than deleted, that no netfilter rule was touched on the way out,
+that a claimed `/30` was stepped over rather than hijacked, and that a normal run
+and an induced failure both take their own resources with them and leave the
+decoy alone.
 
 ## Deterministic browser tests versus live-browser tests
 
