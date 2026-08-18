@@ -360,14 +360,44 @@ before it mutates anything. Cleanup is the same rule read backwards: a resource
 is recorded only once *this* invocation has successfully created it, and only
 recorded resources are removed.
 
+Three things that rule has to survive, because "created it" is harder to pin
+down than it reads:
+
+- **A recorded name is not a recorded resource.** A container name is a lease
+  that ends with the container holding it, so cleanup records the immutable
+  container id instead — otherwise the endpoint the run shuts down early frees a
+  name, and whoever takes it next is a stranger cleanup would delete. Cleanup
+  holds no fixed name and sweeps no prefix.
+- **Created and started are two events.** The daemon really does create a
+  container and then refuse to start it — a host port somebody else published is
+  enough — so the harness splits `docker create` from `docker start` and records
+  the id between them. A container that never ran is still this invocation's to
+  take away.
+- **Ownership of an interface begins at `ip link add`, not at the preflight.**
+  The preflight is a diagnostic: a name that reads as free can be taken before
+  the next line runs, and `ip link add` is the atomic operation that says who
+  won. A failure before it deletes nothing; a failure after it removes that pair
+  and nothing else.
+
+The two documented Compose project names are ownership too. `docker compose -p
+NAME down -v --remove-orphans` needs no file — it is purely label-driven — so the
+authority to run it comes from stage 0 having found both names holding nothing,
+and the helper modes below, which exit long before stage 0, have no authority to
+tear down a demo somebody is running.
+
 `bash tests/acceptance/local/compose-demo.sh selftest` is the proof, and
 `make test-acceptance-compose-selftest` runs it ahead of the acceptance in CI. It
-plants a sentinel interface and a harness-shaped container, re-invokes the
-harness with the run id that would collide with them, and asserts the harness
-refused rather than deleted, that no netfilter rule was touched on the way out,
-that a claimed `/30` was stepped over rather than hijacked, and that a normal run
-and an induced failure both take their own resources with them and leave the
-decoy alone.
+plants sentinels — an interface, a harness-shaped container, an occupied `/30`
+and, under each documented project name, a container, a network and a volume
+wearing the labels `down -v` reads — then drives the harness into every path that
+could take one. It asserts that a name already held is refused rather than
+deleted; that an interface appearing *after* the preflight survives the create
+that loses the race to it; that a failure later in the wiring removes only the
+pair this run made; that no netfilter rule is touched on any of those ways out;
+that a claimed `/30` is stepped over rather than hijacked; that a normal run, an
+induced failure and a container the daemon refuses to start all end with the real
+`EXIT` trap taking that run's resources and nothing else; and that the planted
+projects still hold every container, network and volume they did.
 
 ## Deterministic browser tests versus live-browser tests
 
