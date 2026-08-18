@@ -63,6 +63,38 @@ the real previous-major (v4) chart with its v4 CRDs, server-side applies the new
 CRDs, then `helm upgrade`s to the current chart and asserts the pre-existing
 resource survives and reconciles.
 
+## Upgrading an installation with the Evidence Server enabled
+
+Evidence is no longer stored in the cluster. The Evidence Server publishes every
+accepted record to your **contract registry** as an OCI 1.1 referrer, so the
+component now installs nothing durable — no PVC, no data volume — and a fresh
+install creates no storage resource at all.
+
+Two things change on upgrade:
+
+1. **Name your subjects.** `evidence.registry.subjects` is required whenever
+   `evidence.enabled` is true: at least one exact
+   `oci://<repo>@sha256:<digest>` contract revision. Upgrading without it fails
+   at template time rather than starting a server that reports an authoritative
+   empty world. The bucket values (`evidence.storage.*`) are gone.
+2. **Your registry must serve the native Referrers API.** Pacto refuses the
+   legacy referrers-tag fallback, so a registry without the endpoint leaves the
+   Evidence Server permanently not-ready. CNCF distribution (`registry:2`,
+   `registry:3`) does not qualify.
+
+```bash
+helm upgrade pacto-operator pacto/pacto-operator -n pacto-system \
+  --set evidence.enabled=true \
+  --set evidence.trust.existingSecret=pacto-evidence-trust \
+  --set 'evidence.registry.subjects[0]=oci://ghcr.io/acme/checkout@sha256:<64 hex>'
+```
+
+An existing `pacto-evidence-data` PVC from an earlier release is **not** deleted
+by the upgrade — Pacto will not destroy data it no longer manages. Records in it
+are not visible to this release; producers re-report current state. Back it up if
+you want the history, then retire it manually:
+[retiring a legacy bucket or PVC](../../evidence-oci-storage.md#retiring-a-legacy-bucket-or-pvc).
+
 ## Compatibility
 
 --8<-- "integrations/kubernetes/docs/generated/_compatibility.md"

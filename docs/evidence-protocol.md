@@ -174,11 +174,11 @@ expiry). Verification rejects an envelope after `expiresAt` (expired) or before
 The ingestion replay guard rejects a repeated envelope `id` and any `sequence`
 not greater than the producer's last accepted value. Re-sent or reordered
 reports are therefore safe: the platform keeps the latest report per target and
-never regresses to an older one. Replay protection is enforced by the durable
-store atomically with each immutable write, and its duplicate-id set and
-per-producer sequence high-water mark are rebuilt from the immutable records at
-startup — so replay protection survives process and pod restarts (see
-[durable storage and recovery](#durable-storage-and-recovery)).
+never regresses to an older one. Replay protection is enforced inside the
+serialized commit, over a duplicate-id set and per-producer sequence maximum
+re-derived from the registry on every commit — so it survives process and pod
+restarts, because there is no local state to lose (see
+[durable storage in the registry](#durable-storage-in-the-registry)).
 
 **Size and observation bounds.** A decoded envelope is capped at **1 MiB**, and a
 single envelope may carry at most **10,000 observations**. The HTTP handler reads
@@ -203,8 +203,8 @@ is mandatory**, and is what the platform relies on regardless of transport.
 | Method + path | Purpose | Success |
 |---------------|---------|---------|
 | `POST /api/evidence/v1/envelopes` | Accept, verify, de-duplicate, evaluate and store one envelope. | `202 Accepted` with `{ id, compliance, findings, acceptedAt }` |
-| `GET /api/evidence/v1/health` | Liveness. Independent of recovery. | `200 OK` with `{ "status": "ok" }` |
-| `GET /api/evidence/v1/ready` | Readiness. `503` until the durable store finishes recovery. | `200 OK` with `{ "status": "ready" }` |
+| `GET /api/evidence/v1/health` | Liveness. Independent of the registry. | `200 OK` with `{ "status": "ok" }` |
+| `GET /api/evidence/v1/ready` | Readiness. `503` until every configured subject resolves and answers native Referrers discovery. | `200 OK` with `{ "status": "ready" }` |
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
 | `GET /api/evidence/v1/targets` | The latest accepted target per producer, for a read-only HTTP evidence source. | `200 OK` with the versioned targets DTO (below). |
 
@@ -260,7 +260,9 @@ errors are logged server-side only. The codes and their statuses:
 | `422 Unprocessable Entity` | `contract_ref_rejected` | The contract ref is not an approved immutable digest reference. |
 | `422 Unprocessable Entity` | `invalid_evidence` | The `EvidenceSet` is invalid. |
 | `502 Bad Gateway` | `contract_resolution_failed` | The referenced contract could not be resolved (upstream). |
-| `503 Service Unavailable` | `store_not_ready` / `store_degraded` | The store has not recovered, or a durable commit failed. |
+| `503 Service Unavailable` | `store_not_ready` | The server has not yet resolved and enumerated its configured subjects. |
+| `503 Service Unavailable` | `registry_unavailable` / `registry_incomplete` | The accepted history could not be read, or could not be read completely, so the replay check could not run. |
+| `503 Service Unavailable` | `store_degraded` | The record could not be published to the registry. |
 | `500 Internal Server Error` | `internal_error` | An unexpected failure. |
 
 After a successful accept, the host can trigger a snapshot refresh so the new
@@ -268,48 +270,56 @@ target appears in the graph immediately.
 
 ---
 
-## Durable storage and recovery
+## Durable storage in the registry
 
-Accepted evidence is durable. Behind the ingestion host is the **Evidence
-Server** and its store (`pkg/evidencestore`), which persists every accepted
-envelope so replay protection and latest-target state survive a process or pod
-restart. The store is deliberately infrastructure-light: the default bucket is
-`file:///var/lib/pacto/evidence` on a ReadWriteOnce PVC — no database, cache or
-coordination service. The same store logic runs unchanged over cloud buckets
-(`s3://`, `gs://`, `azblob://`) through gocloud.dev when you point `--bucket-url`
-at one.
+Accepted evidence is durable, and Pacto does not store it. Behind the ingestion
+host is the **Evidence Server**, a stateless boundary that publishes every
+accepted report to the **contract registry** as an OCI 1.1 referrer of the exact
+contract revision the report is about. There is no bucket, no PVC, no database
+and no recovery engine. The full operational guide is
+[evidence in the registry](evidence-oci-storage.md); the protocol-level shape is:
 
-**One source of truth, rebuildable projections.** Immutable accepted-evidence
-records under `<prefix>/envelopes/` are the sole source of truth — once written,
-a record is never overwritten. Materialized target and manifest projections under
-`<prefix>/materialized/` are performance optimizations that can be rebuilt from
-the records, never authoritative. The immutable write is the commit point: an
-envelope is durably accepted the moment its record lands, even if a later
-projection write fails.
+**One artifact per accepted report.** An untagged OCI manifest whose `subject` is
+the contract digest from the signed `EvidenceSet.ContractRef`, with
+`artifactType: application/vnd.pacto.evidence.record.v1+json` and exactly one
+layer carrying a `pacto.dev/evidence-record/v1` payload. It is built
+deterministically, so republishing an identical record yields an identical digest
+rather than a second copy.
 
-**Read-after-write without List consistency.** The active writer serves every
-read from an in-memory index rather than from a bucket `List`, so a just-accepted
-target is visible immediately and correctness never depends on the bucket's list
-consistency.
+**Configured subjects only.** The server is given an explicit, non-empty,
+deduplicated allow-list of exact `oci://<repo>@sha256:<digest>` revisions. Mutable
+tags, local paths, inferred repositories and catalog-wide discovery are all
+rejected: a tag can be moved onto another manifest, silently changing what the
+stored evidence reports on.
 
-**Recovery and readiness.** At startup the store opens its bucket and replays the
-immutable records to rebuild the replay indexes (the accepted duplicate-id set
-and the per-producer sequence high-water mark) and the latest-target state.
-Because that state is reconstructed from the records themselves, replay
-protection — a duplicate `id` or a non-increasing producer `sequence` — survives
-process and pod restarts rather than resetting. Readiness gates on recovery:
-`GET /api/evidence/v1/ready` reports `503` until recovery completes, while
-liveness (`GET /api/evidence/v1/health`) is independent and always answers.
+**Native Referrers, no tag fallback.** Discovery is the registry's
+`/v2/<repo>/referrers/<digest>` endpoint, fully paginated. Pacto refuses the
+legacy referrers-tag emulation, so a registry without the native endpoint makes
+the server not-ready instead of quietly storing evidence where another client
+would not look for it.
 
-**Single active writer, no distributed lock.** There is exactly one active writer
-per (bucket URL + prefix). This is enforced operationally — one replica, with the
-chart schema rejecting more — not with a distributed lock built from blob writes.
-Sharing one bucket across installations is safe only through distinct prefixes.
+**State is re-derived, never kept.** Every commit re-enumerates every page of
+every configured subject, rebuilds the duplicate-id set and the per-producer
+maximum sequence from what it read, refuses a replay globally across subjects,
+publishes, and confirms the record is discoverable through that same API before
+returning `202`. Replay protection therefore survives a restart because there was
+never any local state to lose.
 
-**Retention.** Accepted immutable envelopes are never auto-deleted; they are the
-audit trail and the recovery source. A bucket lifecycle policy must not delete
-anything under `<prefix>/envelopes/`. Only the rebuildable `materialized/`
-projections are safe to drop.
+**Reads fail honest, writes fail closed.** `GET /api/evidence/v1/ready` reports
+`503` while no subject can be read; `/targets` reports `partial` when some
+subject or artifact could not be read, and still serves what it could read.
+Ingestion refuses (`registry_unavailable` / `registry_incomplete`) whenever the
+history could not be fully reconstructed — a replay check over a partial history
+is not a replay check. An unreadable store is never rendered as an empty one.
+
+**Single active writer, no distributed lock.** One replica, with the `Recreate`
+rollout strategy so an upgrade never briefly runs two. The registry offers no
+compare-and-set that would let two writers agree, and Pacto does not fake one.
+
+**Retention is the registry's.** Pacto never deletes an evidence artifact.
+Because evidence is deliberately untagged, a registry garbage-collection policy
+that prunes untagged manifests will remove it; deleting a contract manifest or
+its referrers removes the evidence attached to it.
 
 ---
 
@@ -317,25 +327,27 @@ projections are safe to drop.
 
 The Evidence Server, the dashboard and the operator are three independent
 processes with one clean responsibility split — the Evidence Server owns
-ingestion, verification, recovery and storage, the dashboard consumes the
+ingestion, verification, evaluation and publication, the dashboard consumes the
 server's read-only contribution and the operator manages the Kubernetes
 lifecycle.
 
 - **In Kubernetes** it is an optional operator-managed component of the single
-  `pacto-operator` Helm chart: set `evidence.enabled=true`. The operator
-  reconciles a separate Evidence Server Deployment, an internal Service and a
-  retained PVC. There is no standalone evidence chart and no subchart. When both
-  `dashboard.enabled` and `evidence.enabled` are set, the operator auto-wires the
-  dashboard to the internal server via `PACTO_EVIDENCE_SOURCE_URL`, and the
-  dashboard consumes it read-only over HTTP without ever touching the bucket.
+  `pacto-operator` Helm chart: set `evidence.enabled=true` and name at least one
+  `evidence.registry.subjects` entry. The operator reconciles a separate Evidence
+  Server Deployment and an internal Service, and **nothing durable** — no PVC and
+  no data volume, because the store is your registry. There is no standalone
+  evidence chart and no subchart. When both `dashboard.enabled` and
+  `evidence.enabled` are set, the operator auto-wires the dashboard to the
+  internal server via `PACTO_EVIDENCE_SOURCE_URL`, and the dashboard consumes it
+  read-only over HTTP without ever holding a registry credential.
 - **Outside Kubernetes** the same component runs via `pacto evidence serve` — see
   [evidence security and tooling](evidence-security.md#running-the-ingestion-endpoint).
 
-The PVC is retained on purpose and always: it carries no owner reference, so it
-survives disabling the component, chart upgrades and uninstall — accepted evidence
-is never garbage-collected with the operator. There is deliberately no delete
-toggle; to remove persisted evidence, delete the PVC manually
-(`kubectl delete pvc pacto-evidence-data`).
+Disabling the component removes its whole footprint and loses no evidence: the
+records stay where they were written, in the contract registry. Installations
+upgraded from a release that used an evidence PVC keep that PVC until an operator
+deletes it — see
+[retiring a legacy bucket or PVC](evidence-oci-storage.md#retiring-a-legacy-bucket-or-pvc).
 
 ---
 

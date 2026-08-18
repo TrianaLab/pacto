@@ -446,7 +446,8 @@ silent fallback is replaced by a typed render error, and a real non-headless can
 gate (graph-visual.spec.ts) now proves the focused topology actually paints.
 
 The projection / materialized-storage work from the earlier evidence-store review
-(ADR-5) is resolved and is NOT reopened. The U+00A7 enforcement tiers are as stated
+(ADR-5) is resolved and is NOT reopened; phase 10C later replaced the store it
+described with OCI referrers, which is recorded inline where ADR-5 is stated. The U+00A7 enforcement tiers are as stated
 in the header: the authored source/content gate is ACTIVE and blocking; historical
 commit-message and PR-metadata enforcement is BLOCKED on explicit history-rewrite
 authorization, which does not exist this session. No Git history is rewritten,
@@ -1876,7 +1877,7 @@ section 8.
 | honest state (10) | product Overview/Attention completeness tests             | scenario 16 |
 | a11y (12)         | n/a                                                        | scenarios 19,20 |
 | responsive (11)   | n/a                                                        | scenarios 21,22 |
-| projections (17)  | `pkg/evidencestore/*_test.go`                              | Kind evidence E2E |
+| projections (17)  | `internal/evidenceoci/*_test.go` (latest-per-target)       | Kind evidence E2E |
 | invariants (19)   | `tests/architecture/*`                                     | n/a |
 | U+00A7 gate (24)  | `tests/architecture/check_section_test.go`                      | n/a |
 | boundedness at scale | `pkg/fleet/product_test.go` (page bounds), `pkg/dashboard/product_test.go` | `e2e/product-scale.spec.ts` |
@@ -1985,6 +1986,13 @@ Completed:
   - the Kind Evidence E2E physically proves manifest reconstruction on disk after
     loss, not merely that reads answer from the rebuilt in-memory index.
   `pkg/evidencestore` stays 100% covered; the storage ADR and Kind E2E are updated.
+  **SUPERSEDED (phase 10C).** There is no bucket and no materialized projection
+  any more: `pkg/evidencestore` is deleted and evidence is stored as OCI 1.1
+  referrers in the contract registry. The requirement it answered survives —
+  no write-only derived state carrying an unverified correctness guarantee — and
+  is now met by construction, since the latest-per-target view is recomputed from
+  the registry on every read (`internal/evidenceoci`). See
+  [evidence in the registry](../evidence-oci-storage.md).
 
 ### Product API hardening (phase 1 of the program) — status
 

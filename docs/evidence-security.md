@@ -128,25 +128,28 @@ enforce scopes it cannot express.
 ## Running the ingestion endpoint
 
 ```bash
-pacto evidence serve --trust ./trust
+pacto evidence serve \
+  --trust ./trust \
+  --subject oci://ghcr.io/acme/payments-api@sha256:1a2b…
 ```
 
-`serve` starts the ingestion host: it loads the trust store from `--trust`, opens
-the durable evidence store at `--bucket-url` (default
-`file:///var/lib/pacto/evidence`) under `--prefix`, recovers it, then evaluates
-each accepted envelope against the contract its `ContractRef` resolves to and
-commits the result to the store. It listens on `127.0.0.1:<--port>` (default
-8686) or on `--listen-address host:port`, advertises the producer ids configured
-with `--producer` at `GET /api/evidence/v1/producers` and reports readiness at
-`GET /api/evidence/v1/ready` (`503` until recovery completes). Point `--bucket-url`
-at `s3://`, `gs://` or `azblob://` for cloud storage; `--store-dir` is a
-deprecated alias for a `file://` bucket. TLS termination is the host's
+`serve` starts the ingestion host: it loads the trust store from `--trust`,
+resolves every `--subject` (repeatable, at least one required) in the contract
+registry, then evaluates each accepted envelope against the contract its
+`ContractRef` resolves to and publishes the result to that registry as an OCI 1.1
+referrer of the subject. It holds nothing locally — there is no store directory,
+bucket or data volume. It listens on `127.0.0.1:<--port>` (default 8686) or on
+`--listen-address host:port`, advertises the producer ids configured with
+`--producer` at `GET /api/evidence/v1/producers` and reports readiness at
+`GET /api/evidence/v1/ready` (`503` until every subject resolves and answers
+native Referrers discovery). Registry access uses Pacto's normal OCI credential
+resolution — there is no evidence-specific login. TLS termination is the host's
 responsibility — run `serve` behind a TLS-terminating proxy or gateway. Signature
 verification is always on and cannot be disabled.
 
-For durability, recovery and the storage layout, see
-[durable storage and recovery](evidence-protocol.md#durable-storage-and-recovery);
-for how the server is deployed, see [deployment](evidence-protocol.md#deployment).
+For registry requirements, permissions, retention and failure semantics, see
+[evidence in the registry](evidence-oci-storage.md); for how the server is
+deployed, see [deployment](evidence-protocol.md#deployment).
 
 ---
 
@@ -172,17 +175,26 @@ The protocol and its tooling hold a small set of non-negotiable invariants.
   signature verification.
 - **Replay protection.** A duplicate id or a non-increasing per-producer
   sequence is rejected, so re-sent or reordered reports never regress a target to
-  older state. It is enforced by the durable store and rebuilt from the immutable
-  records at startup, so it survives process and pod restarts (see
-  [durable storage and recovery](evidence-protocol.md#durable-storage-and-recovery)).
-- **Single active writer.** The durable evidence store has exactly one active
-  writer per bucket URL and prefix, enforced operationally (one replica, with the
-  chart schema rejecting more) rather than with a distributed lock. Sharing a
-  bucket across installations is safe only through distinct prefixes.
-- **Evidence is retained, never auto-deleted.** Accepted immutable envelopes are
-  the audit trail and the recovery source, so they are never garbage collected — a
-  bucket lifecycle policy must not delete anything under `<prefix>/envelopes/`.
-  Only the rebuildable `materialized/` projections are safe to drop.
+  older state. It is enforced inside the serialized commit, over a history
+  re-enumerated from the registry every time, so it survives process and pod
+  restarts and applies **globally across subjects** — a producer's sequence is the
+  producer's, not the contract's (see
+  [evidence in the registry](evidence-oci-storage.md#the-commit-protocol)).
+- **Reads fail honest, writes fail closed.** A store that could not be read
+  completely is reported as `partial` or `unavailable`, never as an authoritative
+  empty result, and ingestion refuses while the accepted history cannot be fully
+  reconstructed — a replay check over a partial history is not a replay check.
+- **Single active writer.** Exactly one, enforced operationally (one replica plus
+  the `Recreate` rollout strategy) rather than with a distributed lock, because
+  the registry offers no compare-and-set two writers could agree on.
+- **Registry write access is evidence write access.** The producer signature is
+  verified once, at ingestion; the read path does not re-verify it. Anyone who can
+  push to a configured contract repository can add a record Pacto serves, so scope
+  that credential as tightly as the right to publish a contract.
+- **Evidence is never deleted by Pacto.** It is the audit trail, and Pacto only
+  ever pushes. Because the artifacts are deliberately untagged, a registry
+  garbage-collection policy that prunes untagged manifests will remove them —
+  exclude referrers of contract manifests from any such policy.
 - **Trust store is a read-only mount.** In the operator-managed deployment the
   trust store is a Secret of `<producerId>__<keyId>.pub` keys mounted read-only
   (`evidence.trust.existingSecret`), each key bound to exactly one producer so a

@@ -46,19 +46,14 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `evidence.ingress.enabled` | `false` | Enable Ingress for the Evidence Server. |
 | `evidence.ingress.hosts` | `null` | Ingress hosts. |
 | `evidence.ingress.tls` | `[]` | Ingress TLS configuration. |
+| `evidence.registry.credentialsSecret` | `""` | Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with credentials for that registry, mounted read-only. The chart never creates it and never renders its contents. Empty means anonymous or in-cluster access. |
+| `evidence.registry.subjects` | `[]` | Required when evidence is enabled: the exact, immutable contract revisions evidence may be reported against, each an oci://<repo>@sha256:<digest> reference. The registry holding them IS the durable evidence store — every accepted record is published as an OCI 1.1 referrer of one of these manifests — so the chart installs nothing durable in the cluster. A mutable tag is rejected: it could be moved onto another manifest and silently change what the stored evidence reports on. |
 | `evidence.resources.limits.memory` | `256Mi` |  |
 | `evidence.resources.requests.cpu` | `25m` |  |
 | `evidence.resources.requests.memory` | `64Mi` |  |
 | `evidence.service.nodePort` | `""` | Node port (only used when type is NodePort). |
 | `evidence.service.port` | `8686` | Evidence service port. |
 | `evidence.service.type` | `ClusterIP` | Evidence exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-evidence) for in-cluster access; this chart-managed Service provides optional external access and backs any Ingress/HTTPRoute. |
-| `evidence.storage.bucketURL` | `file:///var/lib/pacto/evidence` | Durable evidence bucket URL. The default file:// needs no external infrastructure (just the PVC below); s3://, gs:// and azblob:// use cloud storage with the same evidence logic. |
-| `evidence.storage.persistence.accessModes` | `null` | PVC access modes. ReadWriteOnce is correct for a single writer. |
-| `evidence.storage.persistence.enabled` | `true` | Provision a PVC for a file:// bucket. Set false for cloud buckets or when using an existing claim. |
-| `evidence.storage.persistence.existingClaim` | `""` | Use an externally-managed PVC instead of provisioning one. |
-| `evidence.storage.persistence.size` | `1Gi` | Requested PVC size. |
-| `evidence.storage.persistence.storageClass` | `""` | StorageClass for the provisioned PVC. Empty uses the cluster default. |
-| `evidence.storage.prefix` | `pacto-evidence/v1` | Logical key prefix; every object is scoped below it, so installations can safely share one bucket via distinct prefixes. |
 | `evidence.trust.existingSecret` | `""` | Name of an existing Secret of trusted producer public keys, mounted read-only. Signature verification is mandatory, so this is required when evidence is enabled. |
 | `fullnameOverride` | `""` | Override the full release name |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |

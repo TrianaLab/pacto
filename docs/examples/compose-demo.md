@@ -125,11 +125,32 @@ have been pulled, the stack requires no external network access. Its private
 Compose service network remains available because the dashboard, Evidence Server
 and embedded registry must communicate with each other.
 
+## Where the evidence lives
+
+In the demo's own registry, not in a Pacto data volume. Accepted evidence is
+published as an OCI 1.1 referrer of the exact contract revision it reports on, so
+the registry is the store and the Evidence Server keeps nothing — the demo runs
+two volumes, one for the registry and one for the trust keys and the dashboard's
+OCI cache. Throw the Evidence Server's container away and the fleet still shows
+the same target, because the server rebuilds everything it knows by asking the
+registry:
+
+```sh
+docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
+  -p pacto-demo up -d --wait --force-recreate evidence
+```
+
+That is also why the demo's registry is zot rather than CNCF distribution: the
+native Referrers API is not optional here, and `registry:2`/`registry:3` do not
+implement it. `docker compose -p pacto-demo down -v` removes the registry volume
+and the evidence with it, which is what "all of it" means.
+
 ## Credentials
 
 There are none in the artifact. The Evidence Server generates its own signing
 keypair the first time it starts and keeps it in a volume, so the demo signs as
-an identity that only ever existed on your machine.
+an identity that only ever existed on your machine. It reaches the registry
+anonymously, over the demo's private Compose network.
 
 ## Where the instructions live
 

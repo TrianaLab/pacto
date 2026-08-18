@@ -72,13 +72,14 @@ source to carry.)
 - **Live Kubernetes** (`--k8s [--namespace]`) — Pacto CRs read straight from a
   running cluster: which revision runs in which target and its operator-computed
   compliance, findings, coverage and observed runtime.
-- **Ingested external evidence** (`--evidence-store <dir>` or `--evidence-url
-  <url>`) — a remote environment's signed, versioned
-  [EvidenceSet report](evidence-protocol.md), verified and evaluated at ingestion
-  into the durable [Evidence Server](evidence-protocol.md#durable-storage-and-recovery),
-  then exposed as an operational target. `--evidence-store` reads the server's
-  accepted-evidence records straight off disk; `--evidence-url` consumes a running
-  Evidence Server's read-only contribution over HTTP.
+- **Ingested external evidence** (`--evidence-url <url>`) — a remote
+  environment's signed, versioned [EvidenceSet report](evidence-protocol.md),
+  verified and evaluated at ingestion by the
+  [Evidence Server](evidence-protocol.md#durable-storage-in-the-registry) and
+  published to the contract registry, then exposed as an operational target.
+  `--evidence-url` consumes a running Evidence Server's read-only contribution
+  over HTTP — the only way in, because the store is a registry the CLI has no
+  business holding a credential for.
 - **Offline target-state fixtures** (`--target-state`) — an unsigned demo and
   test adapter for supplying targets without a cluster.
 
@@ -378,19 +379,21 @@ silent empty and never deleted. This is the shipped
 [external evidence protocol](evidence-protocol.md); for keys and CLI usage see
 [evidence security and tooling](evidence-security.md).
 
-Ingested evidence is now backed by the durable **Evidence Server**. Every
-accepted envelope is committed to an immutable record before it becomes a target,
-so replay protection and latest-target state survive a restart — see
-[durable storage and recovery](evidence-protocol.md#durable-storage-and-recovery).
-The Evidence Server is an optional operator-managed component of the
-`pacto-operator` Helm chart (`evidence.enabled=true`), and it runs the same way
-outside Kubernetes via `pacto evidence serve`. There is no standalone evidence
-chart. When both the dashboard and the Evidence Server are enabled, the operator
-wires the dashboard to the server over HTTP; the dashboard consumes its read-only
-contribution and never touches the evidence bucket. The
+Ingested evidence is backed by the **Evidence Server**, a stateless boundary in
+front of your contract registry. Every accepted envelope is published as an OCI
+1.1 referrer of the exact contract revision it reports on before it becomes a
+target, so replay protection and latest-target state survive a restart with no
+local state at all — see
+[evidence in the registry](evidence-oci-storage.md). The Evidence Server is an
+optional operator-managed component of the `pacto-operator` Helm chart
+(`evidence.enabled=true`), and it runs the same way outside Kubernetes via
+`pacto evidence serve`. There is no standalone evidence chart. When both the
+dashboard and the Evidence Server are enabled, the operator wires the dashboard
+to the server over HTTP; the dashboard consumes its read-only contribution and
+never holds a registry credential. The
 [deployment topology](evidence-protocol.md#deployment) keeps the responsibility
-split clean: the Evidence Server owns ingestion, verification, recovery and
-storage, the dashboard consumes the read-only contribution and the operator
+split clean: the Evidence Server owns ingestion, verification, evaluation and
+publication, the dashboard consumes the read-only contribution and the operator
 manages the Kubernetes lifecycle.
 
 ---
@@ -572,10 +575,10 @@ Keeping the two apart is what stops the two most tempting wrong readings: that a
 source Pacto cannot read means "no dependencies were observed", and that an old
 export proves a dependency has gone away. Neither is knowledge Pacto has.
 
-The Evidence Server is a **different** concept and stays separate: it is a
-durable, write-once store of signed evidence envelopes the dashboard consumes
-read-only over HTTP. Trace exports do not travel through it, and its bucket is
-never mounted into the dashboard.
+The Evidence Server is a **different** concept and stays separate: it is the
+verification boundary for signed evidence envelopes, which the dashboard consumes
+read-only over HTTP. Trace exports do not travel through it, and the registry it
+publishes to is never reachable from the dashboard.
 
 ---
 

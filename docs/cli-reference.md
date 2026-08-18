@@ -263,17 +263,16 @@ Compose contracts, contract revisions and operational targets from local bundles
 **Flags:**
 
 ```
-      --cache                        include every bundle in the local OCI cache as an offline baseline revision
-      --evidence-store stringArray   directory of accepted-evidence records to include as external targets (repeatable)
-      --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --freshness duration           mark target evidence older than this as stale (0 disables)
-  -h, --help                         help for fleet
-      --k8s                          include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray            local bundle root(s) to scan (repeatable) (default [.])
-      --namespace string             namespace to read Pacto CRs from with --k8s (empty = all namespaces)
-      --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
-      --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
-      --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --freshness duration         mark target evidence older than this as stale (0 disables)
+  -h, --help                       help for fleet
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
 ---
@@ -535,22 +534,21 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes                 expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --auth stringArray             credential for a security scheme as name=value (repeatable)
-      --base-url string              base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --cache                        include the local OCI cache as offline baseline revisions (--fleet)
-      --evidence-store stringArray   directory of accepted-evidence records for --fleet (repeatable)
-      --evidence-url stringArray     base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)
-      --fleet                        expose read-only operational-graph (fleet) query tools
-      --freshness duration           mark target evidence older than this as stale (--fleet)
-  -h, --help                         help for mcp
-      --k8s                          include live Pacto CRs from the current Kubernetes cluster (--fleet)
-      --local stringArray            local bundle root(s) for --fleet (repeatable) (default [.])
-      --namespace string             namespace for --k8s (empty = all namespaces)
-      --oci stringArray              registry reference to include as a published-baseline revision for --fleet (repeatable)
-      --port int                     port for HTTP transport (default 8585)
-      --target-state stringArray     offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
-  -t, --transport string             transport type: stdio or http (default "stdio")
+      --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --auth stringArray           credential for a security scheme as name=value (repeatable)
+      --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --cache                      include the local OCI cache as offline baseline revisions (--fleet)
+      --evidence-url stringArray   base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)
+      --fleet                      expose read-only operational-graph (fleet) query tools
+      --freshness duration         mark target evidence older than this as stale (--fleet)
+  -h, --help                       help for mcp
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster (--fleet)
+      --local stringArray          local bundle root(s) for --fleet (repeatable) (default [.])
+      --namespace string           namespace for --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision for --fleet (repeatable)
+      --port int                   port for HTTP transport (default 8585)
+      --target-state stringArray   offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
+  -t, --transport string           transport type: stdio or http (default "stdio")
 ```
 
 The server exposes the following tools:

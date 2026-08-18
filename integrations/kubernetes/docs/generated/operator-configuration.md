@@ -24,16 +24,12 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-enable-http2` | `bool` |  | If set, HTTP/2 will be enabled for the metrics and webhook servers |
 | `-enable-metrics-observation` | `bool` |  | Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported. |
 | `-enable-probing` | `bool` |  | Enable active in-cluster HTTP probing of health capability endpoints (Tier A). Off by default; when off, health uses passive readiness-probe and EndpointSlice signals only. |
-| `-evidence-bucket-url` | `string` | `file:///var/lib/pacto/evidence` | Durable evidence bucket URL. Default file:// needs no external infrastructure; s3://, gs:// and azblob:// use cloud storage. |
 | `-evidence-cpu-limit` | `string` |  | CPU limit for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-cpu-request` | `string` |  | CPU request for the Evidence Server container. Empty uses the built-in default. |
-| `-evidence-existing-claim` | `string` |  | Use an externally-managed PVC for the evidence bucket instead of provisioning one. |
+| `-evidence-credentials-secret` | `string` |  | Optional: name of an existing kubernetes.io/dockerconfigjson Secret with contract-registry credentials, mounted read-only. Empty means anonymous or in-cluster registry access. |
 | `-evidence-memory-limit` | `string` |  | Memory limit for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-memory-request` | `string` |  | Memory request for the Evidence Server container. Empty uses the built-in default. |
-| `-evidence-persistence-enabled` | `bool` | `true` | Provision a PVC for a file:// evidence bucket. Set false for cloud buckets or an externally-managed claim. |
-| `-evidence-persistence-size` | `string` | `1Gi` | Size of the provisioned PVC backing a file:// evidence bucket. |
-| `-evidence-prefix` | `string` | `pacto-evidence/v1` | Logical key prefix scoping every evidence object; installations can share a bucket via distinct prefixes. |
-| `-evidence-storage-class` | `string` |  | StorageClass for the provisioned evidence PVC. Empty uses the cluster default. |
+| `-evidence-subject` | `value` |  | Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. The registry holding it IS the durable evidence store — accepted records are published as OCI 1.1 referrers of that manifest. At least one is required when the Evidence Server is enabled. |
 | `-evidence-trust-secret` | `string` |  | Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled. |
 | `-health-probe-bind-address` | `string` | `:8081` | The address the probe endpoint binds to. |
 | `-interface-name-match-discovery` | `bool` |  | Enable resolving an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never produces an absent or error result). |
