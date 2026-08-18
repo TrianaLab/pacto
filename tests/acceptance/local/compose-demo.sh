@@ -502,7 +502,8 @@ link_state() { hostns "ip -o addr show dev $1" 2>/dev/null || printf 'GONE'; }
 filter_state() { netfilter "\$ipt -S DOCKER-USER; \$ipt -S INPUT"; }
 
 # refuses_to_touch LABEL CMD... — CMD must fail. Run in a subshell so its `fail`
-# ends the attempt rather than this selftest.
+# ends the attempt rather than this selftest, and so a function it redefines for
+# the length of the attempt dies with it.
 refuses_to_touch() {
 	local label="$1"
 	shift
@@ -511,22 +512,111 @@ refuses_to_touch() {
 	fi
 }
 
+# survives_refusal LABEL LINK CMD... — CMD must fail, and when it has, LINK must
+# be the interface it was and both netfilter chains the rules they were. Every
+# way this file can give up on the forwarded route goes through here, because
+# "it refused" and "it refused without touching anything" are different claims.
+survives_refusal() {
+	local label="$1" link="$2" before after filters
+	shift 2
+	before="$(link_state "$link")"
+	filters="$(filter_state)"
+	refuses_to_touch "$label" "$@"
+	after="$(link_state "$link")"
+	[ "$before" = "$after" ] || fail "$label: $link changed: '$before' -> '$after'"
+	[ "$filters" = "$(filter_state)" ] ||
+		fail "$label: a netfilter rule was installed or removed on the way out"
+}
+
+# raced_wire — the real wire_forwarded_route with its preflight already behind it.
+# The preflight cannot close the window it opens: a name it reads as free can be
+# taken before `ip link add` runs, and that is the case worth proving. Emptying
+# the check enters the window on purpose, and only ever inside the subshell
+# refuses_to_touch wraps around it.
+raced_wire() {
+	refuse_existing() { :; }
+	wire_forwarded_route
+}
+
+# bad_address_wire — the real wire_forwarded_route given an address the kernel
+# will not take, so what fails is a step AFTER `ip link add` succeeded. Same
+# subshell rule as raced_wire.
+bad_address_wire() {
+	pick_forwarded_net() {
+		FWD_LOCAL="198.18.300.1"
+		FWD_ADDR="198.18.300.2"
+	}
+	wire_forwarded_route
+}
+
+# sentinel_project PROJECT — a project standing in for the demo somebody already
+# has running under one of the documented names.
+#
+# Assembled out of plain `docker` rather than out of a compose file, and that is
+# the point rather than a shortcut: `down -v --remove-orphans` reads labels and
+# nothing else, so a container, a network and a named volume wearing this
+# project's labels are exactly as exposed as ones Compose wrote — with no local
+# compose file anywhere near the demo's own journey. Created and not started,
+# because created is already the whole exposure.
+sentinel_project() {
+	docker volume create \
+		--label com.docker.compose.project="$1" \
+		--label com.docker.compose.volume=sentinel-data "${1}_sentinel-data" >/dev/null
+	docker network create \
+		--label com.docker.compose.project="$1" \
+		--label com.docker.compose.network=default "${1}_default" >/dev/null
+	docker create --name "$1-sentinel-1" \
+		--label com.docker.compose.project="$1" \
+		--label com.docker.compose.service=sentinel \
+		--label com.docker.compose.container-number=1 \
+		--label com.docker.compose.oneoff=False \
+		--label com.docker.compose.config-hash=sentinel \
+		--network "${1}_default" \
+		-v "${1}_sentinel-data:/var/lib/registry" registry:2 >/dev/null
+	# Which labels Compose reads is Compose's business and it can change them. So
+	# ask it: a sentinel Compose cannot see is one `down -v` would not have taken
+	# either, and a test that plants one proves nothing without saying so.
+	[ -n "$(docker compose -p "$1" ps -aq)" ] ||
+		fail "the planted project $1 is not one this Compose recognises, so nothing below would be under test"
+}
+
+# proj_state PROJECT — the identities of everything carrying its label. Ids and
+# names rather than counts, so a project torn down and put back cannot pass for
+# one nobody touched.
+proj_state() {
+	printf '%s|%s|%s' \
+		"$(docker compose -p "$1" ps -aq | sort | tr '\n' ' ')" \
+		"$(docker network ls -q --filter "label=com.docker.compose.project=$1" | sort | tr '\n' ' ')" \
+		"$(docker volume ls -q --filter "label=com.docker.compose.project=$1" | sort | tr '\n' ' ')"
+}
+
 # own_and_exit — create this invocation's host resources, name them on stdout,
-# then leave: cleanly, or through `fail` when PACTO_SELFTEST_DIE is set. The
-# parent watches the REAL EXIT trap take them back down, on both paths.
+# then leave: cleanly, through `fail` when PACTO_SELFTEST_DIE is set, or through a
+# container the daemon creates and then refuses to start when PACTO_SELFTEST_STUCK
+# is. The parent watches the REAL EXIT trap take everything back down, on all
+# three paths.
 own_and_exit() {
+	local reg
 	build_netfilter_image
 	run_owned "$REG_NAME" registry:2
+	reg="$OWNED_ID"
 	wire_forwarded_route
-	echo "OWNED image=$NETFILTER_IMAGE container=$REG_NAME veth=$OWNED_VETH"
+	echo "OWNED image=$NETFILTER_IMAGE container=$reg veth=$OWNED_VETH"
+	# The reviewer's case was a host port somebody else had already published; an
+	# entrypoint that is not in the image is the same daemon behaviour — created,
+	# then not started — with nothing on the host to collide with. `run_owned` puts
+	# the id in its failure, because the trap is about to be the only one who knows
+	# there is a container at all.
+	[ -z "${PACTO_SELFTEST_STUCK:-}" ] ||
+		run_owned "pacto-demo-stuck-$RUN_ID" --entrypoint /pacto-no-such-entrypoint registry:2
 	[ -z "${PACTO_SELFTEST_DIE:-}" ] || fail "induced failure, with everything this invocation created still installed"
 }
 
-# own_and_clean LABEL EXPECTED-EXIT [DIE] — run that child and prove its trap left
-# nothing of its own behind and nothing of anyone else's missing.
+# own_and_clean LABEL EXPECTED-EXIT [DIE] [STUCK] — run that child and prove its
+# trap left nothing of its own behind and nothing of anyone else's missing.
 own_and_clean() {
-	local label="$1" want="$2" die="${3:-}" out rc=0 img cont veth
-	out="$(PACTO_SELFTEST_DIE="$die" bash "$0" own-and-exit 2>&1)" || rc=$?
+	local label="$1" want="$2" die="${3:-}" stuck="${4:-}" out rc=0 img cont veth id
+	out="$(PACTO_SELFTEST_DIE="$die" PACTO_SELFTEST_STUCK="$stuck" bash "$0" own-and-exit 2>&1)" || rc=$?
 	if [ "$rc" != "$want" ]; then
 		echo "$out" >&2
 		fail "$label: the child exited $rc, expected $want"
@@ -541,22 +631,46 @@ own_and_clean() {
 	if docker container inspect "$cont" >/dev/null 2>&1; then fail "$label: the container $cont survived its own cleanup"; fi
 	if hostns "ip link show $veth" >/dev/null 2>&1; then fail "$label: the interface $veth survived its own cleanup"; fi
 	if docker image inspect "$img" >/dev/null 2>&1; then fail "$label: the image $img survived its own cleanup"; fi
+	if [ -n "$stuck" ]; then
+		# The id of the container the daemon created and would not start, read out
+		# of the child's own failure. Finding it there is what proves one was
+		# created at all, so its absence now is the trap's work and not a create
+		# that never happened.
+		id="$(printf '%s\n' "$out" | sed -n 's/.*created but could not start [^ ]* (\([0-9a-f]*\)).*/\1/p')"
+		if [ -z "$id" ]; then
+			echo "$out" >&2
+			fail "$label: no container was created and left unstarted, so nothing here is under test"
+		fi
+		if docker container inspect "$id" >/dev/null 2>&1; then
+			fail "$label: the container $id was created, never started, and outlived the EXIT trap"
+		fi
+		pass "$label: a container created but refused a start was still removed by the real EXIT trap ($id)"
+		return 0
+	fi
 	pass "$label: it removed its own container, interface and image ($cont, $veth, $img)"
 }
 
 run_selftest() {
-	local before after id p1 p2 filters decoy
+	local id p1 p2 decoy reg foreign s1 s2
+	# The two documented project names, taken the way a demo run takes them and
+	# then made to hold a real project. Claiming them first is not a loophole in
+	# what follows: it is the rule itself — the authority to tear one of these
+	# names down comes from having found it empty — and it is what keeps a selftest
+	# that fails halfway from leaving its own scenery behind. What is under test is
+	# the modes below, which claim nothing and must therefore take nothing.
+	claim_projects "$PROJ1" "$PROJ2"
+	sentinel_project "$PROJ1"
+	sentinel_project "$PROJ2"
+	s1="$(proj_state "$PROJ1")"
+	s2="$(proj_state "$PROJ2")"
+
 	build_netfilter_image
 	run_owned "$REG_NAME" registry:2
+	reg="$OWNED_ID"
 
 	echo "== S1. a pre-existing interface with this run's candidate name survives =="
 	sentinel_link "$VETH_HOST" 203.0.113.1/30
-	before="$(link_state "$VETH_HOST")"
-	filters="$(filter_state)"
-	refuses_to_touch "the veth host end" wire_forwarded_route
-	after="$(link_state "$VETH_HOST")"
-	[ "$before" = "$after" ] || fail "the sentinel interface $VETH_HOST changed: '$before' -> '$after'"
-	[ "$filters" = "$(filter_state)" ] || fail "the harness installed or removed a netfilter rule before refusing"
+	survives_refusal "S1/S4 the veth host end" "$VETH_HOST" wire_forwarded_route
 	sentinel_gone "$VETH_HOST"
 	pass "S1/S4: $VETH_HOST was refused, not deleted, and no filter was touched"
 
@@ -585,12 +699,30 @@ run_selftest() {
 	sentinel_gone "pdsen-$RUN_ID"
 	pass "S3: $p1/30 stayed with its owner; the link moved to $p2"
 
-	# A container named the way this harness names its own, that this run did not
-	# create. It must survive both children below: cleanup that ever went back to a
-	# fixed name or a `pacto-demo-*` sweep would take it.
+	echo "== S8. an interface that appears after the preflight is not deleted =="
+	sentinel_link "$VETH_HOST" 203.0.113.1/30
+	survives_refusal "S8 the raced veth create" "$VETH_HOST" raced_wire
+	sentinel_gone "$VETH_HOST"
+	pass "S8: the create lost the race for $VETH_HOST and the winner kept its interface"
+
+	echo "== S9. a failure after the pair exists removes that pair, and only it =="
+	sentinel_link "pdsen-$RUN_ID" 203.0.113.5/30
+	survives_refusal "S9 the veth configuration" "pdsen-$RUN_ID" bad_address_wire
+	[ "$(link_state "$VETH_HOST")" = "GONE" ] ||
+		fail "S9: $VETH_HOST outlived the step that failed after it was created"
+	[ "$(link_state "$VETH_PEER")" = "GONE" ] ||
+		fail "S9: the far end $VETH_PEER outlived the step that failed after it was created"
+	sentinel_gone "pdsen-$RUN_ID"
+	pass "S9: the half-wired pair was taken back down and the interface beside it was not"
+
+	# A container named the way this harness names its own, under a run id that is
+	# not one. It must survive every child below: cleanup that ever went back to a
+	# fixed name or a `pacto-demo-*` sweep would take it. Its own id goes on this
+	# process's list, because a fixed name is the one thing here that a failed run
+	# could leave behind to poison the next one, and this run did create it.
 	decoy="pacto-demo-hostlocal-endpoint-000000"
 	refuse_existing container "$decoy" docker container inspect "$decoy"
-	docker create --name "$decoy" registry:2 >/dev/null
+	OWNED_CONTAINERS="$OWNED_CONTAINERS $(docker create --name "$decoy" registry:2)"
 
 	echo "== S5. a run that succeeds gives everything back =="
 	own_and_clean "S5" 0
@@ -598,10 +730,36 @@ run_selftest() {
 	echo "== S6. a run that fails after creating everything gives it back too =="
 	own_and_clean "S6" 1 1
 
+	echo "== S7. a container the daemon creates and will not start is not leaked =="
+	own_and_clean "S7" 1 "" 1
+
 	docker container inspect "$decoy" >/dev/null 2>&1 ||
 		fail "a harness-shaped container this run did not create was removed by someone else's cleanup"
-	docker rm -f "$decoy" >/dev/null
-	pass "S5/S6: a harness-shaped container neither run created was left alone"
+	pass "S5/S6/S7: a harness-shaped container none of those runs created was left alone"
+
+	echo "== S10. a name given up by an owned container carries no authority =="
+	# Stage 11 shuts the host-local endpoint down early, and the freed name is the
+	# next caller's for the asking. Whoever takes it is a stranger that a cleanup
+	# list of names would delete. This is the production cleanup path, called here,
+	# not a copy of it.
+	run_owned "$HL_NAME" registry:2
+	docker rm -f "$HL_NAME" >/dev/null
+	foreign="$(docker create --name "$HL_NAME" registry:2)"
+	release_owned
+	docker container inspect "$foreign" >/dev/null 2>&1 ||
+		fail "S10: cleanup deleted $foreign, which had done nothing but take the freed name $HL_NAME"
+	if docker container inspect "$reg" >/dev/null 2>&1; then
+		fail "S10: cleanup left behind $reg, a container this run did create"
+	fi
+	docker rm -f "$foreign" >/dev/null
+	pass "S10: cleanup removed the container it recorded and left the name's next holder alone"
+
+	echo "== S11. the demo projects planted under the documented names are intact =="
+	[ "$s1" = "$(proj_state "$PROJ1")" ] ||
+		fail "S11: something tore down $PROJ1: '$s1' -> '$(proj_state "$PROJ1")'"
+	[ "$s2" = "$(proj_state "$PROJ2")" ] ||
+		fail "S11: something tore down $PROJ2: '$s2' -> '$(proj_state "$PROJ2")'"
+	pass "S11: $PROJ1 and $PROJ2 kept every container, network and volume they had"
 
 	echo "SELFTEST OK: the harness owns what it creates, refuses what it does not, and gives all of it back"
 }
