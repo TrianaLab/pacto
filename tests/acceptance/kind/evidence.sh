@@ -40,6 +40,10 @@ EV_TYPE=application/vnd.pacto.evidence.record.v1+json
 # client-side emulation Pacto refuses to use. Pinned, the observer reads the same
 # endpoint the Evidence Server does or it fails.
 ORAS_API=(--plain-http --distribution-spec v1.1-referrers-api)
+# Every file this harness attaches lives in its own $WORK, which is absolute, and
+# ORAS refuses an absolute file argument unless told the path is deliberate. It
+# is: nothing here reads a path a user supplied.
+oras_attach() { oras attach "${ORAS_API[@]}" --disable-path-validation "$@"; }
 
 build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
 
@@ -223,8 +227,8 @@ echo "== an unrelated artifact attached to the same revision is ignored =="
 # Signatures, SBOMs and attestations share the subject. Reading one as evidence —
 # or letting one degrade the read — would make every signed contract look broken.
 printf 'not evidence' > "$WORK/other.txt"
-oras attach "${ORAS_API[@]}" --artifact-type application/vnd.example.sbom.v1+json \
-  "$LOCAL_SUBJECT" "$WORK/other.txt:application/octet-stream" >/dev/null 2>&1 \
+oras_attach --artifact-type application/vnd.example.sbom.v1+json \
+  "$LOCAL_SUBJECT" "$WORK/other.txt:application/octet-stream" >/dev/null \
   || fail "could not attach an unrelated artifact"
 curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q '"status":"ready"' \
   && pass "an unrelated artifact type leaves the read authoritative" || fail "an unrelated artifact degraded the read"
@@ -249,7 +253,7 @@ grep -q '"schemaVersion": *"pacto.dev/evidence-record/v1"' "$WORK/oras-payload.j
   || fail "the derived payload does not carry the documented schema version"
 grep -q 'checkout-canary' "$WORK/oras-payload.json" \
   || fail "the derived payload did not take the canary subject: the EvidenceSet wire shape changed"
-oras attach "${ORAS_API[@]}" --artifact-type "$EV_TYPE" \
+oras_attach --artifact-type "$EV_TYPE" \
   "$LOCAL_SUBJECT" "$WORK/oras-payload.json:$EV_TYPE" >/dev/null \
   || fail "ORAS could not publish an equivalent evidence artifact"
 oras_has_canary() { curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" 2>/dev/null | grep -q 'checkout-canary'; }
@@ -265,7 +269,7 @@ printf '{not-a-record}' > "$WORK/corrupt.json"
 # registry happens to list it: referrer order is the registry's choice, and
 # deleting the wrong one later would silently invert the final assertion.
 oras_evidence_digests | sort > "$WORK/before.txt"
-oras attach "${ORAS_API[@]}" --artifact-type "$EV_TYPE" \
+oras_attach --artifact-type "$EV_TYPE" \
   "$LOCAL_SUBJECT" "$WORK/corrupt.json:$EV_TYPE" >/dev/null \
   || fail "could not publish the malformed artifact"
 oras_evidence_digests | sort > "$WORK/after.txt"
