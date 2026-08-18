@@ -4997,3 +4997,341 @@ the ownership selftest, full Compose/browser acceptance, release dry run and
 exact-final-SHA CI. Phase 10C and Phase 11 must not start until that narrow
 repair is independently reviewed. No PR comment was published, no review thread
 was resolved and no PR metadata was changed.
+
+## 15.8 Phase 10B ownership repair, fourth pass — CANDIDATE at `b63ea2ed`
+
+The three ownership defects section 15.7 narrowed blocker B to, and nothing
+else. Blocker A stays closed and untouched; the two-hook network semantics, the
+per-invocation naming, the run-time `/30` selection and the isolated Product and
+browser journeys are unchanged.
+
+Phase 10B remains a CANDIDATE. A phase is closed by review, not by its author.
+Sections 15.4 through 15.7 are unchanged, `PACTO_PR_TARGET_STATE.md` was not
+touched, no PR comment was published, no review thread was resolved, no PR
+metadata was changed, the PR is still a draft, and Phase 10C and Phase 11 are
+NOT started.
+
+### Range
+
+Starting point `d48b296e922ee02f1e1846e8178d2ee3b00a5d8e`, the branch head
+carrying the section 15.7 review record, confirmed append-only over the reviewed
+implementation `3bd509b1846f37eda6ed9d6aeef64ff22110be53`. Final SHA
+`b63ea2edbdce768e629161fc70570fb0bd9184b3`. Both `3bd509b1` and `d48b296e` are
+ancestors of `b63ea2ed`; the range is exactly five linear commits, each parented
+on the previous one. 2 files, +283 / -47. No rebase, amend, reset, force-push,
+squash or rewrite. `origin/main` is still
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d` and was not touched.
+
+| SHA | Subject |
+|---|---|
+| `6f7ee084` | fix(acceptance): only a run that claimed a project may tear it down |
+| `affa4b63` | fix(acceptance): own containers by id, recorded before they start |
+| `9e5b5792` | fix(acceptance): the veth pair is ours from `ip link add`, not before |
+| `2d7228ab` | test(acceptance): the selftest exercises the paths it claims to |
+| `b63ea2ed` | docs: what the harness owns, and from which instant |
+
+| File | What changed |
+|---|---|
+| `tests/acceptance/local/compose-demo.sh` | `claim_projects` and a project-teardown list the helper modes never fill; `run_owned` split into create / record / start and recording immutable ids; the veth create split out so ownership begins at `ip link add`; five new selftest cases and the sentinels they need |
+| `docs/maintainers/testing.md` | the three instants "this invocation created it" is not what it looks like, where project-teardown authority comes from, and what the eleven selftest cases cover |
+
+One correction to the record, which append-only discipline forbids fixing in
+place: the body of commit `6f7ee084` names the second documented project
+`pacto-demo-consumer`. It is `pacto-demo-next`, as `compose-demo.sh:72` and every
+test output below say. The change itself reads both names from `PROJ1`/`PROJ2`
+and hard-codes neither.
+
+### RED B1, reproduced against the starting implementation
+
+A Compose project planted under the documented name `pacto-demo` by a reviewer
+who is not the harness, then `d48b296e`'s harness run in its `selftest` mode —
+the mode that touches no project at all:
+
+```
+planted   container 312c7f8cefb17cfb8962f589e1d13dad179e4e8bedd443b298ac58bec32652fc
+          volume    pacto-demo_sentinel-data
+
+starting  bash compose-demo.sh selftest  ->  "SELFTEST OK ... gives all of it back"   exit 0
+
+after     containers: []
+          volumes:    []
+```
+
+The mode that owns nothing reported that it gives everything back while its
+generic EXIT trap ran `docker compose -p pacto-demo down -v --remove-orphans`
+over somebody else's project.
+
+### RED B2, reproduced against resources this reproduction owned
+
+Two separate defects, both reproduced with the starting `run_owned` and
+`release_owned` lifted verbatim out of `d48b296e`.
+
+A container created and then refused a start, on a host port this reproduction
+had already published:
+
+```
+docker: Error response from daemon: ... Bind for 0.0.0.0:15141 failed: port is already allocated
+TRAP sees OWNED_CONTAINERS=[ pacto-red-occupier-13089]
+pacto-red-clasher-13089   created   52487dd1783c
+```
+
+`docker run -d` returned non-zero, `set -e` left before the append, and the
+container the daemon really did create was left behind in state `created` with
+no record of it anywhere.
+
+A name freed by an owned container and taken by somebody else, which is exactly
+the shape of stage 11 removing the host-local endpoint early:
+
+```
+owned:   pacto-red-reuse-13116 id=6f357b1c09b7bc830c9f5011e1ee2eb8195f0e96fcd75befe7a4f12878ba97ca
+foreign: pacto-red-reuse-13116 id=3cfe5125a5f691208ea8add7c3198f4fe14e64e23364abfd0c21c6cfa7f67f3b
+RESULT: the foreign container was DELETED by cleanup
+```
+
+### RED B3, reproduced against a sentinel this reproduction owned
+
+`wire_forwarded_route` lifted verbatim out of `d48b296e`, with its interface
+preflight emptied to stand in for a name taken in the window the preflight
+opens, and a veth sentinel created under that name first:
+
+```
+sentinel before: 1910: pactoout-abc123    inet 203.0.113.1/30 scope global pactoout-abc123
+RTNETLINK answers: File exists
+wire_forwarded_route failed, as expected (rc=1)
+sentinel after:  GONE
+```
+
+`ip link add` failed *because* the interface belonged to somebody else, and the
+failure handler deleted it on the way out. Nothing on the machine was at risk in
+the demonstration — the sentinel was created by the reproduction — but on a
+developer's machine that is the interface that won the race.
+
+### The ownership design, in three sentences
+
+**A name is a lease; an id is a token.** Containers are recorded by their
+immutable 64-hex id and never by name, so a name given up by an owned container
+carries no authority over whoever takes it next, and cleanup holds no fixed name
+and sweeps no prefix. The one place the run gives a listener up early — stage 11
+shutting the host-local endpoint down — now stops the container instead of
+removing it, so the name stays held until the trap removes it by id.
+
+**Created and started are two events, and the record goes between them.**
+`run_owned` calls `docker create`, appends the returned id to
+`OWNED_CONTAINERS`, and only then calls `docker start`. A start that fails is a
+container this invocation is still responsible for, and the real EXIT trap
+removes it.
+
+**Ownership of a host resource begins at the atomic operation that establishes
+it.** For the veth pair that is `ip link add`, so the create is on its own line
+and `OWNED_VETH` is assigned immediately after it: a failure before it deletes
+nothing, and a failure in the rest of the wiring gives the pair back through the
+same `unwire_forwarded_route` the trap uses. For the two documented Compose
+project names it is stage 0's preflight, so `claim_projects` fills
+`OWNED_PROJECTS` only after finding both names holding no container and no
+volume — and the helper modes, which exit long before stage 0, leave that list
+empty and tear nothing down. The interface preflight is kept for its diagnostic;
+nothing depends on its answer still being true, which it cannot promise.
+
+No framework was added. `claim_projects` is the stage-0 loop that was already
+there, given a name and one extra volume check; the rest is a smaller
+`wire_forwarded_route` failure branch, one extra variable and two `docker`
+commands where there had been one.
+
+### Selftest: eleven cases, and what each is for
+
+`bash tests/acceptance/local/compose-demo.sh selftest`, run by
+`make test-acceptance-compose-selftest` ahead of the Compose acceptance.
+
+| Case | What it proves |
+|---|---|
+| S1/S4 | an interface already holding a candidate name is refused, not deleted, and no netfilter rule moves on the way out |
+| S2 | a container already holding the endpoint name is refused, not force-removed or restarted |
+| S3 | an occupied `/30` in the benchmarking range is stepped over, not hijacked |
+| S8 | **new** — with the preflight emptied, an interface that appears before `ip link add` survives the create that loses the race to it |
+| S9 | **new** — a failure *after* `ip link add` succeeded removes that pair and leaves the sentinel interface beside it alone |
+| S5 | a child run that succeeds has its container, interface and image taken back by the real EXIT trap |
+| S6 | a child run that fails after creating everything does the same |
+| S7 | **new** — a child whose container the daemon creates and refuses to start has it removed by the real EXIT trap, by id |
+| S5/S6/S7 | a harness-shaped container none of those three children created is still there afterwards |
+| S10 | **new** — a container removed early frees its name, a stranger takes it, and cleanup removes the id it recorded and leaves the stranger alone |
+| S11 | **new** — two projects planted under the documented names still hold every container, network and volume they did |
+
+The planted projects are assembled out of plain `docker volume create`,
+`docker network create` and `docker create` carrying Compose's labels rather
+than out of a compose file. That is the accurate shape, not a shortcut:
+`down -v --remove-orphans` reads labels and nothing else. It also keeps the
+demo's own journey digest-only, which
+`TestTheDemoIsExecutedFromTheArtifactByDigest` requires — an earlier draft using
+`-f -` failed that test. `sentinel_project` asks Compose whether it can see the
+plant (`docker compose -p NAME ps -aq` non-empty) and fails loudly if not, so
+label drift in a future Compose cannot silently void the case.
+
+The selftest owns what it plants: it calls `claim_projects` on both names first,
+which is the same gate stage 0 uses and the reason a real demo makes the
+selftest refuse rather than destroy. The children under test claim nothing.
+Reviewer leftovers go through the harness's own ownership list rather than a
+`docker rm -f` at the end — the earlier draft's manual removal of the decoy
+container would have deleted the very evidence the case above it depends on.
+
+Two seams, both the smallest available and both confined to the subshell
+`refuses_to_touch` already runs its argument in, where a `fail` ends the attempt
+and not the selftest: `raced_wire` redefines `refuse_existing` to a no-op, and
+`bad_address_wire` redefines `pick_forwarded_net` to an address the kernel will
+not take. No fault-injection framework, no production code path aware of being
+tested.
+
+### GREEN B1, from both directions
+
+With a foreign `pacto-demo` project planted (container
+`4fe2fa3896b0396145d3c75a60bcf895aeef643bc42e3fb4a7caf1826ca0264a`, volume
+`pacto-demo_sentinel-data`), against the repaired harness:
+
+```
+own-and-exit  exit 0   OWNED image=... container=de35f71a9260... veth=pactoout-fa2d0e
+              the project is byte-identical afterwards
+
+selftest      exit 1   FAIL: project pacto-demo already has containers;
+                             run `docker compose -p pacto-demo down -v` first
+              the project is byte-identical afterwards
+```
+
+The helper mode does its work and leaves; the mode that would have claimed the
+name refuses instead of taking it. Both are the opposite of the RED above.
+
+### Mutation evidence
+
+Each mutation was applied to a copy of the repaired harness, run, observed to
+fail at exactly the case meant to catch it, and discarded. The repository tree
+was never mutated.
+
+| Mutation | Selftest result |
+|---|---|
+| M1 — the trap tears both documented projects down for every mode again | `FAIL: S11: something tore down pacto-demo: '74304fcba192... \|5f17c6449fa1 \|pacto-demo_sentinel-data ' -> '\|\|'` |
+| M2 — one `docker run -d`, recorded after it returns | `FAIL: S7: the child exited 127, expected 1`, and the run leaked `pacto-demo-stuck-b99198` in state `created` — the defect itself |
+| M3 — create and start split, but the *name* recorded | `FAIL: S10: cleanup deleted d7d19abd290a..., which had done nothing but take the freed name pacto-demo-hostlocal-endpoint-7fb9ab` |
+| M4 — `OWNED_VETH` assigned before `ip link add` is asked for it | `FAIL: S8 the raced veth create: pactoout-7c1c59 changed: '2002: ... inet 203.0.113.1/30 ...' -> 'GONE'` |
+| M5 — a failure after the pair exists no longer gives it back | `FAIL: S9: pactoout-419886 outlived the step that failed after it was created` |
+
+Every mutation was reverted by discarding the copy; `git status --short` before
+and after shows only the four pre-existing untracked agent paths, and
+`tests/acceptance/local/compose-demo.sh` is byte-identical to `b63ea2ed`.
+
+A deliberate limit, recorded rather than hidden: a selftest that FAILS stops at
+the failing case, so that case's sentinel interface stays on the machine for
+inspection (observed under M5, removed by hand afterwards). Sentinel names carry
+`RUN_ID`, so a leftover cannot collide with a later run; the passing path removes
+everything it made.
+
+### Local verification, all green
+
+`git diff --check`; `shellcheck -s bash` clean on `compose-demo.sh` at every one
+of the five commits and `bash -n` at each; `make check-section`;
+`go test ./tests/release/...` at each of the five commits;
+`go test -count=1 ./tests/acceptance/scenario/...` and the same suite with
+`-race`; `make test-acceptance-compose-selftest` on the committed tree, all
+eleven cases; `make ci-e2e-compose` in full with the browser journeys; `make
+release-dry-run` (`RELEASE-DRY-RUN OK`); `make artifact-drift`; `make ci`;
+`make test-browser` (219 passed). No `shfmt` is installed on this machine and no
+Make target or workflow gates shell formatting; the file's inline shellcheck
+directives are unchanged.
+
+`make ci-e2e-compose`, `make release-dry-run`, `make artifact-drift`, `make ci`
+and `make test-browser` were run against a working tree whose only difference
+from `b63ea2ed` is a two-line comment above `OWNED_ID`, reworded afterwards. The
+selftest, the release tests and both scenario suites were re-run on the
+committed bytes, and CI below runs everything at the exact final SHA.
+
+### GitHub at the exact final SHA `b63ea2ed`
+
+PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE, head
+`b63ea2edbdce768e629161fc70570fb0bd9184b3`. Run `32124980402` (CI) is success on
+attempt 1; all 21 jobs are green:
+
+| Job | ID | Conclusion |
+|---|---|---|
+| `changes` | `95673412259` | success |
+| `ci-static` | `95673463686` | success |
+| `ci-e2e-envtest` | `95673463734` | success |
+| `dashboard-e2e` | `95673463737` | success |
+| `ci-integration-kubernetes` | `95673463760` | success |
+| `ci-engine` | `95673463776` | success |
+| `ci-dashboard` | `95673463777` | success |
+| `ci-oci` | `95673463831` | success |
+| `ci-e2e-compose` | `95673463838` | success |
+| `operator-build` | `95673463839` | success |
+| `artifact-drift` | `95673463844` | success |
+| `release-dry-run` | `95673463898` | success |
+| `ci-e2e-kind (reconcile)` | `95673463905` | success |
+| `ci-gates` | `95673463915` | success |
+| `ci-e2e-kind (evidence)` | `95673463929` | success |
+| `release-version-test` | `95673463946` | success |
+| `ci-e2e-kind (operational-graph)` | `95673463962` | success |
+| `ci-e2e-kind (upgrade)` | `95673463970` | success |
+| `ci-e2e-kind (dashboard)` | `95673463990` | success |
+| `ci-e2e-kind (observation)` | `95673464078` | success |
+| `required` | `95677494718` | success |
+
+Other workflows at the same SHA: Security `32124980469` (govulncheck, Trivy and
+the PR security summary all success), Docs check `32124980444`, Pacto Contract CI
+`32124980480`, Repowise `32124980373`, Validate PR title `32124980514`, Code
+Quality `32124977194` and PR review `32124977102` are all success; Rebuild
+dashboard UI `32124980550` and Auto-merge Dependabot `32124980579` skipped. Of
+the 40 rollup entries, 37 are success, two are skipped (`auto-merge`, `build`)
+and one is the aggregate `CodeQL` check — the same shape sections 15.6 and 15.7
+recorded.
+
+The `ci-e2e-compose` job log confirms all eleven cases run on the Linux runner
+and not only on the author's machine, with a run-time `/30` (`198.18.52.165/30`
+there):
+
+```
+PASS: S8: the create lost the race for pactoout-56cd29 and the winner kept its interface
+PASS: S9: the half-wired pair was taken back down and the interface beside it was not
+PASS: S7: a container created but refused a start was still removed by the real EXIT trap (1db509d6604f...)
+PASS: S10: cleanup removed the container it recorded and left the name's next holder alone
+PASS: S11: pacto-demo and pacto-demo-next kept every container, network and volume they had
+SELFTEST OK
+```
+
+**CodeQL delta: none.** The PR ref reports the same nine inherited open alerts as
+the starting SHA — `#38` (`release/scripts/docs_check.py`), `#40`-`#43`
+(`internal/app/resolve.go`) and `#59`-`#62` (`pkg/oci/cache.go`). This range
+touches neither of those three files nor any Go, Python, JavaScript or workflow
+file at all. Four analyses uploaded at `b63ea2ed` (`go`,
+`javascript-typescript`, `python`, `actions`); the aggregate check remains red
+for the inherited alerts exactly as sections 15.5 through 15.7 recorded.
+
+**Review threads, fully paginated** (two pages of 100): 199 total, 189 resolved,
+10 unresolved — byte-identical to the reviewed baseline. All ten are inherited
+bot threads: six from `github-code-quality` on the generated Mermaid asset
+`pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` and four from
+`github-advanced-security` on `pkg/oci/cache.go`. No human thread is unresolved,
+none was resolved here and no comment was published.
+
+### Hygiene and incidental side effects
+
+The tracked tree is clean at `b63ea2ed`; the four pre-existing local agent paths
+(`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`) remain untracked and
+unmodified, and no unrelated user change was disturbed. `git diff --check` is
+silent across the range. During `make ci`,
+`integrations/kubernetes/charts/pacto-dev-gateway/README.md` was rewritten by the
+`helm-docs` step and `go.work.sum` gained module-graph hashes; both are unrelated
+to this repair, both were reverted rather than committed, and `make ci` passed.
+
+Every reproduction, mutation and sentinel resource created on the host was
+removed and its absence verified: no `pacto-demo-*`, `pacto-red-*` or sentinel
+container, no `pacto-demo-*` network or volume, no `pacto-demo-netfilter` image,
+and no `pactoout`/`pactoin`/`pdsen`/`pdpeer`/`pdred` interface remains. The
+machine's container count is the same before and after. The demo images
+(`pacto-demo:acceptance`, `pacto-demo-local:dev`, the six
+`ghcr.io/trianalab/pacto-demo/*` service images) predate this session and are
+what the acceptance is documented to leave behind.
+
+### Verdict
+
+**Phase 10B remains CANDIDATE.** All three defects section 15.7 named are
+repaired, each proved RED against `d48b296e` first and each guarded by a
+selftest case proved to bite by mutation. Blocker A stays closed and untouched,
+the accepted network semantics are unchanged, and the next step is an
+independent review of `b63ea2ed` — not a closure by its author. Phase 10C and
+Phase 11 were not started.
