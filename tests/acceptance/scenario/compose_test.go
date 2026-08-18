@@ -584,13 +584,19 @@ func TestCompose_RefusesAValueThatCouldForgeACommand(t *testing.T) {
 
 // Startup is ORDERED by observed readiness, not by waiting. The dashboard's first
 // snapshot must be able to see published bundles and an ingested envelope, so it
-// starts only after the one-shot seed has succeeded — and the seed only after the
-// Evidence Server reports itself ready.
+// starts only after the one-shot seed has succeeded.
+//
+// The seed waits for the Evidence Server to have STARTED, and no further. Its
+// readiness is 503 until every configured subject resolves in the registry, and
+// those subjects are the contract revisions the seed publishes: `service_healthy`
+// here would have Compose hold the seed back until the server observed work only
+// the seed can do, which is a deadlock rather than an ordering. The waiting the
+// send genuinely needs is the seed's own, asserted below.
 func TestCompose_OrdersStartupOnObservedReadiness(t *testing.T) {
 	f := composeFileOf(t, OperationalGraph)
 	for _, tc := range []struct{ service, dependsOn, condition string }{
 		{"dashboard", "seed", "service_completed_successfully"},
-		{"seed", "evidence", "service_healthy"},
+		{"seed", "evidence", "service_started"},
 		{"seed", "registry", "service_started"},
 	} {
 		deps, ok := composeSvc(t, f, tc.service)["depends_on"].(map[string]any)
@@ -614,6 +620,19 @@ func TestCompose_OrdersStartupOnObservedReadiness(t *testing.T) {
 	}
 	if test := argsOf(t, hc, "test"); !strings.Contains(test, "/api/evidence/v1/ready") {
 		t.Errorf("the Evidence Server's healthcheck is %q, which is not its readiness endpoint", test)
+	}
+	// And the seed does the wait Compose cannot do for it: publish first, then
+	// block on the same readiness endpoint, then send. Without this the inverted
+	// dependency above would simply race — the first envelope arriving at a server
+	// that has not yet resolved its subjects.
+	if !strings.Contains(seedScript, "/api/evidence/v1/ready") {
+		t.Error("the seed sends evidence without ever waiting for the Evidence Server to be ready")
+	}
+	publish := strings.Index(seedScript, "pacto push")
+	wait := strings.Index(seedScript, "/api/evidence/v1/ready")
+	send := strings.Index(seedScript, "pacto evidence send")
+	if publish > wait || wait > send {
+		t.Errorf("the seed's order is publish=%d wait=%d send=%d; the wait belongs between the two", publish, wait, send)
 	}
 }
 

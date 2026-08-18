@@ -79,6 +79,18 @@ while IFS="$TAB" read -r key dir ref extra; do
 done <"$WORK/push"
 [ "$pushed" -gt 0 ] || fail "the plan declares nothing to publish"
 
+echo "== wait for the Evidence Server to be ready =="
+# It cannot have been ready before now. Its subjects are the contract revisions
+# just published, and it answers 503 until every one of them resolves in the
+# registry and answers native Referrers discovery — so this container is what
+# makes it ready, which is why Compose only waits for it to have STARTED.
+attempt=1
+until wget -q --spider "$PACTO_DEMO_EVIDENCE_URL/api/evidence/v1/ready" 2>/dev/null; do
+	[ "$attempt" -lt 60 ] || fail "the Evidence Server never became ready at $PACTO_DEMO_EVIDENCE_URL"
+	attempt=$((attempt + 1))
+	sleep 1
+done
+
 echo "== ingest the signed evidence from the 'remote' environment =="
 # WHO signs is the plan's to say, and the trust store the Evidence Server built at
 # startup binds the key to exactly that producer: sign as anyone else and

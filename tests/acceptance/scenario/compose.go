@@ -252,12 +252,17 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			// until it timed out. Readiness is the server's own: 503 until every
 			// configured subject resolves and answers native Referrers discovery,
 			// 200 after.
+			//
+			// The start period covers the seed's publish: until those revisions
+			// are in the registry there is nothing for the subjects to resolve
+			// to, and a probe failing then is the demo starting rather than the
+			// server breaking.
 			Healthcheck: &composeHealth{
 				Test:        []string{"CMD-SHELL", "wget -q --spider http://127.0.0.1:" + strconv.Itoa(composeEvidencePort) + "/api/evidence/v1/ready || exit 1"},
 				Interval:    "3s",
 				Timeout:     "3s",
 				Retries:     20,
-				StartPeriod: "5s",
+				StartPeriod: "60s",
 			},
 		},
 		Seed: composeService{
@@ -279,7 +284,12 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 				// The registry needs no healthcheck of its own: the seed's first push
 				// retries, which is the same observation by a shorter route.
 				"registry": {Condition: "service_started"},
-				"evidence": {Condition: "service_healthy"},
+				// Started, NOT healthy. The Evidence Server is ready only once every
+				// configured subject resolves in the registry, and this container is
+				// what puts them there — waiting for health here would be waiting for
+				// something only this container can cause. The seed waits for readiness
+				// itself, after the push and before the first send.
+				"evidence": {Condition: "service_started"},
 			},
 			Volumes: []string{composeStateVolume + ":" + composeStateMount},
 			Configs: mounts(seedInputs),
