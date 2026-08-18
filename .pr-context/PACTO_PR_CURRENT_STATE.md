@@ -4580,3 +4580,288 @@ then rerun the native publication/recovery, complete Compose acceptance, release
 dry run and required CI at the exact final SHA. Phase 10C and Phase 11 must not
 start until that repair is independently reviewed. No PR comment was published,
 no review thread was resolved and no PR metadata was changed.
+
+## 15.6 Phase 10B narrow closure repair, third pass — CANDIDATE at `3bd509b1`
+
+The two blockers section 15.5 recorded, and nothing else. Blocker A: content
+recovery adopted bytes rather than a Compose application. Blocker B: the
+privileged local acceptance destroyed host resources it did not own.
+
+Phase 10B remains a CANDIDATE. A phase is closed by review, not by its author.
+Nothing here closes it, sections 15.4 and 15.5 are unchanged,
+`PACTO_PR_TARGET_STATE.md` was not touched, no PR comment was published, no
+review thread was resolved, no PR metadata was changed, the PR is still a draft,
+and Phase 10C and Phase 11 are NOT started.
+
+### Range
+
+Starting point `603b729964a2249ee84e7bd4d3783ee886ec9344`, confirmed as the
+remote head of `feat/operational-graph-fleet` before the first change and
+confirmed append-only over the reviewed implementation
+`e6707c7e76abe97a2c216e0bd2fc49886e0be01e`. Final SHA
+`3bd509b1846f37eda6ed9d6aeef64ff22110be53`. `603b7299` is an ancestor of
+`3bd509b1`; the range is exactly six linear commits, each parented on the
+previous one. 9 files, +565 / -74. No rebase, amend, reset, force-push, squash
+or rewrite; `main` was not touched.
+
+| SHA | Subject |
+|---|---|
+| `88e70b53` | fix(release): the Compose adoption rule is the whole native identity |
+| `eab85fa9` | test(release): matching bytes under foreign OCI semantics must be refused |
+| `25ae4284` | fix(acceptance): the Compose harness owns only what it created |
+| `a257ee61` | build(ci): run the harness ownership selftest before the Compose acceptance |
+| `7bb2b91f` | docs: the adoption rule is an identity, and RFC 2544 is only where we look |
+| `3bd509b1` | test(acceptance): the selftest's sentinels are veth, not dummy |
+
+| File | What changed |
+|---|---|
+| `release/orchestrator/verify-oci.sh` | `content()` answers only when the whole native Compose identity holds; the conflict message names the tuple it wanted |
+| `release/orchestrator/publish-oci-unit.sh` | its `manifest()`/`content()` helpers are gone; the post-push assertion asks `verify-oci.sh` instead of forming a second opinion |
+| `release/orchestrator/dry-run.sh` | ITEM 3b gains four foreign-artifact refusals and an absent-tag pair that proves the assertion runs before the ledger records |
+| `tests/release/compose_native_test.go` | `TestTheNativeComposeIdentityHasOneDefinition`: one definition of the Compose media types, in `verify-oci.sh`, and no manifest reader in the adapter |
+| `tests/acceptance/local/compose-demo.sh` | per-invocation names, run-time `/30` selection, refuse-before-mutate, ownership-recorded cleanup, and the `selftest` mode that proves all of it |
+| `Makefile` | `test-acceptance-compose-selftest` |
+| `ci.mk` | `ci-e2e-compose` runs the selftest first |
+| `docs/maintainers/releases.md` | the complete native identity behind `adopt`, and where the single definition lives |
+| `docs/maintainers/testing.md` | the same tuple and the new dry-run negatives; RFC 2544 corrected; the ownership rule and its selftest |
+
+### RED A, reproduced against the starting implementation
+
+`git show 603b7299:release/orchestrator/verify-oci.sh` run against a disposable
+`registry:2` on `127.0.0.1:15099` holding one ORAS-pushed artifact:
+
+```
+{"artifactType":"application/vnd.example.not-compose",
+ "layers":[{"mediaType":"application/octet-stream",
+            "digest":"sha256:b8537829ab292c04755c0653005bdbc4563511d744b46341306accb3b09e8918"}]}
+
+starting  verify-oci.sh <ref> "" "" "" sha256:b8537829...8918  ->  'adopt'     exit 0
+repaired  verify-oci.sh <ref> "" "" "" sha256:b8537829...8918  ->  'conflict'  exit 3
+```
+
+The repaired conflict says what it wanted: "not a
+`application/vnd.docker.compose.project` artifact with one
+`application/vnd.docker.compose.file+yaml` layer at sha256:b8537829...8918".
+
+The post-push assertion had the same hole by construction, not by accident:
+`603b7299:release/orchestrator/publish-oci-unit.sh:47-48` defined
+`content()` as `.layers | length == 1` then `.layers[0].digest`, and line 74
+compared only that. Two copies of one rule, the weaker one running last.
+
+### RED B, reproduced against a sentinel this reproduction owned
+
+`603b7299:tests/acceptance/local/compose-demo.sh:146-147` fixes
+`VETH_HOST="pactoout"` and `VETH_PEER="pactoin"`, and line 236 — inside
+`wire_forwarded_route`, before any create — is `ip link del $VETH_HOST`. A veth
+sentinel was created under that name, carrying `203.0.113.1/30`, and the
+starting function's body was then run verbatim against a real registry
+container:
+
+```
+sentinel before: 1429: pactoout inet 203.0.113.1/30 scope global pactoout
+sentinel after:  1432: pactoout inet 198.18.53.1/30 scope global pactoout
+```
+
+A different ifindex and a different address: the interface was deleted and a new
+one put in its place. Nothing on the machine was at risk in the demonstration —
+the sentinel was created by the reproduction and removed with it — but on a
+developer's machine that is somebody's lab link, and cleanup cannot restore it.
+The same shape applied to `docker rm -f "$REG_NAME"` at line 306 and
+`docker rm -f "$HL_NAME"` at lines 561 and 616.
+
+### Invariant A: adoption matches an identity, not a byte string
+
+The native Compose identity is `artifactType`
+`application/vnd.docker.compose.project`, exactly one layer, layer media type
+`application/vnd.docker.compose.file+yaml`, layer digest `PACTO_EXPECT_CONTENT`.
+`verify-oci.sh` returns the layer digest only when all four hold, so the
+adoption branch and the post-push assertion both fail closed on anything else.
+
+There is one copy of that rule. `publish-oci-unit.sh` now calls
+`verify-oci.sh "$1" "" "" "" "$EXPECT_C"` and requires `adopt`, which deleted
+its two local helpers — the repair is a smaller file than the defect was. Other
+units are untouched: precomputed-digest recovery (bundles, chart) and
+`revision`/`version` provenance recovery (images) run exactly as before, and no
+artifact-policy abstraction was introduced.
+
+`make release-dry-run` proves the six required cases for real against the
+staging registry, all in ITEM 3b:
+
+```
+real Compose publication adopted from its native compose layer sha256:1a4b05c2... (no re-push)
+different bytes under the native types refused (fail closed)
+same bytes, one layer, foreign artifactType      -> conflict
+same bytes, native artifactType, foreign layer   -> conflict
+native types, the compose layer plus an extra    -> conflict
+native artifactType with no compose layer at all -> conflict
+absent -> published by Compose, native identity asserted, recorded complete
+absent -> a push of the same bytes as a non-Compose artifact records nothing
+```
+
+Each negative asserts the verdict `conflict`, not merely a non-zero exit, so a
+crash or a missing tool cannot pass for a refusal. ORAS builds the deliberately
+foreign fixtures and appears nowhere on the real publication or execution path.
+
+### Invariant B: the harness owns only what it created
+
+Every host resource carries a per-invocation `RUN_ID` (six hex digits from
+`/dev/urandom`): the registry, the host-local endpoint, the netfilter image and
+both veth ends. Interface names are checked against Linux's 15-character limit
+where the naming scheme is, not two minutes into a run. Nothing is force-claimed:
+`run_owned`, `build_netfilter_image` and `wire_forwarded_route` call
+`refuse_existing` first and stop before mutating anything.
+
+The forwarded link's `/30` is chosen at run time. 32 candidates are derived from
+`RUN_ID` and the first one this host is demonstrably not using is taken — no
+route matching it (the default route excluded, since it matches everything and
+claims nothing), no route inside it, no local address in it. If none is free the
+harness refuses rather than routing over somebody else's prefix, which would
+also have invalidated the proof: the probe would be answered by their route.
+
+Cleanup reads only `OWNED_CONTAINERS`, `OWNED_VETH` and `OWNED_IMAGE`, each
+recorded after the kernel or the daemon confirmed the create. No fixed name and
+no `pacto-demo-*` sweep survives anywhere in the teardown path, so it cannot
+reach a resource this invocation did not make. It runs on success and on failure.
+
+`compose-demo.sh selftest` (`make test-acceptance-compose-selftest`, first in
+`ci-e2e-compose`) is the durable proof. Its sentinels are veth pairs rather than
+dummies, because veth is the link type Docker itself runs on and is therefore
+loaded wherever this can run at all. Reviewer items 1 to 6:
+
+```
+S1/S4: pactoout-1a15d1 was refused, not deleted, and no filter was touched
+S2: pacto-demo-hostlocal-endpoint-1a15d1 was refused, not force-removed
+S3: 198.18.87.69/30 stayed with its owner; the link moved to 198.18.87.73
+S5: it removed its own container, interface and image (...-fe138a, pactoout-fe138a, pacto-demo-netfilter:fe138a)
+S6: it removed its own container, interface and image (...-39040e, pactoout-39040e, pacto-demo-netfilter:39040e)
+S5/S6: a harness-shaped container neither run created was left alone
+```
+
+S1 compares the sentinel's ifindex and addresses across the refusal, so a
+delete-and-recreate cannot pass for "untouched", and it compares `DOCKER-USER`
+and `INPUT` verbatim across the same refusal, so a harness that had begun
+mutating before it refused shows up whatever rules the machine already had. S6
+induces the failure with everything installed and watches the real EXIT trap.
+The decoy is named the way this harness names its own containers and is created
+by neither child, so a cleanup that ever went back to a fixed name or a prefix
+sweep would take it.
+
+Reviewer items 7, 8 and 9 are the acceptance itself, run in full locally after
+the repair (`make ci-e2e-compose`, exit 0, 36 passes):
+
+```
+both routes out of the demo's network are open, and each is a different netfilter path
+FORWARD/DOCKER-USER refused: the forwarded route is closed, the host-local one is still open
+INPUT refused: the host-local route is closed too
+a startup dependency redirected over either route fails the stack
+the documented browser journeys work on the published demo
+empty volumes, no image pulls, no registry, no route out — the same fleet
+```
+
+### Mutation evidence
+
+Each mutation was applied to the repaired tree, observed to fail the gate it was
+supposed to fail, and reverted.
+
+| Mutation | Result |
+|---|---|
+| a second copy of the media-type tuple added to `publish-oci-unit.sh` | `TestTheNativeComposeIdentityHasOneDefinition` FAILS |
+| `publish-oci-unit.sh` reads the manifest itself with `crane manifest` | same test FAILS |
+| `dry-run.sh` stops building the deliberately foreign negative | same test FAILS |
+| `ip link del $VETH_HOST` restored before the create | selftest FAILS: "the veth host end: the harness went ahead instead of refusing" |
+| `docker rm -f` restored before claiming the endpoint name | selftest FAILS: "the host-local endpoint: the harness went ahead instead of refusing" |
+| the fixed `198.18.53.x` pair restored in place of the picker | selftest FAILS: "the harness chose 198.18.53.1 again with that /30 already in use" |
+| cleanup stops removing what it recorded | selftest FAILS: "S5: the container ... survived its own cleanup" |
+
+One earlier draft of the Go gate did NOT bite and is recorded because it is the
+reason the gate is shaped the way it is: it asserted a regex
+`verify-oci\.sh.*EXPECT_C`, which an unrelated pre-existing line in
+`publish-oci-unit.sh` already satisfied, so replacing the whole assertion with
+`is_expected_content() { true; }` still passed. The gate now forbids the adapter
+from reading a manifest at all — a structural property, not a spelling.
+
+### Local verification, all green
+
+`git diff --check`; `gofmt -l tests/ release/` empty; `shellcheck` clean on
+`compose-demo.sh`, `verify-oci.sh`, `publish-oci-unit.sh` and `dry-run.sh` apart
+from three pre-existing SC2015 infos in `dry-run.sh` (lines 105, 192, 336, none
+of them in this range); `make check-section`; `go test ./tests/release/...`;
+`go test ./tests/architecture/...`; `go test -count=1 ./tests/acceptance/scenario/...`
+and the same suite with `-race`; `make test-acceptance-compose-selftest`;
+`make release-dry-run`; `make artifact-drift`; `make ci`; `make test-browser`
+(219 passed); `make ci-e2e-compose` in full, browser journeys included.
+
+### GitHub at the exact final SHA `3bd509b1`
+
+PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE, head
+`3bd509b1846f37eda6ed9d6aeef64ff22110be53`. Run `32107259844` (CI) is success on
+attempt 1; all 20 jobs are green:
+
+| Job | ID | Conclusion |
+|---|---|---|
+| `changes` | `95619109742` | success |
+| `ci-static` | `95619153003` | success |
+| `ci-gates` | `95619152996` | success |
+| `ci-engine` | `95619152887` | success |
+| `ci-dashboard` | `95619152915` | success |
+| `dashboard-e2e` | `95619152918` | success |
+| `ci-integration-kubernetes` | `95619152940` | success |
+| `ci-e2e-envtest` | `95619152916` | success |
+| `ci-e2e-compose` | `95619152979` | success |
+| `ci-oci` | `95619152983` | success |
+| `operator-build` | `95619153009` | success |
+| `artifact-drift` | `95619153010` | success |
+| `release-version-test` | `95619153002` | success |
+| `release-dry-run` | `95619153059` | success |
+| `ci-e2e-kind (dashboard)` | `95619153028` | success |
+| `ci-e2e-kind (upgrade)` | `95619153029` | success |
+| `ci-e2e-kind (reconcile)` | `95619153064` | success |
+| `ci-e2e-kind (evidence)` | `95619153082` | success |
+| `ci-e2e-kind (operational-graph)` | `95619153083` | success |
+| `ci-e2e-kind (observation)` | `95619153088` | success |
+| `required` | `95622611419` | success |
+
+Other workflows at the same SHA: Security `32107260136`, Docs check
+`32107259848`, Pacto Contract CI `32107259846`, Repowise `32107259803`, Validate
+PR title `32107259845`, Code Quality `32107256569` and PR review `32107256236`
+are all success; Rebuild dashboard UI `32107259866` and Auto-merge Dependabot
+`32107259809` skipped. Of the 40 rollup entries, 37 are success, two are skipped
+(`auto-merge`, `build`) and one is the aggregate `CodeQL` check.
+
+The `ci-e2e-compose` job log confirms the ownership selftest runs on the Linux
+runner as well as locally, with veth sentinels and a run-time `/30`
+(`198.18.87.69/30` there), before the acceptance starts.
+
+**CodeQL delta: none.** The PR ref has the same nine inherited open alerts as
+the reviewed baseline — `#38` (`release/scripts/docs_check.py`), `#40`-`#43`
+(`internal/app/resolve.go`) and `#59`-`#62` (`pkg/oci/cache.go`). This range
+touches none of those three files. The three Analyze jobs are success; the
+aggregate check is red for the inherited alerts exactly as section 15.5 recorded.
+
+**Review threads, fully paginated** (two pages of 100): 199 total, 189 resolved,
+10 unresolved — byte-identical to the reviewed baseline. All ten are inherited
+bot threads: six from `github-code-quality` on the generated Mermaid asset
+`pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` and four from
+`github-advanced-security` on `pkg/oci/cache.go`. No human thread is unresolved,
+none was resolved here and no comment was published.
+
+### Hygiene and incidental side effects
+
+The tracked tree is clean at `3bd509b1`; the four pre-existing local agent paths
+(`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`) remain untracked and
+unmodified. Two files were touched by local tooling and reverted rather than
+committed, both unrelated to this repair: `go.work.sum` gained module-graph
+hashes while running `go test`, and `integrations/kubernetes/charts/pacto-dev-gateway/README.md`
+was rewritten by the `helm-docs` step of `make ci` (that chart's committed README
+is hand-written; its drift gate covers the operator chart, and `make ci` passed).
+Every reproduction and mutation resource created on the host was removed and its
+absence verified: no `pacto-red*` or `pacto-demo-*` container, no
+`pacto-demo-netfilter`/`pacto-red*` image, no `pactoout`/`pactoin`/`pdsen`/`pdpeer`
+interface remains.
+
+### Verdict
+
+**Phase 10B remains CANDIDATE.** Both blockers from section 15.5 are repaired
+and proved, the accepted work from that section is intact, and the next step is
+an independent review of `3bd509b1` — not a closure by its author. Phase 10C and
+Phase 11 were not started.
