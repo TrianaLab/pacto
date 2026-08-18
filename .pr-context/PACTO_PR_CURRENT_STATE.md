@@ -4462,3 +4462,121 @@ CANDIDATE. Not closed, not self-declared. Phase 10C is NOT started. Phase 11 is
 not started. No PR comment was published, no review thread was resolved, no PR
 metadata was changed, the PR remains an open draft, and
 `PACTO_PR_TARGET_STATE.md` was not altered by this repair.
+
+## 15.5 Independent review at `e6707c7e` — two narrow blockers remain
+
+Reviewed independently on 2026-08-18. Phase 10B is not closed. The native
+Compose correction and the two-hook network discriminator are accepted, but two
+new concrete counterexamples remain in the release recovery and in the local
+acceptance harness. Phase 10C is still NOT started.
+
+### Repository and GitHub state independently verified
+
+- PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE on
+  `feat/operational-graph-fleet`; the remote head reviewed is exactly
+  `e6707c7e76abe97a2c216e0bd2fc49886e0be01e`. `origin/main` is
+  `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+- `7c69ba43` is the merge-base and ancestor of the reviewed head. The range is
+  exactly seven linear commits — `65a4c192`, `5a421228`, `45abda33`,
+  `19d64373`, `c25b6125`, `4399c63a`, `e6707c7e` — with one parent each and no
+  merge, rebase, amend, squash, force-push or rewritten parent. The diff is 23
+  files, +2294/-775.
+- The final-SHA CI run `32083615532` is success on attempt 1. All 21 jobs are
+  green, including `ci-e2e-compose` `95551437902`, `release-dry-run`
+  `95551437904`, all six Kind shards and `required` `95554079237`. Security
+  `32083615533`, Docs check `32083615470`, Pacto Contract CI `32083615708`,
+  Repowise `32083615632` and title validation `32083615567` are success.
+- The aggregate CodeQL check remains red. The PR ref still has the same nine
+  inherited alerts: `#38`, `#40`-`#43` and `#59`-`#62`; this range touches none
+  of their three files. The CodeQL workflow analyses themselves are green.
+- Review threads were fully paginated: 199 total, 189 resolved and 10
+  unresolved. All ten are inherited bot threads: six on the generated Mermaid
+  asset and four on `pkg/oci/cache.go`. No human thread is unresolved.
+- Focused independent verification is green: `go test ./tests/release/...`,
+  `go test ./tests/acceptance/scenario/...`, the scenario race suite,
+  shellcheck of the changed release/acceptance scripts and `git diff --check`.
+  The tracked tree is clean; the four pre-existing local agent paths remain
+  untracked.
+
+### Accepted work — do not reopen without a new counterexample
+
+- Docker Compose now owns the application artifact end to end on the real path:
+  `docker compose publish` creates it and digest-qualified `-f oci://...` reads
+  it. The acceptance manifest proves the exact Compose `artifactType`, the one
+  Compose layer/media type and byte equality with the projection. ORAS is absent
+  from the Compose publication and execution paths; its legitimate ledger and
+  generic-artifact consumers remain.
+- The application is one projected Compose file with every immutable fixture
+  input inline. Execution needs no checkout, extracted directory, local Compose
+  file or bind mount. Project identity, pinned multi-platform images, readiness,
+  restart/replay, two-version independence and cleanup remain proved.
+- The bounded offline claim is now honest. The host-local control traverses
+  `INPUT`; the veth control is genuinely forwarded and traverses
+  `DOCKER-USER`. Each endpoint is reachable before isolation, removing either
+  arm is fatal, the artifact registry is stopped, volumes are empty, service
+  images are not pulled, internal traffic and published host access survive,
+  and the Product/browser gates prove the isolated fleet.
+- Compose `2.34.0` is declared once and both CI paths pin a newer version. The
+  Make/CI wiring is intact and no existing required gate was weakened.
+
+### Blocker A — content equality does not prove a Compose artifact
+
+`release/orchestrator/verify-oci.sh:75-79` returns only the digest of a single
+layer. Its adoption branch at lines 94-97 never checks the manifest's
+`artifactType` or the layer's media type. `publish-oci-unit.sh:48,74-75` repeats
+the same weaker post-push assertion. Therefore a tag occupied by a non-Compose
+OCI artifact containing the expected bytes is adopted and recorded as a
+successful `demo-compose` unit, even though `docker compose -f oci://...` cannot
+run it.
+
+This is reproduced, not inferred: a disposable registry received one layer via
+ORAS with `artifactType: application/vnd.example.not-compose`, layer media type
+`application/octet-stream`, and bytes whose digest was supplied as
+`PACTO_EXPECT_CONTENT`. The unmodified `verify-oci.sh` returned `adopt`.
+`dry-run.sh` only tests different content at an occupied tag, so it stays green
+for this semantic substitution.
+
+Closure requires content recovery to match the whole native Compose identity:
+`application/vnd.docker.compose.project`, exactly one
+`application/vnd.docker.compose.file+yaml` layer, and that layer's expected
+digest. Apply the same tuple to crash-window adoption and to the post-push
+assertion. Add an adversarial recovery test where the bytes match exactly but
+the artifact type and/or layer media type is foreign; it must be `conflict`,
+while a real `docker compose publish` artifact must still be adopted. Keep one
+ledger and one shared publisher; do not introduce a generic artifact framework.
+
+### Blocker B — the privileged harness can delete host resources it does not own
+
+The forwarded discriminator is semantically sound, but its installer is unsafe
+on a maintainer machine. `tests/acceptance/local/compose-demo.sh:146-148` claims
+fixed host names and an address, and `wire_forwarded_route` unconditionally runs
+`ip link del pactoout` before creating its pair (`:235-242`). If a developer,
+VPN or another test already owns an interface with that name, the acceptance
+deletes it and cleanup cannot restore it. The statement that RFC 2544 space
+"cannot collide" is also too strong: reserved benchmarking space can be used by
+local labs or VPN routes. The new host-local endpoint likewise force-removes a
+fixed-name container before claiming it.
+
+This is a direct destructive counterexample, so the full local Compose harness
+was deliberately not rerun by the reviewer; exact final-SHA CI and the author's
+full local run already establish its functional behavior, while running it does
+not answer the ownership defect.
+
+Closure requires every privileged resource to be uniquely owned by this run or
+for the harness to fail closed before mutation. It must never delete, replace or
+hijack a pre-existing interface, route or endpoint container. Cleanup must
+remove only resources this invocation proved it created. Add adversarial proof
+with pre-existing sentinel resources: the harness/preflight must refuse or pick
+a non-conflicting resource, leave the sentinels byte-for-byte/identity intact,
+and still remove its own resources on success and failure. Correct the RFC 2544
+documentation claim. Preserve the accepted two independent hooks and do not add
+a networking framework or public-Internet dependency.
+
+### Verdict and exact next objective
+
+**Phase 10B remains NARROWLY REOPENED / CANDIDATE.** Repair only blockers A and
+B above, append-only from the reviewer state commit that follows this section,
+then rerun the native publication/recovery, complete Compose acceptance, release
+dry run and required CI at the exact final SHA. Phase 10C and Phase 11 must not
+start until that repair is independently reviewed. No PR comment was published,
+no review thread was resolved and no PR metadata was changed.
