@@ -24,14 +24,14 @@ func TestPlainHTTP(t *testing.T) {
 	cases := []struct {
 		name     string
 		host     string
-		insecure map[string]bool
+		insecure []string
 		want     bool
 	}{
-		{"listed insecure", "registry.internal:5000", map[string]bool{"registry.internal:5000": true}, true},
+		{"listed insecure", "registry.internal:5000", []string{"registry.internal:5000"}, true},
 		{"loopback address", "127.0.0.1:5000", nil, true},
 		{"loopback name", "localhost:5000", nil, true},
 		{"public registry", "ghcr.io", nil, false},
-		{"another host is listed", "ghcr.io", map[string]bool{"registry.internal:5000": true}, false},
+		{"another host is listed", "ghcr.io", []string{"registry.internal:5000"}, false},
 		{"unparseable host", "not a host", nil, false},
 	}
 	for _, tc := range cases {

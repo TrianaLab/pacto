@@ -98,38 +98,35 @@ func TestBuildArtifact_Shape(t *testing.T) {
 	if err := json.Unmarshal(art.Manifest, &m); err != nil {
 		t.Fatalf("unmarshal manifest: %v", err)
 	}
-	if m.MediaType != ocispec.MediaTypeImageManifest {
-		t.Errorf("mediaType = %q, want %q", m.MediaType, ocispec.MediaTypeImageManifest)
-	}
-	if m.SchemaVersion != 2 {
-		t.Errorf("schemaVersion = %d, want 2", m.SchemaVersion)
-	}
-	if m.ArtifactType != ArtifactType {
-		t.Errorf("artifactType = %q, want %q", m.ArtifactType, ArtifactType)
-	}
-	if m.Config.MediaType != ocispec.MediaTypeEmptyJSON {
-		t.Errorf("config mediaType = %q, want %q", m.Config.MediaType, ocispec.MediaTypeEmptyJSON)
-	}
 	if len(m.Layers) != 1 {
 		t.Fatalf("layers = %d, want exactly 1", len(m.Layers))
-	}
-	if m.Layers[0].MediaType != PayloadMediaType {
-		t.Errorf("layer mediaType = %q, want %q", m.Layers[0].MediaType, PayloadMediaType)
-	}
-	if m.Layers[0].Digest != art.PayloadDesc.Digest || m.Layers[0].Size != int64(len(art.Payload)) {
-		t.Error("the layer descriptor does not address the payload bytes")
 	}
 	if m.Subject == nil {
 		t.Fatal("manifest carries no subject: it would not be a referrer of anything")
 	}
-	if want := subjectDescOf(s); m.Subject.Digest != want.Digest || m.Subject.MediaType != want.MediaType || m.Subject.Size != want.Size {
-		t.Errorf("subject = %+v, want the resolved contract descriptor %+v", *m.Subject, want)
-	}
-	if !bytes.Equal(art.Config, []byte("{}")) {
-		t.Errorf("config blob = %q, want the empty JSON blob", art.Config)
-	}
-	if art.ManifestDesc.ArtifactType != ArtifactType {
-		t.Errorf("manifest descriptor artifactType = %q, want %q", art.ManifestDesc.ArtifactType, ArtifactType)
+	subj := subjectDescOf(s)
+	for _, c := range []struct {
+		what      string
+		got, want any
+	}{
+		{"manifest mediaType", m.MediaType, ocispec.MediaTypeImageManifest},
+		{"schemaVersion", m.SchemaVersion, 2},
+		{"artifactType", m.ArtifactType, ArtifactType},
+		{"config mediaType", m.Config.MediaType, ocispec.MediaTypeEmptyJSON},
+		{"config blob", string(art.Config), "{}"},
+		{"layer mediaType", m.Layers[0].MediaType, PayloadMediaType},
+		// The layer descriptor must address the payload bytes, not merely
+		// resemble them.
+		{"layer digest", m.Layers[0].Digest, art.PayloadDesc.Digest},
+		{"layer size", m.Layers[0].Size, int64(len(art.Payload))},
+		{"subject digest", m.Subject.Digest, subj.Digest},
+		{"subject mediaType", m.Subject.MediaType, subj.MediaType},
+		{"subject size", m.Subject.Size, subj.Size},
+		{"manifest descriptor artifactType", art.ManifestDesc.ArtifactType, ArtifactType},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %v, want %v", c.what, c.got, c.want)
+		}
 	}
 }
 

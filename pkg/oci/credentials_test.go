@@ -389,3 +389,28 @@ func TestPactoConfigKeychain_HomeDirError(t *testing.T) {
 		t.Errorf("expected anonymous auth when home dir errors, got %+v", authCfg)
 	}
 }
+
+func TestEnvCredentialOptions(t *testing.T) {
+	t.Setenv("PACTO_REGISTRY_USERNAME", "user")
+	t.Setenv("PACTO_REGISTRY_PASSWORD", "pass")
+	t.Setenv("PACTO_REGISTRY_TOKEN", "tok")
+
+	got := oci.EnvCredentialOptions()
+	want := oci.CredentialOptions{Username: "user", Password: "pass", Token: "tok"}
+	if got != want {
+		t.Errorf("EnvCredentialOptions() = %+v, want %+v", got, want)
+	}
+}
+
+func TestEnvInsecureRegistries(t *testing.T) {
+	t.Setenv("PACTO_INSECURE_REGISTRIES", " reg.local:5000 , ,other:5001 ")
+	got := oci.EnvInsecureRegistries()
+	if len(got) != 2 || got[0] != "reg.local:5000" || got[1] != "other:5001" {
+		t.Errorf("EnvInsecureRegistries() = %#v", got)
+	}
+
+	t.Setenv("PACTO_INSECURE_REGISTRIES", "")
+	if got := oci.EnvInsecureRegistries(); got != nil {
+		t.Errorf("EnvInsecureRegistries() with no value = %#v, want nil", got)
+	}
+}

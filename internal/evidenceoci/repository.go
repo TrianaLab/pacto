@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -29,7 +30,7 @@ type RepositoryOptions struct {
 	// [github.com/trianalab/pacto/v3/pkg/oci.WithInsecureRegistries]. Loopback
 	// hosts are plain HTTP without being listed, matching how Pacto already
 	// resolves contract references.
-	Insecure map[string]bool
+	Insecure []string
 	// PageSize sets the Referrers page size. Zero leaves the registry's default;
 	// a small value is how tests exercise multi-page enumeration.
 	PageSize int
@@ -61,8 +62,8 @@ func newRepository(subj Subject, opts RepositoryOptions) (*remote.Repository, er
 // plainHTTP reports whether host is reached over http. A host is plain HTTP when
 // it was explicitly allowed, or when go-containerregistry already treats it as
 // such (loopback), so the evidence store and `pacto pull` agree on the scheme.
-func plainHTTP(host string, insecure map[string]bool) bool {
-	if insecure[host] {
+func plainHTTP(host string, insecure []string) bool {
+	if slices.Contains(insecure, host) {
 		return true
 	}
 	reg, err := name.NewRegistry(host)

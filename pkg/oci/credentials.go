@@ -17,6 +17,31 @@ type CredentialOptions struct {
 	Token    string
 }
 
+// EnvCredentialOptions reads the registry credentials Pacto takes from the
+// environment. It is the ONE definition of those variable names, shared by the
+// CLI root and the Evidence Server, so a process cannot end up reaching a
+// registry under a different credential policy than `pacto pull` would.
+func EnvCredentialOptions() CredentialOptions {
+	return CredentialOptions{
+		Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
+		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
+		Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
+	}
+}
+
+// EnvInsecureRegistries returns the hosts PACTO_INSECURE_REGISTRIES marks as
+// plain-HTTP (comma-separated), for a controlled in-cluster registry such as the
+// evidence-server E2E. https hosts are unaffected.
+func EnvInsecureRegistries() []string {
+	var out []string
+	for _, part := range strings.Split(os.Getenv("PACTO_INSECURE_REGISTRIES"), ",") {
+		if host := strings.TrimSpace(part); host != "" {
+			out = append(out, host)
+		}
+	}
+	return out
+}
+
 var userHomeDirFn = os.UserHomeDir
 
 // ExportedUserHomeDirFn returns the current userHomeDirFn for testing.

@@ -42,9 +42,17 @@ func serve(t *testing.T, h http.Handler) string {
 // subject naming it plus the descriptor referrers must be attached to.
 func seedContract(t *testing.T, host string, opts RepositoryOptions) (Subject, ocispec.Descriptor) {
 	t.Helper()
-	repo := openRepo(t, host, opts)
+	return seedContractIn(t, host, testRepoPath, "orders", opts)
+}
+
+// seedContractIn is seedContract for a chosen repository and contract, so a test
+// can configure a store with several subjects that are genuinely distinct
+// revisions rather than the same one twice.
+func seedContractIn(t *testing.T, host, repoPath, service string, opts RepositoryOptions) (Subject, ocispec.Descriptor) {
+	t.Helper()
+	repo := openRepoAt(t, host, repoPath, opts)
 	config := []byte("{}")
-	layer := []byte(`{"contract":"orders"}`)
+	layer := []byte(`{"contract":"` + service + `"}`)
 	pushBlob(t, repo, ocispec.MediaTypeEmptyJSON, config)
 	pushBlob(t, repo, "application/vnd.pacto.contract.v1+json", layer)
 	manifest, _ := json.Marshal(ocispec.Manifest{
@@ -65,7 +73,7 @@ func seedContract(t *testing.T, host string, opts RepositoryOptions) (Subject, o
 	if err := repo.Push(t.Context(), desc, bytes.NewReader(manifest)); err != nil {
 		t.Fatalf("push contract manifest: %v", err)
 	}
-	subj, err := ParseSubject(Scheme + host + "/" + testRepoPath + "@" + desc.Digest.String())
+	subj, err := ParseSubject(Scheme + host + "/" + repoPath + "@" + desc.Digest.String())
 	if err != nil {
 		t.Fatalf("ParseSubject: %v", err)
 	}
@@ -74,8 +82,12 @@ func seedContract(t *testing.T, host string, opts RepositoryOptions) (Subject, o
 
 func openRepo(t *testing.T, host string, opts RepositoryOptions) *remote.Repository {
 	t.Helper()
-	subj := Subject{Registry: host, Repository: testRepoPath}
-	repo, err := newRepository(subj, opts)
+	return openRepoAt(t, host, testRepoPath, opts)
+}
+
+func openRepoAt(t *testing.T, host, repoPath string, opts RepositoryOptions) *remote.Repository {
+	t.Helper()
+	repo, err := newRepository(Subject{Registry: host, Repository: repoPath}, opts)
 	if err != nil {
 		t.Fatalf("newRepository: %v", err)
 	}
@@ -91,14 +103,12 @@ func pushBlob(t *testing.T, repo *remote.Repository, mediaType string, data []by
 	return desc
 }
 
-// publish writes one built evidence artifact, blobs first, exactly as the store
-// does.
+// publish writes one built evidence artifact the way the store does — through
+// the store's own push, so a test can never seed bytes the product cannot.
 func publish(t *testing.T, repo *remote.Repository, art Artifact) {
 	t.Helper()
-	pushBlob(t, repo, art.ConfigDesc.MediaType, art.Config)
-	pushBlob(t, repo, art.PayloadDesc.MediaType, art.Payload)
-	if err := repo.Push(t.Context(), art.ManifestDesc, bytes.NewReader(art.Manifest)); err != nil {
-		t.Fatalf("push evidence manifest: %v", err)
+	if err := pushArtifact(t.Context(), repo, art); err != nil {
+		t.Fatalf("push evidence artifact: %v", err)
 	}
 }
 
@@ -218,7 +228,7 @@ func TestScanSubject_FollowsEveryPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET referrers: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.Header.Get("Link") == "" {
 		t.Fatal("the registry served every referrer in one page; pagination is not exercised")
 	}
