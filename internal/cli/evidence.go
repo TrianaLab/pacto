@@ -3,14 +3,12 @@ package cli
 import (
 	"fmt"
 	"net"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 )
 
 // newEvidenceCommand builds the `pacto evidence` command group: produce, verify,
@@ -31,56 +29,7 @@ func newEvidenceCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newEvidenceVerifyCommand(svc, v))
 	cmd.AddCommand(newEvidenceServeCommand(svc, v))
 	cmd.AddCommand(newEvidenceSendCommand(svc, v))
-	cmd.AddCommand(newEvidenceInspectCommand(svc, v))
 	return cmd
-}
-
-// newEvidenceInspectCommand builds `pacto evidence inspect`: a redacted diagnostic
-// view of the durable evidence store.
-func newEvidenceInspectCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "inspect",
-		Short: "Show the durable evidence store's diagnostic status",
-		Long: "Opens the durable evidence store, recovers it and prints a REDACTED " +
-			"diagnostic view — the backend scheme (never the raw URL, credentials or " +
-			"endpoint), key prefix, lifecycle phase, record/target/producer counts, the " +
-			"corruption count and whether a projection repair is pending. JSON output " +
-			"additionally lists the corruption details.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			bucketURL, _ := cmd.Flags().GetString("bucket-url")
-			prefix, _ := cmd.Flags().GetString("prefix")
-			if storeDir, _ := cmd.Flags().GetString("store-dir"); storeDir != "" {
-				abs, _ := filepath.Abs(storeDir)
-				bucketURL = "file://" + abs
-			}
-			status, err := svc.InspectEvidence(cmd.Context(), bucketURL, prefix)
-			if err != nil {
-				return err
-			}
-			return printEvidenceStatus(cmd, status, v.GetString(outputFormatKey))
-		},
-	}
-	cmd.Flags().String("bucket-url", evidencestore.DefaultBucketURL, "durable evidence store bucket URL (file://, s3://, gs://, azblob://)")
-	cmd.Flags().String("prefix", app.DefaultEvidencePrefix, "key prefix within the evidence bucket")
-	cmd.Flags().String("store-dir", "", "deprecated alias for --bucket-url file://<dir>")
-	return cmd
-}
-
-// printEvidenceStatus renders a redacted store status as text or JSON. The text
-// form shows only the corruption COUNT; JSON carries the full corruption list.
-func printEvidenceStatus(cmd *cobra.Command, st evidencestore.StoreStatus, format string) error {
-	return formatResult(cmd, format, st, func() error {
-		w := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(w, "Evidence store (%s, prefix %q)\n", st.Backend, st.Prefix)
-		_, _ = fmt.Fprintf(w, "  phase:         %s\n", st.Phase)
-		_, _ = fmt.Fprintf(w, "  records:       %d\n", st.Records)
-		_, _ = fmt.Fprintf(w, "  targets:       %d\n", st.Targets)
-		_, _ = fmt.Fprintf(w, "  producers:     %d\n", st.Producers)
-		_, _ = fmt.Fprintf(w, "  corruptions:   %d\n", len(st.Corruptions))
-		_, _ = fmt.Fprintf(w, "  pendingRepair: %v\n", st.PendingRepair)
-		return nil
-	}, nil)
 }
 
 func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
@@ -89,25 +38,22 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 		Short: "Run the evidence ingestion host",
 		Long: "Starts an HTTP host that accepts signed evidence envelopes at " +
 			"POST /api/evidence/v1/envelopes, verifies them against --trust, evaluates " +
-			"the carried evidence against its resolved contract and commits accepted " +
-			"records to the durable evidence store at --bucket-url. GET .../health is an " +
-			"always-200 liveness probe; .../ready reports 503 until the store has " +
-			"recovered; .../producers advertises trusted producer ids; .../targets " +
-			"exposes the latest accepted targets. Serves until interrupted.",
+			"the carried evidence against its resolved contract and publishes accepted " +
+			"records to the contract registry as OCI 1.1 referrers of the exact contract " +
+			"revision each report is about. Every --subject is an immutable " +
+			"oci://<repo>@sha256:<digest> reference; the registry is the only durable " +
+			"store, so the host keeps no local state and survives restarts. GET " +
+			".../health is an always-200 liveness probe; .../ready reports 503 while a " +
+			"subject cannot be resolved or its referrers enumerated; .../producers " +
+			"advertises trusted producer ids; .../targets exposes the latest accepted " +
+			"targets. Registry credentials come from the same sources as `pacto pull`. " +
+			"Exactly one server may write to a subject set. Serves until interrupted.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := app.ServeOptions{}
 			opts.TrustPath, _ = cmd.Flags().GetString("trust")
-			opts.BucketURL, _ = cmd.Flags().GetString("bucket-url")
-			opts.Prefix, _ = cmd.Flags().GetString("prefix")
+			opts.Subjects, _ = cmd.Flags().GetStringArray("subject")
 			opts.Producers, _ = cmd.Flags().GetStringArray("producer")
-			if storeDir, _ := cmd.Flags().GetString("store-dir"); storeDir != "" {
-				// filepath.Abs only fails if the working directory is unreadable, which
-				// the CLI already assumes it is not; discard the unreachable error.
-				abs, _ := filepath.Abs(storeDir)
-				opts.BucketURL = "file://" + abs
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "warning: --store-dir is deprecated; use --bucket-url file://<dir>")
-			}
 			addr := listenAddress(cmd)
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
@@ -120,11 +66,10 @@ func newEvidenceServeCommand(svc *app.Service, _ *viper.Viper) *cobra.Command {
 	cmd.Flags().Int("port", 8686, "port to listen on (127.0.0.1); superseded by --listen-address")
 	cmd.Flags().String("listen-address", "", "host:port to listen on (supersedes --port)")
 	cmd.Flags().String("trust", "", "trust store: a public-key file or a directory of <keyId>.pub files")
-	cmd.Flags().String("bucket-url", evidencestore.DefaultBucketURL, "durable evidence store bucket URL (file://, s3://, gs://, azblob://)")
-	cmd.Flags().String("prefix", app.DefaultEvidencePrefix, "key prefix within the evidence bucket")
-	cmd.Flags().String("store-dir", "", "DEPRECATED: directory for accepted records (use --bucket-url file://<dir>)")
+	cmd.Flags().StringArray("subject", nil, "exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable, required)")
 	cmd.Flags().StringArray("producer", nil, "advertised trusted producer id (repeatable)")
 	_ = cmd.MarkFlagRequired("trust")
+	_ = cmd.MarkFlagRequired("subject")
 	return cmd
 }
 

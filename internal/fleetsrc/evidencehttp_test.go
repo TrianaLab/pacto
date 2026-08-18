@@ -9,9 +9,9 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
-// targetsJSON is a full v1 DTO: identity, contract linkage, full findings,
-// freshness, provenance and a healthy store.
-const targetsJSON = `{"schemaVersion":"pacto.dev/evidence-source/v1","generatedAt":"2026-07-29T12:00:00Z","health":{"phase":"ready","pendingRepair":false,"corruptions":0},"truncated":false,"targets":[{"subject":"payments-prod-01","service":"payments","domain":"ghcr.io/acme","digest":"sha256:abc","producer":"prod-eu","producerKeyId":"k1","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"findings":[{}],"contractRef":"oci://ghcr.io/acme/payments@sha256:abc","evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:05:00Z"}]}`
+// targetsJSON is a full v2 DTO: identity, contract linkage, full findings,
+// freshness, provenance and a registry every configured subject was read from.
+const targetsJSON = `{"schemaVersion":"pacto.dev/evidence-source/v2","generatedAt":"2026-07-29T12:00:00Z","health":{"status":"ready","subjects":1,"failedSubjects":0,"invalidArtifacts":0},"truncated":false,"targets":[{"subject":"payments-prod-01","service":"payments","domain":"ghcr.io/acme","digest":"sha256:abc","producer":"prod-eu","producerKeyId":"k1","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"findings":[{}],"contractRef":"oci://ghcr.io/acme/payments@sha256:abc","evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:05:00Z"}]}`
 
 func serveJSON(t *testing.T, payload string) *httptest.Server {
 	t.Helper()
@@ -29,7 +29,7 @@ func TestEvidenceHTTPSource_IDKind(t *testing.T) {
 	}
 }
 
-// collectOneTarget serves the full v1 DTO and returns its single mapped target,
+// collectOneTarget serves the full v2 DTO and returns its single mapped target,
 // asserting the healthy-store shape (no forced state, exactly one target). Kept
 // small so the per-aspect tests below stay low-complexity.
 func collectOneTarget(t *testing.T) fleet.RawTarget {
@@ -86,7 +86,9 @@ func TestEvidenceHTTPSource_Collect_FaithfulProjection(t *testing.T) {
 }
 
 func TestEvidenceHTTPSource_Collect_SchemaMismatch(t *testing.T) {
-	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v2","targets":[]}`)
+	// v1 was the bucket-backed DTO. A server still speaking it has a different
+	// health model, so reading it as v2 would silently invent readiness.
+	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v1","targets":[]}`)
 	defer srv.Close()
 	if _, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background()); err == nil {
 		t.Fatal("a mismatched schema version must be an error, not a silent read")
@@ -94,7 +96,7 @@ func TestEvidenceHTTPSource_Collect_SchemaMismatch(t *testing.T) {
 }
 
 func TestEvidenceHTTPSource_Collect_UnknownField(t *testing.T) {
-	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v1","targets":[],"surprise":true}`)
+	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v2","targets":[],"surprise":true}`)
 	defer srv.Close()
 	if _, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background()); err == nil {
 		t.Fatal("strict decode must reject an unknown field")
@@ -102,7 +104,7 @@ func TestEvidenceHTTPSource_Collect_UnknownField(t *testing.T) {
 }
 
 func TestEvidenceHTTPSource_Collect_InvalidCompliance(t *testing.T) {
-	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v1","health":{"phase":"ready"},"targets":[{"subject":"payments","producer":"prod-eu","compliance":"Bogus","coverage":{},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`)
+	srv := serveJSON(t, `{"schemaVersion":"pacto.dev/evidence-source/v2","health":{"status":"ready","subjects":1},"targets":[{"subject":"payments","producer":"prod-eu","compliance":"Bogus","coverage":{},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`)
 	defer srv.Close()
 	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
 	if err != nil {
@@ -118,14 +120,14 @@ func TestEvidenceHTTPSource_Collect_InvalidCompliance(t *testing.T) {
 
 func TestEvidenceHTTPSource_Collect_Degraded(t *testing.T) {
 	cases := map[string]string{
-		"phase":         `"health":{"phase":"recovering"}`,
-		"pendingRepair": `"health":{"phase":"ready","pendingRepair":true}`,
-		"corruptions":   `"health":{"phase":"ready","corruptions":2}`,
-		"truncated":     `"health":{"phase":"ready"},"truncated":true`,
+		"status":           `"health":{"status":"partial","subjects":2}`,
+		"failedSubjects":   `"health":{"status":"ready","subjects":2,"failedSubjects":1}`,
+		"invalidArtifacts": `"health":{"status":"ready","subjects":2,"invalidArtifacts":2}`,
+		"truncated":        `"health":{"status":"ready","subjects":1},"truncated":true`,
 	}
 	for name, health := range cases {
 		t.Run(name, func(t *testing.T) {
-			payload := `{"schemaVersion":"pacto.dev/evidence-source/v1",` + health + `,"targets":[{"subject":"payments","producer":"prod-eu","compliance":"Compliant","coverage":{},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`
+			payload := `{"schemaVersion":"pacto.dev/evidence-source/v2",` + health + `,"targets":[{"subject":"payments","producer":"prod-eu","compliance":"Compliant","coverage":{},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`
 			srv := serveJSON(t, payload)
 			defer srv.Close()
 			col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())

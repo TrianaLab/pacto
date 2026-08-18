@@ -16,9 +16,6 @@ import (
 
 	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
-	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -112,73 +109,9 @@ func TestService_Fleet_MultipleSourcesGetSuffixedIDs(t *testing.T) {
 	}
 }
 
-func TestService_Fleet_EvidenceStores(t *testing.T) {
-	fixed := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
-	storeDir := t.TempDir()
-	// Seed a durable evidence store the same way the ingestion host would, so the
-	// fleet durable source reads it back through Recover + ListLatest.
-	store, err := openEvidenceStore(context.Background(), "file://"+storeDir, DefaultEvidencePrefix)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Recover(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	ar := evidencestore.AcceptedRecord{
-		Envelope: evidenceenvelope.Envelope{
-			ID:       "e1",
-			Producer: evidenceenvelope.Producer{ID: "prod-eu"},
-			Sequence: 1,
-			EvidenceSet: evidence.EvidenceSet{
-				Subject:     evidence.SubjectRef{Kind: "service", Name: "svc-a"},
-				ContractRef: "oci://ghcr.io/acme/svc:1.0.0",
-				ObservedAt:  fixed,
-			},
-		},
-		Compliance:  fleet.StatusCompliant,
-		ContractRef: "oci://ghcr.io/acme/svc:1.0.0",
-		TargetKey:   string(fleet.NewTargetKey("prod-eu", "external", "svc-a")),
-		AcceptedAt:  fixed,
-	}
-	if err := store.Commit(context.Background(), ar); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	svc := NewService(nil, nil)
-	snap, err := svc.Fleet(context.Background(), FleetOptions{
-		EvidenceStores: []string{storeDir},
-		Now:            func() time.Time { return fixed },
-	})
-	if err != nil {
-		t.Fatalf("Fleet: %v", err)
-	}
-	if len(snap.Targets) != 1 {
-		t.Fatalf("got %d targets, want 1", len(snap.Targets))
-	}
-	found := false
-	for _, tgt := range snap.Targets {
-		if tgt.Scope == "prod-eu" && tgt.Name == "svc-a" && tgt.Kind == "external" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected an external target prod-eu/svc-a, got %+v", snap.Targets)
-	}
-	ids := map[string]bool{}
-	for _, s := range snap.Sources {
-		ids[s.ID] = true
-	}
-	if !ids["evidence-store"] {
-		t.Errorf("source ids = %v, want evidence-store", ids)
-	}
-}
-
 func TestService_Fleet_EvidenceURLs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"schemaVersion":"pacto.dev/evidence-source/v1","health":{"phase":"ready"},"targets":[{"subject":"svc-a","producer":"prod-eu","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`))
+		_, _ = w.Write([]byte(`{"schemaVersion":"pacto.dev/evidence-source/v2","health":{"status":"ready","subjects":1},"targets":[{"subject":"svc-a","producer":"prod-eu","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`))
 	}))
 	defer srv.Close()
 
@@ -205,30 +138,26 @@ func TestService_Fleet_EvidenceURLs(t *testing.T) {
 	}
 }
 
-func TestService_Fleet_EvidenceStore_OpenError(t *testing.T) {
-	// A regular file cannot host a store directory beneath it, so the durable
-	// source's lazy open fails in Collect and the store becomes a failing source
-	// (a limitation), not a build abort.
-	dir := t.TempDir()
-	file := filepath.Join(dir, "afile")
-	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+func TestService_Fleet_EvidenceURL_Unavailable(t *testing.T) {
+	// An Evidence Server nobody could reach is a failing source (a limitation), not
+	// a build abort and not an environment with no targets.
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := srv.URL
+	srv.Close()
+
 	svc := NewService(nil, nil)
-	snap, err := svc.Fleet(context.Background(), FleetOptions{
-		EvidenceStores: []string{filepath.Join(file, "store")},
-	})
+	snap, err := svc.Fleet(context.Background(), FleetOptions{EvidenceURLs: []string{url}})
 	if err != nil {
 		t.Fatalf("Fleet returned a hard error, want partial snapshot: %v", err)
 	}
 	found := false
 	for _, l := range snap.Limitations {
-		if l.Code == fleet.LimitationSourceUnavailable && l.Source == "evidence-store" {
+		if l.Code == fleet.LimitationSourceUnavailable && l.Source == "evidence-http" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected a SOURCE_UNAVAILABLE limitation for evidence-store, got %+v", snap.Limitations)
+		t.Errorf("expected a SOURCE_UNAVAILABLE limitation for evidence-http, got %+v", snap.Limitations)
 	}
 }
 

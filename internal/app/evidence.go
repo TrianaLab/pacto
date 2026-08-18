@@ -22,11 +22,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v3/internal/evidenceoci"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
-	"github.com/trianalab/pacto/v3/pkg/evidencestore"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 	"github.com/trianalab/pacto/v3/pkg/strictjson"
 )
 
@@ -405,65 +406,43 @@ func (s *Service) EvidenceResolver() evidenceingest.ContractResolver {
 type ServeOptions struct {
 	Port      int      // listen port for ServeEvidence (0 = OS-assigned)
 	TrustPath string   // a public-key file or a directory of <keyId>.pub files
-	BucketURL string   // durable evidence store bucket URL (file://, s3://, gs://, azblob://)
-	Prefix    string   // key prefix within the bucket
+	Subjects  []string // exact oci://…@sha256:… contract revisions evidence is stored on
 	Producers []string // trusted producer ids advertised on GET /producers
 }
 
-// buildEvidenceHost assembles the ingestion HTTP mux over a durable evidence
-// store: it loads the trust store, opens the bucket and starts recovery in the
-// BACKGROUND (which gates readiness — /health is 200 from t0 while /ready reports
-// 503 and ingestion is refused until recovery reaches ready or degraded), then
-// wires the durable adapter into the accept pipeline. On success it returns the
-// store so the caller can Close it on shutdown. Assembly errors (unreadable trust
-// store, unopenable bucket) surface here so serve validates configuration before
-// it listens; recovery problems surface via /ready, not as a startup error.
-func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*http.ServeMux, *evidencestore.BlobStore, error) {
+// buildEvidenceHost assembles the ingestion HTTP mux over the contract registry:
+// it loads the trust store, parses the configured contract subjects and opens one
+// repository per subject. Nothing is stored locally, so there is no recovery to
+// wait for — the host is ready as soon as every subject resolves and answers
+// native Referrers discovery, which /ready checks live. Assembly errors (an
+// unreadable trust store, an empty or malformed subject list) surface here so
+// serve validates configuration before it listens; a registry that is merely
+// unreachable surfaces via /ready, not as a startup failure.
+func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*http.ServeMux, error) {
 	trust, err := loadTrustStore(opts.TrustPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	store, err := openEvidenceStore(ctx, opts.BucketURL, opts.Prefix)
+	subjects, err := evidenceoci.ParseSubjects(opts.Subjects)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	// Recovery runs in the BACKGROUND so the listener starts immediately: /health
-	// answers 200 from t0 (liveness is independent of recovery), while /ready
-	// reports 503 and ingestion is refused until recovery reaches ready or
-	// degraded. A long but progressing recovery therefore never trips a liveness
-	// restart loop. A failed recovery leaves the host up but not-ready, the signal
-	// we want rather than a silent crash-loop.
-	go recoverAndRepair(ctx, store)
-	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), durableEvidenceStore{store: store}, nil)
-	ready := func() bool {
-		// Phase() is lock-free, so readiness answers promptly even while the
-		// recovery scan holds the store mutex.
-		phase := store.Phase()
-		return phase == evidencestore.PhaseReady || phase == evidencestore.PhaseDegraded
+	// The same keychain and plain-HTTP policy `pacto pull` uses: evidence is
+	// written to the contract registry, so it authenticates like a contract does.
+	store, err := evidenceoci.NewStore(subjects, evidenceoci.RepositoryOptions{
+		Keychain: oci.NewKeychain(oci.EnvCredentialOptions()),
+		Insecure: oci.EnvInsecureRegistries(),
+	})
+	if err != nil {
+		return nil, err
 	}
-	health := func() evidenceingest.SourceHealth {
-		st := store.Inspect(ctx)
-		return evidenceingest.SourceHealth{Phase: string(st.Phase), PendingRepair: st.PendingRepair, Corruptions: len(st.Corruptions)}
-	}
-	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, ready, health)
+	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), store, nil)
+	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, func() bool {
+		return store.Ready(ctx) == nil
+	})
 	mux := http.NewServeMux()
 	handler.Routes(mux)
-	return mux, store, nil
-}
-
-// InspectEvidence opens the durable evidence store, recovers it and returns its
-// diagnostic status. The status is already redacted (backend scheme only, never
-// the raw bucket URL, credentials or endpoint). A recovery problem is reflected in
-// the returned phase (recovering/degraded/failed) rather than as an error, so the
-// diagnostic always shows the store's real state; only an unopenable bucket errors.
-func (s *Service) InspectEvidence(ctx context.Context, bucketURL, prefix string) (evidencestore.StoreStatus, error) {
-	store, err := openEvidenceStore(ctx, bucketURL, prefix)
-	if err != nil {
-		return evidencestore.StoreStatus{}, err
-	}
-	defer func() { _ = store.Close() }()
-	_ = recoverEvidence(ctx, store) // outcome is reflected in the status phase
-	return store.Inspect(ctx), nil
+	return mux, nil
 }
 
 // ServeEvidence assembles the ingestion host, listens on opts.Port and serves
@@ -478,16 +457,14 @@ func (s *Service) ServeEvidence(ctx context.Context, opts ServeOptions) error {
 }
 
 // ServeEvidenceOnListener serves the ingestion host on an existing listener until
-// ctx is cancelled, then shuts down gracefully (closing the durable store). It
-// takes ownership of ln, closing it if assembly fails. This is the seam tests
-// drive on a random port.
+// ctx is cancelled, then shuts down gracefully. It takes ownership of ln, closing
+// it if assembly fails. This is the seam tests drive on a random port.
 func (s *Service) ServeEvidenceOnListener(ctx context.Context, ln net.Listener, opts ServeOptions) error {
-	mux, store, err := s.buildEvidenceHost(ctx, opts)
+	mux, err := s.buildEvidenceHost(ctx, opts)
 	if err != nil {
 		_ = ln.Close()
 		return err
 	}
-	defer func() { _ = store.Close() }()
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()

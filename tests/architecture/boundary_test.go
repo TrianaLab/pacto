@@ -44,17 +44,46 @@ var forbiddenPrefixes = []string{
 	"k8s.io/",
 	"sigs.k8s.io/",
 	"github.com/trianalab/pacto/integrations/", // no core -> integration edge
-	"gocloud.dev/", // Go CDK belongs behind the evidence Store adapter, never in the pure domain
+	// The registry client belongs behind the evidence Store adapter
+	// (internal/evidenceoci). pkg/evidenceingest owns the port and the HTTP host;
+	// if it could reach a registry directly the store would stop being swappable
+	// and an external collector would inherit registry credentials it never needs.
+	"oras.land/",
+}
+
+// evidenceConsumers read accepted evidence. They must reach it ONLY through the
+// Evidence Server's HTTP DTO: no registry client, no credentials, no referrers
+// enumeration of their own. pkg/dashboard is exempt from the k8s rule above but
+// not from this one, so it is gated here.
+var evidenceConsumers = []string{
+	"github.com/trianalab/pacto/v3/pkg/dashboard/...",
+	"github.com/trianalab/pacto/v3/internal/fleetsrc/...",
+}
+
+func TestEvidenceConsumersNeverReachTheRegistryStore(t *testing.T) {
+	const store = "github.com/trianalab/pacto/v3/internal/evidenceoci"
+	for _, pkg := range evidenceConsumers {
+		for _, dep := range deps(t, pkg) {
+			if dep == store || strings.HasPrefix(dep, "oras.land/") {
+				t.Errorf("boundary violation: evidence consumer %q reaches %q; it must read evidence over the Evidence Server HTTP DTO", pkg, dep)
+			}
+		}
+	}
+}
+
+// deps returns the full transitive import closure of a package pattern.
+func deps(t *testing.T, pkg string) []string {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", pkg).CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list -deps %s: %v\n%s", pkg, err, out)
+	}
+	return strings.Split(strings.TrimSpace(string(out)), "\n")
 }
 
 func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 	for _, pkg := range corePackages {
-		// Full transitive import closure of the package pattern.
-		out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", pkg).CombinedOutput()
-		if err != nil {
-			t.Fatalf("go list -deps %s: %v\n%s", pkg, err, out)
-		}
-		for _, dep := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		for _, dep := range deps(t, pkg) {
 			for _, bad := range forbiddenPrefixes {
 				if strings.HasPrefix(dep, bad) {
 					t.Errorf("boundary violation: core package pattern %q transitively imports forbidden %q (prefix %q)", pkg, dep, bad)

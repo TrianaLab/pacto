@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/trianalab/pacto/v3/internal/app"
@@ -13,17 +12,6 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/oci"
 	"github.com/trianalab/pacto/v3/pkg/plugin"
 )
-
-// splitCSV splits a comma-separated env value into trimmed, non-empty entries.
-func splitCSV(v string) []string {
-	var out []string
-	for _, p := range strings.Split(v, ",") {
-		if s := strings.TrimSpace(p); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
 
 // Build-time variables set via ldflags.
 var (
@@ -49,17 +37,10 @@ func run() error {
 	ctx, stop := signalContext()
 	defer stop()
 
-	keychain := oci.NewKeychain(oci.CredentialOptions{
-		Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
-		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
-		Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
-	})
-	// PACTO_INSECURE_REGISTRIES marks specific registry hosts as plain-HTTP
-	// (comma-separated), for a controlled in-cluster registry such as the
-	// evidence-server E2E; https hosts are unaffected.
+	keychain := oci.NewKeychain(oci.EnvCredentialOptions())
 	var clientOpts []oci.ClientOption
-	if v := os.Getenv("PACTO_INSECURE_REGISTRIES"); v != "" {
-		clientOpts = append(clientOpts, oci.WithInsecureRegistries(splitCSV(v)...))
+	if hosts := oci.EnvInsecureRegistries(); len(hosts) > 0 {
+		clientOpts = append(clientOpts, oci.WithInsecureRegistries(hosts...))
 	}
 	store := oci.NewCachedStore(oci.NewClient(keychain, clientOpts...))
 

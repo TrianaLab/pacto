@@ -28,7 +28,6 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	// Source flags are shared by every subcommand.
 	cmd.PersistentFlags().StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
 	cmd.PersistentFlags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
-	cmd.PersistentFlags().StringArray("evidence-store", nil, "directory of accepted-evidence records to include as external targets (repeatable)")
 	cmd.PersistentFlags().StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
 	cmd.PersistentFlags().StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
 	cmd.PersistentFlags().StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
@@ -51,7 +50,6 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
-	evidenceStores, _ := cmd.Flags().GetStringArray("evidence-store")
 	evidenceURLs, _ := cmd.Flags().GetStringArray("evidence-url")
 	traceFiles, _ := cmd.Flags().GetStringArray("traces")
 	ociRefs, _ := cmd.Flags().GetStringArray("oci")
@@ -62,7 +60,6 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	return app.FleetOptions{
 		LocalRoots:         local,
 		TargetStateFiles:   targetState,
-		EvidenceStores:     evidenceStores,
 		EvidenceURLs:       evidenceURLs,
 		ObservationSources: app.TraceFileSources(traceFiles),
 		OCIRefs:            ociRefs,

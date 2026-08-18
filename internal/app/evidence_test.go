@@ -11,13 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v3/internal/testutil"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
-	"github.com/trianalab/pacto/v3/pkg/evidencestore"
 )
 
 // sampleEvidenceSet returns a minimal, structurally valid EvidenceSet.
@@ -651,16 +652,54 @@ func TestEvidenceResolver(t *testing.T) {
 	}
 }
 
-// serveTestFixtures mints a key, a resolvable local bundle and a signed envelope
-// file, returning the trust dir, the envelope path and the producer id.
-func serveTestFixtures(t *testing.T) (svc *Service, trustDir, envPath, producer string) {
+// evidenceFixture is one fully wired ingestion scenario: the contract revision
+// evidence is stored on, the trust store that authorizes its producer and a
+// signed envelope reporting on exactly that revision.
+type evidenceFixture struct {
+	svc      *Service
+	trustDir string
+	envPath  string
+	producer string
+	subject  string // the exact oci://…@sha256:… revision, and the only configured one
+}
+
+// serveOptions is the fixture's server configuration: trust plus the one
+// configured subject. There is nothing else to configure — the contract registry
+// is the store.
+func (f evidenceFixture) serveOptions() ServeOptions {
+	return ServeOptions{TrustPath: f.trustDir, Subjects: []string{f.subject}, Producers: []string{f.producer}}
+}
+
+// referrersRegistry runs an in-process OCI 1.1 registry. Evidence is published as
+// a Referrer of the contract manifest, so the plain matrix registry — which has
+// no Referrers API — cannot host it. stop closes it, to simulate an outage.
+func referrersRegistry(t *testing.T) (host string, stop func()) {
+	t.Helper()
+	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
+	var once sync.Once
+	stop = func() { once.Do(srv.Close) }
+	t.Cleanup(stop)
+	return srv.Listener.Addr().String(), stop
+}
+
+// serveTestFixtures mints a key, pushes a resolvable bundle and signs an envelope
+// against the digest that push produced.
+func serveTestFixtures(t *testing.T) evidenceFixture {
+	t.Helper()
+	host, _ := referrersRegistry(t)
+	return evidenceFixtureOn(t, host)
+}
+
+// evidenceFixtureOn builds the fixture against an already-running registry, so a
+// test that needs to take the registry down owns its lifetime.
+func evidenceFixtureOn(t *testing.T, host string) evidenceFixture {
 	t.Helper()
 	dir := t.TempDir()
-	// Push the svc-a bundle to an in-process registry so the evidence references it
-	// by an IMMUTABLE oci:// digest — the ingestion contract-ref policy accepts
-	// nothing else (no local paths, no mutable tags). The returned Service resolves
-	// that ref against the same registry.
-	host := mxPlainRegistry(t)
+	// Push the svc-a bundle so the evidence references it by an IMMUTABLE oci://
+	// digest — the ingestion contract-ref policy accepts nothing else (no local
+	// paths, no mutable tags), and that same digest is the OCI subject the accepted
+	// record is attached to. The returned Service resolves the ref against the same
+	// registry.
 	svc, client := mxService(mxHostKeychain{})
 	digest, err := client.Push(context.Background(), host+"/svc-a:1.0.0", mxBundle(t, "svc-a", "1.0.0"))
 	if err != nil {
@@ -685,11 +724,33 @@ func serveTestFixtures(t *testing.T) (svc *Service, trustDir, envPath, producer 
 		t.Fatal(err)
 	}
 	data, _ := json.Marshal(env)
-	envPath = filepath.Join(dir, "envelope.json")
+	envPath := filepath.Join(dir, "envelope.json")
 	if err := os.WriteFile(envPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return svc, dir, envPath, "prod-eu"
+	return evidenceFixture{svc: svc, trustDir: dir, envPath: envPath, producer: "prod-eu", subject: contractRef}
+}
+
+// serveEvidence starts the ingestion host on a random port and returns its base
+// URL. The server is stopped when the test ends.
+func serveEvidence(t *testing.T, svc *Service, opts ServeOptions) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "http://" + ln.Addr().String()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.ServeEvidenceOnListener(ctx, ln, opts) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("ServeEvidenceOnListener = %v, want nil on cancel", err)
+		}
+	})
+	waitForHTTP(t, base+"/api/evidence/v1/health")
+	return base
 }
 
 func waitForHTTP(t *testing.T, url string) {
@@ -707,126 +768,82 @@ func waitForHTTP(t *testing.T, url string) {
 }
 
 func TestServeEvidence_EndToEnd(t *testing.T) {
-	svc, trustDir, envPath, producer := serveTestFixtures(t)
-	storeDir := filepath.Join(t.TempDir(), "store")
+	f := serveTestFixtures(t)
+	base := serveEvidence(t, f.svc, f.serveOptions())
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := "http://" + ln.Addr().String()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- svc.ServeEvidenceOnListener(ctx, ln, ServeOptions{
-			TrustPath: trustDir, BucketURL: "file://" + storeDir, Prefix: DefaultEvidencePrefix,
-			Producers: []string{producer},
-		})
-	}()
-
-	waitForHTTP(t, base+"/api/evidence/v1/health")
-
-	// Readiness becomes 200 once background recovery completes (poll, not one-shot).
-	for i := 0; i < 200 && getStatus(t, base+"/api/evidence/v1/ready") != http.StatusOK; i++ {
-		time.Sleep(10 * time.Millisecond)
-	}
+	// The server holds nothing locally, so readiness is a live registry preflight
+	// and is answered immediately — there is no recovery to wait for.
 	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusOK {
 		t.Errorf("ready = %d, want 200", code)
 	}
 
-	// POST the signed envelope -> 202 Accepted; re-POSTing is a replay -> 409
-	// (durable dup-id → ErrReplay).
-	if code := postFile(t, svc, base, envPath); code != http.StatusAccepted {
+	// POST the signed envelope -> 202 Accepted; re-POSTing is a replay -> 409.
+	if code := postFile(t, f.svc, base, f.envPath); code != http.StatusAccepted {
 		t.Fatalf("accept status = %d", code)
 	}
-	if code := postFile(t, svc, base, envPath); code != http.StatusConflict {
+	if code := postFile(t, f.svc, base, f.envPath); code != http.StatusConflict {
 		t.Errorf("replay status = %d, want 409", code)
 	}
 
 	// Producers advertises the trusted producer; targets projects the record.
-	if body := getBody(t, base+"/api/evidence/v1/producers"); !strings.Contains(body, producer) {
-		t.Errorf("producers body = %q, want %q", body, producer)
+	if body := getBody(t, base+"/api/evidence/v1/producers"); !strings.Contains(body, f.producer) {
+		t.Errorf("producers body = %q, want %q", body, f.producer)
 	}
 	if body := getBody(t, base+"/api/evidence/v1/targets"); !strings.Contains(body, "svc-a") {
 		t.Errorf("targets body = %q, want svc-a", body)
 	}
 
-	// The accepted record was persisted durably under the prefix.
-	entries, err := os.ReadDir(filepath.Join(storeDir, DefaultEvidencePrefix, "envelopes"))
-	if err != nil || len(entries) == 0 {
-		t.Errorf("expected a persisted record under %s, err=%v entries=%d", storeDir, err, len(entries))
+	// A second server, with no shared state whatsoever, reads the same evidence and
+	// still refuses the replay: the durable store is the registry, so restarting the
+	// Evidence Server — or replacing its container outright — loses nothing.
+	restarted := serveEvidence(t, f.svc, f.serveOptions())
+	if body := getBody(t, restarted+"/api/evidence/v1/targets"); !strings.Contains(body, "svc-a") {
+		t.Errorf("targets after restart = %q, want svc-a", body)
 	}
-
-	// Graceful shutdown on context cancel returns nil.
-	cancel()
-	if err := <-done; err != nil {
-		t.Errorf("ServeEvidenceOnListener = %v, want nil on cancel", err)
+	if code := postFile(t, f.svc, restarted, f.envPath); code != http.StatusConflict {
+		t.Errorf("replay after restart = %d, want 409", code)
 	}
 }
 
-// TestServeEvidence_BackgroundRecovery is the section 6 acceptance: recovery runs in the
-// background, so a long recovery keeps liveness (/health) up while readiness and
-// ingestion are refused, then both succeed once recovery completes.
-func TestServeEvidence_BackgroundRecovery(t *testing.T) {
-	svc, trustDir, envPath, producer := serveTestFixtures(t)
-	storeDir := filepath.Join(t.TempDir(), "store")
+// The registry IS the store, so losing it must be visible as uncertainty: not
+// ready, ingestion refused, and the read reported unavailable. Serving 200 with an
+// empty target list would claim every environment is gone.
+func TestServeEvidence_RegistryOutage(t *testing.T) {
+	host, stopRegistry := referrersRegistry(t)
+	f := evidenceFixtureOn(t, host)
+	base := serveEvidence(t, f.svc, f.serveOptions())
 
-	// Block recovery to simulate a long recovery that outlasts a liveness probe.
-	release := make(chan struct{})
-	recovered := make(chan struct{})
-	orig := recoverEvidence
-	recoverEvidence = func(ctx context.Context, s *evidencestore.BlobStore) error {
-		select {
-		case <-release:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		_, err := s.Recover(ctx)
-		close(recovered)
-		return err
+	if code := postFile(t, f.svc, base, f.envPath); code != http.StatusAccepted {
+		t.Fatalf("accept status = %d", code)
 	}
-	defer func() { recoverEvidence = orig }()
+	if code := getStatus(t, base+"/api/evidence/v1/targets"); code != http.StatusOK {
+		t.Fatalf("targets before the outage = %d, want 200", code)
+	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	stopRegistry()
+
+	// Liveness is about the process, which is fine; readiness is about the store,
+	// which is not. An outage must never restart the container.
+	if code := getStatus(t, base+"/api/evidence/v1/health"); code != http.StatusOK {
+		t.Errorf("health during the outage = %d, want 200", code)
+	}
+	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusServiceUnavailable {
+		t.Errorf("ready during the outage = %d, want 503", code)
+	}
+	if code := postFile(t, f.svc, base, f.envPath); code < 500 {
+		t.Errorf("ingest during the outage = %d, want a 5xx: it must fail closed", code)
+	}
+	resp, err := http.Get(base + "/api/evidence/v1/targets")
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := "http://" + ln.Addr().String()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- svc.ServeEvidenceOnListener(ctx, ln, ServeOptions{
-			TrustPath: trustDir, BucketURL: "file://" + storeDir, Prefix: DefaultEvidencePrefix,
-			Producers: []string{producer},
-		})
-	}()
-
-	waitForHTTP(t, base+"/api/evidence/v1/health")
-	// While recovery is blocked: liveness is up, readiness is 503, ingest is 503.
-	if code := getStatus(t, base+"/api/evidence/v1/health"); code != http.StatusOK {
-		t.Errorf("health during recovery = %d, want 200", code)
+	body := readAllClose(resp)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("targets during the outage = %d %s, want 503: unreadable is not empty", resp.StatusCode, body)
 	}
-	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusServiceUnavailable {
-		t.Errorf("ready during recovery = %d, want 503", code)
+	if !strings.Contains(body, "registry_unavailable") {
+		t.Errorf("targets body = %q, want it to name the unavailable registry", body)
 	}
-	if code := postFile(t, svc, base, envPath); code != http.StatusServiceUnavailable {
-		t.Errorf("ingest during recovery = %d, want 503", code)
-	}
-
-	// Let recovery finish; readiness and ingestion then succeed.
-	close(release)
-	<-recovered
-	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusOK {
-		t.Errorf("ready after recovery = %d, want 200", code)
-	}
-	if code := postFile(t, svc, base, envPath); code != http.StatusAccepted {
-		t.Errorf("ingest after recovery = %d, want 202", code)
-	}
-
-	cancel()
-	<-done
 }
 
 // postFile sends an envelope file and returns the response status, failing on a
@@ -873,9 +890,7 @@ func TestServeEvidenceOnListener_AssemblyError(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An empty trust dir makes assembly fail; the listener must be closed.
-	err = (&Service{}).ServeEvidenceOnListener(context.Background(), ln, ServeOptions{
-		TrustPath: t.TempDir(), BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix,
-	})
+	err = (&Service{}).ServeEvidenceOnListener(context.Background(), ln, ServeOptions{TrustPath: t.TempDir()})
 	if err == nil {
 		t.Fatal("expected assembly error for empty trust store")
 	}
@@ -885,35 +900,33 @@ func TestServeEvidenceOnListener_AssemblyError(t *testing.T) {
 }
 
 func TestServeEvidenceOnListener_ServeError(t *testing.T) {
-	_, trustDir, _, _ := serveTestFixtures(t)
+	f := serveTestFixtures(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = ln.Close() // Serve on a closed listener fails via errCh.
-	err = (&Service{}).ServeEvidenceOnListener(context.Background(), ln, ServeOptions{
-		TrustPath: trustDir, BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix,
-	})
-	if err == nil {
+	if err := (&Service{}).ServeEvidenceOnListener(context.Background(), ln, f.serveOptions()); err == nil {
 		t.Error("expected serve error on a closed listener")
 	}
 }
 
 func TestServeEvidence_ListenAndCancel(t *testing.T) {
-	_, trustDir, _, _ := serveTestFixtures(t)
+	f := serveTestFixtures(t)
 	svc := &Service{}
 
 	// Invalid port -> listen error.
-	if err := svc.ServeEvidence(context.Background(), ServeOptions{Port: -1, TrustPath: trustDir, BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix}); err == nil {
+	opts := f.serveOptions()
+	opts.Port = -1
+	if err := svc.ServeEvidence(context.Background(), opts); err == nil {
 		t.Error("expected listen error for invalid port")
 	}
 
 	// OS-assigned port, cancelled context -> graceful nil.
+	opts.Port = 0
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() {
-		done <- svc.ServeEvidence(ctx, ServeOptions{Port: 0, TrustPath: trustDir, BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix})
-	}()
+	go func() { done <- svc.ServeEvidence(ctx, opts) }()
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	if err := <-done; err != nil {
@@ -921,34 +934,37 @@ func TestServeEvidence_ListenAndCancel(t *testing.T) {
 	}
 }
 
+// Configuration is validated before the server listens, so a misconfigured
+// Evidence Server fails to start rather than accepting evidence it cannot store.
 func TestBuildEvidenceHost_Errors(t *testing.T) {
 	svc := &Service{}
 	ctx := context.Background()
-	// Trust-store error.
-	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: t.TempDir(), BucketURL: "file://" + t.TempDir(), Prefix: DefaultEvidencePrefix}); err == nil {
-		t.Error("expected trust-store error")
+	f := serveTestFixtures(t)
+	digest := "sha256:" + strings.Repeat("a", 64)
+
+	cases := map[string]ServeOptions{
+		"unreadable trust store": {TrustPath: t.TempDir(), Subjects: []string{f.subject}},
+		// No subject at all: there is nowhere to write and nothing to read, and
+		// there is deliberately no catalog-wide discovery to fall back on.
+		"no configured subject": {TrustPath: f.trustDir},
+		// A mutable tag is not a revision: evidence attached to it would silently
+		// change meaning the next time somebody pushed.
+		"mutable tag subject": {TrustPath: f.trustDir, Subjects: []string{"oci://reg.example/team/orders:latest"}},
+		"local path subject":  {TrustPath: f.trustDir, Subjects: []string{"./bundle"}},
+		// Parses as a subject, but no registry client can address it.
+		"unaddressable registry": {TrustPath: f.trustDir, Subjects: []string{"oci://bad host/orders@" + digest}},
 	}
-	_, trustDir, _, _ := serveTestFixtures(t)
-	// Bucket mkdir error: cannot create a directory beneath a regular file.
-	file := filepath.Join(t.TempDir(), "afile")
-	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: trustDir, BucketURL: "file://" + filepath.Join(file, "store"), Prefix: DefaultEvidencePrefix}); err == nil {
-		t.Error("expected bucket mkdir error")
-	}
-	// Bucket open error: an unregistered scheme cannot be opened.
-	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: trustDir, BucketURL: "bogus://x", Prefix: DefaultEvidencePrefix}); err == nil {
-		t.Error("expected bucket open error")
-	}
-	// Invalid prefix: rejected by the store before it opens.
-	if _, _, err := svc.buildEvidenceHost(ctx, ServeOptions{TrustPath: trustDir, BucketURL: "file://" + t.TempDir(), Prefix: "../bad"}); err == nil {
-		t.Error("expected prefix error")
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := svc.buildEvidenceHost(ctx, opts); err == nil {
+				t.Errorf("%s: buildEvidenceHost succeeded, want a configuration error", name)
+			}
+		})
 	}
 }
 
 func TestSendEvidence(t *testing.T) {
-	_, _, envPath, _ := serveTestFixtures(t)
+	envPath := serveTestFixtures(t).envPath
 	svc := &Service{}
 
 	// 2xx. A BASE host URL (the documented form) must be POSTed to the standard

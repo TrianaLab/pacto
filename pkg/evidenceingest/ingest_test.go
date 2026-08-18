@@ -97,9 +97,9 @@ func TestAcceptor_HappyPath(t *testing.T) {
 	if rec.Envelope.ID != "e1" || rec.Compliance == "" {
 		t.Errorf("unexpected record: %+v", rec)
 	}
-	got, _ := a.List(context.Background())
-	if len(got) != 1 {
-		t.Fatalf("store should hold 1 record, got %d", len(got))
+	got := a.List(context.Background())
+	if len(got.Records) != 1 || got.Health.Status != HealthReady {
+		t.Fatalf("store should hold 1 ready record, got %+v", got)
 	}
 }
 
@@ -161,7 +161,11 @@ func TestClassifyAcceptError(t *testing.T) {
 		{"invalid evidence", ErrInvalidEvidence, http.StatusUnprocessableEntity, "invalid_evidence"},
 		{"malformed", fmt.Errorf("%w: %w", ErrMalformedEnvelope, errors.New("bad json")), http.StatusBadRequest, "invalid_envelope"},
 		{"resolution", fmt.Errorf("%w: %w", ErrContractResolution, errors.New("registry.internal:5000 down")), http.StatusBadGateway, "contract_resolution_failed"},
-		{"store write", fmt.Errorf("%w: %w", ErrStoreWrite, errors.New("file:///secret/bucket?token=abc")), http.StatusServiceUnavailable, "store_degraded"},
+		{"store write", fmt.Errorf("%w: %w", ErrStoreWrite, errors.New("registry.internal:5000/secret?token=abc")), http.StatusServiceUnavailable, "store_degraded"},
+		// Both are wrapped by ErrStoreWrite at the call site, and both must still
+		// classify as the retryable environment problem they are.
+		{"registry unavailable", fmt.Errorf("%w: %w", ErrStoreWrite, ErrRegistryUnavailable), http.StatusServiceUnavailable, "registry_unavailable"},
+		{"registry incomplete", fmt.Errorf("%w: %w", ErrStoreWrite, ErrRegistryIncomplete), http.StatusServiceUnavailable, "registry_incomplete"},
 		{"unknown", errors.New("surprise"), http.StatusInternalServerError, "internal_error"},
 		// An auth error wrapped inside a decode wrapper still classifies as auth.
 		{"auth wins over wrapper", fmt.Errorf("%w: %w", ErrMalformedEnvelope, evidenceenvelope.ErrUnsignedEnvelope), http.StatusUnauthorized, "unauthorized_producer"},
@@ -262,9 +266,13 @@ func TestMemoryStore_Commit(t *testing.T) {
 	if err := m.Commit(ctx, rec("d", 1, "q", "s3")); err != nil {
 		t.Errorf("a different producer starts fresh: %v", err)
 	}
-	got, err := m.List(ctx)
-	if err != nil || len(got) != 3 {
-		t.Fatalf("list: %d recs err=%v", len(got), err)
+	got := m.List(ctx)
+	if len(got.Records) != 3 || got.Health.Status != HealthReady {
+		t.Fatalf("list: %+v", got)
+	}
+	// A store with no subject set narrows nothing; the ref policy is the only gate.
+	if err := m.AuthorizeSubject("anything"); err != nil {
+		t.Errorf("memory store should authorize any ref, got %v", err)
 	}
 }
 
@@ -297,7 +305,7 @@ func TestHandler_HTTP(t *testing.T) {
 	store := NewMemoryStore()
 	a, priv := newTestAcceptor(t, fakeResolver{}, store)
 	var refreshed int
-	h := NewHandler(a, []string{"env-a", "env-b"}, func() { refreshed++ }, nil, nil)
+	h := NewHandler(a, []string{"env-a", "env-b"}, func() { refreshed++ }, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
@@ -327,7 +335,7 @@ func TestHandler_HTTP(t *testing.T) {
 func TestHandler_Ready(t *testing.T) {
 	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
 	ready := false
-	h := NewHandler(a, nil, nil, func() bool { return ready }, nil)
+	h := NewHandler(a, nil, nil, func() bool { return ready })
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
@@ -351,7 +359,7 @@ func TestHandler_Targets(t *testing.T) {
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(a, nil, nil, nil, nil)
+	h := NewHandler(a, nil, nil, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
@@ -362,7 +370,7 @@ func TestHandler_Targets(t *testing.T) {
 	if body.SchemaVersion != TargetsSchemaVersion {
 		t.Errorf("schemaVersion = %q, want %q", body.SchemaVersion, TargetsSchemaVersion)
 	}
-	if body.Health.Phase != "ready" || body.Truncated {
+	if body.Health.Status != HealthReady || body.Truncated {
 		t.Errorf("default health/truncated: %+v truncated=%v", body.Health, body.Truncated)
 	}
 	if len(body.Targets) != 1 {
@@ -410,9 +418,13 @@ func TestHandler_TargetsFindingsCapAndHealth(t *testing.T) {
 	if err := store.Commit(context.Background(), rec); err != nil {
 		t.Fatal(err)
 	}
-	a := NewAcceptor(nil, fakeResolver{}, store, fixedNow)
-	health := func() SourceHealth { return SourceHealth{Phase: "degraded", PendingRepair: true, Corruptions: 2} }
-	h := NewHandler(a, nil, nil, nil, health)
+	// The health block comes back from the SAME read that produced the targets, so
+	// the DTO can never describe a read it did not perform.
+	partial := healthStore{
+		recs:   store.List(context.Background()).Records,
+		health: SourceHealth{Status: HealthPartial, Subjects: 3, FailedSubjects: 1, InvalidArtifacts: 2},
+	}
+	h := NewHandler(NewAcceptor(nil, fakeResolver{}, partial, fixedNow), nil, nil, nil)
 
 	orig := maxFindingsPerTarget
 	maxFindingsPerTarget = 1
@@ -425,7 +437,7 @@ func TestHandler_TargetsFindingsCapAndHealth(t *testing.T) {
 
 	var body TargetsResponse
 	getJSON(t, srv.URL+"/api/evidence/v1/targets", &body)
-	if body.Health.Phase != "degraded" || !body.Health.PendingRepair || body.Health.Corruptions != 2 {
+	if body.Health != (SourceHealth{Status: HealthPartial, Subjects: 3, FailedSubjects: 1, InvalidArtifacts: 2}) {
 		t.Errorf("store health not surfaced: %+v", body.Health)
 	}
 	if !body.Truncated {
@@ -436,14 +448,24 @@ func TestHandler_TargetsFindingsCapAndHealth(t *testing.T) {
 	}
 }
 
-func TestHandler_TargetsError(t *testing.T) {
-	a := NewAcceptor(nil, fakeResolver{}, failStore{err: errors.New("read error")}, fixedNow)
-	h := NewHandler(a, nil, nil, nil, nil)
+// TestHandler_TargetsUnavailable is the DTO's reason to exist: a store nobody
+// could read must NOT be served as 200 with an empty target list, or every
+// external environment silently reads as gone rather than as unobserved.
+func TestHandler_TargetsUnavailable(t *testing.T) {
+	store := healthStore{health: SourceHealth{Status: HealthUnavailable, Subjects: 2, FailedSubjects: 2}}
+	h := NewHandler(NewAcceptor(nil, fakeResolver{}, store, fixedNow), nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/evidence/v1/targets", nil)
 	w := httptest.NewRecorder()
 	h.handleTargets(w, req)
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("list error should be 500, got %d", w.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unreadable store should be 503, got %d", w.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["code"] != "registry_unavailable" {
+		t.Errorf("code = %q, want registry_unavailable", body["code"])
 	}
 }
 
@@ -500,7 +522,7 @@ func (brokenReader) Read([]byte) (int, error) { return 0, errors.New("read failu
 
 func TestHandler_BodyReadError(t *testing.T) {
 	a, _ := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
-	h := NewHandler(a, nil, nil, nil, nil)
+	h := NewHandler(a, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/evidence/v1/envelopes", brokenReader{})
 	w := httptest.NewRecorder()
 	h.handleEnvelope(w, req)
@@ -509,17 +531,25 @@ func TestHandler_BodyReadError(t *testing.T) {
 	}
 }
 
-// failStore errors on Commit and List to cover the acceptor/source error paths.
-type failStore struct{ err error }
+// healthStore serves a fixed read health (and optional records) and fails Commit
+// with a fixed error, covering the fail-closed read and write paths.
+type healthStore struct {
+	err    error
+	health SourceHealth
+	recs   []Record
+}
 
-func (f failStore) Commit(context.Context, Record) error   { return f.err }
-func (f failStore) List(context.Context) ([]Record, error) { return nil, f.err }
+func (f healthStore) AuthorizeSubject(string) error        { return nil }
+func (f healthStore) Commit(context.Context, Record) error { return f.err }
+func (f healthStore) List(context.Context) ListResult {
+	return ListResult{Records: f.recs, Health: f.health}
+}
 
 func TestAcceptor_StoreError(t *testing.T) {
 	pub, priv := testKeypair()
-	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a"}}, fakeResolver{}, failStore{err: errors.New("disk full")}, fixedNow)
-	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err == nil {
-		t.Error("store Commit error should propagate")
+	a := NewAcceptor(evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a"}}, fakeResolver{}, healthStore{err: errors.New("push rejected")}, fixedNow)
+	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); !errors.Is(err, ErrStoreWrite) {
+		t.Errorf("store Commit error should wrap ErrStoreWrite, got %v", err)
 	}
 }
 
@@ -594,11 +624,99 @@ func TestOCIRefHelpers(t *testing.T) {
 	}
 }
 
-func TestSource_CollectError(t *testing.T) {
-	src := NewSource("s", failStore{err: errors.New("read error")})
-	if _, err := src.Collect(context.Background()); err == nil {
-		t.Error("store List error should propagate")
+// TestSource_CollectUnavailable: an unreadable store is a source ERROR, so the
+// snapshot records the source as unavailable — never as an empty environment.
+func TestSource_CollectUnavailable(t *testing.T) {
+	src := NewSource("s", healthStore{health: SourceHealth{Status: HealthUnavailable, Subjects: 2, FailedSubjects: 2}})
+	_, err := src.Collect(context.Background())
+	if !errors.Is(err, ErrRegistryUnavailable) {
+		t.Fatalf("unreadable store should error, got %v", err)
 	}
+	if !strings.Contains(err.Error(), "2 of 2 contract subjects unreadable") {
+		t.Errorf("error should carry the sanitized reason, got %q", err)
+	}
+}
+
+// TestSource_CollectPartial: a partly-read store keeps what it read and says so,
+// so absence within it is explicitly non-authoritative.
+func TestSource_CollectPartial(t *testing.T) {
+	rec := Record{Envelope: evidenceenvelope.Envelope{
+		ID: "e1", Producer: evidenceenvelope.Producer{ID: "env-a"},
+		EvidenceSet: evidence.EvidenceSet{Subject: evidence.SubjectRef{Kind: "service", Name: "payments"}},
+	}}
+	src := NewSource("s", healthStore{
+		recs:   []Record{rec},
+		health: SourceHealth{Status: HealthPartial, Subjects: 2, FailedSubjects: 1, InvalidArtifacts: 1},
+	})
+	col, err := src.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("a partial read must still yield what it read: %v", err)
+	}
+	if len(col.Targets) != 1 {
+		t.Fatalf("targets = %d, want the one record that WAS read", len(col.Targets))
+	}
+	if col.State == nil || col.State.Status != fleet.SourcePartial {
+		t.Errorf("state = %+v, want partial", col.State)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourcePartial {
+		t.Errorf("limitations = %+v, want one SOURCE_PARTIAL", col.Limitations)
+	}
+}
+
+// TestSourceHealth_Reason: the reason names COUNTS only. A registry host,
+// repository or credential in this string would reach every unauthenticated
+// consumer of the DTO.
+func TestSourceHealth_Reason(t *testing.T) {
+	cases := []struct {
+		h    SourceHealth
+		want string
+	}{
+		{SourceHealth{Status: HealthPartial, Subjects: 3, FailedSubjects: 1, InvalidArtifacts: 2},
+			"1 of 3 contract subjects unreadable, 2 invalid evidence artifact(s)"},
+		{SourceHealth{Status: HealthUnavailable, Subjects: 2, FailedSubjects: 2},
+			"2 of 2 contract subjects unreadable"},
+		{SourceHealth{Status: HealthPartial, Subjects: 2, InvalidArtifacts: 1},
+			"1 invalid evidence artifact(s)"},
+		{SourceHealth{Status: HealthReady, Subjects: 1}, `evidence store health "ready"`},
+	}
+	for _, tc := range cases {
+		if got := tc.h.Reason(); got != tc.want {
+			t.Errorf("Reason() = %q, want %q", got, tc.want)
+		}
+	}
+}
+
+// TestAcceptor_StoreRejectsSubject: trust says which refs a producer MAY report
+// on; the store says which the operator actually configured. An authenticated
+// producer reporting on an unconfigured revision is refused BEFORE any fetch.
+func TestAcceptor_StoreRejectsSubject(t *testing.T) {
+	pub, priv := testKeypair()
+	resolver := &countingResolver{}
+	a := NewAcceptor(
+		evidenceenvelope.MapTrustStore{keyID: evidenceenvelope.TrustEntry{PublicKey: pub, ProducerID: "env-a"}},
+		resolver, unconfiguredStore{MemoryStore: NewMemoryStore()}, fixedNow)
+	_, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()))
+	if !errors.Is(err, ErrContractRefPolicy) {
+		t.Fatalf("unconfigured subject should be ErrContractRefPolicy, got %v", err)
+	}
+	if resolver.calls != 0 {
+		t.Errorf("the ref was resolved %d times; an unconfigured subject must never be fetched", resolver.calls)
+	}
+}
+
+type countingResolver struct{ calls int }
+
+func (r *countingResolver) Resolve(context.Context, string) (contract.Contract, error) {
+	r.calls++
+	return contract.Contract{}, nil
+}
+
+// unconfiguredStore rejects every subject, as a store whose configured subject
+// set does not contain the reported ref does.
+type unconfiguredStore struct{ *MemoryStore }
+
+func (unconfiguredStore) AuthorizeSubject(ref string) error {
+	return fmt.Errorf("%w: %q is not a configured evidence subject", ErrContractRefPolicy, ref)
 }
 
 // TestNewAcceptor_DefaultClock covers the now==nil default-clock branch of
@@ -627,7 +745,7 @@ func TestNewAcceptor_DefaultClock(t *testing.T) {
 func TestHandler_NilOnAccept(t *testing.T) {
 	store := NewMemoryStore()
 	a, priv := newTestAcceptor(t, fakeResolver{}, store)
-	h := NewHandler(a, nil, nil, nil, nil) // nil onAccept must not panic
+	h := NewHandler(a, nil, nil, nil) // nil onAccept must not panic
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)

@@ -21,7 +21,7 @@ const evidenceTargetsPath = "/api/evidence/v1/targets"
 // contract, not a hint. It mirrors evidenceingest.TargetsSchemaVersion; the two
 // packages are wired only over the wire, so the constant is duplicated rather
 // than importing across the internal/pkg boundary.
-const evidenceSchemaVersion = "pacto.dev/evidence-source/v1"
+const evidenceSchemaVersion = "pacto.dev/evidence-source/v2"
 
 // maxEvidenceBodyBytes bounds the response body an evidence source reads, so a
 // misbehaving or hostile server cannot exhaust memory. The server already caps
@@ -29,7 +29,8 @@ const evidenceSchemaVersion = "pacto.dev/evidence-source/v1"
 const maxEvidenceBodyBytes = 4 << 20 // 4 MiB
 
 // EvidenceHTTPSource consumes an Evidence Server's read-only Operational Graph
-// contribution over HTTP, WITHOUT touching its durable bucket. It GETs the
+// contribution over HTTP, WITHOUT touching its durable store — the consumer
+// never gets registry credentials or enumerates referrers itself. It GETs the
 // server's /targets projection and maps each accepted target into an external
 // fleet target. A transport failure or non-200 response is returned as an error
 // so [fleet.Build] records the source as unavailable — never as an empty result
@@ -65,9 +66,10 @@ type evidenceTargetsResponse struct {
 	SchemaVersion string    `json:"schemaVersion"`
 	GeneratedAt   time.Time `json:"generatedAt"`
 	Health        struct {
-		Phase         string `json:"phase"`
-		PendingRepair bool   `json:"pendingRepair"`
-		Corruptions   int    `json:"corruptions"`
+		Status           string `json:"status"`
+		Subjects         int    `json:"subjects"`
+		FailedSubjects   int    `json:"failedSubjects"`
+		InvalidArtifacts int    `json:"invalidArtifacts"`
 	} `json:"health"`
 	Truncated bool `json:"truncated"`
 	Targets   []struct {
@@ -88,9 +90,10 @@ type evidenceTargetsResponse struct {
 
 // Collect GETs the server's read-only targets projection and maps each into an
 // external fleet target. Any transport, status or decode failure is returned so
-// the source is recorded as unavailable rather than empty. A degraded or
-// truncated server yields a SourcePartial collection (usable targets kept, the
-// limitation surfaced), never a silently-healthy-looking empty one.
+// the source is recorded as unavailable rather than empty — including the 503 a
+// server returns when it could read none of its configured subjects. A partial
+// or truncated server yields a SourcePartial collection (usable targets kept,
+// the limitation surfaced), never a silently-healthy-looking empty one.
 func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	url := s.baseURL + evidenceTargetsPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -151,9 +154,9 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 		})
 	}
 
-	// A degraded/recovering/corrupt store, or a truncated response, means the
-	// contribution is incomplete: mark the source partial so downstream answers
-	// carry the honesty rather than presenting a full-looking graph.
+	// An unreadable subject, an invalid published artifact or a truncated response
+	// means the contribution is incomplete: mark the source partial so downstream
+	// answers carry the honesty rather than presenting a full-looking graph.
 	if degraded, msg := evidenceDegraded(body); degraded {
 		col.State = &fleet.SourceState{Status: fleet.SourcePartial}
 		col.Limitations = append(col.Limitations, fleet.Limitation{
@@ -164,16 +167,19 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 }
 
 // evidenceDegraded reports whether the server's contribution is incomplete and a
-// sanitized reason. Any non-ready phase, pending repair, known corruptions or a
-// truncated body counts.
+// sanitized reason. Any non-ready status, unreadable subject, invalid published
+// artifact or truncated body counts. The counts are read independently of the
+// status so a server that reports them without downgrading its own status still
+// makes the consumer honest.
 func evidenceDegraded(body evidenceTargetsResponse) (bool, string) {
 	switch {
-	case body.Health.Phase != "" && body.Health.Phase != "ready":
-		return true, fmt.Sprintf("evidence store phase %q", body.Health.Phase)
-	case body.Health.PendingRepair:
-		return true, "evidence store has pending projection repair"
-	case body.Health.Corruptions > 0:
-		return true, fmt.Sprintf("evidence store reported %d corrupt record(s)", body.Health.Corruptions)
+	case body.Health.FailedSubjects > 0:
+		return true, fmt.Sprintf("evidence store could not read %d of %d contract subject(s)",
+			body.Health.FailedSubjects, body.Health.Subjects)
+	case body.Health.InvalidArtifacts > 0:
+		return true, fmt.Sprintf("evidence store reported %d invalid evidence artifact(s)", body.Health.InvalidArtifacts)
+	case body.Health.Status != "" && body.Health.Status != "ready":
+		return true, fmt.Sprintf("evidence store health %q", body.Health.Status)
 	case body.Truncated:
 		return true, "evidence source response was truncated"
 	}

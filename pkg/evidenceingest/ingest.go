@@ -12,7 +12,14 @@
 // with fakes; a thin net/http handler wraps it for the ingestion host. Replay
 // protection lives inside [Store.Commit] — atomic with the durable write — so a
 // failed commit never leaves a phantom reservation. The package stays
-// infrastructure-free (no gocloud); the durable store is wired in by the host.
+// infrastructure-free: it knows nothing about where records are durable, and the
+// host wires that in (in production, the contract registry itself, as OCI 1.1
+// referrers of the contract revision each report is about).
+//
+// Reads are epistemically honest rather than convenient: [Store.List] returns
+// the records it could read TOGETHER with how complete that read was, so an
+// unreadable durable store surfaces as partial or unavailable and never as an
+// authoritative empty operational graph.
 package evidenceingest
 
 import (
@@ -60,6 +67,17 @@ var (
 	ErrMalformedEnvelope  = errors.New("evidence ingest: malformed envelope")
 	ErrContractResolution = errors.New("evidence ingest: contract resolution failed")
 	ErrStoreWrite         = errors.New("evidence ingest: durable store write failed")
+)
+
+// ErrRegistryUnavailable and ErrRegistryIncomplete are why a write failed
+// CLOSED. Replay protection is reconstructed from the durable store on every
+// commit, so a store that cannot be read completely cannot answer "has this
+// already been accepted?" — and a write that proceeded anyway would be a
+// silently-unprotected one. Unavailable is "nobody could look"; incomplete is
+// "something that should be evidence could not be read".
+var (
+	ErrRegistryUnavailable = errors.New("evidence ingest: the evidence store could not be read")
+	ErrRegistryIncomplete  = errors.New("evidence ingest: the evidence store could not be read completely")
 )
 
 // validateContractRef enforces the externally-reported contract-ref policy: an
@@ -156,12 +174,28 @@ type Record struct {
 // commit never reserves an id or sequence (no phantom acceptance). List returns
 // the latest record per target for the fleet projection.
 type Store interface {
+	// AuthorizeSubject reports whether the store will accept evidence about this
+	// contract reference at all. It is checked BEFORE the ref is resolved, so an
+	// authenticated producer cannot make the host fetch a revision the operator
+	// never configured. A rejection wraps [ErrContractRefPolicy].
+	AuthorizeSubject(ref string) error
 	// Commit atomically persists rec and enforces replay protection. It returns
 	// [ErrReplay] when the envelope id was already committed or the producer
-	// sequence is not strictly newer than its highest committed sequence.
+	// sequence is not strictly newer than its highest committed sequence, and
+	// wraps [ErrRegistryUnavailable] or [ErrRegistryIncomplete] when the accepted
+	// history could not be reconstructed well enough to answer that question.
 	Commit(ctx context.Context, rec Record) error
-	// List returns the latest record per target, in deterministic order.
-	List(ctx context.Context) ([]Record, error)
+	// List returns the latest record per target, in deterministic order, together
+	// with how complete the read was. It does not fail: a store that could not be
+	// read reports unavailable health, because an error rendered as an empty list
+	// would claim an environment has no evidence when the truth is nobody looked.
+	List(ctx context.Context) ListResult
+}
+
+// ListResult is what a store could read and what that read is worth.
+type ListResult struct {
+	Records []Record
+	Health  SourceHealth
 }
 
 // ContractResolver resolves an immutable contract ref to its contract, so the
@@ -209,6 +243,13 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	if err := validateContractRef(env.EvidenceSet.ContractRef, entry.ContractRepos); err != nil {
 		return Record{}, err
 	}
+	// Trust says which refs this producer MAY report on; the store says which the
+	// operator actually configured. Both must agree, and the narrower one is
+	// checked before any fetch so an approved producer cannot steer the host at an
+	// unconfigured revision.
+	if err := a.store.AuthorizeSubject(env.EvidenceSet.ContractRef); err != nil {
+		return Record{}, err
+	}
 	c, err := a.resolver.Resolve(ctx, env.EvidenceSet.ContractRef)
 	if err != nil {
 		return Record{}, fmt.Errorf("%w: %w", ErrContractResolution, err)
@@ -238,14 +279,17 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 }
 
 // List returns the latest committed record per target, for the read-only source
-// projection exposed over HTTP.
-func (a *Acceptor) List(ctx context.Context) ([]Record, error) {
+// projection exposed over HTTP, with the health of the read that produced it.
+func (a *Acceptor) List(ctx context.Context) ListResult {
 	return a.store.List(ctx)
 }
 
-// targetKey identifies the operational target an envelope reports on: the
-// producer environment plus the subject service.
-func targetKey(env evidenceenvelope.Envelope) string {
+// TargetKey identifies the operational target a record reports on: the producer
+// environment plus the subject service. Exported so a store can fold records
+// into the latest-per-target projection under the same key the handler and the
+// fleet source use.
+func TargetKey(rec Record) string {
+	env := rec.Envelope
 	return string(fleet.NewTargetKey(env.Producer.ID, "external", env.EvidenceSet.Subject.Name))
 }
 
@@ -290,13 +334,22 @@ func (s *Source) ID() string { return s.id }
 func (s *Source) Kind() string { return "evidence-ingest" }
 
 // Collect implements [fleet.Source], projecting each stored record into a target.
+// A store nobody could read is an error, so the source is recorded as
+// unavailable; a store read only in part keeps the records it did read and says
+// so. Neither ever becomes an authoritative empty environment.
 func (s *Source) Collect(ctx context.Context) (*fleet.Collection, error) {
-	recs, err := s.store.List(ctx)
-	if err != nil {
-		return nil, err
+	res := s.store.List(ctx)
+	if res.Health.Status == HealthUnavailable {
+		return nil, fmt.Errorf("%w: %s", ErrRegistryUnavailable, res.Health.Reason())
 	}
 	col := &fleet.Collection{}
-	for _, rec := range recs {
+	if res.Health.Status == HealthPartial {
+		col.State = &fleet.SourceState{Status: fleet.SourcePartial}
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: fleet.LimitationSourcePartial, Source: s.id, Message: res.Health.Reason(),
+		})
+	}
+	for _, rec := range res.Records {
 		env := rec.Envelope
 		at := env.EvidenceSet.ObservedAt
 		col.Targets = append(col.Targets, fleet.RawTarget{
@@ -323,7 +376,9 @@ func (s *Source) Collect(ctx context.Context) (*fleet.Collection, error) {
 // MemoryStore is an in-memory [Store]: it enforces replay protection (duplicate
 // id and per-producer non-increasing sequence) atomically inside Commit, then
 // keeps the latest record per target key. It is the substrate for tests and any
-// caller that does not need durability across restarts.
+// caller that does not need durability across restarts. It configures no
+// subjects, so it authorizes every policy-valid contract reference; narrowing to
+// an operator-configured subject set is the durable store's job.
 type MemoryStore struct {
 	mu      sync.Mutex
 	seenID  map[string]bool
@@ -336,6 +391,11 @@ type MemoryStore struct {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{seenID: map[string]bool{}, maxSeq: map[string]uint64{}, haveSeq: map[string]bool{}, recs: map[string]Record{}}
 }
+
+// AuthorizeSubject implements [Store]. An in-memory store configures no subject
+// set, so the contract-ref policy [Acceptor.Accept] already enforced is the only
+// gate.
+func (m *MemoryStore) AuthorizeSubject(string) error { return nil }
 
 // Commit implements [Store]: a repeated id, or a producer sequence not strictly
 // greater than its last committed one, is rejected with [ErrReplay]; otherwise
@@ -353,12 +413,13 @@ func (m *MemoryStore) Commit(_ context.Context, rec Record) error {
 	m.seenID[env.ID] = true
 	m.maxSeq[env.Producer.ID] = env.Sequence
 	m.haveSeq[env.Producer.ID] = true
-	m.recs[targetKey(env)] = rec
+	m.recs[TargetKey(rec)] = rec
 	return nil
 }
 
-// List implements [Store] in deterministic target-key order.
-func (m *MemoryStore) List(_ context.Context) ([]Record, error) {
+// List implements [Store] in deterministic target-key order. Memory cannot be
+// half-read, so the health is always ready.
+func (m *MemoryStore) List(_ context.Context) ListResult {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	keys := make([]string, 0, len(m.recs))
@@ -370,7 +431,7 @@ func (m *MemoryStore) List(_ context.Context) ([]Record, error) {
 	for _, k := range keys {
 		out = append(out, m.recs[k])
 	}
-	return out, nil
+	return ListResult{Records: out, Health: SourceHealth{Status: HealthReady}}
 }
 
 // maxSourceTargets bounds the number of targets GET /targets returns so a large
@@ -385,23 +446,20 @@ type Handler struct {
 	acceptor  *Acceptor
 	producers []string
 	onAccept  func()
-	// ready reports whether the backing store has completed recovery. When nil
-	// the host is treated as always ready (e.g. an in-memory store).
+	// ready reports whether the backing store can be reached. When nil the host is
+	// treated as always ready (e.g. an in-memory store).
 	ready func() bool
-	// health reports the store's diagnostic health for the /targets DTO, so a
-	// degraded store is surfaced instead of masquerading as healthy. When nil the
-	// DTO reports a ready, uncorrupted store (the in-memory case).
-	health func() SourceHealth
 }
 
 // NewHandler returns an HTTP handler for the accept pipeline. producers is the
 // list of trusted producer ids to advertise; onAccept (optional) is invoked after
-// a successful accept; ready (optional) gates the /ready probe; health (optional)
-// feeds the /targets DTO's store-health block.
-func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func() bool, health func() SourceHealth) *Handler {
+// a successful accept; ready (optional) gates the /ready probe. Store health is
+// not a separate hook: it comes back from the same read that produced the
+// targets, so the DTO can never describe a read it did not perform.
+func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func() bool) *Handler {
 	sorted := append([]string(nil), producers...)
 	sort.Strings(sorted)
-	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept, ready: ready, health: health}
+	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept, ready: ready}
 }
 
 // EnvelopesPath is the ingestion endpoint a producer POSTs a signed envelope to.
@@ -418,8 +476,8 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 }
 
 func (h *Handler) handleEnvelope(w http.ResponseWriter, r *http.Request) {
-	// Refuse ingestion until the store has recovered: accepting a write against a
-	// not-yet-recovered replay index could re-accept a replayed envelope.
+	// Refuse ingestion until the durable store is reachable: a write cannot be
+	// replay-protected against a history nobody can read.
 	if h.ready != nil && !h.ready() {
 		writeErr(w, http.StatusServiceUnavailable, "store_not_ready", "the evidence store is not ready")
 		return
@@ -453,9 +511,10 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// handleReady is the readiness probe: 503 until the backing store has recovered
-// (ready or degraded), so callers do not route writes to a not-yet-recovered
-// host. A degraded store still serves, so it counts as ready here.
+// handleReady is the readiness probe: 503 until the backing store is reachable,
+// so callers do not route writes at a host that cannot enforce replay
+// protection. Readiness is a liveness-independent signal — a registry outage
+// must take the host out of rotation, never restart the process.
 func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
 	if h.ready != nil && !h.ready() {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready"})
@@ -469,18 +528,54 @@ func (h *Handler) handleProducers(w http.ResponseWriter, _ *http.Request) {
 }
 
 // TargetsSchemaVersion identifies the read-only evidence-source DTO wire model.
-const TargetsSchemaVersion = "pacto.dev/evidence-source/v1"
+// v2 replaced the bucket-recovery health block with the registry-read one below;
+// the version IS the compatibility contract, so a consumer that does not know it
+// must refuse the body rather than misread it.
+const TargetsSchemaVersion = "pacto.dev/evidence-source/v2"
 
 // maxFindingsPerTarget bounds the findings projected per target so one pathological
 // target cannot blow the response body even under the target-count bound.
 var maxFindingsPerTarget = 500
 
-// SourceHealth is the store-health block carried by the /targets DTO so a consumer
-// can tell a degraded or corrupt store from a healthy one.
+// Health states of a durable-store read, in increasing order of doubt.
+const (
+	// HealthReady means every configured subject was read completely: an empty
+	// target list under this status is authoritative.
+	HealthReady = "ready"
+	// HealthPartial means some evidence exists that could not be read. Records
+	// that WERE read are still returned; absence is no longer authoritative.
+	HealthPartial = "partial"
+	// HealthUnavailable means nothing could be read at all.
+	HealthUnavailable = "unavailable"
+)
+
+// SourceHealth is the store-health block carried by the /targets DTO, so a
+// consumer can tell "there is no evidence" from "the evidence could not be read".
 type SourceHealth struct {
-	Phase         string `json:"phase"`
-	PendingRepair bool   `json:"pendingRepair"`
-	Corruptions   int    `json:"corruptions"`
+	Status string `json:"status"`
+	// Subjects is how many contract subjects the server is configured to read.
+	Subjects int `json:"subjects"`
+	// FailedSubjects is how many of them could not be enumerated at all.
+	FailedSubjects int `json:"failedSubjects"`
+	// InvalidArtifacts counts artifacts published as Pacto evidence that could
+	// not be read as a valid record.
+	InvalidArtifacts int `json:"invalidArtifacts"`
+}
+
+// Reason is a sanitized, human-readable summary of why a read is not ready. It
+// names counts only — never a registry host, repository or credential.
+func (h SourceHealth) Reason() string {
+	switch {
+	case h.FailedSubjects > 0 && h.InvalidArtifacts > 0:
+		return fmt.Sprintf("%d of %d contract subjects unreadable, %d invalid evidence artifact(s)",
+			h.FailedSubjects, h.Subjects, h.InvalidArtifacts)
+	case h.FailedSubjects > 0:
+		return fmt.Sprintf("%d of %d contract subjects unreadable", h.FailedSubjects, h.Subjects)
+	case h.InvalidArtifacts > 0:
+		return fmt.Sprintf("%d invalid evidence artifact(s)", h.InvalidArtifacts)
+	default:
+		return fmt.Sprintf("evidence store health %q", h.Status)
+	}
 }
 
 // TargetDTO is a faithful, bounded projection of one accepted target — enough to
@@ -519,11 +614,15 @@ type TargetsResponse struct {
 // consumer builds a faithful target and can tell a degraded store from a healthy
 // one; truncation is signaled explicitly rather than silently dropping targets.
 func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
-	recs, err := h.acceptor.List(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal_error", "could not list targets")
+	res := h.acceptor.List(r.Context())
+	if res.Health.Status == HealthUnavailable {
+		// No subject could be read. Serving 200 with an empty list here is the one
+		// failure mode this DTO exists to prevent: the consumer would record every
+		// external environment as gone rather than as unobserved.
+		writeErr(w, http.StatusServiceUnavailable, "registry_unavailable", "the evidence store could not be read")
 		return
 	}
+	recs := res.Records
 	truncated := false
 	if len(recs) > maxSourceTargets {
 		recs, truncated = recs[:maxSourceTargets], true
@@ -550,14 +649,10 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 			AcceptedAt:    rec.AcceptedAt,
 		})
 	}
-	health := SourceHealth{Phase: "ready"}
-	if h.health != nil {
-		health = h.health()
-	}
 	writeJSON(w, http.StatusOK, TargetsResponse{
 		SchemaVersion: TargetsSchemaVersion,
 		GeneratedAt:   time.Now().UTC(),
-		Health:        health,
+		Health:        res.Health,
 		Truncated:     truncated,
 		Targets:       out,
 	})
@@ -585,6 +680,13 @@ func classifyAcceptError(err error) (int, string, string) {
 		return http.StatusBadRequest, "invalid_envelope", "the envelope could not be decoded"
 	case errors.Is(err, ErrContractResolution):
 		return http.StatusBadGateway, "contract_resolution_failed", "the referenced contract could not be resolved"
+	// Both are checked before ErrStoreWrite, which wraps them: a write that failed
+	// because replay protection could not be reconstructed is a retryable
+	// environment problem, not a rejection of this report.
+	case errors.Is(err, ErrRegistryUnavailable):
+		return http.StatusServiceUnavailable, "registry_unavailable", "the evidence store could not be read"
+	case errors.Is(err, ErrRegistryIncomplete):
+		return http.StatusServiceUnavailable, "registry_incomplete", "the evidence store could not be read completely"
 	case errors.Is(err, ErrStoreWrite):
 		return http.StatusServiceUnavailable, "store_degraded", "the evidence store could not durably commit the record"
 	default:

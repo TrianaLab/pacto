@@ -33,19 +33,17 @@ var (
 
 // FleetOptions configures how a fleet snapshot is assembled from sources. Local
 // bundle roots supply contract revisions; target-state fixture files supply
-// operational targets for cluster-free demos and tests; evidence-store
-// directories supply accepted-evidence targets ingested from remote producers.
-// Additional source kinds (OCI, live Kubernetes) attach here without changing
-// callers.
+// operational targets for cluster-free demos and tests; Evidence Server URLs
+// supply accepted-evidence targets ingested from remote producers. Additional
+// source kinds (OCI, live Kubernetes) attach here without changing callers.
 type FleetOptions struct {
 	LocalRoots       []string
 	TargetStateFiles []string
-	// EvidenceStores are directories of accepted-evidence records (as written by
-	// the ingestion host); each becomes a fleet source of external targets.
-	EvidenceStores []string
 	// EvidenceURLs are base URLs of Evidence Servers whose read-only Operational
 	// Graph contribution is consumed over HTTP; each becomes a fleet source of
-	// external targets without touching the server's durable bucket.
+	// external targets. This is the ONLY way to read accepted evidence: the
+	// records live in the contract registry, and only the Evidence Server holds
+	// the credentials and the verification logic that make them meaningful.
 	EvidenceURLs []string
 	// ObservationSources are offline OTLP/JSON trace files supplying
 	// runtime-observed dependency edges; each becomes an observation source whose
@@ -84,13 +82,6 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	}
 	for i, path := range opts.TargetStateFiles {
 		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
-	}
-	for i, dir := range opts.EvidenceStores {
-		id := sourceID("evidence-store", i, len(opts.EvidenceStores))
-		// The durable source opens and recovers the bucket lazily in Collect, so an
-		// unopenable/unrecoverable store surfaces as an unavailable-source
-		// limitation (via a Collect error) rather than aborting the snapshot build.
-		sources = append(sources, newDurableEvidenceSource(id, dir))
 	}
 	for i, url := range opts.EvidenceURLs {
 		id := sourceID("evidence-http", i, len(opts.EvidenceURLs))

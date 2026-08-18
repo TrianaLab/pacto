@@ -91,12 +91,6 @@ func TestService_Fleet_SourceIDsMustBeUniqueAcrossTheWholeFleet(t *testing.T) {
 			want: `"evidence-http" is claimed by evidence-http and observation`,
 		},
 		{
-			name: "evidence store on disk",
-			id:   "evidence-store",
-			opts: FleetOptions{EvidenceStores: []string{t.TempDir()}},
-			want: `"evidence-store" is claimed by evidence-ingest and observation`,
-		},
-		{
 			name: "local bundle root",
 			id:   "local",
 			opts: FleetOptions{LocalRoots: []string{t.TempDir()}},

@@ -234,61 +234,45 @@ type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("write fail") }
 
-func TestEvidenceInspect_TextJSONAndRedaction(t *testing.T) {
-	dir := t.TempDir()
-	// Empty store recovers to ready. --store-dir aliases --bucket-url file://.
-	out, err := runEvidence(t, "evidence", "inspect", "--store-dir", dir)
-	if err != nil {
-		t.Fatalf("inspect: %v", err)
-	}
-	if !strings.Contains(out, "Evidence store (file,") || !strings.Contains(out, "phase:") || !strings.Contains(out, "records:") {
-		t.Errorf("text output missing fields: %q", out)
-	}
-
-	out, err = runEvidence(t, "evidence", "inspect", "--bucket-url", "file://"+dir, "--output-format", "json")
-	if err != nil {
-		t.Fatalf("inspect json: %v", err)
-	}
-	if !strings.Contains(out, `"backend"`) || !strings.Contains(out, `"phase"`) {
-		t.Errorf("json output missing fields: %q", out)
-	}
-	// Redaction: the raw bucket path / scheme URL must never appear in any output.
-	if strings.Contains(out, dir) || strings.Contains(out, "file://") {
-		t.Errorf("inspect leaked the raw bucket URL: %q", out)
-	}
-
-	// An unopenable bucket surfaces as an error.
-	if _, err := runEvidence(t, "evidence", "inspect", "--bucket-url", "bogus://x"); err == nil {
-		t.Error("expected an error for an unopenable bucket")
-	}
-}
+// testSubject is a syntactically exact contract revision. The registry holding it
+// is never contacted here: serve builds its store without any network I/O, so
+// these tests are about the command wiring, not about reachability.
+const testSubject = "oci://reg.example/team/orders@sha256:" +
+	"1111111111111111111111111111111111111111111111111111111111111111"
 
 func TestEvidenceServe_RequiresFlags(t *testing.T) {
-	// --trust is required; --bucket-url and --prefix have defaults.
+	dir, _, _ := setup(t)
+	// Both --trust and --subject are required: there is no default trust store and
+	// no default evidence location to fall back to.
 	if _, err := runEvidence(t, "evidence", "serve"); err == nil {
-		t.Error("expected required-flag error (--trust)")
+		t.Error("expected required-flag error (--trust, --subject)")
+	}
+	if _, err := runEvidence(t, "evidence", "serve", "--trust", dir); err == nil {
+		t.Error("expected required-flag error (--subject)")
 	}
 }
 
 func TestEvidenceServe_ListenError(t *testing.T) {
 	dir, _, _ := setup(t)
-	if _, err := runEvidence(t, "evidence", "serve", "--port", "-1", "--trust", dir, "--bucket-url", "file://"+t.TempDir()); err == nil {
+	if _, err := runEvidence(t, "evidence", "serve", "--port", "-1", "--trust", dir, "--subject", testSubject); err == nil {
 		t.Error("expected listen error for invalid port")
 	}
 	// --listen-address supersedes --port and is exercised on the same error path.
 	// A value with no port is rejected by net.Listen without any DNS lookup.
-	if _, err := runEvidence(t, "evidence", "serve", "--listen-address", "missing-port", "--trust", dir, "--bucket-url", "file://"+t.TempDir()); err == nil {
+	if _, err := runEvidence(t, "evidence", "serve", "--listen-address", "missing-port", "--trust", dir, "--subject", testSubject); err == nil {
 		t.Error("expected listen error for bad listen-address")
 	}
 }
 
 func TestEvidenceServe_GracefulShutdown(t *testing.T) {
 	dir, _, _ := setup(t)
-	// --store-dir is the deprecated alias; it maps to a file:// bucket and warns.
-	storeDir := filepath.Join(t.TempDir(), "store")
 
 	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "dev"})
-	root.SetArgs([]string{"evidence", "serve", "--port", "0", "--trust", dir, "--store-dir", storeDir})
+	// Two --subject values: the flag is repeatable, and a host serving several
+	// contract revisions is the normal case, not the exotic one.
+	root.SetArgs([]string{"evidence", "serve", "--port", "0", "--trust", dir,
+		"--subject", testSubject,
+		"--subject", "oci://reg.example/team/payments@sha256:" + strings.Repeat("2", 64)})
 	root.SetOut(&bytes.Buffer{})
 	var stderr bytes.Buffer
 	root.SetErr(&stderr)
@@ -304,8 +288,15 @@ func TestEvidenceServe_GracefulShutdown(t *testing.T) {
 	if !strings.Contains(stderr.String(), "listening on http://") {
 		t.Errorf("expected listening message, got %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "--store-dir is deprecated") {
-		t.Errorf("expected deprecation warning, got %q", stderr.String())
+}
+
+func TestEvidenceServe_RejectsAMutableSubject(t *testing.T) {
+	dir, _, _ := setup(t)
+	// A tag can be moved onto another manifest, so evidence stored against one
+	// would silently change what it reports on. Only an exact digest is a subject.
+	if _, err := runEvidence(t, "evidence", "serve", "--port", "0", "--trust", dir,
+		"--subject", "oci://reg.example/team/orders:1.0.0"); err == nil {
+		t.Error("expected a rejection of the mutable tag subject")
 	}
 }
 

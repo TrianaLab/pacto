@@ -3,20 +3,10 @@ package main
 import (
 	"os"
 	"os/exec"
-	"reflect"
 	"syscall"
 	"testing"
 	"time"
 )
-
-func TestSplitCSV(t *testing.T) {
-	if got := splitCSV(" a , ,b,c "); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
-		t.Errorf("splitCSV = %#v", got)
-	}
-	if got := splitCSV(""); got != nil {
-		t.Errorf("splitCSV(\"\") = %#v, want nil", got)
-	}
-}
 
 func TestRun_InsecureRegistriesEnv(t *testing.T) {
 	t.Setenv("PACTO_INSECURE_REGISTRIES", "reg.local:5000, other:5001")
