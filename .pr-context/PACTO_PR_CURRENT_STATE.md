@@ -5879,3 +5879,332 @@ a CANDIDATE and is closed only by a later independent review.
 Phase 11 must not start while Phase 10C is only a candidate. The PR remains an
 open draft, and the append-only/no-history-rewrite and independent-review
 protocol continues unchanged.
+
+## 16.1 Phase 10C implementation — CANDIDATE at `a79aa9fa`
+
+The commission of section 16, implemented end to end: the custom evidence
+persistence engine is gone and every accepted evidence record is an OCI 1.1
+referrer of the exact immutable contract digest in `EvidenceSet.ContractRef`.
+The configured contract registry is the only durable evidence store. The
+Evidence Server keeps the boundary work — strict decoding, Ed25519
+verification, producer/subject/contract authorization, contract evaluation,
+producer-global replay protection, latest-target projection, bounded findings
+and targets, and the Dashboard/Fleet/CLI DTOs — and keeps nothing else.
+
+There is no hybrid period, no dual write, no bucket fallback and no migrator.
+
+Phase 10C remains a CANDIDATE. A phase is closed by review, not by its author.
+Sections 1 through 16 are unchanged, `PACTO_PR_TARGET_STATE.md` was not touched,
+no PR comment was published, no review thread was resolved, no PR metadata was
+changed, the PR is still an open draft, and Phase 11 is NOT started.
+
+### Range
+
+Starting point `9d2e1a43d3004f2230ed425fa04f0dec2765e050`, the branch head
+carrying the section 16 commission. Final SHA
+`a79aa9faa522e85a19e75688673e5e00de492c90`. `9d2e1a43` is an ancestor of
+`a79aa9fa`; the range is exactly fifteen linear commits, each parented on the
+previous one. 83 files, +4906 / -3946. No rebase, amend, reset, force-push,
+squash or rewrite. `origin/main` is still
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d` and was not touched.
+
+| SHA | Subject |
+|---|---|
+| `2dbf535a` | feat(evidence): an evidence record is an OCI referrer of its contract revision |
+| `dd3960a3` | feat(evidence): read every evidence referrer of a contract revision, or fail |
+| `02d65c85` | feat(evidence): one serialized commit, over history re-read from the registry |
+| `ac5ed605` | feat(evidence)!: the Evidence Server is the boundary, the registry is the store |
+| `80471a2b` | feat(operator)!: evidence subjects replace the evidence bucket |
+| `7c6bb31f` | test(acceptance): the store is a plain OCI registry, and ORAS says so |
+| `5788b345` | docs: evidence lives in the registry, and nothing claims otherwise |
+| `7134530d` | style(operator): preallocate the evidence serve argv |
+| `d1c7779e` | test(chart): the no-subject gate reads the same on either schema validator |
+| `8d94a350` | fix(acceptance): read either shape `oras discover --format json` emits |
+| `5a84abb4` | fix(acceptance): the cluster projection also names the evidence subjects |
+| `b2749076` | fix(scenario): the seed cannot wait for readiness only the seed can cause |
+| `48b5f73f` | fix(acceptance): the recreate keeps the completed-dependency declaration |
+| `12e367e4` | build(k8s): lint with its own analysis cache |
+| `a79aa9fa` | fix(acceptance): tell ORAS the absolute attach paths are deliberate |
+
+New packages and files:
+
+| Path | What it is |
+|---|---|
+| `internal/evidenceoci/artifact.go` | the versioned artifact codec: deterministic manifest and payload construction, strict validation of layer count, media types, schema, size and subject identity |
+| `internal/evidenceoci/subject.go` | exact `oci://...@sha256:<64 lowercase hex>` subject parsing and the non-empty deduplicated configured set |
+| `internal/evidenceoci/repository.go` | the `oras-go/v2` transport, Pacto's existing credential policy, and the refusal to enable the legacy referrers-tag capability |
+| `internal/evidenceoci/scan.go` | complete Referrers pagination, classification by the manifest's own artifactType, partial-read accounting |
+| `internal/evidenceoci/store.go` | the serialized logical commit: scan every subject, reconstruct duplicate-id and max-sequence state, publish, confirm read-after-write |
+| `internal/testutil/ocireferrers.go` | the protocol-faithful paginated Referrers server the unit tests drive |
+| `docs/evidence-oci-storage.md` | the OCI evidence operations page that replaced the storage-and-recovery page |
+
+Modified, by area: `internal/app` and `internal/cli` (repeatable
+`--subject`, the removal of the bucket flags and of `pacto evidence inspect`),
+`pkg/evidenceingest`, `internal/fleetsrc`, `pkg/oci`, `cmd/pacto`,
+`integrations/kubernetes/internal/evidence` and its chart templates, values,
+schema, unit tests and generated reference, `tests/acceptance/scenario`,
+`tests/acceptance/kind`, `tests/acceptance/local`, `tests/architecture`, the
+protocol/security/operational-graph/Compose/upgrade documentation, `go.mod` and
+`go.sum`.
+
+### Architecture, mapped to the approved design
+
+1. **Exact subjects, non-empty and deduplicated.** `subject.go` accepts only
+   `oci://<repo>@sha256:<64 lowercase hex>`; the configured set is required to
+   be non-empty and is deduplicated on load. Helm's `evidence.registry.subjects`
+   carries `minItems: 1` in the values schema.
+2. **Everything else refused.** Mutable tags, local paths, image subjects,
+   unconfigured subjects, inferred repositories and catalog-wide discovery are
+   all rejected at parse or lookup time. There is no code path that discovers a
+   subject the operator did not configure.
+3. **`oras.land/oras-go/v2`** is the only registry client: artifact
+   construction and publication, transport, native Referrers enumeration and
+   complete pagination.
+4. **Exact media types.** `artifactType` and the single payload layer are both
+   `application/vnd.pacto.evidence.record.v1+json`; the payload is the strict
+   `pacto.dev/evidence-record/v1` schema, decoded with `pkg/strictjson` so an
+   unknown field or trailing JSON is an error.
+5. **One layer, one exact subject.** `ValidateManifest` requires exactly one
+   payload layer and a subject descriptor whose digest equals the configured
+   subject's, and rejects wrong schemas, wrong media types, oversized payloads,
+   mismatched contract identity and malformed Pacto artifacts.
+6. **One credential policy.** The transport reuses Pacto's existing OCI
+   credential resolution. No second login command, credential file or
+   registry-auth model was added.
+7. **The serialized logical commit.** Verify and evaluate; take the
+   process-wide mutex; enumerate every Referrers page of every configured
+   subject; reconstruct duplicate-id and maximum-sequence state; reject replay
+   globally across subjects; publish one untagged artifact; confirm it is
+   discoverable through native Referrers; only then return the accepted
+   response. The ingestion request and accepted response are unchanged.
+8. **Fail closed.** Incomplete, unsupported, malformed or unavailable discovery
+   fails the write and marks the read partial or unavailable. The legacy
+   referrers-tag fallback is never enabled.
+9. **One writer.** One replica and the `Recreate` strategy, asserted in the
+   chart unit tests and in the Kind acceptance. No distributed locking was
+   invented.
+10. **Honest health.** The v2 `/targets` DTO carries `ready`, `partial` and
+    `unavailable`, with `subjects`, `failedSubjects` and `invalidArtifacts`
+    counts. Unavailable evidence is never rendered as authoritative emptiness.
+11. **The Dashboard stays behind the HTTP DTO.** It was given no registry
+    access and no credentials.
+
+Helm exposes exactly `evidence.registry.subjects` (required) and
+`evidence.registry.credentialsSecret` (optional, an existing Docker config
+Secret, mounted read-only, never rendered into generated output). Compose lost
+the Evidence Server data volume and `--bucket-url` and kept the registry and
+trust/key volumes.
+
+### Deletion audit
+
+Deleted outright: `pkg/evidencestore/{store,blob,drivers}.go` and their tests,
+`internal/app/evidencestore.go` and its test, `cmd/pacto/blob_drivers.go`,
+`docs/evidence-storage-recovery.md`. With them went the bucket append logs and
+materialized manifests, the recovery/repair/cold-start machinery, the
+`file://`/S3/GCS/Azure configuration, the bucket URL and prefix flags,
+`pacto evidence inspect`, the evidence PVC reconciliation, its RBAC, values and
+mounts, the Evidence Server data volumes and gocloud temporary volumes, and the
+provider-specific blob-driver registration.
+
+Audited on the final tree: `gocloud.dev` appears in neither `go.mod`, `go.sum`,
+the Kubernetes module's `go.mod`/`go.sum`, nor `go list -m all`. A tree-wide
+search for `gocloud.dev`, `evidencestore`, `bucket-url` and `evidence inspect`
+returns three classes of hit and nothing else: a NEGATIVE assertion in
+`tests/acceptance/scenario/compose_test.go` that the projected command must not
+contain `--bucket-url`; the historical status log in
+`docs/architecture/dashboard-redesign-plan.md`, whose storage ADR is annotated
+as superseded rather than rewritten; and the design spec and this ledger, which
+are records rather than claims about the tree.
+
+No migrator ships. No existing PVC is deleted automatically; manual retirement
+after any desired backup is documented. A fresh installation creates no
+evidence PVC and no bucket resource, asserted by the Kind acceptance and by a
+chart unit test.
+
+### RED, GREEN and mutation evidence
+
+Each behavioural commit introduced its tests with the behaviour, red-green-
+refactor, inside the repository's existing test taxonomy; the durable proof
+kept for this record is the mutation table below rather than verbatim RED
+transcripts, which were not preserved as files for the earliest commits.
+
+Permanent coverage now includes: deterministic artifact and payload
+construction; exact immutable subject binding; strict JSON, schema, layer,
+media-type and size validation; complete Referrers pagination against a
+protocol-faithful paginated server and against a real registry with a small
+page size; unrelated artifact types ignored; malformed Pacto artifacts making
+reads partial and writes fail closed; producer-global replay across different
+contract subjects; duplicate envelope ids; in-process concurrent ingestion
+serialization; latest-target ordering and the existing bounds; every existing
+credential source with no secret leakage; native Referrers absence failing
+closed; non-empty exact subject configuration; read-after-write
+discoverability; ORAS discovery of Pacto-published artifacts; Pacto ingestion of
+an equivalent ORAS-published artifact; restart with no local evidence
+directory; registry unavailability distinguished from an authoritative empty
+state; a Helm installation producing no evidence PVC; Helm and Compose
+projecting the same canonical subjects; and unchanged Product facts and browser
+journeys.
+
+Six mutations were applied, observed to fail a permanent test, and reverted:
+
+| Mutation | What bit |
+|---|---|
+| M1 remove the exact-subject comparison | `TestValidateManifest_Rejects/foreign_subject`: `error = <nil>, want ErrInvalidArtifact` |
+| M2 stop after the first Referrers page | `TestScanSubject_FollowsEveryPage`: `read 2 records across pages, want 7` |
+| M3 relax producer sequence ordering | three independent failures: `TestStore_ReplayIsProducerGlobalAcrossSubjects`, `TestStore_ConcurrentCommitsSerialize` (`6 of 6 concurrent commits on the same sequence were accepted, want exactly 1`) and `TestStore_ReplayProtectionSpansEveryPage` |
+| M4 enable the legacy referrers-tag fallback | `TestScanSubject_FailsClosedWithoutReferrersAPI`: `scanning a registry with no Referrers API succeeded; it must fail closed` |
+| M5 reintroduce an evidence PVC | `TestDeploymentAC_MountsNothingWritable`: `expected only the trust mount, got map[data:/var/lib/pacto/evidence trust:/etc/pacto/trust]` |
+| M6 trust only the listing descriptor's artifactType | `TestScanSubject_ClassifiesByManifestNotListingDescriptor`: `read 0 records, want 2 even though the listing mislabels them` |
+
+M5 is the one that found a second defect. Its Go half bit immediately, but the
+chart half passed 11 of 11: helm-unittest 1.0.3 populates the raw document only
+for non-YAML renders, so `notMatchRegexRaw` on a Deployment or a ClusterRole
+asserts nothing. Probed directly, an assertion that a ClusterRole does NOT match
+`ClusterRole` also passed. Five call sites were vacuous — two written in this
+phase and three pre-existing in `deployment_test.yaml` — and all five were
+replaced with forms proven to bite (`notMatchRegex` over an args or env path,
+`notExists` over a JSONPath selecting the resource). With the repaired gate the
+M5 chart mutation fails `asserts[0] notExists fail`. Both halves reverted; the
+chart suite is green at 63 of 63.
+
+### Local verification, all green
+
+`make ci` (exit 0; engine and Kubernetes module both at 100.0% total coverage,
+race detector on, zero lint issues, `check-section` clean);
+`make artifact-drift` (exit 0); `make release-dry-run`
+(`K8S-MODULE-STANDALONE OK`, `RELEASE-DRY-RUN OK`);
+`make test-acceptance-compose-selftest` (all thirteen ownership cases,
+`SELFTEST OK`); `make test-browser-compose` in full, including the live
+Playwright Product journeys against the published demo and the Evidence Server
+recreate stage (`clone-free Compose demo acceptance PASSED`);
+`make test-acceptance-kind-evidence` (32 PASS, exit 0, every ORAS
+interoperability leg included); `make test-acceptance-kind-operational-graph`
+with the live browser leg (11 PASS, exit 0); `make test-acceptance-local`
+(`operational-graph acceptance PASSED`); `make test-browser` (219 passed);
+`govulncheck ./...` (`No vulnerabilities found`); `git diff --check` clean;
+`make check-section` (zero U+00A7); `bash -n` and `shellcheck` on the changed
+harnesses.
+
+Four failures were found and fixed locally before the final push, and are worth
+recording because three of them were the harness and one was the demo:
+
+- The ORAS CLI keys `discover --format json` differently across versions —
+  `manifests` in 1.2, `referrers` in 1.3 — and CI installs whichever
+  `setup-oras` resolves to. The observer now reads both.
+- The Kind operational-graph harness installed the chart without
+  `evidence.registry.subjects` and the schema's `minItems` refused the release.
+  The cluster projection now emits those values from the same digest map that
+  pins the CRs.
+- The Compose demo deadlocked: readiness needs the subjects the seed publishes,
+  and the seed waited for the server to be healthy. The dependency inverted to
+  `service_started` and the seed does its own readiness wait between publish and
+  send. This was a real Phase 10C ordering defect in the shipped projection, not
+  a harness artifact.
+- `oras attach` refuses an absolute file argument unless told the path is
+  deliberate, which failed all three attach legs of the evidence acceptance.
+
+Two further local failures were MY OWN measurement error and are recorded as
+such: `tests/acceptance/local/fleet-graph.sh` and the Compose demo both bind
+port 15071, and I ran them concurrently. Re-run in isolation, both pass.
+
+### GitHub at the exact final SHA `a79aa9fa`
+
+PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE, head
+`a79aa9faa522e85a19e75688673e5e00de492c90`, base `main`. Eight workflow runs
+were triggered; six succeeded and two were skipped by their own conditions.
+
+| Workflow | Run ID | Conclusion |
+|---|---|---|
+| CI | `32193808478` | success |
+| Security | `32193808430` | success |
+| Docs check | `32193808421` | success |
+| Pacto Contract CI | `32193808385` | success |
+| Repowise (architecture health) | `32193808463` | success |
+| Validate PR title | `32193808496` | success |
+| Rebuild dashboard UI | `32193808353` | skipped |
+| Auto-merge Dependabot PRs | `32193808505` | skipped |
+
+Run `32193808478` (CI) is success on attempt 1; all 21 jobs are green:
+
+| Job | ID | Conclusion |
+|---|---|---|
+| `changes` | `95893603732` | success |
+| `operator-build` | `95893659767` | success |
+| `ci-engine` | `95893659773` | success |
+| `ci-dashboard` | `95893659785` | success |
+| `ci-integration-kubernetes` | `95893659811` | success |
+| `ci-static` | `95893659814` | success |
+| `ci-e2e-envtest` | `95893659830` | success |
+| `ci-gates` | `95893659834` | success |
+| `dashboard-e2e` | `95893659864` | success |
+| `release-version-test` | `95893659900` | success |
+| `artifact-drift` | `95893659915` | success |
+| `ci-e2e-kind (upgrade)` | `95893659924` | success |
+| `release-dry-run` | `95893659930` | success |
+| `ci-e2e-kind (evidence)` | `95893659941` | success |
+| `ci-e2e-kind (dashboard)` | `95893659944` | success |
+| `ci-oci` | `95893659956` | success |
+| `ci-e2e-kind (observation)` | `95893660004` | success |
+| `ci-e2e-compose` | `95893660036` | success |
+| `ci-e2e-kind (operational-graph)` | `95893660047` | success |
+| `ci-e2e-kind (reconcile)` | `95893660049` | success |
+| `required` | `95895996044` | success |
+
+`ci-static` deserves a note. At `d1c7779e` it failed with three SA5011
+"possible nil pointer dereference" reports against `t.Fatal` nil-guards in the
+Kubernetes module, on code the phase did not touch. It was not reproducible
+locally under a warm cache, a cold `GOLANGCI_LINT_CACHE`, `GOOS=linux
+GOARCH=amd64`, a fresh `linux/amd64` `golang:1.26.6` container, or the CI
+ordering with both linter binaries sharing one fresh cache — every variant
+reported zero issues. The two modules lint with different binaries (the module
+uses a custom build carrying the logcheck plugin) and shared one analysis cache
+directory under `$HOME` that CI additionally restores from an earlier commit,
+so the report depended on which binary wrote the cache first. `12e367e4` gives
+the module its own cache directory; `ci-static` is green at `a79aa9fa`. The
+approximately fifty correct `t.Fatal` guards were NOT edited: weakening them to
+satisfy a non-reproducible report would have been the wrong fix, and
+`max-same-issues: 3` made it unsafe besides.
+
+### CodeQL and review threads
+
+Nine code-scanning alerts are open on `refs/pull/291/head`: eight
+`go/path-injection` (four in `internal/app/resolve.go`, four in
+`pkg/oci/cache.go`) and one `py/incomplete-url-substring-sanitization` in
+`release/scripts/docs_check.py`. The newest was created on 2026-08-13, before
+Phase 10C opened. The Phase 10C delta is ZERO new alerts.
+
+All 199 review threads were paginated (the API caps a page at 100; page one
+alone hides every unresolved one). Ten are unresolved: six on a generated
+mermaid bundle under `pkg/dashboard/ui/assets/`, and four on `pkg/oci/cache.go`
+at lines 375, 394, 395 and 666 — the same four locations as the `pkg/oci`
+CodeQL alerts. Neither file was touched by Phase 10C. No thread was resolved and
+no comment was published.
+
+### Hygiene and disclosures
+
+- `02d65c85` unintentionally absorbed four already-staged deletions that
+  belonged with the commit before it. Under the append-only rule it cannot be
+  amended, so it is disclosed rather than corrected. The tree at the final SHA
+  is correct; only the attribution of those four deletions to a commit boundary
+  is off by one.
+- `make docs-generate` overwrites the hand-written
+  `integrations/kubernetes/charts/pacto-dev-gateway/README.md` with helm-docs
+  output. It was reverted rather than committed, as in previous phases. The
+  generator quirk predates this phase and is not fixed here.
+- `go.work.sum` gains hashes from ordinary local `go` invocations. Reverted; the
+  committed file is sufficient for a cold build, verified by building all
+  packages against it.
+- An attempt to delete two GitHub Actions cache entries, while chasing the
+  SA5011 report, was refused by the permission layer as an irreversible deletion
+  of shared state on an unconfirmed hypothesis. It was not retried or worked
+  around; the in-tree cache isolation in `12e367e4` is the fix that shipped.
+- The untracked agent files (`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`)
+  are untouched and still untracked.
+- One kind cluster left behind by the failed evidence run was deleted before the
+  re-run, which is what a passing run's own teardown does.
+
+### Verdict
+
+Phase 10C is a CANDIDATE at `a79aa9fa`, awaiting independent review. It is NOT
+closed — closing it is the reviewer's act, not the author's. Phase 11 has NOT
+started.
