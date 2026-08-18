@@ -432,11 +432,16 @@ need jq
 # checked: `ip link del pactoout` and `docker rm -f <fixed name>` ran before every
 # create, and on somebody's machine they took whatever was there.
 
-# sentinel_link NAME [CIDR] — a dummy interface standing in for the one somebody
-# else's work already had. Created here, so removing it later is ours to do.
+# sentinel_link NAME [CIDR] — an interface standing in for the one somebody else's
+# work already had. Created here, so removing it later is ours to do; and `ip link
+# add` refuses a name that exists, so this cannot take one either.
+#
+# A veth pair rather than a dummy: veth is the link type Docker itself runs on, so
+# it is loaded anywhere this script can run at all, while `dummy` is one more
+# module a runner's kernel might not have. Deleting either end takes both.
 sentinel_link() {
 	netfilter "
-		ip link add $1 type dummy
+		ip link add $1 type veth peer name pdpeer-$RUN_ID
 		${2:+ip addr add $2 dev $1}
 		ip link set $1 up
 	" >/dev/null
