@@ -165,7 +165,9 @@ send_ok "$WORK/env1.json" "envelope accepted (202)"
 
 echo "== the accepted record is an OCI referrer of the exact contract revision, discoverable by ORAS =="
 oras_referrers() { oras discover "${ORAS_API[@]}" --format json "$LOCAL_SUBJECT" 2>/dev/null; }
-oras_evidence_digests() { oras_referrers | jq -r --arg t "$EV_TYPE" '.manifests[]? | select(.artifactType==$t) | .reference'; }
+# ORAS 1.2 keys the discovered list "manifests", ORAS 1.3 keys it "referrers".
+# Accept both: which CLI build the runner installed is not what this leg tests.
+oras_evidence_digests() { oras_referrers | jq -r --arg t "$EV_TYPE" '((.manifests // []) + (.referrers // []))[] | select(.artifactType==$t) | .reference'; }
 [ "$(oras_evidence_digests | wc -l | tr -d ' ')" = "1" ] \
   && pass "an independent OCI client discovers exactly one Pacto evidence referrer" \
   || fail "ORAS did not discover the published record: $(oras_referrers)"
