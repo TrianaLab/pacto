@@ -179,6 +179,7 @@ DENIED_BR=""
 OWNED_CONTAINERS=""
 OWNED_VETH=""
 OWNED_IMAGE=""
+OWNED_PROJECTS=""
 
 # Linux caps an interface name at IFNAMSIZ-1 = 15 characters and refuses a longer
 # one outright, so this is a build-time property of the naming scheme, checked
@@ -230,6 +231,25 @@ run_owned() {
 	refuse_existing container "$name" docker container inspect "$name"
 	docker run -d --name "$name" "$@" >/dev/null
 	OWNED_CONTAINERS="$OWNED_CONTAINERS $name"
+}
+
+# claim_projects PROJECT... — the only thing that ever fills $OWNED_PROJECTS.
+#
+# `docker compose -p NAME down -v --remove-orphans` is destructive and purely
+# label-driven: it needs no file, so it will happily take a stranger's project
+# that happens to carry a name this harness documents. The authority to run it
+# comes from having found the names holding nothing at all first — which is also
+# the preflight the demo run needs anyway, since a leftover project would answer
+# every health check below.
+claim_projects() {
+	local p
+	for p in "$@"; do
+		[ -z "$(docker compose -p "$p" ps -aq 2>/dev/null)" ] ||
+			fail "project $p already has containers; run \`docker compose -p $p down -v\` first"
+		[ -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$p")" ] ||
+			fail "project $p already has volumes; run \`docker compose -p $p down -v\` first"
+	done
+	OWNED_PROJECTS="$*"
 }
 
 # The small privileged image that installs and removes the boundary stage's two
@@ -402,8 +422,10 @@ release_owned() {
 
 cleanup() {
 	allow_egress
-	down_quiet "$PROJ1"
-	down_quiet "$PROJ2"
+	# Only the projects this invocation claimed, which is none at all in the
+	# helper modes: they never reach the preflight, so they never acquire the
+	# authority to tear a documented project name down.
+	for p in $OWNED_PROJECTS; do down_quiet "$p"; done
 	release_owned
 	[ -n "${D1:-}" ] && uncache "$D1"
 	[ -n "${D2:-}" ] && uncache "$D2"
@@ -575,10 +597,10 @@ esac
 
 echo "== 0. nothing of this demo is running or cached here =="
 # Both project names are free, so what comes up below came up now. A leftover
-# project from an interrupted run would answer every health check in this file.
-for p in "$PROJ1" "$PROJ2"; do
-	[ -z "$(docker compose -p "$p" ps -aq 2>/dev/null)" ] || fail "project $p already has containers; run \`docker compose -p $p down -v\` first"
-done
+# project from an interrupted run would answer every health check in this file —
+# and this is also the only place the trap's authority to run `down -v` on those
+# two names comes from.
+claim_projects "$PROJ1" "$PROJ2"
 pass "the documented project names $PROJ1 and $PROJ2 are free"
 
 echo "== 1. build the observers, start the artifact registry =="
