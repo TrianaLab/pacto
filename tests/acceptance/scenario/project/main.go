@@ -14,8 +14,9 @@
 //	bundles  before the push: the bundle directories, the observation exports and
 //	         the execution plan naming everything the harness has to do with them
 //	helm     the chart values that come from the scenario
-//	cluster  after it: the Pacto CRs and the evidence payloads, pinned to the
-//	         digests the registry assigned
+//	cluster  after it: the Pacto CRs, the evidence payloads and the chart values
+//	         that name contract revisions, all pinned to the digests the registry
+//	         assigned
 //
 // The Compose surface is projected in one, into ONE FILE, because it has no
 // registry until it is already running and no directory at all once it is
@@ -159,12 +160,19 @@ func cluster(s scenario.Scenario, argv []string) {
 	domain := fs.String("domain", "", "OCI domain (registry host + org) the fixture published to")
 	namespace := fs.String("namespace", "", "namespace to declare the Pacto CRs in")
 	crs := fs.String("crs", "", "file to write the Pacto custom resources to")
+	helmOut := fs.String("helm-out", "", "file to write the digest-dependent chart values to, one key=value per line")
 	var digests digestMap
 	fs.Var(&digests, "digest", "a published digest, as service@version=sha256:...; repeatable")
 	mustParse(fs, argv)
 
 	if *crs == "" {
 		exit(fmt.Errorf("-crs is required: the harness applies the projected CRs rather than writing its own"))
+	}
+	// Required, not optional: the Evidence Server's subjects are these same
+	// digests, and a harness that forgot to ask for them would install a server
+	// configured against nothing — or, worse, against revisions it guessed.
+	if *helmOut == "" {
+		exit(fmt.Errorf("-helm-out is required: the chart values that name contract revisions come from the same digests as the CRs"))
 	}
 	body, err := s.PactoCRs(*namespace, *domain, digests)
 	if err != nil {
@@ -181,6 +189,13 @@ func cluster(s scenario.Scenario, argv []string) {
 		write(path, payloads[path])
 		fmt.Printf("  evidence payload -> %s\n", path)
 	}
+
+	values, err := s.HelmEvidenceValues(*domain, digests)
+	if err != nil {
+		exit(err)
+	}
+	write(*helmOut, []byte(strings.Join(values, "\n")+"\n"))
+	fmt.Printf("  %d evidence chart values -> %s\n", len(values), *helmOut)
 }
 
 // digestMap collects repeated -digest key=value flags. Explicit about a duplicate

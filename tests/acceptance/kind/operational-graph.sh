@@ -142,9 +142,15 @@ done < <(plan_records push)
 kill "$REG_PF" 2>/dev/null || true
 [ "${#DIGESTS[@]}" -gt 0 ] || fail "the plan declares nothing to publish"
 
-echo "== project what needs real digests: the Pacto CRs and the evidence payloads =="
+echo "== project what needs real digests: the CRs, the evidence payloads, the subjects =="
+# The Evidence Server's subjects are these same digests: the registry holding
+# those revisions IS the evidence store, so the chart values naming them are
+# projected from the scenario rather than assembled here, exactly like the
+# Compose surface's are.
+EV_VALUES="$BDIR/helm-evidence.txt"
 ( cd "$ROOT" && go run ./tests/acceptance/scenario/project cluster \
-    -dir "$BDIR" -domain "${REG_HOST}/demo" -namespace "$DEMO_NS" -crs "$CRS" "${DIGESTS[@]}" )
+    -dir "$BDIR" -domain "${REG_HOST}/demo" -namespace "$DEMO_NS" -crs "$CRS" \
+    -helm-out "$EV_VALUES" "${DIGESTS[@]}" )
 
 echo "== managed observation sources: the declared calls, exported offline =="
 # The declarative Phase-7 form: named sources the OPERATOR mounts read-only into
@@ -166,15 +172,17 @@ done < <(plan_records observation)
 # values are PROJECTED rather than assembled here — the same declaration the
 # Compose surface renders into its dashboard command. tests/acceptance/scenario/
 # parity_test.go compares the two, so neither surface can quietly start naming a
-# source the other does not.
+# source the other does not. Joined here with the digest-dependent values the
+# cluster projection already wrote: both are the scenario's, one just had to wait
+# for the registry.
 HELM_VALUES="$BDIR/helm-values.txt"
 ( cd "$ROOT" && go run ./tests/acceptance/scenario/project helm -out "$HELM_VALUES" )
-obs_sets=()
+projected_sets=()
 while IFS= read -r value; do
   [ -n "$value" ] || continue
-  obs_sets+=(--set "$value")
-done < "$HELM_VALUES"
-[ "${#obs_sets[@]}" -gt 0 ] || fail "the projection produced no chart values"
+  projected_sets+=(--set "$value")
+done < <(cat "$HELM_VALUES" "$EV_VALUES")
+[ "${#projected_sets[@]}" -gt 0 ] || fail "the projection produced no chart values"
 
 # The remaining --set values are this RUN's, not the fixture's: the image kind
 # just loaded, the registry it just brought up, the components under test. They
@@ -183,7 +191,7 @@ common_sets=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set imag
              --set dashboard.enabled=true --set evidence.enabled=true
              --set evidence.trust.existingSecret=pacto-evidence-trust
              --set "insecureRegistries[0]=${REG_HOST}"
-             "${obs_sets[@]}")
+             "${projected_sets[@]}")
 
 echo "== install the operator with the dashboard + Evidence Server enabled =="
 helm install pacto-operator "$CHART" -n "$NS" "${common_sets[@]}" --wait --timeout 240s
