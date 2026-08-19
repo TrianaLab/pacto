@@ -22,6 +22,7 @@ import (
 // k8s runtime source (client-go) and so is intentionally excluded. Everything
 // here MUST remain consumable by an external collector without pulling k8s.
 var corePackages = []string{
+	"github.com/trianalab/pacto/v3/pkg/catalog/...",
 	"github.com/trianalab/pacto/v3/pkg/contract/...",
 	"github.com/trianalab/pacto/v3/pkg/evidence/...",
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope/...",
@@ -67,6 +68,43 @@ func TestEvidenceConsumersNeverReachTheRegistryStore(t *testing.T) {
 			if dep == store || strings.HasPrefix(dep, "oras.land/") {
 				t.Errorf("boundary violation: evidence consumer %q reaches %q; it must read evidence over the Evidence Server HTTP DTO", pkg, dep)
 			}
+		}
+	}
+}
+
+// catalogForbidden are the delivery mechanisms the contract-catalog core must
+// never reach. The catalog answers what a set of contract roots and their
+// closure contain; the moment it depends on a protocol, a command line, an HTTP
+// server or a cluster, that answer becomes a property of one delivery mechanism
+// instead of a property of the contracts.
+var catalogForbidden = []string{
+	"github.com/trianalab/pacto/v3/internal/mcp",
+	"github.com/trianalab/pacto/v3/internal/cli",
+	"github.com/trianalab/pacto/v3/pkg/dashboard",
+	"github.com/trianalab/pacto/v3/integrations/",
+	"github.com/trianalab/pacto/integrations/",
+	"k8s.io/",
+	"sigs.k8s.io/",
+}
+
+// catalogAllowedPacto is everything inside this repository the catalog core may
+// import. Reference parsing, credentials, caching and registry access reach it
+// through the caller-supplied Resolver port instead, which is what keeps the
+// catalog model reusable and keeps its tests hermetic.
+var catalogAllowedPacto = map[string]bool{
+	"github.com/trianalab/pacto/v3/pkg/catalog":  true,
+	"github.com/trianalab/pacto/v3/pkg/contract": true,
+}
+
+func TestCatalogCoreIsFrameworkIndependent(t *testing.T) {
+	for _, dep := range deps(t, "github.com/trianalab/pacto/v3/pkg/catalog/...") {
+		for _, bad := range catalogForbidden {
+			if strings.HasPrefix(dep, bad) {
+				t.Errorf("boundary violation: the catalog core reaches %q (prefix %q); catalog semantics must not depend on a delivery mechanism", dep, bad)
+			}
+		}
+		if strings.HasPrefix(dep, "github.com/trianalab/pacto/") && !catalogAllowedPacto[dep] {
+			t.Errorf("boundary violation: the catalog core reaches Pacto package %q; it may reuse only pkg/contract, and everything else belongs behind the Resolver port", dep)
 		}
 	}
 }
