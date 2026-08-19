@@ -460,15 +460,28 @@ func TestCatalogKeepsMirroredRegistryContentAsTwoServices(t *testing.T) {
 	}
 
 	c := buildRoots(alphaRef, betaRef)
+	assertMirroredPair(t, c, alphaDigest, []string{host + "/alpha", host + "/beta"})
 
+	// Asking in the other order is the same question.
+	reversed := buildRoots(betaRef, alphaRef)
+	if got, want := reversed.Meta().CatalogID, c.Meta().CatalogID; got != want {
+		t.Errorf("catalogId = %s asking beta first, %s asking alpha first; root order is not catalog truth", got, want)
+	}
+}
+
+// assertMirroredPair checks the whole shape one mirrored bundle produces: two
+// revisions for the one digest, one per publishing domain, declaring the shared
+// dependency separately.
+func assertMirroredPair(t *testing.T, c *catalog.Catalog, mirrored string, wantDomains []string) {
+	t.Helper()
 	var domains []string
 	for _, r := range c.Revisions() {
-		if r.Content.Digest == alphaDigest {
+		if r.Content.Digest == mirrored {
 			domains = append(domains, r.Service.Domain)
 		}
 	}
-	if want := []string{host + "/alpha", host + "/beta"}; !slices.Equal(domains, want) {
-		t.Errorf("the mirrored digest belongs to services %v, want %v: one revision per publishing domain", domains, want)
+	if !slices.Equal(domains, wantDomains) {
+		t.Errorf("the mirrored digest belongs to services %v, want %v: one revision per publishing domain", domains, wantDomains)
 	}
 	if n := len(c.Revisions()); n != 3 {
 		t.Errorf("revisions = %d, want both mirrors plus the shared lib", n)
@@ -490,12 +503,6 @@ func TestCatalogKeepsMirroredRegistryContentAsTwoServices(t *testing.T) {
 		if len(r.Paths) != 2 || slices.Equal(r.Paths[0].Steps, r.Paths[1].Steps) {
 			t.Errorf("lib paths = %+v, want a distinct step naming each mirror that declared it", r.Paths)
 		}
-	}
-
-	// Asking in the other order is the same question.
-	reversed := buildRoots(betaRef, alphaRef)
-	if got, want := reversed.Meta().CatalogID, c.Meta().CatalogID; got != want {
-		t.Errorf("catalogId = %s asking beta first, %s asking alpha first; root order is not catalog truth", got, want)
 	}
 }
 
