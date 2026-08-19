@@ -7238,3 +7238,101 @@ Mermaid bundle and four on `pkg/oci/cache.go`. No comment was published, no
 thread resolved and no PR metadata changed.
 
 **Phase 10C REMAINS CANDIDATE.** Phase 11 has not started.
+
+## 16.8 Independent review — Phase 10C ACCEPTED and CLOSED
+
+Independent review range: `30267affffa292f25f50dc46b3ec48f277597045..40b602cb31907261fa216ad7db895092d6f45766`.
+
+### Repository and history
+
+- PR 291 is OPEN, DRAFT and MERGEABLE. Its remote head and the local branch are
+  exactly `40b602cb31907261fa216ad7db895092d6f45766` on
+  `feat/operational-graph-fleet`.
+- `origin/main` and the merge-base remain
+  `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+- `30267aff` remains an ancestor. The range is exactly four linear,
+  single-parent commits: `bc0bb0dc`, `bcd2d2b1`, `a1ec9f13`, `40b602cb`.
+  There is no merge, rebase, amended boundary or force-push evidence.
+- The implementation portion changes exactly the five files declared in
+  section 16.6, 233 insertions and 21 deletions. The two following commits only
+  append the candidate and remote-evidence ledger. TARGET is unchanged.
+- The worktree was clean apart from the four inherited untracked agent paths.
+  The known helm-docs overwrite of the development-gateway README was produced
+  by the local gate and restored; it is not part of this review commit.
+
+### Findings
+
+No blocking finding remains.
+
+The two counterexamples from section 16.5 are closed at the actual read trust
+boundary:
+
+1. The config is compared as the complete canonical
+   `ocispec.DescriptorEmptyJSON`, including inline data and optional descriptor
+   fields. A descriptor with the old matching media type, digest and size but
+   contradictory data or extra assertions is rejected.
+2. The manifest subject is compared with both the configured immutable digest
+   and the core media type, digest and size of the same contract descriptor
+   already resolved and passed to `Referrers`. Contradictory inline data is also
+   rejected. The scan threads that descriptor through; it does not re-resolve
+   it or introduce a second registry round trip.
+
+The validator remains one small codec and fails closed at store level: a
+subject-descriptor mismatch is excluded from the read projection, makes health
+partial, increments invalid artifacts and blocks the next commit with an
+incomplete replay index. ORAS 1.1 packing remains accepted, so the stricter
+rules do not create a Pacto-only artifact dialect. The permanent reject cases
+and store-level test cover the two former blockers, and the compiling mutation
+record names the tests that fail when each rule is removed.
+
+One additional adversarial probe supplied `BuildArtifact` with a hand-crafted
+descriptor whose digest matched the configured subject but whose optional
+inline data contradicted it. That internal helper can then emit a manifest the
+reader rejects. This is not a production blocker: its documented argument is
+the registry-resolved contract descriptor, its sole production caller passes
+the descriptor returned by the ORAS remote repository, and that resolver
+constructs media type, digest and size from the registry response without
+inline data. The probe was removed after observation and no product file was
+changed. If `BuildArtifact` ever acquires another caller accepting arbitrary
+descriptors, that caller must preserve the same precondition or move the
+subject-binding check into the builder.
+
+### Independent verification
+
+- `go test -race ./internal/evidenceoci ./pkg/evidenceingest ./internal/app -count=1`
+  passed.
+- `make ci` passed on the reviewed bytes, including formatting, vet, cyclomatic
+  complexity, both linters, architecture and release tests, 100.0% aggregate
+  coverage in both Go modules, the complete integration suite, the whole
+  acceptance subtree, the local operational-graph vertical, 1,232 frontend
+  tests, Kubernetes envtest, 63 Helm tests, Kubernetes E2E and release
+  orchestrator tests.
+- `git diff --check` passed after restoring only the known generated README
+  churn.
+- At exact remote head `40b602cb`, CI run `32241896294` is successful: all 21
+  jobs are green, including all six Kind shards, Compose E2E,
+  artifact-drift, release-dry-run and the required aggregate. Security
+  `32241896313`, Docs check `32241896290`, Pacto Contract CI `32241896250`,
+  Repowise `32241896330`, Validate PR title `32241896198` and both CodeQL
+  analysis workflows `32241889567` and `32241890372` are successful. The two
+  expected workflows are skipped.
+- The only failed check is the aggregate GitHub Advanced Security `CodeQL`
+  check. The code-scanning API independently returns the same nine inherited
+  alerts: 38, 40-43 and 59-62, in `release/scripts/docs_check.py`,
+  `internal/app/resolve.go` and `pkg/oci/cache.go`. None is in this range; the
+  Phase 10C security delta is zero.
+- Review threads were independently paginated: 199 total, 189 resolved and 10
+  unresolved. All ten are inherited and bot-authored: six on the generated
+  Mermaid bundle and four on `pkg/oci/cache.go`. Neither path is touched here.
+  No comment was published, no thread resolved and no PR metadata changed.
+
+### Verdict and phase map
+
+**Phase 10C is ACCEPTED and CLOSED.** The final descriptor-validation repair
+closes blocker A without reopening the already accepted stored-envelope and
+bounded-readiness repairs, weakening CI, reviving bucket/PVC persistence or
+starting later work.
+
+- Phases 1 through 10C: ACCEPTED and CLOSED.
+- Phase 11 — MCP catalog core: NOT STARTED and next.
+- Phases 12 through 14: NOT STARTED.
