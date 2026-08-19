@@ -112,7 +112,11 @@ func TestBuildArtifact_Shape(t *testing.T) {
 		{"manifest mediaType", m.MediaType, ocispec.MediaTypeImageManifest},
 		{"schemaVersion", m.SchemaVersion, 2},
 		{"artifactType", m.ArtifactType, ArtifactType},
-		{"config mediaType", m.Config.MediaType, ocispec.MediaTypeEmptyJSON},
+		// The config is the canonical OCI empty-JSON descriptor, field for field,
+		// not merely something that looks like it.
+		{"config mediaType", m.Config.MediaType, ocispec.DescriptorEmptyJSON.MediaType},
+		{"config digest", m.Config.Digest, ocispec.DescriptorEmptyJSON.Digest},
+		{"config size", m.Config.Size, ocispec.DescriptorEmptyJSON.Size},
 		{"config blob", string(art.Config), "{}"},
 		{"layer mediaType", m.Layers[0].MediaType, PayloadMediaType},
 		// The layer descriptor must address the payload bytes, not merely
@@ -258,10 +262,37 @@ func TestValidateManifest_Rejects(t *testing.T) {
 		}
 		return out
 	}
+	// withoutField drops a top-level key entirely, which is how a manifest arrives
+	// with no schemaVersion at all rather than with an explicit zero.
+	withoutField := func(field string) []byte {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(good.Manifest, &raw); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		delete(raw, field)
+		out, err := json.Marshal(raw)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		return out
+	}
 
 	cases := map[string][]byte{
 		"not json":      []byte("{"),
 		"trailing data": append(append([]byte{}, good.Manifest...), '}'),
+		// A Docker v1 manifest is a different document with different rules; reading
+		// it as an OCI image manifest would trust fields it never promised.
+		"schema version 1":       remarshal(func(m *ocispec.Manifest) { m.SchemaVersion = 1 }),
+		"missing schema version": withoutField("schemaVersion"),
+		// The config must be the canonical OCI empty JSON. Anything else is a blob
+		// the reader would have to fetch and interpret to know what it is.
+		"wrong config media type": remarshal(func(m *ocispec.Manifest) {
+			m.Config.MediaType = ocispec.MediaTypeImageConfig
+		}),
+		"wrong config digest": remarshal(func(m *ocispec.Manifest) {
+			m.Config.Digest = digest.FromString(`{"not":"empty"}`)
+		}),
+		"wrong config size": remarshal(func(m *ocispec.Manifest) { m.Config.Size = 3 }),
 		"two layers": remarshal(func(m *ocispec.Manifest) {
 			m.Layers = append(m.Layers, m.Layers[0])
 		}),

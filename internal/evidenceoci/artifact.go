@@ -1,6 +1,7 @@
 package evidenceoci
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,12 @@ const (
 	// for the findings the server evaluated from it. A larger blob is malformed, and
 	// is rejected from the manifest descriptor before any byte is fetched.
 	maxPayloadBytes = 8 << 20
+
+	// manifestSchemaVersion is the only OCI image-manifest schema version Pacto
+	// writes and the only one it reads. image-spec exports no constant for it, so it
+	// is declared once here and shared by the writer and the reader rather than
+	// spelled twice.
+	manifestSchemaVersion = 2
 )
 
 // ErrInvalidArtifact reports an evidence artifact that is not exactly one
@@ -78,15 +85,17 @@ func BuildArtifact(rec evidenceingest.Record, subj Subject, subjectDesc ocispec.
 	}
 
 	payloadDesc := blobDescriptor(PayloadMediaType, payload)
-	config := []byte("{}")
-	configDesc := blobDescriptor(ocispec.MediaTypeEmptyJSON, config)
-	configDesc.Data = config
+	// The canonical OCI empty-JSON descriptor, taken from image-spec rather than
+	// rebuilt, so the writer and [ValidateManifest] cannot drift apart. Cloned
+	// because the returned Artifact must not alias a package-level slice.
+	configDesc := ocispec.DescriptorEmptyJSON
+	config := bytes.Clone(configDesc.Data)
 
 	// Built by hand rather than with oras.PackManifest: that helper stamps an
 	// org.opencontainers.image.created annotation, which would give the same record
 	// a different digest on every publish.
 	manifest := ocispec.Manifest{
-		Versioned:    specs.Versioned{SchemaVersion: 2},
+		Versioned:    specs.Versioned{SchemaVersion: manifestSchemaVersion},
 		MediaType:    ocispec.MediaTypeImageManifest,
 		ArtifactType: ArtifactType,
 		Config:       configDesc,
@@ -117,9 +126,24 @@ func ValidateManifest(data []byte, subj Subject) (ocispec.Descriptor, error) {
 		return ocispec.Descriptor{}, fmt.Errorf("%w: manifest: %w", ErrInvalidArtifact, err)
 	}
 	switch {
+	// A manifest that does not declare OCI schema version 2 is a different
+	// document (or none at all): its absence decodes to zero, so one comparison
+	// covers both a Docker v1 manifest and a manifest with no version field.
+	case m.SchemaVersion != manifestSchemaVersion:
+		return ocispec.Descriptor{}, fmt.Errorf("%w: manifest schema version %d, want %d",
+			ErrInvalidArtifact, m.SchemaVersion, manifestSchemaVersion)
 	case m.MediaType != ocispec.MediaTypeImageManifest:
 		return ocispec.Descriptor{}, fmt.Errorf("%w: manifest media type %q, want %q",
 			ErrInvalidArtifact, m.MediaType, ocispec.MediaTypeImageManifest)
+	// The config must be the canonical OCI empty JSON, exactly. Accepting any
+	// other descriptor would make the artifact carry a second blob whose meaning
+	// nothing checks — and whose bytes a reader would have to fetch to find out.
+	case m.Config.MediaType != ocispec.DescriptorEmptyJSON.MediaType ||
+		m.Config.Digest != ocispec.DescriptorEmptyJSON.Digest ||
+		m.Config.Size != ocispec.DescriptorEmptyJSON.Size:
+		return ocispec.Descriptor{}, fmt.Errorf("%w: config %s %s (%d bytes) is not the canonical empty JSON %s %s (%d bytes)",
+			ErrInvalidArtifact, m.Config.MediaType, m.Config.Digest, m.Config.Size,
+			ocispec.DescriptorEmptyJSON.MediaType, ocispec.DescriptorEmptyJSON.Digest, ocispec.DescriptorEmptyJSON.Size)
 	case m.ArtifactType != ArtifactType:
 		return ocispec.Descriptor{}, fmt.Errorf("%w: artifact type %q, want %q",
 			ErrInvalidArtifact, m.ArtifactType, ArtifactType)
