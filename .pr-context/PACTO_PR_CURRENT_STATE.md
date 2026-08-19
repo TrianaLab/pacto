@@ -6208,3 +6208,178 @@ no comment was published.
 Phase 10C is a CANDIDATE at `a79aa9fa`, awaiting independent review. It is NOT
 closed — closing it is the reviewer's act, not the author's. Phase 11 has NOT
 started.
+
+## 16.2 Phase 10C independent review — REMAINS CANDIDATE
+
+Independent review of implementation final
+`a79aa9faa522e85a19e75688673e5e00de492c90`, with candidate ledger head
+`bf4e561838c4c6630fd88fd98c10e7fc7741f44e`, against TARGET and the approved
+`docs/superpowers/specs/2026-08-17-oci-native-evidence-referrers-design.md`.
+This is a review record, not an implementation commit. TARGET is untouched and
+Phase 11 has not started.
+
+### Proven range and external state
+
+The remote PR is OPEN, DRAFT and MERGEABLE on
+`feat/operational-graph-fleet`; its exact head is `bf4e5618` and its base is
+`main`. `9d2e1a43` is an ancestor of `a79aa9fa`, and `a79aa9fa` is an ancestor
+of `bf4e5618`. The implementation range is exactly the fifteen linear commits
+listed in section 16.1 and the only later commit is that section's ledger
+record. The merge-base and `origin/main` remain
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`. No rewrite or base movement was
+found.
+
+The broad architecture is real, not just asserted by the handoff. The complete
+`pkg/evidencestore` package, its app adapter, the blob-driver registration and
+the recovery document are deleted. Production and current operational docs
+contain no evidence bucket URL, prefix, recovery engine or managed evidence
+PVC. `gocloud.dev` is absent from both module graphs and `go list -m all`.
+The operator creates one stateless `Recreate` Deployment and a Service, with no
+evidence data volume; Compose retains the registry and trust material but no
+Evidence Server data volume. Native Docker Compose publication and execution
+remain the Compose artifact boundary. ORAS is used for the evidence transport
+library and as an independent interoperability observer, not as a substitute
+Compose publisher.
+
+Exact configured contract digests, native Referrers, complete pagination,
+global replay reconstruction, in-process commit serialization, read-after-write
+discovery, v2 health, restart persistence and the canonical Helm/Compose
+subject projection are all present and exercised. Those accepted parts are not
+being reopened by the findings below.
+
+### Blocker A — the fetched OCI manifest is not validated against the fixed artifact contract
+
+The approved contract fixes OCI schema version 2 and the empty config
+`application/vnd.oci.empty.v1+json`. `BuildArtifact` emits both correctly, but
+`ValidateManifest` checks neither `m.SchemaVersion` nor `m.Config`; it validates
+only the manifest media type, artifact type, payload layer and subject. A
+third-party registry writer can therefore publish something labelled as a
+Pacto evidence artifact with schema version 1 or an arbitrary config media type,
+and Pacto counts it as a valid record rather than a malformed Pacto artifact.
+
+The reviewer added a temporary package-local counterexample that changed only
+those two fields on a manifest produced by `BuildArtifact`. Both cases failed
+the desired assertion:
+
+```text
+wrong_schema_version: accepted a manifest outside the fixed Phase 10C artifact contract
+wrong_config_media_type: accepted a manifest outside the fixed Phase 10C artifact contract
+```
+
+The temporary test was removed. The permanent rejection table in
+`internal/evidenceoci/artifact_test.go` covers wrong manifest and layer media
+types but has no schema-version or config-descriptor case. Section 16.1's claim
+that `ValidateManifest` rejects wrong schemas and all fixed media types is
+therefore too broad.
+
+Closure requires one canonical strict manifest validator that rejects any
+schema version other than 2 and any config descriptor other than the fixed OCI
+empty-JSON descriptor, with permanent adversarial tests proved non-vacuous by
+mutation. Do not add a second codec or compatibility fallback.
+
+### Blocker B — registry records bypass the envelope structure and bounds preserved by 10C
+
+The ingestion boundary strictly decodes at most 1 MiB and rejects a wrong
+`apiVersion`, wrong `kind`, missing producer key identity and more than 10,000
+observations before signature verification. The approved design explicitly
+says those existing envelope limits stay in force when the record is recovered
+from OCI.
+
+`DecodePayload` instead applies the 8 MiB record cap and then calls
+`validateRecord`. That helper checks an envelope ID and producer ID but never
+applies `evidenceenvelope` structural validation or its envelope/observation
+bounds. The reviewer changed a valid stored record to
+`apiVersion: pacto.dev/evidence/v999`; `DecodePayload` accepted it even though
+the public ingestion endpoint necessarily rejects the same envelope. Missing
+`kind` or `producer.keyId`, excessive observations and an embedded envelope over
+the protocol cap follow the same path. Such a record can enter replay state and
+the Product projection through ORAS interoperability or any other authorized
+repository writer.
+
+Closure requires the stored-record codec to reuse the canonical envelope
+decoder/validator and its size/count constants, rather than hand-copying a
+subset. Permanent tests must cover at least wrong version, missing key identity,
+too many observations and an oversized embedded envelope, and mutation must
+show the gate bites. Signature re-verification on registry reads is not being
+requested: the approved repository-write trust boundary remains unchanged.
+
+### Blocker C — readiness preflight is not time-bounded
+
+The approved design requires a bounded registry preflight. The ORAS repository
+uses `retry.DefaultClient`, whose `http.Client.Timeout` is zero. `Store.Ready`
+can be bounded by its caller's context, but `buildEvidenceHost` passes the
+long-lived server context into the readiness closure. `handleReady` does not
+pass the HTTP request context because the callback is `func() bool`.
+
+A registry that accepts the connection and never returns headers can therefore
+hold a `/ready` handler indefinitely. Kubernetes' probe timeout closes its own
+request but does not cancel the registry request made with the server-lifetime
+context; repeated startup/readiness probes can accumulate stuck handlers. Page
+count limits do not bound this case.
+
+Closure requires one explicit whole-preflight deadline that reaches every
+resolve and Referrers call and is independent of the server lifetime. A
+deterministic test registry must accept a request and withhold its response,
+then prove `/ready` returns `503` inside the configured budget and the blocked
+registry request is cancelled. Do not solve this with liveness restarts,
+background readiness state, retries without a deadline or new infrastructure.
+
+### Independent verification and GitHub evidence
+
+On the committed bytes, all existing focused suites are green:
+
+- `go test -race ./internal/evidenceoci ./pkg/evidenceingest ./internal/fleetsrc -count=1`;
+- the evidence/serve slice of `internal/app`;
+- `integrations/kubernetes/internal/evidence`;
+- all 63 Helm unit tests;
+- `git diff --check`.
+
+This confirms the findings are missing invariants, not pre-existing red tests.
+After the temporary counterexamples the tracked tree was restored clean. Only
+the four inherited untracked agent paths remain and were not touched.
+
+At exact ledger head `bf4e5618`, CI run `32194918809` is successful: all 21
+jobs pass, including all six Kind shards, `ci-e2e-compose`,
+`dashboard-e2e`, `ci-oci`, `artifact-drift`, `release-dry-run` and `required`
+`95899273709`. Security `32194918827`, Docs check `32194918871`, Pacto Contract
+CI `32194918784`, Repowise `32194918839`, title validation `32194918799`, Code
+Quality `32194916490` and PR CodeQL workflow `32194916240` are successful; the
+two conditional workflows are skipped. The aggregate CodeQL check remains red
+because the same nine inherited PR alerts remain. None was created by Phase
+10C, and none of their three files is in the Phase 10C range.
+
+Review threads were independently paginated again: 199 total, 10 unresolved.
+All ten are the inherited bot threads recorded in section 16.1, on the generated
+Mermaid asset and `pkg/oci/cache.go`; neither file is touched here. No comment
+was published, no thread resolved and no PR metadata changed.
+
+### Verdict and narrow next objective
+
+**Phase 10C REMAINS CANDIDATE. It is not CLOSED.** The architectural pivot is
+substantially implemented and the deletion/infrastructure/interop/CI evidence is
+accepted, but the strict artifact trust boundary and bounded readiness criterion
+have three concrete counterexamples. Green CI cannot close invariants it does
+not test.
+
+The next implementation is a narrow Phase 10C closure repair only:
+
+1. make manifest validation enforce OCI schema 2 and the canonical empty-JSON
+   config descriptor;
+2. make stored payload validation reuse the existing envelope structure and
+   size/count limits without re-verifying signatures;
+3. give readiness one explicit end-to-end deadline and cancellation proof;
+4. add permanent adversarial tests and mutation evidence for all three;
+5. run focused, full local and exact-SHA CI evidence, then append a candidate
+   repair record for another independent review.
+
+Preserve the accepted OCI-native architecture, exact contract subjects,
+single-writer model, replay semantics, DTOs, deletion set, canonical scenario
+and native Docker Compose publication. Do not start Phase 11, redesign 10C,
+restore any bucket/PVC path, add migration or multi-writer machinery, touch
+TARGET, rewrite history, publish PR comments or resolve threads.
+
+### Current phase map
+
+- Phases 1 through 10B: ACCEPTED and CLOSED.
+- Phase 10C: CANDIDATE, blocked on A/B/C above.
+- Phases 11 through 14: NOT STARTED.
