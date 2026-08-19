@@ -8077,3 +8077,462 @@ and stop. Phase 12 must not start.
 - Phases 1 through 10C: ACCEPTED and CLOSED.
 - Phase 11: NARROWLY REOPENED on blockers A, B and C.
 - Phases 12 through 14: NOT STARTED.
+
+## 18.3 Phase 11 narrow closure repair — CANDIDATE at `ee9b14df`
+
+The three blockers of section 18.2, repaired, and nothing else. Blocker A is a
+bound that did not bound. Blocker B is an identity one field short. Blocker C
+is a fingerprint with nothing to say about a gap. Each was first reproduced as
+a permanent adversarial test that failed against the exact starting
+implementation for the intended reason, then fixed at its root, then attacked
+with compiling mutations that reintroduce the defect.
+
+Everything section 18.2 accepted is intact: the framework-independent
+`pkg/catalog` boundary and its Resolver port, the architecture gate,
+`internal/app`'s reuse of the existing parsing, credential, cache,
+digest-pinning and lock content-hash paths, the refusal of a local reference
+declared by a registry contract, sanitized typed failures, the three identity
+layers, structured declaration and path provenance, diamonds, multi-root paths,
+cycles, ranks, ordinary conflict reporting, memoization by `(Base, Ref,
+Constraint)`, the immutable network-free session, the deep-copy boundaries, the
+existing valid-root, revision, depth, path-length, retained-path and reporting
+bound behaviour, `oci.ErrNoMatchingTag` and all of Phase 10C.
+
+Phase 11 remains a CANDIDATE. `PACTO_PR_TARGET_STATE.md` was not touched,
+sections 1 through 18.2 are unchanged, no PR comment was published, no review
+thread was resolved, no PR metadata was changed, the PR is still an open draft,
+and Phase 12 is NOT started.
+
+### Range
+
+Starting point `77037e7f2cb1024141334918fbad83c5256168f3`, the commit carrying
+the section 18.2 review, which was also the remote branch head and the PR head
+when this work began. Final SHA `ee9b14df44ecc82cd7003ec64d3549d557e41088`.
+`77037e7f` is an ancestor of `ee9b14df`; the range is exactly four linear,
+single-parent commits, zero merges. 10 files, +631 / -191. No rebase, amend,
+reset, force-push, squash or rewrite; the push was the fast-forward
+`77037e7f..ee9b14df`. `origin/main` and the merge-base are still
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`, and main was not touched.
+
+| SHA | Subject | Files | Delta |
+|---|---|---|---|
+| `6fe9628e` | fix(catalog): bound dependency work whether or not it resolves | 2 | +131 / -18 |
+| `3837031b` | fix(catalog): keep a mirrored bundle two services, not one revision | 10 | +420 / -174 |
+| `f620cb8a` | fix(catalog): tell two catalogs apart when their unresolved roots differ | 2 | +78 / -4 |
+| `ee9b14df` | test(app): split the mirrored-registry assertions into a helper | 1 | +16 / -9 |
+
+Changed files across the whole range:
+
+| Path | Delta | Why it changed |
+|---|---|---|
+| `pkg/catalog/build.go` | +111 / -58 | the edge-work budget, and `RevisionID` through the walk |
+| `pkg/catalog/identity.go` | +36 / -11 | `RevisionID`, its order, and `DeclarationID.From` |
+| `pkg/catalog/model.go` | +23 / -18 | `Root.Revision`, `Revision.ID`, `Edge.To`, `Conflict.Revisions`, `Cycle.Revisions`, lookup |
+| `pkg/catalog/fingerprint.go` | +34 / -16 | the unresolved-root reference, and revision framing |
+| `pkg/catalog/build_test.go` | +192 / -43 | the A and B adversarial cases, plus fixture migration |
+| `pkg/catalog/catalog_test.go` | +84 / -15 | the C adversarial cases, plus fixture migration |
+| `pkg/catalog/identity_test.go` | +23 / -7 | `compareRevisionID` order, and the renamed declaration-order test |
+| `pkg/catalog/walk_test.go` | +16 / -16 | fixture migration |
+| `pkg/catalog/harness_test.go` | +25 / -7 | `at`, `atLocal`, `inDomain` and `RevisionID`-typed helpers |
+| `internal/app/catalog_test.go` | +87 / -0 | the real two-repository mirror case, and its assertion helper |
+
+No production file outside `pkg/catalog` changed. `internal/app/catalog.go` is
+byte-identical: the adapter already reported the publishing domain, and the
+core was the side that discarded it. `tests/architecture/boundary_test.go`,
+every workflow, every Makefile and every document other than this ledger are
+untouched. The only importer of `pkg/catalog` anywhere in the repository is
+`internal/app`, so the model changes below have exactly one consumer, and it is
+in this range.
+
+### Blocker A -- a bound that did not bound
+
+**Root cause.** `mayResolve` compared `len(b.edges)` against `MaxEdges`, and
+`b.edges` was written only by `recordEdge`, which only a successful resolution
+reaches. A dependency that fails adds no edge, so it cost the budget nothing: a
+contract with a large failing fan-out was resolved in full. `expand` also built
+one arrival per declaration before any bound could look at them, so the queue
+itself grew with the declaration count.
+
+**Repair.** The budget is charged against the WORK, not against the result.
+`edgeWork{decl, base, ref, constraint}` names one unit of dependency work --
+one declaration asking one question -- and `admitEdgeWork` charges it inside
+`expand`, before the arrival exists. A refused declaration is never queued,
+never dequeued and never resolved; it emits `EDGE_LIMIT_EXCEEDED` and one
+`Unresolved` entry carrying `BOUND_EXCEEDED`, so the answer is partial and says
+which reference was dropped. `out` is allocated at `min(len(p.deps),
+MaxEdges)`, so a contract declaring a million dependencies allocates the
+budget, not the list. The now-dead post-hoc checks in `mayResolve` and
+`recordEdge` are gone.
+
+Charging the key rather than the arrival is what preserves the memoized-repeat
+behaviour: two routes reaching the same declaration ask the same question and
+pay once, so a diamond still costs one edge, while the same reference declared
+twice, or declared from two bases, still costs two.
+
+`recordUnresolved` was split out of `recordFailure` for one reason: a
+declaration the bound refused has no arrival to fail, and inventing one purely
+to report it would be the same mistake as walking it. The split also removes a
+double limitation, because a bound that already named itself no longer also
+emits `UNRESOLVED_DEPENDENCY`.
+
+**RED, against the exact starting implementation `77037e7f`.**
+`TestEdgeBoundStopsFailingDependencyWorkToo`: one resolvable root declaring
+four distinct dependencies that all return `NOT_FOUND`, built with
+`Bounds{MaxEdges: 2}`.
+
+```
+--- FAIL: TestEdgeBoundStopsFailingDependencyWorkToo
+    build_test.go: resolver calls = 5, want 3: the root plus at most MaxEdges dependencies
+    build_test.go: reg/d2:1 was fetched 1 times; the edge bound should have refused it before any call
+    build_test.go: reg/d3:1 was fetched 1 times; the edge bound should have refused it before any call
+    build_test.go: limitations = [UNRESOLVED_DEPENDENCY UNRESOLVED_DEPENDENCY UNRESOLVED_DEPENDENCY UNRESOLVED_DEPENDENCY], want an EDGE_LIMIT_EXCEEDED among them
+```
+
+`TestEdgeBoundSpendsOneBudgetOnSuccessAndFailureAlike`: one root, one
+resolvable dependency and one failing dependency, `Bounds{MaxEdges: 1}`.
+
+```
+--- FAIL: TestEdgeBoundSpendsOneBudgetOnSuccessAndFailureAlike
+    build_test.go: resolver calls = 4, want 3
+    build_test.go: edges = 2, want 1
+```
+
+**GREEN.** Both pass after the repair, alongside the pre-existing
+`TestEdgeBoundStopsResolverWork`,
+`TestTheEdgeBoundAlsoStopsEdgesThatCostNoResolution` and every other bound
+test, at 100.0% package coverage.
+
+**Mutations.**
+
+| Mutation | What failed |
+|---|---|
+| A1 -- charge the bound against `len(b.edges)` again, keeping the new call site | `TestEdgeBoundStopsFailingDependencyWorkToo`, on the resolver-call count and the missing `EDGE_LIMIT_EXCEEDED`: exactly the original RED |
+| A2 -- build every arrival first, then slice the surplus away after the loop | resolver counts come out right, and `limitations = []`, `unresolved = []`, `completeness: complete`; `TestEdgeBoundStopsFailingDependencyWorkToo` fails on all three |
+
+A2 is the shape the commission forbade, and it is the one worth reading twice:
+a suite that only counted resolver calls would have passed it. What failed is
+the honesty of the answer. Both mutations were reverted byte-identically,
+verified with `shasum -a 256 -c` against pre-mutation hashes.
+
+### Blocker B -- an identity one field short
+
+**Root cause.** `builder.revs` was keyed by `ContentID` alone, and
+`DeclarationID.From`, `Edge.To`, path steps, cycles, conflicts, the lookup map
+and the fingerprint all followed it. Mirroring publishes one bundle into two
+repositories; the manifest digest is identical by construction, so two
+domain-qualified services collapsed into one revision, and whichever root
+arrived first decided whose service it claimed to be. Two builds differing only
+by root order therefore disagreed about the domain AND produced two different
+`catalogId` values.
+
+**Repair.** `RevisionID{Service, Content}` is the canonical revision identity,
+threaded end to end: `builder.revs`, `revOrder`, `arrival.chain`, `edgeKey.to`,
+`DeclarationID.From`, `Root.Revision`, `Edge.To`, `Conflict.Revisions`,
+`Cycle.Revisions`, `Catalog.byRevision`, `Catalog.Revision`, the cycle key and
+every fingerprint framing. Every map key and provenance type that had assumed
+content alone identifies a revision was audited and converted; `Revision.ID()`
+and `projection.id()` are the only two places the pair is formed. The one
+deliberate non-conversion is `ContentID` itself, which is unchanged.
+
+Both halves stay comparable structs, so the pair is a map key without ever
+joining user-controlled text with a delimiter. `compareRevisionID` orders by
+content first and by service only to break the tie mirroring creates, so
+revisions still sort by content identity and two mirrors sit adjacent in a
+stable order. Content identity is still the exact OCI manifest digest or the
+exact `lock.HashFS` content hash. Same-service tag-plus-digest deduplication is
+untouched, because both references yield the same service AND the same content.
+Two mirrors are two revisions of two different services, so they are correctly
+NOT reported as a same-service conflict. The cycle key moved from
+`content.String() + "|"` to the same length-prefixed `encode` framing the
+fingerprint uses, so the service text a revision now carries cannot forge or
+split a key.
+
+**RED, against `77037e7f`.** In the core, with the resolver fake:
+
+```
+--- FAIL: TestMirroredContentInTwoDomainsStaysTwoServices
+    build_test.go:296: revisions holding the mirrored content = 1, want 2: one per publishing domain
+```
+
+In `internal/app`, against a real in-process OCI registry with one
+deterministic bundle pushed to both `alpha/api:1.0.0` and `beta/api:1.0.0`.
+The test asserts the two manifest digests are identical before it asserts
+anything else, so it is a real mirror rather than a staged one:
+
+```
+--- FAIL: TestCatalogKeepsMirroredRegistryContentAsTwoServices
+    catalog_test.go:471: the mirrored digest belongs to services [127.0.0.1:57258/alpha], want [127.0.0.1:57258/alpha 127.0.0.1:57258/beta]
+    catalog_test.go:474: revisions = 2, want both mirrors plus the shared lib
+    catalog_test.go:484: edges = [one edge], want one per mirror from two distinct declarations
+    catalog_test.go:491: lib paths = [two identical steps]
+    catalog_test.go:498: catalogId = sha256:c36731ee... asking beta first, sha256:2a87d482... asking alpha first
+```
+
+**GREEN.** Both pass after the repair, in both root orders, with one stable
+`catalogId`, two distinct revisions, two distinct declarations, two distinct
+edges into the shared library and two distinct path steps. The core test also
+proves that mirroring the same content into a THIRD domain changes the
+fingerprint, so the identifier is sensitive to WHICH services published the
+content, not merely to how many did.
+
+**Mutation.**
+
+| Mutation | What failed |
+|---|---|
+| B1 -- `projection.id()` returns `RevisionID{Content: p.content}`, dropping the service half while every call site keeps compiling | 13 permanent tests across `pkg/catalog` and `internal/app`, including both intended mirrored assertions |
+
+Reverted byte-identically, verified with `shasum -a 256 -c`.
+
+### Blocker C -- a fingerprint with nothing to say about a gap
+
+**Root cause.** A root that did not resolve contributed only `Resolved=false`,
+a zero content identity and its reason code. Two catalogs that asked for
+different references and were told `NOT_FOUND` about both were therefore
+indistinguishable, even though the requested reference is the only identity an
+unresolved root has.
+
+**Repair.** Four lines in `fingerprint`: when, and only when, a root did not
+resolve, that root's `RequestedRef` is appended to its outcome fields. It is a
+hashed input, never a rendered one, so no root reference is exposed as
+plaintext through `catalogId`. The scoping is the whole point. A root that DID
+resolve still contributes only what it resolved to, so a tag and the digest it
+pins still fingerprint alike. Root ordinals are still excluded, so permutations
+are still stable, and generation time is still excluded.
+
+The framing is injective against hostile text because it is the same
+length-prefixed encoding the rest of the fingerprint uses: `encode` writes an
+eight-byte big-endian length before each field, so `["ab", "c"]` and
+`["a", "bc"]` cannot produce one byte stream.
+
+**RED, against `77037e7f`.**
+
+```
+--- FAIL: TestCatalogIDDistinguishesDifferentUnresolvedRoots
+    catalog_test.go:241: two catalogs that failed at different references share catalogId sha256:f48f8bd7...
+    catalog_test.go:249: [ab c] and [a bc] fingerprinted alike; the root encoding is joining rather than framing
+```
+
+**GREEN.** The permanent test proves five things at once: different unresolved
+roots give different identifiers, the `["ab","c"]` versus `["a","bc"]` framing
+pair does not collide, permuting the same unresolved multiset gives the same
+identifier, two unresolved roots do not fingerprint the same as one, and the
+identifier carries no plaintext of the requested references -- it asserts the
+value parses as a digest and that the reference text does not appear inside it.
+A guard also fails the fixture if it ever resolves anything, so the assertion
+cannot quietly stop being about unresolved roots.
+`TestCatalogIDIsTheSameForATagAndTheDigestItPins` is the complement, and it
+carries its own vacuity guard.
+
+**Mutations.**
+
+| Mutation | What failed |
+|---|---|
+| C1 -- delete the unresolved-root block entirely | reproduces the original RED exactly: both assertions of `TestCatalogIDDistinguishesDifferentUnresolvedRoots` |
+| C2 -- append `RequestedRef` unconditionally, resolved or not | `TestCatalogIDIsTheSameForATagAndTheDigestItPins`: a tag and the digest it pins stop fingerprinting alike |
+
+C2 is the interesting half. It fixes blocker C and breaks the invariant blocker
+C was not allowed to cost, which is exactly why the repair is conditional. Both
+were reverted byte-identically, verified with `shasum -a 256 -c`.
+
+### What the repair deliberately did not do
+
+No generic validation framework, no new storage system, no new configuration
+model, no speculative abstraction. No new bound, no new limitation code, no new
+reason code and no new public type beyond `RevisionID`, which is the identity
+blocker B required. Nothing is resolved first and sliced afterwards. Reporting
+bounds are still reporting bounds and work bounds are still work bounds; the
+nine-bound table of section 18 is unchanged in shape.
+
+`RevisionID.Zero()` was written and then deleted before the first commit: no
+caller needed it, and the 100.0% coverage gate correctly refuses unreachable
+code. The gate did the job it exists for and was not weakened.
+
+### Local verification, all green at `ee9b14df`
+
+`go test -race -count=1 ./pkg/catalog/` (ok, coverage 100.0%);
+`go test -race -count=1 ./internal/app/ ./pkg/oci/` (ok, `internal/app` at
+100.0%); `go test -race -count=1 ./tests/architecture/` (ok, including
+`TestCatalogCoreIsFrameworkIndependent` and
+`TestCorePackagesHaveNoKubernetesOrIntegrationDeps`); `make ci-test` (exit 0,
+`total coverage: 100.0%`); `make ci` (exit 0: fmt, vet, gocyclo, lint, CLI-docs
+drift, UI build and drift, Kubernetes-module fmt/vet/lint, the race unit suite,
+examples, `DEMO-CONTRACTS VALID: 24/24`, frontend lint and tests, Helm
+lint/render/unit/schema/helm-docs, generated-docs drift); `make artifact-drift`
+(`artifact-drift: OK`); `make release-dry-run` (`K8S-MODULE-STANDALONE OK`,
+`RELEASE-DRY-RUN OK`); `govulncheck ./...` (`No vulnerabilities found`);
+`git diff --check` clean; `make check-section` (zero U+00A7 in authored files).
+
+Both new catalog packages run inside the single existing workspace `-race`
+invocation that enforces exactly 100.0% aggregate coverage, and the boundary
+gate runs in the existing `ci-gates` job. No job, harness, timeout, race
+setting or coverage threshold was added, weakened or bypassed.
+
+### GitHub at the exact final SHA `ee9b14df`
+
+PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE, head
+`ee9b14df44ecc82cd7003ec64d3549d557e41088`, base `main`, and
+`git ls-remote origin feat/operational-graph-fleet` returns that same SHA. Ten
+workflow runs exist at this SHA: the eight recorded in previous phases, plus
+the two `dynamic` CodeQL runs that GitHub schedules against
+`refs/pull/291/head` and that earlier records did not enumerate separately.
+
+| Workflow | Run ID | Attempt | Conclusion |
+|---|---|---|---|
+| CI | `32278479689` | 2 | success |
+| Security | `32278479849` | 1 | success |
+| Docs check | `32278479704` | 1 | success |
+| Pacto Contract CI | `32278479664` | 1 | success |
+| Repowise (architecture health) | `32278479779` | 1 | success |
+| Validate PR title | `32278479670` | 1 | success |
+| Code Quality: PR #291 (dynamic) | `32278475365` | 1 | success |
+| PR #291 (dynamic) | `32278475389` | 1 | success |
+| Rebuild dashboard UI | `32278479656` | 1 | skipped |
+| Auto-merge Dependabot PRs | `32278479660` | 1 | skipped |
+
+Run `32278479689` (CI) is success on attempt 2; all 21 jobs are green:
+
+| Job | ID | Conclusion |
+|---|---|---|
+| `changes` | `96181936889` | success |
+| `ci-e2e-compose` | `96181937003` | success |
+| `ci-e2e-kind (operational-graph)` | `96181937907` | success |
+| `ci-e2e-kind (reconcile)` | `96181937912` | success |
+| `ci-e2e-envtest` | `96181937959` | success |
+| `operator-build` | `96181938017` | success |
+| `release-dry-run` | `96181938079` | success |
+| `artifact-drift` | `96181938101` | success |
+| `ci-gates` | `96181938136` | success |
+| `ci-integration-kubernetes` | `96181938137` | success |
+| `ci-static` | `96181938141` | success |
+| `ci-oci` | `96181938202` | success |
+| `ci-engine` | `96181938235` | success |
+| `dashboard-e2e` | `96181938307` | success |
+| `release-version-test` | `96181938355` | success |
+| `ci-dashboard` | `96181938427` | success |
+| `ci-e2e-kind (dashboard)` | `96181938749` | success |
+| `ci-e2e-kind (upgrade)` | `96181938791` | success |
+| `ci-e2e-kind (observation)` | `96181938954` | success |
+| `ci-e2e-kind (evidence)` | `96181938969` | success |
+| `required` | `96185779639` | success |
+
+Why attempt 2 exists is disclosed in full below; nothing was pushed, amended or
+changed between the two attempts, and both attempts ran the identical tree at
+`ee9b14df`.
+
+Security's three jobs are green: `govulncheck (Go)` `96151370958`,
+`Trivy (image)` `96151371197` and `PR security summary` `96151853629`.
+`Docs check` is one job, `docs-check` `96151369761`. `Pacto Contract CI` is one
+job, `bundle` `96151370101`. `Repowise` is one job, `repowise` `96151370689`.
+`Validate PR title` is one job, `validate` `96151369924`. The two dynamic runs
+carry the seven CodeQL analyses: `Analyze (python)` `96151361252`,
+`Analyze (go)` `96151361291` and `Analyze (javascript-typescript)`
+`96151361406` in `32278475365`, and `Analyze (javascript-typescript)`
+`96151361417`, `Analyze (python)` `96151361716`, `Analyze (actions)`
+`96151361753` and `Analyze (go)` `96151361984` in `32278475389`. Every one is
+success.
+
+Reading the head commit's check runs directly gives the same answer: 40 check
+runs, 39 success or skipped and one failure, the aggregate `CodeQL` check from
+`github-advanced-security`. That aggregate is the inherited condition described
+next; the `govulncheck` and `Trivy` checks from the same app are both success.
+
+### CodeQL and review threads
+
+Nine code-scanning alerts are open on `refs/pull/291/head`, and they are exactly
+the nine inherited ones: `38` (`py/incomplete-url-substring-sanitization`,
+`release/scripts/docs_check.py:197`), `40` through `43` (`go/path-injection`,
+`internal/app/resolve.go` lines 35, 43, 57 and 67) and `59` through `62`
+(`go/path-injection`, `pkg/oci/cache.go` lines 375, 394, 395 and 666).
+**The delta for this repair is ZERO new alerts.**
+
+The individual analyses confirm it numerically rather than by reputation. At
+`ee9b14df` the four analyses report `go` 9 results, `python` 1, `actions` 0 and
+`javascript-typescript` 0. At the starting SHA `77037e7f` the same four
+analyses report the same four numbers. The aggregate `CodeQL` check remains
+failure because it aggregates those nine pre-existing alerts, exactly as
+recorded in sections 18 and 18.1. It is not claimed as a finding of this
+repair, and none of the nine is in this range.
+
+All review threads were paginated in full, since the API caps a page at 100 and
+page one alone hides every unresolved one. The totals are unchanged: **199
+total, 189 resolved, 10 unresolved**, and the ten are the same six threads on
+the generated Mermaid bundle
+`pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` and the same four on
+`pkg/oci/cache.go`. Neither file is in this range. **The review-thread delta is
+ZERO.** No thread was resolved, no comment was published and no PR metadata was
+changed.
+
+### Hygiene and disclosures
+
+- **Two CI jobs wedged on attempt 1 and the run was re-run.** In attempt 1,
+  `ci-e2e-compose` (`96151802261`) and `ci-e2e-kind (operational-graph)`
+  (`96151802364`) both started at 16:54:49Z, both entered their single `make`
+  step, and both then produced nothing for 97 minutes; the run's `updated_at`
+  froze at 16:55:30Z and no logs were retrievable. Those two jobs take about
+  five and seven minutes on the three immediately preceding heads
+  (`6a0c198d`, `42ed66ea`, `bf9070a0`), neither job's harness is touched by this
+  range, and the two harnesses share nothing but Docker, so this reads as the
+  same class of isolated runner failure already disclosed against the Phase 10C
+  and Phase 11 heads. GitHub reported no incident and the jobs carry no
+  `timeout-minutes`, so the default six-hour ceiling was the only thing that
+  would have ended them. The run was cancelled and re-run with
+  `rerun-failed-jobs`; GitHub re-ran all 21 jobs as attempt 2 because the
+  cancelled jobs depend on `changes`. Attempt 2 is green end to end, with
+  `ci-e2e-compose` at 12m36s and `ci-e2e-kind (operational-graph)` at 9m14s.
+  **No source byte changed between the attempts**: both ran the identical tree
+  at `ee9b14df`, and nothing was pushed, amended or force-pushed. Cancelling and
+  re-running a wedged run is the only GitHub state this session changed, and it
+  is disclosed here rather than left for a reviewer to notice as an attempt
+  number.
+- `make ci` again regenerated
+  `integrations/kubernetes/charts/pacto-dev-gateway/README.md` from helm-docs,
+  overwriting the hand-written file (+16 / -41). As in Phase 10C and section 18
+  it was restored with `git checkout --` rather than committed. The generator
+  quirk predates this phase and is not fixed here.
+- `make ci` failed once, at `ci-cyclo`, before the final commit:
+  `19 app TestCatalogKeepsMirroredRegistryContentAsTwoServices
+  ./internal/app/catalog_test.go:427:1`, against the limit of 15. The fix is
+  commit `ee9b14df`, which extracts `assertMirroredPair` from that test. The
+  gate was not raised, excluded or bypassed, and the following `make ci` is
+  exit 0.
+- Commit `3837031b` was staged deliberately so that its `fingerprint.go` and
+  `catalog_test.go` contain the blocker-B ripple only, with the blocker-C fix
+  held back for `f620cb8a`. That intermediate tree was built and tested before
+  committing: green, with 100.0% coverage in both `pkg/catalog` and
+  `internal/app`. Every commit in the range therefore compiles and passes on its
+  own.
+- A stale editor diagnostic again claimed an undefined test helper in
+  `pkg/catalog/build_test.go`; a real `go test ./pkg/catalog/` disproved it and
+  nothing was changed on its account.
+- The untracked agent paths `.claude/`, `.codex/`, `.mcp.json` and `AGENTS.md`
+  are inherited, untouched and still untracked. `git status --short` at the
+  final SHA lists those four and nothing else.
+- No literal U+00A7 was authored in any file, commit message or PR field, and
+  `make check-section` confirms it.
+
+### Deliberately not done
+
+No MCP catalog tool, no MCP resource registration, no `pacto mcp --root`
+wiring, no CLI surface, no server route, no stdio or protocol E2E and no public
+discovery-server documentation: all of that remains Phase 12. The authoring,
+capability and operational Fleet MCP tools are byte-identical. Phase 10C was not
+reopened. No prior ledger record was rewritten, and no phase was marked closed.
+
+### Verdict
+
+Blockers A, B and C are repaired at their root, each with a permanent
+adversarial test that failed against `77037e7f` for the intended reason and
+each with at least one compiling mutation that reintroduces the defect and is
+caught. **Phase 11 is a CANDIDATE at `ee9b14df`, awaiting independent review.**
+It is NOT closed; closing it is the reviewer's act, not the author's. Phase 12
+has NOT started.
+
+### Current phase map
+
+- Phases 1 through 10C: ACCEPTED and CLOSED.
+- Phase 11: CANDIDATE at `ee9b14df` after the narrow reopening of section 18.2,
+  awaiting independent review.
+- Phases 12 through 14: NOT STARTED.
+
+The PR remains an open draft, and the append-only, no-history-rewrite and
+independent-review protocol continues unchanged.
