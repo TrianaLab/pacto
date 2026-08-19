@@ -180,6 +180,34 @@ func pushMalformed(t *testing.T, repo *remote.Repository, subjectDesc ocispec.De
 	return desc
 }
 
+// pushSubjectMismatch attaches an artifact that is a valid Pacto evidence record
+// in every respect except that its subject descriptor contradicts the one the
+// registry resolved for the same revision digest.
+func pushSubjectMismatch(t *testing.T, repo *remote.Repository, subj Subject, subjectDesc ocispec.Descriptor, rec evidenceingest.Record) {
+	t.Helper()
+	art, err := BuildArtifact(rec, subj, subjectDesc)
+	if err != nil {
+		t.Fatalf("BuildArtifact: %v", err)
+	}
+	var m ocispec.Manifest
+	if err := json.Unmarshal(art.Manifest, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	m.Subject.Size = subjectDesc.Size + 1 // the configured digest, a size the registry never reported
+	manifest, _ := json.Marshal(m)
+	pushBlob(t, repo, ocispec.MediaTypeEmptyJSON, art.Config)
+	pushBlob(t, repo, PayloadMediaType, art.Payload)
+	desc := ocispec.Descriptor{
+		MediaType:    ocispec.MediaTypeImageManifest,
+		ArtifactType: ArtifactType,
+		Digest:       digest.FromBytes(manifest),
+		Size:         int64(len(manifest)),
+	}
+	if err := repo.Push(t.Context(), desc, bytes.NewReader(manifest)); err != nil {
+		t.Fatalf("push subject-mismatched manifest: %v", err)
+	}
+}
+
 func mustScan(t *testing.T, repo *remote.Repository, subj Subject, desc ocispec.Descriptor) subjectScan {
 	t.Helper()
 	got, err := scanSubject(t.Context(), repo, subj, desc)

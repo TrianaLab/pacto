@@ -139,7 +139,13 @@ func BuildArtifact(rec evidenceingest.Record, subj Subject, subjectDesc ocispec.
 // artifact for subj and returns the descriptor of its payload layer. It runs
 // before the payload is fetched, so a malformed artifact is rejected without
 // trusting the blob it points at.
-func ValidateManifest(data []byte, subj Subject) (ocispec.Descriptor, error) {
+//
+// subjectDesc is the descriptor the registry already resolved for the contract
+// revision — the same one the referrers listing was made against. It is passed in
+// rather than resolved again here: the read path holds it already, and a second
+// resolve would both cost a round trip and open a window in which the manifest is
+// checked against a different answer than the one the scan is enumerating.
+func ValidateManifest(data []byte, subj Subject, subjectDesc ocispec.Descriptor) (ocispec.Descriptor, error) {
 	var m ocispec.Manifest
 	if err := strictjson.Unmarshal(data, &m); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("%w: manifest: %w", ErrInvalidArtifact, err)
@@ -176,11 +182,40 @@ func ValidateManifest(data []byte, subj Subject) (ocispec.Descriptor, error) {
 			ErrInvalidArtifact, m.Layers[0].Size, maxPayloadBytes)
 	case m.Subject == nil:
 		return ocispec.Descriptor{}, fmt.Errorf("%w: manifest has no subject", ErrInvalidArtifact)
-	case m.Subject.Digest.String() != subj.Digest:
-		return ocispec.Descriptor{}, fmt.Errorf("%w: subject %s is not the configured revision %s",
-			ErrInvalidArtifact, m.Subject.Digest, subj.Digest)
+	}
+	if err := validateSubjectBinding(*m.Subject, subj, subjectDesc); err != nil {
+		return ocispec.Descriptor{}, err
 	}
 	return m.Layers[0], nil
+}
+
+// validateSubjectBinding checks what the artifact says it is evidence OF: the
+// contract revision the operator configured, and the descriptor the registry
+// actually resolved for it.
+//
+// Both comparisons are kept. The configured digest is the authorization question
+// — is this revision one this store may hold evidence for at all — and it is
+// answered against Subject, not against a descriptor a caller supplied. The
+// resolved descriptor is the identity question: a manifest that keeps the right
+// digest but restates the media type or the size contradicts the very descriptor
+// this scan is enumerating against, so it is not describing the revision it
+// claims to. Annotations and the other optional fields are deliberately NOT
+// compared: OCI permits them on a subject, nothing here reads them, and requiring
+// equality would reject harmless metadata another tool legitimately adds.
+func validateSubjectBinding(sub ocispec.Descriptor, subj Subject, resolved ocispec.Descriptor) error {
+	switch {
+	case sub.Digest.String() != subj.Digest:
+		return fmt.Errorf("%w: subject %s is not the configured revision %s",
+			ErrInvalidArtifact, sub.Digest, subj.Digest)
+	case sub.MediaType != resolved.MediaType || sub.Digest != resolved.Digest || sub.Size != resolved.Size:
+		return fmt.Errorf("%w: subject %s %s (%d bytes) is not the resolved revision %s %s (%d bytes)",
+			ErrInvalidArtifact, sub.MediaType, sub.Digest, sub.Size,
+			resolved.MediaType, resolved.Digest, resolved.Size)
+	case !inlineDataAgrees(sub):
+		return fmt.Errorf("%w: subject carries %d bytes of inline data that are not the %d bytes of %s",
+			ErrInvalidArtifact, len(sub.Data), sub.Size, sub.Digest)
+	}
+	return nil
 }
 
 // DecodePayload strictly decodes one evidence payload and checks the record it
@@ -258,6 +293,22 @@ func validateEnvelope(env evidenceenvelope.Envelope) error {
 		return fmt.Errorf("%w: envelope: %w", ErrInvalidArtifact, err)
 	}
 	return nil
+}
+
+// inlineDataAgrees reports whether a descriptor's optional inline copy of its own
+// content is in fact the content it addresses. image-spec 1.1.1 requires a
+// consumer that accepts `data` to verify it against the digest and size, so a
+// descriptor carrying other bytes is contradicting itself and is rejected —
+// whether or not this reader is the one that would have gone on to read them.
+// A descriptor with no inline data promises nothing and agrees vacuously.
+//
+// The digest is recomputed with sha256 because that is the only algorithm a Pacto
+// subject may use; anything else has already been refused by [ParseSubject].
+func inlineDataAgrees(d ocispec.Descriptor) bool {
+	if d.Data == nil {
+		return true
+	}
+	return int64(len(d.Data)) == d.Size && digest.FromBytes(d.Data) == d.Digest
 }
 
 // blobDescriptor is the content-addressed descriptor of exactly these bytes.

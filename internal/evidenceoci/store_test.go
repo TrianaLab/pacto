@@ -413,6 +413,31 @@ func TestStore_CommitFailsClosedOnInvalidStoredEnvelope(t *testing.T) {
 	}
 }
 
+// An artifact that keeps the configured revision digest but restates the subject
+// descriptor the registry resolved is not a referrer of the revision this scan is
+// enumerating. It is counted invalid, kept out of the projection and blocks the
+// next write, because a history with a member nobody could read cannot answer
+// "has this already been accepted?".
+func TestStore_CommitFailsClosedOnSubjectDescriptorMismatch(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	subj, desc := seedContract(t, host, RepositoryOptions{})
+	rec := storeRecord(subj, "remote-eu", "env-1", 1, "orders", acceptedAt)
+	pushSubjectMismatch(t, openRepo(t, host, RepositoryOptions{}), subj, desc, rec)
+	s := newTestStore(t, RepositoryOptions{}, subj)
+
+	res := s.List(t.Context())
+	if res.Health.Status != evidenceingest.HealthPartial || res.Health.InvalidArtifacts != 1 {
+		t.Errorf("health = %+v, want partial with 1 invalid artifact", res.Health)
+	}
+	if len(res.Records) != 0 {
+		t.Errorf("read %+v, want the mismatched subject kept out of the projection", res.Records)
+	}
+	err := s.Commit(t.Context(), storeRecord(subj, "remote-eu", "env-2", 2, "orders", acceptedAt))
+	if !errors.Is(err, evidenceingest.ErrRegistryIncomplete) {
+		t.Fatalf("commit over a subject-mismatched artifact = %v, want ErrRegistryIncomplete", err)
+	}
+}
+
 // The store is the operator's configuration boundary: a record about a revision
 // nobody configured is refused even though the producer signed it.
 func TestStore_CommitRejectsUnconfiguredSubject(t *testing.T) {

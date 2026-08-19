@@ -11,6 +11,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/content/memory"
 
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
@@ -440,6 +443,20 @@ func TestValidateManifest_Rejects(t *testing.T) {
 		"foreign subject": remarshal(func(m *ocispec.Manifest) {
 			m.Subject.Digest = digest.Digest(digestB)
 		}),
+		// The subject is what decides what the evidence is evidence OF, and the
+		// registry already told the reader what that descriptor is. A manifest that
+		// keeps the configured digest but restates the other two addressing fields is
+		// contradicting the descriptor Pacto resolved, so it is not describing the
+		// revision it claims to describe.
+		"subject media type is not the resolved one": remarshal(func(m *ocispec.Manifest) {
+			m.Subject.MediaType = ocispec.MediaTypeImageIndex
+		}),
+		"subject size is not the resolved one": remarshal(func(m *ocispec.Manifest) {
+			m.Subject.Size = subjectDescOf(s).Size + 1
+		}),
+		"subject inline data contradicts its digest": remarshal(func(m *ocispec.Manifest) {
+			m.Subject.Data = []byte(`{"not":"the contract"}`)
+		}),
 		"oversized layer": remarshal(func(m *ocispec.Manifest) {
 			m.Layers[0].Size = maxPayloadBytes + 1
 		}),
@@ -450,7 +467,7 @@ func TestValidateManifest_Rejects(t *testing.T) {
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := ValidateManifest(data, s); !errors.Is(err, ErrInvalidArtifact) {
+			if _, err := ValidateManifest(data, s, subjectDescOf(s)); !errors.Is(err, ErrInvalidArtifact) {
 				t.Fatalf("error = %v, want ErrInvalidArtifact", err)
 			}
 		})
@@ -460,9 +477,48 @@ func TestValidateManifest_Rejects(t *testing.T) {
 func TestValidateManifest_AcceptsPublishedArtifact(t *testing.T) {
 	s := testSubject(t)
 	art := mustBuild(t, testRecord(s), s)
-	desc, err := ValidateManifest(art.Manifest, s)
+	desc, err := ValidateManifest(art.Manifest, s, subjectDescOf(s))
 	if err != nil {
 		t.Fatalf("ValidateManifest: %v", err)
+	}
+	if desc.Digest != art.PayloadDesc.Digest {
+		t.Errorf("payload descriptor = %s, want %s", desc.Digest, art.PayloadDesc.Digest)
+	}
+}
+
+// Strict config and subject rules must reject what contradicts itself without
+// rejecting what another OCI tool would legitimately produce. oras-go is the
+// library `oras attach` is built from, so packing an equivalent evidence artifact
+// through its own manifest builder puts the interoperability claim in CI, beside
+// the live `oras attach` leg the Kind evidence suite runs against a real registry.
+//
+// It also pins the tolerances that make interoperability possible: PackManifest
+// stamps an org.opencontainers.image.created annotation on the manifest — which is
+// exactly why Pacto builds its own, deterministically — and that annotation must
+// not make the artifact unreadable.
+func TestValidateManifest_AcceptsOrasPackedArtifact(t *testing.T) {
+	s := testSubject(t)
+	art := mustBuild(t, testRecord(s), s)
+	subjectDesc := subjectDescOf(s)
+
+	store := memory.New()
+	if err := store.Push(t.Context(), art.PayloadDesc, bytes.NewReader(art.Payload)); err != nil {
+		t.Fatalf("push payload: %v", err)
+	}
+	packed, err := oras.PackManifest(t.Context(), store, oras.PackManifestVersion1_1, ArtifactType, oras.PackManifestOptions{
+		Subject: &subjectDesc,
+		Layers:  []ocispec.Descriptor{art.PayloadDesc},
+	})
+	if err != nil {
+		t.Fatalf("oras.PackManifest: %v", err)
+	}
+	manifest, err := content.FetchAll(t.Context(), store, packed)
+	if err != nil {
+		t.Fatalf("fetch packed manifest: %v", err)
+	}
+	desc, err := ValidateManifest(manifest, s, subjectDesc)
+	if err != nil {
+		t.Fatalf("ValidateManifest rejected an oras-packed evidence artifact: %v\nmanifest: %s", err, manifest)
 	}
 	if desc.Digest != art.PayloadDesc.Digest {
 		t.Errorf("payload descriptor = %s, want %s", desc.Digest, art.PayloadDesc.Digest)

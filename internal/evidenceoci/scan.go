@@ -52,7 +52,7 @@ func scanSubject(ctx context.Context, repo *remote.Repository, subj Subject, sub
 	var out subjectScan
 	err := repo.Referrers(ctx, subjectDesc, "", func(page []ocispec.Descriptor) error {
 		for _, desc := range page {
-			switch rec, state := readReferrer(ctx, repo, subj, desc); state {
+			switch rec, state := readReferrer(ctx, repo, subj, subjectDesc, desc); state {
 			case referrerRecord:
 				out.Found = append(out.Found, scanned{Desc: desc, Record: rec})
 			case referrerMalformed:
@@ -81,14 +81,16 @@ const (
 	referrerMalformed
 )
 
-// readReferrer classifies and, when it is Pacto's, decodes one referrer.
+// readReferrer classifies and, when it is Pacto's, decodes one referrer. desc is
+// the referring artifact's own descriptor; subjectDesc is the resolved contract
+// revision it must be bound to.
 //
 // An artifact the registry listed but then could not serve is malformed rather
 // than a separate transport failure: either way this subject's evidence set is
 // incomplete, which is exactly what a non-zero invalid count means. Only the
 // enumeration itself can fail the whole subject, because only enumeration can
 // leave the reader believing it saw everything.
-func readReferrer(ctx context.Context, repo *remote.Repository, subj Subject, desc ocispec.Descriptor) (evidenceingest.Record, referrerState) {
+func readReferrer(ctx context.Context, repo *remote.Repository, subj Subject, subjectDesc, desc ocispec.Descriptor) (evidenceingest.Record, referrerState) {
 	if desc.Size > maxManifestBytes {
 		// Too large to be a Pacto manifest. If it claims to be one, that claim is
 		// itself the malformation; otherwise it is simply not ours to read.
@@ -104,7 +106,7 @@ func readReferrer(ctx context.Context, repo *remote.Repository, subj Subject, de
 	if !claimsPactoType(desc, manifest) {
 		return evidenceingest.Record{}, referrerForeign
 	}
-	payloadDesc, err := ValidateManifest(manifest, subj)
+	payloadDesc, err := ValidateManifest(manifest, subj, subjectDesc)
 	if err != nil {
 		return evidenceingest.Record{}, referrerMalformed
 	}
