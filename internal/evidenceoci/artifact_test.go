@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -239,6 +240,109 @@ func TestDecodePayload_Rejects(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := DecodePayload(data, s); !errors.Is(err, ErrInvalidArtifact) {
 				t.Fatalf("error = %v, want ErrInvalidArtifact", err)
+			}
+		})
+	}
+}
+
+// observations returns n distinct, structurally valid observations, so a bound on
+// how many an envelope may carry is exercised by the count and not by some other
+// defect in the observations themselves.
+func observations(n int) []evidence.Observation {
+	out := make([]evidence.Observation, 0, n)
+	prov := evidence.Provenance{Collector: "c", DetectedAt: time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)}
+	for i := range n {
+		out = append(out, evidence.NewCapabilityObserved(
+			evidence.SubjectRef{Kind: "capability", Name: fmt.Sprintf("cap-%d", i)}, true, prov))
+	}
+	return out
+}
+
+// mustPayload renders a record into payload bytes WITHOUT going through
+// BuildArtifact, which is the only way to pose the question the read path must
+// answer: a payload already sitting in a registry, however it got there.
+func mustPayload(t *testing.T, rec evidenceingest.Record) []byte {
+	t.Helper()
+	data, err := json.Marshal(payloadDoc{SchemaVersion: RecordSchemaVersion, Record: rec})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return data
+}
+
+// A stored record carries a signed envelope, and the envelope rules are the
+// ingestion boundary's, not a second set invented for the registry. Reading one
+// back re-runs the SAME canonical decoder and the SAME evidence-set validation,
+// so a registry can never hand back an envelope ingestion would have refused.
+// Signatures are NOT reverified here: they were verified at ingestion, and write
+// authorization on the repository is the trust boundary for what is stored.
+func TestDecodePayload_RejectsInvalidEnvelope(t *testing.T) {
+	s := testSubject(t)
+	cases := map[string]struct {
+		mutate func(*evidenceingest.Record)
+		want   error
+	}{
+		"unknown apiVersion": {
+			func(r *evidenceingest.Record) { r.Envelope.APIVersion = "pacto.dev/evidence/v2" },
+			evidenceenvelope.ErrUnsupportedVersion,
+		},
+		"no kind": {
+			func(r *evidenceingest.Record) { r.Envelope.Kind = "" },
+			evidenceenvelope.ErrUnsupportedKind,
+		},
+		"wrong kind": {
+			func(r *evidenceingest.Record) { r.Envelope.Kind = "Envelope" },
+			evidenceenvelope.ErrUnsupportedKind,
+		},
+		"no producer key id": {
+			func(r *evidenceingest.Record) { r.Envelope.Producer.KeyID = "" },
+			evidenceenvelope.ErrMissingField,
+		},
+		"over MaxObservations": {
+			func(r *evidenceingest.Record) {
+				r.Envelope.EvidenceSet.Observations = observations(evidenceenvelope.MaxObservations + 1)
+			},
+			// Rejected by the envelope bounds. At this count the byte cap is reached
+			// first — no observation serializes in the ~100 bytes that would let
+			// 10001 of them fit inside MaxEnvelopeBytes — so ErrTooLarge is the honest
+			// expectation, and the count bound backs it up behind smaller records.
+			evidenceenvelope.ErrTooLarge,
+		},
+		"over MaxEnvelopeBytes": {
+			func(r *evidenceingest.Record) {
+				r.Envelope.EvidenceSet.Source = strings.Repeat("x", evidenceenvelope.MaxEnvelopeBytes)
+			},
+			evidenceenvelope.ErrTooLarge,
+		},
+		// The evidence set's own structural rules travel with the envelope.
+		"no observation instant": {
+			func(r *evidenceingest.Record) { r.Envelope.EvidenceSet.ObservedAt = time.Time{} },
+			nil,
+		},
+		"unattributable observation": {
+			func(r *evidenceingest.Record) {
+				obs := observations(1)
+				obs[0].Provenance.Collector = ""
+				r.Envelope.EvidenceSet.Observations = obs
+			},
+			nil,
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := testRecord(s)
+			c.mutate(&rec)
+			err := func() error { _, err := DecodePayload(mustPayload(t, rec), s); return err }()
+			if !errors.Is(err, ErrInvalidArtifact) {
+				t.Fatalf("DecodePayload = %v, want ErrInvalidArtifact", err)
+			}
+			if c.want != nil && !errors.Is(err, c.want) {
+				t.Errorf("DecodePayload = %v, want it to carry %v: the canonical decoder must be what refused it", err, c.want)
+			}
+			// The write path refuses the same record, so the server can never publish
+			// evidence its own reader would then count as invalid and jam itself on.
+			if _, err := BuildArtifact(rec, s, subjectDescOf(s)); !errors.Is(err, ErrInvalidArtifact) {
+				t.Errorf("BuildArtifact = %v, want ErrInvalidArtifact", err)
 			}
 		})
 	}

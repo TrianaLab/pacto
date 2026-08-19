@@ -10,6 +10,8 @@ import (
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v3/pkg/strictjson"
 )
@@ -187,18 +189,14 @@ func DecodePayload(data []byte, subj Subject) (evidenceingest.Record, error) {
 	return doc.Record, nil
 }
 
-// validateRecord enforces the identity every stored record must carry: it names a
-// producer, an envelope, an operational subject and an acceptance instant, and
-// its three spellings of the contract revision — the signed ContractRef and the
-// resolved domain and digest — all agree with the OCI subject it is attached to.
+// validateRecord enforces what the STORE adds to an accepted record: a service
+// and an acceptance instant, and three spellings of the contract revision — the
+// signed ContractRef and the resolved domain and digest — that all agree with the
+// OCI subject the record is attached to. Everything the envelope itself must
+// satisfy is left to [validateEnvelope], which reuses the ingestion boundary's own
+// validators rather than restating them here.
 func validateRecord(rec evidenceingest.Record, subj Subject) error {
 	switch {
-	case rec.Envelope.ID == "":
-		return fmt.Errorf("%w: record has no envelope id", ErrInvalidArtifact)
-	case rec.Envelope.Producer.ID == "":
-		return fmt.Errorf("%w: record has no producer", ErrInvalidArtifact)
-	case rec.Envelope.EvidenceSet.Subject.Name == "":
-		return fmt.Errorf("%w: record has no operational subject", ErrInvalidArtifact)
 	case rec.Service == "":
 		return fmt.Errorf("%w: record has no service", ErrInvalidArtifact)
 	case rec.AcceptedAt.IsZero():
@@ -212,6 +210,35 @@ func validateRecord(rec evidenceingest.Record, subj Subject) error {
 	case rec.Domain != subj.Domain():
 		return fmt.Errorf("%w: record domain %q is not the subject domain %q",
 			ErrInvalidArtifact, rec.Domain, subj.Domain())
+	}
+	return validateEnvelope(rec.Envelope)
+}
+
+// validateEnvelope re-runs the canonical envelope rules on a stored record. The
+// version, kind, identity and bounds an envelope must satisfy belong to the
+// ingestion boundary, and a registry read must not have a second, weaker copy of
+// them: the embedded envelope is serialized deterministically and handed to the
+// same [evidenceenvelope.Decode] the producer's own bytes went through.
+//
+// Signatures are deliberately NOT reverified. They are verified once, at
+// ingestion, and write authorization on the contract repository is the trust
+// boundary for what the registry holds; reverifying on every read would put the
+// trust store on the read path and would retroactively invalidate every record
+// signed by a since-rotated key.
+func validateEnvelope(env evidenceenvelope.Envelope) error {
+	// The evidence set first. Once it is structurally valid every observation
+	// marshals, which is what makes the encoding below unable to fail.
+	if errs := evidence.ValidateEvidenceSet(env.EvidenceSet); len(errs) > 0 {
+		return fmt.Errorf("%w: evidence set: %w", ErrInvalidArtifact, errors.Join(errs...))
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	// No HTML escaping: expanding one '<' into six bytes would push an envelope
+	// that is legitimately just under MaxEnvelopeBytes over the limit.
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(env) // the evidence set is valid, so every observation marshals
+	if _, err := evidenceenvelope.Decode(bytes.TrimRight(buf.Bytes(), "\n")); err != nil {
+		return fmt.Errorf("%w: envelope: %w", ErrInvalidArtifact, err)
 	}
 	return nil
 }

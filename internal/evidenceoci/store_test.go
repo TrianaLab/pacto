@@ -387,6 +387,32 @@ func TestStore_CommitFailsClosedOnMalformedEvidence(t *testing.T) {
 	}
 }
 
+// An artifact whose stored envelope the ingestion boundary would have refused is
+// invalid on the read path too — the envelope rules do not weaken because the
+// bytes arrived from a registry instead of from a producer. It is counted, kept
+// out of the projection, and because an incomplete history cannot answer "has
+// this already been accepted?", it blocks the next write.
+func TestStore_CommitFailsClosedOnInvalidStoredEnvelope(t *testing.T) {
+	host := startRegistry(t, testutil.ReferrersOptions{})
+	subj, desc := seedContract(t, host, RepositoryOptions{})
+	rec := storeRecord(subj, "remote-eu", "env-1", 1, "orders", acceptedAt)
+	rec.Envelope.Producer.KeyID = "" // no key id: nothing could ever have verified it
+	pushMalformed(t, openRepo(t, host, RepositoryOptions{}), desc, mustPayload(t, rec))
+	s := newTestStore(t, RepositoryOptions{}, subj)
+
+	res := s.List(t.Context())
+	if res.Health.Status != evidenceingest.HealthPartial || res.Health.InvalidArtifacts != 1 {
+		t.Errorf("health = %+v, want partial with 1 invalid artifact", res.Health)
+	}
+	if len(res.Records) != 0 {
+		t.Errorf("read %+v, want the invalid envelope kept out of the projection", res.Records)
+	}
+	err := s.Commit(t.Context(), storeRecord(subj, "remote-eu", "env-2", 2, "orders", acceptedAt))
+	if !errors.Is(err, evidenceingest.ErrRegistryIncomplete) {
+		t.Fatalf("commit over an invalid stored envelope = %v, want ErrRegistryIncomplete", err)
+	}
+}
+
 // The store is the operator's configuration boundary: a record about a revision
 // nobody configured is refused even though the producer signed it.
 func TestStore_CommitRejectsUnconfiguredSubject(t *testing.T) {
