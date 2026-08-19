@@ -6665,3 +6665,44 @@ earlier section of this document was edited.
 - Phases 1 through 10B: ACCEPTED and CLOSED.
 - Phase 10C: CANDIDATE, repaired at `c9bbdfd7`, awaiting independent review.
 - Phases 11 through 14: NOT STARTED.
+
+## 16.4 GitHub Actions at the ledger head `3aa9ab6c`
+
+Section 16.3 was written before its own commit could be pushed, so it records
+the remote state at the implementation head `c9bbdfd7`. This section records the
+remote state at the branch head that carries it.
+
+CI run `32228879022` at `3aa9ab6c` first failed in two jobs, `ci-e2e-kind
+(reconcile)` (95994336772) and `required` (95996640029). The cause is a Go
+module proxy transient inside the operator image build, not a regression:
+
+```text
+#13 2.461 go: github.com/klauspost/compress@v1.19.1: reading
+    https://proxy.golang.org/github.com/klauspost/compress/@v/v1.19.1.zip: 403 Forbidden
+#13 2.461 go: github.com/segmentio/encoding@v0.5.4: reading
+    https://proxy.golang.org/github.com/segmentio/encoding/@v/v0.5.4.zip: 403 Forbidden
+#13 ERROR: process "/bin/sh -c go mod download" did not complete successfully: exit code: 1
+```
+
+`3aa9ab6c` changes one file, `.pr-context/PACTO_PR_CURRENT_STATE.md`, and the
+same shard passed at `c9bbdfd7` minutes earlier. The two failed jobs were re-run
+and both pass. Run `32228879022` is now successful with all 21 jobs green:
+`changes`, `ci-static`, `ci-gates`, `ci-engine`, `ci-dashboard`,
+`ci-integration-kubernetes`, `ci-e2e-envtest`, `ci-oci`, `operator-build`,
+`release-version-test`, `artifact-drift`, `release-dry-run`, `dashboard-e2e`,
+`ci-e2e-compose`, all six `ci-e2e-kind` shards (`dashboard`, `evidence`,
+`observation`, `operational-graph`, `reconcile`, `upgrade`) and `required`.
+
+The other workflows at `3aa9ab6c`: Security `32228878820` success, Docs check
+`32228878832` success, Pacto Contract CI `32228878897` success, Repowise
+(architecture health) `32228878830` success, Validate PR title `32228878884`
+success, Code Quality `32228875861` success and the PR CodeQL workflow
+`32228875941` success. Rebuild dashboard UI `32228879010` and Auto-merge
+Dependabot PRs `32228878853` are skipped as usual.
+
+CodeQL and review threads are unchanged from section 16.3: nine open alerts, all
+inherited, delta zero; 199 threads, 10 unresolved, all inherited. No comment was
+published, no thread resolved and no PR metadata changed. PR #291 is OPEN and
+DRAFT at `3aa9ab6c`.
+
+**Phase 10C REMAINS CANDIDATE.** Phase 11 has not started.
