@@ -8536,3 +8536,137 @@ has NOT started.
 
 The PR remains an open draft, and the append-only, no-history-rewrite and
 independent-review protocol continues unchanged.
+
+## 18.4 Independent review at `a5fb3ecd` -- Phase 11 remains narrowly reopened
+
+Independent review date: 2026-08-19. Reviewed repair range:
+`77037e7f2cb1024141334918fbad83c5256168f3..ee9b14df44ecc82cd7003ec64d3549d557e41088`.
+Reviewed remote ledger head:
+`a5fb3ecdeb302287ae25f45ba84d3f96d129f691`.
+
+### Repository, history and external state
+
+- PR 291 is OPEN, DRAFT and MERGEABLE on
+  `feat/operational-graph-fleet`; local HEAD, the remote branch and the PR head
+  were exactly `a5fb3ecd` before this review record.
+- `origin/main` and the merge-base remain
+  `83f2e66d5cd4fab56099991d39e64fc11f107b3d`. `77037e7f` remains an
+  ancestor. The range to `a5fb3ecd` is exactly five linear, single-parent
+  commits: the four implementation commits recorded in section 18.3 followed
+  by its ledger commit. There is no merge or evidence of an amended, rebased or
+  force-pushed boundary.
+- The implementation range changes the ten files and the +631 / -191 delta
+  recorded in section 18.3. The ledger adds only
+  `.pr-context/PACTO_PR_CURRENT_STATE.md`; TARGET, the iteration protocol,
+  testing documentation, Make and every workflow remain untouched.
+- At exact implementation SHA `ee9b14df`, CI run `32278479689` succeeded on
+  attempt 2 with all 21 jobs green. The API confirms that attempt 1 had exactly
+  the two disclosed cancelled jobs, `ci-e2e-compose` and
+  `ci-e2e-kind (operational-graph)`, followed by the aggregate `required`
+  failure; attempt 2 contains 21 successes on the identical tree. Security,
+  Docs check, Pacto Contract CI, Repowise, PR-title and every individual CodeQL
+  analysis are also successful.
+- At ledger head `a5fb3ecd`, CI run `32290080859` finished failed on attempt 1.
+  Nineteen functional jobs passed; `ci-e2e-kind (reconcile)` failed because
+  `kindload` reported that the dashboard image was not present after loading,
+  and `required` consequently failed. This docs-only commit does not touch that
+  harness or image path, and the same shard passed at `ee9b14df`, so the result
+  is not evidence against the catalog repair. It is nevertheless the truthful
+  exact-head state and is not called green.
+- The code-scanning API returns the same nine inherited alerts: 38, 40 through
+  43 and 59 through 62. None is in this repair range. Review threads were
+  independently paginated: 199 total, 189 resolved and 10 unresolved, still
+  the same six generated-Mermaid threads and four `pkg/oci/cache.go` threads.
+  The repair delta is zero in both sets.
+
+### Accepted repair -- blockers B and C are closed
+
+Blocker B is repaired at the root. `RevisionID{Service, Content}` is a
+comparable structural identity, and it now reaches revision storage and lookup,
+root outcomes, declaration occurrences, edges, paths, cycles, conflicts and the
+fingerprint. The cycle key uses length-prefixed framing rather than a delimiter.
+The core test and the real in-process OCI registry test both prove that one
+manifest digest mirrored into two repository domains remains two revisions of
+two domain-qualified services, with two distinct declarations and paths, no
+false same-service conflict and one `catalogId` under either root order.
+Same-service tag-plus-digest deduplication remains green.
+
+Blocker C is also repaired at the root. An unresolved root contributes its
+requested reference as a length-prefixed hashed field because it has no resolved
+identity; a resolved root still excludes that provenance. The permanent tests
+prove different unresolved multisets differ, permutations agree, framing is
+injective, multiplicity matters and a tag still fingerprints like the immutable
+digest it resolved to.
+
+These two repairs, and all the Phase-11 work accepted in section 18.2, must not
+be redesigned without a new concrete counterexample.
+
+### Remaining blocker A -- the network calls are bounded, the surplus walk is not
+
+Charging `edgeWork` before constructing an arrival correctly fixes the original
+observable failure: failed dependencies spend budget, resolver calls stop at
+`MaxEdges`, the surplus never enters the queue, and the answer becomes partial
+with `EDGE_LIMIT_EXCEEDED`. The permanent tests prove those facts.
+
+The implementation nevertheless keeps iterating through every declaration
+after the first new edge-work item is refused. For every surplus declaration,
+`expand` calls both `limit` and `recordUnresolved`. Each helper inserts the
+reference into its deduplication map before applying the corresponding reporting
+bound. The visible `Unresolved` and `Limitations` slices are capped, but
+`unresolvedSeen`, `limitSeen` and loop work still grow linearly with the hostile
+fan-out that `MaxEdges` claims to stop. No resolver call or queue entry is made,
+but the catalog core still performs and retains unbounded surplus bookkeeping.
+
+This was reproduced against the actual builder with a temporary package-local
+probe: 1,000 distinct declarations, `MaxEdges=1`, `MaxUnresolved=1` and
+`MaxLimitations=1` admitted one arrival and one edge-work key, but left
+`unresolvedSeen=999` and `limitSeen=1000`. The probe failed on those exact
+counts and was then deleted; no product or probe file remains. The existing
+`TestEdgeBoundStopsFailingDependencyWorkToo` currently expects every declaration
+past the work bound to become a separate bounded unresolved result, so it
+codifies the surplus scan rather than catching it.
+
+A work bound cannot require walking and remembering the entire work it refused.
+Once declaration order reaches the first unseen item that `MaxEdges` cannot
+admit, later declarations of that same expansion cannot be admitted either.
+The core should record one honest bound event/gap and stop that expansion rather
+than inspect every remaining declaration. A permanent adversarial test must
+make the internal work observable -- not merely count resolver calls or output
+slices -- and prove that increasing a large hostile tail does not grow surplus
+bookkeeping beyond a constant derived from the admitted work and the single
+boundary report.
+
+The narrow repair must also correct two now-false public comments rather than
+leave the model saying two things: `ContentID` is the immutable content identity,
+not "the only thing the catalog treats as identity" now that `RevisionID` is
+canonical revision identity; and `Bounds.MaxEdges` budgets dependency work,
+including failed attempts, not only successfully recorded edges. This is
+documentation alignment for the same blocker, not a new design request.
+
+### Independent local verification and hygiene
+
+- `go test -race -count=1 ./pkg/catalog ./internal/app ./pkg/oci
+  ./tests/architecture` passed after removing the temporary probe.
+- `git diff --check` passed. The worktree returned to only the four inherited
+  untracked agent paths `.claude/`, `.codex/`, `.mcp.json` and `AGENTS.md`
+  before this review record.
+- No product file, test, workflow, PR comment, review thread or PR metadata was
+  changed by this review. TARGET and prior ledger records remain untouched.
+
+### Verdict and exact next objective
+
+**Phase 11 remains NARROWLY REOPENED and is not closed.** Blockers B and C are
+accepted and closed. Blocker A is materially improved and its original network
+and queue counterexample is closed, but `MaxEdges` still permits work and memory
+bookkeeping proportional to every refused declaration after the boundary.
+
+The next iteration is a Phase-11-only closure repair of this one residual
+counterexample. It must start from this review ledger head, stop the expansion at
+the first newly refused edge-work item, preserve one honest partial/bound report,
+add a permanent non-vacuous scaling proof and mutation proof, align the two
+public comments, run the complete verification at the exact final SHA, append a
+new CANDIDATE record and stop. Phase 12 must not start.
+
+- Phases 1 through 10C: ACCEPTED and CLOSED.
+- Phase 11: NARROWLY REOPENED on the residual MaxEdges surplus walk only.
+- Phases 12 through 14: NOT STARTED.
