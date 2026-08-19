@@ -19,10 +19,12 @@ import (
 //   - Root ordinals and retained paths are excluded, so permuting the requested
 //     roots does not change it. Paths are derivable from the roots' contents and
 //     the edges anyway, so nothing is lost.
-//   - Requested references and local base directories are excluded, so the same
-//     content resolved from a different path -- or through a tag instead of a
-//     digest -- fingerprints the same. Requested references remain visible on
-//     the revisions and roots themselves; they are provenance, not content.
+//   - Requested references and local base directories are excluded wherever the
+//     catalog resolved them, so the same content resolved from a different path
+//     -- or through a tag instead of a digest -- fingerprints the same. The one
+//     exception is a root that did NOT resolve: it has no content to be
+//     identified by, so the reference it asked for is the only thing telling one
+//     gap from another. It is a hashed input, never a rendered one.
 //
 // Every field is length-prefixed before hashing, so no two different field
 // sequences can ever produce one byte stream. A service, domain or reference
@@ -41,6 +43,9 @@ func fingerprint(c *Catalog) string {
 	for _, r := range c.roots {
 		fields := append([]string{boolStr(r.Resolved)}, revFields(r.Revision)...)
 		fields = append(fields, r.Reason.Code)
+		if !r.Resolved {
+			fields = append(fields, r.RequestedRef)
+		}
 		outcomes = append(outcomes, encode(fields...))
 	}
 	slices.Sort(outcomes)

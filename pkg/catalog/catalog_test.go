@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
@@ -217,6 +219,73 @@ func TestCatalogIDDistinguishesDifferentCatalogs(t *testing.T) {
 		if other.Meta().CatalogID == base.Meta().CatalogID {
 			t.Errorf("%s fingerprinted the same as the baseline", name)
 		}
+	}
+}
+
+// A root that resolved to nothing has no content to be fingerprinted by, so the
+// reference it asked for is the only identity it has. Two catalogs that failed
+// at different references are not the same catalog, and an agent that caches or
+// compares by catalogId must not be told they are.
+func TestCatalogIDDistinguishesDifferentUnresolvedRoots(t *testing.T) {
+	missing := func(refs ...string) *Catalog {
+		f := newFake()
+		for _, r := range refs {
+			f.fail(r, ReasonNotFound)
+		}
+		return build(t, f, Bounds{}, refs...)
+	}
+
+	a := missing("reg/missing-a:1")
+	b := missing("reg/missing-b:1")
+	if a.Meta().CatalogID == b.Meta().CatalogID {
+		t.Errorf("two catalogs that failed at different references share catalogId %s", a.Meta().CatalogID)
+	}
+	if len(a.Revisions()) != 0 || a.Roots()[0].Resolved {
+		t.Fatalf("the fixture resolved something; the assertion above would not be about unresolved roots: %+v", a.Roots())
+	}
+
+	// Framing, not joining: neighbouring references must not run into each other.
+	if x, y := missing("ab", "c"), missing("a", "bc"); x.Meta().CatalogID == y.Meta().CatalogID {
+		t.Errorf("[ab c] and [a bc] fingerprinted alike; the root encoding is joining rather than framing")
+	}
+
+	// Order is still a detail of the request.
+	one := missing("reg/missing-a:1", "reg/missing-b:1")
+	two := missing("reg/missing-b:1", "reg/missing-a:1")
+	if one.Meta().CatalogID != two.Meta().CatalogID {
+		t.Errorf("permuting two unresolved roots changed catalogId: %s vs %s", one.Meta().CatalogID, two.Meta().CatalogID)
+	}
+	if one.Meta().CatalogID == a.Meta().CatalogID {
+		t.Errorf("two unresolved roots fingerprinted the same as one")
+	}
+
+	// The reference is a hashed input like every other field, never a rendered
+	// one: a catalogId is quoted in logs, issues and agent transcripts, and a
+	// private registry path is not something the caller published by asking.
+	for _, id := range []string{a.Meta().CatalogID, one.Meta().CatalogID} {
+		if strings.Contains(id, "missing") {
+			t.Errorf("catalogId %s carries the requested reference in the clear", id)
+		}
+		if _, err := digest.Parse(id); err != nil {
+			t.Errorf("catalogId %s is not a digest: %v", id, err)
+		}
+	}
+}
+
+// The other half of the same rule: a root that DID resolve is identified by what
+// it resolved to, so a tag and the digest it pins are one catalog.
+func TestCatalogIDIsTheSameForATagAndTheDigestItPins(t *testing.T) {
+	p := at("api", "alias")
+	pinned := "reg/api@" + p.Content.Digest
+	viaTag := build(t, newFake().ok("reg/api:1.0.0", rev(p, ct("api", "1.0.0"))), Bounds{}, "reg/api:1.0.0")
+	viaDigest := build(t, newFake().ok(pinned, rev(p, ct("api", "1.0.0"))), Bounds{}, pinned)
+
+	if viaTag.Meta().CatalogID != viaDigest.Meta().CatalogID {
+		t.Errorf("catalogId = %s by tag, %s by digest; the same resolved content is the same catalog",
+			viaTag.Meta().CatalogID, viaDigest.Meta().CatalogID)
+	}
+	if slices.Equal(viaTag.Roots()[0:1], viaDigest.Roots()[0:1]) {
+		t.Fatal("both builds asked the same way; the assertion above would be vacuous")
 	}
 }
 
