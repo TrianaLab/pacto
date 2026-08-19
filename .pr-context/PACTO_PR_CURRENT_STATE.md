@@ -6869,3 +6869,316 @@ Current phase map:
 - Phase 10C: CANDIDATE, blocked only on the remaining descriptor-validation
   portion of A above.
 - Phases 11 through 14: NOT STARTED.
+
+## 16.6 Phase 10C final descriptor-validation repair — CANDIDATE at `bcd2d2b1`
+
+The one narrow repair section 16.5 asked for: the single manifest validator now
+verifies the descriptor fields it accepts. Nothing was redesigned, no accepted
+repair was reopened, Phase 11 has not started, TARGET is untouched and no
+historical section of this document was edited.
+
+### Range
+
+- Starting SHA (independent-review ledger head): `30267affffa292f25f50dc46b3ec48f277597045`.
+- Implementation final SHA: `bcd2d2b1fb3fbcea7c7b135a22b12d83e33c56df`.
+- Ledger SHA: the commit carrying this section, recorded exactly in section 16.7.
+- `origin/main` and merge-base, unchanged: `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+- PR 291 stayed OPEN, DRAFT and MERGEABLE throughout; its head is `bcd2d2b1`.
+- History is append-only: two new commits on top of `30267aff`, no rebase,
+  amend, merge, squash, reset or force-push. `30267aff` remains an ancestor of
+  the head.
+
+Commits, in order:
+
+1. `bc0bb0dc` fix(evidence): require the canonical empty-JSON config, not three of its fields
+2. `bcd2d2b1` fix(evidence): validate the manifest subject against the descriptor already resolved
+
+Changed files across the range (5 files, 233 insertions, 21 deletions):
+
+| File | Change |
+|---|---|
+| `internal/evidenceoci/artifact.go` | +98/-11 — whole-descriptor config rule, `validateSubjectBinding`, `inlineDataAgrees`, `descriptorJSON`, `BuildArtifact` clone fix |
+| `internal/evidenceoci/artifact_test.go` | +91/-2 — eight new reject cases, config-shape assertions, ORAS interoperability guard |
+| `internal/evidenceoci/scan.go` | +6/-4 — thread the already-resolved subject descriptor through `readReferrer` |
+| `internal/evidenceoci/scan_test.go` | +30/-0 — canonical config in two fixtures, subject-mismatch pusher |
+| `internal/evidenceoci/store_test.go` | +25/-0 — store-level fail-closed test |
+
+The two commits are separately buildable: `bc0bb0dc` was built, tested and
+proved 100.0% coverage on its own before the subject repair was applied on top.
+
+### Repair A, part one — the canonical config descriptor, whole
+
+`ValidateManifest` compared three fields of the config descriptor against
+`ocispec.DescriptorEmptyJSON`. Three matching fields still admit a descriptor
+that contradicts itself: canonical media type, digest and size carried over
+inline `data` that is not `{}`. They also admit optional fields nothing in this
+reader interprets, so a manifest could assert an artifact type, download URLs or
+annotations on a blob Pacto neither fetches nor means.
+
+The three-field comparison is replaced by one whole-value comparison:
+
+```go
+var canonicalConfigJSON = descriptorJSON(ocispec.DescriptorEmptyJSON)
+
+case !bytes.Equal(descriptorJSON(m.Config), canonicalConfigJSON):
+```
+
+`descriptorJSON` marshals a descriptor to JSON. Go emits struct fields in
+declaration order and map keys sorted, so two descriptors are equal exactly when
+those bytes are; `ocispec.Descriptor` contains a slice and a map, so it cannot be
+compared with `==` and a field-by-field list would have to be extended by hand
+every time image-spec adds a field. One comparison covers every field that
+exists today and every field added later, including the inline copy of the two
+canonical bytes. The canonical value is still taken from image-spec rather than
+spelled out, so the writer and the reader cannot drift.
+
+No second config blob is fetched and nothing is interpreted: the rule is that
+the descriptor must be the fixed canonical one, which is precisely why its
+content never needs reading. There is still one validator and one codec, and no
+compatibility path was added.
+
+`BuildArtifact` also gained one `bytes.Clone`. The struct copy of
+`ocispec.DescriptorEmptyJSON` left `Data` aliasing image-spec's package-level
+slice, so a caller writing through a returned `Artifact` could have corrupted
+every later build in the process. The emitted bytes are unchanged, so published
+manifest digests are unchanged and no already-stored record is invalidated.
+
+### Repair A, part two — the subject against the descriptor already resolved
+
+`ValidateManifest` checked only that the subject digest equalled the configured
+revision. A manifest could keep that digest and restate `mediaType` or `size` so
+the descriptor contradicted the very one the registry had just resolved and the
+listing was being enumerated against.
+
+`ValidateManifest` now takes the resolved descriptor as a third parameter and
+delegates the subject to `validateSubjectBinding`, which requires:
+
+- the subject digest equals the configured `Subject.Digest`. This is the
+  authorization question — may this store hold evidence for this revision at all
+  — and it is deliberately still answered against the configured value, not
+  against a descriptor a caller supplied;
+- the subject's media type, digest and size equal the resolved contract
+  descriptor. This is the identity question;
+- any inline `data` the subject carries is the content it addresses:
+  `len(data) == size` and `sha256(data) == digest`. image-spec 1.1.1 requires a
+  consumer that accepts `data` to verify it, so a descriptor carrying other bytes
+  is contradicting itself whether or not this reader would have gone on to read
+  them. A descriptor with no inline data agrees vacuously.
+
+Annotations and the remaining optional subject fields are deliberately NOT
+compared: OCI permits them, nothing here reads them and requiring equality would
+reject harmless metadata another tool legitimately adds.
+
+The descriptor is threaded, not re-resolved. `scanSubject` already holds the
+descriptor `Resolve` returned and already passes it to `repo.Referrers`; it now
+passes the same value down through `readReferrer` to `ValidateManifest`. There is
+no second registry round trip, and no window in which a manifest is checked
+against a different answer than the one the scan is enumerating. `ValidateManifest`
+has exactly one production caller, so this is a small internal signature
+adjustment rather than a new abstraction.
+
+`validateSubjectBinding` is a separate function because inlining the three cases
+took `ValidateManifest` to cyclomatic complexity 16, one over the `ci-cyclo`
+limit of 15. Split, they are 12 and 6.
+
+### Adversarial tests
+
+Eight new permanent cases in `TestValidateManifest_Rejects`, each mutating one
+field of a real `BuildArtifact` manifest and requiring `ErrInvalidArtifact`:
+
+| Case | What it pins |
+|---|---|
+| `config inline data is not the empty JSON` | counterexample 1 of section 16.5, verbatim |
+| `config carries no inline data` | the canonical descriptor includes its `data`, so omitting it is not canonical |
+| `config carries annotations` | contradictory or uninterpreted extra fields |
+| `config carries an artifact type` | as above |
+| `config carries download urls` | as above |
+| `subject media type is not the resolved one` | counterexample 2 of section 16.5 |
+| `subject size is not the resolved one` | counterexample 2 of section 16.5 |
+| `subject inline data contradicts its digest` | inline data accepted on a subject must agree with its digest and size |
+
+The pre-existing `wrong subject digest` case is retained unchanged.
+`TestBuildArtifact_Shape` gained two rows pinning the emitted config's inline
+data to `{}` and the whole emitted descriptor to `canonicalConfigJSON`, plus a
+pointer-identity assertion that neither the returned config blob nor the
+descriptor's inline copy aliases image-spec's package-level slice.
+
+`TestValidateManifest_AcceptsOrasPackedArtifact` is the interoperability guard:
+it packs an equivalent evidence artifact with `oras.PackManifest` at
+`PackManifestVersion1_1` over a memory store and requires `ValidateManifest` to
+accept it. ORAS Go's `packManifestV1_1` sets the config to
+`ocispec.DescriptorEmptyJSON` including its inline data, and
+`remote.manifestStore` returns resolved descriptors carrying media type, digest
+and size only, so both new rules are satisfied by an ORAS-produced artifact
+rather than merely believed to be. The valid Pacto-produced artifact continues to
+pass through the pre-existing accept test.
+
+`TestStore_CommitFailsClosedOnSubjectDescriptorMismatch` proves the rule at the
+store level, not only at the validator: a Pacto artifact whose subject size
+contradicts the resolved descriptor makes the read report `partial` with
+`InvalidArtifacts` 1, keeps the record out of the projection and makes the next
+`Commit` fail closed with `ErrRegistryIncomplete`.
+
+Two existing fixtures in `scan_test.go` gained a canonical `config.Data`. Without
+it the strict config rule would have rejected them before they reached the rule
+they exist to test, silently hollowing out
+`TestScanSubject_CountsMalformedPactoManifests` and the oversized-layer case.
+No coverage was duplicated to raise the test count.
+
+### RED
+
+With the pre-fix validator restored (the three-field config comparison back, the
+resolved-descriptor and inline-data cases removed) and the permanent tests as
+committed:
+
+```text
+--- FAIL: TestValidateManifest_Rejects/config_inline_data_is_not_the_empty_JSON
+--- FAIL: TestValidateManifest_Rejects/config_carries_no_inline_data
+--- FAIL: TestValidateManifest_Rejects/config_carries_annotations
+--- FAIL: TestValidateManifest_Rejects/config_carries_an_artifact_type
+--- FAIL: TestValidateManifest_Rejects/config_carries_download_urls
+--- FAIL: TestValidateManifest_Rejects/subject_media_type_is_not_the_resolved_one
+--- FAIL: TestValidateManifest_Rejects/subject_size_is_not_the_resolved_one
+--- FAIL: TestValidateManifest_Rejects/subject_inline_data_contradicts_its_digest
+--- FAIL: TestStore_CommitFailsClosedOnSubjectDescriptorMismatch
+```
+
+each reporting `artifact_test.go:471: error = <nil>, want ErrInvalidArtifact`.
+GREEN on the committed bytes, with `internal/evidenceoci` still at 100.0%
+statement coverage.
+
+### Mutation evidence
+
+Six compiling semantic mutations, applied one at a time and reverted. None was a
+build failure; every one produced failing assertions in named permanent tests.
+
+| Mutation | Failing permanent tests |
+|---|---|
+| M1: config inline-data validation removed (the pre-change three-field comparison) | `TestValidateManifest_Rejects/config_inline_data_is_not_the_empty_JSON`, `/config_carries_no_inline_data`, `/config_carries_annotations`, `/config_carries_an_artifact_type`, `/config_carries_download_urls` |
+| M2: subject media-type comparison removed | `TestValidateManifest_Rejects/subject_media_type_is_not_the_resolved_one` |
+| M3: subject size comparison removed | `TestValidateManifest_Rejects/subject_size_is_not_the_resolved_one`, `TestStore_CommitFailsClosedOnSubjectDescriptorMismatch` |
+| M4: subject inline-data validation removed | `TestValidateManifest_Rejects/subject_inline_data_contradicts_its_digest` |
+| M5: the whole resolved-descriptor case removed | `TestValidateManifest_Rejects/subject_media_type_is_not_the_resolved_one`, `/subject_size_is_not_the_resolved_one`, `TestStore_CommitFailsClosedOnSubjectDescriptorMismatch` |
+| M6: the `BuildArtifact` config clone removed, restoring the alias | `TestBuildArtifact_Shape` |
+
+M1, M2 and M3 are the three the review required. M4, M5 and M6 cover the parts of
+the repair the required three do not reach.
+
+### What was deliberately not done
+
+The accepted repairs are untouched. No signature verification was added to the
+registry read path, replay semantics are unchanged, there is no background
+readiness polling, cache or restart coupling, no bucket, PVC, recovery machinery
+or `pkg/evidencestore`, no tag fallback, no second codec and no compatibility
+storage, the single-writer `Recreate` model is unchanged, the Evidence DTOs and
+the canonical scenario are unchanged, Compose still publishes natively and ORAS
+remains only the transport library and the interoperability observer. No CI
+wiring was weakened: the range touches no file under `.github/`, no `Makefile`,
+no `release/` and no `scripts/`.
+
+### Local verification
+
+All run on the committed bytes at `bcd2d2b1`:
+
+- `go test -race ./internal/evidenceoci ./pkg/evidenceingest ./internal/app -count=1` — ok.
+- `internal/evidenceoci` at 100.0% statement coverage, at `bc0bb0dc` and at `bcd2d2b1`.
+- `make ci` — exit 0, both modules at 100.0% total coverage, including
+  `check-section` (zero U+00A7 in authored files), `ci-cyclo`, `ci-arch` and
+  `test-acceptance-local`.
+- `make artifact-drift` — OK.
+- `make release-dry-run` — OK, with `STANDALONE-VERIFY OK` and `K8S-MODULE-STANDALONE OK`.
+- `make test-acceptance-local` — operational-graph acceptance PASSED.
+- `make test-acceptance-compose-selftest` — S12 and S13 PASS, SELFTEST OK.
+- `make test-browser-compose` — both live legs 7 passed, clone-free Compose demo acceptance PASSED.
+- `make test-acceptance-kind-evidence` — full in-cluster Evidence Server lifecycle acceptance PASSED.
+- `make test-acceptance-kind-operational-graph` — 8 live product journeys passed, the full operational-graph vertical is UP.
+- `make test-browser` — 219 passed.
+- `govulncheck ./...` — no vulnerabilities found.
+- `git diff --check` — clean.
+- `make check-section` — zero U+00A7.
+
+The suites that compete for the same ports were run sequentially. The
+`integrations/kubernetes/charts/pacto-dev-gateway/README.md` helm-docs
+regeneration appeared once during `make ci` and was restored, along with
+`go.work.sum` churn; neither is part of the repair. The four inherited untracked
+agent paths (`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`) were never touched.
+
+### GitHub Actions at `bcd2d2b1`
+
+CI run `32238379017` is successful with all 21 jobs green:
+
+| Job | ID |
+|---|---|
+| changes | 96023620330 |
+| ci-static | 96023680527 |
+| ci-gates | 96023680825 |
+| ci-engine | 96023680576 |
+| ci-dashboard | 96023680658 |
+| ci-integration-kubernetes | 96023680807 |
+| ci-e2e-envtest | 96023680624 |
+| ci-oci | 96023680824 |
+| operator-build | 96023680667 |
+| release-version-test | 96023680783 |
+| artifact-drift | 96023680761 |
+| release-dry-run | 96023680804 |
+| dashboard-e2e | 96023680587 |
+| ci-e2e-compose | 96023681115 |
+| ci-e2e-kind (dashboard) | 96023680765 |
+| ci-e2e-kind (evidence) | 96023680728 |
+| ci-e2e-kind (observation) | 96023680822 |
+| ci-e2e-kind (operational-graph) | 96023680756 |
+| ci-e2e-kind (reconcile) | 96023680904 |
+| ci-e2e-kind (upgrade) | 96023680865 |
+| required | 96026581789 |
+
+The other workflows at the same SHA: Security `32238379038` success (Trivy,
+`Trivy (image)`, `govulncheck (Go)` and the PR security summary), Docs check
+`32238379004` success, Pacto Contract CI `32238379071` success, Repowise
+(architecture health) `32238379108` success, Validate PR title `32238379064`
+success and the two CodeQL analysis runs `32238376007` and `32238376249` success
+across all four languages (`actions`, `go`, `javascript-typescript`, `python`).
+Rebuild dashboard UI `32238379016` and Auto-merge Dependabot PRs `32238378993`
+are skipped as usual. The `github-code-quality` app produced no check run at this
+SHA; it did at earlier heads, and its absence is on GitHub's side, not in the
+workflow files, which this range does not touch.
+
+Every check run at `bcd2d2b1` is success or skipped except one: the aggregate
+`CodeQL` check from `github-advanced-security`, which is red for the inherited
+reason below.
+
+### CodeQL and review threads
+
+Nine open alerts on the PR ref, the same nine as at `a017b63a`, none created by
+this repair and none in a file it touches:
+
+| Alert | Rule | File |
+|---|---|---|
+| 38 | py/incomplete-url-substring-sanitization | `release/scripts/docs_check.py:197` |
+| 40-43 | go/path-injection | `internal/app/resolve.go:35,43,57,67` |
+| 59-62 | go/path-injection | `pkg/oci/cache.go:375,394,395,666` |
+
+The Phase 10C CodeQL delta for this repair is zero: nothing added, nothing
+removed, and no alert anywhere under `internal/evidenceoci`.
+
+Review threads were fully paginated, two pages: 199 total, 189 resolved, 10
+unresolved. All ten are inherited and bot-authored — six from
+`github-code-quality` dated 2026-08-12 on the generated Mermaid bundle
+`pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, and four from
+`github-advanced-security` dated 2026-08-13 on `pkg/oci/cache.go` lines 375, 394,
+395 and 666. Neither path is in this range, so the Phase 10C thread delta is
+zero. No comment was published, no thread resolved and no PR metadata changed.
+
+### Status
+
+**Phase 10C REMAINS CANDIDATE.** It is not CLOSED. Both counterexamples from
+section 16.5 are fixed with permanent adversarial tests and compiling mutation
+evidence, and local and remote verification are green, but closure requires
+another independent review. Phase 11 has not started,
+`PACTO_PR_TARGET_STATE.md` is untouched and no earlier section of this document
+was edited.
+
+### Current phase map
+
+- Phases 1 through 10B: ACCEPTED and CLOSED.
+- Phase 10C: CANDIDATE, repaired at `bcd2d2b1`, awaiting independent review.
+- Phases 11 through 14: NOT STARTED.
