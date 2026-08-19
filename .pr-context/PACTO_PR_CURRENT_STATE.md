@@ -7182,3 +7182,59 @@ was edited.
 - Phases 1 through 10B: ACCEPTED and CLOSED.
 - Phase 10C: CANDIDATE, repaired at `bcd2d2b1`, awaiting independent review.
 - Phases 11 through 14: NOT STARTED.
+
+## 16.7 GitHub Actions at the ledger head `a1ec9f13`
+
+Section 16.6 records the remote state at the implementation head `bcd2d2b1`,
+which is where it was written. This section names its own commit and records the
+remote state at the branch head that carries it, as section 16.4 did for
+section 16.3.
+
+- Ledger SHA for section 16.6: `a1ec9f13e91337f76dd67a5c7a8edc81cb7737dd`.
+- It changes exactly one file, `.pr-context/PACTO_PR_CURRENT_STATE.md`, appending
+  section 16.6 and this section. No earlier section was edited and TARGET is
+  untouched.
+- PR 291 is OPEN, DRAFT and MERGEABLE at `a1ec9f13`.
+
+CI run `32240250470` at `a1ec9f13` is successful with all 21 jobs green on the
+first attempt, with no re-runs:
+
+| Job | ID |
+|---|---|
+| changes | 96029013490 |
+| ci-static | 96029082655 |
+| ci-gates | 96029082806 |
+| ci-engine | 96029082583 |
+| ci-dashboard | 96029082530 |
+| ci-integration-kubernetes | 96029082698 |
+| ci-e2e-envtest | 96029082811 |
+| ci-oci | 96029082759 |
+| operator-build | 96029082827 |
+| release-version-test | 96029082830 |
+| artifact-drift | 96029082775 |
+| release-dry-run | 96029082744 |
+| dashboard-e2e | 96029082677 |
+| ci-e2e-compose | 96029082700 |
+| ci-e2e-kind (dashboard) | 96029082772 |
+| ci-e2e-kind (evidence) | 96029082788 |
+| ci-e2e-kind (observation) | 96029082792 |
+| ci-e2e-kind (operational-graph) | 96029082771 |
+| ci-e2e-kind (reconcile) | 96029082819 |
+| ci-e2e-kind (upgrade) | 96029082866 |
+| required | 96031941042 |
+
+The other workflows at `a1ec9f13`: Security `32240250713` success, Docs check
+`32240250446` success, Pacto Contract CI `32240250675` success, Repowise
+(architecture health) `32240250418` success, Validate PR title `32240250466`
+success and the two CodeQL analysis runs `32240245610` and `32240245700` success.
+Rebuild dashboard UI `32240250490` and Auto-merge Dependabot PRs `32240250540`
+are skipped as usual.
+
+Exactly one check run at `a1ec9f13` is not success or skipped: the aggregate
+`CodeQL` check from `github-advanced-security`, red for the same inherited nine
+alerts (38, 40, 41, 42, 43, 59, 60, 61, 62). Review threads re-paginated at this
+head are unchanged: 199 total, 189 resolved, 10 unresolved, six on the generated
+Mermaid bundle and four on `pkg/oci/cache.go`. No comment was published, no
+thread resolved and no PR metadata changed.
+
+**Phase 10C REMAINS CANDIDATE.** Phase 11 has not started.
