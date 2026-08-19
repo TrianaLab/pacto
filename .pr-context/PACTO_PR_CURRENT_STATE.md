@@ -6383,3 +6383,285 @@ TARGET, rewrite history, publish PR comments or resolve threads.
 - Phases 1 through 10B: ACCEPTED and CLOSED.
 - Phase 10C: CANDIDATE, blocked on A/B/C above.
 - Phases 11 through 14: NOT STARTED.
+
+## 16.3 Phase 10C narrow closure repair — CANDIDATE at `c9bbdfd7`
+
+Narrow closure repair of the three blockers in section 16.2. Nothing was
+redesigned, Phase 11 has not started, TARGET is untouched and no historical
+section was edited.
+
+### Range
+
+- Starting SHA (independent-review ledger head): `823aab1190b96eee42af92297e88d47b6b916398`.
+- Implementation final SHA: `c9bbdfd7a3516a8f1facfb2a76e96c90f9457ac7`.
+- `origin/main` and merge-base, unchanged: `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+- PR 291 stayed OPEN, DRAFT and MERGEABLE throughout; its head is `c9bbdfd7`.
+- History is append-only: three new commits on top of `823aab11`, no rebase,
+  amend, squash, reset or force-push. `823aab11` remains an ancestor of the head.
+
+Commits, in order:
+
+1. `c2070b5d` fix(evidence): validate the whole OCI manifest contract, not part of it
+2. `fdbf7d87` fix(evidence): re-validate a stored envelope with the canonical decoder
+3. `c9bbdfd7` fix(evidence): bound the readiness preflight on the request that asked
+
+Changed files across the range (449 insertions, 37 deletions):
+`internal/evidenceoci/artifact.go`, `internal/evidenceoci/artifact_test.go`,
+`internal/evidenceoci/store.go`, `internal/evidenceoci/store_test.go`,
+`internal/app/evidence.go`, `internal/app/evidence_test.go`,
+`pkg/evidenceingest/ingest.go`, `pkg/evidenceingest/ingest_test.go`.
+
+### Blocker A — strict OCI manifest contract
+
+`ValidateManifest` now has two leading cases ahead of the media-type,
+artifact-type, layer and subject cases it already had:
+
+- `m.SchemaVersion != manifestSchemaVersion`, where `manifestSchemaVersion = 2`
+  is one new package constant shared by the writer and the reader.
+  `specs.Versioned.SchemaVersion` carries no `omitempty`, so an absent field
+  decodes to zero and this single comparison rejects both a Docker v1 manifest
+  and a manifest with no version at all.
+- the config descriptor compared field for field against
+  `ocispec.DescriptorEmptyJSON` (media type, digest, size). Field comparison
+  rather than `==` because `ocispec.Descriptor` contains a slice and a map and
+  will not compile under equality.
+
+`BuildArtifact` no longer hand-builds that descriptor either: it takes
+`ocispec.DescriptorEmptyJSON` from image-spec and clones its inline `Data`, so
+the writer and the validator cannot drift. The value is byte-identical to what
+the writer emitted before, so published manifest digests are unchanged and no
+already-stored record is invalidated. There is one validation path and one
+codec; nothing was added alongside them.
+
+RED, before the fix, with the five new permanent cases in
+`TestValidateManifest_Rejects`:
+
+```text
+--- FAIL: TestValidateManifest_Rejects/schema_version_1 (0.00s)
+--- FAIL: TestValidateManifest_Rejects/missing_schema_version (0.00s)
+--- FAIL: TestValidateManifest_Rejects/wrong_config_media_type (0.00s)
+--- FAIL: TestValidateManifest_Rejects/wrong_config_digest (0.00s)
+--- FAIL: TestValidateManifest_Rejects/wrong_config_size (0.00s)
+```
+
+each reporting the manifest was accepted (`err = <nil>`). GREEN after the fix,
+with `internal/evidenceoci` still at 100.0% statement coverage.
+`TestBuildArtifact_Shape` additionally pins the emitted config's media type,
+digest and size against `ocispec.DescriptorEmptyJSON`.
+
+Mutations applied one at a time and reverted, each caught by exactly the case
+it was meant to be caught by:
+
+| Mutation | Failing test |
+|---|---|
+| drop the `SchemaVersion` case | `schema_version_1`, `missing_schema_version` |
+| drop the config media-type disjunct | `wrong_config_media_type` |
+| drop the config digest disjunct | `wrong_config_digest` |
+| drop the config size disjunct | `wrong_config_size` |
+
+### Blocker B — canonical envelope structure and bounds on the read path
+
+`validateRecord` now ends in a new `validateEnvelope`, which runs the canonical
+ingestion validators over a stored record rather than a hand-picked subset:
+
+- `evidence.ValidateEvidenceSet` first, because `Observation.MarshalJSON`
+  returns an error for a structurally invalid observation; zero errors from it
+  is what makes the encode below unable to fail, which keeps the
+  `_ = enc.Encode(env)` idiom honest under the 100% gate;
+- then the embedded envelope is serialized deterministically with
+  `SetEscapeHTML(false)` and passed through `evidenceenvelope.Decode`, the same
+  entry point the producer's own bytes went through. That carries
+  `apiVersion`, `kind`, envelope ID, producer ID, producer key ID,
+  `MaxObservations` and `MaxEnvelopeBytes` without restating any of them.
+  HTML escaping is off so expanding one `<` into six bytes cannot push an
+  envelope that is legitimately just under `MaxEnvelopeBytes` over the limit.
+
+Three checks were REMOVED from `validateRecord` (empty envelope ID, empty
+producer ID, empty target subject name) because the canonical validators now
+subsume them. That is what makes "one canonical path" real rather than nominal.
+No test, script or document asserted their messages.
+
+Signatures are deliberately NOT reverified on registry reads, as instructed:
+they are verified once at ingestion, and write authorization on the contract
+repository remains the trust boundary. The reason is recorded in the function's
+doc comment, so a later reader does not mistake it for an omission.
+
+RED, before the fix: all eight cases of the new
+`TestDecodePayload_RejectsInvalidEnvelope` accepted their record (`err = <nil>`)
+— unknown `apiVersion`, missing `kind`, wrong `kind`, empty `producer.keyId`,
+over `MaxObservations`, over `MaxEnvelopeBytes`, an observation with no instant
+and an unattributable observation. Each case also asserts `BuildArtifact`
+refuses the same record, so the writer and the reader agree.
+
+One honest detail worth recording: with today's constants,
+`MaxObservations` (10000) is unreachable before `MaxEnvelopeBytes` (1 MiB) — no
+observation serializes in the ~104 bytes that would let 10001 of them fit — so
+the over-`MaxObservations` case expects `ErrTooLarge` rather than
+`ErrTooManyObs`, with a comment saying why. The bound bites either way.
+
+The store-level counterexample, also RED before the fix:
+
+```text
+TestStore_CommitFailsClosedOnInvalidStoredEnvelope
+  health = {Status:ready InvalidArtifacts:0 ...}, want partial with 1 invalid artifact
+  commit over an invalid stored envelope = <nil>, want ErrRegistryIncomplete
+```
+
+It pushes a Pacto artifact whose stored envelope has no producer key id, then
+proves the read is `partial` with one invalid artifact, the record is kept out
+of the projection and the next `Commit` fails closed with
+`ErrRegistryIncomplete`. GREEN after the fix, coverage still 100.0%.
+
+Mutations applied and reverted:
+
+| Mutation | Effect |
+|---|---|
+| `return validateEnvelope(rec.Envelope)` becomes `return nil` | 12 sub-tests plus the store test fail |
+| `len(errs) > 0` becomes `len(errs) < 0` | 3 tests fail (`no_target_subject`, `no_observation_instant`, `unattributable_observation`) |
+| delete the `evidenceenvelope.Decode` guard | 9 sub-tests fail |
+
+An earlier attempt at the second mutation deleted the whole
+`ValidateEvidenceSet` block, which left two imports unused and produced
+`[build failed]` — a weaker signal than a failing assertion. It was re-run as
+the compiling semantic mutation above so the evidence is a real test failure.
+
+### Blocker C — genuinely bounded readiness
+
+Three coordinated changes, all small:
+
+- `evidenceingest.Handler.ready` is now `func(context.Context) bool`, and both
+  gated paths (`handleReady` and `handleEnvelope`) hand it `r.Context()`. This
+  is the signature adjustment section 16.2 allowed; nothing else about the
+  handler changed.
+- `internal/app.buildEvidenceHost` no longer takes a context at all. Its
+  readiness closure derives `context.WithTimeout(reqCtx, readinessTimeout)` from
+  the asking request, so ONE budget covers every configured subject's resolve
+  and Referrers walk, and the ORAS calls die either when the caller hangs up or
+  when the budget expires. `readinessTimeout` is an unexported package var
+  (3 seconds), inside the readiness probe's five-second period so probes cannot
+  pile up, and shortened by the tests. No new public configuration was added.
+- `subjectRepo.resolve` releases its memoization mutex before the network call
+  and re-takes it only to store the descriptor. A mutex honours no deadline, so
+  the old code let a second caller wait past its own budget behind a first
+  caller stuck in a resolve. Two callers racing now issue one duplicate request
+  for the same immutable digest, which is the cheap half of the trade.
+
+There is no background readiness polling, no readiness cache, no permanent
+goroutine and no liveness-driven restart. `/health` is untouched and remains an
+unconditional 200.
+
+The deterministic test registry is `stalledRegistry` in
+`internal/app/evidence_test.go`: it proxies a real `testutil.NewReferrersRegistry`
+until it is stalled, after which it accepts the request, signals `arrived`,
+blocks on `<-r.Context().Done()` and then signals `cancelled`. No sleeps are
+used for coordination; the only durations in the tests are the budget itself and
+generous fatal timeouts.
+
+`TestServeEvidence_ReadinessIsBounded` fires two concurrent probes at a stalled
+registry and proves: both reach the registry (nothing serializes them behind an
+uninterruptible lock), `/health` answers 200 while they are stuck, both return
+`503` well inside the budget, and both abandoned registry requests observe
+cancellation. RED before the fix:
+
+```text
+--- FAIL: TestServeEvidence_ReadinessIsBounded (10.06s)
+    ready never came back: Get "http://127.0.0.1:61997/api/evidence/v1/ready":
+    context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+```
+
+`TestServeEvidence_ReadinessFollowsTheCaller` covers the other half of bounded:
+with a budget far longer than the test, the caller cancels its own request and
+the registry request must be cancelled with it.
+
+`TestHandler_Ready` in `pkg/evidenceingest` now asserts inside the callback that
+the context it receives is live and cancellable, so a future `context.Background()`
+shortcut in any host is caught at the boundary rather than three packages away.
+
+Mutations applied and reverted:
+
+| Mutation | Failing test |
+|---|---|
+| remove `context.WithTimeout`, pass the request context straight through | `ReadinessIsBounded` — the probe never returns, the client's own patience ends it |
+| parent the budget on `context.Background()` instead of the request | `ReadinessFollowsTheCaller` — "the registry request outlived the caller" |
+| re-hold `subjectRepo.mu` across the network resolve | `ReadinessIsBounded` — "only 1 of 2 registry requests did reach the registry within 10s" |
+
+### Local verification
+
+All run on the committed bytes at `c9bbdfd7`:
+
+- `go test -race ./internal/evidenceoci ./pkg/evidenceingest ./internal/fleetsrc ./internal/app ./pkg/evidenceenvelope ./pkg/evidence -count=1` — ok.
+- `internal/app`, `pkg/evidenceingest` and `internal/evidenceoci` each at 100.0% statement coverage.
+- `integrations/kubernetes/internal/evidence` — ok, 100.0%.
+- All 63 Helm unit tests across 8 suites — passed.
+- `make ci` — exit 0 (`ci-static`, `ci-gates`, `ci-engine`, `ci-dashboard`, `ci-integration-kubernetes`, `ci-e2e-envtest`, `ci-oci`), which includes `check-section` (zero U+00A7 in authored files) and `test-acceptance-local`.
+- `make artifact-drift` — OK.
+- `make release-dry-run` — OK, plus `STANDALONE-VERIFY OK` for the k8s module.
+- `make test-acceptance-local` — operational-graph acceptance PASSED.
+- `make test-acceptance-compose-selftest` — OK.
+- `make test-browser-compose` — clone-free Compose demo acceptance PASSED.
+- `make test-acceptance-kind-evidence` — full in-cluster Evidence Server lifecycle acceptance PASSED.
+- `make test-acceptance-kind-operational-graph` — the full operational-graph vertical is UP.
+- `make test-browser` — 219 passed.
+- `govulncheck ./...` — no vulnerabilities found.
+- `git diff --check` — clean.
+
+The two suites that compete for the same ports were run sequentially. The
+`integrations/kubernetes/charts/pacto-dev-gateway/README.md` regeneration churn
+appeared once during `make ci` and was reverted; it is not part of the repair.
+No `go.work.sum` churn survived. The four inherited untracked agent paths
+(`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`) were never touched.
+
+### GitHub Actions at `c9bbdfd7`
+
+CI run `32227315064` is successful: all 21 jobs pass — `changes`, `ci-static`,
+`ci-gates`, `ci-engine`, `ci-dashboard`, `ci-integration-kubernetes`,
+`ci-e2e-envtest`, `ci-oci`, `operator-build`, `release-version-test`,
+`artifact-drift`, `release-dry-run`, `dashboard-e2e`, `ci-e2e-compose`, all six
+`ci-e2e-kind` shards (`dashboard`, `evidence`, `observation`,
+`operational-graph`, `reconcile`, `upgrade`) and `required`.
+
+The other workflows at the same SHA: Security `32227315037` success (including
+`govulncheck (Go)` and Trivy), Docs check `32227315021` success, Pacto Contract
+CI `32227315116` success, Repowise (architecture health) `32227315167` success,
+Validate PR title `32227315196` success, Code Quality `32227312312` success and
+the PR CodeQL workflow `32227312040` success. The two conditional workflows,
+Rebuild dashboard UI `32227315056` and Auto-merge Dependabot PRs `32227315121`,
+are skipped as usual.
+
+### CodeQL and review threads
+
+The aggregate GitHub Advanced Security check is still red, for the same
+inherited reason as at `bf4e5618`. Nine open alerts on the PR ref, none created
+by this repair and none in a file it touches:
+
+| Alert | Rule | File | Created |
+|---|---|---|---|
+| 38 | py/incomplete-url-substring-sanitization | `release/scripts/docs_check.py` | 2026-07-27 |
+| 40-43 | go/path-injection | `internal/app/resolve.go` | 2026-07-29 |
+| 59-61 | go/path-injection | `pkg/oci/cache.go` | 2026-08-13 |
+| 62 | go/path-injection | `pkg/oci/cache.go` | 2026-08-13 |
+
+Every one predates this session, the newest by six days. The CodeQL delta for
+this repair is zero: nothing added, nothing removed. `internal/app/resolve.go`
+shares a package with a changed file but is not itself changed.
+
+Review threads were fully paginated: 199 total, 10 unresolved. They are the same
+ten inherited bot threads recorded in sections 16.1 and 16.2 — six on the
+generated Mermaid asset `pkg/dashboard/ui/assets/ganttDiagram-*.js` and four
+CodeQL path-injection threads on `pkg/oci/cache.go`. Neither file is touched
+here, so no in-scope obligation was created. No comment was published, no thread
+resolved and no PR metadata changed.
+
+### Status
+
+**Phase 10C REMAINS CANDIDATE.** It is not CLOSED: the three blockers from
+section 16.2 have concrete counterexamples, minimal fixes, mutation evidence and
+green local and remote verification, but closure requires another independent
+review. Phase 11 has not started, `PACTO_PR_TARGET_STATE.md` is untouched and no
+earlier section of this document was edited.
+
+### Current phase map
+
+- Phases 1 through 10B: ACCEPTED and CLOSED.
+- Phase 10C: CANDIDATE, repaired at `c9bbdfd7`, awaiting independent review.
+- Phases 11 through 14: NOT STARTED.
