@@ -56,6 +56,7 @@ func Build(ctx context.Context, req Request) (*Catalog, error) {
 		memo:           map[memoKey]memoEntry{},
 		revs:           map[ContentID]*revState{},
 		edges:          map[edgeKey]Edge{},
+		edgeWork:       map[edgeWork]bool{},
 		cycles:         map[string]Cycle{},
 		unresolvedSeen: map[unresolvedKey]bool{},
 		limitSeen:      map[limitKey]bool{},
@@ -109,6 +110,17 @@ type edgeKey struct {
 	to   ContentID
 }
 
+// edgeWork identifies one unit of dependency work: one declaration asking one
+// question. Two routes reaching the same declaring revision ask the same
+// question, so a diamond costs what it is -- one edge -- while the same
+// reference declared twice, or declared from two bases, costs two.
+type edgeWork struct {
+	decl       DeclarationID
+	base       string
+	ref        string
+	constraint string
+}
+
 type unresolvedKey struct {
 	decl DeclarationID
 	ref  string
@@ -132,6 +144,7 @@ type builder struct {
 	revs           map[ContentID]*revState
 	revOrder       []ContentID
 	edges          map[edgeKey]Edge
+	edgeWork       map[edgeWork]bool
 	cycles         map[string]Cycle
 	roots          []Root
 	unresolved     []Unresolved
@@ -211,17 +224,32 @@ func (b *builder) resolveArrival(ctx context.Context, a arrival) (memoEntry, boo
 
 // mayResolve applies the bounds that must stop work BEFORE it happens. Refusing
 // here is what makes the bounds real: the resolver is never called, so nothing
-// is fetched, and permanent tests prove it by counting calls.
+// is fetched, and permanent tests prove it by counting calls. The edge bound is
+// charged earlier still, in [builder.admitEdgeWork], because a dependency the
+// bound refuses must not even become an arrival.
 func (b *builder) mayResolve(a arrival) (Reason, bool) {
 	if len(b.revs) >= b.bounds.MaxRevisions {
 		b.limit(LimitationRevisionLimit, a.ref, "the revision bound was reached; this reference was not resolved")
 		return Reason{Code: ReasonBoundExceeded, Message: "the revision bound stopped this resolution"}, false
 	}
-	if len(a.steps) > 0 && len(b.edges) >= b.bounds.MaxEdges {
-		b.limit(LimitationEdgeLimit, a.ref, "the edge bound was reached; this dependency was not resolved")
-		return Reason{Code: ReasonBoundExceeded, Message: "the edge bound stopped this resolution"}, false
-	}
 	return Reason{}, true
+}
+
+// admitEdgeWork charges one declared dependency against [Bounds.MaxEdges]
+// before the arrival exists, so the surplus is never queued and never fetched.
+// Success and failure are charged alike: a broken declaration costs a
+// resolution too, and a bound measured against RECORDED edges would never
+// engage on the closure that costs the most, one whose declarations all fail.
+// The same key reached again by a second route was already paid for.
+func (b *builder) admitEdgeWork(k edgeWork) bool {
+	if b.edgeWork[k] {
+		return true
+	}
+	if len(b.edgeWork) >= b.bounds.MaxEdges {
+		return false
+	}
+	b.edgeWork[k] = true
+	return true
 }
 
 func (b *builder) callResolver(ctx context.Context, a arrival) memoEntry {
@@ -271,7 +299,18 @@ func (b *builder) recordFailure(a arrival, r Reason) {
 		}
 		return
 	}
-	k := unresolvedKey{decl: a.steps[len(a.steps)-1], ref: a.ref}
+	b.recordUnresolved(Unresolved{
+		Declaration: a.steps[len(a.steps)-1], Name: a.name, Ref: a.ref,
+		Constraint: a.constraint, Required: a.required, Reason: r,
+	})
+}
+
+// recordUnresolved lists one dependency gap. It is separate from
+// [builder.recordFailure] because a dependency the edge bound refused has no
+// arrival to fail: it was never admitted, and inventing one to report it would
+// be the same mistake as walking it.
+func (b *builder) recordUnresolved(u Unresolved) {
+	k := unresolvedKey{decl: u.Declaration, ref: u.Ref}
 	if b.unresolvedSeen[k] {
 		return
 	}
@@ -280,22 +319,15 @@ func (b *builder) recordFailure(a arrival, r Reason) {
 		b.limit(LimitationUnresolvedLimit, "", "the unresolved-dependency bound was reached; further failures are not listed")
 		return
 	}
-	b.unresolved = append(b.unresolved, Unresolved{
-		Declaration: k.decl, Name: a.name, Ref: a.ref,
-		Constraint: a.constraint, Required: a.required, Reason: r,
-	})
-	if !bounded {
-		b.limit(LimitationUnresolvedDep, a.ref, "a declared dependency did not resolve")
+	b.unresolved = append(b.unresolved, u)
+	if u.Reason.Code != ReasonBoundExceeded { // a bound already named itself
+		b.limit(LimitationUnresolvedDep, u.Ref, "a declared dependency did not resolve")
 	}
 }
 
 func (b *builder) recordEdge(a arrival, to ContentID) {
 	k := edgeKey{decl: a.steps[len(a.steps)-1], to: to}
 	if _, dup := b.edges[k]; dup {
-		return
-	}
-	if len(b.edges) >= b.bounds.MaxEdges {
-		b.limit(LimitationEdgeLimit, a.ref, "the edge bound was reached; this dependency edge was not recorded")
 		return
 	}
 	b.edges[k] = Edge{
@@ -379,12 +411,24 @@ func (b *builder) expand(a arrival, p projection) []arrival {
 		return nil
 	}
 	chain := append(slices.Clone(a.chain), p.content)
-	out := make([]arrival, 0, len(p.deps))
+	// Never more arrivals than the edge bound admits, so a contract declaring a
+	// million dependencies allocates the budget, not the declaration list.
+	out := make([]arrival, 0, min(len(p.deps), b.bounds.MaxEdges))
 	for i, d := range p.deps {
+		decl := DeclarationID{From: p.content, Index: i}
+		if !b.admitEdgeWork(edgeWork{decl: decl, base: p.base, ref: d.Ref, constraint: d.Compatibility}) {
+			b.limit(LimitationEdgeLimit, d.Ref, "the edge bound was reached; this dependency was not resolved")
+			b.recordUnresolved(Unresolved{
+				Declaration: decl, Name: d.Name, Ref: d.Ref,
+				Constraint: d.Compatibility, Required: d.Required,
+				Reason: Reason{Code: ReasonBoundExceeded, Message: "the edge bound stopped this resolution"},
+			})
+			continue
+		}
 		out = append(out, arrival{
 			ref: d.Ref, base: p.base, root: a.root,
 			name: d.Name, constraint: d.Compatibility, required: d.Required,
-			steps: append(slices.Clone(a.steps), DeclarationID{From: p.content, Index: i}),
+			steps: append(slices.Clone(a.steps), decl),
 			chain: chain,
 		})
 	}

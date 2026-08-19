@@ -509,6 +509,75 @@ func TestEdgeBoundStopsResolverWork(t *testing.T) {
 	}
 }
 
+// A dependency that fails records no edge, so a bound measured against recorded
+// edges never engages on the one closure that costs the most: a contract whose
+// declarations are all broken. The bound is on dependency WORK, and work is what
+// a failure spends.
+func TestEdgeBoundStopsFailingDependencyWorkToo(t *testing.T) {
+	root := ociID("bef-root")
+	f := newFake().
+		ok("reg/root:1", rev(root, ct("root", "1.0.0",
+			dep("d0", "reg/d0:1"), dep("d1", "reg/d1:1"), dep("d2", "reg/d2:1"), dep("d3", "reg/d3:1")))).
+		fail("reg/d0:1", ReasonNotFound).
+		fail("reg/d1:1", ReasonNotFound).
+		fail("reg/d2:1", ReasonNotFound).
+		fail("reg/d3:1", ReasonNotFound)
+
+	c := build(t, f, Bounds{MaxEdges: 2}, "reg/root:1")
+
+	if f.count() != 3 {
+		t.Errorf("resolver calls = %d, want 3: the root plus the two dependencies the bound allows", f.count())
+	}
+	for _, ref := range []string{"reg/d2:1", "reg/d3:1"} {
+		if n := f.countFor(ref); n != 0 {
+			t.Errorf("%s was fetched %d times; a dependency past the bound must never be attempted", ref, n)
+		}
+	}
+	if !hasLimitation(c, LimitationEdgeLimit) {
+		t.Errorf("limitations = %+v, want the edge bound named", c.Meta().Limitations)
+	}
+	if c.Meta().Completeness != CompletenessPartial {
+		t.Errorf("completeness = %q, want partial: work stopped short of the request", c.Meta().Completeness)
+	}
+	bounded := 0
+	for _, u := range c.Unresolved() {
+		if u.Reason.Code == ReasonBoundExceeded {
+			bounded++
+		}
+	}
+	if bounded != 2 || len(c.Unresolved()) != 4 {
+		t.Errorf("unresolved = %+v, want all four gaps reported and two of them attributed to the bound", c.Unresolved())
+	}
+}
+
+// One budget, spent in declaration order, with no refund for the attempts that
+// failed. Reporting bounds stay a separate question: see
+// TestTheUnresolvedBoundCapsReportingWithoutHidingThatItDid.
+func TestEdgeBoundSpendsOneBudgetOnSuccessAndFailureAlike(t *testing.T) {
+	root := ociID("bem-root")
+	f := newFake().
+		ok("reg/root:1", rev(root, ct("root", "1.0.0",
+			dep("gone", "reg/gone:1"), dep("here", "reg/here:1"), dep("late", "reg/late:1")))).
+		fail("reg/gone:1", ReasonNotFound).
+		ok("reg/here:1", rev(ociID("bem-here"), ct("here", "1.0.0"))).
+		ok("reg/late:1", rev(ociID("bem-late"), ct("late", "1.0.0")))
+
+	c := build(t, f, Bounds{MaxEdges: 2}, "reg/root:1")
+
+	if f.count() != 3 {
+		t.Errorf("resolver calls = %d, want 3: the failed first dependency spent budget the third one then lacked", f.count())
+	}
+	if n := f.countFor("reg/late:1"); n != 0 {
+		t.Errorf("reg/late:1 was fetched %d times; it is resolvable, and that is exactly why the bound must still refuse it", n)
+	}
+	if n := len(c.Edges()); n != 1 {
+		t.Errorf("edges = %d, want 1: of the two attempts the bound paid for, one resolved", n)
+	}
+	if !hasLimitation(c, LimitationEdgeLimit) {
+		t.Errorf("limitations = %+v, want the edge bound named", c.Meta().Limitations)
+	}
+}
+
 func TestDepthBoundStopsResolverWork(t *testing.T) {
 	r, a, b := ociID("bd-r"), ociID("bd-a"), ociID("bd-b")
 	f := newFake().
