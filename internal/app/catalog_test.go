@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -416,6 +417,85 @@ func TestCatalogOverARealRegistryAndRealDirectories(t *testing.T) {
 		if !r.Resolved {
 			t.Errorf("root %+v did not resolve", r)
 		}
+	}
+}
+
+// The same bundle published into two registry namespaces. Both repositories
+// carry the identical manifest digest -- that is what mirroring is -- so content
+// alone cannot say which service a revision belongs to, and the answer must not
+// depend on which root was asked for first.
+func TestCatalogKeepsMirroredRegistryContentAsTwoServices(t *testing.T) {
+	host := mxPlainRegistry(t)
+	svc, client := mxService(authn.DefaultKeychain)
+	mxPush(t, client, host, "acme/lib", "1.0.0", mxBundle(t, "lib", "1.0.0"))
+	libRef := "oci://" + host + "/acme/lib:1.0.0"
+	api := mxBundle(t, "api", "1.0.0", mxDep{name: "lib", ref: libRef, compat: "^1.0.0"})
+	mxPush(t, client, host, "alpha/api", "1.0.0", api)
+	mxPush(t, client, host, "beta/api", "1.0.0", api)
+
+	alphaDigest, err := client.Resolve(context.Background(), host+"/alpha/api:1.0.0")
+	if err != nil {
+		t.Fatalf("resolve alpha: %v", err)
+	}
+	betaDigest, err := client.Resolve(context.Background(), host+"/beta/api:1.0.0")
+	if err != nil {
+		t.Fatalf("resolve beta: %v", err)
+	}
+	if alphaDigest != betaDigest {
+		t.Fatalf("the two repositories hold different digests (%s vs %s); the fixture is not a mirror and would prove nothing",
+			alphaDigest, betaDigest)
+	}
+
+	alphaRef, betaRef := "oci://"+host+"/alpha/api:1.0.0", "oci://"+host+"/beta/api:1.0.0"
+	buildRoots := func(roots ...string) *catalog.Catalog {
+		t.Helper()
+		c, err := catalog.Build(context.Background(), catalog.Request{Roots: roots, Resolver: svc.CatalogResolver()})
+		if err != nil {
+			t.Fatalf("Build%v: %v", roots, err)
+		}
+		if c.Meta().Completeness != catalog.CompletenessComplete {
+			t.Fatalf("completeness = %s, limitations %+v, want complete", c.Meta().Completeness, c.Meta().Limitations)
+		}
+		return c
+	}
+
+	c := buildRoots(alphaRef, betaRef)
+
+	var domains []string
+	for _, r := range c.Revisions() {
+		if r.Content.Digest == alphaDigest {
+			domains = append(domains, r.Service.Domain)
+		}
+	}
+	if want := []string{host + "/alpha", host + "/beta"}; !slices.Equal(domains, want) {
+		t.Errorf("the mirrored digest belongs to services %v, want %v: one revision per publishing domain", domains, want)
+	}
+	if n := len(c.Revisions()); n != 3 {
+		t.Errorf("revisions = %d, want both mirrors plus the shared lib", n)
+	}
+	if cf := c.Conflicts(); len(cf) != 0 {
+		t.Errorf("two mirrors of one bundle are two services, not a disagreement: %+v", cf)
+	}
+	decls := map[catalog.DeclarationID]bool{}
+	for _, e := range c.Edges() {
+		decls[e.Declaration] = true
+	}
+	if len(c.Edges()) != 2 || len(decls) != 2 {
+		t.Errorf("edges = %+v, want one per mirror from two distinct declarations", c.Edges())
+	}
+	for _, r := range c.Revisions() {
+		if r.Service.Name != "lib" {
+			continue
+		}
+		if len(r.Paths) != 2 || slices.Equal(r.Paths[0].Steps, r.Paths[1].Steps) {
+			t.Errorf("lib paths = %+v, want a distinct step naming each mirror that declared it", r.Paths)
+		}
+	}
+
+	// Asking in the other order is the same question.
+	reversed := buildRoots(betaRef, alphaRef)
+	if got, want := reversed.Meta().CatalogID, c.Meta().CatalogID; got != want {
+		t.Errorf("catalogId = %s asking beta first, %s asking alpha first; root order is not catalog truth", got, want)
 	}
 }
 

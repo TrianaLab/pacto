@@ -43,11 +43,29 @@ func ct(name, version string, deps ...contract.Dependency) *contract.Contract {
 	}
 }
 
-func rev(id ContentID, c *contract.Contract) Resolution {
-	return Resolution{Contract: c, Content: id, ResolvedRef: "reg.example/" + c.Service.Name + "@" + id.Digest}
+// at names one revision the way a fixture means it: the service that published
+// it, and a content identity derived from a seed. Both halves are identity,
+// because mirroring publishes one content under two services, so a case that
+// varies only the domain says so with inDomain.
+func at(name, seed string) RevisionID {
+	return RevisionID{Service: ServiceID{Name: name}, Content: ociID(seed)}
 }
 
-func (r Resolution) withDomain(d string) Resolution { r.Domain = d; return r }
+func atLocal(name, seed string) RevisionID {
+	return RevisionID{Service: ServiceID{Name: name}, Content: localID(seed)}
+}
+
+func (r RevisionID) inDomain(d string) RevisionID { r.Service.Domain = d; return r }
+
+// rev scripts the resolution that produces one revision. It takes the identity
+// whole, so a fixture cannot script a domain its own handle disagrees with.
+func rev(id RevisionID, c *contract.Contract) Resolution {
+	return Resolution{
+		Contract: c, Content: id.Content, Domain: id.Service.Domain,
+		ResolvedRef: "reg.example/" + c.Service.Name + "@" + id.Content.Digest,
+	}
+}
+
 func (r Resolution) withBase(b string) Resolution   { r.Base = b; return r }
 func (r Resolution) withoutResolvedRef() Resolution { r.ResolvedRef = ""; return r }
 
@@ -151,11 +169,11 @@ func build(t *testing.T, f *fake, b Bounds, roots ...string) *Catalog {
 	return c
 }
 
-func mustRevision(t *testing.T, c *Catalog, id ContentID) Revision {
+func mustRevision(t *testing.T, c *Catalog, id RevisionID) Revision {
 	t.Helper()
 	r, ok := c.Revision(id)
 	if !ok {
-		t.Fatalf("revision %s is missing from the catalog", id)
+		t.Fatalf("revision %+v is missing from the catalog", id)
 	}
 	return r
 }
@@ -168,8 +186,8 @@ func hasLimitation(c *Catalog, code string) bool {
 	return slices.ContainsFunc(c.Meta().Limitations, func(l Limitation) bool { return l.Code == code })
 }
 
-func edgeTargets(c *Catalog, from ContentID, index int) []ContentID {
-	var out []ContentID
+func edgeTargets(c *Catalog, from RevisionID, index int) []RevisionID {
+	var out []RevisionID
 	for _, e := range c.Edges() {
 		if e.Declaration == (DeclarationID{From: from, Index: index}) {
 			out = append(out, e.To)

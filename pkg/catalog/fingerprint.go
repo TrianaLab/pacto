@@ -39,7 +39,9 @@ func fingerprint(c *Catalog) string {
 	// slot it occupied or what text asked for it.
 	outcomes := make([]string, 0, len(c.roots))
 	for _, r := range c.roots {
-		outcomes = append(outcomes, encode(boolStr(r.Resolved), r.Content.String(), r.Reason.Code))
+		fields := append([]string{boolStr(r.Resolved)}, revFields(r.Revision)...)
+		fields = append(fields, r.Reason.Code)
+		outcomes = append(outcomes, encode(fields...))
 	}
 	slices.Sort(outcomes)
 	w.list(outcomes)
@@ -61,27 +63,27 @@ func fingerprint(c *Catalog) string {
 
 	edges := make([]string, 0, len(c.edges))
 	for _, e := range c.edges {
-		edges = append(edges, encode(e.Declaration.From.String(), itoa(e.Declaration.Index),
-			e.Name, e.Ref, e.Constraint, boolStr(e.Required), e.To.String()))
+		fields := append(declFields(e.Declaration), e.Name, e.Ref, e.Constraint, boolStr(e.Required))
+		edges = append(edges, encode(append(fields, revFields(e.To)...)...))
 	}
 	slices.Sort(edges)
 	w.list(edges)
 
 	unresolved := make([]string, 0, len(c.unresolved))
 	for _, u := range c.unresolved {
-		unresolved = append(unresolved, encode(u.Declaration.From.String(), itoa(u.Declaration.Index),
-			u.Name, u.Ref, u.Constraint, boolStr(u.Required), u.Reason.Code))
+		fields := append(declFields(u.Declaration), u.Name, u.Ref, u.Constraint, boolStr(u.Required), u.Reason.Code)
+		unresolved = append(unresolved, encode(fields...))
 	}
 	slices.Sort(unresolved)
 	w.list(unresolved)
 
 	conflicts := make([]string, 0, len(c.conflicts))
 	for _, cf := range c.conflicts {
-		fields := []string{string(cf.Kind), cf.Service.Domain, cf.Service.Name, cf.Version,
-			cf.Declaration.From.String(), itoa(cf.Declaration.Index)}
+		fields := []string{string(cf.Kind), cf.Service.Domain, cf.Service.Name, cf.Version}
+		fields = append(fields, declFields(cf.Declaration)...)
 		fields = append(fields, cf.Versions...)
-		for _, ct := range cf.Contents {
-			fields = append(fields, ct.String())
+		for _, id := range cf.Revisions {
+			fields = append(fields, revFields(id)...)
 		}
 		conflicts = append(conflicts, encode(fields...))
 	}
@@ -90,9 +92,9 @@ func fingerprint(c *Catalog) string {
 
 	cycles := make([]string, 0, len(c.cycles))
 	for _, cy := range c.cycles {
-		fields := make([]string, 0, len(cy.Contents))
-		for _, ct := range cy.Contents {
-			fields = append(fields, ct.String())
+		fields := make([]string, 0, 3*len(cy.Revisions))
+		for _, id := range cy.Revisions {
+			fields = append(fields, revFields(id)...)
 		}
 		cycles = append(cycles, encode(fields...))
 	}
@@ -110,6 +112,17 @@ func fingerprint(c *Catalog) string {
 	w.list(codes)
 
 	return string(digest.NewDigest(digest.SHA256, w.h))
+}
+
+// revFields frames one revision identity as fingerprint fields. Content alone
+// would let two mirrors of one bundle, published by two different services,
+// hash alike.
+func revFields(id RevisionID) []string {
+	return []string{id.Content.String(), id.Service.Domain, id.Service.Name}
+}
+
+func declFields(d DeclarationID) []string {
+	return append(revFields(d.From), itoa(d.Index))
 }
 
 type fpWriter struct{ h hash.Hash }

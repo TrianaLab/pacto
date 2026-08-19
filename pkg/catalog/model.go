@@ -15,9 +15,9 @@ type Root struct {
 	// RequestedRef is the reference the caller asked for, preserved verbatim.
 	RequestedRef string `json:"requestedRef"`
 	Resolved     bool   `json:"resolved"`
-	// Content is the immutable identity the root resolved to; zero when it did
-	// not resolve.
-	Content ContentID `json:"content,omitzero"`
+	// Revision is the identity the root resolved to; zero when it did not
+	// resolve.
+	Revision RevisionID `json:"revision,omitzero"`
 	// ResolvedRef is the immutable reference the request resolved to, when the
 	// resolver produced one.
 	ResolvedRef string `json:"resolvedRef,omitempty"`
@@ -26,8 +26,9 @@ type Root struct {
 }
 
 // Revision is one immutable contract revision, canonically deduplicated by
-// content. The same bytes reached through two roots, two references or two
-// routes are one Revision carrying all of that provenance.
+// [RevisionID]. The same bytes reached through two roots, two references or two
+// routes are one Revision carrying all of that provenance; the same bytes
+// published by two different services are two.
 type Revision struct {
 	Content ContentID `json:"content"`
 	Service ServiceID `json:"service"`
@@ -55,6 +56,9 @@ type Revision struct {
 	Rank     Rank `json:"rank"`
 }
 
+// ID is the revision's identity: its service and its content together.
+func (r Revision) ID() RevisionID { return RevisionID{Service: r.Service, Content: r.Content} }
+
 // Shared reports whether more than one requested root reaches this revision.
 func (r Revision) Shared() bool { return len(r.Roots) > 1 }
 
@@ -72,16 +76,16 @@ func cloneRevision(r Revision) Revision {
 }
 
 // Edge is one resolved dependency: the declaration that produced it and the
-// immutable revision it resolved to. The declaration is kept separate from the
-// revision because one revision can be declared by many contracts, under many
-// names, at many constraints.
+// revision it resolved to. The declaration is kept separate from the revision
+// because one revision can be declared by many contracts, under many names, at
+// many constraints.
 type Edge struct {
 	Declaration DeclarationID `json:"declaration"`
 	Name        string        `json:"name,omitempty"`
 	Ref         string        `json:"ref,omitempty"`
 	Constraint  string        `json:"constraint,omitempty"`
 	Required    bool          `json:"required,omitempty"`
-	To          ContentID     `json:"to"`
+	To          RevisionID    `json:"to"`
 }
 
 // Unresolved is a declared dependency that did not resolve. It is knowledge
@@ -118,12 +122,12 @@ type Conflict struct {
 	Version     string        `json:"version,omitempty"`
 	Declaration DeclarationID `json:"declaration,omitzero"`
 	Versions    []string      `json:"versions,omitempty"`
-	Contents    []ContentID   `json:"contents,omitempty"`
+	Revisions   []RevisionID  `json:"revisions,omitempty"`
 }
 
 func cloneConflict(c Conflict) Conflict {
 	c.Versions = slices.Clone(c.Versions)
-	c.Contents = slices.Clone(c.Contents)
+	c.Revisions = slices.Clone(c.Revisions)
 	return c
 }
 
@@ -131,11 +135,11 @@ func cloneConflict(c Conflict) Conflict {
 // the smallest identity comes first. The walk terminates at a cycle instead of
 // following it, and the cycle stays visible instead of disappearing.
 type Cycle struct {
-	Contents []ContentID `json:"contents"`
+	Revisions []RevisionID `json:"revisions"`
 }
 
 func cloneCycle(c Cycle) Cycle {
-	c.Contents = slices.Clone(c.Contents)
+	c.Revisions = slices.Clone(c.Revisions)
 	return c
 }
 
@@ -164,7 +168,7 @@ type Catalog struct {
 	meta       Meta
 	roots      []Root
 	revisions  []Revision
-	byContent  map[ContentID]int
+	byRevision map[RevisionID]int
 	edges      []Edge
 	unresolved []Unresolved
 	conflicts  []Conflict
@@ -182,7 +186,8 @@ func (c *Catalog) Meta() Meta {
 // order.
 func (c *Catalog) Roots() []Root { return slices.Clone(c.roots) }
 
-// Revisions returns every retained revision, ordered by content identity.
+// Revisions returns every retained revision, ordered by content identity and
+// then by service, so mirrors of one bundle sit together in a stable order.
 func (c *Catalog) Revisions() []Revision {
 	out := make([]Revision, len(c.revisions))
 	for i, r := range c.revisions {
@@ -191,9 +196,9 @@ func (c *Catalog) Revisions() []Revision {
 	return out
 }
 
-// Revision returns one revision by content identity.
-func (c *Catalog) Revision(id ContentID) (Revision, bool) {
-	i, ok := c.byContent[id]
+// Revision returns one revision by identity.
+func (c *Catalog) Revision(id RevisionID) (Revision, bool) {
+	i, ok := c.byRevision[id]
 	if !ok {
 		return Revision{}, false
 	}

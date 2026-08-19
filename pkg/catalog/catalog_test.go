@@ -15,7 +15,7 @@ import (
 // Case 13 -- the caller owns what it passed in and what it got back, and
 // neither reaches catalog state.
 func TestCallerCannotMutateTheCatalogThroughItsInputs(t *testing.T) {
-	root, leaf := ociID("mi-root"), ociID("mi-leaf")
+	root, leaf := at("root", "mi-root"), at("leaf", "mi-leaf")
 	src := ct("root", "1.0.0", dep("leaf", "reg/leaf:1"))
 	src.Service.Owner = contract.Owner{
 		Team:     "platform",
@@ -53,7 +53,7 @@ func TestCallerCannotMutateTheCatalogThroughItsInputs(t *testing.T) {
 }
 
 func TestCallerCannotMutateTheCatalogThroughReturnedValues(t *testing.T) {
-	root, leaf, gone := ociID("mr-root"), ociID("mr-leaf"), ociID("mr-gone")
+	root, leaf, gone := at("root", "mr-root"), at("leaf", "mr-leaf"), at("leaf", "mr-gone")
 	f := newFake().
 		ok("reg/root:1", rev(root, ct("root", "1.0.0",
 			dep("leaf", "reg/leaf:1"), dep("gone", "reg/gone:1")))).
@@ -68,7 +68,7 @@ func TestCallerCannotMutateTheCatalogThroughReturnedValues(t *testing.T) {
 	// Every accessor, mutated as hard as the type allows.
 	rs := c.Roots()
 	rs[0].RequestedRef = "evil"
-	rs[0].Content = ociID("evil")
+	rs[0].Revision = at("evil", "evil")
 
 	revs := c.Revisions()
 	for i := range revs {
@@ -88,7 +88,7 @@ func TestCallerCannotMutateTheCatalogThroughReturnedValues(t *testing.T) {
 	one.RequestedRefs = append(one.RequestedRefs[:0], "evil")
 
 	es := c.Edges()
-	es[0].To = ociID("evil")
+	es[0].To = at("evil", "evil")
 
 	us := c.Unresolved()
 	us[0].Ref = "evil"
@@ -96,13 +96,13 @@ func TestCallerCannotMutateTheCatalogThroughReturnedValues(t *testing.T) {
 	cfs := c.Conflicts()
 	for i := range cfs {
 		cfs[i].Kind = "evil"
-		cfs[i].Contents = append(cfs[i].Contents[:0], ociID("evil"))
+		cfs[i].Revisions = append(cfs[i].Revisions[:0], at("evil", "evil"))
 		cfs[i].Versions = append(cfs[i].Versions[:0], "evil")
 	}
 
 	cys := c.Cycles()
 	for i := range cys {
-		cys[i].Contents = append(cys[i].Contents[:0], ociID("evil"))
+		cys[i].Revisions = append(cys[i].Revisions[:0], at("evil", "evil"))
 	}
 
 	m := c.Meta()
@@ -136,7 +136,7 @@ func snapshot(c *Catalog) string {
 }
 
 func permutationFake() *fake {
-	a, b, s := ociID("perm-a"), ociID("perm-b"), ociID("perm-s")
+	a, b, s := at("a", "perm-a"), at("b", "perm-b"), at("s", "perm-s")
 	return newFake().
 		ok("reg/a:1", rev(a, ct("a", "1.0.0", dep("s", "reg/s:1")))).
 		ok("reg/b:1", rev(b, ct("b", "1.0.0", dep("s", "reg/s:1")))).
@@ -153,8 +153,8 @@ func TestOrderingIsDeterministic(t *testing.T) {
 		t.Fatalf("two identical builds differ:\n%s\n%s", snapshot(first), snapshot(second))
 	}
 	revs := first.Revisions()
-	if !slices.IsSortedFunc(revs, func(x, y Revision) int { return compareContentID(x.Content, y.Content) }) {
-		t.Errorf("revisions are not ordered by content: %+v", revs)
+	if !slices.IsSortedFunc(revs, func(x, y Revision) int { return compareRevisionID(x.ID(), y.ID()) }) {
+		t.Errorf("revisions are not ordered by identity: %+v", revs)
 	}
 	if !slices.IsSortedFunc(first.Edges(), compareEdge) {
 		t.Errorf("edges are not deterministically ordered: %+v", first.Edges())
@@ -203,13 +203,13 @@ func TestCatalogIDDistinguishesDifferentCatalogs(t *testing.T) {
 	cases := map[string]*Catalog{
 		"one root fewer": build(t, permutationFake(), Bounds{}, "reg/a:1"),
 		"different content": build(t, newFake().
-			ok("reg/a:1", rev(ociID("perm-a"), ct("a", "1.0.0", dep("s", "reg/s:1")))).
-			ok("reg/b:1", rev(ociID("perm-b"), ct("b", "1.0.0", dep("s", "reg/s:1")))).
-			ok("reg/s:1", rev(ociID("perm-s-rebuilt"), ct("s", "1.0.0"))),
+			ok("reg/a:1", rev(at("a", "perm-a"), ct("a", "1.0.0", dep("s", "reg/s:1")))).
+			ok("reg/b:1", rev(at("b", "perm-b"), ct("b", "1.0.0", dep("s", "reg/s:1")))).
+			ok("reg/s:1", rev(at("s", "perm-s-rebuilt"), ct("s", "1.0.0"))),
 			Bounds{}, "reg/a:1", "reg/b:1"),
 		"a gap": build(t, newFake().
-			ok("reg/a:1", rev(ociID("perm-a"), ct("a", "1.0.0", dep("s", "reg/s:1")))).
-			ok("reg/b:1", rev(ociID("perm-b"), ct("b", "1.0.0", dep("s", "reg/s:1")))),
+			ok("reg/a:1", rev(at("a", "perm-a"), ct("a", "1.0.0", dep("s", "reg/s:1")))).
+			ok("reg/b:1", rev(at("b", "perm-b"), ct("b", "1.0.0", dep("s", "reg/s:1")))),
 			Bounds{}, "reg/a:1", "reg/b:1"),
 		"a tighter bound": build(t, permutationFake(), Bounds{MaxDepth: 1}, "reg/a:1", "reg/b:1"),
 	}
@@ -254,7 +254,7 @@ func TestCatalogIsSafeForConcurrentReaders(t *testing.T) {
 
 func TestRevisionLookupMissIsNotAnEmptyRevision(t *testing.T) {
 	c := build(t, permutationFake(), Bounds{}, "reg/a:1")
-	if r, ok := c.Revision(ociID("absent")); ok {
+	if r, ok := c.Revision(at("absent", "absent")); ok {
 		t.Errorf("lookup of an absent identity returned %+v", r)
 	}
 }

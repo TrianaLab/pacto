@@ -67,10 +67,10 @@ func compareContentID(a, b ContentID) int {
 	return cmp.Compare(a.Digest, b.Digest)
 }
 
-// ServiceID is the domain-qualified service identity a revision claims. It is
-// descriptive, never identity: two revisions may share a ServiceID and even a
-// version while being different content, and that disagreement is reported as a
-// conflict rather than resolved by picking one.
+// ServiceID is the domain-qualified service identity a revision claims. Two
+// revisions may share a ServiceID and even a version while being different
+// content, and that disagreement is reported as a conflict rather than resolved
+// by picking one.
 type ServiceID struct {
 	Domain string `json:"domain,omitempty"`
 	Name   string `json:"name"`
@@ -83,22 +83,47 @@ func compareServiceID(a, b ServiceID) int {
 	return cmp.Compare(a.Name, b.Name)
 }
 
+// RevisionID names one contract revision: the domain-qualified service it
+// belongs to, and the immutable content it is. Content alone is not enough,
+// because mirroring publishes one bundle into two places: the manifest digest
+// is identical by construction, and the two services are still not each other.
+// A revision belongs to exactly one service, so both halves are identity, and
+// every declaration, edge, path step, cycle and conflict is keyed on the pair.
+//
+// Both halves stay comparable structs, so the pair is a map key without ever
+// joining user-controlled text with a delimiter.
+type RevisionID struct {
+	Service ServiceID `json:"service"`
+	Content ContentID `json:"content"`
+}
+
+// compareRevisionID orders by content first, so revisions still sort by content
+// identity, and by service only to break the tie that mirroring creates.
+func compareRevisionID(a, b RevisionID) int {
+	if v := compareContentID(a.Content, b.Content); v != 0 {
+		return v
+	}
+	return compareServiceID(a.Service, b.Service)
+}
+
 // RootID is the ordinal of a requested root within the request. It is an input
 // position, not a name, so it cannot collide and cannot be forged by a hostile
 // reference. It is deliberately excluded from the catalog fingerprint.
 type RootID int
 
-// DeclarationID identifies one dependency declaration: the immutable content
-// that declares it, plus its index in that contract's declared order. Both
-// halves are structural, so the same declared name in two contracts -- or twice
-// in one -- stays distinct without any string joining.
+// DeclarationID identifies one dependency declaration: the revision that
+// declares it, plus its index in that contract's declared order. Both halves
+// are structural, so the same declared name in two contracts -- or twice in one
+// -- stays distinct without any string joining. The declaring half is a
+// [RevisionID] rather than a content identity, so two mirrors of one bundle
+// declare their dependencies separately even at the same index.
 type DeclarationID struct {
-	From  ContentID `json:"from"`
-	Index int       `json:"index"`
+	From  RevisionID `json:"from"`
+	Index int        `json:"index"`
 }
 
 func compareDeclaration(a, b DeclarationID) int {
-	if v := compareContentID(a.From, b.From); v != 0 {
+	if v := compareRevisionID(a.From, b.From); v != 0 {
 		return v
 	}
 	return cmp.Compare(a.Index, b.Index)

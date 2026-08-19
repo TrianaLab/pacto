@@ -88,10 +88,26 @@ func TestCompareServiceIDOrdersDomainThenName(t *testing.T) {
 	}
 }
 
-func TestCompareDeclarationOrdersContentThenIndex(t *testing.T) {
-	a, b := ociID("cmp-a"), ociID("cmp-b")
+// compareRevisionID orders by content first so revisions keep sorting by
+// content identity, and by service only where mirroring makes two revisions
+// share one content.
+func TestCompareRevisionIDOrdersContentThenService(t *testing.T) {
+	a, b := at("s", "cmp-a"), at("s", "cmp-b")
+	if compareRevisionID(a, b) >= 0 {
+		t.Error("the content is not compared first")
+	}
+	if compareRevisionID(a, a) != 0 {
+		t.Error("equal revisions do not compare equal")
+	}
+	if compareRevisionID(a.inDomain("alpha"), a.inDomain("beta")) >= 0 {
+		t.Error("two mirrors of one content do not break their tie on the service")
+	}
+}
+
+func TestCompareDeclarationOrdersRevisionThenIndex(t *testing.T) {
+	a, b := at("s", "cmp-a"), at("s", "cmp-b")
 	if compareDeclaration(DeclarationID{a, 9}, DeclarationID{b, 0}) >= 0 {
-		t.Error("the declaring content is not compared first")
+		t.Error("the declaring revision is not compared first")
 	}
 	if compareDeclaration(DeclarationID{a, 0}, DeclarationID{a, 1}) >= 0 {
 		t.Error("the declaration index is not compared")
@@ -99,7 +115,7 @@ func TestCompareDeclarationOrdersContentThenIndex(t *testing.T) {
 }
 
 func TestComparePathOrdersRootThenSteps(t *testing.T) {
-	a, b := ociID("cmp-a"), ociID("cmp-b")
+	a, b := at("s", "cmp-a"), at("s", "cmp-b")
 	if comparePath(Path{Root: 0}, Path{Root: 1}) >= 0 {
 		t.Error("the root is not compared first")
 	}
@@ -114,7 +130,7 @@ func TestComparePathOrdersRootThenSteps(t *testing.T) {
 }
 
 func TestCompareEdgeOrdersDeclarationThenTarget(t *testing.T) {
-	a, b := ociID("cmp-a"), ociID("cmp-b")
+	a, b := at("s", "cmp-a"), at("s", "cmp-b")
 	if compareEdge(Edge{Declaration: DeclarationID{a, 0}, To: b}, Edge{Declaration: DeclarationID{a, 1}}) >= 0 {
 		t.Error("the declaration is not compared first")
 	}
@@ -124,7 +140,7 @@ func TestCompareEdgeOrdersDeclarationThenTarget(t *testing.T) {
 }
 
 func TestCompareUnresolvedOrdersDeclarationThenRefThenName(t *testing.T) {
-	a := ociID("cmp-a")
+	a := at("s", "cmp-a")
 	if compareUnresolved(Unresolved{Declaration: DeclarationID{a, 0}, Ref: "z"},
 		Unresolved{Declaration: DeclarationID{a, 1}}) >= 0 {
 		t.Error("the declaration is not compared first")
@@ -147,7 +163,7 @@ func TestCompareLimitationOrdersCodeThenRef(t *testing.T) {
 }
 
 func TestCompareConflictOrdersEveryDistinguishingField(t *testing.T) {
-	a := ociID("cmp-a")
+	a := at("s", "cmp-a")
 	if compareConflict(Conflict{Kind: ConflictContent}, Conflict{Kind: ConflictVersion}) >= 0 {
 		t.Error("the kind is not compared first")
 	}

@@ -11,7 +11,7 @@ import (
 // the same declarations, not new ones, so neither the edge nor the gap is
 // duplicated -- while both routes stay on the revision.
 func TestASecondRouteDoesNotDuplicateEdgesOrGaps(t *testing.T) {
-	r, a, b, x, leaf := ociID("d-r"), ociID("d-a"), ociID("d-b"), ociID("d-x"), ociID("d-leaf")
+	r, a, b, x, leaf := at("r", "d-r"), at("a", "d-a"), at("b", "d-b"), at("x", "d-x"), at("leaf", "d-leaf")
 	f := newFake().
 		ok("reg/r:1", rev(r, ct("r", "1.0.0", dep("a", "reg/a:1"), dep("b", "reg/b:1")))).
 		ok("reg/a:1", rev(a, ct("a", "1.0.0", dep("x", "reg/x:1")))).
@@ -22,7 +22,7 @@ func TestASecondRouteDoesNotDuplicateEdgesOrGaps(t *testing.T) {
 
 	c := build(t, f, Bounds{}, "reg/r:1")
 
-	if got := edgeTargets(c, x, 0); !slices.Equal(got, []ContentID{leaf}) {
+	if got := edgeTargets(c, x, 0); !slices.Equal(got, []RevisionID{leaf}) {
 		t.Errorf("x's leaf edge = %v, want it recorded exactly once", got)
 	}
 	if n := len(c.Unresolved()); n != 1 {
@@ -39,7 +39,7 @@ func TestASecondRouteDoesNotDuplicateEdgesOrGaps(t *testing.T) {
 // A reference that names no version is only half a question: the declaring
 // contract's constraint is the other half, and it has to reach the resolver.
 func TestTheDeclaringConstraintReachesTheResolver(t *testing.T) {
-	r, x := ociID("dc-r"), ociID("dc-x")
+	r, x := at("r", "dc-r"), at("x", "dc-x")
 	f := newFake().
 		ok("reg/r:1", rev(r, ct("r", "1.0.0", dep("x", "reg/x")))).
 		ok("reg/x", rev(x, ct("x", "1.4.0")))
@@ -65,8 +65,8 @@ func TestTheDeclaringConstraintReachesTheResolver(t *testing.T) {
 // would answer one and silently discard the other; instead both are resolved and
 // the disagreement stays on the record.
 func TestTheSameBareReferenceUnderTwoConstraintsIsTwoQuestions(t *testing.T) {
-	a, b := ociID("tc-a"), ociID("tc-b")
-	one, two := ociID("tc-x1"), ociID("tc-x2")
+	a, b := at("a", "tc-a"), at("b", "tc-b")
+	one, two := at("x", "tc-x1"), at("x", "tc-x2")
 	f := newFake().
 		ok("reg/a:1", rev(a, ct("a", "1.0.0", contract.Dependency{
 			Name: "x", Ref: "reg/x", Required: true, Compatibility: "^1.0.0"}))).
@@ -96,7 +96,7 @@ func TestTheSameBareReferenceUnderTwoConstraintsIsTwoQuestions(t *testing.T) {
 }
 
 func TestTheEdgeBoundAlsoStopsEdgesThatCostNoResolution(t *testing.T) {
-	r, x := ociID("eb-r"), ociID("eb-x")
+	r, x := at("r", "eb-r"), at("x", "eb-x")
 	f := newFake().
 		ok("reg/r:1", rev(r, ct("r", "1.0.0", dep("first", "reg/x:1"), dep("second", "reg/x:1")))).
 		ok("reg/x:1", rev(x, ct("x", "1.0.0")))
@@ -115,7 +115,7 @@ func TestTheEdgeBoundAlsoStopsEdgesThatCostNoResolution(t *testing.T) {
 }
 
 func TestTheUnresolvedBoundCapsReportingWithoutHidingThatItDid(t *testing.T) {
-	r := ociID("ub-r")
+	r := at("r", "ub-r")
 	f := newFake().ok("reg/r:1", rev(r, ct("r", "1.0.0",
 		dep("g0", "reg/g0:1"), dep("g1", "reg/g1:1"), dep("g2", "reg/g2:1"))))
 
@@ -136,10 +136,10 @@ func TestTheUnresolvedBoundCapsReportingWithoutHidingThatItDid(t *testing.T) {
 
 func TestTheConflictBoundCapsReportingAndSaysSo(t *testing.T) {
 	f := newFake().
-		ok("reg/a:1", rev(ociID("cb-a1"), ct("a", "1.0.0"))).
-		ok("reg/a:2", rev(ociID("cb-a2"), ct("a", "2.0.0"))).
-		ok("reg/b:1", rev(ociID("cb-b1"), ct("b", "1.0.0"))).
-		ok("reg/b:2", rev(ociID("cb-b2"), ct("b", "2.0.0")))
+		ok("reg/a:1", rev(at("a", "cb-a1"), ct("a", "1.0.0"))).
+		ok("reg/a:2", rev(at("a", "cb-a2"), ct("a", "2.0.0"))).
+		ok("reg/b:1", rev(at("b", "cb-b1"), ct("b", "1.0.0"))).
+		ok("reg/b:2", rev(at("b", "cb-b2"), ct("b", "2.0.0")))
 
 	full := build(t, f, Bounds{}, "reg/a:1", "reg/a:2", "reg/b:1", "reg/b:2")
 	if n := len(full.Conflicts()); n != 2 {
@@ -196,7 +196,7 @@ func TestOneReferenceRequestedTwiceIsOneLimitation(t *testing.T) {
 }
 
 func TestOneLoopFoundFromTwoRootsIsOneCycle(t *testing.T) {
-	r1, r2, a, b := ociID("c-r1"), ociID("c-r2"), ociID("c-a"), ociID("c-b")
+	r1, r2, a, b := at("r1", "c-r1"), at("r2", "c-r2"), at("a", "c-a"), at("b", "c-b")
 	f := newFake().
 		ok("reg/r1:1", rev(r1, ct("r1", "1.0.0", dep("a", "reg/a:1")))).
 		ok("reg/r2:1", rev(r2, ct("r2", "1.0.0", dep("a", "reg/a:1")))).
@@ -214,7 +214,7 @@ func TestOneLoopFoundFromTwoRootsIsOneCycle(t *testing.T) {
 }
 
 func TestSeparateLoopsAreSeparateCycles(t *testing.T) {
-	r, a, b, x, y := ociID("s-r"), ociID("s-a"), ociID("s-b"), ociID("s-x"), ociID("s-y")
+	r, a, b, x, y := at("r", "s-r"), at("a", "s-a"), at("b", "s-b"), at("x", "s-x"), at("y", "s-y")
 	f := newFake().
 		ok("reg/r:1", rev(r, ct("r", "1.0.0", dep("a", "reg/a:1"), dep("x", "reg/x:1")))).
 		ok("reg/a:1", rev(a, ct("a", "1.0.0", dep("b", "reg/b:1")))).
@@ -229,13 +229,13 @@ func TestSeparateLoopsAreSeparateCycles(t *testing.T) {
 		t.Fatalf("cycles = %+v, want two independent loops", cycles)
 	}
 	if !slices.IsSortedFunc(cycles, func(p, q Cycle) int {
-		return slices.CompareFunc(p.Contents, q.Contents, compareContentID)
+		return slices.CompareFunc(p.Revisions, q.Revisions, compareRevisionID)
 	}) {
 		t.Errorf("cycles are not deterministically ordered: %+v", cycles)
 	}
 	for _, cy := range cycles {
-		if compareContentID(cy.Contents[0], cy.Contents[1]) > 0 {
-			t.Errorf("cycle %+v is not rotated to its smallest identity", cy.Contents)
+		if compareRevisionID(cy.Revisions[0], cy.Revisions[1]) > 0 {
+			t.Errorf("cycle %+v is not rotated to its smallest identity", cy.Revisions)
 		}
 	}
 }

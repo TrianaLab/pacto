@@ -54,7 +54,7 @@ func Build(ctx context.Context, req Request) (*Catalog, error) {
 		resolver:       req.Resolver,
 		bounds:         req.Bounds.effective(),
 		memo:           map[memoKey]memoEntry{},
-		revs:           map[ContentID]*revState{},
+		revs:           map[RevisionID]*revState{},
 		edges:          map[edgeKey]Edge{},
 		edgeWork:       map[edgeWork]bool{},
 		cycles:         map[string]Cycle{},
@@ -85,6 +85,11 @@ type projection struct {
 	deps         []contract.Dependency
 }
 
+// id is the revision this resolution IS: its service and its content. Content
+// alone would fold two mirrors of one bundle into a single revision and let
+// whichever root arrived first decide whose service it claimed to be.
+func (p projection) id() RevisionID { return RevisionID{Service: p.service, Content: p.content} }
+
 type memoEntry struct {
 	rev    projection
 	reason Reason
@@ -102,12 +107,12 @@ type arrival struct {
 	constraint string
 	required   bool
 	steps      []DeclarationID
-	chain      []ContentID
+	chain      []RevisionID
 }
 
 type edgeKey struct {
 	decl DeclarationID
-	to   ContentID
+	to   RevisionID
 }
 
 // edgeWork identifies one unit of dependency work: one declaration asking one
@@ -141,8 +146,8 @@ type builder struct {
 	bounds   Bounds
 
 	memo           map[memoKey]memoEntry
-	revs           map[ContentID]*revState
-	revOrder       []ContentID
+	revs           map[RevisionID]*revState
+	revOrder       []RevisionID
 	edges          map[edgeKey]Edge
 	edgeWork       map[edgeWork]bool
 	cycles         map[string]Cycle
@@ -186,14 +191,15 @@ func (b *builder) step(ctx context.Context, a arrival) []arrival {
 		return nil
 	}
 	p := entry.rev
+	id := p.id()
 	if len(a.steps) > 0 {
-		b.recordEdge(a, p.content)
+		b.recordEdge(a, id)
 	}
 	// A revision already on this route closes a loop. The edge above is kept, so
 	// the cycle stays visible in the graph; the walk stops instead of following
 	// it, so it terminates.
-	if slices.Contains(a.chain, p.content) {
-		b.recordCycle(a.chain, p.content)
+	if slices.Contains(a.chain, id) {
+		b.recordCycle(a.chain, id)
 		return nil
 	}
 	if !b.retain(a, p) {
@@ -325,7 +331,7 @@ func (b *builder) recordUnresolved(u Unresolved) {
 	}
 }
 
-func (b *builder) recordEdge(a arrival, to ContentID) {
+func (b *builder) recordEdge(a arrival, to RevisionID) {
 	k := edgeKey{decl: a.steps[len(a.steps)-1], to: to}
 	if _, dup := b.edges[k]; dup {
 		return
@@ -336,34 +342,35 @@ func (b *builder) recordEdge(a arrival, to ContentID) {
 	}
 }
 
-func (b *builder) recordCycle(chain []ContentID, target ContentID) {
+func (b *builder) recordCycle(chain []RevisionID, target RevisionID) {
 	loop := slices.Clone(chain[slices.Index(chain, target):])
 	// Rotate to the smallest identity so the same loop found from two entry
 	// points is one cycle.
 	lowest := 0
 	for i := range loop {
-		if compareContentID(loop[i], loop[lowest]) < 0 {
+		if compareRevisionID(loop[i], loop[lowest]) < 0 {
 			lowest = i
 		}
 	}
 	loop = append(loop[lowest:], loop[:lowest]...)
 	key := ""
-	for _, c := range loop {
-		// Both halves of String are constrained (closed enum, validated digest),
-		// so this key holds no user text and cannot be forged by a name.
-		key += c.String() + "|"
+	for _, r := range loop {
+		// Length-prefixed framing, the same the fingerprint uses, so the service
+		// text a revision carries cannot forge or split a key.
+		key += encode(revFields(r)...)
 	}
 	if _, dup := b.cycles[key]; dup {
 		return
 	}
-	b.cycles[key] = Cycle{Contents: loop}
+	b.cycles[key] = Cycle{Revisions: loop}
 }
 
 // retain records one arrival against its revision and reports whether the walk
 // should continue through it.
 func (b *builder) retain(a arrival, p projection) bool {
 	depth := len(a.steps)
-	st, ok := b.revs[p.content]
+	id := p.id()
+	st, ok := b.revs[id]
 	if !ok {
 		st = &revState{
 			rev: Revision{
@@ -372,8 +379,8 @@ func (b *builder) retain(a arrival, p projection) bool {
 			},
 			reqRefs: map[string]bool{}, resRefs: map[string]bool{}, roots: map[RootID]bool{},
 		}
-		b.revs[p.content] = st
-		b.revOrder = append(b.revOrder, p.content)
+		b.revs[id] = st
+		b.revOrder = append(b.revOrder, id)
 	}
 	// Provenance that does not depend on which route arrived first: every
 	// reference that reached this content, and every root that can reach it.
@@ -385,7 +392,7 @@ func (b *builder) retain(a arrival, p projection) bool {
 	st.rev.MinDepth = min(st.rev.MinDepth, depth)
 	if depth == 0 {
 		b.roots[a.root].Resolved = true
-		b.roots[a.root].Content = p.content
+		b.roots[a.root].Revision = id
 		b.roots[a.root].ResolvedRef = p.resolvedRef
 	}
 	if len(st.rev.Paths) >= b.bounds.MaxPaths {
@@ -410,12 +417,12 @@ func (b *builder) expand(a arrival, p projection) []arrival {
 		b.limit(LimitationPathLengthLimit, a.ref, "the path-length bound stopped the walk; longer routes were not resolved")
 		return nil
 	}
-	chain := append(slices.Clone(a.chain), p.content)
+	chain := append(slices.Clone(a.chain), p.id())
 	// Never more arrivals than the edge bound admits, so a contract declaring a
 	// million dependencies allocates the budget, not the declaration list.
 	out := make([]arrival, 0, min(len(p.deps), b.bounds.MaxEdges))
 	for i, d := range p.deps {
-		decl := DeclarationID{From: p.content, Index: i}
+		decl := DeclarationID{From: p.id(), Index: i}
 		if !b.admitEdgeWork(edgeWork{decl: decl, base: p.base, ref: d.Ref, constraint: d.Compatibility}) {
 			b.limit(LimitationEdgeLimit, d.Ref, "the edge bound was reached; this dependency was not resolved")
 			b.recordUnresolved(Unresolved{
@@ -457,9 +464,9 @@ func (b *builder) finish(now time.Time, requested int) *Catalog {
 		cycles:     b.buildCycles(),
 	}
 	slices.SortFunc(c.unresolved, compareUnresolved)
-	c.byContent = make(map[ContentID]int, len(c.revisions))
+	c.byRevision = make(map[RevisionID]int, len(c.revisions))
 	for i, r := range c.revisions {
-		c.byContent[r.Content] = i
+		c.byRevision[r.ID()] = i
 	}
 	c.conflicts = b.detectConflicts(c.revisions, c.edges)
 
@@ -495,7 +502,7 @@ func (b *builder) buildRevisions() []Revision {
 		slices.SortFunc(r.Paths, comparePath)
 		out = append(out, r)
 	}
-	slices.SortFunc(out, func(x, y Revision) int { return compareContentID(x.Content, y.Content) })
+	slices.SortFunc(out, func(x, y Revision) int { return compareRevisionID(x.ID(), y.ID()) })
 	return out
 }
 
@@ -513,7 +520,9 @@ func (b *builder) buildCycles() []Cycle {
 	for _, cy := range b.cycles {
 		out = append(out, cy)
 	}
-	slices.SortFunc(out, func(x, y Cycle) int { return slices.CompareFunc(x.Contents, y.Contents, compareContentID) })
+	slices.SortFunc(out, func(x, y Cycle) int {
+		return slices.CompareFunc(x.Revisions, y.Revisions, compareRevisionID)
+	})
 	return out
 }
 
@@ -536,12 +545,12 @@ func (b *builder) detectConflicts(revs []Revision, edges []Edge) []Conflict {
 		service ServiceID
 		version string
 	}
-	byVersion := map[serviceVersion]map[ContentID]bool{}
+	byVersion := map[serviceVersion]map[RevisionID]bool{}
 	for _, r := range revs {
 		addTo(byService, r.Service, r.Version)
-		addTo(byVersion, serviceVersion{r.Service, r.Version}, r.Content)
+		addTo(byVersion, serviceVersion{r.Service, r.Version}, r.ID())
 	}
-	byDecl := map[DeclarationID]map[ContentID]bool{}
+	byDecl := map[DeclarationID]map[RevisionID]bool{}
 	for _, e := range edges {
 		addTo(byDecl, e.Declaration, e.To)
 	}
@@ -552,14 +561,14 @@ func (b *builder) detectConflicts(revs []Revision, edges []Edge) []Conflict {
 			out = append(out, Conflict{Kind: ConflictVersion, Service: svc, Versions: sortedStrings(versions)})
 		}
 	}
-	for sv, contents := range byVersion {
-		if len(contents) > 1 {
-			out = append(out, Conflict{Kind: ConflictContent, Service: sv.service, Version: sv.version, Contents: sortedContents(contents)})
+	for sv, ids := range byVersion {
+		if len(ids) > 1 {
+			out = append(out, Conflict{Kind: ConflictContent, Service: sv.service, Version: sv.version, Revisions: sortedRevisions(ids)})
 		}
 	}
-	for decl, contents := range byDecl {
-		if len(contents) > 1 {
-			out = append(out, Conflict{Kind: ConflictDeclaration, Declaration: decl, Contents: sortedContents(contents)})
+	for decl, ids := range byDecl {
+		if len(ids) > 1 {
+			out = append(out, Conflict{Kind: ConflictDeclaration, Declaration: decl, Revisions: sortedRevisions(ids)})
 		}
 	}
 	slices.SortFunc(out, compareConflict)
@@ -589,12 +598,12 @@ func sortedStrings(set map[string]bool) []string {
 	return out
 }
 
-func sortedContents(set map[ContentID]bool) []ContentID {
-	out := make([]ContentID, 0, len(set))
-	for c := range set {
-		out = append(out, c)
+func sortedRevisions(set map[RevisionID]bool) []RevisionID {
+	out := make([]RevisionID, 0, len(set))
+	for r := range set {
+		out = append(out, r)
 	}
-	slices.SortFunc(out, compareContentID)
+	slices.SortFunc(out, compareRevisionID)
 	return out
 }
 
@@ -611,7 +620,7 @@ func compareEdge(a, b Edge) int {
 	if v := compareDeclaration(a.Declaration, b.Declaration); v != 0 {
 		return v
 	}
-	return compareContentID(a.To, b.To)
+	return compareRevisionID(a.To, b.To)
 }
 
 func compareUnresolved(a, b Unresolved) int {

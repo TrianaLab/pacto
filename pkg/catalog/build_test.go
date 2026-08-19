@@ -10,7 +10,7 @@ import (
 // Case 1 -- two independent roots, each with its own direct dependency. Nothing
 // is shared, so nothing may be merged.
 func TestTwoIndependentRootsKeepTheirOwnDependencies(t *testing.T) {
-	a, b, da, db := ociID("a"), ociID("b"), ociID("da"), ociID("db")
+	a, b, da, db := at("a", "a"), at("b", "b"), at("da", "da"), at("db", "db")
 	f := newFake().
 		ok("reg/a:1", rev(a, ct("a", "1.0.0", dep("da", "reg/da:1")))).
 		ok("reg/b:1", rev(b, ct("b", "1.0.0", dep("db", "reg/db:1")))).
@@ -53,7 +53,7 @@ func TestTwoIndependentRootsKeepTheirOwnDependencies(t *testing.T) {
 // Case 2 -- two roots reaching one immutable transitive revision. It is one
 // revision, and both provenance paths survive.
 func TestSharedTransitiveRevisionKeepsBothProvenancePaths(t *testing.T) {
-	ra, rb, x, y, z := ociID("ra"), ociID("rb"), ociID("x"), ociID("y"), ociID("z")
+	ra, rb, x, y, z := at("ra", "ra"), at("rb", "rb"), at("x", "x"), at("y", "y"), at("z", "z")
 	f := newFake().
 		ok("reg/ra:1", rev(ra, ct("ra", "1.0.0", dep("x", "reg/x:1")))).
 		ok("reg/rb:1", rev(rb, ct("rb", "1.0.0", dep("y", "reg/y:1")))).
@@ -86,7 +86,7 @@ func TestSharedTransitiveRevisionKeepsBothProvenancePaths(t *testing.T) {
 // Case 3 -- a diamond. Both branches are facts about the revision at the bottom
 // and both are preserved.
 func TestDiamondPreservesEveryPath(t *testing.T) {
-	root, left, right, bottom := ociID("root"), ociID("left"), ociID("right"), ociID("bottom")
+	root, left, right, bottom := at("root", "root"), at("left", "left"), at("right", "right"), at("bottom", "bottom")
 	f := newFake().
 		ok("reg/root:1", rev(root, ct("root", "1.0.0", dep("left", "reg/left:1"), dep("right", "reg/right:1")))).
 		ok("reg/left:1", rev(left, ct("left", "1.0.0", dep("bottom", "reg/bottom:1")))).
@@ -113,7 +113,7 @@ func TestDiamondPreservesEveryPath(t *testing.T) {
 
 // Case 4 -- a cycle terminates and stays visible.
 func TestCycleTerminatesAndStaysVisible(t *testing.T) {
-	r, a, b := ociID("r"), ociID("a"), ociID("b")
+	r, a, b := at("r", "r"), at("a", "a"), at("b", "b")
 	f := newFake().
 		ok("reg/r:1", rev(r, ct("r", "1.0.0", dep("a", "reg/a:1")))).
 		ok("reg/a:1", rev(a, ct("a", "1.0.0", dep("b", "reg/b:1")))).
@@ -125,12 +125,12 @@ func TestCycleTerminatesAndStaysVisible(t *testing.T) {
 	if len(cycles) != 1 {
 		t.Fatalf("cycles = %+v, want exactly one", cycles)
 	}
-	if len(cycles[0].Contents) != 2 ||
-		!slices.Contains(cycles[0].Contents, a) || !slices.Contains(cycles[0].Contents, b) {
-		t.Errorf("cycle = %+v, want the a<->b loop", cycles[0].Contents)
+	if len(cycles[0].Revisions) != 2 ||
+		!slices.Contains(cycles[0].Revisions, a) || !slices.Contains(cycles[0].Revisions, b) {
+		t.Errorf("cycle = %+v, want the a<->b loop", cycles[0].Revisions)
 	}
 	// The closing edge is still in the graph -- the loop is visible, not pruned.
-	if got := edgeTargets(c, b, 0); !slices.Equal(got, []ContentID{a}) {
+	if got := edgeTargets(c, b, 0); !slices.Equal(got, []RevisionID{a}) {
 		t.Errorf("closing edge b->a = %v, want it retained", got)
 	}
 	if got := len(c.Revisions()); got != 3 {
@@ -141,7 +141,7 @@ func TestCycleTerminatesAndStaysVisible(t *testing.T) {
 // Case 5 -- an unresolved root and an unresolved transitive dependency are
 // partial knowledge. Not empty, and certainly not complete.
 func TestUnresolvedRootAndDependencyArePartialNotEmpty(t *testing.T) {
-	ok, mid := ociID("ok"), ociID("mid")
+	ok, mid := at("ok", "ok"), at("mid", "mid")
 	f := newFake().
 		ok("reg/ok:1", rev(ok, ct("ok", "1.0.0", dep("mid", "reg/mid:1")))).
 		ok("reg/mid:1", rev(mid, ct("mid", "1.0.0", dep("gone", "reg/gone:1")))).
@@ -182,7 +182,7 @@ func TestUnresolvedRootAndDependencyArePartialNotEmpty(t *testing.T) {
 // carries no gap. Without it, "partial" above could be the only answer the code
 // can produce.
 func TestFullyResolvableClosureIsComplete(t *testing.T) {
-	ok, mid, leaf := ociID("ok"), ociID("mid"), ociID("leaf")
+	ok, mid, leaf := at("ok", "ok"), at("mid", "mid"), at("leaf", "leaf")
 	f := newFake().
 		ok("reg/ok:1", rev(ok, ct("ok", "1.0.0", dep("mid", "reg/mid:1")))).
 		ok("reg/mid:1", rev(mid, ct("mid", "1.0.0", dep("leaf", "reg/leaf:1")))).
@@ -208,7 +208,7 @@ func TestFullyResolvableClosureIsComplete(t *testing.T) {
 // Case 6 -- one service name at one version, two different digests. Content is
 // identity; a name and a version are not.
 func TestSameNameAndVersionWithDifferentDigestsStayDistinct(t *testing.T) {
-	one, two := ociID("api-build-1"), ociID("api-build-2")
+	one, two := at("api", "api-build-1"), at("api", "api-build-2")
 	f := newFake().
 		ok("reg/api:1.0.0", rev(one, ct("api", "1.0.0"))).
 		ok("mirror/api:1.0.0", rev(two, ct("api", "1.0.0")))
@@ -222,8 +222,8 @@ func TestSameNameAndVersionWithDifferentDigestsStayDistinct(t *testing.T) {
 	if len(conflicts) != 1 || conflicts[0].Kind != ConflictContent {
 		t.Fatalf("conflicts = %+v, want one content conflict", conflicts)
 	}
-	if !slices.Equal(conflicts[0].Contents, sortedContents(map[ContentID]bool{one: true, two: true})) {
-		t.Errorf("conflict contents = %+v, want both digests named", conflicts[0].Contents)
+	if !slices.Equal(conflicts[0].Revisions, sortedRevisions(map[RevisionID]bool{one: true, two: true})) {
+		t.Errorf("conflict revisions = %+v, want both digests named", conflicts[0].Revisions)
 	}
 	if conflicts[0].Service.Name != "api" || conflicts[0].Version != "1.0.0" {
 		t.Errorf("conflict = %+v, want it attributed to api 1.0.0", conflicts[0])
@@ -233,8 +233,8 @@ func TestSameNameAndVersionWithDifferentDigestsStayDistinct(t *testing.T) {
 // Case 7 -- a tag and a digest pin naming one content. One revision, both
 // requested references kept.
 func TestTagAndDigestForOneContentDeduplicateButKeepBothReferences(t *testing.T) {
-	p := ociID("pinned")
-	pinned := "reg/api@" + p.Digest
+	p := at("api", "pinned")
+	pinned := "reg/api@" + p.Content.Digest
 	f := newFake().
 		ok("reg/api:1.0.0", rev(p, ct("api", "1.0.0"))).
 		ok(pinned, rev(p, ct("api", "1.0.0")))
@@ -255,16 +255,93 @@ func TestTagAndDigestForOneContentDeduplicateButKeepBothReferences(t *testing.T)
 		t.Errorf("one content reached twice is not a conflict: %+v", c.Conflicts())
 	}
 	for _, root := range c.Roots() {
-		if root.Content != p {
-			t.Errorf("root %q resolved to %s, want the shared content", root.RequestedRef, root.Content)
+		if root.Revision != p {
+			t.Errorf("root %q resolved to %+v, want the shared revision", root.RequestedRef, root.Revision)
 		}
+	}
+}
+
+// revisionsOf returns every revision carrying this content, in catalog order.
+// Mirrored bytes make that more than one.
+func revisionsOf(c *Catalog, id ContentID) []Revision {
+	var out []Revision
+	for _, r := range c.Revisions() {
+		if r.Content == id {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Case 7b -- one bundle mirrored into two registry namespaces. The content
+// digest is identical by construction; that is what mirroring is. Two
+// domain-qualified services published the same bytes, and neither of them is
+// the other, so content alone cannot name a revision.
+func TestMirroredContentInTwoDomainsStaysTwoServices(t *testing.T) {
+	mirrored, lib := ociID("mirrored-api"), at("lib", "mirrored-lib")
+	inAlpha := RevisionID{Service: ServiceID{Domain: "reg/alpha", Name: "api"}, Content: mirrored}
+	inBeta := RevisionID{Service: ServiceID{Domain: "reg/beta", Name: "api"}, Content: mirrored}
+	alpha, beta := "reg/alpha/api:1.0.0", "reg/beta/api:1.0.0"
+	// Byte-identical bundles: same declared service, same version, same
+	// dependency text. Only the domain that published them differs.
+	newMirror := func() *fake {
+		return newFake().
+			ok(alpha, rev(inAlpha, ct("api", "1.0.0", dep("lib", "reg/lib:1.0.0")))).
+			ok(beta, rev(inBeta, ct("api", "1.0.0", dep("lib", "reg/lib:1.0.0")))).
+			ok("reg/lib:1.0.0", rev(lib, ct("lib", "1.0.0")))
+	}
+
+	c := build(t, newMirror(), Bounds{}, alpha, beta)
+
+	mirrors := revisionsOf(c, mirrored)
+	if len(mirrors) != 2 {
+		t.Fatalf("revisions holding the mirrored content = %d, want 2: one per publishing domain", len(mirrors))
+	}
+	if got := []string{mirrors[0].Service.Domain, mirrors[1].Service.Domain}; !slices.Equal(got, []string{"reg/alpha", "reg/beta"}) {
+		t.Errorf("mirrored domains = %v, want both publishers named", got)
+	}
+	if cf := c.Conflicts(); len(cf) != 0 {
+		t.Errorf("two mirrors of one bundle are two services, not a disagreement: %+v", cf)
+	}
+	// Same content, same declaration index, different declaring service. The two
+	// declarations of reg/lib:1.0.0 are two declarations.
+	decls := map[DeclarationID]bool{}
+	for _, e := range c.Edges() {
+		decls[e.Declaration] = true
+	}
+	if len(c.Edges()) != 2 || len(decls) != 2 {
+		t.Errorf("edges = %+v, want one per mirror from two distinct declarations", c.Edges())
+	}
+	l := revisionsOf(c, lib.Content)
+	if len(l) != 1 || len(l[0].Paths) != 2 {
+		t.Fatalf("lib = %+v, want one revision reached by both mirrors", l)
+	}
+	if slices.Equal(l[0].Paths[0].Steps, l[0].Paths[1].Steps) {
+		t.Errorf("both routes to lib traverse the same step %+v; a step must name which mirror declared it", l[0].Paths[0].Steps)
+	}
+	// Root order is a detail of the request, never a fact about the catalog.
+	reversed := build(t, newMirror(), Bounds{}, beta, alpha)
+	if got, want := reversed.Meta().CatalogID, c.Meta().CatalogID; got != want {
+		t.Errorf("catalogId = %s asking beta first, %s asking alpha first; root order must not change catalog truth", got, want)
+	}
+	if n := len(revisionsOf(reversed, mirrored)); n != 2 {
+		t.Errorf("reversed: revisions holding the mirrored content = %d, want 2", n)
+	}
+	// A mirror in a third namespace is a third catalog: which domain published
+	// the bytes is part of what the catalog found, not decoration on top of it.
+	gamma := "reg/gamma/api:1.0.0"
+	inGamma := RevisionID{Service: ServiceID{Domain: "reg/gamma", Name: "api"}, Content: mirrored}
+	elsewhere := build(t, newMirror().ok(gamma, rev(inGamma, ct("api", "1.0.0", dep("lib", "reg/lib:1.0.0")))),
+		Bounds{}, alpha, gamma)
+	if elsewhere.Meta().CatalogID == c.Meta().CatalogID {
+		t.Errorf("mirroring into reg/gamma fingerprinted the same as reg/beta: %s", c.Meta().CatalogID)
 	}
 }
 
 // Case 8 -- a mutable tag whose registry answer changes. It is read once during
 // construction and the session does not move afterwards.
 func TestMutableTagIsResolvedOnceAndTheSessionDoesNotMove(t *testing.T) {
-	before, after := ociID("before"), ociID("after")
+	before, after := at("api", "before"), at("api", "after")
 	f := newFake().
 		ok("reg/api:latest", rev(before, ct("api", "1.0.0"))).
 		ok("reg/api:latest", rev(after, ct("api", "2.0.0")))
@@ -294,9 +371,9 @@ func TestMutableTagIsResolvedOnceAndTheSessionDoesNotMove(t *testing.T) {
 // Case 9 -- the same relative dependency text declared from two different local
 // bases resolves against its own declaring base. Case 15's declaration conflict
 // and the retained-path bound both ride on this shape.
-func localTwoBaseFake() (*fake, ContentID, ContentID, ContentID, ContentID, ContentID) {
-	a, b := localID("dir-a"), localID("dir-b")
-	shared, lib1, lib2 := localID("shared"), localID("lib-1"), localID("lib-2")
+func localTwoBaseFake() (*fake, RevisionID, RevisionID, RevisionID, RevisionID, RevisionID) {
+	a, b := atLocal("a", "dir-a"), atLocal("b", "dir-b")
+	shared, lib1, lib2 := atLocal("shared", "shared"), atLocal("lib", "lib-1"), atLocal("lib", "lib-2")
 	f := newFake().
 		ok("/a", rev(a, ct("a", "1.0.0", dep("shared", "./shared"))).withBase("/a").withoutResolvedRef()).
 		ok("/b", rev(b, ct("b", "1.0.0", dep("shared", "./shared"))).withBase("/b").withoutResolvedRef()).
@@ -316,7 +393,7 @@ func TestRelativeDependencyResolvesAgainstItsDeclaringBase(t *testing.T) {
 		t.Fatalf("unresolved = %+v; a relative reference must be resolved against its declarer", c.Unresolved())
 	}
 	got := edgeTargets(c, shared, 0)
-	want := sortedContents(map[ContentID]bool{lib1: true, lib2: true})
+	want := sortedRevisions(map[RevisionID]bool{lib1: true, lib2: true})
 	if !slices.Equal(got, want) {
 		t.Fatalf("shared's ../lib resolved to %v, want both %v: one per declaring base", got, want)
 	}
@@ -342,15 +419,18 @@ func TestRelativeDependencyResolvesAgainstItsDeclaringBase(t *testing.T) {
 // Case 10 -- hostile identity text. Names carrying "/", ":", "%" and non-ASCII
 // must not collide, and neither must the declarations or paths they appear in.
 func TestHostileNamesDoNotCollide(t *testing.T) {
-	one, two, three, four := ociID("h1"), ociID("h2"), ociID("h3"), ociID("h4")
 	// If a ServiceID were a joined string, "a/b"+"c" and "a"+"b/c" would be the
 	// same service at the same version and the catalog would report a content
 	// conflict that does not exist.
+	one := at("c", "h1").inDomain("a/b")
+	two := at("b/c", "h2").inDomain("a")
+	three := at("e:f", "h3").inDomain("d%3A")
+	four := at("f", "h4").inDomain("d%3A:e")
 	f := newFake().
-		ok("reg/one:1", rev(one, ct("c", "1.0.0")).withDomain("a/b")).
-		ok("reg/two:1", rev(two, ct("b/c", "1.0.0")).withDomain("a")).
-		ok("reg/three:1", rev(three, ct("e:f", "1.0.0")).withDomain("d%3A")).
-		ok("reg/four:1", rev(four, ct("f", "1.0.0")).withDomain("d%3A:e"))
+		ok("reg/one:1", rev(one, ct("c", "1.0.0"))).
+		ok("reg/two:1", rev(two, ct("b/c", "1.0.0"))).
+		ok("reg/three:1", rev(three, ct("e:f", "1.0.0"))).
+		ok("reg/four:1", rev(four, ct("f", "1.0.0")))
 
 	c := build(t, f, Bounds{}, "reg/one:1", "reg/two:1", "reg/three:1", "reg/four:1")
 
@@ -363,7 +443,7 @@ func TestHostileNamesDoNotCollide(t *testing.T) {
 }
 
 func TestHostileDeclarationsAndPathsDoNotCollide(t *testing.T) {
-	root, x, y := ociID("hroot"), ociID("hx"), ociID("hy")
+	root, x, y := at("root", "hroot"), at("x", "hx"), at("y", "hy")
 	// Two declarations sharing a name, and references full of delimiters.
 	refX, refY := "reg/ä:1%2F", "reg/ä:1%2F/b"
 	f := newFake().
@@ -376,7 +456,7 @@ func TestHostileDeclarationsAndPathsDoNotCollide(t *testing.T) {
 	if n := len(c.Edges()); n != 2 {
 		t.Fatalf("edges = %d, want 2; two declarations sharing a name are two declarations", n)
 	}
-	if !slices.Equal(edgeTargets(c, root, 0), []ContentID{x}) || !slices.Equal(edgeTargets(c, root, 1), []ContentID{y}) {
+	if !slices.Equal(edgeTargets(c, root, 0), []RevisionID{x}) || !slices.Equal(edgeTargets(c, root, 1), []RevisionID{y}) {
 		t.Errorf("edges = %+v, want each declaration index to keep its own target", c.Edges())
 	}
 	if len(c.Conflicts()) != 0 {
@@ -392,7 +472,7 @@ func TestHostileDeclarationsAndPathsDoNotCollide(t *testing.T) {
 // Case 11 -- reachable directly and transitively. Direct wins the rank and no
 // path is deleted to make that true.
 func TestRevisionReachableDirectlyAndTransitivelyRanksDirect(t *testing.T) {
-	root, mid, leaf := ociID("r11"), ociID("m11"), ociID("l11")
+	root, mid, leaf := at("root", "r11"), at("mid", "m11"), at("leaf", "l11")
 	f := newFake().
 		ok("reg/root:1", rev(root, ct("root", "1.0.0", dep("mid", "reg/mid:1"), dep("leaf", "reg/leaf:1")))).
 		ok("reg/mid:1", rev(mid, ct("mid", "1.0.0", dep("leaf", "reg/leaf:1")))).
@@ -422,7 +502,7 @@ func TestRevisionReachableDirectlyAndTransitivelyRanksDirect(t *testing.T) {
 }
 
 func TestTransitiveRankIsReachable(t *testing.T) {
-	root, mid, leaf := ociID("r11b"), ociID("m11b"), ociID("l11b")
+	root, mid, leaf := at("root", "r11b"), at("mid", "m11b"), at("leaf", "l11b")
 	f := newFake().
 		ok("reg/root:1", rev(root, ct("root", "1.0.0", dep("mid", "reg/mid:1")))).
 		ok("reg/mid:1", rev(mid, ct("mid", "1.0.0", dep("leaf", "reg/leaf:1")))).
@@ -440,7 +520,7 @@ func TestTransitiveRankIsReachable(t *testing.T) {
 // finished answer would fail here.
 
 func TestRootBoundStopsResolverWork(t *testing.T) {
-	a, b := ociID("br-a"), ociID("br-b")
+	a, b := at("a", "br-a"), at("b", "br-b")
 	f := newFake().ok("reg/a:1", rev(a, ct("a", "1.0.0"))).ok("reg/b:1", rev(b, ct("b", "1.0.0")))
 
 	c := build(t, f, Bounds{MaxRoots: 1}, "reg/a:1", "reg/b:1")
@@ -460,7 +540,7 @@ func TestRootBoundStopsResolverWork(t *testing.T) {
 }
 
 func TestRevisionBoundStopsResolverWork(t *testing.T) {
-	a, b, d := ociID("bv-a"), ociID("bv-b"), ociID("bv-d")
+	a, b, d := at("a", "bv-a"), at("b", "bv-b"), at("d", "bv-d")
 	f := newFake().
 		ok("reg/a:1", rev(a, ct("a", "1.0.0"))).
 		ok("reg/b:1", rev(b, ct("b", "1.0.0"))).
@@ -484,13 +564,13 @@ func TestRevisionBoundStopsResolverWork(t *testing.T) {
 }
 
 func TestEdgeBoundStopsResolverWork(t *testing.T) {
-	root := ociID("be-root")
+	root := at("root", "be-root")
 	f := newFake().
 		ok("reg/root:1", rev(root, ct("root", "1.0.0",
 			dep("d0", "reg/d0:1"), dep("d1", "reg/d1:1"), dep("d2", "reg/d2:1")))).
-		ok("reg/d0:1", rev(ociID("be-0"), ct("d0", "1.0.0"))).
-		ok("reg/d1:1", rev(ociID("be-1"), ct("d1", "1.0.0"))).
-		ok("reg/d2:1", rev(ociID("be-2"), ct("d2", "1.0.0")))
+		ok("reg/d0:1", rev(at("d0", "be-0"), ct("d0", "1.0.0"))).
+		ok("reg/d1:1", rev(at("d1", "be-1"), ct("d1", "1.0.0"))).
+		ok("reg/d2:1", rev(at("d2", "be-2"), ct("d2", "1.0.0")))
 
 	c := build(t, f, Bounds{MaxEdges: 2}, "reg/root:1")
 
@@ -514,7 +594,7 @@ func TestEdgeBoundStopsResolverWork(t *testing.T) {
 // declarations are all broken. The bound is on dependency WORK, and work is what
 // a failure spends.
 func TestEdgeBoundStopsFailingDependencyWorkToo(t *testing.T) {
-	root := ociID("bef-root")
+	root := at("root", "bef-root")
 	f := newFake().
 		ok("reg/root:1", rev(root, ct("root", "1.0.0",
 			dep("d0", "reg/d0:1"), dep("d1", "reg/d1:1"), dep("d2", "reg/d2:1"), dep("d3", "reg/d3:1")))).
@@ -554,13 +634,13 @@ func TestEdgeBoundStopsFailingDependencyWorkToo(t *testing.T) {
 // failed. Reporting bounds stay a separate question: see
 // TestTheUnresolvedBoundCapsReportingWithoutHidingThatItDid.
 func TestEdgeBoundSpendsOneBudgetOnSuccessAndFailureAlike(t *testing.T) {
-	root := ociID("bem-root")
+	root := at("root", "bem-root")
 	f := newFake().
 		ok("reg/root:1", rev(root, ct("root", "1.0.0",
 			dep("gone", "reg/gone:1"), dep("here", "reg/here:1"), dep("late", "reg/late:1")))).
 		fail("reg/gone:1", ReasonNotFound).
-		ok("reg/here:1", rev(ociID("bem-here"), ct("here", "1.0.0"))).
-		ok("reg/late:1", rev(ociID("bem-late"), ct("late", "1.0.0")))
+		ok("reg/here:1", rev(at("here", "bem-here"), ct("here", "1.0.0"))).
+		ok("reg/late:1", rev(at("late", "bem-late"), ct("late", "1.0.0")))
 
 	c := build(t, f, Bounds{MaxEdges: 2}, "reg/root:1")
 
@@ -579,7 +659,7 @@ func TestEdgeBoundSpendsOneBudgetOnSuccessAndFailureAlike(t *testing.T) {
 }
 
 func TestDepthBoundStopsResolverWork(t *testing.T) {
-	r, a, b := ociID("bd-r"), ociID("bd-a"), ociID("bd-b")
+	r, a, b := at("r", "bd-r"), at("a", "bd-a"), at("b", "bd-b")
 	f := newFake().
 		ok("reg/r:1", rev(r, ct("r", "1.0.0", dep("a", "reg/a:1")))).
 		ok("reg/a:1", rev(a, ct("a", "1.0.0", dep("b", "reg/b:1")))).
@@ -596,7 +676,7 @@ func TestDepthBoundStopsResolverWork(t *testing.T) {
 }
 
 func TestPathLengthBoundStopsResolverWork(t *testing.T) {
-	r, a, b := ociID("bp-r"), ociID("bp-a"), ociID("bp-b")
+	r, a, b := at("r", "bp-r"), at("a", "bp-a"), at("b", "bp-b")
 	f := newFake().
 		ok("reg/r:1", rev(r, ct("r", "1.0.0", dep("a", "reg/a:1")))).
 		ok("reg/a:1", rev(a, ct("a", "1.0.0", dep("b", "reg/b:1")))).
@@ -677,7 +757,7 @@ func TestConflictsStayVisible(t *testing.T) {
 }
 
 func TestConflictingConstraintsStayAttachedToTheirDeclaration(t *testing.T) {
-	root, one, two := ociID("cc-root"), ociID("cc-1"), ociID("cc-2")
+	root, one, two := at("root", "cc-root"), at("lib", "cc-1"), at("lib", "cc-2")
 	c1 := dep("lib", "reg/lib:1")
 	c1.Compatibility = "^1.0.0"
 	c2 := dep("lib", "reg/lib:2")
@@ -713,7 +793,7 @@ func TestBuildRejectsRequestsItCannotAnswer(t *testing.T) {
 func TestCancellationIsPartialKnowledge(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	f := newFake().ok("reg/a:1", rev(ociID("cx"), ct("a", "1.0.0")))
+	f := newFake().ok("reg/a:1", rev(at("a", "cx"), ct("a", "1.0.0")))
 
 	c, err := Build(ctx, Request{Roots: []string{"reg/a:1"}, Resolver: f, Clock: fixedClock})
 	if err != nil {
@@ -728,7 +808,7 @@ func TestCancellationIsPartialKnowledge(t *testing.T) {
 }
 
 func TestEmptyReferenceIsRejectedWithoutCallingTheResolver(t *testing.T) {
-	root := ociID("er")
+	root := at("root", "er")
 	f := newFake().ok("reg/root:1", rev(root, ct("root", "1.0.0", dep("blank", ""))))
 
 	c := build(t, f, Bounds{}, "reg/root:1")
@@ -789,7 +869,7 @@ func TestUnsanitizedResolverErrorsAreNotEchoed(t *testing.T) {
 }
 
 func TestBoundsReportedInMetaAreTheOnesThatApplied(t *testing.T) {
-	f := newFake().ok("reg/a:1", rev(ociID("mb"), ct("a", "1.0.0")))
+	f := newFake().ok("reg/a:1", rev(at("a", "mb"), ct("a", "1.0.0")))
 	c := build(t, f, Bounds{MaxRoots: 1_000_000, MaxDepth: 3}, "reg/a:1")
 
 	got := c.Meta().Bounds
