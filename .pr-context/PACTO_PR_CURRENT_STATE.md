@@ -7336,3 +7336,80 @@ starting later work.
 - Phases 1 through 10C: ACCEPTED and CLOSED.
 - Phase 11 — MCP catalog core: NOT STARTED and next.
 - Phases 12 through 14: NOT STARTED.
+
+## 17. Phase 11 record — OPENED
+
+Phase 10C is ACCEPTED and CLOSED in section 16.8 above. This section opens
+Phase 11 and is appended before any Phase 11 implementation commit.
+`PACTO_PR_TARGET_STATE.md` is untouched. The starting SHA is `f466ca46`,
+`origin/main` is `83f2e66d` and the merge-base is `83f2e66d`.
+
+### Commission and exact next objective
+
+Build the framework-independent **catalog core**: a bounded, immutable,
+multi-root catalog over an explicitly supplied set of Pacto contract roots and
+their dependency closure. The thesis being proved is that any finite set of
+Pacto contract roots plus their dependency closure becomes a bounded,
+discoverable, machine-readable catalog.
+
+This phase defines and proves the catalog model only. It exposes nothing: no
+MCP tools, no MCP resources, no CLI flag, no server route, no protocol E2E and
+no public discovery-server documentation. Those belong to Phase 12. The
+existing authoring, capability and operational Fleet MCP tools are unchanged.
+
+The catalog is not another spelling of the operational Fleet. Fleet describes
+runtime targets, observations and reconciliation for a deployment. The catalog
+describes contract discovery from explicitly supplied roots. They share
+completeness vocabulary and identity discipline; they do not share a model.
+
+The core must deliver, and prove with permanent tests:
+
+- explicit bounded roots, arbitrary supported root kinds, every requested root
+  reference preserved, every root resolved to an immutable content identity,
+  and invalid roots reported rather than silently dropped;
+- canonical immutable identity that keeps the revision, the service identity,
+  the requested reference and the resolved immutable reference distinct, with
+  the exact OCI digest or a deterministic local content identity as the only
+  content identity, never a mutable tag, bare version or service name;
+- structured traversal provenance preserving every retained root-to-revision
+  path, including diamonds and multi-root reachability, with structured
+  identity components and structured path steps so hostile names containing
+  `/`, `:`, `%` or arbitrary UTF-8 cannot collide, and a deterministic best
+  rank of root, direct or transitive that never deletes a transitive path;
+- explicit graph truth: resolved edges, unresolved dependencies with reasons,
+  version and content conflicts, cycles, shared revisions, completeness and
+  limitations, with partial knowledge distinct from both empty and complete;
+- hard bounds on roots, revisions, edges, depth, retained paths, path length,
+  unresolved entries, conflicts and limitations, which stop actual resolution
+  work rather than slicing an unbounded result, and which are proven to stop it
+  by counting resolver calls;
+- immutable session semantics: every mutable reference resolved exactly once
+  during construction, pure and network-free queries afterwards, deep copies at
+  the boundary in both directions, deterministic ordering, an injected clock,
+  and a `catalogId` stable for identical resolved content and topology
+  regardless of `generatedAt` or root input order.
+
+Existing responsibilities are reused, not re-created: contract parsing and the
+bundle model, local and OCI reference parsing, OCI credential and cache policy,
+immutable digest resolution, the graph and lock identity lessons, and the Fleet
+completeness vocabulary. No second OCI configuration format, no registry
+crawler, no persistent catalog database, no new Pacto configuration file, no
+discovery daemon, no IDP adapter, no authorization policy, no execution or
+proxy behaviour, no vector search, no marketplace and no extension framework.
+Discovery is not authorization. Discovery is not execution.
+
+An architecture test must make the boundary structural: the catalog core cannot
+reach `internal/mcp`, `internal/cli`, `pkg/dashboard` or the Kubernetes
+integration packages. The work joins the existing required local and GitHub CI
+path with no parallel harness, no weakened job, no relaxed race detection,
+timeout or coverage requirement.
+
+### Current phase map
+
+- Phases 1 through 10C: ACCEPTED and CLOSED.
+- Phase 11: ACTIVE / OPENED; implementation not started at this state commit.
+- Phases 12 through 14: NOT STARTED.
+
+Phase 12 must not start while Phase 11 is only a candidate. The PR remains an
+open draft, and the append-only, no-history-rewrite and independent-review
+protocol continues unchanged.
