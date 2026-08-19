@@ -7413,3 +7413,434 @@ timeout or coverage requirement.
 Phase 12 must not start while Phase 11 is only a candidate. The PR remains an
 open draft, and the append-only, no-history-rewrite and independent-review
 protocol continues unchanged.
+
+## 18. Phase 11 implementation — CANDIDATE at `6a0c198d`
+
+The commission of section 17, implemented end to end. `pkg/catalog` is a new
+public package that turns a finite, explicitly supplied set of Pacto contract
+roots plus their dependency closure into a bounded, immutable, discoverable
+catalog. It imports the contract model, `go-digest` and the standard library,
+and nothing else. `internal/app` supplies the one adapter that gives it real
+local and OCI resolution.
+
+Nothing is exposed. There is no MCP tool, no MCP resource, no CLI flag, no
+server route, no protocol E2E and no public discovery-server documentation.
+The authoring, capability and operational Fleet MCP tools are byte-identical.
+
+Phase 11 remains a CANDIDATE. A phase is closed by review, not by its author.
+Sections 1 through 17 are unchanged, `PACTO_PR_TARGET_STATE.md` was not
+touched, no PR comment was published, no review thread was resolved, no PR
+metadata was changed, the PR is still an open draft, and Phase 12 is NOT
+started.
+
+### Range
+
+Starting point `f466ca4669b43e673a934b84173ee41e374c65c2`, the branch head
+carrying the section 17 commission, which was also the branch head on the
+remote when work began. Final SHA `6a0c198de8f001a24650f29501b8fe2e831411de`.
+`f466ca46` is an ancestor of `6a0c198d`; the range is exactly six linear
+commits, each parented on the previous one, zero merges. 16 files, +3816 / -2,
+of which the ledger commit is 1 file and +77. No rebase, amend, reset,
+force-push, squash or rewrite. `origin/main` is still
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`, the merge-base is unchanged, and
+main was not touched.
+
+| SHA | Subject | Files | Delta |
+|---|---|---|---|
+| `26534f98` | docs: open the Phase 11 catalog-core record before implementation | 1 | +77 |
+| `d14884a4` | feat(catalog): bounded immutable multi-root contract catalog core | 11 | +3006 |
+| `3f72451c` | test(architecture): gate the catalog core against delivery-mechanism imports | 1 | +38 |
+| `741205b1` | fix(catalog): resolve a reference under the constraint that declared it | 4 | +93 / -8 |
+| `5a911669` | fix(oci): make an unsatisfiable tag request a sentinel, not prose | 1 | +9 / -2 |
+| `6a0c198d` | feat(app): resolve catalog references through the existing OCI and local paths | 2 | +601 |
+
+New files:
+
+| Path | Lines | What it is |
+|---|---|---|
+| `pkg/catalog/catalog.go` | 209 | package doc, `SchemaVersion`, the completeness trio, twelve limitation codes, eight reason codes, `Limitation`, `Reason`, `ResolveError`, and the `Resolver` port with `ResolveRequest` / `Resolution` |
+| `pkg/catalog/identity.go` | 151 | `ContentScheme`, `ContentID`, `ServiceID`, `RootID`, `DeclarationID`, `Path`, `Rank` and their total orders |
+| `pkg/catalog/model.go` | 227 | `Root`, `Revision`, `Edge`, `Unresolved`, `Conflict`, `Cycle`, `Meta`, and the frozen `Catalog` with deep-copying accessors |
+| `pkg/catalog/bounds.go` | 90 | nine bounds, their defaults, their ceilings and the clamp that produces the effective set |
+| `pkg/catalog/build.go` | 605 | `Build`, the memoized breadth-first walk over arrivals, retention, expansion, cycle and conflict detection, and the freeze |
+| `pkg/catalog/fingerprint.go` | 158 | the length-prefixed canonical encoding behind `Meta.CatalogID` |
+| `pkg/catalog/harness_test.go` | 179 | the scripted resolver fake, call counters and construction helpers |
+| `pkg/catalog/identity_test.go` | 227 | identity validation, ordering and encoding tests |
+| `pkg/catalog/catalog_test.go` | 271 | immutability, determinism, fingerprint and concurrency tests |
+| `pkg/catalog/build_test.go` | 733 | the adversarial acceptance cases |
+| `pkg/catalog/walk_test.go` | 241 | second-route, constraint, reporting-bound and cycle-identity tests |
+| `internal/app/catalog.go` | 153 | the adapter: reference parsing, registry access, credentials, caching, local bundle loading, content hashing and error categorisation |
+| `internal/app/catalog_test.go` | 448 | adapter unit tests plus two end-to-end catalogs over a real registry and real directories |
+
+Modified: `tests/architecture/boundary_test.go` (+38, the structural boundary
+gate) and `pkg/oci/resolve.go` (+9 / -2, the `ErrNoMatchingTag` sentinel).
+
+### The model, and why each piece exists
+
+**Package boundary.** `pkg/catalog` is public and framework-independent by
+construction. Its only non-standard imports are `pkg/contract` and
+`github.com/opencontainers/go-digest`. Everything the catalog deliberately does
+not own -- reference syntax, credentials, caching, registry access, filesystem
+access -- lives behind the `Resolver` port. The repository already had a place
+for exactly that adapter, so no new boundary was invented: `internal/app`
+already owns the bundle store, the credential policy and the local-path
+resolution the lock builder uses, and `Service.CatalogResolver()` reuses them.
+A catalog and a lockfile therefore cannot disagree about what a reference
+resolves to.
+
+**Explicit roots.** `Build` takes `Request.Roots`, clones it and rejects an
+empty set with `ErrNoRoots`. Nothing infers a root, and nothing lists a registry
+catalog: the only registry calls the adapter can make are `ResolveRef` on a
+reference a contract or a caller named, and `Pull` on the reference that
+resolved. Every requested root within `MaxRoots` appears in `Roots()` whether or
+not it resolved, carrying its verbatim `RequestedRef` and, when it failed, its
+`Reason`. `Meta.RequestedRoots` always reports the true request size, so even a
+root the bound refused to resolve is counted rather than hidden.
+
+**Identity, in three separate layers.** `RequestedRef` is the text a caller or a
+contract used. `ResolvedRef` is the immutable reference the resolver returned --
+a digest-pinned registry reference. `ContentID` is the only identity: a
+comparable struct of a closed-enum `ContentScheme` (`oci` or `local`) and a
+digest validated through `digest.Parse`. A tag, a bare version and a service
+name are structurally incapable of reaching it, and `project` rejects any
+resolution whose content identity does not validate, with
+`INVALID_IDENTITY`. `ServiceID` is domain-qualified and explicitly descriptive:
+two revisions sharing a name and a version but not their bytes stay two
+revisions and become a `content` conflict.
+
+**Deduplication without provenance loss.** Revisions are keyed on `ContentID`.
+The same bytes reached through two roots, two reference texts or two routes are
+one `Revision` accumulating every `RequestedRefs` entry, every `ResolvedRefs`
+entry, every reaching `Roots` ordinal and every retained `Path`.
+
+**Structured provenance.** A `Path` is a `RootID` plus an ordered slice of
+`DeclarationID`, and a `DeclarationID` is the declaring `ContentID` plus the
+declaration's index in that contract's declared order. Nothing anywhere joins
+user-controlled text with a delimiter to make an identity or a path step, so a
+service, domain or reference containing `/`, `:`, `%` or arbitrary UTF-8 cannot
+collide with its neighbour. The walk is over arrivals rather than revisions,
+which is what makes both branches of a diamond survive. `Rank` is derived from
+`MinDepth` across every retained path -- root, direct, transitive -- so a
+revision reachable both ways ranks direct while keeping the transitive path.
+
+**Graph truth.** `Edges()` carries the declaration, its declared name, reference,
+constraint and required flag, and the content it resolved to, kept separate from
+the revision because one revision can be declared by many contracts under many
+names. `Unresolved()` is knowledge about a gap, with a sanitized reason code.
+`Conflicts()` reports three distinct shapes and resolves none of them: `version`
+(one service at several versions), `content` (one service and version at several
+contents) and `declaration` (one declaration resolving to several contents).
+`Cycles()` records loops rotated to their smallest identity, so one loop found
+from two entry points is one cycle; the closing edge is kept so the loop stays
+visible in the graph while the walk stops instead of following it.
+`Completeness` is `complete` only when nothing failed and no bound stopped any
+work; anything that produced a limitation makes it `partial`. `empty` exists as
+a value and is never produced by `Build`, precisely so partial knowledge can
+never be served as an authoritative empty result.
+
+**Bounds that stop work.** Nine bounds, each with a default and a ceiling, all
+reported back as `Meta.Bounds` so what actually applied is reviewable. Six of
+them stop work before it is paid for: `MaxRoots` truncates the queue before any
+root is resolved; `MaxRevisions` and `MaxEdges` are checked in `mayResolve`,
+which runs before `callResolver`; `MaxDepth` and `MaxPathLength` stop `expand`
+from ever enqueueing the deeper arrivals; `MaxPaths` stops a revision being
+entered again, so its subtree is not re-walked. Each emits a structured
+limitation naming the bound and marks the answer partial. The remaining three --
+`MaxUnresolved`, `MaxConflicts`, `MaxLimitations` -- bound derived reporting
+only, and the file says why: refusing to resolve because other references
+already failed would hide healthy parts of the closure. Every work bound has a
+permanent test that counts resolver calls.
+
+**Immutable session.** Construction resolves each distinct `(Base, Ref,
+Constraint)` triple at most once, so a mutable tag is read once and a registry
+that moves afterwards does not move the catalog. `Build` clones the root slice
+on the way in; `project` keeps only durable values and drops the contract
+pointer and any filesystem view; every accessor deep-copies on the way out. The
+clock is injected through `Request.Clock`. `Meta.CatalogID` fingerprints what
+the catalog found -- completeness, effective bounds, root outcomes, revisions,
+edges, unresolved entries, conflicts, cycles and limitation codes -- and
+deliberately excludes generation time, root ordinals, retained paths, requested
+references and local base directories, so it is stable across root permutations,
+across injected times and across the same content living at a different path.
+Every field is length-prefixed with an eight-byte big-endian length before
+hashing, so no two field sequences can produce one byte stream.
+
+**Nothing speculative was built.** No second OCI configuration format, no
+registry crawler, no persistent database, no new Pacto configuration file, no
+daemon, no IDP adapter, no authorization policy, no execution or proxy
+behaviour, no vector search, no marketplace and no extension framework. The
+package doc states the two exclusions the commission named: discovery is not
+authorization and discovery is not execution.
+
+### Two defects the work found, and their root-cause fixes
+
+`741205b1`. The port as first written passed only `(Ref, Base)` to the resolver.
+A dependency reference that names no version -- the ordinary shape of an OCI
+dependency in this repository -- would then have resolved to whatever tag ranked
+highest rather than to what the declaring contract accepts, and two declarations
+that genuinely disagree about a version range would have collapsed into one
+silently selected answer instead of surfacing as a conflict. `Constraint` is now
+part of the request and part of the memo key.
+`TestTheDeclaringConstraintReachesTheResolver` proves the constraint arrives and
+that a root, which nobody declares, arrives with none;
+`TestTheSameBareReferenceUnderTwoConstraintsIsTwoQuestions` proves the same bare
+reference under two constraints is two questions, two revisions and one visible
+`version` conflict.
+
+`5a911669`. `oci.BestTag` reported tag exhaustion as an untyped `fmt.Errorf`, so
+the adapter could only have told "the registry holds nothing for you" from "the
+registry could not be asked" by matching message text. The fix is a sentinel,
+`oci.ErrNoMatchingTag`, wrapped by both exhaustion returns; the adapter uses
+`errors.Is`. This was fixed where every caller routes through rather than
+string-matched at the one call site. The only existing test that mentions the
+message text constructs its own error and is unaffected.
+
+### The adapter, and the boundary it holds
+
+`internal/app/catalog.go` parses a reference with the existing
+`graph.ParseDependencyRef`, then splits. A registry reference goes through the
+existing `resolveDigest` plus `BundleStore.Pull`, yielding
+`ContentID{Scheme: oci, Digest: <manifest digest>}` and a digest-pinned
+`ResolvedRef`. A local reference goes through the existing `resolveLocalPath`
+and `loadLocalBundle`, and its identity is `lock.HashFS` over the bundle's whole
+file set -- the same hash the lockfile uses -- so two byte-identical directories
+are one revision and two directories claiming the same name and version but
+different bytes are two.
+
+The `Base` a resolution reports is the context its own relative references
+resolve against, and it carries a security decision. An OCI resolution reports
+the constant `oci://`. `catalogLocalDir` refuses any local reference whose base
+is that constant, so a contract fetched over the network cannot make the catalog
+read a local directory of its choosing -- relative or absolute -- exactly as the
+lock builder already refuses. A local base is always an absolute path, so the
+two can never be confused. A root arrives with an empty base and its relative
+path resolves against the working directory.
+`TestCatalogResolverRefusesALocalReferenceDeclaredByARegistryBundle` covers
+`../../../etc`, `./neighbour`, an absolute directory and a `file://` reference;
+`TestCatalogRefusesALocalPathDeclaredByARegistryRoot` proves the same at the
+catalog level, where the result is partial with one `INVALID_REFERENCE`
+unresolved entry rather than a traversal.
+
+`catalogFailure` reduces every registry failure to one of the catalog's reason
+categories and never echoes the underlying error, because a registry error
+carries the host, the repository path and, on a rejected credential, the account
+it was rejected for. `TestCatalogResolverCategorisesRegistryFailures` drives all
+seven categories through a table and then asserts the sanitized message contains
+none of the hosts, none of the account text and none of the transport prose.
+`pkg/catalog` enforces the same rule from its side: any error that is not a
+`*ResolveError` is reduced to a fixed generic reason, proved by
+`TestUnsanitizedResolverErrorsAreNotEchoed`.
+
+### Adversarial acceptance cases, all permanent
+
+| Commissioned case | Permanent test |
+|---|---|
+| 1. two independent roots, distinct direct dependencies | `TestTwoIndependentRootsKeepTheirOwnDependencies` |
+| 2. two roots sharing one immutable transitive revision | `TestSharedTransitiveRevisionKeepsBothProvenancePaths` |
+| 3. a diamond preserving every path | `TestDiamondPreservesEveryPath` |
+| 4. a cycle that terminates and stays visible | `TestCycleTerminatesAndStaysVisible`, `TestOneLoopFoundFromTwoRootsIsOneCycle`, `TestSeparateLoopsAreSeparateCycles` |
+| 5. unresolved root and unresolved transitive dependency are partial | `TestUnresolvedRootAndDependencyArePartialNotEmpty`, with `TestFullyResolvableClosureIsComplete` as its complement |
+| 6. same name and version, different digests, still distinct | `TestSameNameAndVersionWithDifferentDigestsStayDistinct` |
+| 7. tag and digest pin for one content deduplicate, both references visible | `TestTagAndDigestForOneContentDeduplicateButKeepBothReferences` |
+| 8. a tag whose registry answer changes after construction | `TestMutableTagIsResolvedOnceAndTheSessionDoesNotMove` |
+| 9. the same relative text from two local roots resolves against its declarer | `TestRelativeDependencyResolvesAgainstItsDeclaringBase`, `TestCatalogResolverResolvesARelativeReferenceAgainstItsDeclarer` |
+| 10. hostile names with `/`, `:`, `%` and UTF-8 | `TestHostileNamesDoNotCollide`, `TestHostileDeclarationsAndPathsDoNotCollide`, `TestEncodeCannotBeForgedByFieldContents` |
+| 11. direct and transitive reachability ranks direct, keeps every path | `TestRevisionReachableDirectlyAndTransitivelyRanksDirect`, with `TestTransitiveRankIsReachable` |
+| 12. root, revision, edge, depth and path limits stop resolver work | `TestRootBoundStopsResolverWork`, `TestRevisionBoundStopsResolverWork`, `TestEdgeBoundStopsResolverWork`, `TestDepthBoundStopsResolverWork`, `TestPathLengthBoundStopsResolverWork`, `TestRetainedPathBoundStopsResolverWork`, `TestTheEdgeBoundAlsoStopsEdgesThatCostNoResolution` |
+| 13. caller mutation of inputs and of returned values | `TestCallerCannotMutateTheCatalogThroughItsInputs`, `TestCallerCannotMutateTheCatalogThroughReturnedValues` |
+| 14. deterministic ordering, stable `catalogId` across permutations and times | `TestOrderingIsDeterministic`, `TestCatalogIDIgnoresRootOrderAndGenerationTime`, `TestCatalogIDDistinguishesDifferentCatalogs` |
+| 15. conflicting constraints or resolutions stay visible | `TestConflictsStayVisible`, `TestConflictingConstraintsStayAttachedToTheirDeclaration`, `TestTheSameBareReferenceUnderTwoConstraintsIsTwoQuestions` |
+
+Each of the six work bounds is proved by counting resolver calls, not by
+measuring output size. The three reporting bounds are proved to cap their list
+AND to say they did: `TestTheUnresolvedBoundCapsReportingWithoutHidingThatItDid`,
+`TestTheConflictBoundCapsReportingAndSaysSo` and
+`TestTheLimitationBoundLeavesRoomForItsOwnMarker`.
+
+Beyond the commissioned list, permanent coverage also includes: safety for
+concurrent readers under the race detector; the completeness vocabulary asserted
+equal to `pkg/fleet`'s, so the two cannot drift apart silently; rejection of a
+request with no roots and of one with no resolver; cancellation recorded as
+partial knowledge; an empty reference rejected without calling the resolver;
+resolver output validated before it can become identity; the effective bounds
+reported in `Meta`; and a revision lookup miss distinguished from an empty
+revision.
+
+The `internal/app` side adds two catalogs built over a real in-process registry
+and real temporary directories: `TestCatalogOverARealRegistryAndRealDirectories`
+builds a complete four-revision catalog from a local root and an OCI root that
+share one transitive library, and asserts the shared revision carries two roots,
+two paths and rank direct.
+
+### Mutation evidence
+
+Six mutations were applied one at a time, observed to fail a permanent test,
+and reverted byte-identically.
+
+| Mutation | What bit |
+|---|---|
+| M1 drop canonical deduplication (never reuse an existing revision) | eight failures: `TestSharedTransitiveRevisionKeepsBothProvenancePaths`, `TestDiamondPreservesEveryPath`, `TestTagAndDigestForOneContentDeduplicateButKeepBothReferences`, `TestRelativeDependencyResolvesAgainstItsDeclaringBase`, `TestRevisionReachableDirectlyAndTransitivelyRanksDirect`, `TestRetainedPathBoundStopsResolverWork`, `TestASecondRouteDoesNotDuplicateEdgesOrGaps`, `TestOneLoopFoundFromTwoRootsIsOneCycle` |
+| M2 keep only the first path per revision | six failures: `TestSharedTransitiveRevisionKeepsBothProvenancePaths`, `TestDiamondPreservesEveryPath`, `TestTagAndDigestForOneContentDeduplicateButKeepBothReferences`, `TestRelativeDependencyResolvesAgainstItsDeclaringBase`, `TestRevisionReachableDirectlyAndTransitivelyRanksDirect`, `TestASecondRouteDoesNotDuplicateEdgesOrGaps` |
+| M3 write the memo but never read it | four failures: `TestSharedTransitiveRevisionKeepsBothProvenancePaths`, `TestMutableTagIsResolvedOnceAndTheSessionDoesNotMove`, `TestASecondRouteDoesNotDuplicateEdgesOrGaps`, `TestOneReferenceRequestedTwiceIsOneLimitation` |
+| M4 turn the revision bound into a post-hoc slice, still emitting its limitation | `TestRevisionBoundStopsResolverWork` only, and only on its two work-proving assertions: `resolver calls = 3, want 2: the third root is refused before any fetch` and `root 2 = {... Resolved:true ...}, want it reported as stopped by a bound` |
+| M5 call an answer complete unless it is also empty | three failures: `TestUnresolvedRootAndDependencyArePartialNotEmpty`, `TestRootBoundStopsResolverWork`, `TestTheEdgeBoundAlsoStopsEdgesThatCostNoResolution` |
+| M6 return the internal revision slice instead of a deep copy | `TestCallerCannotMutateTheCatalogThroughReturnedValues` |
+
+M4 is the one worth reading twice. Under it the revision count was still right
+and the `REVISION_LIMIT_EXCEEDED` limitation was still emitted -- a suite that
+only inspected output would have stayed green. What failed was the resolver call
+count and the root's reported outcome. That is the difference between a bound
+that stops work and a bound that slices a result already paid for, and it is
+exactly the distinction the commission asked to be proven.
+
+### Architecture gate
+
+`tests/architecture/boundary_test.go` gained
+`TestCatalogCoreIsFrameworkIndependent`, which walks the real dependency graph
+of `pkg/catalog/...` and fails on any import of `internal/mcp`, `internal/cli`,
+`pkg/dashboard`, either `integrations/` prefix, `k8s.io/` or `sigs.k8s.io/`, and
+additionally on any in-repository package outside an explicit allow-map of
+`pkg/catalog` and `pkg/contract`. The allow-map is the stricter half: a new
+in-repo import fails the gate even if it is not on the forbidden list, so the
+boundary cannot erode by accident. `pkg/catalog/...` was also added as the first
+entry of the existing `corePackages` list, so it is covered by
+`TestCorePackagesHaveNoKubernetesOrIntegrationDeps` too.
+
+The work runs inside the existing required local and GitHub CI path. No job,
+harness, timeout, race setting or coverage threshold was added, weakened or
+bypassed: both new packages are covered by the single workspace `-race` run that
+enforces exactly 100.0% total coverage, and the architecture test runs in the
+existing `ci-gates` job.
+
+### Local verification, all green
+
+`go test -race ./pkg/catalog/` (ok, coverage 100.0%); `go test -race` across
+`./internal/app/`, `./pkg/oci/`, `./pkg/catalog/`, `./pkg/lock/`, `./pkg/graph/`
+and `./pkg/fleet/` (all ok; `internal/app` at 100.0%); `make ci-test`
+(`total coverage: 100.0%`, plus `DEMO-CONTRACTS VALID: 24/24`); `gofmt -l`
+clean; `golangci-lint run ./internal/app/... ./pkg/oci/... ./pkg/catalog/...`
+(0 issues); `gocyclo -over 15 ./pkg/catalog` (exit 0); `make ci` (exit 0);
+`make artifact-drift` (`artifact-drift: OK`); `make release-dry-run`
+(`K8S-MODULE-STANDALONE OK`, `RELEASE-DRY-RUN OK`); `govulncheck ./...`
+(`No vulnerabilities found`); `git diff --check` clean; `make check-section`
+(zero U+00A7 in authored files).
+
+### GitHub at the exact final SHA `6a0c198d`
+
+PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE, head
+`6a0c198de8f001a24650f29501b8fe2e831411de`, base `main`. Eight workflow runs
+were triggered; six succeeded and two were skipped by their own conditions.
+
+| Workflow | Run ID | Attempt | Conclusion |
+|---|---|---|---|
+| CI | `32259731356` | 1 | success |
+| Security | `32259731600` | 1 | success |
+| Docs check | `32259730428` | 1 | success |
+| Pacto Contract CI | `32259730554` | 1 | success |
+| Repowise (architecture health) | `32259730045` | 1 | success |
+| Validate PR title | `32259729778` | 1 | success |
+| Rebuild dashboard UI | `32259731821` | 1 | skipped |
+| Auto-merge Dependabot PRs | `32259730347` | 1 | skipped |
+
+Run `32259731356` (CI) is success on attempt 1; all 21 jobs are green:
+
+| Job | ID | Conclusion |
+|---|---|---|
+| `changes` | `96089831140` | success |
+| `ci-static` | `96089912947` | success |
+| `operator-build` | `96089912979` | success |
+| `dashboard-e2e` | `96089913028` | success |
+| `ci-integration-kubernetes` | `96089913070` | success |
+| `ci-e2e-envtest` | `96089913072` | success |
+| `release-dry-run` | `96089913078` | success |
+| `ci-e2e-compose` | `96089913113` | success |
+| `ci-e2e-kind (dashboard)` | `96089913132` | success |
+| `ci-e2e-kind (observation)` | `96089913136` | success |
+| `ci-engine` | `96089913175` | success |
+| `ci-oci` | `96089913192` | success |
+| `ci-e2e-kind (evidence)` | `96089913193` | success |
+| `release-version-test` | `96089913215` | success |
+| `ci-gates` | `96089913228` | success |
+| `ci-e2e-kind (operational-graph)` | `96089913233` | success |
+| `artifact-drift` | `96089913237` | success |
+| `ci-e2e-kind (upgrade)` | `96089913244` | success |
+| `ci-dashboard` | `96089913254` | success |
+| `ci-e2e-kind (reconcile)` | `96089913272` | success |
+| `required` | `96093570489` | success |
+
+The Security workflow's three jobs are green: `govulncheck (Go)`
+`96089831612`, `Trivy (image)` `96089831849` and `PR security summary`
+`96090360488`.
+
+The isolated `ci-e2e-kind (dashboard)` runner failure disclosed against the
+Phase 10C ledger head did NOT reproduce: that job is success on attempt 1 here.
+Nothing about the image-presence verification was touched.
+
+### CodeQL and review threads
+
+Nine code-scanning alerts are open on `refs/pull/291/head`, and they are exactly
+the nine inherited ones: `38` (`py/incomplete-url-substring-sanitization`,
+`release/scripts/docs_check.py:197`), `40` through `43` (`go/path-injection`,
+`internal/app/resolve.go` lines 35, 43, 57 and 67) and `59` through `62`
+(`go/path-injection`, `pkg/oci/cache.go` lines 375, 394, 395 and 666). The
+newest was created on 2026-08-13. **The Phase 11 delta is ZERO new alerts**, and
+in particular the new filesystem handling in `internal/app/catalog.go` raised
+none. Every individual `Analyze (...)` check run on this SHA is success; the
+aggregate `CodeQL` check from `github-advanced-security` is still failure,
+because it aggregates those nine pre-existing alerts. That is the inherited
+condition and is not claimed as a Phase 11 finding.
+
+All 199 review threads were paginated, since the API caps a page at 100 and page
+one alone hides every unresolved one. The totals are unchanged from the Phase
+10C record: 199 total, 189 resolved, 10 unresolved. The ten are six on a
+generated mermaid bundle under `pkg/dashboard/ui/assets/` and four on
+`pkg/oci/cache.go` at lines 375, 394, 395 and 666, the same locations as the
+`pkg/oci` CodeQL alerts. Neither file was touched by Phase 11. **The Phase 11
+review-thread delta is ZERO.** No thread was resolved and no comment was
+published.
+
+### Hygiene and disclosures
+
+- `make ci` regenerates `integrations/kubernetes/charts/pacto-dev-gateway/README.md`
+  from helm-docs, overwriting the hand-written file. As in Phase 10C it was
+  reverted rather than committed. The generator quirk predates this phase and is
+  not fixed here.
+- `go.work.sum` gained hashes from ordinary local `go` invocations, including
+  running `gocyclo` through `go run`. Reverted twice; the committed file is
+  unchanged and sufficient.
+- A stale editor diagnostic claimed an undefined test helper in
+  `pkg/catalog/build_test.go`. A clean `go test ./pkg/catalog/` proved it stale;
+  nothing was changed on its account.
+- The push required switching the active `gh` account to the one with write
+  access. No other GitHub state was touched: no comment, no thread resolution,
+  no metadata change, no label, no review request.
+- `git fetch` brought down a new `integrations/kubernetes/v5.1.2` tag published
+  from main. It is unrelated to this branch and nothing was done with it.
+- The untracked agent files (`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`)
+  are untouched and still untracked. `git status --short` at the final SHA lists
+  those four and nothing else.
+
+### Deliberately not done
+
+No MCP catalog tool, no MCP resource registration, no `pacto mcp --root` wiring,
+no stdio or protocol E2E and no public discovery-server documentation: all of
+that is Phase 12. The existing authoring, capability and operational Fleet MCP
+tools were not read from, changed or removed. Phase 10C was not reopened and
+evidence storage was not modified; no new correctness, security or data-loss
+counterexample against it was found.
+
+### Verdict
+
+Phase 11 is a CANDIDATE at `6a0c198d`, awaiting independent review. It is NOT
+closed -- closing it is the reviewer's act, not the author's. Phase 12 has NOT
+started.
+
+### Current phase map
+
+- Phases 1 through 10C: ACCEPTED and CLOSED.
+- Phase 11: CANDIDATE at `6a0c198d`, awaiting independent review.
+- Phases 12 through 14: NOT STARTED.
+
+Phase 12 must not start while Phase 11 is only a candidate. The PR remains an
+open draft, and the append-only, no-history-rewrite and independent-review
+protocol continues unchanged.
