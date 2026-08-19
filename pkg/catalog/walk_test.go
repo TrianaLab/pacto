@@ -3,6 +3,8 @@ package catalog
 import (
 	"slices"
 	"testing"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // A revision reached by two routes re-declares the same dependencies. Those are
@@ -31,6 +33,65 @@ func TestASecondRouteDoesNotDuplicateEdgesOrGaps(t *testing.T) {
 	}
 	if got := f.countFor("reg/gone:1"); got != 1 {
 		t.Errorf("resolver calls for the failing reference = %d, want 1: a failure is memoized too", got)
+	}
+}
+
+// A reference that names no version is only half a question: the declaring
+// contract's constraint is the other half, and it has to reach the resolver.
+func TestTheDeclaringConstraintReachesTheResolver(t *testing.T) {
+	r, x := ociID("dc-r"), ociID("dc-x")
+	f := newFake().
+		ok("reg/r:1", rev(r, ct("r", "1.0.0", dep("x", "reg/x")))).
+		ok("reg/x", rev(x, ct("x", "1.4.0")))
+
+	build(t, f, Bounds{}, "reg/r:1")
+
+	for _, c := range f.calls {
+		switch c.Ref {
+		case "reg/r:1":
+			if c.Constraint != "" {
+				t.Errorf("root asked under constraint %q, want none: a root is not declared by anyone", c.Constraint)
+			}
+		case "reg/x":
+			if c.Constraint != "^1.0.0" {
+				t.Errorf("dependency asked under constraint %q, want the declared ^1.0.0", c.Constraint)
+			}
+		}
+	}
+}
+
+// Two contracts naming the same version-less reference under constraints that
+// cannot both be satisfied are asking two different questions. Collapsing them
+// would answer one and silently discard the other; instead both are resolved and
+// the disagreement stays on the record.
+func TestTheSameBareReferenceUnderTwoConstraintsIsTwoQuestions(t *testing.T) {
+	a, b := ociID("tc-a"), ociID("tc-b")
+	one, two := ociID("tc-x1"), ociID("tc-x2")
+	f := newFake().
+		ok("reg/a:1", rev(a, ct("a", "1.0.0", contract.Dependency{
+			Name: "x", Ref: "reg/x", Required: true, Compatibility: "^1.0.0"}))).
+		ok("reg/b:1", rev(b, ct("b", "1.0.0", contract.Dependency{
+			Name: "x", Ref: "reg/x", Required: true, Compatibility: "^2.0.0"}))).
+		okUnder("", "reg/x", "^1.0.0", rev(one, ct("x", "1.4.0"))).
+		okUnder("", "reg/x", "^2.0.0", rev(two, ct("x", "2.1.0")))
+
+	c := build(t, f, Bounds{}, "reg/a:1", "reg/b:1")
+
+	if got := f.countFor("reg/x"); got != 2 {
+		t.Errorf("resolver calls for the bare reference = %d, want 2: one per constraint", got)
+	}
+	if _, ok := c.Revision(one); !ok {
+		t.Error("the revision the ^1.0.0 declaration accepts is missing")
+	}
+	if _, ok := c.Revision(two); !ok {
+		t.Error("the revision the ^2.0.0 declaration accepts is missing")
+	}
+	conflicts := c.Conflicts()
+	if len(conflicts) != 1 || conflicts[0].Kind != ConflictVersion {
+		t.Fatalf("conflicts = %+v, want the version disagreement reported", conflicts)
+	}
+	if !slices.Equal(conflicts[0].Versions, []string{"1.4.0", "2.1.0"}) {
+		t.Errorf("conflict versions = %v, want both sides", conflicts[0].Versions)
 	}
 }
 

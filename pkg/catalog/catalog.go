@@ -165,6 +165,13 @@ type ResolveRequest struct {
 	// not against whichever contract the walk happened to reach first. It is
 	// empty for a root.
 	Base string
+	// Constraint is the compatibility constraint the declaring contract attached
+	// to this dependency, empty for a root. A reference that names no version
+	// resolves differently under different constraints, so the constraint is part
+	// of the question: without it the catalog would pick a revision the declaring
+	// contract never accepted, and two declarations that genuinely disagree would
+	// collapse into one instead of surfacing as a conflict.
+	Constraint string
 }
 
 // Resolution is one resolved reference. The catalog keeps only a projection of
@@ -195,7 +202,8 @@ type Resolution struct {
 // registry access and local filesystem access.
 //
 // It must be pure with respect to the catalog: the catalog calls it at most once
-// per distinct (Base, Ref) pair during construction and never afterwards.
+// per distinct (Base, Ref, Constraint) triple during construction and never
+// afterwards.
 type Resolver interface {
 	Resolve(ctx context.Context, req ResolveRequest) (Resolution, error)
 }

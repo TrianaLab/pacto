@@ -74,6 +74,15 @@ func (f *fake) okFrom(base, ref string, r Resolution) *fake {
 	return f
 }
 
+// okUnder scripts an answer that applies only when the declaring contract asked
+// under this constraint. It shadows any unqualified answer for the same
+// reference, which is how a version-less reference behaves for real.
+func (f *fake) okUnder(base, ref, constraint string, r Resolution) *fake {
+	k := memoKey{Base: base, Ref: ref, Constraint: constraint}
+	f.script[k] = append(f.script[k], answer{res: r})
+	return f
+}
+
 // fail scripts a sanitized failure.
 func (f *fake) fail(ref, code string) *fake { return f.failFrom("", ref, code) }
 
@@ -87,7 +96,12 @@ func (f *fake) Resolve(_ context.Context, req ResolveRequest) (Resolution, error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, req)
-	k := memoKey{Base: req.Base, Ref: req.Ref}
+	k := memoKey{Base: req.Base, Ref: req.Ref, Constraint: req.Constraint}
+	if _, qualified := f.script[k]; !qualified {
+		// Most fixtures answer a reference the same way whoever asked, so an
+		// unqualified script entry applies under every constraint.
+		k.Constraint = ""
+	}
 	as := f.script[k]
 	if len(as) == 0 {
 		return Resolution{}, &ResolveError{Code: ReasonNotFound, Message: "no such reference"}

@@ -64,10 +64,12 @@ func Build(ctx context.Context, req Request) (*Catalog, error) {
 	return b.finish(clock(), len(roots)), nil
 }
 
-// memoKey is what "resolve once" is keyed on. A relative reference means
-// different things from different declaring bases, so the base is part of the
-// key; the same pair is never resolved twice, so a mutable tag is read once.
-type memoKey struct{ Base, Ref string }
+// memoKey is what "resolve once" is keyed on: everything that can change the
+// answer, and nothing that cannot. A relative reference means different things
+// from different declaring bases, and a reference naming no version resolves
+// differently under different constraints, so both qualify it. The same triple
+// is never resolved twice, so a mutable tag is read once.
+type memoKey struct{ Base, Ref, Constraint string }
 
 // projection is everything the catalog keeps from one resolution. The contract
 // pointer and any filesystem view are deliberately dropped here.
@@ -194,7 +196,7 @@ func (b *builder) resolveArrival(ctx context.Context, a arrival) (memoEntry, boo
 	if a.ref == "" {
 		return memoEntry{reason: Reason{Code: ReasonInvalidReference, Message: "the reference is empty"}}, true
 	}
-	key := memoKey{Base: a.base, Ref: a.ref}
+	key := memoKey{Base: a.base, Ref: a.ref, Constraint: a.constraint}
 	if e, hit := b.memo[key]; hit {
 		return e, true // already paid for; a repeat costs no work and no network
 	}
@@ -223,7 +225,7 @@ func (b *builder) mayResolve(a arrival) (Reason, bool) {
 }
 
 func (b *builder) callResolver(ctx context.Context, a arrival) memoEntry {
-	res, err := b.resolver.Resolve(ctx, ResolveRequest{Ref: a.ref, Base: a.base})
+	res, err := b.resolver.Resolve(ctx, ResolveRequest{Ref: a.ref, Base: a.base, Constraint: a.constraint})
 	if err != nil {
 		return memoEntry{reason: reasonFrom(err)}
 	}
