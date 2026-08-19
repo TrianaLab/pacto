@@ -7844,3 +7844,61 @@ started.
 Phase 12 must not start while Phase 11 is only a candidate. The PR remains an
 open draft, and the append-only, no-history-rewrite and independent-review
 protocol continues unchanged.
+
+## 18.1 GitHub Actions at the ledger head `42ed66ea`
+
+`42ed66ea5f407583a72ab787f2af8c9ddfad517b` adds section 18 above and changes
+nothing else: one file, `.pr-context/PACTO_PR_CURRENT_STATE.md`. It is recorded
+here for the reviewer because the section it contains could not describe its own
+commit.
+
+PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE at this head, base `main`.
+Eight workflow runs were triggered; six succeeded and two were skipped.
+
+| Workflow | Run ID | Attempt | Conclusion |
+|---|---|---|---|
+| CI | `32261859844` | 1 | success |
+| Security | `32261859813` | 1 | success |
+| Docs check | `32261859857` | 1 | success |
+| Pacto Contract CI | `32261859861` | 1 | success |
+| Repowise (architecture health) | `32261859805` | 1 | success |
+| Validate PR title | `32261859842` | 1 | success |
+| Rebuild dashboard UI | `32261859843` | 1 | skipped |
+| Auto-merge Dependabot PRs | `32261859848` | 1 | skipped |
+
+Run `32261859844` (CI) is success on attempt 1, all 21 jobs green:
+
+| Job | ID | Conclusion |
+|---|---|---|
+| `changes` | `96096756301` | success |
+| `ci-static` | `96096814606` | success |
+| `ci-integration-kubernetes` | `96096814615` | success |
+| `release-dry-run` | `96096814692` | success |
+| `dashboard-e2e` | `96096814722` | success |
+| `ci-e2e-envtest` | `96096814731` | success |
+| `ci-engine` | `96096814751` | success |
+| `ci-e2e-compose` | `96096814783` | success |
+| `ci-dashboard` | `96096814787` | success |
+| `release-version-test` | `96096814820` | success |
+| `operator-build` | `96096814835` | success |
+| `ci-gates` | `96096814886` | success |
+| `ci-e2e-kind (observation)` | `96096814888` | success |
+| `artifact-drift` | `96096814891` | success |
+| `ci-e2e-kind (dashboard)` | `96096814900` | success |
+| `ci-oci` | `96096814944` | success |
+| `ci-e2e-kind (operational-graph)` | `96096814968` | success |
+| `ci-e2e-kind (reconcile)` | `96096814978` | success |
+| `ci-e2e-kind (upgrade)` | `96096815061` | success |
+| `ci-e2e-kind (evidence)` | `96096815102` | success |
+| `required` | `96100219052` | success |
+
+Security's three jobs are green: `Trivy (image)` `96096755793`,
+`govulncheck (Go)` `96096756267` and `PR security summary` `96097227764`.
+
+Code scanning on `refs/pull/291/head` still shows exactly the nine inherited
+alerts `38`, `40` through `43` and `59` through `62`, so the delta remains ZERO.
+Review threads, fully paginated, remain 199 total, 189 resolved and 10
+unresolved, unchanged and untouched.
+
+Phase 11 remains a CANDIDATE at implementation SHA `6a0c198d`, with this ledger
+head at `42ed66ea`. Phase 12 has NOT started.
