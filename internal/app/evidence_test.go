@@ -682,6 +682,46 @@ func referrersRegistry(t *testing.T) (host string, stop func()) {
 	return srv.Listener.Addr().String(), stop
 }
 
+// stalledRegistry serves an inner registry until it is stalled, after which it
+// accepts the request, announces its arrival and then answers nothing at all.
+// That is the outage a connection error never reports: the registry is
+// reachable, the handshake succeeds, and the response simply never comes.
+type stalledRegistry struct {
+	inner     http.Handler
+	mu        sync.Mutex
+	stalled   bool
+	arrived   chan struct{} // a request reached the stalled registry
+	cancelled chan struct{} // that request's caller gave up on it
+}
+
+func (s *stalledRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	stalled := s.stalled
+	s.mu.Unlock()
+	if !stalled {
+		s.inner.ServeHTTP(w, r)
+		return
+	}
+	signal(s.arrived)
+	<-r.Context().Done() // the caller hung up or its budget expired
+	signal(s.cancelled)
+}
+
+func (s *stalledRegistry) stall() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stalled = true
+}
+
+// signal reports on ch without ever blocking the registry goroutine, so a test
+// that only cares about the first request cannot wedge a later one.
+func signal(ch chan struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
 // serveTestFixtures mints a key, pushes a resolvable bundle and signs an envelope
 // against the digest that push produced.
 func serveTestFixtures(t *testing.T) evidenceFixture {
@@ -846,6 +886,134 @@ func TestServeEvidence_RegistryOutage(t *testing.T) {
 	}
 }
 
+// A registry that accepts the request and then never answers it is the outage a
+// connection error never reports, and an unbounded client waits on it forever.
+// Readiness has to be bounded end to end: it answers 503 on its own budget, the
+// registry request it abandons is cancelled rather than leaked, and liveness
+// keeps answering throughout — a wedged registry takes the host out of rotation,
+// it never restarts it.
+func TestServeEvidence_ReadinessIsBounded(t *testing.T) {
+	budget := 500 * time.Millisecond
+	restore := readinessTimeout
+	readinessTimeout = budget
+	t.Cleanup(func() { readinessTimeout = restore })
+
+	// Two concurrent probes — a kubelet's and a producer's, say. Each must be
+	// bounded on its own, which is only true if nothing serializes them behind a
+	// lock no deadline can interrupt.
+	const probes = 2
+	reg := &stalledRegistry{
+		inner:     testutil.NewReferrersRegistry(testutil.ReferrersOptions{}),
+		arrived:   make(chan struct{}, probes),
+		cancelled: make(chan struct{}, probes),
+	}
+	srv := httptest.NewServer(reg)
+	t.Cleanup(srv.Close)
+	f := evidenceFixtureOn(t, srv.Listener.Addr().String())
+	base := serveEvidence(t, f.svc, f.serveOptions())
+
+	reg.stall()
+	type probe struct {
+		code    int
+		elapsed time.Duration
+		err     error
+	}
+	ready := make(chan probe, probes)
+	for range probes {
+		go func() {
+			start := time.Now()
+			// Far more patience than the budget, so an unbounded readiness reports a
+			// transport timeout here instead of hanging the whole test.
+			resp, err := (&http.Client{Timeout: 20 * budget}).Get(base + "/api/evidence/v1/ready")
+			p := probe{elapsed: time.Since(start), err: err}
+			if err == nil {
+				p.code = resp.StatusCode
+				_ = resp.Body.Close()
+			}
+			ready <- p
+		}()
+	}
+
+	// Both probes reached the registry and it is HOLDING them, so everything below
+	// happens while the store is genuinely unanswerable rather than merely slow.
+	await(t, reg.arrived, probes, 20*budget, "reach the registry")
+	if code := getStatus(t, base+"/api/evidence/v1/health"); code != http.StatusOK {
+		t.Errorf("health while the registry is stuck = %d, want 200: liveness is about the process", code)
+	}
+
+	for range probes {
+		p := <-ready
+		if p.err != nil {
+			t.Fatalf("ready never came back: %v", p.err)
+		}
+		if p.code != http.StatusServiceUnavailable {
+			t.Errorf("ready against a stuck registry = %d, want 503", p.code)
+		}
+		if p.elapsed > 10*budget {
+			t.Errorf("ready took %v, want it bounded by the %v budget", p.elapsed, budget)
+		}
+	}
+	await(t, reg.cancelled, probes, 20*budget, "be cancelled once abandoned")
+}
+
+// await waits for n signals on ch, failing with what they were waiting for.
+func await(t *testing.T, ch <-chan struct{}, n int, patience time.Duration, what string) {
+	t.Helper()
+	for i := range n {
+		select {
+		case <-ch:
+		case <-time.After(patience):
+			t.Fatalf("only %d of %d registry requests did %s within %v", i, n, what, patience)
+		}
+	}
+}
+
+// The other half of bounded: the caller can be the one who gives up. A probe
+// whose client disconnects must take its registry request down with it, which it
+// can only do if the preflight is parented on the request rather than on the
+// server's lifetime.
+func TestServeEvidence_ReadinessFollowsTheCaller(t *testing.T) {
+	// A budget far longer than anything this test waits for, so only the caller's
+	// disconnect can be what ends the registry request.
+	restore := readinessTimeout
+	readinessTimeout = 10 * time.Second
+	t.Cleanup(func() { readinessTimeout = restore })
+
+	reg := &stalledRegistry{
+		inner:     testutil.NewReferrersRegistry(testutil.ReferrersOptions{}),
+		arrived:   make(chan struct{}, 1),
+		cancelled: make(chan struct{}, 1),
+	}
+	srv := httptest.NewServer(reg)
+	t.Cleanup(srv.Close)
+	f := evidenceFixtureOn(t, srv.Listener.Addr().String())
+	base := serveEvidence(t, f.svc, f.serveOptions())
+
+	reg.stall()
+	reqCtx, hangUp := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, base+"/api/evidence/v1/ready", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
+	<-reg.arrived // the registry is holding the probe's request
+	hangUp()
+	select {
+	case <-reg.cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the registry request outlived the caller: readiness is not parented on the request")
+	}
+	<-done
+}
+
 // postFile sends an envelope file and returns the response status, failing on a
 // transport error.
 func postFile(t *testing.T, svc *Service, base, envPath string) int {
@@ -938,7 +1106,6 @@ func TestServeEvidence_ListenAndCancel(t *testing.T) {
 // Evidence Server fails to start rather than accepting evidence it cannot store.
 func TestBuildEvidenceHost_Errors(t *testing.T) {
 	svc := &Service{}
-	ctx := context.Background()
 	f := serveTestFixtures(t)
 	digest := "sha256:" + strings.Repeat("a", 64)
 
@@ -956,7 +1123,7 @@ func TestBuildEvidenceHost_Errors(t *testing.T) {
 	}
 	for name, opts := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := svc.buildEvidenceHost(ctx, opts); err == nil {
+			if _, err := svc.buildEvidenceHost(opts); err == nil {
 				t.Errorf("%s: buildEvidenceHost succeeded, want a configuration error", name)
 			}
 		})

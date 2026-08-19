@@ -335,7 +335,15 @@ func TestHandler_HTTP(t *testing.T) {
 func TestHandler_Ready(t *testing.T) {
 	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
 	ready := false
-	h := NewHandler(a, nil, nil, func() bool { return ready })
+	h := NewHandler(a, nil, nil, func(ctx context.Context) bool {
+		// Both gated paths must hand the probe the LIVE request context: it is the
+		// only thing that can cancel a store call when the caller gives up, and a
+		// Background() shortcut here would silently unbound every probe.
+		if ctx.Done() == nil || ctx.Err() != nil {
+			t.Errorf("readiness context = %v (done %v), want a live request context", ctx.Err(), ctx.Done())
+		}
+		return ready
+	})
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)

@@ -446,17 +446,20 @@ type Handler struct {
 	acceptor  *Acceptor
 	producers []string
 	onAccept  func()
-	// ready reports whether the backing store can be reached. When nil the host is
-	// treated as always ready (e.g. an in-memory store).
-	ready func() bool
+	// ready reports whether the backing store can be reached, within the deadline
+	// of the context it is given. When nil the host is treated as always ready
+	// (e.g. an in-memory store).
+	ready func(context.Context) bool
 }
 
 // NewHandler returns an HTTP handler for the accept pipeline. producers is the
 // list of trusted producer ids to advertise; onAccept (optional) is invoked after
-// a successful accept; ready (optional) gates the /ready probe. Store health is
-// not a separate hook: it comes back from the same read that produced the
-// targets, so the DTO can never describe a read it did not perform.
-func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func() bool) *Handler {
+// a successful accept; ready (optional) gates the /ready probe and is handed the
+// requesting caller's context, so a probe of a remote store dies with the request
+// that asked for it. Store health is not a separate hook: it comes back from the
+// same read that produced the targets, so the DTO can never describe a read it
+// did not perform.
+func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func(context.Context) bool) *Handler {
 	sorted := append([]string(nil), producers...)
 	sort.Strings(sorted)
 	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept, ready: ready}
@@ -478,7 +481,7 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 func (h *Handler) handleEnvelope(w http.ResponseWriter, r *http.Request) {
 	// Refuse ingestion until the durable store is reachable: a write cannot be
 	// replay-protected against a history nobody can read.
-	if h.ready != nil && !h.ready() {
+	if h.ready != nil && !h.ready(r.Context()) {
 		writeErr(w, http.StatusServiceUnavailable, "store_not_ready", "the evidence store is not ready")
 		return
 	}
@@ -514,9 +517,11 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // handleReady is the readiness probe: 503 until the backing store is reachable,
 // so callers do not route writes at a host that cannot enforce replay
 // protection. Readiness is a liveness-independent signal — a registry outage
-// must take the host out of rotation, never restart the process.
-func (h *Handler) handleReady(w http.ResponseWriter, _ *http.Request) {
-	if h.ready != nil && !h.ready() {
+// must take the host out of rotation, never restart the process. The probe runs
+// on THIS request's context: a store that accepts the connection and then never
+// answers has to be abandoned, not waited on.
+func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
+	if h.ready != nil && !h.ready(r.Context()) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready"})
 		return
 	}

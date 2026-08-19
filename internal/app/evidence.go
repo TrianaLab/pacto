@@ -410,6 +410,13 @@ type ServeOptions struct {
 	Producers []string // trusted producer ids advertised on GET /producers
 }
 
+// readinessTimeout bounds ONE readiness preflight end to end: every configured
+// subject's resolve and Referrers walk, together. It sits inside the readiness
+// probe's five-second period so probes cannot pile up, and it is the backstop for
+// any caller — a healthcheck, a curl — that sets no deadline of its own. A var so
+// a test can shorten it.
+var readinessTimeout = 3 * time.Second
+
 // buildEvidenceHost assembles the ingestion HTTP mux over the contract registry:
 // it loads the trust store, parses the configured contract subjects and opens one
 // repository per subject. Nothing is stored locally, so there is no recovery to
@@ -417,8 +424,9 @@ type ServeOptions struct {
 // native Referrers discovery, which /ready checks live. Assembly errors (an
 // unreadable trust store, an empty or malformed subject list) surface here so
 // serve validates configuration before it listens; a registry that is merely
-// unreachable surfaces via /ready, not as a startup failure.
-func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*http.ServeMux, error) {
+// unreachable surfaces via /ready, not as a startup failure. It takes no context:
+// every registry call it wires up belongs to the request that triggers it.
+func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, error) {
 	trust, err := loadTrustStore(opts.TrustPath)
 	if err != nil {
 		return nil, err
@@ -437,7 +445,13 @@ func (s *Service) buildEvidenceHost(ctx context.Context, opts ServeOptions) (*ht
 		return nil, err
 	}
 	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), store, nil)
-	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, func() bool {
+	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, func(ctx context.Context) bool {
+		// Parented on the asking REQUEST, never on the server's lifetime: the
+		// preflight must die when the caller hangs up, and die on its own budget
+		// when the registry accepts the connection and then answers nothing. One
+		// deadline covers every subject's resolve and Referrers walk together.
+		ctx, cancel := context.WithTimeout(ctx, readinessTimeout)
+		defer cancel()
 		return store.Ready(ctx) == nil
 	})
 	mux := http.NewServeMux()
@@ -460,7 +474,7 @@ func (s *Service) ServeEvidence(ctx context.Context, opts ServeOptions) error {
 // ctx is cancelled, then shuts down gracefully. It takes ownership of ln, closing
 // it if assembly fails. This is the seam tests drive on a random port.
 func (s *Service) ServeEvidenceOnListener(ctx context.Context, ln net.Listener, opts ServeOptions) error {
-	mux, err := s.buildEvidenceHost(ctx, opts)
+	mux, err := s.buildEvidenceHost(opts)
 	if err != nil {
 		_ = ln.Close()
 		return err

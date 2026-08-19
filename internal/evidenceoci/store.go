@@ -71,17 +71,23 @@ type subjectRepo struct {
 }
 
 func (r *subjectRepo) resolve(ctx context.Context) (ocispec.Descriptor, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.desc.Digest != "" {
-		return r.desc, nil
+	if desc := r.descriptor(); desc.Digest != "" {
+		return desc, nil
 	}
+	// The registry call runs OUTSIDE the lock. A mutex honours no deadline, so
+	// holding one across a request a stalled registry never answers would make a
+	// concurrent caller wait past its own budget. Two callers racing here resolve
+	// the same immutable digest, so the duplicate request is the cheap half of the
+	// trade.
+	//
 	// ORAS rejects a response whose digest is not the one requested, so a
 	// successful resolve IS the exact-subject guarantee.
 	desc, err := r.repo.Resolve(ctx, r.subj.Digest)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("evidence oci: %s: %w", r.subj.Ref(), err)
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.desc = desc
 	return desc, nil
 }
