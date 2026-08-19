@@ -7902,3 +7902,178 @@ unresolved, unchanged and untouched.
 
 Phase 11 remains a CANDIDATE at implementation SHA `6a0c198d`, with this ledger
 head at `42ed66ea`. Phase 12 has NOT started.
+
+## 18.2 Independent review at `bf9070a0` — Phase 11 narrowly reopened
+
+Independent review date: 2026-08-19. Reviewed implementation range:
+`f466ca4669b43e673a934b84173ee41e374c65c2..6a0c198de8f001a24650f29501b8fe2e831411de`.
+Reviewed remote ledger head:
+`bf9070a04f160eca61c8c852bedc659fd34bee87`.
+
+### Repository, history and external state
+
+- PR 291 is OPEN, DRAFT and MERGEABLE on `feat/operational-graph-fleet`; local
+  HEAD, the remote branch and the PR head were exactly `bf9070a0` before this
+  review record.
+- `origin/main` and the merge-base remain
+  `83f2e66d5cd4fab56099991d39e64fc11f107b3d`. `f466ca46` remains an ancestor.
+  The range is exactly eight linear, single-parent commits, in the order
+  recorded by the handoff: six implementation/commission commits followed by
+  the candidate ledger and its CI record. There is no merge or evidence of an
+  amended, rebased or force-pushed boundary.
+- The implementation range changes 16 files, 3,816 insertions and two
+  deletions. The complete range through `bf9070a0` changes the same 16 product
+  and test files plus 566 appended ledger lines, 4,305 insertions and two
+  deletions. TARGET, Make and workflow files are untouched.
+- CI run `32263484274` at exact head `bf9070a0` succeeded on attempt 1: all 21
+  jobs, including `ci-engine`, `ci-gates`, Compose, every Kind shard,
+  artifact-drift, release-dry-run and `required`, are green. Security
+  `32263484758`, Docs check `32263486167`, Contract CI `32263484459`, Repowise
+  `32263485004`, PR-title `32263484340` and every individual CodeQL analysis
+  are also successful; the two conditional workflows are skipped.
+- The code-scanning API independently returns the same nine inherited alerts:
+  38, 40 through 43 and 59 through 62. None is in the Phase-11 range. The
+  aggregate CodeQL check remains failed for those inherited alerts.
+- Review threads were independently paginated: 199 total, 189 resolved and 10
+  unresolved. The ten remain the six generated-Mermaid threads and four
+  `pkg/oci/cache.go` threads; the Phase-11 delta is zero.
+
+### Accepted implementation — do not redesign without a new counterexample
+
+The broad shape is correct and is not reopened:
+
+- `pkg/catalog` is a framework-independent core behind one small Resolver port;
+  the architecture gate enforces the intended import boundary.
+- `internal/app` reuses the existing local/OCI parsing, credential, cache,
+  digest-pinning and lock content-hash responsibilities. Registry contracts
+  cannot cause local filesystem reads, and failure text is reduced to typed,
+  sanitized reasons.
+- requested reference, resolved reference and immutable content are separate;
+  declaration occurrences and paths are structured rather than delimiter
+  identities; diamond and multi-root paths, cycles, unresolved entries,
+  ordinary version/content/declaration conflicts, ranks and deep-copy session
+  immutability are all permanently tested.
+- mutable `(Base, Ref, Constraint)` questions are memoized once per build;
+  queries after construction are pure and network-free. The declaring
+  constraint reaches the adapter, and the new `oci.ErrNoMatchingTag` sentinel
+  is the correct small shared fix.
+- roots, revisions, depth, path length and retained-path bounds have genuine
+  call-count proofs for the cases the suite covers. Reporting bounds remain
+  explicit and honest. No Phase-12 delivery mechanism has been started.
+
+Those accepted pieces do not overcome the following three concrete blockers.
+
+### Blocker A — `MaxEdges` does not bound failing dependency work
+
+Counterexample reproduced with a temporary test against the actual core:
+
+1. one resolvable root declares four distinct dependencies;
+2. every dependency returns `NOT_FOUND`;
+3. build with `Bounds{MaxEdges: 2}`.
+
+The observable result is five resolver calls -- the root plus all four failed
+dependencies -- rather than at most three. No `EDGE_LIMIT_EXCEEDED` limitation
+is emitted. `mayResolve` compares `len(b.edges)` with `MaxEdges`, but only a
+successful resolution reaches `recordEdge`; failures never consume the budget.
+`MaxRevisions` does not help because failed references add no revision. A
+single contract with an arbitrarily large failing fan-out therefore causes an
+arbitrarily large number of registry calls despite the advertised hard bounds.
+`expand` also materializes every arrival before the limit can reject any, so
+queue allocation and dequeue work follow the unbounded declaration count.
+
+This contradicts the Phase-11 invariant that hard bounds stop actual work and
+the package claim that a hostile closure performs a bounded number of
+resolutions. The permanent successful-edge test misses it because every
+admitted dependency increments `b.edges`.
+
+The repair must budget dependency work independently of successful outcomes
+and must avoid first constructing an unbounded surplus queue. A permanent
+adversarial test must use distinct failing dependencies, count resolver calls,
+prove the surplus is never attempted, prove the answer is partial and prove the
+limitation says work was stopped. Preserve the existing memo-hit edge-bound
+case and the distinction between work bounds and reporting bounds.
+
+### Blocker B — content-only deduplication makes service domain depend on root order
+
+Counterexample reproduced twice: first with the core resolver fake, then with
+Pacto's real adapter and a real in-process OCI registry.
+
+1. publish the same deterministic Pacto bundle as
+   `<registry>/alpha/api:1.0.0` and `<registry>/beta/api:1.0.0`;
+2. both repositories resolve to the same OCI manifest digest;
+3. build once with roots `[alpha, beta]` and once with `[beta, alpha]`.
+
+`builder.revs` is keyed only by `ContentID`, so the two domain-qualified
+services collapse into one revision. `Revision.Service` is never reconciled
+after the first arrival: the first build says the revision belongs to domain
+`<registry>/alpha`, the second says `<registry>/beta`. The two builds also
+produce different `catalogId` values despite differing only by root order.
+
+This violates three already-settled invariants at once: Service identity is
+domain-qualified end to end, one Contract Revision belongs to one Service, and
+root permutation cannot change catalog truth or `catalogId`. OCI digests are
+content identities; publishing identical content in another repository is a
+normal mirror, not authority to erase its domain-qualified Service identity.
+
+The repair must define canonical revision identity so content deduplication
+never cross-contaminates distinct `ServiceID`s. It may refine the identity
+model, but must keep content identity itself as the exact digest/hash and must
+not regress same-service tag-plus-digest deduplication. Permanent tests must
+include the real two-repository registry case, both root orders, stable output
+truth and stable `catalogId`; the two domains must remain distinguishable and
+must not be reported as a same-service conflict.
+
+### Blocker C — different unresolved root sets share one `catalogId`
+
+Counterexample reproduced against the core:
+
+- catalog A requests only `reg/missing-a:1` and receives `NOT_FOUND`;
+- catalog B requests only `reg/missing-b:1` and receives `NOT_FOUND`.
+
+Both partial catalogs receive the exact same `catalogId`. For an unresolved
+root the requested reference is the only identity available, but the
+fingerprint excludes it; root outcomes encode only `Resolved=false`, zero
+content and the reason code, and limitation references are excluded too.
+These are not identical catalogs or identical unresolved topology merely
+because both failed in the same category.
+
+The repair must make distinct unresolved root multisets produce distinct IDs
+without losing root-order invariance. Preserve the intended stability when two
+different requested references genuinely resolve to the same immutable
+same-service catalog. Permanent tests must cover different unresolved roots,
+permutations of the same unresolved set and the existing resolved tag/digest
+case.
+
+### Independent local verification and hygiene
+
+- The temporary counterexample tests failed exactly as described and were
+  deleted after observation. A real-registry mirror produced one deterministic
+  digest in two repositories and reproduced the order-dependent Service domain
+  and `catalogId`; no product or test file from those probes remains.
+- `go test -race ./pkg/catalog ./internal/app ./pkg/oci -count=1` passed after
+  removing the probes.
+- Full `make ci` passed on the reviewed product bytes: architecture/release
+  gates, aggregate 100.0% Go coverage with race detection, complete integration
+  and acceptance subtrees, the local vertical, 1,232 frontend tests, 100.0%
+  Kubernetes-module coverage, 63 Helm tests, envtest and release orchestrator.
+  The known helm-docs overwrite of the development-gateway README was restored
+  and is not part of this review record.
+- `git diff --check` and `make check-section` passed. The worktree returned to
+  only the four inherited untracked agent paths before this ledger update.
+
+### Verdict and exact next objective
+
+**Phase 11 is NARROWLY REOPENED and is not closed.** The implementation is a
+strong candidate, but a supposedly bounded catalog can perform unbounded
+failing resolution work, domain-qualified Service truth is order-dependent for
+a real OCI mirror, and `catalogId` aliases distinct unresolved root sets.
+
+The next iteration is a Phase-11-only repair of blockers A, B and C. It must
+begin from this review ledger head, retain every accepted boundary above, add
+permanent red/green adversarial tests plus mutation proof for each former
+failure, run the complete required verification, append a new CANDIDATE record
+and stop. Phase 12 must not start.
+
+- Phases 1 through 10C: ACCEPTED and CLOSED.
+- Phase 11: NARROWLY REOPENED on blockers A, B and C.
+- Phases 12 through 14: NOT STARTED.
