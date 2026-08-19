@@ -6706,3 +6706,166 @@ published, no thread resolved and no PR metadata changed. PR #291 is OPEN and
 DRAFT at `3aa9ab6c`.
 
 **Phase 10C REMAINS CANDIDATE.** Phase 11 has not started.
+
+## 16.5 Independent review of the Phase 10C closure repair at `a017b63a`
+
+Independent, read-only review of the candidate described in sections 16.3 and
+16.4. The handoff was treated only as a claim source. The tracked PR context,
+approved OCI-native design, maintainer testing taxonomy, implementation, tests,
+history and GitHub state were inspected directly. Temporary adversarial tests
+were removed before the official suites ran. No PR comment was published, no
+thread was resolved and no PR metadata was changed.
+
+### Proven range and hygiene
+
+PR `TrianaLab/pacto#291` is OPEN, DRAFT and MERGEABLE. Its remote head and the
+local branch `feat/operational-graph-fleet` were both exactly
+`a017b63a5a0c420fea89339feb12c0e0d2e4ee83` when reviewed. The merge-base and
+`origin/main` remain
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+
+The range from the preceding independent-review ledger head `823aab11` is five
+linear, single-parent commits: `c2070b5d`, `fdbf7d87`, `c9bbdfd7`, `3aa9ab6c`
+and `a017b63a`. The start remains an ancestor of the head. There is no rebase,
+amend, merge, force-push or merge-base movement. The range changes exactly the
+nine files recorded in the handoff, with 772 insertions and 37 deletions.
+
+The tracked tree was clean before review except for the four inherited untracked
+agent paths (`.claude/`, `.codex/`, `.mcp.json`, `AGENTS.md`). `make ci`
+reproduced the already-disclosed `pacto-dev-gateway/README.md` helm-docs churn;
+it was restored to the committed bytes and is not part of this review.
+
+### Accepted repair B — canonical stored-envelope validation
+
+The manual subset in `validateRecord` is gone. `validateEnvelope` first applies
+`evidence.ValidateEvidenceSet`, then serializes the typed envelope without HTML
+expansion and passes those canonical bytes through `evidenceenvelope.Decode`.
+That reuses the version, kind, required identity, observation count and envelope
+size rules without adding signature verification to the registry read path.
+The writer and reader both call the same helper. The permanent invalid-envelope
+table, the store-level fail-closed test and the recorded mutations exercise the
+claimed boundary.
+
+A temporary whitespace-only representation larger than `MaxEnvelopeBytes` was
+also tried. The stored payload accepts it after canonical compaction. This is
+not a closure blocker: whitespace is not envelope domain data, the canonical
+envelope remains under its protocol cap, and the enclosing untrusted registry
+payload is independently bounded by `maxPayloadBytes`. Requiring a second raw
+subdocument extractor would add machinery without strengthening the bounded
+trust model.
+
+**Blocker B is CLOSED.**
+
+### Accepted repair C — readiness has one real request-scoped budget
+
+Both `/ready` and the ingestion gate pass the live HTTP request context into the
+readiness callback. `buildEvidenceHost` derives one three-second deadline from
+that context for the complete multi-subject preflight, and every resolve and
+Referrers request receives it. `subjectRepo.resolve` no longer holds its mutex
+across network I/O, so one stalled caller cannot make another wait outside its
+own context budget. Liveness remains unconditional and no background poller,
+cache, retry loop or restart coupling was introduced.
+
+The stalled-registry tests prove two simultaneous requests reach the registry,
+return `503` on the server budget, cancel the abandoned registry calls and also
+follow an earlier caller cancellation. The implementation and mutations match
+the approved narrow repair.
+
+**Blocker C is CLOSED.**
+
+### Remaining blocker A — the validator still accepts internally false OCI descriptors
+
+The repair correctly rejects a non-2 manifest schema and config media type,
+digest or size different from `ocispec.DescriptorEmptyJSON`. It does not,
+however, validate the rest of either descriptor whose content it does not fetch.
+This leaves two concrete counterexamples:
+
+1. Starting from `BuildArtifact`, replace only `manifest.Config.Data` with
+   `{"not":"empty"}` while retaining the canonical empty-JSON media type,
+   digest and size. `ValidateManifest` returns success. OCI Image Spec 1.1.1
+   requires decoded inline `data` to be identical to the content named by the
+   descriptor and says consumers should verify it against digest and size. The
+   accepted descriptor claims two-byte `{}` while carrying different bytes.
+2. Starting from the same manifest, retain the exact configured subject digest
+   but change `manifest.Subject.MediaType` and `manifest.Subject.Size` so they no
+   longer describe the subject descriptor the registry just resolved.
+   `ValidateManifest` again returns success. The digest still points at the
+   configured revision, but the OCI descriptor as a whole is false and the
+   validator already has the resolved descriptor available in the scan.
+
+Both package-local temporary tests failed on the committed implementation:
+
+```text
+TestReviewCounterexample_ConfigInlineDataMustMatchCanonicalEmptyJSON
+  ValidateManifest accepted a config descriptor whose inline data contradicts its digest and size
+TestReviewCounterexample_SubjectDescriptorMustMatchResolvedSubject
+  ValidateManifest accepted subject metadata that contradicts the resolved subject descriptor
+```
+
+The tests were removed and the tracked implementation restored before official
+verification. This is not a request to fetch or interpret the empty config, add
+a compatibility mode or build a second codec. The fixed config value already
+comes from `ocispec.DescriptorEmptyJSON`, ORAS Go emits that same descriptor,
+and `scanSubject` already owns the subject descriptor returned by `Resolve`.
+Closure requires the one manifest validator to verify the descriptor fields it
+accepts: the config must be the canonical empty-JSON descriptor including
+inline data and absence of contradictory extras, and the subject's core
+media-type/digest/size must agree with the already-resolved contract descriptor.
+Any inline data that is accepted must agree with its digest and size. Permanent
+tests and compiling semantic mutations must prove both cases bite.
+
+**Blocker A REMAINS OPEN.**
+
+### Independent verification and GitHub evidence
+
+On the committed bytes, all official tests run by the reviewer are green:
+
+- `go test -race ./internal/evidenceoci ./pkg/evidenceingest ./internal/app -count=1`;
+- full `make ci`, including lint, architecture/release tests, 100.0% aggregate
+  engine and Kubernetes coverage, race tests, integration, the complete
+  acceptance subtree, operational-graph local acceptance, frontend lint and
+  1,232 tests, 63 Helm tests, envtest and OCI tests;
+- `git diff --check` and final tracked-tree hygiene.
+
+At exact head `a017b63a`, CI run `32230392088` is successful with all 21 jobs
+green, including all six Kind shards, Compose, dashboard E2E, OCI,
+artifact-drift, release-dry-run and `required` (`96001118666`). Security
+`32230392115`, Docs check `32230391905`, Pacto Contract CI `32230391942`,
+Repowise `32230391986`, title validation `32230391922`, Code Quality
+`32230388639` and the PR CodeQL workflow `32230388393` all succeed. The two
+conditional workflows are skipped.
+
+The aggregate PR CodeQL check remains red because the same nine inherited open
+alerts remain: eight `go/path-injection` findings in `internal/app/resolve.go`
+and `pkg/oci/cache.go`, plus the inherited Python URL-substring finding in
+`release/scripts/docs_check.py`. All nine predate Phase 10C and none of those
+three files is in this repair range. The Phase 10C CodeQL delta is zero.
+
+Review threads were fully paginated: 199 total, 10 unresolved. Six are
+bot-authored on the generated Mermaid bundle and four are GitHub Advanced
+Security threads on `pkg/oci/cache.go`; both paths are outside this range. No
+new actionable thread belongs to the repair.
+
+### Verdict and narrow next objective
+
+**Phase 10C REMAINS CANDIDATE. It is not CLOSED.** Repairs B and C are accepted
+and must not be reopened. Repair A closes the originally demonstrated fields
+but still lets an invalid OCI descriptor cross the strict artifact trust
+boundary. Green CI does not cover those descriptor counterexamples.
+
+The next implementation is one final, narrow Phase 10C manifest-validator
+repair only: validate the canonical config descriptor completely, compare the
+manifest subject's core descriptor with the already-resolved contract
+descriptor, add permanent adversarial tests and mutation proof, run focused and
+full local gates, record exact-SHA GitHub evidence and return the phase as a
+candidate for another independent review. Do not start Phase 11, redesign 10C,
+change the accepted envelope or readiness repairs, restore storage
+infrastructure, add a second codec, touch TARGET, rewrite history, publish PR
+comments or resolve threads.
+
+Current phase map:
+
+- Phases 1 through 10B: ACCEPTED and CLOSED.
+- Phase 10C: CANDIDATE, blocked only on the remaining descriptor-validation
+  portion of A above.
+- Phases 11 through 14: NOT STARTED.
