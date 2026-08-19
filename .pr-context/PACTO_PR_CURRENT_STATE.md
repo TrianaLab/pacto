@@ -8670,3 +8670,335 @@ new CANDIDATE record and stop. Phase 12 must not start.
 - Phases 1 through 10C: ACCEPTED and CLOSED.
 - Phase 11: NARROWLY REOPENED on the residual MaxEdges surplus walk only.
 - Phases 12 through 14: NOT STARTED.
+
+## 18.5 Phase 11 residual edge-bound closure repair -- CANDIDATE at `1cc6a3aa`
+
+Commissioned by section 18.4's remaining blocker A, and by nothing else. Blockers
+B and C stay closed, section 18.2's accepted implementation stays closed, and
+Phase 12 was not started. This record is a CANDIDATE and does not close Phase 11.
+
+### Range
+
+- Starting SHA (section 18.4's ledger head): `9a737191bb02ce689541bd8485093fe3a4e94977`
+- Implementation SHA: `1cc6a3aa1d82345333c7f658107137d1e5a1c3de`
+- Merge-base with `origin/main`: `83f2e66d5cd4fab56099991d39e64fc11f107b3d`, unchanged
+- Commits appended, in order, no amend, rebase, squash, reset or force-push:
+  1. `1cc6a3aa` `fix(catalog): stop reading the declarations the edge bound refused`
+  2. this document's own commit, `docs(pr): record the Phase 11 edge-bound
+     closure repair as a candidate`, whose GitHub state is recorded in section
+     18.6 once it lands
+
+`1cc6a3aa` is five files, +126 / -19, all under `pkg/catalog`:
+
+| file | change |
+| --- | --- |
+| `pkg/catalog/build.go` | `newBuilder` extracted from `Build`; `expand` stops at the first refused edge-work item instead of continuing |
+| `pkg/catalog/build_test.go` | the permanent scaling counterexample and its probe; `TestEdgeBoundStopsFailingDependencyWorkToo` corrected |
+| `pkg/catalog/bounds.go` | `Bounds.MaxEdges` comment: it budgets dependency WORK, failed attempts included |
+| `pkg/catalog/identity.go` | `ContentID` comment: content identity, one half of the canonical `RevisionID` |
+| `pkg/catalog/catalog.go` | `LimitationEdgeLimit` comment: the refused remainder, with `Ref` as a representative |
+
+No workflow, Make target, gate, timeout, coverage threshold, complexity limit or
+job changed. No production observability API or test hook was added.
+
+### The blocker -- a bound that walked everything it refused
+
+`admitEdgeWork` already charged failed attempts, stopped the resolver at
+`MaxEdges` and kept the surplus out of the queue. What it did not do was stop
+the loop. `expand` continued through every remaining declaration, and both
+`limit` and `recordUnresolved` insert into `limitSeen` / `unresolvedSeen` BEFORE
+their reporting bounds apply, so a hostile fan-out still bought one map entry
+per refused declaration -- the exact work `MaxEdges` exists to prevent, paid in
+memory instead of network.
+
+The repair is three lines of control flow and a comment. At the first previously
+unseen work item the budget cannot admit, record one `EDGE_LIMIT_EXCEEDED`
+limitation and one representative `BOUND_EXCEEDED` unresolved entry, then
+`break`.
+
+`break` is admission-equivalent, and that is what makes it the smallest correct
+repair rather than a heuristic. `admitEdgeWork` returns `true` for a key it has
+already seen, so `false` only ever means a previously unseen key. Declaration
+indexes are unique within one expansion, so the keys admitted from one contract
+form a prefix of its declared order: if index `i` is unseen and refused, every
+later index is unseen too and would be refused as well. Nothing that would have
+been admitted is lost.
+
+Preserved exactly: declaration-order admission, failed attempts spending edge
+budget, memoized repeats paying once, distinct declarations and distinct bases
+paying separately, no resolver call past the budget, no surplus queue
+allocation, partial completeness, explicit edge-bound reporting, and the
+separation between work bounds and reporting bounds.
+
+### The permanent counterexample
+
+`TestTheEdgeBoundDoesNotWalkTheDeclarationsItRefused` builds one root declaring
+a tail of distinct failing dependencies under `Bounds{MaxEdges: 1}`, at two tail
+sizes two orders of magnitude apart -- 10 and 1,000 -- and asserts, for each:
+exactly one admitted unit of dependency work; exactly two resolver calls, the
+root and the one dependency the bound admitted; a partial catalog; the
+`EDGE_LIMIT_EXCEEDED` limitation present; and exactly one dependency reported
+with `BOUND_EXCEEDED`. It then asserts across the two sizes that a hundredfold
+larger hostile tail buys no extra work and no extra memory, and that what is
+retained is `admitted work + 1` unresolved keys and 2 limitation keys -- a
+function of the admitted work and the single boundary report, never of how many
+declarations were refused.
+
+It drives the builder through the unexported `newBuilder` / `walk` / `finish`
+rather than through `Build`, because the counts that matter are internal by
+design: the refused declarations reach no resolver, enter no queue and leave no
+edge, so no accessor can see them, and adding one would be a production hook
+that exists only for a test. This is a package-local test of a package-local
+defect; the exported surface is unchanged.
+
+`TestEdgeBoundStopsFailingDependencyWorkToo` was corrected in the same commit.
+It previously required every declaration past the work bound to become its own
+bounded unresolved result, which codified the surplus scan rather than catching
+it. It now expects the two gaps the bound paid to discover plus one
+representative for the remainder.
+
+The reporting bounds `MaxUnresolved` and `MaxLimitations` are deliberately left
+at their defaults in the new test. Section 18.4's probe used `1` for both; under
+`MaxLimitations: 1`, `finalLimitations` truncates to `limits[:0]` and emits only
+`LIMITATION_LIMIT_EXCEEDED`, which would have hidden the `EDGE_LIMIT_EXCEEDED`
+the test has to prove. The scaling claim is about work bounds, so the reporting
+bounds are held out of it.
+
+### RED, before the repair
+
+With the new test and the `newBuilder` extraction in place but the original
+expansion logic untouched:
+
+```
+--- FAIL: TestTheEdgeBoundDoesNotWalkTheDeclarationsItRefused (0.00s)
+    build_test.go:698: tail 10: 9 dependencies reported as refused by the bound, want one representative
+    build_test.go:698: tail 1000: 200 dependencies reported as refused by the bound, want one representative
+    build_test.go:706: bookkeeping grew with the refused tail: work 1 then 1, unresolved keys 10 then 1000, limitation keys 10 then 1000
+    build_test.go:712: retained 1000 unresolved keys and 1000 limitation keys, want the admitted work plus one refusal, and one limitation each for the admitted gap and the bound
+FAIL	github.com/trianalab/pacto/v3/pkg/catalog	1.066s
+```
+
+The 999-to-1 growth in `unresolvedSeen` and the 1000-to-1 growth in `limitSeen`
+are the same numbers section 18.4 reported from its temporary probe, reproduced
+by a permanent test instead of a deleted one.
+
+### GREEN
+
+```
+ok  github.com/trianalab/pacto/v3/pkg/catalog         2.022s  coverage: 100.0% of statements
+ok  github.com/trianalab/pacto/v3/internal/app       13.455s  coverage: 100.0% of statements
+ok  github.com/trianalab/pacto/v3/pkg/oci            24.639s  coverage:  99.8% of statements
+ok  github.com/trianalab/pacto/v3/tests/architecture  6.466s  coverage: [no statements]
+```
+
+### Mutation evidence
+
+Both mutations compile. Each was applied to the committed implementation, run,
+then reverted, and the revert was verified byte-for-byte with
+`shasum -a 256 -c` over all five changed files before continuing.
+
+**M1 -- replace stop-after-first-refusal with continue-through-the-tail**
+(`break` back to `continue`). The scaling test fails for the intended reason,
+and the corrected companion test fails with it:
+
+```
+--- FAIL: TestEdgeBoundStopsFailingDependencyWorkToo (0.00s)
+    build_test.go:635: unresolved = [d0 NOT_FOUND, d1 NOT_FOUND, d2 BOUND_EXCEEDED, d3 BOUND_EXCEEDED], want the two attempted gaps plus one declaration attributed to the bound
+--- FAIL: TestTheEdgeBoundDoesNotWalkTheDeclarationsItRefused (0.00s)
+    build_test.go:701: tail 10: 9 dependencies reported as refused by the bound, want one representative
+    build_test.go:701: tail 1000: 200 dependencies reported as refused by the bound, want one representative
+    build_test.go:709: bookkeeping grew with the refused tail: work 1 then 1, unresolved keys 10 then 1000, limitation keys 10 then 1000
+    build_test.go:715: retained 1000 unresolved keys and 1000 limitation keys, want the admitted work plus one refusal, and one limitation each for the admitted gap and the bound
+```
+
+**M2 -- stop reporting the boundary** (delete the `limit` and `recordUnresolved`
+calls, keep the `break`). It fails all three required families -- partial
+completeness, `EDGE_LIMIT_EXCEEDED`, and the representative bounded unresolved
+entry -- across five tests in two files:
+
+```
+--- FAIL: TestEdgeBoundStopsResolverWork
+    build_test.go:587: limitations = [], want the edge bound named
+    build_test.go:591: unresolved = [], want the refused dependency reported as bounded
+--- FAIL: TestEdgeBoundStopsFailingDependencyWorkToo
+    build_test.go:620: limitations = [UNRESOLVED_DEPENDENCY reg/d0:1, UNRESOLVED_DEPENDENCY reg/d1:1], want the edge bound named
+    build_test.go:635: unresolved = [d0 NOT_FOUND, d1 NOT_FOUND], want the two attempted gaps plus one declaration attributed to the bound
+--- FAIL: TestTheEdgeBoundDoesNotWalkTheDeclarationsItRefused
+    build_test.go:692: tail 10: limitations = [UNRESOLVED_DEPENDENCY reg/d0:1], want the edge bound named
+    build_test.go:701: tail 10: 0 dependencies reported as refused by the bound, want one representative
+    build_test.go:692: tail 1000: limitations = [UNRESOLVED_DEPENDENCY reg/d0:1], want the edge bound named
+    build_test.go:701: tail 1000: 0 dependencies reported as refused by the bound, want one representative
+    build_test.go:715: retained 1 unresolved keys and 1 limitation keys, want the admitted work plus one refusal, and one limitation each for the admitted gap and the bound
+--- FAIL: TestEdgeBoundSpendsOneBudgetOnSuccessAndFailureAlike
+    build_test.go:744: limitations = [UNRESOLVED_DEPENDENCY reg/gone:1], want the edge bound named
+--- FAIL: TestTheEdgeBoundAlsoStopsEdgesThatCostNoResolution
+    walk_test.go:113: meta = {Completeness:complete Limitations:[]}, want a partial answer naming the edge bound
+```
+
+After each revert: `shasum -a 256 -c` reported OK for all five files, and
+`go test -race -count=1 -cover ./pkg/catalog/` returned
+`ok ... 1.394s coverage: 100.0% of statements`.
+
+### Comment alignment, commissioned by the same blocker
+
+Three comments, no code:
+
+- `ContentID` is "the immutable content identity of one contract revision ...
+  one half of `RevisionID`, which is the canonical identity of a revision,
+  because mirroring publishes one content under two services". The old text said
+  it was "the only thing the catalog treats as identity", which blocker B's
+  accepted repair made false.
+- `Bounds.MaxEdges` "caps distinct units of dependency WORK -- one declaration
+  asking one question -- not the edges that work succeeds in recording", and now
+  also states that the rest of that contract's declarations are refused with the
+  first rather than inspected.
+- `LimitationEdgeLimit` says the limitation covers "a dependency and the
+  declarations after it", with `Ref` naming "the first one refused, as a
+  representative rather than an inventory". Left unchanged it would have been a
+  new false claim introduced by this repair.
+
+### Local verification, all green at `1cc6a3aa`
+
+- `go test -race -count=1 ./pkg/catalog ./internal/app ./pkg/oci ./tests/architecture` -- all four ok.
+- `make ci-test` -- `total coverage: 100.0%`, example tests ok, `DEMO-CONTRACTS VALID: 24/24`.
+- `make ci` -- exit 0 end to end: `ci-static` (fmt, vet, gocyclo, golangci-lint
+  `0 issues`, `check-section`, CLI-docs drift, UI-build drift, dashboard-SDK
+  drift, plus the operator module's own `ci-static` at `0 issues`), `ci-gates`,
+  `ci-engine` (100.0% coverage under the race detector, the engine e2e suite,
+  `operational-graph acceptance PASSED`), `ci-dashboard` (Vitest 1232 passed in
+  67 files), `ci-integration-kubernetes` (envtest at 100.0% coverage, chart lint,
+  template renders, Helm unit tests, chart schema, helm-docs drift, generated-docs
+  drift), `ci-e2e-envtest`, `ci-oci`, and the release orchestrator's 16 Node
+  tests.
+- `make artifact-drift` -- `artifact-drift: OK`.
+- `make release-dry-run` -- `RELEASE-DRY-RUN OK: real artifacts to
+  localhost:5001, digest idempotency + immutability + resume proven, no
+  production coordinate`, and `K8S-MODULE-STANDALONE OK`.
+- `govulncheck ./...` -- `No vulnerabilities found.`
+- `git diff --check` -- clean. `make check-section` -- `zero U+00A7 in authored
+  files`.
+- `gocyclo -over 15 ./pkg/catalog` and `gofmt -l pkg/catalog` -- no output.
+- The six Kind shards were not attempted locally, for the Docker Desktop
+  containerd reason recorded at `ci.mk:88-90`; nothing this repair touches is
+  exercised by them. They run in CI, below.
+
+### GitHub at the exact implementation SHA `1cc6a3aa`
+
+Forty check runs, and not one of them a rerun -- every workflow is
+`run_attempt=1`. Thirty-seven success, two skipped (`build`, `auto-merge`) and
+one failure, the aggregate `CodeQL` check, which is the inherited-alerts item
+carried since section 8 and is not a finding of this repair.
+
+- **CI**, run `32298985102`, attempt 1, success -- all 21 jobs green:
+  `changes`, `ci-static`, `ci-gates`, `ci-engine`, `ci-oci`, `ci-dashboard`,
+  `ci-e2e-envtest`, `ci-e2e-compose`, `ci-integration-kubernetes`,
+  `dashboard-e2e`, `operator-build`, `artifact-drift`, `release-version-test`,
+  `release-dry-run`, `required`, and all six Kind shards individually --
+  `ci-e2e-kind (dashboard)`, `(upgrade)`, `(reconcile)`, `(evidence)`,
+  `(observation)`, `(operational-graph)`.
+- **Security**, run `32298985065`, attempt 1, success: `Trivy`, `Trivy (image)`,
+  `govulncheck`, `govulncheck (Go)`, `PR security summary` and all four `Analyze`
+  jobs -- `actions`, `go`, `javascript-typescript`, `python`.
+- **Docs check** `32298985205`, **Pacto Contract CI** `32298985109` (job
+  `bundle` green), **Repowise (architecture health)** `32298984906` and
+  **Validate PR title** `32298984965` -- all attempt 1, all success.
+- The two dynamic CodeQL runs, **PR #291** `32298978941` and **Code Quality: PR
+  #291** `32298978954`, both attempt 1, both success. The `CodeQL` CHECK is
+  published by `github-advanced-security`, not by those runs, and it reports "8
+  new alerts including 8 high severity security vulnerabilities" -- the same
+  wording and the same population as at `ee9b14df`. A green Security workflow
+  and the CodeQL alert attribution stay two different claims.
+- **Auto-merge Dependabot PRs** `32298985180` and **Rebuild dashboard UI**
+  `32298985066` -- skipped, as expected on this PR.
+- The isolated `ci-e2e-kind (reconcile)` failure recorded at the docs-only SHA
+  `a5fb3ecd`, where `kindload` could not find the dashboard image after loading,
+  did NOT recur: that shard is green here on the first attempt, as are the other
+  five and `ci-e2e-compose`. Nothing in this repair touches that harness or
+  image path, and this pass was not broadened into Kind or image-loading work.
+
+### CodeQL and review threads
+
+Both populations were re-queried independently at `1cc6a3aa`, and the delta
+introduced by this repair is ZERO in each.
+
+- Code-scanning API, `state=open` on `refs/pull/291/head`: the same nine
+  inherited alerts, at the same lines as at `a5fb3ecd` -- 38
+  (`py/incomplete-url-substring-sanitization`, `release/scripts/docs_check.py:197`),
+  40 through 43 (`go/path-injection`, `internal/app/resolve.go` 35, 43, 57, 67)
+  and 59 through 62 (`go/path-injection`, `pkg/oci/cache.go` 375, 394, 395,
+  666). None is in this repair's range; `pkg/catalog` carries no alert. None was
+  added, silenced or dismissed here, and the whole item stays OPEN for
+  independent triage before Phase 14 readiness.
+- Review threads, fully paginated -- the API caps a page at 100 and page one
+  hides every unresolved thread, so both pages were fetched: 199 total, 189
+  resolved, 10 unresolved. The unresolved ten are unchanged: six
+  `github-code-quality` comments on the GENERATED minified Mermaid chunk
+  `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js`, unchanged because
+  no authored frontend input changed and the bundle was not rebuilt, and four
+  `github-advanced-security` comments on `pkg/oci/cache.go`. No thread was
+  resolved, replied to or opened by this pass.
+
+### Hygiene and disclosures
+
+- The PR is OPEN and DRAFT throughout. No PR comment was published, no review
+  thread was resolved or replied to, and no PR metadata -- title, body, labels,
+  reviewers, draft state -- was changed.
+- Append-only: `1cc6a3aa` and the ledger commit sit directly on top of
+  `9a737191`. No amend, rebase, squash, reset, cherry-pick or force-push. The
+  merge-base with `origin/main` is unchanged.
+- `PACTO_PR_TARGET_STATE.md` was not modified. No previous section of this
+  document was rewritten; section 18.5 is an append.
+- The four inherited untracked paths `.claude/`, `.codex/`, `.mcp.json` and
+  `AGENTS.md` are preserved and uncommitted.
+- `make ci` regenerated the hand-written
+  `integrations/kubernetes/charts/pacto-dev-gateway/README.md`, as it has in
+  every prior pass. It was restored with `git checkout --` and not committed;
+  the helm-docs drift check itself passes. No `go.work.sum` drift appeared this
+  pass. Outside those, the worktree held nothing but the five changed files.
+- No authored frontend input changed, so the committed UI bundle was NOT
+  rebuilt, and `ci-ui-drift` and `check-dashboard-sdk-drift` are clean against
+  the existing one.
+- Editor diagnostics again claimed `undefined: revFields` in `build.go` and
+  `undefined: at` in `build_test.go`. Both symbols live in the same package
+  (`fingerprint.go` and `harness_test.go`), every real `go test` run compiles and
+  passes, and nothing was changed on the diagnostics' account. This is the third
+  pass in which that stale diagnostic appeared; it is recorded, not acted on.
+- **Incomplete preparatory read, disclosed.** `PACTO_ITERATION_PROTOCOL.md` and
+  `PACTO_PR_TARGET_STATE.md` were read in full. Of this document, lines 1 through
+  2019 and 7340 through the end -- which is the whole Phase 11 record, sections
+  17, 18, 18.1, 18.2, 18.3 and 18.4, plus sections 1 through 11 -- were read in
+  full. Lines 2020 through 7339, which are section 12's transient Phase-8B
+  inventory ledger and the Phase 9, 10, 10B and 10C records, were NOT read in
+  full in this iteration. A grep of that range for `catalog`, `MaxEdges` and
+  `EDGE_LIMIT` returns three incidental hits, none of which governs this repair:
+  two are Phase 10C OCI-referrer text about registry catalog scans, and one is a
+  phase-map line. The omission is disclosed rather than papered over.
+
+### Deliberately not done
+
+- No validation framework, iterator abstraction, second budget or speculative
+  mechanism. The repair is a `break`, a comment and a corrected expectation.
+- No production test hook and no public observability API. The scaling test uses
+  the unexported `newBuilder`, which is an extraction of code `Build` already
+  ran, not a seam added for testing.
+- No redesign of anything accepted in section 18.2, and no reopening of blockers
+  B or C.
+- No MCP catalog server, tool or resource registration, no `pacto mcp --root`
+  wiring, no CLI work, no protocol E2E and no Phase 12 documentation.
+- No change to the nine inherited CodeQL alerts, which stay OPEN and outside this
+  repair's scope.
+
+### Verdict
+
+**Phase 11 remains a CANDIDATE.** Section 18.4's remaining blocker A is
+addressed by a permanent, non-vacuous, mutation-proved scaling counterexample
+and the smallest control-flow repair that satisfies it, with the three
+commissioned comment corrections. This record does not close Phase 11; only an
+independent review at `1cc6a3aa` or later can.
+
+### Current phase map
+
+- Phases 1 through 10C: ACCEPTED and CLOSED.
+- Phase 11: CANDIDATE at `1cc6a3aa`, awaiting independent review of the residual
+  edge-bound repair.
+- Phases 12 through 14: NOT STARTED.
