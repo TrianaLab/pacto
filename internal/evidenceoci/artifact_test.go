@@ -118,6 +118,10 @@ func TestBuildArtifact_Shape(t *testing.T) {
 		{"config mediaType", m.Config.MediaType, ocispec.DescriptorEmptyJSON.MediaType},
 		{"config digest", m.Config.Digest, ocispec.DescriptorEmptyJSON.Digest},
 		{"config size", m.Config.Size, ocispec.DescriptorEmptyJSON.Size},
+		{"config inline data", string(m.Config.Data), "{}"},
+		// Field by field is not enough: the whole descriptor must be image-spec's
+		// own value, so a field added there later cannot be quietly omitted here.
+		{"config descriptor", string(descriptorJSON(m.Config)), string(canonicalConfigJSON)},
 		{"config blob", string(art.Config), "{}"},
 		{"layer mediaType", m.Layers[0].MediaType, PayloadMediaType},
 		// The layer descriptor must address the payload bytes, not merely
@@ -132,6 +136,13 @@ func TestBuildArtifact_Shape(t *testing.T) {
 		if c.got != c.want {
 			t.Errorf("%s = %v, want %v", c.what, c.got, c.want)
 		}
+	}
+	// Neither copy of the empty config may alias image-spec's package-level slice:
+	// a caller writing through the returned Artifact would corrupt every later
+	// build, and the descriptor the reader compares against.
+	if &art.Config[0] == &ocispec.DescriptorEmptyJSON.Data[0] ||
+		&art.ConfigDesc.Data[0] == &ocispec.DescriptorEmptyJSON.Data[0] {
+		t.Error("config bytes alias image-spec's package-level empty JSON")
 	}
 }
 
@@ -397,6 +408,26 @@ func TestValidateManifest_Rejects(t *testing.T) {
 			m.Config.Digest = digest.FromString(`{"not":"empty"}`)
 		}),
 		"wrong config size": remarshal(func(m *ocispec.Manifest) { m.Config.Size = 3 }),
+		// image-spec 1.1.1 requires an embedded `data` to be identical to the content
+		// the descriptor names, and a consumer to verify it against the digest and
+		// size. A config that keeps all three canonical fields while carrying other
+		// bytes is a descriptor that contradicts itself.
+		"config inline data is not the empty JSON": remarshal(func(m *ocispec.Manifest) {
+			m.Config.Data = []byte(`{"not":"empty"}`)
+		}),
+		"config carries no inline data": remarshal(func(m *ocispec.Manifest) { m.Config.Data = nil }),
+		// Optional descriptor fields on a FIXED config are not harmless: nothing here
+		// interprets them, so accepting them would let a manifest assert something
+		// Pacto neither reads nor means.
+		"config carries annotations": remarshal(func(m *ocispec.Manifest) {
+			m.Config.Annotations = map[string]string{"pacto.dev/note": "hello"}
+		}),
+		"config carries an artifact type": remarshal(func(m *ocispec.Manifest) {
+			m.Config.ArtifactType = ArtifactType
+		}),
+		"config carries download urls": remarshal(func(m *ocispec.Manifest) {
+			m.Config.URLs = []string{"https://example.invalid/config.json"}
+		}),
 		"two layers": remarshal(func(m *ocispec.Manifest) {
 			m.Layers = append(m.Layers, m.Layers[0])
 		}),

@@ -48,6 +48,20 @@ const (
 // path it makes the containing subject partial; on the write path it fails closed.
 var ErrInvalidArtifact = errors.New("evidence oci: invalid evidence artifact")
 
+// canonicalConfigJSON is the serialized canonical OCI empty-JSON descriptor. It
+// is taken from image-spec rather than spelled out, so the writer and the reader
+// cannot drift apart, and it is compared whole: one comparison covers every
+// field, including the inline data and any field a future image-spec adds.
+var canonicalConfigJSON = descriptorJSON(ocispec.DescriptorEmptyJSON)
+
+// descriptorJSON renders a descriptor for comparison and for error messages. Go
+// marshals struct fields in declaration order and map keys in sorted order, so
+// two descriptors are equal exactly when these bytes are.
+func descriptorJSON(d ocispec.Descriptor) []byte {
+	out, _ := json.Marshal(d) // strings, ints and byte slices; marshalling cannot fail
+	return out
+}
+
 // Artifact is one publishable evidence record: the payload blob, the empty
 // config blob every OCI image manifest requires, and the manifest binding them
 // to the contract subject. Every field is a deterministic function of the record
@@ -88,9 +102,12 @@ func BuildArtifact(rec evidenceingest.Record, subj Subject, subjectDesc ocispec.
 
 	payloadDesc := blobDescriptor(PayloadMediaType, payload)
 	// The canonical OCI empty-JSON descriptor, taken from image-spec rather than
-	// rebuilt, so the writer and [ValidateManifest] cannot drift apart. Cloned
-	// because the returned Artifact must not alias a package-level slice.
+	// rebuilt, so the writer and [ValidateManifest] cannot drift apart. Both the
+	// blob and the descriptor's inline copy of it are cloned: the struct copy above
+	// would otherwise leave Data aliasing image-spec's package-level slice, so a
+	// caller writing through the returned Artifact could corrupt every later build.
 	configDesc := ocispec.DescriptorEmptyJSON
+	configDesc.Data = bytes.Clone(configDesc.Data)
 	config := bytes.Clone(configDesc.Data)
 
 	// Built by hand rather than with oras.PackManifest: that helper stamps an
@@ -137,15 +154,15 @@ func ValidateManifest(data []byte, subj Subject) (ocispec.Descriptor, error) {
 	case m.MediaType != ocispec.MediaTypeImageManifest:
 		return ocispec.Descriptor{}, fmt.Errorf("%w: manifest media type %q, want %q",
 			ErrInvalidArtifact, m.MediaType, ocispec.MediaTypeImageManifest)
-	// The config must be the canonical OCI empty JSON, exactly. Accepting any
-	// other descriptor would make the artifact carry a second blob whose meaning
-	// nothing checks — and whose bytes a reader would have to fetch to find out.
-	case m.Config.MediaType != ocispec.DescriptorEmptyJSON.MediaType ||
-		m.Config.Digest != ocispec.DescriptorEmptyJSON.Digest ||
-		m.Config.Size != ocispec.DescriptorEmptyJSON.Size:
-		return ocispec.Descriptor{}, fmt.Errorf("%w: config %s %s (%d bytes) is not the canonical empty JSON %s %s (%d bytes)",
-			ErrInvalidArtifact, m.Config.MediaType, m.Config.Digest, m.Config.Size,
-			ocispec.DescriptorEmptyJSON.MediaType, ocispec.DescriptorEmptyJSON.Digest, ocispec.DescriptorEmptyJSON.Size)
+	// The config must be the canonical OCI empty JSON descriptor, whole: not three
+	// of its fields, but every one of them, including the inline copy of its own
+	// two bytes. Three matching fields still admit a descriptor that contradicts
+	// itself — canonical media type, digest and size over other `data` — and admit
+	// optional fields nothing here interprets, which would let a manifest assert
+	// something Pacto neither reads nor means.
+	case !bytes.Equal(descriptorJSON(m.Config), canonicalConfigJSON):
+		return ocispec.Descriptor{}, fmt.Errorf("%w: config %s is not the canonical empty-JSON descriptor %s",
+			ErrInvalidArtifact, descriptorJSON(m.Config), canonicalConfigJSON)
 	case m.ArtifactType != ArtifactType:
 		return ocispec.Descriptor{}, fmt.Errorf("%w: artifact type %q, want %q",
 			ErrInvalidArtifact, m.ArtifactType, ArtifactType)

@@ -306,6 +306,7 @@ func TestScanSubject_CountsMalformedPactoManifests(t *testing.T) {
 	repo := publishRecords(t, host, subj, desc, 1, RepositoryOptions{})
 
 	config := pushBlob(t, repo, ocispec.MediaTypeEmptyJSON, []byte("{}"))
+	config.Data = []byte("{}") // canonical, so the two layers below are what makes this malformed
 	layer := pushBlob(t, repo, PayloadMediaType, []byte(`{"schemaVersion":"x"}`))
 	manifest, _ := json.Marshal(ocispec.Manifest{
 		Versioned:    specs.Versioned{SchemaVersion: 2},
@@ -356,6 +357,7 @@ func TestScanSubject_FailsClosedWhenUnreachable(t *testing.T) {
 func pushOversized(t *testing.T, repo *remote.Repository, subjectDesc ocispec.Descriptor, artifactType string) {
 	t.Helper()
 	config := pushBlob(t, repo, ocispec.MediaTypeEmptyJSON, []byte("{}"))
+	config.Data = []byte("{}") // canonical, so the padding below is what makes this malformed
 	layer := pushBlob(t, repo, PayloadMediaType, []byte("{}"))
 	manifest, _ := json.Marshal(ocispec.Manifest{
 		Versioned:    specs.Versioned{SchemaVersion: 2},
