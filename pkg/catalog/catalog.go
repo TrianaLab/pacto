@@ -81,8 +81,9 @@ const (
 	// LimitationRevisionLimit: Bounds.MaxRevisions was reached, so a reference
 	// that was not already resolved was refused before any resolver call.
 	LimitationRevisionLimit = "REVISION_LIMIT_EXCEEDED"
-	// LimitationEdgeLimit: Bounds.MaxEdges was reached, so a dependency was
-	// refused before any resolver call.
+	// LimitationEdgeLimit: Bounds.MaxEdges was reached, so a dependency and the
+	// declarations after it were refused before any resolver call. Ref names the
+	// first one refused, as a representative rather than an inventory.
 	LimitationEdgeLimit = "EDGE_LIMIT_EXCEEDED"
 	// LimitationDepthLimit: Bounds.MaxDepth stopped the walk; the deeper closure
 	// was never traversed or resolved.

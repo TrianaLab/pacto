@@ -46,8 +46,13 @@ type Bounds struct {
 	// MaxRevisions caps distinct resolved revisions. At the cap, a reference that
 	// is not already resolved is refused without calling the resolver.
 	MaxRevisions int `json:"maxRevisions"`
-	// MaxEdges caps distinct dependency edges. At the cap, a dependency is
-	// refused without calling the resolver.
+	// MaxEdges caps distinct units of dependency WORK -- one declaration asking
+	// one question -- not the edges that work succeeds in recording. A failed
+	// attempt spends the budget exactly like a successful one, because a closure
+	// whose declarations all break is the one that costs the most. At the cap a
+	// declaration is refused before the resolver is called and before it becomes
+	// an arrival, and the rest of that contract's declarations are refused with
+	// it rather than inspected.
 	MaxEdges int `json:"maxEdges"`
 	// MaxDepth caps how many declarations deep the walk descends.
 	MaxDepth int `json:"maxDepth"`

@@ -2,9 +2,12 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // Case 1 -- two independent roots, each with its own direct dependency. Nothing
@@ -625,8 +628,92 @@ func TestEdgeBoundStopsFailingDependencyWorkToo(t *testing.T) {
 			bounded++
 		}
 	}
-	if bounded != 2 || len(c.Unresolved()) != 4 {
-		t.Errorf("unresolved = %+v, want all four gaps reported and two of them attributed to the bound", c.Unresolved())
+	// Two gaps the bound paid to discover, and one representative for the
+	// remainder it refused: see TestTheEdgeBoundDoesNotWalkTheDeclarationsItRefused
+	// for why the refused tail is not enumerated.
+	if bounded != 1 || len(c.Unresolved()) != 3 {
+		t.Errorf("unresolved = %+v, want the two attempted gaps plus one declaration attributed to the bound", c.Unresolved())
+	}
+}
+
+// refusedTailProbe is what one hostile fan-out cost the builder. It drives the
+// builder directly because the counts that matter here are internal by design:
+// the refused declarations reach no resolver, enter no queue and leave no edge,
+// so no accessor can see them, and adding one would be a production hook that
+// exists only for a test.
+type refusedTailProbe struct {
+	tail                            int
+	c                               *Catalog
+	f                               *fake
+	work, unresolvedSeen, limitSeen int
+}
+
+// refusedTail builds one root declaring tail distinct failing dependencies under
+// a budget of one, so every declaration after the first is past the bound.
+func refusedTail(t *testing.T, tail int) refusedTailProbe {
+	t.Helper()
+	deps := make([]contract.Dependency, tail)
+	f := newFake()
+	for i := range deps {
+		deps[i] = dep(fmt.Sprintf("d%d", i), fmt.Sprintf("reg/d%d:1", i))
+		f.fail(deps[i].Ref, ReasonNotFound)
+	}
+	f.ok("reg/root:1", rev(at("root", "tail-root"), ct("root", "1.0.0", deps...)))
+
+	b := newBuilder(f, Bounds{MaxEdges: 1})
+	b.walk(context.Background(), []string{"reg/root:1"})
+
+	return refusedTailProbe{
+		tail: tail, c: b.finish(fixedClock(), 1), f: f,
+		work: len(b.edgeWork), unresolvedSeen: len(b.unresolvedSeen), limitSeen: len(b.limitSeen),
+	}
+}
+
+// A work bound that has to walk everything it refused has not bounded the work.
+// The resolver-call proofs above cannot see that, because the surplus costs no
+// call, no queue entry and no edge -- and the builder still inspected every
+// declaration and remembered each one. So this case reads the builder's own
+// bookkeeping, at two tail sizes two orders of magnitude apart.
+func TestTheEdgeBoundDoesNotWalkTheDeclarationsItRefused(t *testing.T) {
+	small, large := refusedTail(t, 10), refusedTail(t, 1000)
+
+	for _, p := range []refusedTailProbe{small, large} {
+		if p.work != 1 {
+			t.Errorf("tail %d: admitted dependency work = %d, want exactly the bound", p.tail, p.work)
+		}
+		if p.f.count() != 2 {
+			t.Errorf("tail %d: resolver calls = %d, want 2: the root, and the one dependency the bound admitted",
+				p.tail, p.f.count())
+		}
+		if p.c.Meta().Completeness != CompletenessPartial {
+			t.Errorf("tail %d: completeness = %q, want partial", p.tail, p.c.Meta().Completeness)
+		}
+		if !hasLimitation(p.c, LimitationEdgeLimit) {
+			t.Errorf("tail %d: limitations = %+v, want the edge bound named", p.tail, p.c.Meta().Limitations)
+		}
+		bounded := 0
+		for _, u := range p.c.Unresolved() {
+			if u.Reason.Code == ReasonBoundExceeded {
+				bounded++
+			}
+		}
+		if bounded != 1 {
+			t.Errorf("tail %d: %d dependencies reported as refused by the bound, want one representative",
+				p.tail, bounded)
+		}
+	}
+
+	// A hundred times the hostile tail must buy the builder no extra work and no
+	// extra memory.
+	if small.work != large.work || small.unresolvedSeen != large.unresolvedSeen || small.limitSeen != large.limitSeen {
+		t.Errorf("bookkeeping grew with the refused tail: work %d then %d, unresolved keys %d then %d, limitation keys %d then %d",
+			small.work, large.work, small.unresolvedSeen, large.unresolvedSeen, small.limitSeen, large.limitSeen)
+	}
+	// What it does retain is a function of the admitted work and the one boundary
+	// report, never of how many declarations were refused.
+	if large.unresolvedSeen != large.work+1 || large.limitSeen != 2 {
+		t.Errorf("retained %d unresolved keys and %d limitation keys, want the admitted work plus one refusal, "+
+			"and one limitation each for the admitted gap and the bound", large.unresolvedSeen, large.limitSeen)
 	}
 }
 

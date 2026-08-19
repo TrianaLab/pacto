@@ -50,9 +50,15 @@ func Build(ctx context.Context, req Request) (*Catalog, error) {
 	if clock == nil {
 		clock = time.Now
 	}
-	b := &builder{
-		resolver:       req.Resolver,
-		bounds:         req.Bounds.effective(),
+	b := newBuilder(req.Resolver, req.Bounds)
+	b.walk(ctx, roots)
+	return b.finish(clock(), len(roots)), nil
+}
+
+func newBuilder(r Resolver, bounds Bounds) *builder {
+	return &builder{
+		resolver:       r,
+		bounds:         bounds.effective(),
 		memo:           map[memoKey]memoEntry{},
 		revs:           map[RevisionID]*revState{},
 		edges:          map[edgeKey]Edge{},
@@ -61,8 +67,6 @@ func Build(ctx context.Context, req Request) (*Catalog, error) {
 		unresolvedSeen: map[unresolvedKey]bool{},
 		limitSeen:      map[limitKey]bool{},
 	}
-	b.walk(ctx, roots)
-	return b.finish(clock(), len(roots)), nil
 }
 
 // memoKey is what "resolve once" is keyed on: everything that can change the
@@ -424,13 +428,19 @@ func (b *builder) expand(a arrival, p projection) []arrival {
 	for i, d := range p.deps {
 		decl := DeclarationID{From: p.id(), Index: i}
 		if !b.admitEdgeWork(edgeWork{decl: decl, base: p.base, ref: d.Ref, constraint: d.Compatibility}) {
-			b.limit(LimitationEdgeLimit, d.Ref, "the edge bound was reached; this dependency was not resolved")
+			// Declaration indexes are unique within one expansion, so the work
+			// already admitted here is a prefix: the first unit the budget cannot
+			// take means no later one can be taken either. Report the boundary once,
+			// with this declaration as its representative, and stop. Reading the
+			// rest to remember what was refused is exactly the work the bound
+			// exists to prevent.
+			b.limit(LimitationEdgeLimit, d.Ref, "the edge bound was reached; this dependency and the declarations after it were not resolved")
 			b.recordUnresolved(Unresolved{
 				Declaration: decl, Name: d.Name, Ref: d.Ref,
 				Constraint: d.Compatibility, Required: d.Required,
 				Reason: Reason{Code: ReasonBoundExceeded, Message: "the edge bound stopped this resolution"},
 			})
-			continue
+			break
 		}
 		out = append(out, arrival{
 			ref: d.Ref, base: p.base, root: a.root,

@@ -28,12 +28,16 @@ const (
 	SchemeLocal ContentScheme = "local"
 )
 
-// ContentID is the immutable content identity of one contract revision, and the
-// only thing the catalog treats as identity. It is a comparable struct of a
-// closed-enum scheme and a validated `<algorithm>:<hex>` digest, so it is usable
-// as a map key without ever joining user-controlled text with a delimiter: a
-// service, domain or reference containing "/", ":", "%" or arbitrary UTF-8
-// cannot reach it, let alone collide inside it.
+// ContentID is the immutable content identity of one contract revision: what the
+// bytes ARE, never where they were published or what asked for them. It is one
+// half of [RevisionID], which is the canonical identity of a revision, because
+// mirroring publishes one content under two services.
+//
+// It is a comparable struct of a closed-enum scheme and a validated
+// `<algorithm>:<hex>` digest, so it is usable as a map key without ever joining
+// user-controlled text with a delimiter: a service, domain or reference
+// containing "/", ":", "%" or arbitrary UTF-8 cannot reach it, let alone collide
+// inside it.
 type ContentID struct {
 	Scheme ContentScheme `json:"scheme"`
 	Digest string        `json:"digest"`
