@@ -11592,3 +11592,262 @@ status-vocabulary invariant with a one-sided-addition mutation.
 
 The PR remains an open draft. Repair only these two blockers, record the repair
 as a candidate and stop for independent review.
+
+## 21.2 Phase 13 narrow closure repair at `3f477dc0` -- CANDIDATE
+
+The two blockers recorded in section 21.1 are repaired. Nothing else in Phase 13
+was redesigned: the two import-graph gates, the extended collector-overclaim
+gate, the Concepts page structure and navigation, the seven existing
+fleet/dashboard status correspondences and the decision not to build an ontology
+package all stand as accepted.
+
+### History and scope
+
+Append-only two-commit fast-forward from the independent-review ledger.
+
+- `48ea47387100bad3b260d883f17fc01d08192ee7` -- independent review, the starting
+  SHA and the parent of the first repair commit.
+- `e218ce90ffd27c37355424664cd3c29676e89164` -- Blocker B.
+- `3f477dc0aa96088da332e6092e40cfcb30598bda` -- Blocker A, and the head this
+  record was written against.
+
+Every commit has exactly one parent, `48ea4738` is an ancestor of HEAD, and no
+commit was amended, rebased, squashed or force-pushed. `origin/main` and the
+merge-base both remain `83f2e66d5cd4fab56099991d39e64fc11f107b3d`. The whole
+repair is six files, 122 insertions and 53 deletions: two production Go files,
+three Go test files and one documentation page. No frontend, Kubernetes,
+Compose, OCI, release, browser or acceptance machinery changed, and the target
+document is untouched.
+
+### Blocker B -- the vocabulary comparison is now set equality
+
+The counterexample was independently reproduced before anything was changed.
+Adding `StatusDeferred ContractStatus = "Deferred"` to `pkg/dashboard/model.go`
+and accepting it in `NormalizeContractStatus`, without telling `pkg/fleet`, left
+both `TestContractStatusVocabularyMatchesFleet` and `TestNormalizeContractStatus`
+passing. The reported defect is real: the test compared seven remembered pairs,
+which says nothing about a value that exists on one side only.
+
+The repair makes each side's finite canonical set readable from the structure
+production already uses, so there is nothing to compare against except the real
+domain and no third list to drift.
+
+- `pkg/dashboard/model.go` -- the normalization switch is replaced by
+  `canonicalStatuses`, a package-level list of the seven `ContractStatus`
+  constants. `NormalizeContractStatus` returns its argument when
+  `slices.Contains(canonicalStatuses, s)` and folds everything else into
+  `StatusUnknown`, exactly as before. Because the normalizer reads the list, the
+  dashboard vocabulary cannot grow anywhere the parity test does not see.
+- `pkg/fleet/fleet.go` -- `CanonicalStatuses()` returns
+  `slices.Sorted(maps.Keys(severityRank))`. That is the same table `ValidStatus`
+  accepts from, so the enumeration cannot be a subset of what the fleet
+  validates, and a status added without a severity is not canonical at all.
+- `pkg/dashboard/status_vocabulary_test.go` -- the test now compares the two
+  complete sets in both directions, asserts the dashboard set contains no
+  duplicate value, asserts `fleet.ValidStatus` (the predicate production
+  filtering calls, not only the enumeration) accepts every dashboard status, and
+  asserts every canonical fleet status normalizes to ITSELF rather than merely
+  being recognized.
+- `pkg/fleet/keys_test.go` -- `TestValidStatus` hoists the canonical list it
+  already contained and additionally asserts `CanonicalStatuses()` equals it
+  sorted. This is what covers the new accessor inside its own package; `ci-test`
+  runs without `-coverpkg`, so a cross-package caller would have left it at zero
+  under the 100.0 percent gate. No new list was introduced.
+- `pkg/fleet/aggregate_test.go` -- the tally test's hand-maintained seven-status
+  population is deleted and read from `CanonicalStatuses()` instead. This
+  removes precisely the kind of test-only list the review forbade.
+
+Wire values, `ContractStatus` constants, folding behaviour for genuinely foreign
+input and every other public shape are unchanged. `Unknown` and `NotEvaluated`
+remain two values with two meanings, and the duplicate-value assertion now makes
+collapsing them a failure rather than a silent narrowing.
+
+### Mutation evidence
+
+Four mutations were applied one at a time and each was fully reverted. Byte
+identity of `pkg/dashboard/model.go` and `pkg/fleet/fleet.go` was confirmed with
+a SHA-256 manifest after every revert, and the working tree returned to the
+committed state.
+
+1. **Canonical status added to the dashboard only.** `StatusDeferred` added as a
+   constant and to `canonicalStatuses`; `pkg/fleet` untouched. This is the
+   review's exact counterexample.
+   `TestContractStatusVocabularyMatchesFleet` FAILS on direction one: `the
+   dashboard declares "Deferred" canonical, but the fleet vocabulary is
+   [Compliant Invalid NonCompliant NotEvaluated Reference Unknown Warning]`, and
+   `the fleet does not accept the dashboard status "Deferred" as canonical`.
+2. **Canonical status added to the fleet only.** `StatusDeferred` added to the
+   fleet constants and to `severityRank`; the dashboard untouched.
+   `TestContractStatusVocabularyMatchesFleet` FAILS on direction two: `the fleet
+   declares "Deferred" canonical, but the dashboard vocabulary does not know it`,
+   and `NormalizeContractStatus("Deferred") = "Unknown", want "Deferred"`. Under
+   the same mutation the fleet's own guards also fail, `TestValidStatus` on the
+   enumeration and `TestComplianceTally_EveryCanonicalStatusHasItsOwnBucket` on
+   the population.
+3. **Existing value respelled on one side.** `StatusNotEvaluated` changed to
+   `"Not-Evaluated"` in the dashboard only. FAILS in both directions at once.
+4. **`StatusNotEvaluated` dropped from normalization.** Removed from
+   `canonicalStatuses`, so the constant still exists but the normalizer folds the
+   status into `Unknown`. FAILS on direction two and on the round-trip
+   assertion. This is the collapse section 21 already claimed to catch, and it
+   still bites after the rewrite.
+
+### Blocker A -- the normative page is qualified to the real boundary
+
+`docs/concepts.md` only. No behavioural change, and no prose-matching test was
+added: the semantics are already owned by the bounds tests in `pkg/fleet`, which
+remain the enforcement.
+
+**Requested versus resolved.** The absolute "Pacto resolves a requested
+reference to an immutable identity once" is gone. The invariant is restated as
+the part that is actually invariant -- a requested reference must be resolved to
+an immutable identity before anything treats it as exact content, and a mutable
+reference on its own is never a revision identity. A new adjacent distinction,
+"A resolution has a lifetime, and the lifetime belongs to the boundary that made
+it", states that resolving is not one global event: a catalog discovery session
+resolves every root as it is built and then freezes the result, so a tag that
+moves in a registry does not move that catalog, while the operator's `Latest`
+resolution policy resolves the highest semver tag on every reconciliation and
+`PinnedTag`/`PinnedDigest` do not. Both obey the same rule at different
+lifetimes; a resolution is exact for the snapshot, session or reconciliation
+that produced it and nothing carries it past that boundary. No single global
+resolution lifetime is invented, and the existing cross-link is kept.
+
+**Bounded results and unknown totals.** "Every bounded list carries the true
+total" is gone. "A bounded list is not the population" now says only what is
+always true -- the rows are one slice, `truncated` says whether more exist, and a
+count from visible rows is a floor -- and keeps its existing cross-link. A new
+distinction, "An unknown total is not a total of zero", says the total is
+carried whenever it is knowable and omitted rather than estimated when the
+counting work itself was bounded, followed by a four-row table separating: a
+`total` equal to the row count; a `total` above the row count with `truncated`;
+an authoritative `total` of zero; and no `total` with `truncated` and a count
+that is only a lower bound. The page's existing "An authoritative zero is not a
+missing total" distinction is kept and strengthened with the concrete failure:
+rendering an absent total as `0` turns "we stopped counting" into "we counted,
+and there are none".
+
+### Ledger arithmetic correction
+
+Section 21 states 34 successful check runs at the implementation head. That is
+wrong and section 21.1 corrected it. The independently verified population at
+`487cd250`, at `8c83b387` and again at this repair head `3f477dc0` is **40 check
+runs: 37 success, two expected skips and one inherited aggregate CodeQL
+failure**. Sections 21 and 21.1 are left exactly as written; this paragraph is
+the correction.
+
+### Local verification
+
+All run at `3f477dc0` unless noted.
+
+- Focused status-vocabulary tests under the race detector, `pkg/dashboard` and
+  `pkg/fleet`: pass.
+- `go test -race -count=1 ./pkg/dashboard/... ./pkg/fleet/...`: pass.
+- `go test -race -count=1 ./tests/architecture/...`: pass.
+- Focused fleet preview-total tests under the race detector:
+  `TestRuntimePreviewBounded`, `TestRuntimePreview_ExactTotalWhenComplete`,
+  `TestRuntimePreview_QueryWorkIsBounded`, `TestPreviews_BoundAboveEveryMaximum`,
+  `TestServiceDetailRelationshipsTruncationHonest`,
+  `TestServiceDetailRelationshipsKnownTotal` and the full `TestNeighborhood_*`
+  family: pass.
+- `make docs-check`: 9 of 9, including `mkdocs build --strict`, generated-docs
+  drift, 19 of 19 Mermaid blocks and the determinism re-run.
+- `make ci`: pass, exit 0. The `ci-test` coverage gate reports total 100.0
+  percent, with `NormalizeContractStatus`, `ValidStatus` and the new
+  `CanonicalStatuses` each at 100.0 percent.
+- `make artifact-drift`: OK. `make release-dry-run`: OK, including
+  K8S-MODULE-STANDALONE.
+- `govulncheck ./...`: no vulnerabilities found.
+- `make check-section`: zero U+00A7 in authored files.
+- `git diff --check`: clean.
+
+`make release-dry-run` regenerates `pacto-dev-gateway/README.md` from a local
+helm-docs, which is a pre-existing local-only side effect unrelated to this
+repair; it was reverted and never committed. The tracked tree is otherwise clean
+and the only untracked entries remain the inherited agent files.
+
+### Required-CI wiring
+
+The repaired tests run inside jobs that are already required, with no new
+workflow, job or path filter. `pkg/dashboard/status_vocabulary_test.go`,
+`pkg/fleet/keys_test.go` and `pkg/fleet/aggregate_test.go` are unit tests beside
+their code and execute in `ci-engine` through `ci-test`, under the race detector
+and the 100.0 percent coverage gate. `tests/architecture` continues to run in
+`ci-gates`, which has no path filter. `docs/concepts.md` is validated by the
+`docs-check` workflow and by the collector-overclaim gate in
+`tests/architecture/collector_docs_test.go`, which already names the file.
+
+### GitHub evidence at `3f477dc0`
+
+Local HEAD, the branch ref, the remote branch and PR head are all exactly
+`3f477dc0aa96088da332e6092e40cfcb30598bda`. PR 291 remains OPEN and DRAFT. The
+statuscheck rollup at this head is 40 check runs: 37 success, two expected skips
+(`build` on Rebuild dashboard UI, `auto-merge` on Auto-merge Dependabot PRs) and
+the one inherited aggregate CodeQL failure. Every workflow succeeded on attempt
+1; no run was retried.
+
+- CI, run `32422947222`, attempt 1, success, all 21 jobs: `changes`,
+  `ci-dashboard`, `ci-integration-kubernetes`, `ci-e2e-envtest`,
+  `dashboard-e2e`, `ci-static`, `ci-oci`, `release-version-test`,
+  `artifact-drift`, `operator-build`, `ci-e2e-compose`, `ci-engine`,
+  `release-dry-run`, `ci-gates`, the six sharded `ci-e2e-kind` legs (reconcile,
+  upgrade, dashboard, operational-graph, evidence, observation) and `required`
+  (job `96601153513`).
+- Security, run `32422947218`, attempt 1, success: Trivy image, govulncheck and
+  the PR security summary.
+- Docs check, run `32422947170`, attempt 1, success.
+- Pacto Contract CI, run `32422947198`, attempt 1, success.
+- Repowise architecture health, run `32422947128`, attempt 1, success.
+- Validate PR title, run `32422947288`, attempt 1, success.
+- Rebuild dashboard UI, run `32422947183`, skipped as expected.
+- Auto-merge Dependabot PRs, run `32422947129`, skipped as expected.
+
+### CodeQL and review-thread deltas
+
+Code scanning on `refs/pull/291/head` reports exactly the same nine inherited
+open alerts as the starting SHA: `#38` in `release/scripts/docs_check.py`,
+`#40` through `#43` in `internal/app/resolve.go` and `#59` through `#62` in
+`pkg/oci/cache.go`. The aggregate CodeQL check-run failure is the same inherited
+"8 new alerts ... alerts not introduced by this pull request might have been
+detected because the code changes were too large" summary. The **CodeQL delta is
+ZERO**; this repair touches none of those files.
+
+Review threads were paginated in full over two pages: 199 total, 189 resolved
+and the same ten inherited unresolved bot threads, six on the generated
+`pkg/dashboard/ui/assets/ganttDiagram-*.js` bundle and four on
+`pkg/oci/cache.go`. The **thread delta is ZERO**.
+
+### Repository hygiene
+
+No PR comment was published, no thread was resolved and no PR metadata was
+changed. No commit was amended, rebased, squashed or force-pushed; the branch
+advanced by fast-forward only. `PACTO_PR_TARGET_STATE.md` is untouched. No
+literal U+00A7 character was added and `make check-section` confirms it. The
+inherited untracked agent files (`.claude/`, `.codex/`, `.mcp.json`,
+`AGENTS.md`) are preserved and remain untracked.
+
+### Explicit exclusions
+
+- The operator CRD's kubebuilder `Enum` marker is a third copy of the status
+  vocabulary, enforced by the API server on admission. Section 21.1 scoped this
+  blocker to the fleet/dashboard pair and the operator was deliberately not
+  pulled in.
+- No generic enum framework, shared ontology package or validation framework was
+  created.
+- No prose-matching test was added to pin the Concepts wording; the behavioural
+  bounds tests in `pkg/fleet` remain the owners of those semantics.
+- No new acceptance machinery was added. No browser, Kubernetes or Compose
+  behaviour changed.
+
+### Status
+
+**Phase 13 remains a CANDIDATE at `3f477dc0`, awaiting independent review. It is
+not self-declared closed.**
+
+- Phases 1 through 12: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: ACCEPTED and CLOSED.
+- Phase 13: CANDIDATE with Blockers A and B repaired, awaiting independent
+  review.
+- Phase 14: NOT STARTED.
+
+The PR remains an open draft.
