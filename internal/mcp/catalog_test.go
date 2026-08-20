@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -200,6 +201,7 @@ type overviewWire struct {
 }
 
 type closureWire struct {
+	Meta       catalog.Meta         `json:"meta"`
 	Revisions  []catalog.Revision   `json:"revisions"`
 	Edges      []catalog.Edge       `json:"edges"`
 	Unresolved []catalog.Unresolved `json:"unresolved"`
@@ -281,30 +283,16 @@ func assertResourcesAreSelfDescribing(t *testing.T, s *mcpsdk.ClientSession) {
 	}
 }
 
-// assertCatalogToolSurface checks that catalog mode adds exactly one tool,
-// keeps the authoring tools and never borrows the operational ones.
+// assertCatalogToolSurface checks the complete tool list, not a family of it.
+// Catalog mode is a read-only knowledge surface: the authoring tools are not
+// read-only (pacto_create and pacto_edit write contract files), and the
+// operational tools belong to the fleet, so neither may be reachable here. One
+// catalog tool, and nothing else, is the whole surface.
 func assertCatalogToolSurface(t *testing.T, names map[string]bool) {
 	t.Helper()
-	if !names["pacto_catalog_revision"] {
-		t.Errorf("tools = %v, want pacto_catalog_revision", slices.Sorted(maps.Keys(names)))
-	}
-	for _, authoring := range []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema"} {
-		if !names[authoring] {
-			t.Errorf("tools = %v, want the authoring tool %s to stay registered", slices.Sorted(maps.Keys(names)), authoring)
-		}
-	}
-	// One tool, not a redundant second projection of the whole catalog.
-	catalogTools := 0
-	for n := range names {
-		if strings.HasPrefix(n, "pacto_fleet_") || n == "pacto_impact" {
-			t.Errorf("catalog mode registered the operational tool %s; the catalog is not the fleet", n)
-		}
-		if strings.HasPrefix(n, "pacto_catalog") {
-			catalogTools++
-		}
-	}
-	if catalogTools != 1 {
-		t.Errorf("got %d pacto_catalog* tools, want exactly 1", catalogTools)
+	got := slices.Sorted(maps.Keys(names))
+	if want := []string{"pacto_catalog_revision"}; !slices.Equal(got, want) {
+		t.Errorf("tools = %v, want exactly %v", got, want)
 	}
 }
 
@@ -332,6 +320,32 @@ func TestCatalogServerExposesTheWholeDiscoverySurfaceAndNothingElse(t *testing.T
 	}
 
 	assertCatalogToolSurface(t, toolNames(t, s))
+}
+
+// TestCatalogModeCannotReachTheAuthoringTools proves the writing tools are not
+// merely missing from the listing but unavailable: a client that names one
+// anyway is refused. A discovery session must not be a way to modify a contract
+// on disk, and "we did not advertise it" is not the same guarantee as "it is
+// not there".
+func TestCatalogModeCannotReachTheAuthoringTools(t *testing.T) {
+	t.Parallel()
+	cat, _ := platformCatalog(t)
+	s := catalogSession(t, NewCatalogServer("v-test", cat))
+	for _, name := range []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			// The arguments are the ones that would make the call succeed on an
+			// authoring server, so a pass here means the tool is absent, not that
+			// the request was malformed.
+			_, err := s.CallTool(context.Background(), &mcpsdk.CallToolParams{
+				Name:      name,
+				Arguments: map[string]any{"name": "svc", "path": t.TempDir(), "dry_run": true},
+			})
+			if err == nil {
+				t.Errorf("CallTool(%s) succeeded; catalog mode must not expose it", name)
+			}
+		})
+	}
 }
 
 func TestAuthoringAndFleetServersExposeNoCatalogSurface(t *testing.T) {
@@ -847,7 +861,66 @@ func TestCatalogInstructionsSeparateDiscoveryFromTheFleet(t *testing.T) {
 			t.Errorf("instructions must mention %q, got:\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, "pacto_create") {
-		t.Errorf("catalog mode must keep the authoring instructions, got:\n%s", got)
+	// Instructions must not send a client at a tool this server does not have:
+	// catalog mode registers none of the authoring tools.
+	for _, absent := range []string{"pacto_create", "pacto_edit", "pacto_check", "pacto_schema"} {
+		if strings.Contains(got, absent) {
+			t.Errorf("catalog instructions name %s, which catalog mode does not expose, got:\n%s", absent, got)
+		}
+	}
+}
+
+// assertClosureHoldsNothing checks that a closure holding nothing still says so
+// as data: every collection present, every collection empty, none of them null.
+func assertClosureHoldsNothing(t *testing.T, got closureWire) {
+	t.Helper()
+	for name, list := range map[string]int{
+		"revisions": len(got.Revisions), "edges": len(got.Edges), "unresolved": len(got.Unresolved),
+		"conflicts": len(got.Conflicts), "cycles": len(got.Cycles),
+	} {
+		if list != 0 {
+			t.Errorf("%s = %d, want empty when no root resolved", name, list)
+		}
+	}
+	if got.Revisions == nil || got.Edges == nil || got.Unresolved == nil ||
+		got.Conflicts == nil || got.Cycles == nil {
+		t.Errorf("closure = %+v, want absent collections encoded as [] rather than null", got)
+	}
+}
+
+// TestCatalogClosureCarriesItsOwnCompleteness reads the closure on its own,
+// from a catalog where every root failed to resolve. Every collection is empty,
+// and without its own metadata that payload would be byte-indistinguishable
+// from an authoritative "the closure of these roots is empty".
+func TestCatalogClosureCarriesItsOwnCompleteness(t *testing.T) {
+	t.Parallel()
+	// Nothing is published: both roots are asked for, neither resolves.
+	cat := buildCatalogFixture(t, newStubResolver(), "oci://reg.example/one", "oci://reg.example/two")
+	s := catalogSession(t, NewCatalogServer("v-test", cat))
+
+	// Read the closure first and alone. The overview is the cheaper read, never
+	// a precondition for reading this one safely.
+	got := readJSON[closureWire](t, s, "pacto://catalog/closure")
+	assertClosureHoldsNothing(t, got)
+
+	// Empty because nothing could be resolved — not because there is nothing.
+	if got.Meta.Completeness != catalog.CompletenessPartial {
+		t.Errorf("completeness = %q, want partial", got.Meta.Completeness)
+	}
+	for _, ref := range []string{"oci://reg.example/one", "oci://reg.example/two"} {
+		if !slices.ContainsFunc(got.Meta.Limitations, func(l catalog.Limitation) bool {
+			return l.Code == catalog.LimitationRootUnresolved && l.Ref == ref
+		}) {
+			t.Errorf("limitations = %+v, want %s naming %s", got.Meta.Limitations, catalog.LimitationRootUnresolved, ref)
+		}
+	}
+	// Two roots were asked for and the walk was bounded: an empty answer under a
+	// non-empty request is the fact this payload has to be able to state.
+	assertSessionMeta(t, got.Meta, cat, 2)
+
+	// And it is the same session the overview describes, not a second answer.
+	overview := readJSON[overviewWire](t, s, "pacto://catalog")
+	if !reflect.DeepEqual(got.Meta, overview.Meta) {
+		t.Errorf("closure metadata = %+v, want the overview's %+v", got.Meta, overview.Meta)
 	}
 }

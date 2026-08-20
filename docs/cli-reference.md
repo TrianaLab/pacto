@@ -578,8 +578,8 @@ The default server exposes the authoring tools above. Three flags select a diffe
 |------------|--------|
 | `pacto mcp` | Authoring tools. |
 | `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |
-| `pacto mcp --fleet` | Read-only [operational-graph](operational-graph.md) query tools. |
-| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots. |
+| `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |
+| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |
 
 `--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.
 

@@ -317,11 +317,11 @@ One invocation selects exactly one server, and the modes cannot be combined:
 | Invocation | Surface |
 |------------|---------|
 | `pacto mcp` | Authoring tools over `internal/app` |
-| `pacto mcp <bundle-ref>` | One bundle's OpenAPI operations and skills (`pkg/capability`) |
-| `pacto mcp --fleet` | Read-only operational-graph queries (`pkg/fleet`) |
-| `pacto mcp --root <ref>` | Read-only contract catalog discovery (`pkg/catalog`) |
+| `pacto mcp <bundle-ref>` | Authoring tools plus one bundle's OpenAPI operations and skills (`pkg/capability`) |
+| `pacto mcp --fleet` | Authoring tools plus read-only operational-graph queries (`pkg/fleet`) |
+| `pacto mcp --root <ref>` | Read-only contract catalog discovery (`pkg/catalog`) — this surface only |
 
-Catalog mode builds the catalog once, before serving, from the repeated `--root` references. It is mostly MCP *resources* rather than tools, and the served session is frozen: handlers project the immutable `*Catalog` and reach neither a registry nor the filesystem.
+Catalog mode builds the catalog once, before serving, from the repeated `--root` references. It is mostly MCP *resources* rather than tools, and the served session is frozen: handlers project the immutable `*Catalog` and reach neither a registry nor the filesystem. It is also the one mode that does **not** register the authoring tools: two of them write `pacto.yaml` to disk, so a mode whose whole promise is read-only discovery starts from a bare server and adds only the discovery surface.
 
 ### `internal/logger` -- Logger setup
 

@@ -40,7 +40,11 @@ See [The Pacto Operational Graph](operational-graph.md) for the read model these
 tools query and the query semantics they expose.
 
 A fourth server mode — [contract catalog discovery](#contract-catalog-discovery) —
-is not a tool family: it is mostly MCP *resources*, with a single lookup tool.
+is not a tool family: it is mostly MCP *resources*, with a single lookup tool. It
+is also the one mode that does not carry the authoring tools alongside its own.
+The other three do: `pacto mcp <bundle-ref>` and `pacto mcp --fleet` each add
+their family on top of `pacto_create`, `pacto_edit`, `pacto_check` and
+`pacto_schema`.
 
 ---
 ## Contract catalog discovery
@@ -66,11 +70,22 @@ whole input, and the closure of those roots is the whole output.
 | URI / tool | What it answers |
 |------------|-----------------|
 | `pacto://catalog` | What this catalog is: schema version, catalog id, generation time, the bounds that applied, the completeness of the whole answer, and every requested root — including roots that did not resolve, and why. |
-| `pacto://catalog/closure` | What is in it: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and the conflicts and cycles left visible rather than resolved. |
+| `pacto://catalog/closure` | What is in it: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and the conflicts and cycles left visible rather than resolved — under the same catalog metadata. |
 | `pacto_catalog_revision` | One revision by its full identity — service name, domain, content scheme and content digest. |
 
-Read `pacto://catalog` first. It is the small half, and it carries the
-completeness of the whole answer.
+That is the whole surface. Catalog mode registers no authoring tools:
+`pacto_create` and `pacto_edit` write contract files, and a server started for
+read-only discovery must not be a way to modify one.
+
+`pacto://catalog` is the cheaper read, so reading it first is the recommended
+order — but it is not a precondition. Both resources carry the same catalog
+metadata, so either one is safe to read on its own. The repetition is
+deliberate: a resource can be read alone, in any order, and a payload carrying
+only data would be indistinguishable from an authoritative answer whenever the
+data happened to be empty. Ask for two roots that both fail to resolve and the
+closure is empty in every collection — the metadata travelling with it is what
+says `partial`, names each `ROOT_UNRESOLVED`, and keeps the two roots you
+actually requested visible.
 
 The lookup is a tool rather than a URI template because a revision's identity is
 four structured fields, and a service name or domain may contain `/`, `:`, `%` or

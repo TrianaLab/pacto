@@ -22,12 +22,20 @@ const (
 // catalogInstructions describe the read-only catalog discovery surface and,
 // just as importantly, what it is not: it is not the operational fleet, it is
 // not an authorization decision and it is not a way to run anything.
-const catalogInstructions = "Pacto also exposes a READ-ONLY contract catalog: the explicit contract roots " +
-	"this server was started with, plus their dependency closure, resolved once at startup and frozen. " +
-	"Read the resource pacto://catalog first — it carries the schema version, catalog id, generation " +
+//
+// They stand alone rather than extending the authoring instructions, because
+// this server registers no authoring tools. Instructions that named a tool the
+// server does not have would be an invitation to a call that cannot succeed.
+const catalogInstructions = "This Pacto server exposes exactly one thing: a READ-ONLY contract catalog — the " +
+	"explicit contract roots it was started with, plus their dependency closure, resolved once at " +
+	"startup and frozen. It has no contract-authoring tools, so nothing reachable here creates, edits " +
+	"or writes anything. " +
+	"Read the resource pacto://catalog for the schema version, catalog id, generation " +
 	"time, the bounds that applied, the completeness of the whole answer and every requested root, " +
 	"including roots that did not resolve and why. Read pacto://catalog/closure for the revisions, " +
-	"resolved dependency edges, unresolved dependencies, conflicts and cycles. Call " +
+	"resolved dependency edges, unresolved dependencies, conflicts and cycles. It is the cheaper read " +
+	"first, not a precondition: both resources carry the same catalog metadata, so either one is safe " +
+	"to read on its own. Call " +
 	"pacto_catalog_revision to look one revision up by its full identity (service name, domain, " +
 	"content scheme and content digest) instead of reading the whole closure. " +
 	"The catalog is NOT the fleet: it describes contracts discovered from the roots you supplied, " +
@@ -37,15 +45,22 @@ const catalogInstructions = "Pacto also exposes a READ-ONLY contract catalog: th
 	"catalog does not hold is unknown, not proven absent. Nothing here is authorization and nothing " +
 	"here executes anything; discovering a revision does not mean you may read, deploy or call it."
 
-// NewCatalogServer builds a server with the authoring tools plus the read-only
-// contract catalog discovery surface over cat.
+// NewCatalogServer builds a server whose entire surface is the read-only
+// contract catalog discovery surface over cat: two resources and one lookup
+// tool, and nothing else.
+//
+// It deliberately does not go through newServer. Catalog mode is a read-only
+// knowledge surface, and the authoring tools are not read-only — pacto_create
+// and pacto_edit write contract files to disk. Registering them here would hand
+// a client that asked for discovery a way to modify the filesystem, so this
+// mode starts from a bare server and adds only what discovery needs.
 //
 // cat is a frozen session: it was resolved once, before this server existed,
 // and nothing below can resolve, refresh or rebuild it. Every handler is a pure
 // read of a deep copy, so a registry tag that moves while this server runs does
 // not move any answer it gives.
 func NewCatalogServer(version string, cat *catalog.Catalog) *mcpsdk.Server {
-	server := newServer(version, baseInstructions+"\n\n"+catalogInstructions)
+	server := newBareServer(version, catalogInstructions)
 	registerCatalogSurface(server, cat)
 	return server
 }
@@ -53,13 +68,19 @@ func NewCatalogServer(version string, cat *catalog.Catalog) *mcpsdk.Server {
 // registerCatalogSurface adds the two discovery resources and the one identity
 // query.
 //
-// The split is by question, not by convenience, and the two resources share no
-// field: pacto://catalog answers "what is this catalog, what was asked for and
-// how much of it is known", which is small and always worth reading first;
-// pacto://catalog/closure answers "what is in it", which is bounded but far
-// larger. Serving the safety-critical half only as part of the large half would
-// make completeness expensive to check, and that is the half an agent must
-// never skip.
+// The split is by question, not by convenience: pacto://catalog answers "what
+// is this catalog, what was asked for and how much of it is known", which is
+// small and the cheaper first read; pacto://catalog/closure answers "what is in
+// it", which is bounded but far larger. Serving the completeness only as part
+// of the large half would make it expensive to check, and it is the part an
+// agent must never skip.
+//
+// Both therefore carry the same catalog.Meta. The repetition is deliberate: a
+// resource can be read on its own, in any order, so a payload that carried only
+// data would be indistinguishable from an authoritative answer whenever the
+// data happened to be empty. Every independently readable payload states its
+// own epistemic standing instead of borrowing it from a read that may never
+// happen.
 //
 // Everything else is a resource read, so the single tool has to earn its place:
 // a revision's identity is four structured fields the catalog core deliberately
@@ -102,8 +123,11 @@ type catalogOverview struct {
 }
 
 // catalogClosure is the bounded half: what the roots turned out to contain,
-// including everything that is known to be missing or contradictory.
+// including everything that is known to be missing or contradictory. Meta is
+// the same metadata the overview carries, so an empty closure can be told apart
+// from a complete one without a second read.
 type catalogClosure struct {
+	Meta       catalog.Meta         `json:"meta"`
 	Revisions  []catalog.Revision   `json:"revisions"`
 	Edges      []catalog.Edge       `json:"edges"`
 	Unresolved []catalog.Unresolved `json:"unresolved"`
@@ -135,6 +159,7 @@ func catalogOverviewHandler(cat *catalog.Catalog) mcpsdk.ResourceHandler {
 func catalogClosureHandler(cat *catalog.Catalog) mcpsdk.ResourceHandler {
 	return func(_ context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
 		return jsonResource(req.Params.URI, catalogClosure{
+			Meta:       cat.Meta(),
 			Revisions:  orEmpty(cat.Revisions()),
 			Edges:      orEmpty(cat.Edges()),
 			Unresolved: orEmpty(cat.Unresolved()),

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -103,6 +104,7 @@ type e2eOverview struct {
 }
 
 type e2eClosure struct {
+	Meta       catalog.Meta         `json:"meta"`
 	Revisions  []catalog.Revision   `json:"revisions"`
 	Edges      []catalog.Edge       `json:"edges"`
 	Unresolved []catalog.Unresolved `json:"unresolved"`
@@ -251,17 +253,16 @@ func TestMCPCatalogDiscoveryOverStdio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	var catalogTools []string
+	// The complete list, not the catalog family of it. The shipped binary must
+	// not reach pacto_create or pacto_edit here: both write contract files, and
+	// this server was asked for read-only discovery.
+	var toolNames []string
 	for _, tool := range tools.Tools {
-		if strings.HasPrefix(tool.Name, "pacto_catalog") {
-			catalogTools = append(catalogTools, tool.Name)
-		}
-		if strings.HasPrefix(tool.Name, "pacto_fleet") {
-			t.Errorf("catalog mode exposed the fleet tool %s", tool.Name)
-		}
+		toolNames = append(toolNames, tool.Name)
 	}
-	if !slices.Equal(catalogTools, []string{"pacto_catalog_revision"}) {
-		t.Errorf("catalog tools = %v, want exactly [pacto_catalog_revision]", catalogTools)
+	slices.Sort(toolNames)
+	if want := []string{"pacto_catalog_revision"}; !slices.Equal(toolNames, want) {
+		t.Errorf("tools = %v, want exactly %v", toolNames, want)
 	}
 
 	// --- what the catalog says ----------------------------------------------
@@ -313,6 +314,13 @@ func TestMCPCatalogDiscoveryOverStdio(t *testing.T) {
 
 	closureText := readCatalogResource(t, session, "pacto://catalog/closure")
 	closure := decodeJSON[e2eClosure](t, closureText)
+
+	// The closure states its own standing, and states the same one: a client
+	// that reads only this resource learns the answer is partial without having
+	// to know the overview exists.
+	if !reflect.DeepEqual(closure.Meta, overview.Meta) {
+		t.Errorf("closure metadata = %+v, want the overview's %+v", closure.Meta, overview.Meta)
+	}
 
 	if len(closure.Revisions) != 4 {
 		t.Fatalf("revisions = %d, want platform, orders, shared and edge", len(closure.Revisions))

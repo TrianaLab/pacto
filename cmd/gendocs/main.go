@@ -174,8 +174,8 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"|------------|--------|\n" +
 		"| `pacto mcp` | Authoring tools. |\n" +
 		"| `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |\n" +
-		"| `pacto mcp --fleet` | Read-only [operational-graph](operational-graph.md) query tools. |\n" +
-		"| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots. |\n\n" +
+		"| `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |\n" +
+		"| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |\n\n" +
 		"`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.\n\n" +
 		"See [MCP Integration](mcp-integration.md) for detailed setup with Claude and other AI tools, [Agent capabilities](mcp-integration.md#agent-capabilities) for serving a bundle's operations as tools, and [Contract catalog discovery](mcp-integration.md#contract-catalog-discovery) for the catalog surface.",
 }

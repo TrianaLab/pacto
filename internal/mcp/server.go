@@ -22,12 +22,20 @@ func NewServer(_ *app.Service, version string) *mcpsdk.Server {
 	return newServer(version, baseInstructions)
 }
 
-// newServer builds a server with the given instructions and the authoring tools.
-func newServer(version, instructions string) *mcpsdk.Server {
-	server := mcpsdk.NewServer(
+// newBareServer builds a server with no tools registered at all. A mode whose
+// surface must stay read-only cannot go through newServer, because two of the
+// authoring tools write to the filesystem; it still comes through here so every
+// mode shares one implementation identity and one place options are set.
+func newBareServer(version, instructions string) *mcpsdk.Server {
+	return mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "pacto", Version: version},
 		&mcpsdk.ServerOptions{Instructions: instructions},
 	)
+}
+
+// newServer builds a server with the given instructions and the authoring tools.
+func newServer(version, instructions string) *mcpsdk.Server {
+	server := newBareServer(version, instructions)
 	registerTools(server)
 	return server
 }
