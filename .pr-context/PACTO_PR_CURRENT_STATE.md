@@ -9002,3 +9002,47 @@ independent review at `1cc6a3aa` or later can.
 - Phase 11: CANDIDATE at `1cc6a3aa`, awaiting independent review of the residual
   edge-bound repair.
 - Phases 12 through 14: NOT STARTED.
+
+## 18.6 GitHub Actions at the ledger head `16b7c9a3`
+
+Section 18.5's own commit. The tree differs from the implementation SHA
+`1cc6a3aa` by exactly one file -- this document -- so nothing here is evidence
+about the catalog repair either way. The state below was queried at
+`2026-08-20T00:19:37Z` and is reported as observed, not as a verdict; re-query
+it at the exact SHA before accepting this handoff.
+
+Thirty-nine check runs, every workflow at `run_attempt=1`, no reruns requested:
+
+- Thirty-six completed success, including `ci-static`, `ci-gates`, `ci-engine`,
+  `ci-oci`, `ci-dashboard`, `ci-e2e-envtest`, `ci-e2e-compose`,
+  `ci-integration-kubernetes`, `dashboard-e2e`, `operator-build`,
+  `artifact-drift`, `release-version-test`, `release-dry-run`, `changes`,
+  `bundle`, `docs-check`, `repowise`, `validate`, the whole Security workflow
+  (`Trivy`, `Trivy (image)`, `govulncheck`, `govulncheck (Go)`, `PR security
+  summary`, and `Analyze` for `actions`, `go`, `javascript-typescript` and
+  `python`), and five of the six Kind shards -- `dashboard`, `upgrade`,
+  `reconcile`, `evidence`, `observation`.
+- `build` and `auto-merge`: skipped, as always on this PR.
+- `CodeQL`: failure -- the inherited-alerts aggregate carried since section 8,
+  unchanged and not a finding of this repair.
+- **`ci-e2e-kind (operational-graph)`: still `in_progress`, and disclosed rather
+  than waited out.** It started at `2026-08-19T21:10:58Z` and was still inside
+  `make test-acceptance-kind-operational-graph` three hours later. On the
+  identical product tree at `1cc6a3aa` the same shard finished green in 13
+  minutes 30 seconds (`20:31:45Z` to `20:45:15Z`). The job declares no
+  `timeout-minutes`, so GitHub will terminate it at the 360-minute default. In
+  consequence, CI run `32302431053` and the `required` aggregate had not
+  concluded at the observation time.
+
+Two things follow, and neither is an inference about `pkg/catalog`. First, the
+full green matrix for this repair is the one at the implementation SHA
+`1cc6a3aa` in section 18.5, where all 21 CI jobs -- including this same shard --
+passed on the first attempt. Second, this hang was NOT investigated or worked
+around: the commission forbids broadening into Kind or image-loading work
+without a reproducible source regression, one markdown file cannot be that
+regression, and no rerun, cancellation or harness change was made. It joins the
+disclosed harness-flake history for this shard family, alongside the
+`ci-e2e-kind (reconcile)` failure recorded at the docs-only SHA `a5fb3ecd` in
+section 18.4 -- which, for the record, did not recur at either SHA in this pass.
+
+Phase 11 remains a CANDIDATE at `1cc6a3aa`. Phase 12 is not started.
