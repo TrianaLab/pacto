@@ -9046,3 +9046,72 @@ disclosed harness-flake history for this shard family, alongside the
 section 18.4 -- which, for the record, did not recur at either SHA in this pass.
 
 Phase 11 remains a CANDIDATE at `1cc6a3aa`. Phase 12 is not started.
+
+## 18.7 The lint gate turned red at `2a6c953a`, and why it is not this repair
+
+Section 18.6's own commit is the head `2a6c953a`. Its tree differs from the
+implementation SHA `1cc6a3aa` by exactly one file -- this document. State below
+queried at `2026-08-20T01:04Z`.
+
+Forty check runs: thirty-five success, two skipped (`build`, `auto-merge`) and
+three failure -- `ci-static`, the `required` aggregate that reads it and the
+inherited `CodeQL` alerts carried since section 8. All six Kind shards passed,
+`ci-e2e-kind (operational-graph)` among them in 7 minutes 7 seconds
+(`00:21:14Z` to `00:28:21Z`), so the three-hour hang disclosed in section 18.6
+did not recur and is now on the record as a one-off.
+
+`ci-static` failed in `make ci-lint`, with three staticcheck findings in files
+this branch does not touch:
+
+```
+internal/cli/login_test.go:193:2:  SA9010: deferred return function not called
+internal/cli/logout_test.go:185:2: SA9010: deferred return function not called
+internal/cli/logout_test.go:382:2: SA9010: deferred return function not called
+        defer oci.SetUserHomeDirFn(old)
+```
+
+**Cause: the linter version floated, the source did not.** `.github/actions/ci`
+pins the *action* by commit (`golangci/golangci-lint-action` v9.2.0) but passes
+`install-only: true` with no `version:`, so the *binary* is whatever `latest`
+resolves to at run time. The job log says so directly: `1cc6a3aa` at
+`2026-08-19T20:32:56Z` used **v2.12.2**, `2a6c953a` at `2026-08-20T00:21:51Z`
+used **v2.13.0**, which was published at `2026-08-19T23:29:17Z` -- between the
+two runs. The analysis-cache key carries the same fact (`golangci-lint.cache-
+Linux-2954-...` hit, then `...-2955-...` miss).
+
+Isolated locally at this exact head, each with its own cold cache directory so
+no warm cache could mask a finding:
+
+| Run | Result |
+|---|---|
+| v2.12.2, `./internal/cli/...` | `0 issues.` |
+| v2.13.0, `./internal/cli/...` | the identical three SA9010 findings |
+| v2.13.0, `./pkg/catalog/...` | `0 issues.` |
+
+So the new linter finds nothing in the repair, and the version -- not a stale
+cache and not this branch -- is what changed the verdict.
+
+**Provenance: inherited from `main`.** `git diff 83f2e66d...HEAD` reports no
+change to either test file, the three sites were authored on 2026-03-04 in
+`a8ff7c26`, and `SetUserHomeDirFn`'s value-returning signature already exists at
+the merge base. `main` will fail its next lint run the same way; nothing about
+that is specific to this PR.
+
+**And the finding is a false positive for this idiom.** SA9010 exists for
+`defer f()` where `f` *returns* the cleanup you meant to run. Here the returned
+value is the hook being replaced, not a cleanup: `defer oci.SetUserHomeDirFn(old)`
+restores the old hook and discards the older one, which is exactly right. A
+repair would be a reasoned `nolint` or `defer func() { _ = oci.SetUserHomeDirFn(old) }()`
+-- but the load-bearing one is to pin the linter version in the action, so
+`latest` cannot move a required gate underneath an open review again.
+
+**None of that was done here, deliberately.** It is unrelated to Phase 11, it
+touches files this repair has no business in, and it belongs on `main` rather
+than smuggled into this branch as drift. No gate was weakened to get past it:
+nothing was disabled, excluded, `nolint`-ed or downgraded, and the red check is
+left red and named. In consequence this section's own commit will produce a head
+whose `ci-static` fails identically until the linter question is settled on
+`main`; the full green matrix for the repair remains the one at `1cc6a3aa` in
+section 18.5.
+
+Phase 11 remains a CANDIDATE at `1cc6a3aa`. Phase 12 is not started.
