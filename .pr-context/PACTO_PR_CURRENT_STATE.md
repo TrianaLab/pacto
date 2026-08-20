@@ -10517,3 +10517,120 @@ reviewer's act, not the author's.
 
 The PR remains an open draft, and the append-only, no-history-rewrite and
 independent-review protocol continues unchanged.
+
+## 20.1 Independent review at `a22e6d36` -- Phase 12 NARROWLY REOPENED
+
+Independent review covered the append-only range
+`6768ddedf0cb2fba1023549af7b4cfbda5b449bd..a22e6d36d639f9d11fb36eb3603c7ee327565f6f`,
+with implementation head `533445a55484a662de448b79e37dbb77f2839344`.
+The six commits are linear, single-parent descendants of the section 19.4
+review head. The merge-base and `origin/main` remain
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`. Local HEAD, the remote branch and
+the PR head were exactly `a22e6d36` at review start; the PR was OPEN, DRAFT and
+MERGEABLE. Phase 13 has not started.
+
+### Accepted parts
+
+- `--root` is repeatable, distinguishes presence from an empty value, rejects
+  empty roots and rejects combinations with a positional capability bundle or
+  `--fleet`. Catalog construction delegates to `svc.CatalogResolver()` and
+  occurs before the server is returned.
+- The accepted `pkg/catalog` core is untouched. Local and OCI identities,
+  requested and resolved references, paths, ranks, unresolved dependencies,
+  conflicts and cycles cross the protocol as their existing structured types.
+- Two fixed resources avoid an identity-bearing URI template, and the one
+  revision lookup tool accepts the four identity components separately. The
+  hostile-identity and moved-tag cases are substantive and pass.
+- The shipped-binary stdio E2E uses both local and real-registry roots, proves a
+  diamond/shared revision, exposes a classified unresolved dependency, moves a
+  tag, removes the local root and stops the registry before confirming that the
+  frozen resources remain byte-identical.
+- Focused independent runs pass: race tests for `internal/mcp` and
+  `internal/cli`, both `TestMCPCatalog*` integration tests, `make
+  check-section`, and `git diff --check`.
+- GitHub corroborates the reported green state. CI is 21/21 at implementation
+  head `533445a5` in run `32368296245` and at ledger head `a22e6d36` in run
+  `32369451579`, both attempt 1. At each SHA the full check population is 37
+  success, two expected skips and the inherited aggregate CodeQL failure.
+  Code-scanning still returns the same nine alerts, 38, 40 through 43 and 59
+  through 62. Fully paginated review threads remain 199 total, 189 resolved and
+  10 unresolved. Both deltas are zero.
+
+### Blocker A -- catalog mode is not read-only
+
+`NewCatalogServer` calls `newServer`, and `newServer` unconditionally registers
+the four authoring tools. Consequently a real catalog-mode MCP session lists:
+
+```text
+pacto_catalog_revision pacto_check pacto_create pacto_edit pacto_schema
+```
+
+`pacto_create` and `pacto_edit` write contract files. A server exposing them is
+not the read-only discovery server promised by the Phase 12 target, CLI help,
+public documentation, commit subjects and section 20. The issue is not merely
+wording: a client that selected catalog mode can mutate the filesystem through
+the same session.
+
+The permanent server test encodes the bug by requiring all four authoring tools
+to remain registered. The shipped-binary E2E only counts tools whose names start
+with `pacto_catalog`, so it reports "exactly one" while ignoring the other four.
+The reviewer temporarily inverted that assertion to enforce a read-only catalog
+surface; `TestCatalogServerExposesTheWholeDiscoverySurfaceAndNothingElse` failed
+on all four leaked tools. The mutation was restored and the tracked tree is
+clean.
+
+Catalog mode needs a catalog-only server constructor/instruction set and a
+permanent exact tool-list assertion. Existing authoring, capability and Fleet
+modes remain separate accepted behaviour and must not be redesigned as part of
+this repair.
+
+### Blocker B -- the closure resource can present partial unknown knowledge as authoritative empty data
+
+`pacto://catalog/closure` contains only `revisions`, `edges`, `unresolved`,
+`conflicts` and `cycles`. It carries neither `Meta` nor any catalog ID,
+completeness or limitations. The record justifies this by saying a client must
+read `pacto://catalog` first, but MCP resource reads are independent; prose
+cannot make that ordering a protocol invariant.
+
+The counterexample is an explicit non-empty root set in which every root fails
+to resolve. The overview truthfully says `partial` and retains the unresolved
+root, while a direct closure read returns exactly:
+
+```json
+{
+  "revisions": [],
+  "edges": [],
+  "unresolved": [],
+  "conflicts": [],
+  "cycles": []
+}
+```
+
+That payload is indistinguishable from authoritative empty closure data and
+violates the accepted rule that partial is neither empty nor complete. The
+reviewer added this all-unresolved probe temporarily; it failed because the
+closure JSON had no `meta`, then the probe was removed and the tracked tree was
+restored clean.
+
+Keep the accepted two-resource split, but make every closure response
+self-describing with the accepted catalog standing. Reusing the complete
+`catalog.Meta` is simpler and safer than inventing another reduced status DTO.
+Add a permanent all-roots-unresolved protocol test that reads the closure
+directly, without first reading the overview, and proves partial completeness
+and its limitations travel with the empty collections. Update documentation and
+section 20's "share no field" rationale through an appended correction; do not
+rewrite history.
+
+### Verdict and phase map
+
+**Phase 12 is NARROWLY REOPENED on Blockers A and B.** Its resolver reuse,
+structured identity, frozen-session construction, local/OCI E2E and most of the
+protocol projection are accepted. Closure is withheld because the selected
+catalog server still exposes filesystem-mutating tools and because one of its
+independently readable resources loses the completeness needed to interpret an
+empty result.
+
+- Phases 1 through 11: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: ACCEPTED and CLOSED.
+- Phase 12: NARROWLY REOPENED on Blockers A and B.
+- Phases 13 and 14: NOT STARTED.
