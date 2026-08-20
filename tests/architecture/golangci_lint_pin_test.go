@@ -50,7 +50,7 @@ func ciActionSteps(t *testing.T) (string, []compositeStep) {
 	}
 	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile))) // tests/architecture -> repo root
 	path := filepath.Join(root, ".github", "actions", "ci", "action.yml")
-	b, err := os.ReadFile(path) //nolint:gosec // a path this test computed
+	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
