@@ -10634,3 +10634,381 @@ empty result.
 - Inter-phase required-CI determinism repair: ACCEPTED and CLOSED.
 - Phase 12: NARROWLY REOPENED on Blockers A and B.
 - Phases 13 and 14: NOT STARTED.
+
+## 20.2 Phase 12 repair at `2b8131c3` -- catalog mode made read-only, closure made self-describing
+
+Blockers A and B from section 20.1 are repaired at implementation head
+`2b8131c3f6460b5e19c37016ca6ca2d303bc0b50`, a linear single-parent child of the
+review head `4c83912e7cb4e51df51427fbc91e44ef92228882`. The append-only
+ancestry through `6768dded`, `533445a5`, `a22e6d36` and `4c83912e` is intact.
+Nothing was amended, rebased, squashed, reset, rewritten or force-pushed. The
+merge-base and `origin/main` remain
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`. The PR is still OPEN, DRAFT and
+MERGEABLE. Phase 13 has not started and no Phase 13 surface exists.
+
+The repair is deliberately narrow. Everything section 20.1 accepted is
+untouched and was not redesigned: repeatable `--root` with fail-closed empty
+values and mutual exclusion against a positional capability bundle and
+`--fleet`; construction through `svc.CatalogResolver()` exactly once before the
+server is returned; the frozen session; local and OCI roots; mutable-tag
+pinning at startup; the two fixed resource URIs; no resource templates; the
+four-field structured revision identity; the single `pacto_catalog_revision`
+lookup; and the shipped-binary local-plus-OCI stdio E2E. `pkg/catalog` is
+byte-identical, and no second query surface was added.
+
+Eight files changed, +192 / -63: `internal/mcp/server.go`,
+`internal/mcp/catalog.go`, `internal/mcp/catalog_test.go`,
+`tests/integration/mcp_catalog_test.go`, `cmd/gendocs/main.go`,
+`docs/cli-reference.md` (generated), `docs/architecture.md` and
+`docs/mcp-integration.md`.
+
+### Three claims in the earlier record were wrong
+
+Sections 20 and 20.1 are not rewritten. As in section 19.3, the correction is
+made here, in an appended section:
+
+1. **Section 20 recorded that catalog mode exposes exactly one tool. It did
+   not.** Every real catalog session also listed `pacto_check`, `pacto_create`,
+   `pacto_edit` and `pacto_schema`, because `NewCatalogServer` went through
+   `newServer`.
+2. **Section 20 recorded the catalog server as read-only. It was not.**
+   `pacto_create` and `pacto_edit` write contract files to disk, so a client
+   that asked for discovery could modify the filesystem in the same session.
+   The claim was true of the intent and false of the code.
+3. **Section 20 justified the two-resource split by saying the resources share
+   no field, and required a client to read `pacto://catalog` first.** MCP
+   resource reads are independent, so that ordering was prose and never a
+   protocol invariant. The two resources now deliberately share `catalog.Meta`,
+   and reading the overview first is a cost recommendation rather than a
+   correctness precondition.
+
+Section 20's own tool-count and read-only statements should be read through
+this section from here on.
+
+### Blocker A -- catalog mode is now read-only
+
+**Root cause.** `NewCatalogServer` called `newServer`, and `newServer`
+unconditionally calls `registerTools`, which registers the four authoring
+tools. There was no way to build a server that shared the one MCP
+implementation identity and the one options struct without also inheriting the
+authoring surface.
+
+**Repair.** `internal/mcp/server.go` gains `newBareServer(version,
+instructions)`: it constructs the `mcpsdk.Server` from the same
+`mcpsdk.Implementation` and `mcpsdk.ServerOptions` and registers nothing.
+`newServer` is now `newBareServer` followed by `registerTools`, so authoring,
+capability and fleet modes are behaviourally unchanged -- same tools, same
+registration order, same instructions. `NewCatalogServer` calls `newBareServer`
+and then `registerCatalogSurface`. That is the entire mechanism: one extracted
+constructor, no new type, no options plumbing, no registry and no duplicated
+implementation metadata.
+
+`catalogInstructions` were rewritten to stand alone. They previously extended
+the authoring instructions and named authoring tools; a server that does not
+register those tools must not tell a client to call them. The new text states
+that the server has no contract-authoring tools, that nothing reachable there
+creates, edits or writes anything, and keeps the catalog-is-not-the-fleet,
+identity and not-authorization boundaries.
+
+**The complete catalog-mode surface, now asserted rather than described:**
+
+```text
+tools:              pacto_catalog_revision
+resources:          pacto://catalog   pacto://catalog/closure
+resource templates: (none)
+```
+
+**RED against the starting implementation.** Mutation 1 below restores exactly
+the starting implementation -- `NewCatalogServer` calling `newServer` -- and
+three permanent tests fail on it, including the shipped binary. The tests that
+encoded the bug were corrected, not extended:
+
+- `assertCatalogToolSurface` (`internal/mcp/catalog_test.go:291`) now compares
+  the sorted complete tool list against `[pacto_catalog_revision]`. It no
+  longer counts names with a `pacto_catalog` prefix, which is what let four
+  extra tools pass unnoticed.
+- `TestCatalogServerExposesTheWholeDiscoverySurfaceAndNothingElse`
+  (`catalog_test.go:299`) no longer asserts that the authoring tools remain
+  registered.
+- `TestCatalogModeCannotReachTheAuthoringTools` (`catalog_test.go:330`) is new
+  and proves unavailability rather than absence from a list: it calls
+  `pacto_create`, `pacto_edit`, `pacto_check` and `pacto_schema` over a real
+  session and requires each call to fail.
+- `TestCatalogInstructionsSeparateDiscoveryFromTheFleet`
+  (`catalog_test.go:854`) previously required the instructions to mention
+  `pacto_create`. It now requires the opposite: none of the four authoring tool
+  names may appear in text served by a server that does not have them.
+- `TestMCPCatalogDiscoveryOverStdio` (`tests/integration/mcp_catalog_test.go`)
+  asserts the same exact complete list against the shipped binary over stdio.
+- `TestAuthoringAndFleetServersExposeNoCatalogSurface` is unchanged and still
+  holds the line in the other direction.
+
+### Blocker B -- the closure resource carries its own epistemic standing
+
+**Root cause.** `catalogClosure` held only `revisions`, `edges`, `unresolved`,
+`conflicts` and `cycles`. Section 20.1's counterexample is exact: an explicit,
+non-empty root set in which every root fails to resolve produced a closure
+payload indistinguishable from an authoritative empty answer.
+
+**Repair.** `catalogClosure` gains `Meta catalog.Meta` as its first field,
+populated from `cat.Meta()` on every read -- the accepted metadata type, not a
+second reduced completeness DTO. The two resources are still two resources with
+their own URIs and their own halves of the answer; the overview and its roots
+are unchanged; absent collections are still encoded as `[]` by `orEmpty`.
+
+The rationale comment on `registerCatalogSurface` was rewritten. The split
+remains by question -- "what is this catalog and how much of it is known"
+against "what is in it" -- and the overview remains the cheaper first read. The
+repetition of the metadata is now stated as deliberate: a resource can be read
+on its own, in any order, so every independently readable payload states its
+own epistemic standing instead of borrowing it from a read that may never
+happen.
+
+**The direct all-roots-unresolved closure read, captured from a real in-memory
+MCP session:**
+
+```json
+{
+  "meta": {
+    "schemaVersion": "pacto.dev/catalog/v1",
+    "catalogId": "sha256:ca3ac0512dfc584ae2856a5342a00294856f5a84a4878f39cf39fd396792e7c6",
+    "generatedAt": "2026-08-20T09:00:00Z",
+    "completeness": "partial",
+    "bounds": {
+      "maxRoots": 50, "maxRevisions": 500, "maxEdges": 2000, "maxDepth": 10,
+      "maxPaths": 20, "maxPathLength": 10, "maxUnresolved": 200,
+      "maxConflicts": 200, "maxLimitations": 100
+    },
+    "requestedRoots": 2,
+    "limitations": [
+      { "code": "ROOT_UNRESOLVED", "ref": "oci://reg.example/one", "message": "the requested root did not resolve" },
+      { "code": "ROOT_UNRESOLVED", "ref": "oci://reg.example/two", "message": "the requested root did not resolve" }
+    ]
+  },
+  "revisions": [], "edges": [], "unresolved": [], "conflicts": [], "cycles": []
+}
+```
+
+**RED against the starting implementation.** Mutation 2 below removes the field
+and the assignment, restoring the starting implementation, and the new test
+fails on four separate assertions plus the shipped-binary E2E.
+
+- `TestCatalogClosureCarriesItsOwnCompleteness` (`catalog_test.go:895`) is new.
+  It reads `pacto://catalog/closure` **first**, without reading the overview at
+  all, on a catalog whose two requested roots both failed to resolve. It proves
+  every collection is empty and encoded as `[]` rather than `null`
+  (`assertClosureHoldsNothing`, `catalog_test.go:875`), that
+  `meta.completeness` is `partial`, that both `ROOT_UNRESOLVED` limitations are
+  present with their refs, that `requestedRoots` is 2 and the effective bounds
+  survive (`assertSessionMeta`), and finally -- only then -- that the metadata
+  is `reflect.DeepEqual` to the overview's. `catalog.Meta` holds a slice, so it
+  is not comparable with `==`.
+- `TestMCPCatalogDiscoveryOverStdio` now decodes `meta` from the closure of the
+  normal partial-dependency E2E and requires it to equal the overview's,
+  against the shipped binary.
+
+### Documentation corrected
+
+- `cmd/gendocs/main.go`, "Server modes": `pacto mcp --fleet` is now described
+  as "authoring tools plus read-only operational-graph query tools", which is
+  its actual accepted behaviour; the previous wording implied fleet mode
+  contained only fleet tools. The catalog row states that catalog mode
+  registers no authoring tools. **No fleet behaviour changed** -- this is a
+  documentation correction only.
+- `docs/cli-reference.md` regenerated by `make gen-cli-docs` and committed; the
+  only diff is those two rows.
+- `docs/architecture.md`, `internal/mcp` mode table: capability and fleet rows
+  now read "Authoring tools plus ..."; the catalog row is "this surface only",
+  and the paragraph below records that catalog mode is the one mode that does
+  not register the authoring tools, and why.
+- `docs/mcp-integration.md`: the fourth-server-mode paragraph now states
+  catalog mode is the only mode without the authoring tools; the surface table
+  notes the closure travels under the same catalog metadata; and the false
+  "read `pacto://catalog` first" correctness rule is replaced by an explanation
+  that it is the cheaper read, that both resources carry the same metadata,
+  that the repetition is deliberate, and what an all-roots-unresolved closure
+  would otherwise look like.
+
+### Mutation evidence
+
+Both mutations were run twice: once mid-flight against the uncommitted tree,
+and once against the committed tree at `2b8131c3`. Every line number below is
+from the second run, so it is the shipped one. Each mutation was reverted
+immediately and the tree confirmed identical to `HEAD` (`git diff --stat HEAD`
+empty, `git status --short` listing only the four inherited untracked agent
+paths).
+
+| # | Mutation (the starting implementation, restored) | Tests that failed |
+|---|---|---|
+| 1 | `NewCatalogServer` calls `newServer` instead of `newBareServer` | `TestCatalogServerExposesTheWholeDiscoverySurfaceAndNothingElse` -- `catalog_test.go:322: tools = [pacto_catalog_revision pacto_check pacto_create pacto_edit pacto_schema], want exactly [pacto_catalog_revision]`; all four subtests of `TestCatalogModeCannotReachTheAuthoringTools` at `catalog_test.go:345`; shipped-binary `TestMCPCatalogDiscoveryOverStdio` with the identical message at `mcp_catalog_test.go:265` |
+| 2 | `Meta` field and `Meta: cat.Meta()` removed from `catalogClosure` | `TestCatalogClosureCarriesItsOwnCompleteness` at `catalog_test.go:908` (`completeness = "", want partial`), `:914` (both `ROOT_UNRESOLVED` limitations), `:919` (schema version, catalog id, generation time, requested roots and effective bounds, via `assertSessionMeta`) and `:924` (the closure metadata disagreeing with the overview's); shipped-binary `TestMCPCatalogDiscoveryOverStdio` at `mcp_catalog_test.go:322` |
+
+Disclosure on method: during the mid-flight run, mutation 2 was reverted with
+`git checkout --`, which reset the file to `HEAD` and destroyed the repair,
+because the working tree was then ahead of `HEAD`. A `shasum -a 256 -c`
+manifest over the eight changed files caught it immediately and the file was
+rebuilt and re-verified. A mutation in an uncommitted tree must be reverted by
+the inverse edit; `git checkout --` is only safe once the tree matches `HEAD`,
+which is why it was used for the second run.
+
+### The new assertions run on the existing required path
+
+No parallel or manually invoked gate was created. `ci` runs `ci-engine`
+(`ci.mk`), `ci-engine` runs `ci-test` and `test-integration`, `ci-test` covers
+`./internal/mcp/...` under the 100% coverage gate, and `test-integration` runs
+`go test -tags integration ./tests/integration/`, which is where
+`TestMCPCatalogDiscoveryOverStdio` lives. The `required` job depends on the
+whole set.
+
+### Local verification at `2b8131c3`
+
+| Command | Result |
+|---|---|
+| `go test -race -count=1 ./internal/mcp/... ./internal/cli/...` | ok, both packages |
+| `go test -tags integration -run TestMCPCatalog ./tests/integration/` | ok |
+| `make ci` | exit 0, `total coverage: 100.0%` |
+| `make artifact-drift` | `artifact-drift: OK`, exit 0 |
+| `make release-dry-run` | `K8S-MODULE-STANDALONE OK` and `RELEASE-DRY-RUN OK`, exit 0 |
+| `make docs-check` | `docs-check: 9/9 checks passed`, exit 0 |
+| `make gen-cli-docs` + `git diff --exit-code docs/cli-reference.md` | clean (via `ci-docs`) |
+| `govulncheck ./...` | No vulnerabilities found |
+| `git diff --check` | clean |
+| `make check-section` | zero section-sign characters in authored files |
+
+The review request named `make ase-dry-run`. **No such target exists in this
+repository**; the release dry run is `make release-dry-run` (`ci.mk`), and that
+is what was run rather than inventing a target to match the name.
+
+Two `make ci` failures were fixed during the pass rather than worked around:
+`ci-cyclo` flagged the new test at cyclomatic complexity 16 (threshold 15),
+fixed by extracting `assertClosureHoldsNothing` in the file's existing
+named-assertion style; and `ci-docs` failed because it runs
+`git diff --exit-code docs/cli-reference.md`, so regenerated-but-uncommitted
+docs read as drift -- fixed by committing, after which `make ci` is green.
+
+### GitHub Actions at implementation head `2b8131c3`
+
+Forty check runs, 37 success, two expected skips (`build`, `auto-merge`) and
+the one inherited aggregate CodeQL failure -- the same population as every
+earlier head. Every workflow at attempt 1.
+
+CI run `32384091405`, attempt 1, **success**, all 21 jobs green:
+`changes` `96474158538`, `ci-integration-kubernetes` `96474221887`,
+`ci-engine` `96474221918`, `ci-e2e-envtest` `96474221970`, `ci-oci`
+`96474221989`, `ci-static` `96474222030`, `ci-e2e-compose` `96474222043`,
+`dashboard-e2e` `96474222056`, `release-dry-run` `96474222063`,
+`artifact-drift` `96474222103`, `operator-build` `96474222104`, `ci-gates`
+`96474222112`, `release-version-test` `96474222117`,
+`ci-e2e-kind (observation)` `96474222166`, `ci-e2e-kind (reconcile)`
+`96474222201`, `ci-e2e-kind (dashboard)` `96474222213`,
+`ci-e2e-kind (operational-graph)` `96474222222`, `ci-e2e-kind (upgrade)`
+`96474222261`, `ci-dashboard` `96474222265`, `ci-e2e-kind (evidence)`
+`96474222288` and `required` `96477950786`.
+
+| Workflow | Run | Jobs | Result |
+|---|---|---|---|
+| Pacto Contract CI | `32384091443` | `bundle` `96474158375` | success |
+| Security | `32384091501` | `Trivy (image)` `96474158390`, `govulncheck (Go)` `96474158785`, `PR security summary` `96474621271` | success |
+| Docs check | `32384091409` | `docs-check` `96474158195` | success |
+| Repowise (architecture health) | `32384091455` | `repowise` `96474158668` | success |
+| Validate PR title | `32384091491` | `validate` `96474158039` | success |
+| PR #291 (dynamic CodeQL) | `32384086876` | `Analyze` for `go` `96474150172`, `python` `96474150258`, `javascript-typescript` `96474150342`, `actions` `96474150471` | success |
+| Code Quality: PR #291 (dynamic CodeQL) | `32384086872` | `Analyze` for `python` `96474149783`, `javascript-typescript` `96474150121`, `go` `96474150220` | success |
+| Rebuild dashboard UI | `32384091480` | -- | skipped |
+| Auto-merge Dependabot PRs | `32384091352` | -- | skipped |
+
+All six Kind shards, Compose, `required`, Security, Docs check, Pacto Contract
+CI, Repowise and Validate PR title are green. Nothing was called green before
+GitHub finished: `release-dry-run` was still `in_progress` on the first poll
+and was re-polled to completion.
+
+### CodeQL and review threads
+
+The aggregate `CodeQL` check `96474338475` from `github-advanced-security` is
+the single failure, reporting "8 new alerts including 8 high severity security
+vulnerabilities" -- the inherited condition carried since section 8, and still
+a different claim from the seven green `Analyze` jobs.
+
+Code scanning returns nine open alerts on `refs/pull/291/head`, exactly the
+inherited nine: `38` (`py/incomplete-url-substring-sanitization`,
+`release/scripts/docs_check.py:197`), `40` through `43` (`go/path-injection`,
+`internal/app/resolve.go` lines 35, 43, 57 and 67) and `59` through `62`
+(`go/path-injection`, `pkg/oci/cache.go` lines 375, 394, 395 and 666). The
+analyses at `2b8131c3` report `go` 9 (`1647975095`), `python` 1
+(`1647965980`), `javascript-typescript` 0 (`1647967942`) and `actions` 0
+(`1647964348`). **The CodeQL delta for this repair is ZERO**: none added, none
+removed, none dismissed, none worked on.
+
+Review threads were paginated in full -- page one returned 100 with
+`hasNextPage: true` and page two the remaining 99, and page one hides every
+unresolved thread: **199 total, 189 resolved, 10 unresolved**. The ten are the
+inherited set: six `github-code-quality` threads on the generated Mermaid
+bundle `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` and four
+`github-advanced-security` threads on `pkg/oci/cache.go` lines 375, 394, 395
+and 666. **The thread delta is ZERO.** No comment was published, no thread
+resolved or replied to, and no PR comment, review thread or metadata was
+changed.
+
+### Hygiene and disclosures
+
+- No changeset was added, for the same reason recorded in section 20:
+  `.changeset/` still holds only `operational-graph-fleet.md`, and per-phase
+  changesets are a Phase 14 decision.
+- `docs/cli-reference.md` is generated, produced by `make gen-cli-docs` and
+  committed, never hand-edited.
+- `make ci` again regenerated
+  `integrations/kubernetes/charts/pacto-dev-gateway/README.md` from helm-docs,
+  as in every prior pass. It was restored with `git checkout --` and not
+  committed; the drift check itself passes. The generator quirk predates this
+  repair and is not fixed here.
+- No authored frontend input changed, so the committed UI bundle was not
+  rebuilt and the UI drift checks are clean against the existing one.
+- `## Three tool families and their boundaries` in `docs/mcp-integration.md`
+  remains un-renamed for the reason given in section 20:
+  `docs/operational-graph.md:321` and `docs/impact.md:142` link that anchor.
+- The four inherited untracked agent paths `.claude/`, `.codex/`, `.mcp.json`
+  and `AGENTS.md` were never touched and remain untracked. `git status
+  --short` at the implementation head lists those four and nothing else.
+- No literal section-sign character was authored in any file or commit message,
+  and `make check-section` confirms it.
+- All three tracked files under `.pr-context/` were read in full before any
+  change. `PACTO_PR_TARGET_STATE.md` was not modified.
+
+### Deliberately not done
+
+- No change to `pkg/catalog` and no change to Phase 11 semantics.
+- No change to the accepted two-resource, one-tool design beyond the two
+  blockers: the resources were not merged, no resource template was added, no
+  tool or query language was added, and no second completeness DTO was
+  invented.
+- No change to OCI resolution, credentials or caching; no persistent state,
+  refresh, crawling, authorization or execution.
+- No change to authoring, capability or fleet **behaviour**. Those modes still
+  go through `newServer` and register exactly what they registered before; only
+  their documentation was corrected.
+- No work on the nine inherited CodeQL alerts or the ten inherited review
+  threads, which stay OPEN and outside this repair's scope.
+- Phase 13 was not started.
+
+### Verdict
+
+**Phase 12 remains a CANDIDATE, now at implementation head `2b8131c3`, and is
+NOT self-declared CLOSED.** Catalog mode is a read-only surface whose complete
+tool list is asserted by the unit tests and by the shipped binary, and whose
+authoring tools are proven unreachable rather than merely unlisted. Each of its
+two independently readable resources now states its own epistemic standing, so
+an empty closure can no longer pass for an authoritative one. Both blockers are
+backed by a mutation that restores the starting implementation and by the named
+tests that fail on it. Closing Phase 12 is the reviewer's act, not the
+author's.
+
+### Current phase map
+
+- Phases 1 through 11: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: ACCEPTED and CLOSED.
+- Phase 12: CANDIDATE at `2b8131c3` after the Blocker A and Blocker B repair,
+  awaiting independent review.
+- Phases 13 and 14: NOT STARTED.
+
+The PR remains an open draft, and the append-only, no-history-rewrite and
+independent-review protocol continues unchanged.
