@@ -9722,3 +9722,87 @@ aggregate `CodeQL` condition.
 
 The PR is OPEN, DRAFT and MERGEABLE at this head; `origin/main` and the
 merge-base are still `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+
+## 19.2 Independent review at ledger head `66a25b7d` -- NARROWLY REOPENED
+
+Independent review covered the append-only range
+`3c3665a17cf6fe355e3099ff10f3e9a1fdab22d7..66a25b7d5c1f700d5b9e46b157351dbb9e93ff6c`,
+with implementation tree `e47e3bb4728cbcbc7c8509a67e054f7755e506d8`.
+The three commits are linear, single-parent descendants of `3c3665a1`; the
+merge-base with `origin/main` remains
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`. The PR remains OPEN, DRAFT and
+MERGEABLE, with remote head exactly `66a25b7d`. `PACTO_PR_TARGET_STATE.md`,
+Phase 11 product code and Phase 12 are untouched.
+
+### Accepted parts
+
+- `.github/actions/ci/action.yml` keeps the action pinned to the existing
+  40-hex commit and now pins the installed binary to `v2.13.0`; there is no
+  second version source and `install-only: true` remains intact.
+- The ten inherited SA9010 sites were changed only from an uncalled deferred
+  return function to explicit `t.Cleanup` callbacks. No production behaviour or
+  linter configuration changed. Focused race tests for `tests/architecture`,
+  `internal/app` and `pkg/oci` pass.
+- The structural gate parses the composite action, requires exactly one
+  installer, a commit-pinned action, a full `vX.Y.Z` binary version and
+  `install-only: true`. Independent mutation of `version: v2.13.0` to
+  `version: latest` makes the permanent gate fail for the intended reason;
+  after restoration the tracked tree is clean.
+- GitHub independently corroborates the runtime pin. In implementation run
+  `32339908832`, job `96336783067` logs `version: v2.13.0`, installs exactly
+  v2.13.0 and reports `0 issues.`. All 21 CI jobs pass at `e47e3bb4`, and all
+  21 also pass at ledger head `66a25b7d` in run `32342315009`, including
+  `ci-static`, all six Kind shards, Compose and `required`. The other expected
+  workflows pass; the aggregate CodeQL check remains the inherited failure.
+- Review-thread pagination still yields 199 total, 189 resolved and 10
+  unresolved: six on the generated Mermaid bundle and four on
+  `pkg/oci/cache.go`. None belongs to this repair.
+
+### Blocker A -- the repair introduces a prohibited and unnecessary linter suppression
+
+`tests/architecture/golangci_lint_pin_test.go:53` adds:
+
+```go
+b, err := os.ReadFile(path) //nolint:gosec // a path this test computed
+```
+
+This contradicts the narrow commission's explicit requirement that no
+`nolint`, analyzer exclusion or other linter suppression be introduced. It
+also makes section 19's claims that no linter was suppressed and no `nolint`
+directive was added materially false: the directive targets `gosec` rather
+than SA9010, but it is still a new linter suppression in this repair.
+
+The suppression is not required. The reviewer removed only the trailing
+`//nolint:gosec` comment temporarily and ran the exact commissioned binary,
+golangci-lint v2.13.0, over `./tests/architecture/...` with a fresh dedicated
+cache. The result was `0 issues.`, exit 0. The original file was then restored
+byte-for-byte and the tracked tree returned clean. Therefore the narrow repair
+is simply to delete that directive; no read-path redesign, configuration
+change, exclusion or replacement suppression is justified.
+
+### Independent verification
+
+- `go test -race ./tests/architecture/... ./internal/app/... ./pkg/oci/...` --
+  all pass.
+- golangci-lint v2.13.0 over `./tests/architecture/...` after temporary removal
+  of the directive -- `0 issues.`, exit 0.
+- `git diff --check` over the reviewed range -- clean.
+- PR head checks at `66a25b7d`: CI 21/21 success; Security, Docs check, Pacto
+  Contract CI, Repowise, PR-title and both dynamic CodeQL workflows success;
+  expected rebuild and auto-merge jobs skipped; inherited aggregate CodeQL
+  condition still failing with no evidence of a repair delta.
+
+### Verdict and phase map
+
+**The inter-phase required-CI determinism repair is NARROWLY REOPENED on
+Blocker A.** Its functional substance is accepted: the binary is deterministic,
+the SA9010 findings are correctly repaired, the architecture gate bites and
+required CI is green on implementation and ledger heads. Closure is withheld
+solely because the repair violates its explicit no-suppression boundary and
+then records the opposite claim. Remove the unnecessary directive, append a
+truthful repair record, prove the exact final SHA locally and on GitHub, and
+return for independent review.
+
+- Phases 1 through 11: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: NARROWLY REOPENED on Blocker A.
+- Phases 12 through 14: NOT STARTED.
