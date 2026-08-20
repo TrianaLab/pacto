@@ -8537,6 +8537,77 @@ has NOT started.
 The PR remains an open draft, and the append-only, no-history-rewrite and
 independent-review protocol continues unchanged.
 
+## 19.4 Independent review at `544eeb30` -- repair ACCEPTED and CLOSED
+
+Independent review covered
+`57953f5bff9e0b498fdd280829726448e34d975e..544eeb30aa0506fbe91ba718648ba4be2e03dfbf`,
+with implementation SHA `e639f4b0a29d5a30af80057334c32080777c3e49`.
+Both commits are linear, single-parent descendants of the section 19.2 review
+head. `57953f5b`, `66a25b7d` and `3c3665a1` remain ancestors; `origin/main` and
+the merge-base remain `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+The remote branch and local HEAD were exactly `544eeb30` at review start. The PR
+was OPEN, DRAFT and MERGEABLE.
+
+### Blocker A is closed exactly at its boundary
+
+The implementation delta is one line in one file:
+
+```diff
+-b, err := os.ReadFile(path) //nolint:gosec // a path this test computed
++b, err := os.ReadFile(path)
+```
+
+There is no replacement suppression, helper, abstraction, configuration change
+or read-path redesign. The accepted action pin, binary pin, ten SA9010 cleanup
+changes and structural test are byte-identical to the tree reviewed in section
+19.2. Section 19.3 also corrects section 19's inaccurate broad no-suppression
+claim without rewriting the historical record.
+
+The older `//nolint:gosec` in
+`tests/architecture/kind_image_loading_test.go` predates this inter-phase repair,
+is outside its reviewed delta and belongs to already closed Phase 10 work. Its
+disclosure is accurate and it is not a closure blocker here.
+
+### Independent evidence
+
+- golangci-lint v2.13.0 over `./tests/architecture/...`, with a dedicated
+  review cache -- `0 issues.`, exit 0.
+- `go test -race -count=1 ./tests/architecture/...` -- pass.
+- `make check-section` -- zero U+00A7 in authored files.
+- `git diff --check` over the reviewed range -- clean.
+- Independent inspection confirms that the implementation range contains only
+  the suppression deletion and that no linter configuration changed.
+- At exact implementation SHA `e639f4b0`, CI run `32345841250` is attempt 1,
+  success, 21/21 jobs green. Its `ci-static` job `96354363210` records
+  `version: v2.13.0`, installs v2.13.0, reports `0 issues.` and passes the
+  authored-content gate. Security, Docs check, Pacto Contract CI, Repowise,
+  PR-title and both dynamic CodeQL workflows also succeed.
+- At exact ledger SHA `544eeb30`, CI run `32347548200` is attempt 1, success,
+  again 21/21 jobs green, including all six Kind shards, Compose and `required`.
+  The same auxiliary workflows succeed.
+- Each exact SHA has 40 check runs: 37 success, two expected skips and one
+  inherited aggregate CodeQL failure. The code-scanning API still returns the
+  same nine open alerts -- 38, 40 through 43 and 59 through 62 -- so this
+  repair's CodeQL delta is zero.
+- Fully paginated review threads remain 199 total, 189 resolved and 10
+  unresolved: six on the generated Mermaid bundle and four on
+  `pkg/oci/cache.go`. The thread delta is zero.
+
+### Verdict and phase map
+
+**The inter-phase required-CI determinism repair is ACCEPTED and CLOSED at
+implementation SHA `e639f4b0`.** The required linter binary is immutable, its
+new analyzer findings are correctly repaired, the structural gate fails on a
+floating pin, and the sole boundary violation found in section 19.2 is now
+deleted without replacement. There is no remaining counterexample in this
+repair's scope.
+
+- Phases 1 through 11: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: ACCEPTED and CLOSED at
+  `e639f4b0`, independently reviewed through ledger head `544eeb30`.
+- Phase 12: NOT STARTED and now unblocked.
+- Phases 13 and 14: NOT STARTED.
+
 ## 18.4 Independent review at `a5fb3ecd` -- Phase 11 remains narrowly reopened
 
 Independent review date: 2026-08-19. Reviewed repair range:
