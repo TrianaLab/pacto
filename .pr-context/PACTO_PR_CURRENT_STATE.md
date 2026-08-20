@@ -9115,3 +9115,61 @@ whose `ci-static` fails identically until the linter question is settled on
 section 18.5.
 
 Phase 11 remains a CANDIDATE at `1cc6a3aa`. Phase 12 is not started.
+
+## 18.8 Final CI record at the ledger head `65a5d444`
+
+Section 18.7's own commit. Its tree still differs from the implementation SHA
+`1cc6a3aa` by exactly one file -- this document. This is the LAST CI-state
+section: each one produces a new head with a new state, and documenting that
+forever is a regress. Re-query at the head instead.
+
+Forty check runs at `run_attempt=1`, no reruns requested: thirty-four success,
+two skipped (`build`, `auto-merge`) and four failure -- `ci-static`,
+`ci-e2e-kind (dashboard)`, the `required` aggregate that reads both and the
+inherited `CodeQL` alerts carried since section 8.
+
+**`ci-static`: the same cause as 18.7, with one detail 18.7 could not know.**
+Again v2.13.0, again three SA9010 findings, but naming different files --
+`pkg/oci/cache_test.go:217`, `:321`, `:470` instead of the two `internal/cli`
+tests. The report is truncated, not moved. There is no root golangci-lint
+configuration (only `integrations/kubernetes/.golangci.yml`), so the defaults
+apply and `max-same-issues: 3` cuts the list; which three survive depends on
+package order and cache warmth. Run at this head with the caps lifted
+(`--max-same-issues=0 --max-issues-per-linter=0`), v2.13.0 reports **ten**, every
+one the same `defer oci.SetUserHomeDirFn(old)` idiom, across
+`internal/cli/login_test.go`, `internal/cli/logout_test.go`,
+`internal/update/check_test.go`, `pkg/oci/cache_test.go` and
+`pkg/oci/credentials_test.go`.
+
+All ten are inherited. `git grep -c` counts ten at the merge base `83f2e66d` and
+ten at this head, and the branch diff adds none and removes none. The tests this
+branch did add to `pkg/oci/cache_test.go` use `t.Cleanup(func() {
+oci.SetUserHomeDirFn(old) })`, which SA9010 does not flag -- so the branch, where
+it wrote this idiom at all, already wrote the form the new linter accepts. The
+diagnosis and the deliberate non-repair in 18.7 stand unchanged.
+
+**`ci-e2e-kind (dashboard)`: the image-load flake, recurring.** It failed after
+3 minutes 31 seconds inside `make test-acceptance-kind-dashboard`, in the
+harness and before any test ran:
+
+```
+kindload: localhost:5001/pacto-dashboard:e2e-modes: node pacto-mono-control-plane:
+localhost:5001/pacto-dashboard:e2e-modes is not present after loading it
+```
+
+That is the loader's own post-load verification -- the check added in Phase 10 so
+a silent partial load could not pass as success -- reporting the image absent on
+the node. The same shard passed at `1cc6a3aa` and at `2a6c953a` on a product tree
+identical to this one, so no source regression can explain it, and one markdown
+file certainly cannot. It is disclosed as a recurrence of the image-load flake
+family, not diagnosed further: the commission forbids broadening into Kind or
+image-loading work absent a reproducible source regression at the exact SHA, and
+there is none. It was not rerun either -- `rerun-failed-jobs` restarts all 21
+jobs because they gate on `changes`, and no rerun could turn `required` green
+while `ci-static` stands.
+
+Neither red is a finding about `pkg/catalog`, and v2.13.0 run against
+`./pkg/catalog/...` reports `0 issues.` The full green matrix for this repair
+remains the one at `1cc6a3aa` in section 18.5.
+
+Phase 11 remains a CANDIDATE at `1cc6a3aa`. Phase 12 is not started.
