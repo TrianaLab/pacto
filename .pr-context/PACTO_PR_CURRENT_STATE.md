@@ -9806,3 +9806,261 @@ return for independent review.
 - Phases 1 through 11: ACCEPTED and CLOSED.
 - Inter-phase required-CI determinism repair: NARROWLY REOPENED on Blocker A.
 - Phases 12 through 14: NOT STARTED.
+
+## 19.3 Blocker A closure -- the gosec suppression removed, CANDIDATE at `e639f4b0`
+
+Section 19.2's Blocker A, repaired, and nothing else. Sections 19, 19.1 and 19.2
+are unchanged; this record is an append, and it corrects the earlier claim rather
+than editing it.
+
+### The correction section 19 owes the record
+
+**The new `gosec` suppression that independent review identified has been
+removed.** `tests/architecture/golangci_lint_pin_test.go:53` read
+
+```go
+b, err := os.ReadFile(path) //nolint:gosec // a path this test computed
+```
+
+and now reads
+
+```go
+b, err := os.ReadFile(path)
+```
+
+**Section 19's broad claim was inaccurate.** It stated that the repair
+introduced no `nolint`, no analyzer exclusion and no linter suppression, and it
+repeated the narrower claim that no `nolint` directive was added for SA9010. The
+narrow SA9010 statement was true. The broad statement was not: the repair did
+add a linter suppression, aimed at `gosec` rather than at SA9010, in the very
+test file it introduced. Section 19.2 was right to reopen on it, and this
+section records the inaccuracy explicitly rather than leaving the two statements
+to be reconciled by a reader.
+
+**No replacement suppression or linter relaxation was introduced.** Nothing took
+the directive's place: no second `nolint` in any spelling, no analyzer
+exclusion, no root `.golangci.yml` (there still is none; the only linter
+configuration in the repository remains
+`integrations/kubernetes/.golangci.yml`, byte-identical), no severity or
+`max-issues` change, no wrapper, helper, abstraction or read-path redesign. The
+`os.ReadFile(path)` expression, the `runtime.Caller(0)` path resolution above it
+and the error handling below it are untouched.
+
+**The pinned binary is clean without the directive.** golangci-lint **v2.13.0**
+-- the exact version the accepted pin installs, not `latest` and not the v2.12.2
+that happens to be first on this machine's PATH -- was run over
+`./tests/architecture/...` on a freshly created, empty, dedicated cache
+directory. It reported `0 issues.` and exited 0. The same binary on a second
+cold cache reported `0 issues.` over the whole root module, which is the
+statement that also covers the ten SA9010 conversions.
+
+**Everything section 19.2 accepted is unchanged.** `.github/actions/ci/action.yml`
+is byte-identical: the action stays pinned to its existing 40-hex commit, the
+binary stays pinned to `v2.13.0`, `install-only: true` stays. The ten SA9010
+`t.Cleanup` conversions in `internal/cli/login_test.go`,
+`internal/cli/logout_test.go`, `internal/update/check_test.go`,
+`pkg/oci/cache_test.go` and `pkg/oci/credentials_test.go` are byte-identical.
+The structural gate's design is unchanged -- the same two tests, the same
+`compositeStep` parse, the same commit-pin, version and `install-only` rules,
+the same table of refused floating spellings.
+
+### Range
+
+- Starting SHA (section 19.2's ledger head): `57953f5bff9e0b498fdd280829726448e34d975e`.
+- Implementation SHA: `e639f4b0a29d5a30af80057334c32080777c3e49`.
+- Ledger SHA: this document's own commit, whose remote state is reported in the
+  handoff rather than in a further section, because each CI-state section
+  produces a new head with a new state.
+- `origin/main` and the merge-base with it remain
+  `83f2e66d5cd4fab56099991d39e64fc11f107b3d`, unchanged.
+- Append-only: `e639f4b0` is a single-parent child of `57953f5b`, pushed as the
+  fast-forward `57953f5b..e639f4b0`. No amend, rebase, squash, reset,
+  cherry-pick or force-push. `66a25b7d` and `3c3665a1` both remain ancestors.
+- PR `TrianaLab/pacto#291` stayed OPEN, DRAFT and MERGEABLE throughout.
+
+`e639f4b0` is one file, +1 / -1:
+
+| File | Change |
+|---|---|
+| `tests/architecture/golangci_lint_pin_test.go` | the trailing `//nolint:gosec` directive deleted from line 53 |
+
+No production file changed. No workflow, Make target, script, threshold,
+timeout, coverage requirement or linter configuration changed.
+
+### Local verification at `e639f4b0`
+
+- The removed directive is absent from the tree and from the reviewed delta:
+  `git diff 57953f5b..e639f4b0` is exactly the one-line deletion shown above.
+- `grep -rn nolint tests/architecture/` returns one line, and it is not this
+  file -- see the disclosure below.
+- `go test -race -count=1 ./tests/architecture/...` -- ok, 7.082s. The permanent
+  gate `TestTheCIActionInstallsOnePinnedGolangciLintBinary` and its companion
+  `TestTheLintVersionRuleRejectsEveryFloatingSpelling` both pass.
+- golangci-lint **v2.13.0** over `./tests/architecture/...`, `GOLANGCI_LINT_CACHE`
+  pointed at a directory created empty for the run (0 files before, 686 after,
+  so it was genuinely cold) -- `0 issues.`, exit 0.
+- golangci-lint **v2.13.0** over the whole root module, second cold dedicated
+  cache -- `0 issues.`, exit 0.
+- `git diff --check` -- clean.
+- `make check-section` -- `zero U+00A7 in authored files`.
+- `make ci` -- exit 0 end to end: `ci-static` (fmt, vet, gocyclo, lint
+  `0 issues.`, `check-section`, CLI-docs drift, UI build and drift,
+  dashboard-SDK drift, plus the Kubernetes module's own fmt, vet and lint at
+  `0 issues.`), `ci-gates`
+  (`go test ./tests/architecture/... ./tests/release/...`, both ok),
+  `ci-engine` (`total coverage: 100.0%` under the race detector, example tests,
+  `DEMO-CONTRACTS VALID: 24/24`), `ci-dashboard`, `ci-integration-kubernetes`
+  (`total coverage: 100.0%`, chart lint, template renders, Helm unit tests,
+  chart schema, helm-docs drift, generated-docs drift), `ci-e2e-envtest` and
+  `ci-oci`.
+- `make artifact-drift` -- `artifact-drift: OK`.
+
+The six Kind shards, `ci-e2e-compose` and `dashboard-e2e` were not attempted
+locally, for the Docker Desktop containerd reason recorded at `ci.mk:88-90`.
+They ran in GitHub CI and are green there, below. No gate was weakened, skipped
+or reconfigured to reach any of these results.
+
+### GitHub Actions at the exact implementation SHA `e639f4b0`
+
+Forty check runs: thirty-seven success, two skipped and one failure, the
+inherited aggregate `CodeQL` check described below. Every workflow ran at
+`run_attempt=1`; no rerun was requested and none was needed.
+
+CI run `32345841250`, attempt 1, **success**, all 21 jobs green:
+
+| Job | ID |
+|---|---|
+| `changes` | `96354310966` |
+| `ci-static` | `96354363210` |
+| `ci-engine` | `96354363239` |
+| `ci-integration-kubernetes` | `96354363244` |
+| `ci-dashboard` | `96354363276` |
+| `ci-e2e-envtest` | `96354363297` |
+| `release-dry-run` | `96354363343` |
+| `artifact-drift` | `96354363350` |
+| `dashboard-e2e` | `96354363354` |
+| `release-version-test` | `96354363428` |
+| `ci-gates` | `96354363443` |
+| `ci-oci` | `96354363450` |
+| `operator-build` | `96354363458` |
+| `ci-e2e-kind (evidence)` | `96354363483` |
+| `ci-e2e-kind (dashboard)` | `96354363489` |
+| `ci-e2e-kind (operational-graph)` | `96354363504` |
+| `ci-e2e-kind (upgrade)` | `96354363519` |
+| `ci-e2e-compose` | `96354363525` |
+| `ci-e2e-kind (reconcile)` | `96354363588` |
+| `ci-e2e-kind (observation)` | `96354363686` |
+| `required` | `96357076041` |
+
+`ci-static` (`96354363210`) corroborates the pin at runtime rather than by
+inspection. Its log carries `version: v2.13.0`, then
+`Installing golangci-lint binary v2.13.0...`, then
+`Installed golangci-lint into /home/runner/golangci-lint-2.13.0-linux-amd64/golangci-lint`,
+then `0 issues.` for the root module, `check-section: zero U+00A7 in authored
+files` and a second `0 issues.` for the Kubernetes module.
+
+The other workflows at the same SHA:
+
+| Workflow | Run | Jobs | Conclusion |
+|---|---|---|---|
+| Security | `32345841253` | `govulncheck (Go)` `96354310531`, `Trivy (image)` `96354310861`, `PR security summary` `96354642093` | success |
+| Docs check | `32345841260` | `docs-check` `96354310302` | success |
+| Pacto Contract CI | `32345841303` | `bundle` `96354310593` | success |
+| Repowise (architecture health) | `32345841204` | `repowise` `96354310542` | success |
+| Validate PR title | `32345841256` | `validate` `96354310114` | success |
+| PR #291 (dynamic CodeQL) | `32345838425` | `Analyze` for `actions` `96354305211`, `python` `96354305441`, `javascript-typescript` `96354305455`, `go` `96354305476` | success |
+| Code Quality: PR #291 (dynamic CodeQL) | `32345838338` | `Analyze` for `python` `96354305415`, `go` `96354305583`, `javascript-typescript` `96354305637` | success |
+| Rebuild dashboard UI | `32345841234` | -- | skipped |
+| Auto-merge Dependabot PRs | `32345841277` | -- | skipped |
+
+### CodeQL and review threads
+
+The aggregate `CodeQL` check from `github-advanced-security` is the single
+failure, reporting "8 new alerts including 8 high severity security
+vulnerabilities". That is the inherited condition carried since section 8, and a
+green Security workflow with seven green `Analyze` jobs remains a different
+claim from it.
+
+The code-scanning API returns nine open alerts on `refs/pull/291/head`, and they
+are exactly the nine inherited ones -- `38`
+(`py/incomplete-url-substring-sanitization`, `release/scripts/docs_check.py:197`),
+`40` through `43` (`go/path-injection`, `internal/app/resolve.go` lines 35, 43,
+57 and 67) and `59` through `62` (`go/path-injection`, `pkg/oci/cache.go` lines
+375, 394, 395 and 666). The analyses at this SHA report `go` 9, `python` 1,
+`javascript-typescript` 0 and `actions` 0, the same four numbers recorded at
+earlier heads. **The CodeQL delta for this repair is ZERO**: none added, none
+removed, none dismissed. None of the nine is in this repair's one-file range.
+
+Review threads were paginated in full, both pages, because the API caps a page
+at 100 and page one hides every unresolved one: **199 total, 189 resolved, 10
+unresolved**. The ten are unchanged and inherited -- six `github-code-quality`
+threads on the generated Mermaid bundle
+`pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` and four
+`github-advanced-security` threads on `pkg/oci/cache.go`. **The thread delta is
+ZERO.** No comment was published, no thread resolved or replied to and no PR
+metadata -- title, body, labels, reviewers, draft state -- changed.
+
+### Hygiene and disclosures
+
+- **One `//nolint:gosec` remains in `tests/architecture/`, and it is not this
+  one.** `tests/architecture/kind_image_loading_test.go:31` carries
+  `raw, err := os.ReadFile(path) //nolint:gosec // a path this test computed`.
+  It was authored in Phase 10, which is ACCEPTED and CLOSED, it is outside the
+  reviewed delta of the CI-determinism repair and section 19.2's Blocker A named
+  only `golangci_lint_pin_test.go:53`. Removing it would be unrequested drift
+  into closed work, so it is disclosed here rather than touched.
+- `make ci` again regenerated
+  `integrations/kubernetes/charts/pacto-dev-gateway/README.md` from helm-docs
+  (+16 / -41), as it has in every prior pass. It was restored with
+  `git checkout --` and not committed; the helm-docs drift check itself passes.
+  The generator quirk predates this repair and is not fixed here.
+- No `go.work.sum` drift appeared this pass. golangci-lint v2.13.0 was installed
+  into an isolated temporary `GOBIN` outside the repository, with `GOWORK=off`
+  and from outside the working tree, so neither the workspace nor the module
+  files were touched by it.
+- No authored frontend input changed, so the committed UI bundle was not
+  rebuilt, and `ci-ui-drift` and the dashboard-SDK drift check are clean against
+  the existing one.
+- The four inherited untracked agent paths `.claude/`, `.codex/`, `.mcp.json`
+  and `AGENTS.md` were never touched and are still untracked.
+  `git status --short` at the implementation SHA lists those four and nothing
+  else.
+- No literal U+00A7 was authored in any file or commit message, and
+  `make check-section` confirms it.
+- All three tracked files under `.pr-context/` -- this document,
+  `PACTO_PR_TARGET_STATE.md` and `PACTO_ITERATION_PROTOCOL.md` -- were read in
+  full before any change. `PACTO_PR_TARGET_STATE.md` was not modified.
+  `docs/maintainers/testing.md` was also read in full; this file remains a
+  level-3 architecture test run by `ci-gates`, which is unchanged.
+
+### Deliberately not done
+
+- No replacement suppression, exclusion, configuration change, wrapper, helper,
+  abstraction or read-path redesign, and no `errcheck`-style rewrite of the read.
+- No revisiting of the accepted action pin, the accepted `v2.13.0` binary pin,
+  the ten SA9010 cleanup conversions or the structural test design.
+- No production code change, no dependency added, no Make target, workflow
+  topology, threshold or linter configuration touched.
+- No work on the nine inherited CodeQL alerts or the ten inherited review
+  threads, which stay OPEN and outside this repair's scope.
+- Phase 12 was not started, and no Phase 12 surface -- MCP tool, MCP resource,
+  CLI flag, server route, protocol E2E or discovery documentation -- exists.
+
+### Verdict
+
+**The inter-phase required-CI determinism repair remains a CANDIDATE, now at
+`e639f4b0`, and is NOT self-declared CLOSED.** Section 19.2's Blocker A is
+closed by deletion, the false half of section 19's claim is corrected on the
+record above, and local and remote verification at the exact implementation SHA
+are green. Closing the repair is the reviewer's act, not the author's.
+
+### Current phase map
+
+- Phases 1 through 11: ACCEPTED and CLOSED. Phase 11 in particular remains
+  ACCEPTED and CLOSED, exactly as section 18.9 left it.
+- Inter-phase required-CI determinism repair: CANDIDATE at `e639f4b0`, awaiting
+  independent review of this deletion.
+- Phases 12 through 14: NOT STARTED.
+
+The PR remains an open draft, and the append-only, no-history-rewrite and
+independent-review protocol continues unchanged.
