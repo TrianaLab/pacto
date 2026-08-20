@@ -9173,3 +9173,129 @@ Neither red is a finding about `pkg/catalog`, and v2.13.0 run against
 remains the one at `1cc6a3aa` in section 18.5.
 
 Phase 11 remains a CANDIDATE at `1cc6a3aa`. Phase 12 is not started.
+
+## 18.9 Independent review at `0348012a` -- Phase 11 ACCEPTED and CLOSED
+
+Independent review date: 2026-08-20. Reviewed implementation range:
+`9a737191bb02ce689541bd8485093fe3a4e94977..1cc6a3aa1d82345333c7f658107137d1e5a1c3de`.
+Reviewed remote ledger head:
+`0348012ace175ef9323e14d4c6c2edcdf68816df`.
+
+### Repository, history and scope
+
+- PR 291 is OPEN, DRAFT and MERGEABLE on
+  `feat/operational-graph-fleet`; local HEAD, the remote branch and the PR head
+  were exactly `0348012a` before this review record.
+- `origin/main` and the merge-base remain
+  `83f2e66d5cd4fab56099991d39e64fc11f107b3d`. `9a737191` remains an
+  ancestor. The range is exactly five linear, single-parent commits: the one
+  implementation commit `1cc6a3aa` followed by four additive ledger commits.
+  There is no merge or evidence of amend, rebase, squash, reset or force-push.
+- The implementation changes exactly five files under `pkg/catalog`, +126 / -19.
+  The remaining range changes only `.pr-context/PACTO_PR_CURRENT_STATE.md`.
+  TARGET, the iteration protocol, testing documentation, Make and workflows are
+  untouched. Phase 12 has not started.
+
+### Residual blocker A is closed
+
+The repair is the smallest correct control-flow change. `expand` still admits
+dependency work in declaration order, and the first previously unseen work item
+that `MaxEdges` refuses produces one `EDGE_LIMIT_EXCEEDED` limitation and one
+representative `BOUND_EXCEEDED` unresolved entry. It then breaks instead of
+walking the refused tail.
+
+That break does not discard work that could have been admitted. A declaration's
+structured identity includes its declaring `RevisionID` and unique index;
+`admitEdgeWork` returns false only for a previously unseen key after the global
+budget is full. Within one expansion, later indexes are also previously unseen
+and cannot become admissible. Repeated routes still pass the already-admitted
+prefix, distinct bases still spend distinct work, failed attempts still spend
+budget, and neither memoization nor path provenance changed.
+
+The package-local test is non-vacuous. It runs tails of 10 and 1,000 distinct
+dependencies through the real builder and proves the same one admitted work
+item, two resolver calls, partial result, edge-bound limitation, representative
+gap and constant internal `edgeWork`, `unresolvedSeen` and `limitSeen` sizes.
+The unexported `newBuilder` extraction is a direct reuse of `Build`'s existing
+initialization, not a framework, public hook or second implementation.
+
+The reviewer independently changed the committed `break` back to `continue`.
+`TestEdgeBoundStopsFailingDependencyWorkToo` and
+`TestTheEdgeBoundDoesNotWalkTheDeclarationsItRefused` both failed for the
+intended reason: the refused tail returned to 10 / 1,000 bookkeeping keys and
+multiple bounded unresolved records. The mutation was restored with
+`apply_patch`; the focused tests passed again and `git diff --exit-code` proved
+that no product byte from the probe remained.
+
+The three comment corrections now agree with the accepted model: `ContentID`
+is content identity and one half of canonical `RevisionID`; `MaxEdges` budgets
+dependency work, including failures; and the edge limitation names the first
+refused declaration as a representative of the unvisited remainder.
+
+Blockers B and C remain closed exactly as accepted in section 18.4. No accepted
+Phase-11 or Phase-10C responsibility was reopened.
+
+### Independent verification and external state
+
+- `go test -race -count=1 ./pkg/catalog ./internal/app ./pkg/oci
+  ./tests/architecture` passed. The focused edge-bound suite also passed under
+  the race detector before the independent mutation.
+- `git diff --check` and `make check-section` passed. The worktree returned to
+  only the four inherited untracked agent paths `.claude/`, `.codex/`,
+  `.mcp.json` and `AGENTS.md` before this ledger append.
+- At exact implementation SHA `1cc6a3aa`, CI run `32298985102` succeeded on
+  attempt 1 with all 21 jobs green, including all six Kind shards, Compose,
+  `ci-static`, `ci-engine`, `ci-gates`, artifact drift, release dry-run and
+  `required`. Security, Docs check, Pacto Contract CI, Repowise, PR-title and
+  both dynamic CodeQL workflows are also successful on attempt 1. Its 40 check
+  runs are 37 success, two expected skips and one failure: the inherited
+  aggregate CodeQL condition.
+- At current docs-only head `0348012a`, CI run `32319941292` completed on
+  attempt 1. Nineteen functional jobs passed, including all six Kind shards and
+  Compose. `ci-static` failed and `required` consequently failed. The exact-head
+  check-run population is 35 success, two skipped and three failure:
+  `ci-static`, `required` and the inherited aggregate CodeQL condition.
+- The code-scanning API still returns exactly the nine inherited alerts 38, 40
+  through 43 and 59 through 62. None is in `pkg/catalog` or this repair range.
+  Review threads were fully paginated: 199 total, 189 resolved and 10
+  unresolved, still six on the generated Mermaid bundle and four on
+  `pkg/oci/cache.go`. Both deltas are zero.
+
+### Separate inter-phase CI blocker -- the linter binary is floating
+
+The current required-gate failure does not reopen Phase 11, because the exact
+implementation SHA passed the complete matrix and the later heads add only this
+ledger. It is nevertheless a real branch-state blocker that must be repaired
+before Phase 12 starts.
+
+`.github/actions/ci/action.yml` pins `golangci/golangci-lint-action` by commit
+but configures only `install-only: true`; it supplies no `version`. The installed
+binary therefore moved from v2.12.2 at the green implementation SHA to v2.13.0
+at the later ledger heads. v2.13.0 reports SA9010 on the existing
+`defer oci.SetUserHomeDirFn(old)` restore idiom. The ten occurrences are already
+present at merge-base `83f2e66d`, and the Phase-11 repair adds none. The setter
+returns the previous hook; the deferred call itself performs the restore, so
+discarding its return value is intentional.
+
+Leaving the installer on `latest` means every Phase-12 commit will inherit a red
+required gate and the toolchain can move again mid-review. The next iteration is
+therefore a narrow inter-phase CI determinism repair, not Phase 12: pin one
+explicit current golangci-lint binary version, express the ten intentional test
+cleanups in a form the pinned analyzer understands without `nolint`, and add the
+smallest structural proof that removing the version pin is caught. Do not lower,
+disable or exclude the analyzer, and do not fix unrelated findings or Kind
+flakes. Once that exact head is green and independently reviewed, Phase 12 may
+open.
+
+### Verdict and phase map
+
+**Phase 11 is ACCEPTED and CLOSED at implementation SHA `1cc6a3aa`, reviewed
+through ledger head `0348012a`.** Its catalog core is bounded for the residual
+hostile fan-out, and all three blockers from sections 18.2 and 18.4 are closed.
+
+- Phases 1 through 11: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: REQUIRED NEXT.
+- Phases 12 through 14: NOT STARTED.
+
+No PR comment, review thread or metadata was changed by this review. TARGET and
+all previous ledger records remain untouched.
