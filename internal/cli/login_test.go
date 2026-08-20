@@ -190,7 +190,7 @@ func TestWritePactoConfig_PactoConfigPathError(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	old := oci.ExportedUserHomeDirFn()
 	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	err := writePactoConfig("ghcr.io", "user", "pass")
 	if err == nil {

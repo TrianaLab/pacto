@@ -249,7 +249,7 @@ func TestPactoConfigPath_XDG(t *testing.T) {
 func TestPactoConfigPath_HomeDirError(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	old := oci.ExportedUserHomeDirFn()
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
 
 	_, err := oci.PactoConfigPath()
@@ -374,7 +374,7 @@ func TestPactoConfigKeychain_InvalidJSON(t *testing.T) {
 func TestPactoConfigKeychain_HomeDirError(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	old := oci.ExportedUserHomeDirFn()
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
 
 	kc := oci.NewKeychain(oci.CredentialOptions{})

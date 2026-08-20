@@ -214,7 +214,7 @@ func TestCachedStore_Pull_CorruptGzipFallsBack(t *testing.T) {
 func TestCachedStore_Pull_SaveErrorIgnored(t *testing.T) {
 	cacheDir := t.TempDir()
 	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	inner := &countingStore{bundle: newTestBundle()}
 	store := oci.NewCachedStore(inner)
@@ -318,7 +318,7 @@ func TestCachedStore_DisabledWhenHomeDirFails(t *testing.T) {
 	old := oci.SetUserHomeDirFn(func() (string, error) {
 		return "", errors.New("no home")
 	})
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	inner := &countingStore{bundle: newTestBundle()}
 	store := oci.NewCachedStore(inner)
@@ -467,7 +467,7 @@ func TestCachedStore_Pull_InvalidPactoYamlFallsBack(t *testing.T) {
 func TestCachedStore_Pull_ReadOnlyCacheDirIgnored(t *testing.T) {
 	cacheDir := t.TempDir()
 	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	inner := &countingStore{bundle: newTestBundle()}
 	store := oci.NewCachedStore(inner)

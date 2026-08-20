@@ -377,7 +377,7 @@ func TestCachePath_ConfigDirError(t *testing.T) {
 	old := oci.SetUserHomeDirFn(func() (string, error) {
 		return "", fmt.Errorf("no home dir")
 	})
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	if p := cachePath(); p != "" {
 		t.Errorf("expected empty path, got %s", p)
@@ -389,7 +389,7 @@ func TestReadCache_NoCachePath(t *testing.T) {
 	old := oci.SetUserHomeDirFn(func() (string, error) {
 		return "", fmt.Errorf("no home dir")
 	})
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	c, path := readCache()
 	if c != nil {

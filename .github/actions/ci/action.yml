@@ -74,6 +74,10 @@ runs:
       if: inputs.golangci-lint == 'true'
       uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
       with:
+        # Pin the BINARY, not just the action: without this the installer follows
+        # `latest`, and an upstream release turns a required gate red on a tree
+        # nobody touched. tests/architecture/golangci_lint_pin_test.go keeps it here.
+        version: v2.13.0
         install-only: true
 
     - name: Run make ${{ inputs.target }}

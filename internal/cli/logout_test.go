@@ -182,7 +182,7 @@ func TestRemovePactoConfig_PactoConfigPathError(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	old := oci.ExportedUserHomeDirFn()
 	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	_, err := removePactoConfig("ghcr.io")
 	if err == nil {
@@ -379,7 +379,7 @@ func TestLogoutCommand_Error(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	old := oci.ExportedUserHomeDirFn()
 	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	cmd := newLogoutCommand()
 	cmd.SetOut(&bytes.Buffer{})
