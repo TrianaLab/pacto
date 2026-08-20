@@ -228,6 +228,19 @@ Builds a dependency graph by recursively fetching contracts from OCI registries 
 - `RenderTree()` / `RenderDiffTree()` -- tree-style rendering with connectors
 - `DiffGraphs()` -- structural diff between two dependency graphs
 
+### `pkg/catalog` -- Bounded contract catalog
+
+Turns a finite, explicitly supplied set of contract roots plus their dependency closure into a bounded, immutable catalog. Nothing is crawled or inferred: a root exists in the catalog because a caller named it.
+
+- `Build(ctx, Request)` -- resolves every reference exactly once and returns a frozen `*Catalog`. Afterwards queries are pure, network-free, deterministically ordered and safe for concurrent readers; a registry tag that moves later does not move the catalog
+- `Resolver` port -- reference parsing, credentials, caching and registry access live in a caller-supplied adapter (`internal/app`'s `CatalogResolver()`), never in the catalog itself
+- `Bounds` -- explicit ceilings on roots, revisions, edges, depth and resolver calls, charged before the work they admit
+- Three separations the model never collapses: requested ref is not resolved ref is not content identity; a revision is not a declaration is not a path; partial is not empty and is not complete
+
+`pkg/graph` answers "what does this one bundle depend on" for a human reading a tree. `pkg/catalog` answers "what is in this explicit set of roots and their closure" for a machine, with the identity and completeness discipline that answer needs. It is not the operational fleet -- `pkg/fleet` describes runtime targets and observation, and the two share vocabulary but no model. Discovery is not authorization and discovery is not execution.
+
+The catalog core is framework-independent by construction: it imports `pkg/contract`, go-digest and the standard library, and nothing else. `tests/architecture/boundary_test.go` enforces that, so catalog semantics can never become a property of one delivery mechanism. Exposed over MCP by `pacto mcp --root` -- see [MCP integration → Contract catalog discovery](mcp-integration.md#contract-catalog-discovery).
+
 ### `pkg/override` -- YAML overrides
 
 Applies value-file and `--set` overrides to raw YAML before parsing. Supports deep merge, dot-separated paths, and array index notation.
@@ -297,7 +310,18 @@ Key components:
 
 ### `internal/mcp` -- MCP server
 
-Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools. Each MCP tool handler delegates to an `internal/app` service method -- no business logic lives here. The server communicates over stdio (default) or HTTP (`pacto mcp -t http`) and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor and Copilot. See the [MCP integration](mcp-integration.md) guide for setup.
+Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools and resources. Each handler delegates to an `internal/app` service method or projects an already-built core model -- no business logic lives here. The server communicates over stdio (default) or HTTP (`pacto mcp -t http`) and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor and Copilot. See the [MCP integration](mcp-integration.md) guide for setup.
+
+One invocation selects exactly one server, and the modes cannot be combined:
+
+| Invocation | Surface |
+|------------|---------|
+| `pacto mcp` | Authoring tools over `internal/app` |
+| `pacto mcp <bundle-ref>` | One bundle's OpenAPI operations and skills (`pkg/capability`) |
+| `pacto mcp --fleet` | Read-only operational-graph queries (`pkg/fleet`) |
+| `pacto mcp --root <ref>` | Read-only contract catalog discovery (`pkg/catalog`) |
+
+Catalog mode builds the catalog once, before serving, from the repeated `--root` references. It is mostly MCP *resources* rather than tools, and the served session is frozen: handlers project the immutable `*Catalog` and reach neither a registry nor the filesystem.
 
 ### `internal/logger` -- Logger setup
 

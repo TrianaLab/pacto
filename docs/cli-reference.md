@@ -510,6 +510,10 @@ Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents.
 
 When a bundle reference (local directory or oci:// ref) is given, the server also exposes one executable tool per OpenAPI operation in the bundle's http interfaces, plus a pacto_skill tool for any skills/*.md domain knowledge. Read-only (GET/HEAD) operations are exposed by default; pass --allow-writes to expose mutating operations.
 
+With --root, the server instead exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so a registry tag that moves later does not change the session. Roots that do not resolve stay visible as partial knowledge. Discovery is not authorization and nothing in the catalog executes.
+
+A bundle reference, --root and --fleet select different servers and cannot be combined.
+
 ```
 pacto mcp [bundle-ref] [flags]
 ```
@@ -529,6 +533,9 @@ pacto mcp [bundle-ref] [flags]
   # Include mutating operations and an auth credential
   pacto mcp oci://ghcr.io/acme/svc:1.0.0 --base-url https://api.example.com \
     --auth bearerAuth=$TOKEN --allow-writes
+
+  # Expose a contract catalog discovered from explicit roots
+  pacto mcp --root oci://ghcr.io/acme/platform:1.4.0 --root ./experimental-platform
 ```
 
 **Flags:**
@@ -547,6 +554,7 @@ pacto mcp [bundle-ref] [flags]
       --namespace string           namespace for --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision for --fleet (repeatable)
       --port int                   port for HTTP transport (default 8585)
+      --root stringArray           contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
   -t, --transport string           transport type: stdio or http (default "stdio")
 ```
@@ -560,9 +568,22 @@ The server exposes the following tools:
 | `pacto_check` | Validate a contract and return errors, warnings, and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
-These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs. When a **bundle reference** (a local directory or an `oci://` ref) is passed on the command line, it is resolved and its OpenAPI operations are additionally exposed as executable agent tools, alongside a `pacto_skill` tool for any bundled skills.
+These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs.
 
-See [MCP Integration](mcp-integration.md) for detailed setup with Claude and other AI tools, and [Agent capabilities](mcp-integration.md#agent-capabilities) for serving a bundle's operations as tools.
+### Server modes
+
+The default server exposes the authoring tools above. Three flags select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:
+
+| Invocation | Server |
+|------------|--------|
+| `pacto mcp` | Authoring tools. |
+| `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |
+| `pacto mcp --fleet` | Read-only [operational-graph](operational-graph.md) query tools. |
+| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots. |
+
+`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.
+
+See [MCP Integration](mcp-integration.md) for detailed setup with Claude and other AI tools, [Agent capabilities](mcp-integration.md#agent-capabilities) for serving a bundle's operations as tools, and [Contract catalog discovery](mcp-integration.md#contract-catalog-discovery) for the catalog surface.
 
 ---
 

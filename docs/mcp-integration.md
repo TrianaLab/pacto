@@ -39,6 +39,96 @@ Fleet query tools deserve explicit safety framing:
 See [The Pacto Operational Graph](operational-graph.md) for the read model these
 tools query and the query semantics they expose.
 
+A fourth server mode — [contract catalog discovery](#contract-catalog-discovery) —
+is not a tool family: it is mostly MCP *resources*, with a single lookup tool.
+
+---
+## Contract catalog discovery
+
+`pacto mcp --root <ref>` starts a **read-only contract catalog**: the roots you
+name, plus their dependency closure, resolved once at startup and then frozen for
+the life of the process.
+
+```bash
+# One published platform, one contract you are still working on
+pacto mcp \
+  --root oci://ghcr.io/acme/platform:1.4.0 \
+  --root ./experimental-platform
+```
+
+`--root` is repeatable and takes either a local bundle directory or an `oci://`
+reference. Nothing is discovered that you did not name: Pacto does not crawl a
+registry, guess repository names or read a catalog file. The set of roots is the
+whole input, and the closure of those roots is the whole output.
+
+### The surface
+
+| URI / tool | What it answers |
+|------------|-----------------|
+| `pacto://catalog` | What this catalog is: schema version, catalog id, generation time, the bounds that applied, the completeness of the whole answer, and every requested root — including roots that did not resolve, and why. |
+| `pacto://catalog/closure` | What is in it: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and the conflicts and cycles left visible rather than resolved. |
+| `pacto_catalog_revision` | One revision by its full identity — service name, domain, content scheme and content digest. |
+
+Read `pacto://catalog` first. It is the small half, and it carries the
+completeness of the whole answer.
+
+The lookup is a tool rather than a URI template because a revision's identity is
+four structured fields, and a service name or domain may contain `/`, `:`, `%` or
+arbitrary UTF-8. Encoding that into a path segment would mean re-parsing it at
+the other end, and two different identities could arrive as one. The identity
+stays structured from the query to the answer.
+
+### What it is not
+
+- **A catalog is not the fleet.** The catalog describes *contracts* reachable
+  from the roots you named. It says nothing about deployments, environments,
+  runtime targets or observed state — those are [Fleet query tools](#three-tool-families-and-their-boundaries)
+  over the [Operational Graph](operational-graph.md). A requested root is an
+  input to discovery, never a runtime target.
+- **Discovery is not authorization.** Learning that a revision exists says
+  nothing about whether you may read, deploy or call it. Authorization stays with
+  your policy and IAM systems.
+- **Discovery is not execution.** Nothing in this surface invokes anything. If
+  you want a bundle's operations as callable tools, that is the separate
+  [Agent capabilities](#agent-capabilities) mode.
+- **It is a session, not a store.** There is no database, no daemon state and no
+  background refresh. The catalog lives in the process and disappears with it.
+
+### Partial is not empty, and not complete
+
+Every catalog reports its `completeness`. A root or a dependency that could not
+be resolved stays visible — with a category such as `NOT_FOUND`, `AUTH_FAILED` or
+`UNAVAILABLE`, never a raw registry error — and the whole answer is marked
+`partial`.
+
+Treat the three states as different facts:
+
+- `complete` — everything reachable from the roots resolved.
+- `partial` — some of it did not. A revision you cannot find here is *unknown*,
+  not proven absent.
+- An empty catalog is never started at all: `pacto mcp --root ""` fails rather
+  than serve an authoritative "there is nothing here".
+
+### Requested, resolved, identity
+
+Three things that look alike and are not:
+
+| | Example | Stability |
+|---|---|---|
+| Requested reference | `oci://ghcr.io/acme/platform:1.4.0` | A tag. It can move. |
+| Resolved reference | `ghcr.io/acme/platform@sha256:…` | Immutable, as of startup. |
+| Content identity | scheme `oci` + digest `sha256:…` | What the bytes *are*. This is identity. |
+
+A mutable tag is resolved exactly once, at startup. If someone re-points that tag
+while the server is running, the session does not change: the same query returns
+the same digest it returned before. To pick up a moved tag, restart the server.
+
+Local roots work the same way, with a content hash over the bundle's files in
+place of a registry digest: two byte-identical directories are one revision, and
+a path is never an identity. Local and registry roots go through the same
+reference parsing, credentials and cache the rest of the CLI uses — catalog mode
+adds no second client and no second credential path.
+
 ---
 ## Why MCP?
 
