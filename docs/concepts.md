@@ -23,11 +23,21 @@ run in many places at once, at different versions.
 
 **A requested reference is not a resolved identity.** `payments-api:latest` is a
 question; `payments-api@sha256:…` is an answer. A tag is mutable, so the same
-requested reference can name different content tomorrow. Pacto resolves a
-requested reference to an immutable identity once, and only the resolved identity
-is ever treated as content identity — a mutable reference on its own is never a
-revision identity.
+requested reference can name different content tomorrow. A requested reference
+must be resolved to an immutable identity before anything treats it as exact
+content — a mutable reference on its own is never a revision identity.
 → [Requested, resolved, identity](mcp-integration.md#requested-resolved-identity)
+
+**A resolution has a lifetime, and the lifetime belongs to the boundary that made
+it.** Resolving is not one global event that happens once. A catalog discovery
+session resolves every root as it is built and then freezes the result, so a tag
+that moves in a registry does not move that catalog. The Kubernetes operator's
+`Latest` resolution policy resolves the highest semver tag on every
+reconciliation, so the same requested reference legitimately answers differently
+once a new version publishes; `PinnedTag` and `PinnedDigest` do not. Both obey
+the rule above at different lifetimes: a resolution is exact for the snapshot,
+session or reconciliation that produced it, and nothing carries it past that
+boundary.
 
 **The same name in two domains is two services.** Identity is domain-qualified, so
 two organizations that both run a `payments-api` do not merge, and the *same*
@@ -90,14 +100,29 @@ presents old ones as new.
 and "we never evaluated it" are different states, and an aggregate that merges
 them misreports the same fleet as inconclusive when it is merely untouched.
 
-**A bounded list is not the population.** Every list Pacto returns is bounded, and
-every bounded list carries the true total plus whether it was truncated. A count
+**A bounded list is not the population.** Every list Pacto returns is bounded: the
+rows are one slice of the whole, `truncated` says whether more exist, and a count
 taken from the visible rows is a floor and is labelled as one.
 → [Aggregates over a bounded list](operational-graph.md#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole)
 
+**An unknown total is not a total of zero.** A bounded list carries the true total
+whenever the total is knowable. Sometimes the counting work is itself bounded —
+the walk stops before it can reach the end of the population — and then the total
+is omitted rather than estimated, because an estimate would be indistinguishable
+from a count. Four states stay separate:
+
+| What you get | What it claims |
+|------|------|
+| `total` equal to the row count | The population was counted, and the list is all of it. |
+| `total` above the row count, `truncated` | The population was counted; the rows are one page of it. |
+| `total` of zero | Counted, and there is genuinely nothing. An authoritative zero. |
+| no `total`, `truncated`, a count of what was reached | Counting stopped early. The count is a lower bound and the true total is unknown. |
+
 **An authoritative zero is not a missing total.** "Zero dependents, and we
 counted" and "we have no dependent count" are distinct, and only the first
-licenses a conclusion.
+licenses a conclusion. An absent total rendered as `0` is the substitution that
+turns "we stopped counting" into "we counted, and there are none" — honest
+uncertainty presented as a confident falsehood.
 
 ---
 
