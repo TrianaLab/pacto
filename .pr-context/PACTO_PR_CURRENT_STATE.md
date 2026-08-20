@@ -9690,3 +9690,35 @@ an independent review at `e47e3bb4` or later can.
 - Inter-phase required-CI determinism repair: CANDIDATE at `e47e3bb4`, awaiting
   independent review.
 - Phases 12 through 14: NOT STARTED.
+
+## 19.1 GitHub Actions at the ledger head `c87d945e`
+
+Section 19's own commit. The tree differs from the implementation SHA
+`e47e3bb4` by exactly one file -- this document -- so nothing here is evidence
+about the repair's product behaviour. It is recorded because a docs-only head is
+precisely the case that exposed the blocker in the first place: sections 18.6
+through 18.8 describe ledger commits that turned `ci-static` and `required` red
+while the implementation SHA below them was green.
+
+That no longer happens.
+
+At `c87d945ea27b835f58c4b1224897639a96c4a05c`, CI run `32341429604` succeeded on
+attempt 1 with all 21 jobs green, including `ci-static`, `ci-gates`, all six
+Kind shards, Compose, artifact drift, release dry-run and `required`. Its
+`ci-static` job log (`96341204308`) again shows `version: v2.13.0` in the
+rendered step inputs, `Installing golangci-lint binary v2.13.0...` and
+`0 issues.` -- the same binary the implementation SHA used, on a different day's
+run, which is the whole point of the pin.
+
+Security `32341429605`, Docs check `32341429584`, Pacto Contract CI
+`32341429692`, Repowise `32341429562`, Validate PR title `32341429603` and both
+dynamic CodeQL runs (`32341423941`, `32341424369`) are all attempt 1 and all
+successful. Rebuild dashboard UI and Auto-merge Dependabot PRs are skipped as
+expected.
+
+The check-run population is identical to the implementation SHA's: 40 runs, 37
+success, two skipped (`build`, `auto-merge`) and one failure, the inherited
+aggregate `CodeQL` condition.
+
+The PR is OPEN, DRAFT and MERGEABLE at this head; `origin/main` and the
+merge-base are still `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
