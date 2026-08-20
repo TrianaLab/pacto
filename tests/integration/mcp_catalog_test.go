@@ -422,7 +422,7 @@ func TestMCPCatalogDiscoveryOverStdio(t *testing.T) {
 	}
 }
 
-// TestMCPCatalogNoRootsFailsClosed proves the shipped binary refuses to serve an
+// TestMCPCatalogEmptyRootFailsClosed proves the shipped binary refuses to serve an
 // empty catalog: absent knowledge must never be published as authoritative.
 func TestMCPCatalogEmptyRootFailsClosed(t *testing.T) {
 	t.Parallel()
