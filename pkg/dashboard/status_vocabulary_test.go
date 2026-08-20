@@ -36,42 +36,60 @@ import (
 // one: it checks five of the seven statuses -- Invalid and NotEvaluated are absent
 // from its table -- and it compares each constant against itself, so it holds
 // under any spelling drift as long as both sides of its table drift together.
+//
+// The comparison is between the two COMPLETE vocabularies, not between a list of
+// pairs someone remembered to extend. A pairwise table proves the pairs in it
+// agree and says nothing about a value that exists on one side only: adding
+// StatusDeferred here, accepting it in NormalizeContractStatus and never telling
+// pkg/fleet left every status test in this repository green while the dashboard
+// emitted a status the fleet rejects as non-canonical. Both sets are therefore
+// read from the structures PRODUCTION uses -- canonicalStatuses is what
+// NormalizeContractStatus accepts, fleet.CanonicalStatuses enumerates the table
+// fleet.ValidStatus accepts from -- so neither side can gain or lose a value
+// without this test seeing it, and there is no third list here to drift.
 func TestContractStatusVocabularyMatchesFleet(t *testing.T) {
-	pairs := []struct {
-		dashboard ContractStatus
-		fleet     string
-	}{
-		{StatusCompliant, fleet.StatusCompliant},
-		{StatusWarning, fleet.StatusWarning},
-		{StatusNonCompliant, fleet.StatusNonCompliant},
-		{StatusUnknown, fleet.StatusUnknown},
-		{StatusReference, fleet.StatusReference},
-		{StatusInvalid, fleet.StatusInvalid},
-		{StatusNotEvaluated, fleet.StatusNotEvaluated},
+	fleetVocabulary := fleet.CanonicalStatuses()
+	inFleet := make(map[string]bool, len(fleetVocabulary))
+	for _, s := range fleetVocabulary {
+		inFleet[s] = true
 	}
 
-	seen := make(map[ContractStatus]bool, len(pairs))
-	for _, p := range pairs {
-		if string(p.dashboard) != p.fleet {
-			t.Errorf("the dashboard says %q where the fleet says %q", p.dashboard, p.fleet)
-		}
-		// Every canonical status must survive normalization AS ITSELF. Folding one
-		// into Unknown is not a smaller answer, it is a different one.
-		if got := NormalizeContractStatus(ContractStatus(p.fleet)); got != p.dashboard {
-			t.Errorf("NormalizeContractStatus(%q) = %q, want %q: a canonical fleet status must never be folded into another status", p.fleet, got, p.dashboard)
-		}
-		// And the fleet must recognize what the dashboard emits, so neither side can
-		// gain a status the other has never heard of.
-		if !fleet.ValidStatus(string(p.dashboard)) {
-			t.Errorf("the fleet does not accept the dashboard status %q as canonical", p.dashboard)
-		}
+	inDashboard := make(map[ContractStatus]bool, len(canonicalStatuses))
+	for _, s := range canonicalStatuses {
 		// Seven statuses, seven meanings. Unknown ("evaluated, cannot tell") and
 		// NotEvaluated ("never looked") are the pair most easily collapsed, and a
 		// collapse here would make every aggregate over them wrong in the same
 		// direction.
-		if seen[p.dashboard] {
-			t.Errorf("two canonical statuses share the value %q; the vocabulary must stay one meaning per value", p.dashboard)
+		if inDashboard[s] {
+			t.Errorf("two canonical statuses share the value %q; the vocabulary must stay one meaning per value", s)
 		}
-		seen[p.dashboard] = true
+		inDashboard[s] = true
+	}
+
+	// Direction one: nothing the dashboard treats as canonical may be foreign to
+	// the fleet, which would emit a status the fleet's own filters reject.
+	for _, s := range canonicalStatuses {
+		if !inFleet[string(s)] {
+			t.Errorf("the dashboard declares %q canonical, but the fleet vocabulary is %v", s, fleetVocabulary)
+		}
+		// ValidStatus is the predicate production filtering actually calls; assert it
+		// as well as the enumeration, so a future split between the two is caught here
+		// rather than in a query that silently rejects a legitimate filter.
+		if !fleet.ValidStatus(string(s)) {
+			t.Errorf("the fleet does not accept the dashboard status %q as canonical", s)
+		}
+	}
+
+	// Direction two: nothing the fleet treats as canonical may be foreign to the
+	// dashboard, which would fold a real status into Unknown on the way in.
+	for _, s := range fleetVocabulary {
+		if !inDashboard[ContractStatus(s)] {
+			t.Errorf("the fleet declares %q canonical, but the dashboard vocabulary does not know it", s)
+		}
+		// Every canonical status must survive normalization AS ITSELF. Folding one
+		// into Unknown is not a smaller answer, it is a different one.
+		if got := NormalizeContractStatus(ContractStatus(s)); string(got) != s {
+			t.Errorf("NormalizeContractStatus(%q) = %q, want %q: a canonical fleet status must never be folded into another status", s, got, s)
+		}
 	}
 }

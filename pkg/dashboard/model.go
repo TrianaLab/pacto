@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,15 +26,24 @@ const (
 	StatusNotEvaluated ContractStatus = "NotEvaluated"
 )
 
+// canonicalStatuses is the complete contract-status vocabulary. It is a list
+// rather than a switch case because the vocabulary has to be readable as a set:
+// NormalizeContractStatus accepts exactly these values, so the set a parity check
+// compares is the set production normalizes against, and a status cannot be added
+// to the dashboard's vocabulary anywhere else. The fleet's copy is
+// fleet.CanonicalStatuses; TestContractStatusVocabularyMatchesFleet compares them.
+var canonicalStatuses = []ContractStatus{
+	StatusCompliant, StatusWarning, StatusNonCompliant, StatusUnknown,
+	StatusReference, StatusInvalid, StatusNotEvaluated,
+}
+
 // NormalizeContractStatus maps any non-standard status to one of the canonical
 // contract statuses.
 func NormalizeContractStatus(s ContractStatus) ContractStatus {
-	switch s {
-	case StatusCompliant, StatusWarning, StatusNonCompliant, StatusUnknown, StatusReference, StatusInvalid, StatusNotEvaluated:
+	if slices.Contains(canonicalStatuses, s) {
 		return s
-	default:
-		return StatusUnknown
 	}
+	return StatusUnknown
 }
 
 // ComplianceStatus represents the overall compliance assessment of a service.

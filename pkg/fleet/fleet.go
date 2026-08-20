@@ -32,6 +32,8 @@
 package fleet
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -261,6 +263,13 @@ func ValidStatus(s string) bool {
 	_, ok := severityRank[s]
 	return ok
 }
+
+// CanonicalStatuses returns the complete canonical status vocabulary, sorted. It
+// enumerates the same table ValidStatus accepts from, so a consumer comparing its
+// own copy of the vocabulary against this one is comparing against exactly what
+// the fleet validates, and a status added here without a severity would not be
+// canonical at all.
+func CanonicalStatuses() []string { return slices.Sorted(maps.Keys(severityRank)) }
 
 // SchemaVersion is the version of the fleet snapshot/query wire model. It is
 // carried on every snapshot and query answer so consumers can detect model

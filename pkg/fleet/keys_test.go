@@ -1,6 +1,9 @@
 package fleet
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestNewServiceKey(t *testing.T) {
 	if got := NewServiceKey("payments"); got != ServiceKey("payments") {
@@ -177,10 +180,11 @@ func TestSnapshotService(t *testing.T) {
 }
 
 func TestValidStatus(t *testing.T) {
-	for _, s := range []string{
+	canonical := []string{
 		StatusInvalid, StatusNonCompliant, StatusUnknown, StatusWarning,
 		StatusCompliant, StatusReference, StatusNotEvaluated,
-	} {
+	}
+	for _, s := range canonical {
 		if !ValidStatus(s) {
 			t.Errorf("%q should be a canonical status", s)
 		}
@@ -190,6 +194,14 @@ func TestValidStatus(t *testing.T) {
 	}
 	if ValidStatus("") {
 		t.Error("empty string is not a canonical status")
+	}
+	// CanonicalStatuses must enumerate EXACTLY what ValidStatus accepts, in both
+	// directions. It is the fleet's half of the cross-package vocabulary parity
+	// check (TestContractStatusVocabularyMatchesFleet in pkg/dashboard), so a
+	// consumer comparing its own vocabulary against this enumeration has to be
+	// comparing against the fleet's real domain rather than a subset of it.
+	if got, want := CanonicalStatuses(), slices.Sorted(slices.Values(canonical)); !slices.Equal(got, want) {
+		t.Errorf("CanonicalStatuses() = %v, want %v: the enumeration and the validator are one vocabulary", got, want)
 	}
 }
 

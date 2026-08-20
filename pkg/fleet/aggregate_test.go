@@ -40,17 +40,12 @@ func TestComplianceTally_BucketsArePartitionOfThePopulation(t *testing.T) {
 	}
 }
 
-// A canonical status is one ValidStatus accepts, so the two cannot drift: adding a
-// status to the vocabulary without giving it a bucket would leave part of a real
-// population in the catch-all.
+// The population is read from CanonicalStatuses rather than listed here, so the
+// two cannot drift: adding a status to the vocabulary without giving it a bucket
+// would leave part of a real population in the catch-all, and a hand-kept list
+// here would simply not mention the new status.
 func TestComplianceTally_EveryCanonicalStatusHasItsOwnBucket(t *testing.T) {
-	for _, s := range []string{
-		StatusCompliant, StatusNonCompliant, StatusUnknown, StatusWarning,
-		StatusInvalid, StatusReference, StatusNotEvaluated,
-	} {
-		if !ValidStatus(s) {
-			t.Fatalf("%q is not a canonical status; fix the test list", s)
-		}
+	for _, s := range CanonicalStatuses() {
 		var c ComplianceTally
 		c.add(s)
 		if c.Other != 0 {
