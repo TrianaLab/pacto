@@ -109,6 +109,71 @@ func TestCatalogCoreIsFrameworkIndependent(t *testing.T) {
 	}
 }
 
+// TestTheFleetNeverReachesTheCatalog keeps the two knowledge models apart.
+//
+// pkg/catalog answers what a set of contract roots and their closure DECLARE. It
+// is a frozen discovery session: no runtime observation, no source health, no
+// staleness, and nothing in it outlives the call that produced it. pkg/fleet
+// answers what is actually RUNNING, from live sources that each carry their own
+// availability and completeness.
+//
+// An import edge would dissolve that. A declaration-only closure would become
+// reachable as operational truth: a revision that exists only because someone
+// pointed the catalog at a repository would appear as a fleet record, and a
+// catalog closure that is complete (every declared reference resolved) would be
+// readable as a fleet that is complete (every source answered), which is a
+// different claim about a different world.
+//
+// The opposite direction is already closed by TestCatalogCoreIsFrameworkIndependent:
+// pkg/fleet is absent from catalogAllowedPacto, so the catalog cannot reach the
+// fleet either. This is the half that was unguarded.
+func TestTheFleetNeverReachesTheCatalog(t *testing.T) {
+	const catalogRoot = "github.com/trianalab/pacto/v3/pkg/catalog"
+	for _, dep := range deps(t, "github.com/trianalab/pacto/v3/pkg/fleet/...") {
+		if dep == catalogRoot || strings.HasPrefix(dep, catalogRoot+"/") {
+			t.Errorf("boundary violation: pkg/fleet reaches %q; a frozen contract-catalog session is declaration-only knowledge and must never be readable as operational fleet truth", dep)
+		}
+	}
+}
+
+// TestEvidenceAndFindingNeverImportEachOther keeps an observation apart from a
+// judgement about one.
+//
+// pkg/evidence records what a collector saw, and deliberately has no way to say
+// something is absent: evidence.Outcome is Observed/Unsupported/Failed/Stale/
+// Insufficient and there is no OutcomeAbsent. pkg/finding records a verdict
+// reached by comparing a contract against evidence, and distinguishes
+// CategoryMissingEvidence (we could not look) from CategoryInconclusive (we
+// looked and could not decide). validation.Evaluate is the single bridge.
+//
+// Either edge would collapse the distinction:
+//
+//   - pkg/evidence importing pkg/finding lets a collector ship verdicts alongside
+//     its observations, so "we could not reach the workload" arrives already
+//     rendered as a violation -- absence of evidence delivered as evidence of
+//     absence, from the one layer that is defined to have no opinion.
+//   - pkg/finding importing pkg/evidence lets a Finding carry an observation
+//     payload instead of the metadata-only finding.EvidenceRef (source and
+//     timestamp). A consumer could then re-derive the verdict from the embedded
+//     payload, and its answer and Evaluate's answer would drift apart with no
+//     way to tell which one the user is reading.
+func TestEvidenceAndFindingNeverImportEachOther(t *testing.T) {
+	const (
+		evidencePkg = "github.com/trianalab/pacto/v3/pkg/evidence"
+		findingPkg  = "github.com/trianalab/pacto/v3/pkg/finding"
+	)
+	for _, c := range []struct{ from, to, why string }{
+		{evidencePkg, findingPkg, "a collector records what it observed, never a verdict about it"},
+		{findingPkg, evidencePkg, "a finding cites evidence by metadata (finding.EvidenceRef), never by carrying an observation payload"},
+	} {
+		for _, dep := range deps(t, c.from) {
+			if dep == c.to {
+				t.Errorf("boundary violation: %s reaches %s; %s. The only bridge is validation.Evaluate.", c.from, c.to, c.why)
+			}
+		}
+	}
+}
+
 // deps returns the full transitive import closure of a package pattern.
 func deps(t *testing.T, pkg string) []string {
 	t.Helper()
