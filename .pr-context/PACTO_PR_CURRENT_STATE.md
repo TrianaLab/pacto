@@ -11012,3 +11012,108 @@ author's.
 
 The PR remains an open draft, and the append-only, no-history-rewrite and
 independent-review protocol continues unchanged.
+
+## 20.3 Independent review at `ca039861` -- Phase 12 ACCEPTED and CLOSED
+
+This review independently examined the Phase 12 narrow closure repair from
+review ledger `4c83912e7cb4e51df51427fbc91e44ef92228882` through candidate ledger
+`ca0398612b70bd4eaf5844e00b4fb5030a82e55a`, with implementation head
+`2b8131c3f6460b5e19c37016ca6ca2d303bc0b50`.
+
+### History and scope
+
+The candidate is an append-only, two-commit fast-forward over the previous
+review ledger: implementation commit `2b8131c3` has `4c83912e` as its sole
+parent, and candidate-ledger commit `ca039861` has `2b8131c3` as its sole
+parent. The remote branch and PR head were exactly `ca039861` at review time.
+The PR remained OPEN, DRAFT and MERGEABLE. `origin/main` and the merge-base
+both remained `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+
+The implementation changed only the MCP construction/catalog surface, its
+tests and generated/public documentation. The candidate-ledger commit changed
+only this file. `PACTO_PR_TARGET_STATE.md`, `pkg/catalog`, the CLI mode wiring,
+OCI resolution, credentials and caching were untouched.
+
+### Blocker A -- CLOSED: catalog mode is actually read-only
+
+`newBareServer` now creates the protocol server without registering the four
+authoring tools. Existing authoring, capability and fleet modes continue to
+use `newServer`, which delegates to `newBareServer` and then registers the
+unchanged authoring surface. `NewCatalogServer` alone starts from the bare
+server and registers exactly the catalog surface.
+
+The complete catalog-mode surface is asserted, not prefix-filtered: one tool
+(`pacto_catalog_revision`), two fixed resources (`pacto://catalog` and
+`pacto://catalog/closure`) and zero resource templates. A separate test calls
+each of `pacto_create`, `pacto_edit`, `pacto_check` and `pacto_schema` through
+catalog mode and requires protocol errors. The shipped-binary stdio E2E also
+compares the complete tool list.
+
+The reviewer independently restored the forbidden construction by changing
+`NewCatalogServer` back to `newServer`. The permanent tests failed: the exact
+surface exposed all four authoring tools and all four supposedly unreachable
+calls succeeded. The mutation was reverted and the clean implementation
+passed again. This proves catalog mode is read-only by reachability, not merely
+by documentation or selective listing.
+
+### Blocker B -- CLOSED: closure carries its own epistemic status
+
+`catalogClosure` now contains `Meta catalog.Meta`, and the closure handler
+copies `cat.Meta()` into every response. Because resources are independently
+readable, an empty closure can now distinguish a complete empty catalog from
+an all-unresolved or otherwise partial catalog without first reading the
+overview resource.
+
+The focused test reads the closure first for two unresolved roots and proves
+that the structural arrays are empty while `Meta` is partial, contains both
+`ROOT_UNRESOLVED` limitations, reports two requested roots and retains the
+configured bounds. It also requires the closure metadata to equal the overview
+metadata. The shipped-binary E2E repeats the cross-resource equality check.
+
+The reviewer independently removed the `Meta: cat.Meta()` assignment. The
+permanent test then failed on completeness, limitations, schema version,
+catalog identity, generation time, requested-root count, bounds and equality
+with the overview. The mutation was reverted and the repaired test passed.
+This proves the response cannot silently regress to an authoritative-looking
+empty closure.
+
+### Verification and external state
+
+Independent local verification passed:
+
+- `go test -race -count=1 ./internal/mcp/... ./internal/cli/...`;
+- the Phase 12 integration tests selected by `TestMCPCatalog` under the
+  `integration` build tag;
+- `make check-section`; and
+- `git diff --check` with a clean tracked tree after both mutations.
+
+GitHub was checked at both `2b8131c3` and `ca039861`. Each SHA has 40 checks:
+37 successful, two expected skips and the inherited aggregate CodeQL failure.
+CI runs `32384091405` and `32386837387` completed on attempt 1 with all 21 jobs
+successful. Contract CI, Security, Docs check, Repowise and PR-title validation
+also succeeded at both heads.
+
+Code scanning still contains exactly the nine inherited open alerts: eight
+`go/path-injection` alerts in `internal/app/resolve.go` and `pkg/oci/cache.go`,
+plus one Python alert in `release/scripts/docs_check.py`. None of those files
+is part of the repair, so the CodeQL delta is ZERO. Review threads were fully
+paginated: 199 total, 189 resolved and the same ten inherited unresolved
+threads (six on the generated Mermaid bundle and four on `pkg/oci/cache.go`).
+The thread delta is ZERO. This review published no PR comment, resolved no
+thread and changed no PR metadata.
+
+### Verdict and phase map
+
+**Phase 12 is ACCEPTED and CLOSED at implementation head `2b8131c3`, reviewed
+through ledger head `ca039861`.** Both previously identified counterexamples
+are structurally excluded, are covered at unit and shipped-binary boundaries,
+and were independently shown to make their named tests fail when restored.
+No Phase 12 blocker remains.
+
+- Phases 1 through 12: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: ACCEPTED and CLOSED.
+- Phase 13: unblocked and NOT STARTED.
+- Phase 14: NOT STARTED.
+
+The PR remains an open draft. Phase 13 may now begin under the same append-only,
+candidate-ledger and independent-review protocol.
