@@ -9299,3 +9299,394 @@ hostile fan-out, and all three blockers from sections 18.2 and 18.4 are closed.
 
 No PR comment, review thread or metadata was changed by this review. TARGET and
 all previous ledger records remain untouched.
+
+## 19 Inter-phase required-CI determinism repair -- CANDIDATE at `e47e3bb4`
+
+Commissioned by section 18.9's "Separate inter-phase CI blocker", and by nothing
+else. This is NOT Phase 12, and Phase 12 was not started. Phase 11 stays
+ACCEPTED and CLOSED at `1cc6a3aa`; `pkg/catalog` is not touched by one byte.
+This record is a CANDIDATE and closes nothing on its own.
+
+### Range
+
+- Starting SHA (section 18.9's ledger head): `3c3665a17cf6fe355e3099ff10f3e9a1fdab22d7`
+- Implementation SHA: `e47e3bb4728cbcbc7c8509a67e054f7755e506d8`
+- Merge-base with `origin/main`: `83f2e66d5cd4fab56099991d39e64fc11f107b3d`, unchanged
+- Commits appended, in order, no amend, rebase, squash, reset or force-push:
+  1. `e47e3bb4` `fix(ci): pin the golangci-lint binary the required gate runs`
+  2. this document's own commit, `docs(pr): record the inter-phase CI
+     determinism repair as a candidate`
+
+`e47e3bb4` is seven files, +160 / -10:
+
+| file | change |
+| --- | --- |
+| `.github/actions/ci/action.yml` | `version: v2.13.0` added to the golangci-lint install step, with a comment naming the gate that keeps it there |
+| `tests/architecture/golangci_lint_pin_test.go` | NEW -- the structural gate over that step, plus a table proving which spellings the version rule refuses |
+| `internal/cli/login_test.go` | 1 hook restore moved from `defer` to `t.Cleanup` |
+| `internal/cli/logout_test.go` | 2 hook restores moved from `defer` to `t.Cleanup` |
+| `internal/update/check_test.go` | 2 hook restores moved from `defer` to `t.Cleanup` |
+| `pkg/oci/cache_test.go` | 3 hook restores moved from `defer` to `t.Cleanup` |
+| `pkg/oci/credentials_test.go` | 2 hook restores moved from `defer` to `t.Cleanup` |
+
+No Make target, gate, timeout, coverage threshold, complexity limit, job or
+linter configuration changed. No `nolint`, no analyzer exclusion, no
+`.golangci.yml` at the root, no second version source, no lock file, no
+`.tool-versions`, no new dependency. No production file changed:
+`pkg/oci/credentials.go` and `SetUserHomeDirFn` are exactly as they were.
+
+### The blocker -- a required gate with two halves and only one pin
+
+`.github/actions/ci/action.yml` pinned `golangci/golangci-lint-action` by full
+commit but passed only `install-only: true`. The action is two things: code that
+runs on the runner, and an installer that fetches a linter binary. Only the
+first half was pinned. With no `version`, the installer resolves whatever is
+latest that day.
+
+That is what turned the branch red between two commits that changed no product
+source. Section 18.7 recorded the transition; the repair confirms the mechanism.
+v2.13.0's staticcheck added SA9010, "deferred return function not called", and
+it fires on the compact hook-restore idiom:
+
+```go
+old := oci.SetUserHomeDirFn(func() (string, error) { return "", errNoHome })
+defer oci.SetUserHomeDirFn(old)
+```
+
+`SetUserHomeDirFn` returns the hook it replaced. The deferred call IS the
+restore; its return value is the now-displaced test hook and is intentionally
+discarded. The runtime behaviour was always correct. SA9010 sees a deferred
+call to a function that returns a function, assumes the returned function is the
+cleanup, and reports that it was never invoked.
+
+Ten such occurrences exist, all of them present at merge-base `83f2e66d` and
+none of them added by any phase of this PR.
+
+### RED 1 -- the structural gate against the unpinned action
+
+The gate was written and run before `action.yml` was touched. The rule's own
+table passed; the gate over the real file failed, naming the missing pin:
+
+```
+--- PASS: TestTheLintVersionRuleRejectsEveryFloatingSpelling (0.00s)
+    --- PASS: /no_version_key   --- PASS: /empty_value
+    --- PASS: /latest           --- PASS: /minor_only
+    --- PASS: /major_only       --- PASS: /full_version
+=== RUN   TestTheCIActionInstallsOnePinnedGolangciLintBinary
+    golangci_lint_pin_test.go:138: .../.github/actions/ci/action.yml installs a
+    floating golangci-lint binary: the step sets no `version`, so the installer
+    takes whatever is latest that day. The same tree lints clean on one release
+    and red on the next, which makes a required check depend on the calendar
+--- FAIL: TestTheCIActionInstallsOnePinnedGolangciLintBinary (0.00s)
+FAIL	github.com/trianalab/pacto/v3/tests/architecture	0.840s
+```
+
+### RED 2 -- v2.13.0 on the unrepaired tree, and the permanent counterexample
+
+v2.13.0 was installed into an isolated prefix, `/tmp/glci2130/bin`, precisely so
+that the pre-existing `~/go/bin/golangci-lint` v2.12.2 could not be used by
+accident. Both binaries were then run over the SAME unrepaired tree with cold
+caches and the issue caps lifted, because the default `max-same-issues: 3`
+truncates the SA9010 group to three and there is no root golangci-lint
+configuration to change that:
+
+```
+$ GOLANGCI_LINT_CACHE=/tmp/glcicache-red2 /tmp/glci2130/bin/golangci-lint run \
+    --max-same-issues=0 --max-issues-per-linter=0
+internal/cli/login_test.go:193:2: SA9010: deferred return function not called (staticcheck)
+	defer oci.SetUserHomeDirFn(old)
+	^
+internal/cli/logout_test.go:185:2   SA9010 ...
+internal/cli/logout_test.go:382:2   SA9010 ...
+internal/update/check_test.go:380:2 SA9010 ...
+internal/update/check_test.go:392:2 SA9010 ...
+pkg/oci/cache_test.go:217:2         SA9010 ...
+pkg/oci/cache_test.go:321:2         SA9010 ...
+pkg/oci/cache_test.go:470:2         SA9010 ...
+pkg/oci/credentials_test.go:252:2   SA9010 ...
+pkg/oci/credentials_test.go:377:2   SA9010 ...
+10 issues:
+* staticcheck: 10
+exit=1
+
+$ GOLANGCI_LINT_CACHE=/tmp/glcicache-red-old ~/go/bin/golangci-lint run \
+    --max-same-issues=0 --max-issues-per-linter=0
+0 issues.
+exit=0        # v2.12.2, identical bytes
+```
+
+Same tree, same flags, same cold-cache conditions: 10 issues under one release
+and 0 under the previous one. The variable is the binary, and the binary had no
+pin.
+
+### The repair
+
+Two lines of workflow and ten one-line test edits.
+
+The installer step now pins both halves -- the action by its existing 40-hex
+commit, the binary by `version: v2.13.0` -- with a comment naming the gate that
+keeps it there.
+
+Each of the ten sites became:
+
+```go
+t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
+```
+
+Behaviour is preserved exactly. The previous hook is still restored once per
+test, the captured `old` is the same value, and no hook leaks between tests.
+None of the five affected files contains `t.Parallel()`, so restores still
+complete before the next test in the package starts. Relative ordering against
+`t.Setenv` and `t.TempDir` cleanups is unchanged in every case except
+`TestCachedStore_Pull_SaveErrorIgnored`, where a later-registered `os.Chmod`
+cleanup now runs before the hook restore instead of after; neither reads the
+home-dir hook, and the test passes under the race detector.
+
+`SetUserHomeDirFn` itself is untouched. So is every one of the twelve
+pre-existing `t.Cleanup` call sites, which SA9010 does not flag.
+
+### The shape of the new gate
+
+`tests/architecture/golangci_lint_pin_test.go` is a level-3 architecture test:
+a rule about the repository, not about the product. It sits where `ci-gates`
+already runs `./tests/architecture/...`, and `/tests/` is excluded from the
+100 percent coverage gate, so it adds no coverage surface.
+
+It parses `.github/actions/ci/action.yml` with the root module's already-direct
+`gopkg.in/yaml.v3` -- no new dependency -- and resolves the path from
+`runtime.Caller(0)` rather than the working directory, the same idiom
+`check_section_test.go` uses. Parsing rather than grepping is load-bearing
+twice: the `uses:` scalar carries a trailing `# v9.2.0` comment that a regex over
+raw text would swallow into the reference, and a step is a structure, not a
+spelling.
+
+It asserts four things about the one installer step: that there is EXACTLY one
+step using the action, in both directions, so the gate can neither be silenced
+by renaming the step nor satisfied while a second, disagreeing version source
+exists; that the action stays pinned to a 40-hex commit; that `with.version` is
+present and a full `vX.Y.Z`; and that `install-only: true` survives, because
+that is what keeps `make ci-lint` the single invocation shared by CI and local
+runs.
+
+Which spellings the version rule refuses is proved by a table over the pure
+validator -- absent key, empty value, `latest`, `v2.13`, `v2` refused; `v2.13.0`
+accepted -- rather than by mutating the workflow once per spelling. This follows
+the lesson recorded for the compose and Kind gates: forbid a structural
+property, and do not let a rule pass because some unrelated line happens to
+match its regex.
+
+### Mutation evidence
+
+Four mutations, applied one at a time, each observed failing for the intended
+reason, each reverted and proved byte-for-byte with `shasum -a 256 -c` over all
+seven files.
+
+1. `version: v2.13.0` -> `version: latest`:
+   `TestTheCIActionInstallsOnePinnedGolangciLintBinary` FAILED with
+   "`version: latest` is not a full immutable version like v2.13.0".
+2. the `version` key removed entirely: the same test FAILED with "the step sets
+   no `version`, so the installer takes whatever is latest that day". This is
+   exactly the pre-repair state, reproduced by the gate.
+3. the action reference changed to `golangci/golangci-lint-action@v9.2.0` with
+   the version pin left correct: the same test FAILED with "pins the action as
+   ...; it must stay `golangci/golangci-lint-action@<40-hex commit>`". The two
+   halves are gated independently.
+4. one converted site restored to `defer oci.SetUserHomeDirFn(old)`
+   (`internal/cli/login_test.go:193`): v2.13.0 with a cold cache and the caps
+   lifted reported `internal/cli/login_test.go:193:2: SA9010: deferred return
+   function not called (staticcheck)`, `1 issues`, exit 1.
+
+After the last revert the seven checksums matched and a cold v2.13.0 run over
+the clean tree returned `0 issues.`, exit 0.
+
+### Local verification, all green at `e47e3bb4`
+
+Every golangci-lint invocation below used the isolated `/tmp/glci2130/bin`
+binary, confirmed by `command -v golangci-lint` resolving to
+`/tmp/glci2130/bin/golangci-lint` and by `golangci-lint version` printing
+`golangci-lint has version 2.13.0`.
+
+- `go test -race -count=1 ./tests/architecture` -- ok, 5.129s. Both new tests
+  pass, and so does the rest of the package.
+- `go test -race -count=1 ./internal/cli ./internal/update ./pkg/oci` -- all
+  three ok (30.9s, 2.3s, 22.3s).
+- cold-cache `golangci-lint run --max-same-issues=0 --max-issues-per-linter=0`
+  under v2.13.0 -- `0 issues.`, exit 0.
+- `make ci-test` -- `total coverage: 100.0%`, example tests ok,
+  `DEMO-CONTRACTS VALID: 24/24`. `pkg/oci` again reports 99.8 percent in its own
+  per-package line and 100.0 percent in the merged profile the gate reads, the
+  same figures recorded in section 18.5.
+- `make ci` with `/tmp/glci2130/bin` first in PATH -- exit 0 end to end:
+  `ci-static` (fmt, vet, gocyclo, `golangci-lint run` -> `0 issues.`,
+  `check-section`, CLI-docs drift, UI-build drift, dashboard-SDK drift, plus the
+  operator module's own `ci-static` at `0 issues.` using its separately pinned
+  v2.8.0 plugin build), `ci-gates` (`tests/architecture` ok 8.882s,
+  `tests/release` ok 9.440s), `ci-engine`
+  (`operational-graph acceptance PASSED`), `ci-dashboard`,
+  `ci-integration-kubernetes`, `ci-e2e-envtest`, `ci-oci`, and the release
+  orchestrator's 16 Node tests.
+- `make artifact-drift` -- `artifact-drift: OK`.
+- `make release-dry-run` -- `RELEASE-DRY-RUN OK: real artifacts to
+  localhost:5001, digest idempotency + immutability + resume proven, no
+  production coordinate`, and `K8S-MODULE-STANDALONE OK`.
+- `govulncheck ./...` -- `No vulnerabilities found.`
+- `git diff --check` -- clean. `make check-section` -- `zero U+00A7 in authored
+  files`. `gofmt -l` over the six changed Go files -- no output.
+- The six Kind shards were not attempted locally, for the Docker Desktop
+  containerd reason recorded at `ci.mk:88-90`. They run in CI, below.
+
+### GitHub at the exact implementation SHA `e47e3bb4`
+
+Forty check runs, every workflow at `run_attempt=1`, no rerun anywhere.
+Thirty-seven success, two skipped (`build`, `auto-merge`) and one failure, the
+aggregate `CodeQL` check, which is the inherited-alerts item carried since
+section 8 and is not a finding of this repair. This is the identical population
+and the identical single failure recorded at `1cc6a3aa` in section 18.5.
+
+- **CI**, run `32339908832`, attempt 1, success -- all 21 jobs green:
+  `changes`, `ci-static`, `ci-gates`, `ci-engine`, `ci-oci`, `ci-dashboard`,
+  `ci-e2e-envtest`, `ci-e2e-compose`, `ci-integration-kubernetes`,
+  `dashboard-e2e`, `operator-build`, `artifact-drift`, `release-version-test`,
+  `release-dry-run`, `required`, and all six Kind shards individually --
+  `ci-e2e-kind (dashboard)`, `(upgrade)`, `(reconcile)`, `(evidence)`,
+  `(observation)`, `(operational-graph)`. No shard hit the disclosed
+  image-load family, so no Kind or image-loading code was investigated or
+  changed.
+- **`ci-static` ran exactly v2.13.0, not `latest` and not v2.12.2.** Its job log
+  (`96336783067`) shows the action resolved from the pinned commit
+  `1e7e51e771db61008b38414a730f564565cf7c20`, then:
+
+  ```
+  ##[group]Run golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20
+    version: v2.13.0
+  ...
+  Finding needed golangci-lint version...
+  Installation mode: binary
+  Installing golangci-lint binary v2.13.0...
+  Downloading binary https://github.com/golangci/golangci-lint/releases/download/v2.13.0/golangci-lint-2.13.0-linux-amd64.tar.gz ...
+  Installed golangci-lint into /home/runner/golangci-lint-2.13.0-linux-amd64/golangci-lint
+  ...
+  ==> Running linter...
+  golangci-lint run
+  0 issues.
+  ```
+
+  The version now appears in the rendered step inputs, which is the observable
+  difference from the runs section 18.7 diagnosed. The second `0 issues.` later
+  in the same job is the Kubernetes module's own v2.8.0 build, unchanged.
+- **Security**, run `32339908839`, attempt 1, success: `Trivy (image)`,
+  `govulncheck (Go)` and `PR security summary`. The path-filtered `Trivy` and
+  `govulncheck` variants did not materialize as separate jobs for this diff.
+- **Docs check** `32339908700` (job `docs-check`), **Pacto Contract CI**
+  `32339908674` (job `bundle`), **Repowise (architecture health)** `32339908724`
+  (job `repowise`) and **Validate PR title** `32339908682` -- all attempt 1, all
+  success.
+- The two dynamic CodeQL runs, **PR #291** `32339904891` (`Analyze` for `go`,
+  `python`, `javascript-typescript`, `actions`) and **Code Quality: PR #291**
+  `32339905032` (`Analyze` for `python`, `go`, `javascript-typescript`), both
+  attempt 1, both success. The failing `CodeQL` CHECK is published by
+  `github-advanced-security`, not by those runs, and reports the same "8 new
+  alerts including 8 high severity security vulnerabilities" wording as at
+  `1cc6a3aa`. A green Security workflow and the CodeQL alert attribution remain
+  two different claims.
+- **Auto-merge Dependabot PRs** `32339908939` and **Rebuild dashboard UI**
+  `32339908782` -- skipped, as expected on this PR.
+
+### CodeQL and review threads
+
+Both populations were re-queried at `e47e3bb4`, and the delta introduced by this
+repair is ZERO in each.
+
+- Code-scanning API, `state=open` on `refs/pull/291/head`: the same nine
+  inherited alerts at the same lines -- 38
+  (`py/incomplete-url-substring-sanitization`, `release/scripts/docs_check.py:197`),
+  40 through 43 (`go/path-injection`, `internal/app/resolve.go` 35, 43, 57, 67)
+  and 59 through 62 (`go/path-injection`, `pkg/oci/cache.go` 375, 394, 395,
+  666). None was added, silenced or dismissed here. The whole item stays OPEN
+  for independent triage before Phase 14 readiness. `pkg/oci/cache_test.go`
+  changed in this repair; `pkg/oci/cache.go`, which carries four of the alerts,
+  did not.
+- Review threads, fully paginated across both pages, since the API caps a page
+  at 100 and page one hides every unresolved thread: 199 total, 189 resolved,
+  10 unresolved. The unresolved ten are unchanged -- six `github-code-quality`
+  comments on the generated minified Mermaid chunk
+  `pkg/dashboard/ui/assets/ganttDiagram-6RSMTGT7-i4uZHW8n.js` and four
+  `github-advanced-security` comments on `pkg/oci/cache.go`. No thread was
+  resolved, replied to or opened by this pass.
+
+### Hygiene and disclosures
+
+- The PR is OPEN and DRAFT and MERGEABLE throughout. No PR comment was
+  published, no review thread was resolved or replied to, and no PR metadata --
+  title, body, labels, reviewers, draft state -- was changed.
+- Append-only: `e47e3bb4` and this document's commit sit directly on top of
+  `3c3665a1`, which remains an ancestor of HEAD. No amend, rebase, squash,
+  reset, cherry-pick or force-push. The merge-base with `origin/main` is
+  unchanged. The branch ref and HEAD were confirmed identical before the push.
+- `PACTO_PR_TARGET_STATE.md` was not modified. No previous section of this
+  document was rewritten; section 19 is an append. Section 18.9 is untouched and
+  Phase 11 remains ACCEPTED and CLOSED.
+- All three tracked `.pr-context/` files and `docs/maintainers/testing.md` were
+  read in full before anything changed.
+- The four inherited untracked paths `.claude/`, `.codex/`, `.mcp.json` and
+  `AGENTS.md` are preserved and uncommitted.
+- `make ci` again regenerated the hand-written
+  `integrations/kubernetes/charts/pacto-dev-gateway/README.md`. It was restored
+  with `git checkout --` and not committed; the helm-docs drift check itself
+  passes. No `go.work.sum` drift appeared this pass -- the isolated v2.13.0
+  install was performed from `/tmp` with `GOWORK=off` for exactly that reason.
+  Outside those, the worktree held nothing but the seven changed files.
+- No authored frontend input changed, so the committed UI bundle was NOT
+  rebuilt, and `ci-ui-drift` and `check-dashboard-sdk-drift` are clean against
+  the existing one.
+- **Idiom inconsistency, disclosed rather than tidied.** The commissioned form
+  is `t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })`, and that is what the
+  ten converted sites use. The twelve pre-existing `t.Cleanup` sites in
+  `pkg/oci/cache_test.go`, `pkg/oci/cache_coherence_test.go` and
+  `pkg/oci/matrix_test.go` write the same call without the `_ =`. SA9010 does
+  not flag either form -- that is why only 10 of the 22 total call sites were
+  ever red -- so the blank identifier here is explicitness, not an analyzer
+  requirement. Aligning the other twelve would be the unrelated test refactor
+  this repair was told not to perform, so they were left alone.
+- **The stale `ci.mk` comment was left alone.** The comment above `ci-gates` at
+  `ci.mk:25-31` enumerates the architecture gates and already omits the Kind and
+  catalog gates added in earlier phases; it now also omits this one. Correcting
+  it is a real but separate tidy, and widening this repair to reach it was
+  judged worse than disclosing it.
+
+### Deliberately not done
+
+- No linter, analyzer or check was suppressed, disabled, excluded or downgraded.
+  No `nolint` directive was added for SA9010, no root `.golangci.yml` was
+  created, and no threshold, timeout, race, coverage or complexity setting was
+  relaxed.
+- No second source of truth for the linter version: no lock file, no
+  `.tool-versions`, no `.golangci-lint-version`, no Make variable. The gate
+  actively forbids one by requiring exactly one installer step.
+- No new dependency. The gate uses `gopkg.in/yaml.v3`, already a direct
+  requirement of the root module.
+- No change to `SetUserHomeDirFn` or any production file, and no change to the
+  twelve pre-existing cleanup sites.
+- No change to `pkg/catalog`, no reopening of Phase 11, and no Phase 12 work --
+  no MCP server, tool, resource, CLI wiring, protocol E2E or documentation.
+- No Kind or image-loading investigation: all six shards passed on attempt 1, so
+  nothing in this repair gave cause to touch that harness.
+- No change to the nine inherited CodeQL alerts, which stay OPEN and outside
+  this repair's scope.
+
+### Verdict
+
+**The inter-phase required-CI determinism repair is a CANDIDATE at
+`e47e3bb4`.** The required gate is green again, and it is green for a reason
+that a future upstream release cannot quietly undo: the binary is pinned, and a
+structural architecture test fails if the pin is removed, emptied, loosened to
+`latest` or to a minor-only version, duplicated into a second source, or if the
+action itself drifts back to a tag. This record does not close the repair; only
+an independent review at `e47e3bb4` or later can.
+
+### Current phase map
+
+- Phases 1 through 11: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: CANDIDATE at `e47e3bb4`, awaiting
+  independent review.
+- Phases 12 through 14: NOT STARTED.
