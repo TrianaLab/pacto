@@ -11117,3 +11117,346 @@ No Phase 12 blocker remains.
 
 The PR remains an open draft. Phase 13 may now begin under the same append-only,
 candidate-ledger and independent-review protocol.
+
+---
+
+## 21 Phase 13 -- normative invariants, CANDIDATE at `487cd250`
+
+Phase 13 turns the model distinctions Pacto refuses to collapse into durable
+executable and documented invariants. It introduces no ontology package, no
+validation framework, no new product behavior and no change to any accepted
+domain model.
+
+### History and scope
+
+The phase starts at `9157780256d53afaa6cd841f6cc8018b05e7bdc0`, the ledger head
+at which Phase 12 was accepted and closed. Three implementation commits form an
+append-only fast-forward, each with exactly one parent:
+
+| Order | SHA | Subject |
+|-------|-----|---------|
+| 1 | `80f1a130c2064ff418b5a03c195b58efb667c3f5` | `test(architecture): forbid the fleet-to-catalog and evidence-to-finding edges` |
+| 2 | `560b86260c94fd8f90aa91da806ce3397f59414d` | `test(dashboard): bind the contract-status vocabulary to the fleet's` |
+| 3 | `487cd250eeaaebe41ac1c82150acb25330d1cc8a` | `docs: index the distinctions Pacto refuses to collapse` |
+
+The complete diff `91577802..487cd250` is nine files, 353 insertions and two
+deletions:
+
+```
+ docs/architecture.md                      |   5 +
+ docs/concepts.md                          | 196 ++++++++++++++++++++++++++++++
+ docs/impact.md                            |   2 +
+ docs/index.md                             |   4 +-
+ docs/operational-graph.md                 |   2 +
+ mkdocs.yml                                |   1 +
+ pkg/dashboard/status_vocabulary_test.go   |  77 ++++++++++++
+ tests/architecture/boundary_test.go       |  65 ++++++++++
+ tests/architecture/collector_docs_test.go |   3 +-
+```
+
+No production Go code changed. No frontend code changed, so the browser and
+generated-asset paths were not in scope. No Kubernetes, Compose, OCI or release
+surface changed. `origin/main` and the merge-base both remain
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`. `PACTO_PR_TARGET_STATE.md` is
+untouched. No existing commit was amended, rebased, squashed or force-pushed.
+The PR remains OPEN, DRAFT and MERGEABLE with head exactly `487cd250`.
+
+### The inventory: what was already durably protected
+
+Every required invariant family was first traced to its canonical semantic
+owner and its existing executable protection. The following families are
+already enforced by named adversarial tests, so per the commission they
+received no new machinery and are recorded here as evidence instead.
+
+| Distinction | Canonical owner | Existing named protection |
+|-------------|-----------------|---------------------------|
+| Service, revision and operational target are three identities | `pkg/fleet` keys | `TestCrossDomain_DistinctServices`, `TestCrossDomain_RevisionsAndTargetsIsolated`, `TestRevisionDocument_SameNameDifferentDomainsCannotCrossRead` |
+| A requested ref is not a resolved identity | `pkg/fleet/ref.go`, `matchrevision` | `TestClassifyContentIdentity`, `TestMatchRevision_MutableTagUnique_Inferred`, `TestMatchRevision_MutableTagMultiple_Ambiguous`, `TestMatchRevision_DigestRefMismatch_NeverExact` |
+| An exact match is not retrievable content | `pkg/fleet` | `TestTargetIdentity_ExactMatch_NonRetrievable`, `TestRevisionDocument_UnavailableIsExplicitNeverEmptyContent`, `TestDocDigest_UnopenablePathHasNoFingerprint` |
+| Ambiguous is not unresolved | `pkg/fleet` | `TestMatchRevision_ExactIdentityNoMatchingRevision_Unresolved`, `TestEntityDetail_TargetAmbiguous`, `TestEntityDetail_TargetUnresolved`, `TestExplain_AmbiguousPropagates` |
+| Declared ownership, canonical owner identity and contact point are three things | `pkg/fleet` owner key | `TestOwnershipIdentity_SameTeamDifferentDRIIsOneCanonicalOwner`, `TestOwnershipIdentity_ARepeatedContactPointIsNotASecondClaim`, `TestRevisionOwnership_CarriesTheDeclaredContactsWithoutInventingAnIdentity`, `TestOwnerKey_CanonicalDrillDownExcludesTheSubstringCollider` |
+| Declared is not observed; declared-not-observed is not confirmed absence | `pkg/fleet` build and reconcile | `TestBuild_ObservedRelationships`, `TestQuery_HasObserved`, `TestReconcileDeclared`, `TestReconcileDeclared_InsufficientWithoutObservation`, `TestProjection_ObservedLimitation` |
+| Absence of evidence is not evidence of absence | `pkg/evidence` outcome set, `pkg/finding` categories | `TestEvidenceWindow_NoEvidenceIsNotStaleEvidence`, `TestEvaluate_UnknownCodesAndMessages`, `TestTargetFrom_DefaultComplianceUnknown_MissingEvidence` |
+| Readiness is not compliance | `pkg/fleet` inventory | `TestReadinessAndCompliance_APassingRevisionCanRunOnANonCompliantTarget`, `TestReadinessTally_ExpiredIsNotBelowThreshold` |
+| Unknown, empty, partial and complete are four claims | `pkg/fleet` build completeness | `TestClassifyCompleteness`, `TestBuild_CollectionLimitations_MarkSourcePartial`, `TestBuild_FailingSource_DisallowPartial`, `TestRuntimePreviewEmpty`, `TestRuntimePreview_ExactTotalWhenComplete` |
+| Stale is not unavailable | `pkg/fleet` source state | `TestBuild_SuppliedSourceState_Stale`, `TestSourceStateFor_DerivedAvailable`, `TestObservedStaleAndWindows` |
+| A bounded list is not the population; an authoritative zero is not a missing total | `pkg/fleet` product bounds | `TestNeighborhood_Truncation`, `TestProductMeta_SourceCountsSpanThePopulationTheListIsCutFrom`, `TestProductMeta_SourceCountsDoNotAbsorbAnUnknownStatus`, `TestOverview_EvidenceTruncation`, `TestRuntimePreview_QueryWorkIsBounded` |
+| Direct source records are not contributed product entities | `pkg/fleet` | `TestSourceDetail_CountsRawRecordsAndContributedEntitiesSeparately`, `TestSourceDetail_ContributionSurvivesThePreviewBound` |
+| An unresolved root is partial knowledge, not an empty closure | `pkg/catalog` | `TestUnresolvedRootAndDependencyArePartialNotEmpty`, `TestCancellationIsPartialKnowledge`, `TestRevisionLookupMissIsNotAnEmptyRevision` |
+| Domain-qualified revision identity survives mirrored content | `pkg/catalog` | `TestMirroredContentInTwoDomainsStaysTwoServices`, `TestCompareServiceIDOrdersDomainThenName` |
+| Discovery is not authorization and is not execution | `internal/mcp` | `TestCatalogServerExposesTheWholeDiscoverySurfaceAndNothingElse`, `TestCatalogModeCannotReachTheAuthoringTools`, `TestAuthoringAndFleetServersExposeNoCatalogSurface`, `TestSafety_ReadOnly`, `TestRegisterCapabilities_ReadOnlyListAndInvoke` |
+| Presentation may simplify presentation, never meaning | `pkg/dashboard/frontend/src/lib/knowledgeState.ts` | the `snapshotKnowledge` suite in `knowledgeState.test.ts`, which already covers strictest-signal precedence, missing metadata and the unavailable-over-stale-over-partial order |
+| Core stays framework-independent; evidence consumers never reach the registry store | `tests/architecture` | `TestCorePackagesHaveNoKubernetesOrIntegrationDeps`, `TestCatalogCoreIsFrameworkIndependent`, `TestEvidenceConsumersNeverReachTheRegistryStore` |
+
+### The four unprotected seams, and why each guardrail sits where it does
+
+**Seam 1 -- the fleet could import the catalog.**
+`TestCatalogCoreIsFrameworkIndependent` guards one direction with an allow-list
+of `pkg/catalog` plus `pkg/contract`. The opposite direction was unguarded, so
+`pkg/fleet` could have read a frozen declaration-only discovery session and let
+a complete catalog closure be presented as a complete fleet snapshot. This is a
+genuine cross-package boundary with no in-package owner, which is exactly the
+case the architecture level exists for.
+Permanent test: `TestTheFleetNeverReachesTheCatalog` in
+`tests/architecture/boundary_test.go`.
+
+**Seam 2 -- evidence and finding were kept apart only by convention.**
+`pkg/evidence` documents that there is no `OutcomeAbsent`, and `pkg/finding`
+separates `CategoryMissingEvidence` from `CategoryInconclusive`, but nothing
+prevented either package from importing the other and letting a finding carry
+an observation payload or a collector emit a verdict. `validation.Evaluate` is
+meant to be the single bridge. Again a cross-package rule with no single
+in-package owner, so it belongs at the architecture level.
+Permanent test: `TestEvidenceAndFindingNeverImportEachOther` in
+`tests/architecture/boundary_test.go`.
+
+**Seam 3 -- the contract-status vocabulary had no Go-level parity check.**
+The seven statuses are declared three times: as typed constants in
+`pkg/dashboard`, as bare strings in `pkg/fleet` (declared there so the fleet
+layer does not import the dashboard) and as a kubebuilder `Enum` marker in the
+operator CRD. Only the CRD copy was enforced. A drift between the first two is
+silent, because `NormalizeContractStatus` folds any unrecognized value into
+`Unknown`, and `Unknown` is a member of every emitted enum domain, so the
+runtime OpenAPI conformance test in `enum_conformance_test.go` cannot see it.
+The pre-existing `TestNormalizeContractStatus` cannot stand in either: its table
+covers five of the seven statuses (`Invalid` and `NotEvaluated` are absent) and
+it compares each constant against itself rather than against the fleet's value.
+The guardrail is a focused domain test in the package that owns the typed
+vocabulary, asserting value equality in both directions, round-tripping every
+canonical fleet status through `NormalizeContractStatus` and requiring one
+meaning per value.
+Permanent test: `TestContractStatusVocabularyMatchesFleet` in
+`pkg/dashboard/status_vocabulary_test.go`.
+
+**Seam 4 -- the new concepts page sat outside the documentation gate.**
+`TestDocsDoNotConflateOrOverclaimCollectors` scans a fixed list of public pages
+for two errors: calling the Kubernetes collector "the engine" and presenting an
+unimplemented collector as shipped. `docs/concepts.md` states the data-source
+versus collector boundary, so it must be inside that scan or the page becomes
+the one place the rule is unenforced. The fix is one entry in the existing list,
+not a new mechanism.
+Permanent test: `TestDocsDoNotConflateOrOverclaimCollectors` in
+`tests/architecture/collector_docs_test.go`, now covering `docs/concepts.md`.
+
+### Documentation
+
+`docs/concepts.md` is a new public page that indexes the distinctions in four
+sections: Identity, Knowledge, Declaration-observation-judgement and
+Boundaries. It states each distinction in one bolded sentence, names what breaks
+if the two sides are conflated and links to the page that explains the
+mechanics. It duplicates no mechanics of its own. It uses user-facing language
+and current terminology rather than internal package names, and it carries the
+adversarial examples the commission asked for: the same name in two domains,
+the same content mirrored into two domains, a mutable tag against a resolved
+digest, an exact match whose content is not retrievable, a partial result with
+zero rows and unknown against not-evaluated.
+
+The only genuinely new explanatory content is the exact-match-versus-
+retrievability passage, which sets match certainty (`exact`, `inferred`,
+`ambiguous`, `unresolved`) against content retrievability as two independent
+facts about one target, and states that both can hold at once without
+contradiction.
+
+The page is added to the mkdocs navigation between Manifesto and Get started,
+and is cross-linked from `docs/index.md`, `docs/architecture.md`,
+`docs/operational-graph.md` and `docs/impact.md`. No existing anchor was
+renamed or removed. Every outbound link and anchor was proved by
+`mkdocs build --strict`, under which the configured `nav` and link validation
+warnings are errors.
+
+### Deliberately not added, after investigation
+
+- **A `severityRank` distinct-ranks test.** The rank integers in `pkg/fleet` are
+  consumed only by `ValidStatus`, so asserting their values would be an
+  implementation-detail assertion of dead data rather than a semantic invariant.
+- **An operator-side vocabulary parity test.** Importing `pkg/dashboard` from
+  `integrations/kubernetes/api/v1alpha1` would put the standalone-module proof
+  at risk for no semantic gain: the CRD's `+kubebuilder:validation:Enum=` marker
+  already pins that third copy at the API server.
+- **Named types for the `Provenance`, `Reconciliation` and `Difference` string
+  fields.** Converting them is a wire-model redesign spanning fleet, dashboard,
+  MCP, the OpenAPI document and the frontend client, and no invariant violation
+  was demonstrated. The commission forbids redesigning accepted domain models
+  without one.
+- **Any repository-wide text search standing in for a typed or behavioral test.**
+  The three Go guardrails are import-graph and constant assertions. The one
+  text-based gate is the pre-existing documentation scan, extended by a single
+  filename.
+
+### Mutation evidence
+
+Each permanent test was proved to bite by restoring the prohibited semantics,
+never by introducing a syntax error or a forced panic. Every mutation was
+reverted and the revert confirmed byte-identical with `shasum -a 256 -c`.
+
+**A -- collapse the fleet into the catalog.** `pkg/fleet/fleet.go` was made to
+import `pkg/catalog` and define
+`CompletenessComplete = Completeness(catalog.CompletenessComplete)`. The code
+compiled. `TestTheFleetNeverReachesTheCatalog` failed with its named boundary
+message. `pkg/fleet`, `pkg/dashboard` and the whole pre-existing architecture
+suite stayed green. The only incidental prior signal was an "import cycle not
+allowed in test" build failure in `pkg/catalog`, caused by `catalog_test.go`
+importing `pkg/fleet`; that signal is accidental, blind to direction and
+carries no explanation of the rule.
+
+**B -- let a finding carry an observation.** `pkg/finding/finding.go` was made
+to import `pkg/evidence` and `EvidenceRef` gained
+`Observation *evidence.Observation`. The code compiled and **every pre-existing
+test in the repository stayed green**. Only
+`TestEvidenceAndFindingNeverImportEachOther` failed.
+
+**C -- fold a canonical status into Unknown.** The `StatusNotEvaluated` case was
+removed from the `NormalizeContractStatus` switch in `pkg/dashboard/model.go`.
+The code compiled. Exactly one test in all of `pkg/dashboard` failed:
+`status_vocabulary_test.go:61: NormalizeContractStatus("NotEvaluated") =
+"Unknown", want "NotEvaluated"`. `tests/architecture`, `tests/release`,
+`pkg/fleet/...` and `internal/...` all stayed green, confirming this seam had no
+other cover.
+
+**D -- overclaim a collector on the new page.** The sentence "The Terraform
+collector is shipped today." was planted in `docs/concepts.md`. With the
+scan-list entry stashed the gate passed, which is the pre-Phase-13 state. With
+the entry restored it failed: "docs/concepts.md presents an unimplemented
+collector (ECS/Nomad/Terraform) as shipped/supported". This proves the fourth
+seam was real and is now closed.
+
+### Local verification
+
+All green on the implementation head:
+
+- `make ci`, exit 0: `ci-static`, `ci-gates`, `ci-engine` (race detector, with
+  `pkg/dashboard` at 100.0% coverage), `ci-dashboard`,
+  `ci-integration-kubernetes`, `ci-e2e-envtest` and `ci-oci`;
+- `-race` reruns of `tests/architecture/...` and `pkg/dashboard/...`;
+- `make artifact-drift`, OK;
+- `make release-dry-run`, `RELEASE-DRY-RUN OK` plus `K8S-MODULE-STANDALONE OK`;
+- `make docs-check`, 9 of 9 checks including generated-docs no-drift,
+  `mkdocs build --strict`, 18 of 18 fenced contracts, 19 of 19 mermaid blocks
+  and the deterministic-twice rebuild;
+- `make check-section`, zero occurrences of the forbidden character;
+- `govulncheck ./...`, no vulnerabilities found;
+- `git diff 91577802..HEAD --check`, clean.
+
+No gate was weakened, skipped or removed.
+
+### Required-CI wiring
+
+The expanded Make targets and the workflow path filters were read, not assumed.
+`ci-gates` runs `go test ./tests/architecture/... ./tests/release/...` and its
+job carries no `if:`, so the two new architecture tests and the extended
+documentation gate always execute. `ci-engine` is selected by the `engine`
+filter `'!(integrations|docs|overrides)/**'`, which this change set satisfies,
+so `TestContractStatusVocabularyMatchesFleet` executes there. The `docs-check`
+workflow filter already includes `docs/**` and `mkdocs.yml`. Every new permanent
+test therefore runs inside required CI, not merely locally.
+
+The `release` filter (`release/**`, `.github/workflows/**`, `examples/demo/**`)
+is not triggered by this change set, so `artifact-drift` and `release-dry-run`
+could legitimately have been skipped in CI. Both were run locally, and in the
+event both also ran and passed on GitHub.
+
+### GitHub evidence at `487cd250`
+
+The remote branch head and the PR head are both exactly
+`487cd250eeaaebe41ac1c82150acb25330d1cc8a`. Ten workflow runs exist at that SHA:
+
+| Run | Workflow | Result |
+|-----|----------|--------|
+| `32413092137` | CI | success on attempt 2 |
+| `32413091831` | Docs check | success |
+| `32413091947` | Security | success |
+| `32413092110` | Pacto Contract CI | success |
+| `32413091869` | Repowise (architecture health) | success |
+| `32413091729` | Validate PR title | success |
+| `32413088196`, `32413088665` | CodeQL | success |
+| `32413091756` | Rebuild dashboard UI | skipped (expected, no frontend change) |
+| `32413092009` | Auto-merge Dependabot PRs | skipped (expected) |
+
+CI run `32413092137` attempt 1 failed in one job only, `ci-e2e-kind (reconcile)`
+(job `96567912937`). The cause is infrastructure, and the log names it exactly:
+
+```
+go: github.com/gofiber/fiber/v3@v3.4.0: verifying go.mod:
+  reading https://sum.golang.org/tile/8/0/x221/291:
+  stream error: stream ID 319; INTERNAL_ERROR; received from peer
+```
+
+That is a transient HTTP/2 failure from the Go checksum database during
+`go mod download all` inside the operator image build, before the Kind cluster
+existed -- which is why every subsequent diagnostic in that log reports a
+refused connection to the API server. Phase 13 changed no module file, no
+operator code and no Dockerfile, and the other five Kind shards, which perform
+the same image build, all passed on attempt 1. The failed job was re-run.
+Attempt 2 completed with all 21 jobs successful: `changes`, `ci-static`,
+`ci-gates`, `ci-engine`, `ci-dashboard`, `ci-integration-kubernetes`,
+`ci-e2e-envtest`, `ci-oci`, `ci-e2e-compose`, `operator-build`, `dashboard-e2e`,
+`artifact-drift`, `release-dry-run`, `release-version-test`, the six
+`ci-e2e-kind` shards and the `required` aggregate.
+
+Across the whole PR head the check totals are 34 success, two expected skips and
+one failure. That single failure is the aggregate `CodeQL` check, which is the
+inherited red recorded in every prior phase ledger: both CodeQL analysis runs
+themselves succeeded, and the aggregate reports failure because open alerts
+exist on the ref.
+
+### CodeQL and review-thread deltas
+
+Code scanning was queried on `refs/pull/291/head` after the analysis re-ran at
+the pushed SHA. It returns exactly the nine inherited open alerts and nothing
+else: `#38` (`py/incomplete-url-substring-sanitization`,
+`release/scripts/docs_check.py:197`), `#40` through `#43` (`go/path-injection`,
+`internal/app/resolve.go`) and `#59` through `#62` (`go/path-injection`,
+`pkg/oci/cache.go`). This is identical to the starting-SHA baseline, so the
+**CodeQL delta is ZERO**: none added and none removed. None of those files is
+part of Phase 13. Alerts `#65` through `#81` remain on `refs/heads/main` rather
+than on this PR ref and are likewise inherited.
+
+Review threads were fully paginated rather than read from a single page: 199
+total, 189 resolved and 10 unresolved. This is identical to the starting-SHA
+baseline, so the **thread delta is ZERO**. All ten unresolved threads are
+inherited bot findings on code Phase 13 does not touch: six on the generated
+Mermaid vendor chunk `pkg/dashboard/ui/assets/ganttDiagram-*.js` and four
+`go/path-injection` notices on `pkg/oci/cache.go`. This phase published no PR
+comment, replied to and resolved no thread and changed no PR metadata.
+
+### Repository hygiene
+
+No generated file was hand-edited and no generated output drifted:
+`make artifact-drift` and the docs no-drift check both pass, and the committed
+dashboard UI bundle was not rebuilt because no frontend source changed. Two
+known local-only rewrites were restored and deliberately not committed: the
+helm-docs rewrite of
+`integrations/kubernetes/charts/pacto-dev-gateway/README.md` and `go.work.sum`
+churn. The working tree is otherwise clean apart from the inherited untracked
+agent files `.claude/`, `.codex/`, `.mcp.json` and `AGENTS.md`, which were not
+touched. No temporary checklist or audit scratchpad was committed; the inventory
+above is the only record of that work.
+
+### Explicit exclusions
+
+Nothing in the following list was attempted, in line with the commission: no
+second ontology package or generic validation engine, no new MCP tool, resource,
+template or query language, no authorization, execution, registry crawling,
+refresh, persistence, activation or marketplace behavior, no change to Phase 11
+catalog resolution semantics or Phase 12 discovery semantics, no backend
+semantic reasoning moved into the browser, no work on inherited CodeQL alerts or
+inherited review threads, no edit to `PACTO_PR_TARGET_STATE.md` and no change to
+PR metadata or state.
+
+### Deferred to Phase 14
+
+The repository-wide ontology audit, the PR-body rewrite, review-thread cleanup,
+the ready-for-review transition and the final changeset decision all remain
+Phase 14 work and were not begun.
+
+### Status
+
+**Phase 13 is a CANDIDATE at implementation head `487cd250`, awaiting
+independent review. It is not self-declared closed.**
+
+- Phases 1 through 12: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: ACCEPTED and CLOSED.
+- Phase 13: CANDIDATE, awaiting independent review.
+- Phase 14: NOT STARTED.
+
+The PR remains an open draft.
