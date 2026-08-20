@@ -5,6 +5,11 @@ Pacto follows a layered architecture where dependencies flow predominantly in on
 
 ## Conceptual model
 
+> The distinctions this model refuses to collapse — service vs revision vs target,
+> declared vs observed, evidence vs finding, empty vs unknown — are indexed on the
+> [Concepts](concepts.md) page. This page covers how the code is arranged to keep
+> them apart.
+
 A Pacto contract describes the relationships between a service's interfaces and how they change over time — ownership, dependencies, compatibility and readiness. A single JSON Schema describes one interface in isolation and structurally cannot express how interfaces relate or evolve; that relational and temporal layer is Pacto's differentiator. It is why the core splits into `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and `pkg/validation` (structural enforcement and evidence evaluation).
 
 Underneath, Pacto composes the interfaces you already have rather than inventing a configuration language. An interface is a JSON Schema, OpenAPI spec or event schema — a service's config interface is its config JSON Schema, an API interface is its OpenAPI document. Where an interface is already owned by another system, Pacto composes it instead of reinventing it. Composition is the on-ramp; the operational contract is the differentiator.

@@ -67,7 +67,9 @@ Pacto makes platform *knowledge* consumable by machines through contracts,
 relationships, constraints, tools and evidence. Pacto is not an IDP, a portal, a
 deployment engine or an authorization system — it is the machine-readable
 operational layer *over* a platform. A human portal and an agent can consume the
-same Pacto graph. See [The Pacto Operational Graph](operational-graph.md).
+same Pacto graph. See [The Pacto Operational Graph](operational-graph.md), and
+[Concepts](concepts.md) for the distinctions that graph is careful never to
+collapse.
 
 ---
 

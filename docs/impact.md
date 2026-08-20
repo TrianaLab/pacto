@@ -196,6 +196,8 @@ about it. It is not either of them.
 
 ## See also
 
+- [Concepts](concepts.md) — what a confidence level, a bounded list and an
+  unretrievable revision each mean
 - [The Pacto Operational Graph](operational-graph.md) — the read model impact
   projects onto
 - [Change classification rules](contract-reference/diff.md) — the semantic diff

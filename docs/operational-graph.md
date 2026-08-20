@@ -617,6 +617,8 @@ systems reason about — it is not either of them.
 
 ## See also
 
+- [Concepts](concepts.md) — the index of distinctions this page's model rests on,
+  each one stated in a sentence
 - [MCP integration](mcp-integration.md) — the three MCP tool families, including
   the read-only fleet query tools
 - [Collectors and the evidence boundary](collectors.md) — how per-target evidence
