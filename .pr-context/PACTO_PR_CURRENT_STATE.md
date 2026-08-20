@@ -11460,3 +11460,135 @@ independent review. It is not self-declared closed.**
 - Phase 14: NOT STARTED.
 
 The PR remains an open draft.
+
+## 21.1 Independent review at `8c83b387` -- Phase 13 NARROWLY REOPENED
+
+Independent review covered the complete Phase 13 interval from accepted Phase
+12 ledger `9157780256d53afaa6cd841f6cc8018b05e7bdc0` through candidate ledger
+`8c83b387f31357c4fe4b31b143eb66656060fa5f`, with implementation head
+`487cd250eeaaebe41ac1c82150acb25330d1cc8a`.
+
+### History, scope and accepted work
+
+The history is an append-only four-commit fast-forward. Every commit has exactly
+one parent, the first implementation commit has `91577802` as its parent, and
+the candidate ledger has `487cd250` as its parent. At review time local HEAD,
+the remote branch and PR head were exactly `8c83b387`. The PR remained OPEN,
+DRAFT and MERGEABLE. `origin/main` and the merge-base both remained
+`83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+
+The implementation diff is correctly narrow: nine files, 353 insertions and
+two deletions, with no production Go, frontend, Kubernetes, Compose, OCI or
+release change. The ledger commit changes only this file. The target is
+untouched.
+
+The two import-graph gates are accepted. They reuse the existing `go list
+-deps` architecture mechanism and close real missing directions without adding
+a validation framework: fleet cannot reach catalog knowledge, and evidence and
+finding cannot reach each other around `validation.Evaluate`. The existing
+collector-overclaim gate is also correctly extended by one filename rather than
+duplicated. Focused architecture tests pass under the race detector.
+
+The Concepts page is a useful durable index, is correctly integrated into the
+MkDocs navigation and existing public pages, and passes the strict documentation
+build. Most of its distinctions agree with their existing semantic owners.
+Those accepted parts do not need redesign. Two narrow blockers remain.
+
+### Blocker A -- the normative page makes two claims stronger than the model
+
+`docs/concepts.md` lines 26 through 29 state globally that Pacto resolves a
+mutable requested reference to an immutable identity "once". That is true for a
+frozen catalog session, but not for Pacto as a whole: the Kubernetes operator's
+`ResolutionPolicyLatest` explicitly resolves the highest semver tag on every
+reconciliation. The durable invariant is that a mutable requested ref must be
+resolved to an immutable identity before it is treated as exact content, not
+that every Pacto surface resolves it only once forever.
+
+More importantly, lines 93 through 95 state that every bounded list carries the
+true total. The accepted product model deliberately disproves that absolute.
+`RuntimePreview.Total` and `RelationshipsPreview.Total` are pointers and are
+omitted when bounded work stopped before the true total could be known. In that
+case `Truncated` is true and `Scanned` or `Count` is only a lower bound. The
+permanent tests `TestRuntimePreviewBounded` and
+`TestRuntimePreview_QueryWorkIsBounded` explicitly require `Total == nil` for
+that case; both passed during this review. The next paragraph on the same page
+correctly says an authoritative zero is different from a missing total, so the
+absolute sentence also contradicts the page's own invariant.
+
+This is blocking because Phase 13's deliverable is the durable normative
+documentation. A Concepts page that upgrades unknown cardinality to an exact
+total, or a per-session resolution rule to a global one-time rule, teaches the
+semantic collapse the phase exists to prevent. The repair should qualify both
+statements to the real boundary: immutable before exact use, and exact total
+when knowable; otherwise an explicitly absent total plus truncation/lower-bound
+metadata.
+
+### Blocker B -- the vocabulary test is pair equality, not set equality
+
+`TestContractStatusVocabularyMatchesFleet` lines 39 through 76 manually lists
+the seven currently known pairs. It proves that those seven values agree and
+that each survives normalization. It does not prove the stronger claims in its
+name, comments and ledger that neither vocabulary can gain a status the other
+does not know.
+
+The reviewer independently added a new dashboard constant
+`StatusDeferred = "Deferred"` and accepted it in `NormalizeContractStatus`,
+without adding it to `pkg/fleet`. Both
+`TestContractStatusVocabularyMatchesFleet` and the pre-existing
+`TestNormalizeContractStatus` passed. The mutation compiled and represented a
+canonical dashboard status that the fleet rejected, exactly the one-sided gain
+the new test says it prevents. The mutation was then fully reverted and the
+tracked tree returned clean.
+
+This is not a request for a shared ontology framework. The narrow repair is to
+make the finite canonical sets discoverable from the same structures production
+normalization/validation use, and compare those complete sets, or use an equally
+small structural design in which one-sided addition cannot pass. The permanent
+mutation must add an eighth canonical status to either side and prove that the
+parity guard fails until the other side is aligned. Existing-value spelling
+drift and `Unknown` versus `NotEvaluated` must remain covered.
+
+### Independent verification and GitHub state
+
+Independent local checks passed on the unmodified candidate after the mutation
+was reverted:
+
+- `go test -race -count=1 ./tests/architecture/...`;
+- `go test -race -count=1 ./pkg/dashboard/...`;
+- focused fleet tests for known versus unknown preview totals;
+- `make docs-check`, all nine checks including `mkdocs build --strict`;
+- `make check-section`; and
+- `git diff --check` with no tracked change.
+
+GitHub evidence matches the candidate except for one ledger arithmetic error.
+At both `487cd250` and `8c83b387` there are 40 check runs: **37 success, two
+expected skips and one inherited aggregate CodeQL failure**, not 34 successes as
+section 21 states for the implementation head. CI run `32413092137` is green on
+attempt 2 with all 21 jobs after the recorded checksum-database transient; CI
+run `32415864315` is green on attempt 1 with all 21 jobs at the ledger head.
+Docs check, Security, Contract CI, Repowise, PR-title validation and both dynamic
+CodeQL workflows are successful at both SHAs.
+
+Code scanning still reports exactly the nine inherited open alerts: one in
+`release/scripts/docs_check.py`, four in `internal/app/resolve.go` and four in
+`pkg/oci/cache.go`. The CodeQL delta is ZERO. Review threads were independently
+paginated in full: 199 total, 189 resolved and the same ten inherited unresolved
+bot threads (six on the generated Mermaid bundle and four on
+`pkg/oci/cache.go`). The thread delta is ZERO. This review published no PR
+comment, resolved no thread and changed no PR metadata.
+
+### Verdict and phase map
+
+**Phase 13 is NARROWLY REOPENED at candidate ledger `8c83b387`.** The import
+boundaries, documentation structure and existing seven status correspondences
+are accepted. Closure requires only the truthful qualification of the two
+normative documentation claims and an actually exhaustive fleet/dashboard
+status-vocabulary invariant with a one-sided-addition mutation.
+
+- Phases 1 through 12: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: ACCEPTED and CLOSED.
+- Phase 13: NARROWLY REOPENED on Blockers A and B above.
+- Phase 14: NOT STARTED and remains blocked.
+
+The PR remains an open draft. Repair only these two blockers, record the repair
+as a candidate and stop for independent review.
