@@ -71,15 +71,25 @@ or a chat channel is how you reach an owner, not who they are.
 
 ## Knowledge
 
-Every Pacto answer carries how much of the world it actually saw. The four words
-below are not degrees of the same thing — they are different claims.
+Every Pacto answer carries how much of the world it actually saw. The words below
+are not degrees of the same thing — they are different claims.
 
 | Word | Claim |
 |------|-------|
 | **complete** | Every source answered. Nothing is missing. |
 | **empty** | Every source answered and there is genuinely nothing. This is *complete* knowledge of an empty result. |
 | **partial** | At least one source was unavailable, stale or itself partial. What you see is a floor, not a total. |
+| **stale** | Every source answered, but one of them last saw the world a while ago. Its records are real and may have moved on since. |
+| **unavailable** | A source did not answer at all. Whatever it knows is missing from this answer entirely. |
 | **unknown** | We never received a completeness we could assert. Not the same as empty. |
+
+Three of these travel on the wire, in every answer's `meta.completeness`:
+`complete`, `partial` and `empty`. The other three are a consumer's reading of the
+same envelope — `stale` and `unavailable` come from the per-source health reported
+alongside it, and `unknown` is what is left when no envelope arrived at all. The
+dashboard takes the worst of the six and gates every all-clear on that, because
+per-source health is the stricter signal: a source that is down must not be masked
+by the one word the snapshot chose for itself.
 
 **Empty is not unknown.** "There are no non-compliant services" and "we could not
 find out" render identically as a blank list and mean opposite things. Pacto
