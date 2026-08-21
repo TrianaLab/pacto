@@ -13,8 +13,11 @@ into an immutable, deterministic `FleetSnapshot` with a pure, network-free
 contract revision and the operational target — and it keeps them
 domain-qualified, so two teams may own a `checkout` without becoming one node. It
 makes incompleteness explicit: every snapshot and every answer carries an as-of
-time, a completeness and structured limitations, so an unreachable source reads
-as unknown and never as an authoritative empty graph.
+time, a completeness and structured limitations, so an unreachable source is
+reported as an `unavailable` source that turns the answer's `completeness` into
+`partial` — surfacing in the dashboard as `unavailable` knowledge, taken from the
+worst source health — and never as an authoritative empty graph. `unknown` stays
+a distinct state, for when there is no completeness envelope at all.
 
 Around that read model:
 
@@ -29,9 +32,13 @@ Around that read model:
   holds the contract is the only durable evidence system. No bucket, no database,
   no second persistence path.
 - **Contract catalog.** `pkg/catalog` answers what a set of contract roots and
-  their closure contain, bounded and free of any delivery mechanism. Three
-  read-only MCP tools expose it to agents over a frozen session, so a catalog
-  answer cannot change underneath a conversation.
+  their closure contain, bounded and free of any delivery mechanism. It reaches
+  agents over MCP as exactly two fixed read-only resources, `pacto://catalog` and
+  `pacto://catalog/closure`, plus one tool, `pacto_catalog_revision` — and no
+  resource templates, because a revision identity is four structured fields and a
+  URI template would force the ad hoc encoding that identity discipline exists to
+  prevent. The session is frozen, so a catalog answer cannot change underneath a
+  conversation.
 - **Change impact.** `pkg/impact` and `pacto impact` answer who is affected by a
   change, computed over canonical identities and refusing a mutable reference.
 - **Reconciliation and observation.** `pkg/reconcile` compares the declared graph
