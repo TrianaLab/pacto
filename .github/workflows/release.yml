@@ -67,14 +67,20 @@ jobs:
           python-version: '3.12'
       - run: pip install pyyaml
       - run: npm ci --ignore-scripts
+      # changesets/action v2 renamed every input this step uses (version ->
+      # version-script, title -> pr-title, commit -> commit-message) and moved
+      # authentication from the GITHUB_TOKEN environment variable to the
+      # github-token input. An unknown `with:` key is a warning, not an error, so a
+      # bare SHA bump would keep this step green while silently running the default
+      # `changeset version` — no release plan, no transaction, no regenerated docs.
+      # tests/release/changesets_action_contract_test.go is the standing proof.
       - name: Open or update the Version Packages PR
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a # v2.1.0
         with:
-          version: npm run release:version:docs
-          title: "chore: version packages"
-          commit: "chore: version packages"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          version-script: npm run release:version:docs
+          pr-title: "chore: version packages"
+          commit-message: "chore: version packages"
 
   # Decide from the release transaction (never from a file diff). Emits the
   # changedUnits set that every publisher gates on. Fail-closed for a bad dispatch.
