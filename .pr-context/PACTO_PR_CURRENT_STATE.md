@@ -11851,3 +11851,115 @@ not self-declared closed.**
 - Phase 14: NOT STARTED.
 
 The PR remains an open draft.
+
+## 21.3 Independent review at `64822e86` -- Phase 13 ACCEPTED and CLOSED
+
+Independent review covered the narrow repair from review ledger
+`48ea47387100bad3b260d883f17fc01d08192ee7` through candidate ledger
+`64822e8614b9dc1cc65385a9362699afb2e667bc`, with repair implementation commits
+`e218ce90ffd27c37355424664cd3c29676e89164` and
+`3f477dc0aa96088da332e6092e40cfcb30598bda`.
+
+### History and scope
+
+The repair is an append-only three-commit fast-forward over the independent
+review ledger. Every commit has one parent, `48ea4738` remains the parent of the
+first repair commit, and `64822e86` changes only this ledger. Local HEAD, the
+remote branch and PR head were exactly `64822e86` at review time. The PR
+remained OPEN, DRAFT and MERGEABLE. `origin/main` and the merge-base both
+remained `83f2e66d5cd4fab56099991d39e64fc11f107b3d`.
+
+The implementation is confined to the two accepted blockers: the existing
+fleet/dashboard status vocabulary, its tests and `docs/concepts.md`. No
+frontend, Kubernetes, Compose, OCI, release or acceptance surface changed, and
+`PACTO_PR_TARGET_STATE.md` is untouched.
+
+### Blocker B -- CLOSED: the complete production-owned sets are equal
+
+The dashboard's canonical set is now `canonicalStatuses`, and
+`NormalizeContractStatus` consumes that exact list. The fleet enumeration is
+derived from `severityRank`, the exact map consumed by `ValidStatus`. The parity
+test therefore compares the complete finite sets used in production rather than
+a third hand-maintained pair table. It checks both directions, duplicates,
+production validation and normalization round-trips. The fleet tally test also
+uses the production enumeration, so a new canonical status cannot silently fall
+through to `Other`.
+
+The reviewer independently repeated both required counterexamples:
+
+1. adding `StatusDeferred` only to the dashboard constants and
+   `canonicalStatuses` made `TestContractStatusVocabularyMatchesFleet` fail in
+   the dashboard-to-fleet direction and made `fleet.ValidStatus` reject it;
+2. adding `StatusDeferred` only to the fleet constants and `severityRank` made
+   the same test fail in the fleet-to-dashboard direction and on the
+   normalization round-trip; `TestValidStatus` and the compliance-tally guard
+   also failed.
+
+Both mutations compiled, exercised genuine one-sided canonical additions and
+were fully reverted. The tracked tree returned clean. Existing spelling drift
+and the `Unknown` versus `NotEvaluated` distinction remain covered. The repair
+uses only standard-library collection helpers and the existing production
+structures; it introduces no enum framework or ontology subsystem.
+
+### Blocker A -- CLOSED: the normative text matches the model
+
+The global one-time-resolution claim is removed. The page now states the real
+invariant: a mutable requested reference must resolve to an immutable identity
+before anything treats it as exact content, while the resolution lifetime
+belongs to the snapshot, session or reconciliation that made it. It correctly
+distinguishes the frozen catalog session from the operator's `Latest` policy,
+which selects the highest semver tag on each reconciliation.
+
+The false claim that every bounded list knows its true total is also removed.
+The page now separates an exact total equal to the carried rows, an exact total
+above a truncated page, an authoritative zero and an absent total whose carried
+count is only a lower bound. This agrees with `RuntimePreview` and
+`RelationshipsPreview`, which deliberately omit `Total` when bounded work ends
+before the population can be counted. The existing behavior tests for unknown,
+known and authoritative-zero totals pass. No brittle prose-matching gate was
+added.
+
+### Independent verification and external state
+
+After reverting both reviewer mutations, independent local verification passed:
+
+- `go test -race -count=1 ./pkg/dashboard/... ./pkg/fleet/...`;
+- `go test -race -count=1 ./tests/architecture/...`;
+- the focused runtime and relationship preview-total tests under `-race`;
+- `make docs-check`, all nine checks including strict MkDocs and deterministic
+  generated documentation;
+- `make check-section`; and
+- `git diff --check` with no tracked change.
+
+The Make wiring was inspected directly. Dashboard and fleet unit tests execute
+through `ci-engine`/`ci-test` under the race and coverage gates; architecture
+tests execute through `ci-gates`. No new workflow or parallel gate was added.
+
+GitHub at both implementation head `3f477dc0` and candidate ledger `64822e86`
+has 40 check runs: 37 successful, two expected skips and the inherited
+aggregate CodeQL failure. CI runs `32422947222` and `32424315525` both completed
+on attempt 1 with all 21 jobs successful. Docs check, Security, Contract CI,
+Repowise, PR-title validation and both dynamic CodeQL workflows also succeeded
+at both heads.
+
+Code scanning still contains exactly the nine inherited open alerts: one in
+`release/scripts/docs_check.py`, four in `internal/app/resolve.go` and four in
+`pkg/oci/cache.go`. The CodeQL delta is ZERO. Review threads were independently
+paginated in full: 199 total, 189 resolved and the same ten inherited unresolved
+bot threads, six on the generated Mermaid bundle and four on
+`pkg/oci/cache.go`. The thread delta is ZERO. This review published no PR
+comment, resolved no thread and changed no PR metadata.
+
+### Verdict and phase map
+
+**Phase 13 is ACCEPTED and CLOSED at repair implementation head `3f477dc0`,
+reviewed through candidate ledger `64822e86`.** Both counterexamples from
+section 21.1 are now structurally excluded and were independently reproduced as
+failing mutations. No Phase 13 blocker remains.
+
+- Phases 1 through 13: ACCEPTED and CLOSED.
+- Inter-phase required-CI determinism repair: ACCEPTED and CLOSED.
+- Phase 14: unblocked and NOT STARTED.
+
+The PR remains an open draft. Phase 14 may now begin under the append-only and
+independent-review protocol.
