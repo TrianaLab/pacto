@@ -84,19 +84,30 @@ func loadLocalBundle(dir string) (*contract.Bundle, error) {
 func (s *Service) resolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
 	parsed := graph.ParseDependencyRef(ref)
 	if parsed.IsOCI() {
-		logging.LoggerFromContext(ctx).Debug("resolving OCI bundle", "ref", parsed.Location)
-		if err := s.requireBundleStore(); err != nil {
-			return nil, err
-		}
-		location, err := oci.ResolveRef(ctx, s.BundleStore, parsed.Location, "")
-		if err != nil {
-			return nil, err
-		}
-		return s.BundleStore.Pull(ctx, location)
+		return s.resolveOCIBundle(ctx, parsed.Location)
 	}
 
 	logging.LoggerFromContext(ctx).Debug("loading local bundle", "path", parsed.Location)
 	return loadLocalBundle(parsed.Location)
+}
+
+// resolveOCIBundle pulls the bundle for an OCI location (a reference with the
+// "oci://" scheme already stripped), never touching the local filesystem
+// branch.
+//
+// It is separate from [Service.resolveBundle] so a caller that must NOT be able
+// to reach a local directory can say so structurally rather than by guarding
+// the dispatching function — see the evidence ingest resolver.
+func (s *Service) resolveOCIBundle(ctx context.Context, location string) (*contract.Bundle, error) {
+	logging.LoggerFromContext(ctx).Debug("resolving OCI bundle", "ref", location)
+	if err := s.requireBundleStore(); err != nil {
+		return nil, err
+	}
+	resolved, err := oci.ResolveRef(ctx, s.BundleStore, location, "")
+	if err != nil {
+		return nil, err
+	}
+	return s.BundleStore.Pull(ctx, resolved)
 }
 
 // ResolveBundle resolves a bundle reference (local directory or oci:// ref) to

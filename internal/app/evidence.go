@@ -27,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/evidence"
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 	"github.com/trianalab/pacto/v3/pkg/strictjson"
 )
@@ -382,14 +383,26 @@ func readBase64(path string) ([]byte, error) {
 	return raw, nil
 }
 
-// contractResolver adapts the Service's bundle resolution to the ingest layer's
-// ContractResolver seam, so accepted evidence is evaluated against the same
-// contract revisions the rest of the CLI resolves (local dir or oci:// ref).
+// contractResolver adapts the Service's OCI bundle resolution to the ingest
+// layer's ContractResolver seam, so accepted evidence is evaluated against the
+// same published contract revisions the rest of the CLI resolves.
+//
+// OCI ONLY, and structurally so. The reference is named by a REMOTE producer,
+// and the ingest policy already refuses anything but an immutable oci:// digest
+// before resolution is reached. But a policy is a guard in front of a branch
+// that still exists: resolving through [Service.resolveBundle] would leave a
+// local-filesystem path one policy bug away from a remote party. Going straight
+// to the OCI path means an ingest host has no local branch to reach at all — it
+// never stats, reads or walks a directory somebody else chose.
 type contractResolver struct{ svc *Service }
 
 // Resolve implements evidenceingest.ContractResolver.
 func (r contractResolver) Resolve(ctx context.Context, ref string) (contract.Contract, error) {
-	b, err := r.svc.ResolveBundle(ctx, ref)
+	parsed := graph.ParseDependencyRef(ref)
+	if !parsed.IsOCI() {
+		return contract.Contract{}, fmt.Errorf("evidence contract ref %q must be an oci:// reference", ref)
+	}
+	b, err := r.svc.resolveOCIBundle(ctx, parsed.Location)
 	if err != nil {
 		return contract.Contract{}, err
 	}

@@ -192,9 +192,13 @@ def check_cr_examples(md_files: list[str]) -> None:
     for path in md_files:
         for block in fenced_yaml_blocks(path):
             for doc in yaml_docs(block):
-                api = str(doc.get("apiVersion", ""))
+                # Compare the API GROUP, not a prefix of the whole apiVersion:
+                # "pacto.trianalab.io.example/v1" starts with the same characters
+                # but is a different group, and only the part before the "/" is
+                # the group at all.
+                group, slash, _ = str(doc.get("apiVersion", "")).partition("/")
                 kind = doc.get("kind")
-                if not api.startswith("pacto.trianalab.io/") or kind not in schemas:
+                if not slash or group != "pacto.trianalab.io" or kind not in schemas:
                     continue
                 total += 1
                 errors = sorted(Draft4Validator(schemas[kind]).iter_errors(doc),

@@ -17,6 +17,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
@@ -144,6 +145,55 @@ func TestValidateContractRef(t *testing.T) {
 		if err := validateContractRef(tc.ref, tc.allowed); (err != nil) != tc.wantErr {
 			t.Errorf("%s: validateContractRef(%q) err=%v, wantErr=%v", tc.name, tc.ref, err, tc.wantErr)
 		}
+	}
+}
+
+// Ingest is the only place a REMOTE party names a contract this host will go
+// and resolve, and contract resolution has a local-filesystem branch. This is
+// the gate that keeps the two apart: every reference the policy accepts must
+// parse as an OCI reference, so a producer can never steer the host onto the
+// local branch and make it stat, read and walk a path of the producer's
+// choosing. Asserted as a property over the shapes that get close, not as one
+// happy-path example.
+func TestValidateContractRef_AcceptedRefsCanOnlyResolveOverOCI(t *testing.T) {
+	dig := "@sha256:" + strings.Repeat("a", 64)
+	for _, ref := range []string{
+		"",
+		"/etc/passwd",
+		"/etc/passwd" + dig,
+		"../../../etc/passwd" + dig,
+		"./bundle" + dig,
+		"file:///etc/passwd" + dig,
+		"ghcr.io/org/svc" + dig,        // no scheme: parses local
+		"oci://ghcr.io/org/svc:latest", // mutable
+		"oci://ghcr.io/org/svc" + dig,
+		"oci://../../../../tmp/evil" + dig,
+	} {
+		if validateContractRef(ref, nil) != nil {
+			continue
+		}
+		if !graph.ParseDependencyRef(ref).IsOCI() {
+			t.Errorf("validateContractRef accepted %q, which resolves on the LOCAL filesystem branch", ref)
+		}
+	}
+
+	// The traversal-shaped reference above is accepted, and that is deliberate:
+	// this policy authorizes a repository, it does not spell out what a registry
+	// client may do with one. Naming where the responsibility goes next is the
+	// point — the reference travels to the OCI branch, and containing it inside
+	// the cache directory belongs to the cache (see pkg/oci, CachedStore).
+	traversal := "oci://../../../../tmp/evil" + dig
+	if err := validateContractRef(traversal, nil); err != nil {
+		t.Fatalf("validateContractRef(%q) = %v; this test documents that it is ACCEPTED and handed to the OCI branch", traversal, err)
+	}
+	if !graph.ParseDependencyRef(traversal).IsOCI() {
+		t.Fatalf("%q must resolve over OCI, never the local filesystem", traversal)
+	}
+
+	// An allowlisted host closes even that: a repository outside it is refused
+	// before any registry client sees the reference.
+	if err := validateContractRef(traversal, []string{"ghcr.io/acme"}); !errors.Is(err, ErrContractRefPolicy) {
+		t.Errorf("with an allowlist, %q = %v, want ErrContractRefPolicy", traversal, err)
 	}
 }
 

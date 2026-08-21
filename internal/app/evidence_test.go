@@ -633,22 +633,36 @@ func TestLoadKey_LengthAndDecodeErrors(t *testing.T) {
 	}
 }
 
-func TestEvidenceResolver(t *testing.T) {
+// The reference an ingest host resolves is named by a REMOTE producer, so this
+// resolver must have no local-filesystem branch to steer onto. The bundle
+// directory below is real, readable and valid — a local resolver would happily
+// return its contract — and the refusal is what proves the branch is gone
+// rather than merely unreached by the shapes a test happened to pick.
+func TestEvidenceResolver_RefusesEveryLocalPathShape(t *testing.T) {
 	bundleDir := t.TempDir()
 	body := "pactoVersion: \"2.0\"\nservice:\n  name: svc-a\n  version: \"1.0.0\"\n"
 	if err := os.WriteFile(filepath.Join(bundleDir, "pacto.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r := (&Service{}).EvidenceResolver()
-	c, err := r.Resolve(context.Background(), bundleDir)
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
+	for _, ref := range []string{
+		bundleDir,                // an absolute directory that really is a bundle
+		".",                      // the working directory
+		"../../../etc",           // a traversal
+		"/nope/missing",          // an absolute path that does not exist
+		"file://" + bundleDir,    // another scheme
+		"ghcr.io/org/svc:1.0.0",  // a registry-shaped ref with no scheme: still local
+		"oci-registry://org/svc", // a scheme that only looks like the right one
+	} {
+		if _, err := r.Resolve(context.Background(), ref); err == nil {
+			t.Errorf("Resolve(%q) succeeded; a remote producer must never reach the local filesystem branch", ref)
+		}
 	}
-	if c.Service.Name != "svc-a" {
-		t.Errorf("service = %q, want svc-a", c.Service.Name)
-	}
-	if _, err := r.Resolve(context.Background(), "/nope/missing"); err == nil {
-		t.Error("expected error resolving a missing bundle")
+
+	// ...and an oci:// reference does reach the OCI branch, which without a
+	// configured store fails there and not on disk.
+	if _, err := r.Resolve(context.Background(), "oci://ghcr.io/org/svc:1.0.0"); err == nil {
+		t.Error("an oci:// ref with no BundleStore configured must report the missing store")
 	}
 }
 

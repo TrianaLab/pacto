@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -25,8 +24,47 @@ func TestEntryDir_TraversalBlocked(t *testing.T) {
 		if err != nil {
 			t.Fatalf("filepath.Rel error: %v", err)
 		}
-		if strings.HasPrefix(rel, "..") {
+		if !filepath.IsLocal(rel) {
 			t.Errorf("entry directory escaped the cache: %s (rel=%s)", got, rel)
+		}
+	}
+}
+
+// Containment is not only about escaping upwards. An entry directory that
+// resolves to the cache directory ITSELF is not an entry either: a read would
+// look for one entry's files among every entry's directories, and the write
+// path removes the directory it is handed before renaming the staged one into
+// place. Degenerate references no registry would ever issue still reach
+// [CachedStore.entryDirs] on the read path, so the containment rule — not the
+// caller — has to rule them out.
+func TestContained_NeverNamesTheCacheDirectoryItself(t *testing.T) {
+	cacheDir := t.TempDir()
+	store := &CachedStore{cacheDir: cacheDir}
+
+	for _, rel := range []string{
+		"",            // an empty reference
+		".",           // the cache directory, spelled as an entry
+		"..",          // its parent
+		"../escape",   // outside
+		"a/../..",     // interior traversal that still leaves
+		"/etc/passwd", // an absolute path, not a relative entry
+	} {
+		got := store.contained(rel)
+		if got == cacheDir {
+			t.Errorf("contained(%q) named the cache directory itself", rel)
+		}
+		r, err := filepath.Rel(cacheDir, got)
+		if err != nil || !filepath.IsLocal(r) {
+			t.Errorf("contained(%q) = %q, not contained under %q", rel, got, cacheDir)
+		}
+	}
+
+	// ...and through the reference-level spellings a read actually consults.
+	for _, ref := range []string{"", ".", "..", "../../etc"} {
+		for _, dir := range store.entryDirs(ref) {
+			if dir == cacheDir {
+				t.Errorf("entryDirs(%q) yielded the cache directory itself", ref)
+			}
 		}
 	}
 }

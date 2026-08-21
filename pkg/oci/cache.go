@@ -532,13 +532,21 @@ func (c *CachedStore) entryDirs(ref string) []string {
 	return []string{dir}
 }
 
-// contained resolves rel under the cache directory, refusing to leave it.
+// contained resolves rel under the cache directory, refusing to leave it and
+// refusing to BE it.
+//
+// [filepath.IsLocal] is the containment test rather than a string comparison on
+// a joined path: it is the standard library's own answer to "does this stay
+// inside", and it rejects an escaping "..", an absolute path, an empty path and
+// a Windows reserved name lexically, before anything is joined. It answers yes
+// for "." though, and a path that cleans to "." names the CACHE DIRECTORY
+// itself — not an entry in it, but every entry at once — so that is ruled out
+// beside it. A degenerate reference is thus a miss, never the whole cache.
 func (c *CachedStore) contained(rel string) string {
-	joined := filepath.Join(c.cacheDir, rel)
-	if r, err := filepath.Rel(c.cacheDir, joined); err != nil || strings.HasPrefix(r, "..") {
+	if !filepath.IsLocal(rel) || filepath.Clean(rel) == "." {
 		return filepath.Join(c.cacheDir, "_invalid")
 	}
-	return joined
+	return filepath.Join(c.cacheDir, rel)
 }
 
 // splitRefTag splits a reference into its repository and its tag. A tag is a
