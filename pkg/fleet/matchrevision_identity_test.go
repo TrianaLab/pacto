@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// These tests pin the REVISION-MATCH CERTAINTY dimension (requirement, item 6):
+// These tests pin the REVISION-MATCH CERTAINTY dimension:
 // how confidently a target is matched to a fleet revision (exact / inferred /
 // ambiguous / inconsistent). matchRevision reuses ClassifyContentIdentity only to
 // derive the effective content digest and to reject a self-contradictory identity,

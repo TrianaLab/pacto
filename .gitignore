@@ -46,6 +46,11 @@ pactos/*/configuration/schema.json
 pactos/*/sbom/
 .superpowers/
 
+# Working specs and plans. They are scoped to the work in flight, they go stale
+# the moment it lands, and mkdocs already excludes them from the published site
+# -- so they are never committed either. Durable design belongs in docs/.
+docs/superpowers/
+
 # runtime-regenerated publisher proof transcripts (non-deterministic namespaces)
 release/proofs/
 .mono-*.workflow.js

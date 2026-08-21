@@ -1,5 +1,5 @@
 /**
- * A tiny reusable product-list loader (requirement E).
+ * A tiny reusable product-list loader.
  *
  * Every product-list view (Services, Attention, Owners, Sources) shared two defects:
  *

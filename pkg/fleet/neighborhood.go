@@ -7,7 +7,7 @@ import (
 )
 
 // Neighborhood bounds. A neighborhood is always bounded so the graph never opens
-// as an unusable whole-fleet hairball (requirement 5). A zero value takes the
+// as an unusable whole-fleet hairball. A zero value takes the
 // default; a negative value is rejected; a value above the maximum is capped.
 const (
 	DefaultNeighborhoodDepth = 1
@@ -90,7 +90,7 @@ func serviceCorroboration(reconciliation string) string {
 	}
 }
 
-// KnowledgeView is a product-facing relationship lens (requirement 6). It maps to
+// KnowledgeView is a product-facing relationship lens. It maps to
 // engine provenance/reconciliation but never leaks those internal terms.
 type KnowledgeView string
 
@@ -116,9 +116,9 @@ func validView(v KnowledgeView) bool {
 // product default, so a focused neighborhood shows the full local situation.
 const DirectionBoth Direction = "both"
 
-// Perspective selects which KIND of node the graph projects (requirement, Phase-4
-// prerequisite J). The three identities are never flattened, so each perspective is a
-// real projection with its own semantics, not a recoloring of service nodes:
+// Perspective selects which KIND of node the graph projects. The three identities
+// are never flattened, so each perspective is a real projection with its own
+// semantics, not a recoloring of service nodes:
 //   - service: logical-service nodes (the default; the original neighborhood).
 //   - revision: immutable ContractRevision nodes. A revision-scoped dependency points
 //     to a specific provider REVISION only when the snapshot resolved one (a lock
@@ -148,7 +148,7 @@ func resolvePerspective(p Perspective) (Perspective, error) {
 	}
 }
 
-// NeighborhoodQuery configures a bounded neighborhood (requirement 2.3).
+// NeighborhoodQuery configures a bounded neighborhood.
 type NeighborhoodQuery struct {
 	Kind        EntityKind
 	Key         string
@@ -346,7 +346,7 @@ func (q *Query) Neighborhood(nq NeighborhoodQuery) (*Neighborhood, error) {
 	}
 	// Single knowledge-view finalization step: a view selector must hold in the edge
 	// PAYLOAD, not only in edge membership, so clear the declared/observed/comparison
-	// facts an edge carries that the requested views exclude (requirement 2.1). This is
+	// facts an edge carries that the requested views exclude. This is
 	// one clear projection over every emitted edge, not ad-hoc clearing scattered
 	// through the three projections.
 	projectEdgesForViews(res.Edges, res.Views)

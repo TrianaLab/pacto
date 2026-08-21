@@ -7,7 +7,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/finding"
 )
 
-// These tests enforce the ingestion/domain invariant (requirement, item 5): every
+// These tests enforce the ingestion/domain invariant: every
 // finite-value field stored in a FleetSnapshot that may reach a typed product
 // response is canonical BEFORE it enters the product query layer. A custom Source
 // is an extension seam; it can emit any string. The Build boundary must normalize

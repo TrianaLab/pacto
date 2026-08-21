@@ -83,6 +83,15 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		}
 		resolvedRef = st.Contract.ResolvedRef
 	}
+	// The operator inspects the live cluster and evaluates it in one reconcile
+	// pass, so lastReconciledAt answers both questions the fleet asks separately of
+	// an ingested EvidenceSet: when the environment was OBSERVED (EvidenceAt) and
+	// when Pacto reconciled that observation (ReconciledAt). Leaving EvidenceAt nil
+	// made the record contradict itself -- it carried the operator's coverage and
+	// findings under an "no evidence has been observed" limitation -- and put every
+	// Kubernetes target permanently outside the freshness window, so an operator
+	// wedged for a month still read as freshly observed.
+	observed := parseK8sTime(st.LastReconciledAt)
 	t := fleet.RawTarget{
 		Scope: item.Metadata.Namespace,
 		// Domain is derived from the resolved OCI reference the same way the OCI and
@@ -98,7 +107,8 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		Compliance:      st.ContractStatus,
 		Findings:        findingsFromK8s(st.Findings),
 		ObservedRuntime: st.ObservedRuntime,
-		ReconciledAt:    parseK8sTime(st.LastReconciledAt),
+		EvidenceAt:      observed,
+		ReconciledAt:    observed,
 	}
 	if st.EvaluationCoverage != nil {
 		t.Coverage = &fleet.Coverage{

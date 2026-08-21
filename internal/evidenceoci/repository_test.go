@@ -223,8 +223,8 @@ func writeJSON(t *testing.T, path string, v any) {
 }
 
 // Every credential source Pacto already supports for contract pulls must also
-// reach the evidence registry, through the same keychain. Phase 10C adds no
-// second login command, credential file or registry-auth model.
+// reach the evidence registry, through the same keychain. Evidence-in-the-registry
+// adds no second login command, credential file or registry-auth model.
 func TestScanSubject_AuthenticatesWithEveryPactoCredentialSource(t *testing.T) {
 	cases := []struct {
 		name   string

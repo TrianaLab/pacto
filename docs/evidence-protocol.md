@@ -214,13 +214,16 @@ degraded store from a healthy one:
 
 ```json
 {
-  "schemaVersion": "pacto.dev/evidence-source/v1",
+  "schemaVersion": "pacto.dev/evidence-source/v2",
   "generatedAt": "2026-07-29T12:00:00Z",
-  "health": { "phase": "ready", "pendingRepair": false, "corruptions": 0 },
+  "health": { "status": "ready", "subjects": 3, "failedSubjects": 0, "invalidArtifacts": 0 },
   "truncated": false,
   "targets": [
     {
       "subject": "payments",
+      "service": "payments-api",
+      "domain": "payments",
+      "digest": "sha256:…",
       "producer": "prod-eu",
       "producerKeyId": "edge-eu-west-2026",
       "compliance": "Compliant",
@@ -236,11 +239,18 @@ degraded store from a healthy one:
 
 Each target carries full findings, the immutable `contractRef` (so it links to a
 concrete revision), both the evidence and accept timestamps, and producer
-provenance. `schemaVersion` is the compatibility contract: a consumer that does
-not recognise it treats the source as unavailable rather than misreading it.
-`health` and `truncated` let a consumer mark the source *partial* — keeping the
-usable targets while surfacing that the contribution is incomplete — instead of
-presenting a full-looking graph. Both the target count and the per-target
+provenance. `service`, `domain` and `digest` are the *resolved* logical identity,
+read from the contract `contractRef` resolved to, so a consumer attaches the
+target to the right domain-qualified service and revision instead of inferring
+one from `subject`. `schemaVersion` is the compatibility contract: a consumer
+that does not recognise it treats the source as unavailable rather than
+misreading it. `health.status` is `ready` (every configured subject read
+completely, so an empty target list is authoritative), `partial` (evidence exists
+that could not be read, so absence no longer is) or `unavailable` (nothing could
+be read at all), with the counts behind that verdict beside it. `health` and
+`truncated` let a consumer mark the source *partial* — keeping the usable targets
+while surfacing that the contribution is incomplete — instead of presenting a
+full-looking graph. Both the target count and the per-target
 findings count are bounded; `truncated` is set when either bound trims the
 response.
 

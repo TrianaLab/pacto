@@ -24,7 +24,7 @@ instance are different questions with different answers.
 | Identity | What it is | Example |
 |----------|-----------|---------|
 | **Logical service** | A stable name and owner. It has revisions and runs in targets, but it is neither. | `payments-api` (owner: payments) |
-| **Contract revision** | An immutable resolved revision — what it declares and how it differs from another revision. Identity prefers the digest, then the resolved ref, then the version; a mutable tag alone is never a revision identity. | `payments-api@sha256:…` |
+| **Contract revision** | An immutable resolved revision — what it declares and how it differs from another revision. Identity is the service plus a content digest: the source's immutable digest, or one derived from the whole bundle when the source has none. Never a ref, never a version; a revision that can be neither pinned nor hashed is omitted rather than given a weaker identity. | `payments-api@sha256:…` |
 | **Operational target** | A concrete place a revision runs, generic as `scope/kind/name`. | `production-eu/customer-a → kubernetes-workload payments/payments-api` |
 
 A logical service is not its latest revision. A revision is not the thing running
@@ -83,8 +83,11 @@ source to carry.)
 - **Offline target-state fixtures** (`--target-state`) — an unsigned demo and
   test adapter for supplying targets without a cluster.
 
-Every source flag is shared by `pacto fleet`, `pacto impact` and the MCP fleet
-server, so the same graph is reachable from each. No source leaks its transport
+Every source flag above is shared by `pacto fleet` and the MCP fleet server, so
+the same graph is reachable from either. `pacto impact` reads a narrower set —
+`--local` and `--target-state` only, alongside `--freshness`, a single-file
+`--traces` and `--include-observed` — so a blast-radius question is answered from
+an offline graph. No source leaks its transport
 into the graph: a Kubernetes-backed source, an OCI-backed source, a local source
 and the dashboard adapter each implement the same small interface, so the read
 model stays free of Kubernetes, MCP and dashboard code.

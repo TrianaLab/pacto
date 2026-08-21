@@ -91,7 +91,7 @@ describe('neighborhoodIsEmpty', () => {
   });
 });
 
-describe('focus/perspective validity (requirement E)', () => {
+describe('focus/perspective validity', () => {
   it('defaults the perspective from the entity kind', () => {
     expect(defaultPerspectiveForKind('service')).toBe('service');
     expect(defaultPerspectiveForKind('revision')).toBe('revision');
@@ -122,7 +122,7 @@ describe('focus/perspective validity (requirement E)', () => {
   });
 });
 
-describe('service-scoped corroboration (requirement B)', () => {
+describe('service-scoped corroboration', () => {
   it('labels each corroboration verdict', () => {
     expect(corroborationLabel('matched')).toMatch(/corroborates/i);
     expect(corroborationLabel('expected-not-observed')).toMatch(/did not witness/i);

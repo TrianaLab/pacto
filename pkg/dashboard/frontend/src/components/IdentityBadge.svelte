@@ -2,7 +2,7 @@
   // A single-source status/identity pill. Every rich entity page renders its
   // status, revision-match certainty, content-retrievability and source-health
   // states through this one badge, so the `.tag`/tone markup is never reinvented
-  // per page (requirement K). Labels/tones come from lib/entityLabels.ts.
+  // per page. Labels/tones come from lib/entityLabels.ts.
   let { label = '', tone = 'neutral', title = '' } = $props();
 </script>
 

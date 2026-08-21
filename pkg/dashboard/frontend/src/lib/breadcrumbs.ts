@@ -20,7 +20,7 @@ interface RefLike { kind?: string; key?: string; label?: string; href?: string }
 
 // crumb builds a Crumb from a canonical product ref, linking to its authoritative
 // backend href. Parent identity is ALWAYS taken from a canonical ref, never inferred
-// from a display string (requirement H).
+// from a display string.
 function refCrumb(ref: RefLike | null | undefined, fallbackLabel: string): Crumb {
   const label = ref?.label || ref?.key || fallbackLabel;
   return ref?.href ? { label, href: hashForHref(ref.href) } : { label };
@@ -28,7 +28,7 @@ function refCrumb(ref: RefLike | null | undefined, fallbackLabel: string): Crumb
 
 /**
  * fleetEntityBreadcrumbs builds the entity-relationship breadcrumb trail for a rich
- * entity page from the DTO's canonical refs (requirement H): e.g. a revision's parent
+ * entity page from the DTO's canonical refs: e.g. a revision's parent
  * service comes from detail.revision.service, never from parsing its label. `detail`
  * is a NarrowedEntityDetail; only the fields used here are read.
  */

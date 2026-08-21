@@ -12,7 +12,7 @@
   import RelationshipList from '../../components/RelationshipList.svelte';
   import { fleetGraphFocusUrl, fleetEntityListUrl } from '../../lib/router.ts';
 
-  // The deployment/target page (requirement F). It makes the TWO identity dimensions
+  // The deployment/target page. It makes the TWO identity dimensions
   // immediately understandable and independent:
   //   1. revision-match certainty (linkState: exact / inferred / ambiguous / unresolved)
   //   2. content retrievability (identity: exact retrievable / mutable / no-ref / local /
@@ -97,7 +97,7 @@
     <!-- The owner used to be a section of its own at the foot of the page: one row, one
          border and a heading-less block a reader had to scroll past everything else to
          reach. It is a fact about this target like the scope and the data source, so it
-         belongs in the one facts strip (requirement 11). -->
+         belongs in the one facts strip. -->
     {#if d.ownership}
       <div class="te-fact">
         <span class="te-k">Owner</span>

@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api, ApiError, SchemaCompatibilityError } from '../lib/api.ts';
+  import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
   import { replaceHash, hashForHref, fleetServicesUrl, fleetOwnersUrl } from '../lib/router.ts';
   import EntityLink from '../components/EntityLink.svelte';
 
@@ -15,11 +16,13 @@
   //   - several same-named services -> an explicit SERVICE disambiguation (before any
   //     version lookup);
   //   - none -> an honest not-found migration state;
+  //   - a lookup whose page did not carry every match -> an honest bounded state: that page
+  //     proves neither uniqueness nor absence (see lib/entityResolve.ts);
   //   - a transport/schema failure -> a Product error state, never a fall back to the
   //     legacy screen.
   let { kind = 'service', name = '', version = '' } = $props();
 
-  let phase = $state('resolving'); // resolving | ambiguous | notfound | error
+  let phase = $state('resolving'); // resolving | ambiguous | notfound | bounded | error
   let matches = $state([]);
   let errorMsg = $state('');
   // scope names WHAT could not be resolved uniquely, so the disambiguation / not-found copy
@@ -35,28 +38,35 @@
     return e.label === name || e.key === name;
   }
 
-  // resolveVersion canonicalizes a legacy version bookmark to a Product Revision. It reads
-  // the resolved service's revisions (scoped to that canonical service) and matches the
-  // requested version to a canonical RevisionKey via the revision ref's EXPLICIT version
-  // field -- never fabricated, never parsed from a display label. Exactly one match
-  // canonicalizes (replace); several legitimate matches disambiguate; none is an honest
-  // version not-found.
+  // resolveVersion canonicalizes a legacy version bookmark to a Product Revision. It pages
+  // the canonical service's revisions through the entities API (EntityFilter.Service) --
+  // NOT the service detail's revisions preview, which is bounded and would make "no
+  // revision is that version" a claim about the first page rather than about the service.
+  // The requested version is matched via the revision ref's EXPLICIT version field, never
+  // fabricated and never parsed from a display label. Exactly one match canonicalizes
+  // (replace); several legitimate matches disambiguate; none is an honest version
+  // not-found -- and all three only when the page carried every revision.
   async function resolveVersion(serviceRef) {
-    const detail = await api.fleetEntityDetail('service', serviceRef.key);
-    const revs = (detail.service?.revisions?.items ?? []).filter((r) => r.version === version);
-    if (revs.length === 1) { replaceHash(hashForHref(revs[0].href)); return; }
+    const page = await api.fleetEntities({ kinds: ['revision'], service: serviceRef.key, limit: NAME_LOOKUP_LIMIT });
+    const { matches: revs, complete } = boundedMatches(page, (r) => r.version === version);
     scope = 'version';
+    if (!complete) { matches = revs; phase = 'bounded'; return; }
+    if (revs.length === 1) { replaceHash(hashForHref(revs[0].href)); return; }
     if (revs.length > 1) { matches = revs; phase = 'ambiguous'; return; }
     phase = 'notfound';
   }
 
   onMount(async () => {
     try {
-      const res = await api.fleetEntities({ kinds: [kind], text: name, limit: 20 });
-      const exact = (res.entities || []).filter(isExact);
+      const res = await api.fleetEntities({ kinds: [kind], text: name, limit: NAME_LOOKUP_LIMIT });
+      const { matches: exact, complete } = boundedMatches(res, isExact);
+      scope = 'service';
+      // A page that did not carry every match proves neither uniqueness nor absence, so it
+      // may not canonicalize the URL and may not report the name missing.
+      if (!complete) { matches = exact; phase = 'bounded'; return; }
       // An ambiguous SERVICE name is disambiguated first, before any version lookup.
-      if (exact.length > 1) { matches = exact; scope = 'service'; phase = 'ambiguous'; return; }
-      if (exact.length === 0) { scope = 'service'; phase = 'notfound'; return; }
+      if (exact.length > 1) { matches = exact; phase = 'ambiguous'; return; }
+      if (exact.length === 0) { phase = 'notfound'; return; }
       // Exactly one service resolved: a version bookmark canonicalizes to a revision; a bare
       // service bookmark canonicalizes to the service entity.
       if (kind === 'service' && version) { await resolveVersion(exact[0]); return; }
@@ -90,6 +100,21 @@
         <li><EntityLink ref={m} /></li>
       {/each}
     </ul>
+    <a class="mg-link" href={listHref}>Browse all {kindLabel}s &rarr;</a>
+  {:else if phase === 'bounded'}
+    <h1>Couldn't resolve this link</h1>
+    <p class="mg-lead" data-testid="legacy-migration-bounded">
+      {#if scope === 'version'}More revisions of <strong>{name}</strong> exist than this lookup could read at once, so Pacto cannot say which one is version <strong>{version}</strong> — or whether that version is still here.
+      {:else}More {kindLabel}s match <strong>{name}</strong> than this lookup could read at once, so Pacto cannot say which one this older link meant — or whether it is still here.{/if}
+      {#if matches.length}It may be one of these:{:else}Browse or search the list instead.{/if}
+    </p>
+    {#if matches.length}
+      <ul class="mg-list">
+        {#each matches as m (m.kind + '::' + m.key)}
+          <li><EntityLink ref={m} /></li>
+        {/each}
+      </ul>
+    {/if}
     <a class="mg-link" href={listHref}>Browse all {kindLabel}s &rarr;</a>
   {:else if phase === 'notfound' && scope === 'version'}
     <h1>Version not found</h1>

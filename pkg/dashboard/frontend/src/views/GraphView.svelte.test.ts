@@ -1,5 +1,5 @@
 /**
- * Component tests for the product Operational Graph (Phase 4, requirement N). They
+ * Component tests for the product Operational Graph. They
  * prove: /fleet/graph opens a search-first discovery state (no topology, no snapshot,
  * no neighborhood request); a focus consumes the PRODUCT neighborhood API (never the
  * FleetSnapshot) and renders an ACTUAL Cytoscape topology (a graph node for every
@@ -110,7 +110,7 @@ function mountView(params: Record<string, unknown> = {}) {
 const q = (t: HTMLElement, sel: string) => t.querySelector(sel) as HTMLElement | null;
 const qa = (t: HTMLElement, sel: string) => Array.from(t.querySelectorAll(sel)) as HTMLElement[];
 
-describe('GraphView — product Operational Graph (Phase 4)', () => {
+describe('GraphView — product Operational Graph', () => {
   beforeEach(() => {
     for (const f of [neighborhoodFn, entitiesFn, snapshotFn, renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy]) f.mockReset();
     neighborhoodFn.mockResolvedValue(neighborhood());
@@ -124,7 +124,7 @@ describe('GraphView — product Operational Graph (Phase 4)', () => {
     expect(q(target, '[data-testid="graph-discovery"]')).toBeTruthy();
     expect(q(target, '[data-testid="neighborhood-canvas"]')).toBeNull();
     // The resting discovery state shows an unmistakable "graph renders after you focus"
-    // affordance (reopen section 4), not an empty page and never the whole fleet.
+    // affordance, not an empty page and never the whole fleet.
     expect(q(target, '[data-testid="graph-discovery-placeholder"]')).toBeTruthy();
     expect(neighborhoodFn).not.toHaveBeenCalled();
     expect(snapshotFn).not.toHaveBeenCalled();

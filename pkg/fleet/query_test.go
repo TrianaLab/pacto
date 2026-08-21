@@ -966,3 +966,22 @@ func TestErrorMessages(t *testing.T) {
 		t.Error("InvalidQueryError message empty")
 	}
 }
+
+// An explanation names the subject it explains. explainTarget already answers with
+// the canonical TargetKey; explainService answered with the bare service NAME, which
+// in a multi-domain fleet names a different service with a different status than the
+// one that was asked about — and the payload carries no domain field to recover it.
+// Identity is domain-qualified end to end; an answer is never less specific than the
+// question.
+func TestExplain_ServiceSubjectStaysDomainQualified(t *testing.T) {
+	q := NewQuery(twoDomainSnap(t))
+	for _, key := range []string{"east/shared", "west/shared", "east/eastonly"} {
+		res, err := q.Explain(key)
+		if err != nil {
+			t.Fatalf("Explain(%q): %v", key, err)
+		}
+		if res.Subject != key {
+			t.Errorf("Explain(%q).Subject = %q, want %q", key, res.Subject, key)
+		}
+	}
+}

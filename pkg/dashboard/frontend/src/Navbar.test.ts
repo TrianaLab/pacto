@@ -106,7 +106,7 @@ describe('Navbar — search affordance communicates the actual action (A6)', () 
   });
 });
 
-describe('Navbar — the Pacto brand is the HOME affordance (Phase-2 IA residual)', () => {
+describe('Navbar — the Pacto brand is the HOME affordance', () => {
   function hrefs(cap: { fleet: boolean; impact: boolean } | null): { brand: string; overview: string | null } {
     const target = document.createElement('div');
     document.body.appendChild(target);

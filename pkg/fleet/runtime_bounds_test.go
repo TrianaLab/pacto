@@ -25,7 +25,7 @@ func runtimeSnapshot(width int) (*FleetSnapshot, string) {
 // TestRuntimePreview_QueryWorkIsBounded proves the product query does O(fixed bound)
 // work, not O(original raw map width): the observed-runtime bound lives at ingestion,
 // so querying a target whose source map is orders of magnitude above the product cap
-// allocates essentially the same as querying a trivial one (requirement, item 7).
+// allocates essentially the same as querying a trivial one.
 func TestRuntimePreview_QueryWorkIsBounded(t *testing.T) {
 	smallSnap, smallKey := runtimeSnapshot(4)
 	hugeSnap, hugeKey := runtimeSnapshot(200_000)

@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { api, ApiError } from '../lib/api.ts';
+  import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
   import { classificationClass, completenessClass, completenessLabel } from '../lib/format.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
@@ -42,7 +43,7 @@
   const CONSUMER_PAGE = 100;
   // The revision selectors are populated for a two-way (old -> new) comparison, so they
   // are bounded to the most recent revisions rather than materializing an arbitrarily
-  // large revision universe in the browser (requirement L1). When more exist, the
+  // large revision universe in the browser. When more exist, the
   // selector self-describes as incomplete instead of silently claiming completeness.
   const MAX_SELECTOR_REVISIONS = 500;
   const CONFIDENCE_EXPLAIN = {
@@ -80,7 +81,7 @@
   let analyzeGen = 0;
 
   // Service picker (only when the route carries no service key): search-first, so a
-  // service beyond the first page of results is still discoverable (requirement L2).
+  // service beyond the first page of results is still discoverable.
   let serviceQuery = $state('');
   let serviceResults = $state([]);
   let serviceTotal = $state(0);
@@ -102,7 +103,7 @@
   // at MAX_SELECTOR_REVISIONS so the browser never materializes an arbitrarily large
   // universe just to populate two <select>s. It reports `complete` truthfully: true
   // only when the API's own paging reached the end, false when the selector bound (or
-  // the hard page bound) was hit while more remained (requirement L1).
+  // the hard page bound) was hit while more remained.
   async function pageRecentRevisions(key) {
     const all = [];
     let offset = 0;
@@ -192,21 +193,28 @@
   // canonical ServiceKey through the Product Entities API, matching on the exact label or
   // key -- never a fuzzy substring. Exactly one match canonicalizes the URL (a replace, so
   // Back does not bounce); several or none fall through to the search picker with an
-  // honest note. It never fabricates a key.
+  // honest note. It never fabricates a key -- and it draws neither conclusion from a page
+  // that did not carry every match, where a single visible "payments" may not be the only
+  // one and an invisible one is not a missing one (see lib/entityResolve.ts).
   async function resolveLegacyName(name) {
     serviceQuery = name;
     const my = ++serviceSearchSeq;
     serviceSearching = true;
     try {
-      const res = await api.fleetEntities({ kinds: ['service'], text: name, limit: 20 });
+      const res = await api.fleetEntities({ kinds: ['service'], text: name, limit: NAME_LOOKUP_LIMIT });
       if (my !== serviceSearchSeq) return;
-      const exact = (res.entities ?? []).filter((e) => e.label === name || e.key === name);
-      if (exact.length === 1) { replaceHash(fleetChangesUrl(exact[0].key)); return; }
-      serviceResults = exact.length ? exact : (res.entities ?? []);
-      serviceTotal = exact.length || (res.total ?? serviceResults.length);
-      migrateNote = exact.length > 1
-        ? `Several services are named "${name}". This link is from an older URL that did not distinguish them — pick the one you meant.`
-        : `No service named "${name}" is in the current operational graph. It may have been renamed or removed.`;
+      const { matches: exact, complete } = boundedMatches(res, (e) => e.label === name || e.key === name);
+      if (complete && exact.length === 1) { replaceHash(fleetChangesUrl(exact[0].key)); return; }
+      // Only a complete page may narrow the picker to the exact matches: on a truncated one
+      // the whole page is shown, so the "Showing N of M" hint stays true beside it.
+      const narrowed = complete && exact.length > 0;
+      serviceResults = narrowed ? exact : (res.entities ?? []);
+      serviceTotal = narrowed ? exact.length : (res.total ?? serviceResults.length);
+      migrateNote = !complete
+        ? `More services match "${name}" than this lookup could read at once, so Pacto cannot tell which one this older link meant — search for the one you want.`
+        : exact.length > 1
+          ? `Several services are named "${name}". This link is from an older URL that did not distinguish them — pick the one you meant.`
+          : `No service named "${name}" is in the current operational graph. It may have been renamed or removed.`;
     } catch (e) {
       if (my !== serviceSearchSeq) return;
       serviceResults = []; serviceTotal = 0; serviceSearchError = e;
@@ -632,7 +640,7 @@
   /* The count is the same plain META span PreviewSection uses for every other count
      in the product. It used to be the legacy `.tab-count` pill, whose 600 weight had
      to be undone here by hand -- a fix-up on top of an override, which is the shape
-     requirement 8 exists to delete. */
+     the shared type scale exists to delete. */
   .path-cell { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
   .consumer-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-3); }
   .pager-btns { display: flex; gap: var(--sp-2); }

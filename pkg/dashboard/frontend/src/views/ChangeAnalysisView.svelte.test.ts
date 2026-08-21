@@ -400,6 +400,35 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  // The name lookup is a bounded SUBSTRING page. "No service named X" and "exactly one is
+  // named X" are both claims about the fleet, and neither follows from a page that left
+  // matches unread — one buries a service that exists, the other opens the wrong one.
+  it('never reports the bookmarked name missing when the lookup page truncated', async () => {
+    entitiesFn.mockResolvedValue({ meta, total: 900, count: 1, truncated: true, nextOffset: 1,
+      entities: [ref('service', 'domain-a/payments-legacy', 'payments-legacy', { domain: 'domain-a' })] });
+    const { target, component } = mountView({ name: 'payments' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-migrate-note"]')).toBeTruthy());
+    const note = target.querySelector('[data-testid="changes-migrate-note"]')?.textContent ?? '';
+    expect(note).not.toMatch(/no service named/i);
+    expect(note).toMatch(/more services match/i);
+    expect(location.hash).toBe('');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('does not canonicalize the one visible exact match when the lookup page truncated', async () => {
+    entitiesFn.mockResolvedValue({ meta, total: 900, count: 2, truncated: true, nextOffset: 2, entities: [
+      ref('service', 'domain-a/payments', 'payments', { domain: 'domain-a' }),
+      ref('service', 'domain-b/payments-api', 'payments-api', { domain: 'domain-b' }),
+    ] });
+    const { target, component } = mountView({ name: 'payments' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-migrate-note"]')).toBeTruthy());
+    expect(location.hash).toBe(''); // a second "payments" may sit on a page nobody read
+    // The whole page is offered with an honest count, not narrowed to the one exact hit.
+    expect(target.querySelectorAll('[data-testid="impact-picker-results"] button')).toHaveLength(2);
+    expect(target.querySelector('[data-testid="impact-picker-truncated"]')?.textContent).toMatch(/Showing 2 of 900/);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('surfaces a failed resolution as an error, never as "no such service"', async () => {
     entitiesFn.mockRejectedValue(new ApiError(503, 'unavailable'));
     const { target, component } = mountView({ name: 'payments' });

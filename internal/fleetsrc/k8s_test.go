@@ -3,7 +3,9 @@ package fleetsrc
 import (
 	"context"
 	"errors"
+	"maps"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -138,7 +140,12 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	if tg.ReconciledAt == nil || !tg.ReconciledAt.Equal(reconciled) {
 		t.Fatalf("reconciledAt = %v, want %v", tg.ReconciledAt, reconciled)
 	}
-	tg.ReconciledAt = nil // asserted above; nil out so DeepEqual is location-agnostic
+	// One reconcile pass both observes the cluster and evaluates it, so the same
+	// instant answers both questions -- see TestK8sSource_ReconciledEvidenceIsEvidence.
+	if tg.EvidenceAt == nil || !tg.EvidenceAt.Equal(reconciled) {
+		t.Fatalf("evidenceAt = %v, want the reconcile time %v", tg.EvidenceAt, reconciled)
+	}
+	tg.ReconciledAt, tg.EvidenceAt = nil, nil // asserted above; nil out so DeepEqual is location-agnostic
 	want := fleet.RawTarget{
 		Scope: "prod",
 		// Domain is derived from the resolved ref's registry+org, correlating this
@@ -207,5 +214,62 @@ func TestParseK8sTime(t *testing.T) {
 	got := parseK8sTime("2026-07-29T10:00:00Z")
 	if got == nil || !got.Equal(time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)) {
 		t.Errorf("parseK8sTime = %v", got)
+	}
+}
+
+// TestK8sSource_ReconciledEvidenceIsEvidence pins what a reconcile timestamp
+// means. The operator observes the live cluster and evaluates it in the same
+// pass, so lastReconciledAt is when this target's evidence was COLLECTED, not
+// merely when Pacto accepted somebody else's. The source used to map it to
+// ReconciledAt alone and leave EvidenceAt nil, and one record then carried two
+// false statements at once: a target reporting the operator's own coverage and
+// findings was annotated "no evidence has been observed for this target", and no
+// Kubernetes target could ever be stale — staleness is measured from EvidenceAt,
+// so an operator wedged for a month still read as freshly observed.
+func TestK8sSource_ReconciledEvidenceIsEvidence(t *testing.T) {
+	reconciled := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
+	list := `{"items":[{
+	  "metadata":{"name":"payments-prod","namespace":"prod"},
+	  "status":{
+	    "contractStatus":"Unknown",
+	    "contract":{"serviceName":"payments","resolvedRef":"ghcr.io/x/payments:1.2.0@sha256:abcd"},
+	    "evaluationCoverage":{"evaluated":9,"required":10},
+	    "lastReconciledAt":"2026-07-29T10:00:00Z"
+	  }
+	}]}`
+	src := NewK8sSource("prod-cluster", &fakeK8sClient{
+		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+		listData: []byte(list),
+	}, "")
+	col, err := src.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if got := col.Targets[0].EvidenceAt; got == nil || !got.Equal(reconciled) {
+		t.Fatalf("EvidenceAt = %v, want the reconcile time %v", got, reconciled)
+	}
+
+	// Both consequences, read off the built record a week later.
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{
+		Now:             func() time.Time { return reconciled.Add(7 * 24 * time.Hour) },
+		FreshnessWindow: time.Hour,
+	}, src)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(snap.Targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(snap.Targets))
+	}
+	rec := snap.Targets[fleet.TargetKey("prod/kubernetes/payments-prod")]
+	if rec == nil {
+		t.Fatalf("target key not found among %v", slices.Sorted(maps.Keys(snap.Targets)))
+	}
+	if !rec.Stale {
+		t.Error("a target last reconciled a week ago is not stale under a one-hour window")
+	}
+	for _, l := range rec.Limitations {
+		if l.Code == fleet.LimitationEvidenceMissing {
+			t.Errorf("target reports coverage %+v yet claims no evidence: %s", rec.Coverage, l.Message)
+		}
 	}
 }

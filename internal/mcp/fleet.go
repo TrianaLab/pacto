@@ -62,9 +62,13 @@ func fleetSearchTool() *mcpsdk.Tool {
 		Description: "Search logical services in the operational graph. Read-only. " +
 			"Returns a bounded, deterministically ordered list with an asOf time and completeness.",
 		InputSchema: inputSchema(map[string]property{
-			"text":           {Type: "string", Description: "Substring over service name and owner"},
-			"owner":          {Type: "string", Description: "Filter by owner team, DRI or contact"},
-			"status":         {Type: "string", Description: "Aggregate status", Enum: []string{"Compliant", "NonCompliant", "Unknown", "Invalid", "NotEvaluated"}},
+			"text":  {Type: "string", Description: "Substring over service name and owner"},
+			"owner": {Type: "string", Description: "Filter by owner team, DRI or contact"},
+			// Read from the fleet's own table, never a hand-kept copy: the copy had
+			// gone stale and omitted Warning and Reference, so an agent that trusted
+			// the enum could not ask for two reachable statuses at all, and its
+			// per-status sweep quietly excluded those services from every answer.
+			"status":         {Type: "string", Description: "Aggregate status", Enum: fleet.CanonicalStatuses()},
 			"compliance":     {Type: "string", Description: "Filter to services with a target of this compliance"},
 			"source":         {Type: "string", Description: "Filter by observing source id"},
 			"scope":          {Type: "string", Description: "Correlate to a target with this scope"},

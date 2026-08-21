@@ -1,12 +1,12 @@
 <script>
   import HelpTip from './HelpTip.svelte';
 
-  // THE section grammar (requirement 12). Every titled block on a product page is one
+  // THE section grammar. Every titled block on a product page is one
   // of these, so a reader learns the shape once: title, count, tone, an optional
   // one-line definition, an optional closed-state summary, and -- for detail a reader
   // does not always need -- a disclosure.
   //
-  // It is also the bounded-preview renderer it started as (requirement D/K/B). It
+  // It is also the bounded-preview renderer it started as. It
   // distinguishes an EXACT total that is KNOWN from one that is UNKNOWN: some bounded
   // backend answers deliberately omit the total because it cannot be counted without
   // violating the work bound (RelationshipsPreview / RuntimePreview from an already-
@@ -28,7 +28,7 @@
   // block inside one asks for 'subsection'. Neither prop sets a font size directly --
   // both resolve to the shared typography roles.
   //
-  // `collapsible` + `open`: requirement 13's default-open policy is INFORMATIONAL, not
+  // `collapsible` + `open`: the default-open policy is INFORMATIONAL, not
   // aesthetic. The caller decides, because only the caller knows whether this block is
   // an active failure (never collapsed) or a full operation list (collapsed until
   // asked for). Collapsing uses a real <details>, so collapsed content leaves the tab

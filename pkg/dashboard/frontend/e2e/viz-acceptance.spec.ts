@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { runAnalysis } from './typographyChecks';
 
-// Phase 6 browser acceptance for the visualization system (requirements 10 and 24).
+// Browser acceptance for the visualization system.
 //
 // viz.test.ts already proves each component's contract in isolation, in jsdom. What it
 // cannot prove is that the contract survives being COMPOSED into real product pages and

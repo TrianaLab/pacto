@@ -1,5 +1,5 @@
 /**
- * Truthful knowledge-state decision (Phase 2, requirement H).
+ * Truthful knowledge-state decision.
  *
  * The dashboard must never turn a lack of knowledge into a claim of health. A
  * partial, stale or degraded snapshot with zero known attention items is NOT the
@@ -196,7 +196,7 @@ export interface ViewStateInput {
   knowledge?: SnapshotKnowledge;
 }
 
-/** decideViewState is the single list/detail state machine (requirement H). */
+/** decideViewState is the single list/detail state machine. */
 export function decideViewState(input: ViewStateInput): ViewState {
   const knowledge = input.knowledge ?? snapshotKnowledge(null);
 
@@ -246,7 +246,7 @@ export function decideViewState(input: ViewStateInput): ViewState {
  * allClearAllowed gates any blanket "all clear / everything healthy" affordance on
  * COMPLETE knowledge with zero attention. Under partial/stale/unavailable/unknown
  * knowledge it returns false, so the caller shows "no attention items known" with a
- * visible incompleteness caveat instead of asserting health (requirement H).
+ * visible incompleteness caveat instead of asserting health.
  */
 export function allClearAllowed(knowledge: SnapshotKnowledge, attentionCount: number): boolean {
   return !knowledge.incomplete && attentionCount <= 0;

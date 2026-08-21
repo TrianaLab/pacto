@@ -38,8 +38,8 @@ test('the navbar collapses into an accessible hamburger drawer on mobile', async
   await expect(hamburger).toHaveAttribute('aria-expanded', 'false');
 });
 
-// WCAG A/AA axe gate over the mobile navigation open state (requirement 8.9); contrast
-// is measured separately (requirement 8.8), so it is the only disabled rule.
+// WCAG A/AA axe gate over the mobile navigation open state; contrast
+// is measured separately, so it is the only disabled rule.
 test('mobile navigation open passes the WCAG A/AA axe gate', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByText('payments-service').first()).toBeVisible({ timeout: 20_000 });
@@ -53,7 +53,7 @@ test('mobile navigation open passes the WCAG A/AA axe gate', async ({ page }) =>
 });
 
 /**
- * Mobile typography acceptance, from COMPUTED styles (requirement 20).
+ * Mobile typography acceptance, from COMPUTED styles.
  *
  * Not a copy of the desktop sweep for symmetry's sake: at 393px the page title is the
  * element most likely to be shrunk by a responsive override, and the section titles are

@@ -1,5 +1,5 @@
 /**
- * Component tests for the product Owners and Sources list pages (requirement G).
+ * Component tests for the product Owners and Sources list pages.
  * Both consume /api/fleet/entities (kinds=owner / kinds=source) through the SDK facade
  * — never a FleetSnapshot reconstruction — with search / health filters and stable
  * backend pagination kept in the URL.

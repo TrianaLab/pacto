@@ -3,8 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 
 /**
  * Exhaustive heading / landmark / page-title audit over EVERY canonical Fleet
- * route and the retained non-Fleet compatibility surface (Phase 5, requirement
- * 8.1).
+ * route and the retained non-Fleet compatibility surface.
  *
  * The general axe gate in `axe.spec.ts` runs the full WCAG A/AA rule set over a
  * REPRESENTATIVE set of states. That is the right shape for contrast and widget
@@ -176,8 +175,8 @@ test.describe('document structure on every canonical Fleet route', () => {
     const k = await canonicalKeys(page);
     const e = encodeURIComponent;
 
-    // EVERY canonical route in section 3 of the redesign ledger. A route missing from
-    // this list is a route nothing audits.
+    // EVERY canonical product route. A route missing from this list is a route
+    // nothing audits.
     const routes: Array<[string, string]> = [
       ['Overview', '#/fleet'],
       ['Services list', '#/fleet/services'],

@@ -1248,6 +1248,8 @@ export interface components {
             /** Format: int64 */
             nonCompliantTargets: number;
             /** Format: int64 */
+            notEvaluatedTargets: number;
+            /** Format: int64 */
             observedOnlyRelationships: number;
             /** Format: int64 */
             otherComplianceTargets: number;
@@ -1255,6 +1257,8 @@ export interface components {
             readiness: components["schemas"]["Fleet.ReadinessTally"];
             /** Format: int64 */
             recentEvidence: number;
+            /** Format: int64 */
+            referenceTargets: number;
             /** Format: int64 */
             revisions: number;
             /** Format: int64 */
@@ -1275,6 +1279,8 @@ export interface components {
             unresolvedRelationships: number;
             /** Format: int64 */
             unresolvedTargetLinks: number;
+            /** Format: int64 */
+            warningTargets: number;
         };
         "Fleet.OwnerContactPoint": {
             purpose?: string;

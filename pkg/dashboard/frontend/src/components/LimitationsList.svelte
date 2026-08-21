@@ -1,7 +1,7 @@
 <script>
   import EntityLink from './EntityLink.svelte';
 
-  // Renders knowledge limitations for any rich entity page (requirement K/D): the
+  // Renders knowledge limitations for any rich entity page: the
   // honest "what we could not determine" list. Items are either a Limitation or an
   // AttributedLimitation ({ limitation, entity }); when attributed, the exact entity
   // the limitation applies to is linked.

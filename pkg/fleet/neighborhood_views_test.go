@@ -45,7 +45,7 @@ func shapeOf(e *NeighborhoodEdge) edgeShape {
 }
 
 // TestNeighborhood_ViewPayloadMatrix proves the knowledge-view selector holds in the
-// edge PAYLOAD, not only in membership (requirement 2.1). The alpha->leaf-svc service
+// edge PAYLOAD, not only in membership. The alpha->leaf-svc service
 // edge is BOTH declared and observed, so each view must project exactly its knowledge
 // into the payload: expected-only carries the declared claim and nothing observed and
 // no comparison; observed-only carries the observed fact and no declared claim and no

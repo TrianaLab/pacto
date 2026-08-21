@@ -9,10 +9,9 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
-// This file is the Phase-4 projection counterexample suite. It proves the
-// knowledge-view invariant, the honest observation-scope model and the target
-// identity rules for the revision and target projections -- the semantic blockers an
-// independent review found in the first Phase-4 pass. It complements the happy-path
+// This file is the projection counterexample suite. It proves the knowledge-view
+// invariant, the honest observation-scope model and the target identity rules for
+// the revision and target projections. It complements the happy-path
 // coverage in projection_test.go with adversarial cases that must NOT hold.
 
 func revKeyForVersion(t *testing.T, q *Query, service, version string) RevisionKey {

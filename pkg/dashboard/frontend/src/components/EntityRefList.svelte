@@ -4,7 +4,7 @@
   // Renders a list of product EntityRefs as canonical EntityLink rows. Every rich
   // entity page's related-entity previews (revisions, deployments, dependencies,
   // dependents, targets, contributed entities, owner's entities) route through this
-  // one list, so related-entity linking is never reinvented (requirement K).
+  // one list, so related-entity linking is never reinvented.
   let { items = [], showStatus = true } = $props();
 </script>
 

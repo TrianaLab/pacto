@@ -94,7 +94,7 @@ describe('App — primary search affordance (A6)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  // Phase 5 (requirement 8.5): global shortcuts must not steal from an open overlay or
+  // Global shortcuts must not steal from an open overlay or
   // from a native composite control.
   it('does not open the command palette on Cmd/Ctrl-K while the Search overlay is open', async () => {
     caps.value = { fleet: true, impact: true };

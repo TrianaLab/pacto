@@ -144,7 +144,7 @@ func productReadiness(r *readiness.Result) *ProductReadiness {
 }
 
 // runtimeWalker flattens a target's observed-runtime map into a computationally
-// BOUNDED RuntimePreview (requirement, item 13). Nested maps and slices are
+// BOUNDED RuntimePreview. Nested maps and slices are
 // flattened with dotted / indexed keys; a composite at the depth limit is
 // summarized with a short "{map: N keys}" / "[array: N items]" marker (never
 // stringified whole); each key and value is length-capped; the walk stops after
@@ -485,7 +485,7 @@ type SourceDetailData struct {
 }
 
 // EntityDetail is the common, versioned, discriminated envelope for any entity's
-// full detail (requirement 2.4). Entity.Kind is the discriminator; EXACTLY ONE
+// full detail. Entity.Kind is the discriminator; EXACTLY ONE
 // of Service/Revision/Target/Owner/Source is populated. Actions lists the
 // available semantic actions route-neutrally (the transport maps them to hrefs).
 type EntityDetail struct {
@@ -864,6 +864,14 @@ func lessRevisionChrono(a, b *ContractRevision) bool {
 // declares. Observed edges carry no revision, so only this revision's declared
 // dependencies appear; every edge shares this revision's service as its source, so
 // ordering by destination is sufficient and deterministic.
+//
+// This is FINE-GRAINED scope, so it builds through the same [dependencyEdge] the
+// revision projection uses. The merged service-scope pipeline is deliberately not
+// reused here: it would compute an edge-scope declared-vs-observed Difference for an
+// edge nobody observed at revision granularity, which both over-claims and
+// self-contradicts -- "expected, not observed" printed beside a declared claim whose
+// own service-scoped reconciliation says matched. The service-scoped fact travels as
+// ObservationScope + ServiceCorroboration instead.
 func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 	var out []NeighborhoodEdge
 	for i := range q.snap.Relationships {
@@ -871,10 +879,7 @@ func (q *Query) revisionEdges(revKey RevisionKey) []NeighborhoodEdge {
 		if rel.Type != RelationshipDependency || rel.FromRevision != revKey || rel.ToService == "" {
 			continue
 		}
-		e := q.newEdge(rel.FromService, rel.ToService)
-		q.foldRelationshipIntoEdge(e, rel)
-		finalizeEdge(e)
-		out = append(out, *e)
+		out = append(out, dependencyEdge(q.serviceRef(rel.FromService), q.serviceRef(rel.ToService), rel))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].To.Key < out[j].To.Key })
 	return out
@@ -991,7 +996,7 @@ func targetRefs(targets []*TargetRecord) []EntityRef {
 // finding is never orphaned. Total is the truthful full count summed across
 // targets, but only the emitted prefix (MaxDetailPreview) is converted, so a
 // pathological target set can never force unbounded ProductFinding conversion just
-// to build a bounded answer (requirement, item 8).
+// to build a bounded answer.
 func attributedTargetFindingsPreview(targets []*TargetRecord) AttributedFindingsPreview {
 	total := 0
 	for _, t := range targets {

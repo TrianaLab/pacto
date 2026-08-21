@@ -1,5 +1,5 @@
 /**
- * Information-parity regression gate (requirement 15).
+ * Information-parity regression gate.
  *
  * The migration from the old service-detail page to the Product entity model lost
  * substantial inspectable detail once already: counts replaced content, and the
@@ -12,7 +12,7 @@
  * anything — it is only forbidden to DROP information the backend already sends.
  *
  * Each capability below is annotated with the old surface it replaces, so a reader
- * can trace it back to the parity matrix in the ledger.
+ * can trace what the redesign had to keep.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
@@ -44,7 +44,7 @@ const preview = (items: unknown[], extra: Record<string, unknown> = {}) => ({
 
 /**
  * A revision detail carrying EVERY declared dimension the Contract Inspector is
- * responsible for (requirement 3). Anything present here must render.
+ * responsible for. Anything present here must render.
  */
 function richRevision(): Record<string, any> {
   return {
@@ -153,7 +153,7 @@ async function renderRevision() {
   return { target, component, text: () => target.textContent || '' };
 }
 
-describe('revision detail keeps the whole contract inspectable (requirement 3)', () => {
+describe('revision detail keeps the whole contract inspectable', () => {
   beforeEach(() => detailFn.mockReset());
 
   // The named regression: the page used to reduce the declared surface to four count
@@ -353,7 +353,7 @@ function richService(): Record<string, any> {
   };
 }
 
-describe('service detail stays an operational dashboard (requirement 5)', () => {
+describe('service detail stays an operational dashboard', () => {
   beforeEach(() => detailFn.mockReset());
 
   it('reports the complete populations, not the size of a bounded preview', async () => {
@@ -419,7 +419,7 @@ function richOwner(): Record<string, any> {
   };
 }
 
-describe('owner detail answers the posture question (requirement 6)', () => {
+describe('owner detail answers the posture question', () => {
   beforeEach(() => detailFn.mockReset());
 
   it('draws compliance, revision-match and freshness from the complete estate', async () => {
@@ -479,7 +479,7 @@ function richTarget(): Record<string, any> {
   };
 }
 
-describe('target detail stays a runtime inspector (requirement 11)', () => {
+describe('target detail stays a runtime inspector', () => {
   beforeEach(() => detailFn.mockReset());
 
   it('renders the observed runtime, the labels, the coverage and every contributing source', async () => {

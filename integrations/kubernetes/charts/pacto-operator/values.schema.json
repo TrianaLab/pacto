@@ -508,7 +508,7 @@
         },
         "resources": {
           "type": "object",
-          "description": "Resource requests and limits for the dashboard container",
+          "description": "Resource requests and limits for the Evidence Server container",
           "properties": {
             "limits": {
               "type": "object"

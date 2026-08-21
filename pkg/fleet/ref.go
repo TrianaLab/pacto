@@ -27,7 +27,7 @@ import (
 // an internal inconsistency and yields neither an exact link nor retrievable content.
 //
 // Product Impact by canonical identity is the one consumer that requires the
-// retrievability dimension (requirement 2.6): it may analyze only content named by a
+// retrievability dimension: it may analyze only content named by a
 // canonical, immutable OCI reference whose digest matches the revision's recorded
 // content digest. It does not depend on any target's revision-match certainty.
 //
@@ -38,7 +38,7 @@ import (
 // parser (the SAME grammar the production BundleStore's client uses at its parse
 // boundary), and the digest is validated by the OCI go-digest primitive, so a
 // short, mis-cased, wrong-length, unsupported-algorithm digest or a
-// syntactically invalid repository is rejected (requirement, item 10).
+// syntactically invalid repository is rejected.
 
 // IdentityClass names how a (resolvedRef, recordedDigest) pair identifies content
 // along the CONTENT-RETRIEVABILITY dimension only. It distinguishes every
@@ -155,7 +155,7 @@ func classifyOCIRef(ref string) (repository string, dgst digest.Digest, class Id
 	// go-containerregistry name parser the production BundleStore client uses at its
 	// parse boundary (pkg/oci Client.parseRef -> name.ParseReference). This makes an
 	// accepted ref genuinely resolver-compatible instead of merely "some non-empty
-	// text before @" (requirement, item 10).
+	// text before @".
 	if _, err := name.ParseReference(loc); err != nil {
 		return "", "", IdentityMalformed
 	}

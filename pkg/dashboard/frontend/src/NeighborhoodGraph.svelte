@@ -26,7 +26,7 @@
   // GraphRenderError). We then show an explicit render-error state instead of a silently
   // empty canvas; the parent (GraphView) keeps the Relationships text list available.
   let renderError = $state(false);
-  // Two signatures so a refresh does the RIGHT thing (requirement, Part 5): the topology
+  // Two signatures so a refresh does the RIGHT thing: the topology
   // signature (node ids + edge endpoints/type + focus) decides reconcile-vs-restyle; the
   // presentation signature (node status/label/kind + edge state) decides whether an
   // in-place restyle is needed. Keying only on topology left the canvas stale when a
@@ -139,8 +139,7 @@
 </script>
 
 <!-- The canvas is a VISUAL representation (mouse/touch); it is not a complete keyboard
-     application, so it is described as an image rather than declaring role="application"
-     (requirement 8.2). The keyboard/screen-reader model is the first-class semantic graph
+     application, so it is described as an image rather than declaring role="application". The keyboard/screen-reader model is the first-class semantic graph
      navigator rendered as text alongside it (GraphView's Relationships list). -->
 {#if renderError}
   <div class="nb-graph-error" role="alert" data-testid="graph-render-error">

@@ -20,7 +20,7 @@
   import { severitySegments } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
 
-  // The attention triage workspace (requirements A2/I). It consumes
+  // The attention triage workspace. It consumes
   // /api/fleet/attention with the backend-supported product filters, real backend
   // pagination (limit/offset/total/nextOffset) and every active filter kept in the
   // URL, so a triage view is deep-linkable and back/forward-restorable. Each item
@@ -46,7 +46,7 @@
   );
   const anyFilter = $derived(!!(category || severity || status || owner || ownerKey || source || service || isStale));
 
-  // One reusable, race-safe loader (requirement E): the fetcher reads current filters
+  // One reusable, race-safe loader: the fetcher reads current filters
   // at request time; sync(key) dedupes the initial load and the generation guard stops
   // an older response overwriting a newer route/filter/refresh. Reloads when any
   // filter, the page offset (all from the URL) or the refresh tick changes, so
@@ -140,7 +140,7 @@
   <PageHeader title="Needs attention" count={list ? `${list.total} item${list.total === 1 ? '' : 's'}` : ''} />
 
   <!-- Primary triage filters; secondary ones live behind an advanced disclosure so the
-       default surface stays simple (requirement I). -->
+       default surface stays simple. -->
   <div class="av-filters">
     <label class="av-field">
       <span>Severity</span>

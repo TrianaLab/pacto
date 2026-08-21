@@ -635,7 +635,15 @@ func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discove
 // dashboard detected, so the operational-graph endpoints span the whole fleet.
 // The second return is false when no source is active (fleet stays disabled).
 func dashboardFleetOptions(dir string, repos []string, namespace string, observation []app.ObservationSourceSpec, dr *dashboard.DetectResult) (app.FleetOptions, bool) {
-	var fopts app.FleetOptions
+	// Recency is one horizon per product surface, not one per code path. The
+	// overview already calls evidence older than [fleet.RecentEvidenceWindow] not
+	// recent; leaving the build's window at zero disabled staleness classification
+	// altogether, so the same payload simultaneously withheld a target from its
+	// recent-evidence list and painted it green "Fresh evidence". `pacto fleet`
+	// defaults the window off because there a human picks --freshness per query;
+	// a long-running dashboard has nobody to ask, and "never evaluated" is not a
+	// safe thing to render as fresh.
+	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow}
 	ok := false
 	if dr.Local != nil && dir != "" {
 		fopts.LocalRoots = []string{dir}

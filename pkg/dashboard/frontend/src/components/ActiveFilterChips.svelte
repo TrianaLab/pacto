@@ -1,6 +1,6 @@
 <script>
   // Renders the active filters/focus as removable chips so filter state is visible
-  // and reversible rather than hidden in component state (requirement D). `chips` is
+  // and reversible rather than hidden in component state. `chips` is
   // [{ key, label, value }]; onRemove(key) clears one, onClear() clears all.
   let { chips = [], onRemove = null, onClear = null } = $props();
 </script>

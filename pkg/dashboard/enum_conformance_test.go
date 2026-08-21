@@ -11,7 +11,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
-// This file proves end to end (requirement, item 5) that no invalid extension data
+// This file proves end to end that no invalid extension data
 // escapes as an out-of-schema enum value: an adversarial custom Source emits a
 // non-canonical compliance, finding severity and source-health status, and every
 // enum-bearing field the product HTTP API then emits still conforms to the

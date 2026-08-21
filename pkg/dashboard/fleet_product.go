@@ -16,8 +16,8 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/impact"
 )
 
-// registerProductOperations registers the product-oriented dashboard APIs
-// (requirement 2). They are bounded, versioned answers built for product
+// registerProductOperations registers the product-oriented dashboard APIs. They
+// are bounded, versioned answers built for product
 // questions — the frontend consumes these instead of reconstructing meaning from
 // the full snapshot. Every response is a dashboard transport DTO that wraps the
 // route-neutral fleet fact and adds canonical navigation hrefs (ADR-2). All

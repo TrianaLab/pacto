@@ -2,9 +2,9 @@ package fleet
 
 import "sort"
 
-// This file implements the per-kind graph projections (Phase-4 prerequisite J). The
-// three identities are never flattened, so a revision graph and a deployment graph
-// are REAL projections with their own semantics, not service nodes recolored:
+// This file implements the per-kind graph projections. The three identities are
+// never flattened, so a revision graph and a deployment graph are REAL projections
+// with their own semantics, not service nodes recolored:
 //
 //   - Revision projection: nodes are immutable ContractRevisions. A revision's
 //     declared dependency points to a specific provider REVISION only when the

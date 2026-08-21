@@ -15,7 +15,7 @@
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import PageHeader from '../components/PageHeader.svelte';
 
-  // The product Owners list (requirement G): owner discovery through
+  // The product Owners list: owner discovery through
   // /api/fleet/entities?kinds=owner via the SDK facade, with a search box and stable
   // backend pagination kept in the URL. Rows navigate to the rich owner page.
   let { text = '', offset = '', refreshTick = 0 } = $props();
@@ -27,7 +27,7 @@
   let textDraft = $state(text);
   $effect(() => { textDraft = text; });
 
-  // One reusable, race-safe loader (requirement E): dedupes the initial load and
+  // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
   const loader = createProductLoader(() => api.fleetEntities({ kinds: ['owner'], text: text || undefined, offset: pageOffset || undefined, limit: PAGE_SIZE }));
   // queryIdentity is the QUESTION (search + page); refreshTick only re-asks it. Rows

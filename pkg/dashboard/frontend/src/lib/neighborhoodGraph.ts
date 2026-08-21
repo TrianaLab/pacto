@@ -3,7 +3,7 @@
  * Cytoscape engine (lib/graph.ts) renders. It invents no nodes or edges: it is a
  * structural projection of the backend answer, so the visual topology shows EXACTLY
  * what the backend returned (every returned node, every returned edge between returned
- * nodes) and never re-infers relationships in the frontend (requirement I).
+ * nodes) and never re-infers relationships in the frontend.
  */
 import type { GraphData, GraphNode, GraphEdge } from './graph.ts';
 import type { ProductNeighborhood } from './api.ts';
@@ -12,8 +12,7 @@ import type { ProductNeighborhood } from './api.ts';
 // truth), never a hand-mirrored partial: it reads only a neighborhood's nodes + edges, so
 // its input is the Pick of those two, with the node/edge element types coming straight from
 // the generated SDK via indexed access. An OpenAPI change flows in automatically and a
-// re-introduced hand mirror cannot silently drift (reopen section 7; guarded in
-// api.typetest.ts). The renderer-owned GraphData/GraphNode/GraphEdge (in graph.ts) stay an
+// re-introduced hand mirror cannot silently drift (guarded in api.typetest.ts). The renderer-owned GraphData/GraphNode/GraphEdge (in graph.ts) stay an
 // explicit internal presentation model -- they are NOT wire DTOs.
 type NeighborhoodLike = Partial<Pick<ProductNeighborhood, 'nodes' | 'edges'>>;
 

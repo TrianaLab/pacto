@@ -180,7 +180,7 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  it('requirement D: an `empty`-completeness fleet is honestly empty, NOT "sources degraded"', async () => {
+  it('an `empty`-completeness fleet is honestly empty, NOT "sources degraded"', async () => {
     // Every source healthy, no record: completeness `empty`. This is a confidently
     // empty fleet, not degraded knowledge and not an all-clear health assessment.
     const ov = baseOverview(false);
@@ -245,6 +245,42 @@ describe('FleetOverview — every band draws a complete population', () => {
     const posture = sectionText(target, 'ov-posture');
     expect(posture).toContain('Unclassified');
     expect(posture).toContain('4');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // The backend names all seven canonical statuses (ComplianceTally); the overview
+  // used to publish only five of the eight buckets, so a Warning or Reference target
+  // — named correctly on the targets list — became a grey remainder here. Two Pacto
+  // surfaces must not classify the same target differently.
+  it('band 2 names a Warning target instead of leaving it unclassified', async () => {
+    const ov = baseOverview(false);
+    ov.summary.compliantTargets = 3;
+    ov.summary.warningTargets = 1;
+    ov.summary.referenceTargets = 1; // 5 targets, all accounted for
+    ov.summary.evidence = { withEvidence: 5, withoutEvidence: 0, stale: 0, quarantined: 0 };
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('section[aria-labelledby="ov-posture"]')).toBeTruthy());
+    const posture = sectionText(target, 'ov-posture');
+    expect(posture).toContain('Warning');
+    expect(posture).toContain('Reference');
+    expect(posture).not.toContain('Unclassified');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // Attention fires on NonCompliant / Unknown / stale, so a fleet of Warning and
+  // Reference targets can legitimately reach zero attention with complete knowledge.
+  // "All clear" may still be true of the BACKLOG; "every operational target is
+  // compliant" is a different, universally-quantified claim, and it was being made
+  // over a population the same payload shows is not all compliant.
+  it('never claims every target is compliant when the distribution says otherwise', async () => {
+    const ov = baseOverview(false);
+    ov.summary.compliantTargets = 3;
+    ov.summary.warningTargets = 2;
+    overviewFn.mockResolvedValue(ov);
+    const { target, component } = mountView();
+    await vi.waitFor(() => expect(target.textContent).toMatch(/all clear/i));
+    expect(target.textContent).not.toMatch(/every operational target is compliant/i);
     unmount(component); document.body.removeChild(target);
   });
 

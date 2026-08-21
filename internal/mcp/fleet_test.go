@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -449,6 +450,40 @@ func TestSafety_QueryTextIsData(t *testing.T) {
 		decode(t, res, &out)
 		if out.Count != 0 {
 			t.Errorf("text %q matched %d services; expected literal (0) matches", text, out.Count)
+		}
+	}
+}
+
+// TestFleetSearch_StatusEnumIsTheWholeVocabulary pins the advertised closed set to
+// the fleet's own table. An enum is a promise that nothing outside it is askable,
+// and the hand-kept copy had drifted to five values: an agent sweeping status by
+// status over the enum it was given omitted every Warning and Reference service
+// from its "whole fleet" answer, with nothing in the response saying so.
+func TestFleetSearch_StatusEnumIsTheWholeVocabulary(t *testing.T) {
+	schema, ok := fleetSearchTool().InputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("expected an object schema, got %T", fleetSearchTool().InputSchema)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("expected a properties map on the search tool schema")
+	}
+	status, ok := props["status"].(map[string]any)
+	if !ok {
+		t.Fatal("expected a status property")
+	}
+	got, ok := status["enum"].([]string)
+	if !ok {
+		t.Fatalf("expected a string enum, got %T", status["enum"])
+	}
+	if want := fleet.CanonicalStatuses(); !slices.Equal(got, want) {
+		t.Errorf("status enum = %v, want the canonical vocabulary %v", got, want)
+	}
+	// And every advertised value is one the filter really accepts, so the promise
+	// holds in both directions.
+	for _, s := range got {
+		if !fleet.ValidStatus(s) {
+			t.Errorf("enum advertises %q, which the fleet does not accept", s)
 		}
 	}
 }

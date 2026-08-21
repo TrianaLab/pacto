@@ -11,7 +11,7 @@ import type { ProductEntityDetail } from './api.ts';
 // REQUEST the generated client produced - its URL, query serialization, method and
 // body - which is the property that matters: if OpenAPI declares a parameter, the
 // generated SDK owns how it is serialized, and there is no handwritten query string
-// to drift (requirement, item 14).
+// to drift.
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -224,7 +224,7 @@ describe('product endpoint serialization + schema validation', () => {
   });
 });
 
-describe('entity-detail runtime narrowing (requirement, item 4)', () => {
+describe('entity-detail runtime narrowing', () => {
   const meta = { schemaVersion: PRODUCT_SCHEMA_VERSION };
   // A broad response as the wire allows it; narrowEntityDetail enforces the invariant.
   const raw = (o: Record<string, unknown>): ProductEntityDetail => ({ meta, ...o } as unknown as ProductEntityDetail);

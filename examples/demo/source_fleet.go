@@ -148,8 +148,9 @@ func demoImpactProvider(snap *fleet.FleetSnapshot, byRef map[string]*contract.Bu
 }
 
 // demoTargets are deterministic operational targets covering the range of states
-// the dashboard renders: every compliance verdict, every degree of revision-match
-// certainty, fresh and stale evidence, a service running in more than one scope,
+// the dashboard renders: three compliance verdicts (Compliant, NonCompliant and
+// Unknown), exact and inferred revision matches alongside targets with nothing to
+// match against, fresh and stale evidence, a service running in more than one scope,
 // and the runtime detail a target page is FOR (labels and observed runtime values).
 // A target page with no labels and no observed runtime is a page of four counters,
 // which is what the demo used to show.

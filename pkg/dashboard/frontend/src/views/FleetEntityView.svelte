@@ -19,7 +19,7 @@
   import OwnerEntity from './entity/OwnerEntity.svelte';
   import SourceEntity from './entity/SourceEntity.svelte';
 
-  // The unified entity route for every kind (requirements D/E/F/G). It resolves the
+  // The unified entity route for every kind. It resolves the
   // product entity-detail endpoint (NarrowedEntityDetail) -- never the raw snapshot --
   // and owns the shared shell: entity-relationship breadcrumbs, identity header,
   // canonical key, knowledge caveat and contextual actions. The kind-specific rich
@@ -54,7 +54,7 @@
   // stated rather than swallowed, so nobody reads a frozen page as a current one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
 
-  // Entity-relationship breadcrumbs from canonical DTO refs (requirement H); a minimal
+  // Entity-relationship breadcrumbs from canonical DTO refs; a minimal
   // trail while loading/erroring.
   const trail = $derived(
     detail ? fleetEntityBreadcrumbs(detail) : [{ label: 'Overview', href: fleetOverviewUrl() }, { label: kindLabel(kind) }],
@@ -92,8 +92,7 @@
   <Breadcrumbs {trail} />
 
   <!-- The page's one visible title, at page-title scale, plus the kind, the
-       disambiguating context, the current status and the primary actions
-       (requirement 9). It used to be a visually-hidden h1 with the inline list-row
+       disambiguating context, the current status and the primary actions. It used to be a visually-hidden h1 with the inline list-row
        identity underneath, which rendered at exactly the size and weight of every
        section title on the page: the page was outranked by its own contents.
 
@@ -131,7 +130,7 @@
 
       <!-- The canonical key is Pacto's precise identity for this entity and stays available
            in full -- but it is ontology a first-time user has no use for, so it is one
-           disclosure away instead of the second thing on the page (requirement 9). Nothing
+           disclosure away instead of the second thing on the page. Nothing
            is lost: the value is unchanged and still copyable. -->
       <!-- A <details> maps to role=group, which takes its accessible name from the
            author only — never from its summary — so the canonical test id is the one

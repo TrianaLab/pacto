@@ -221,7 +221,7 @@ func TestPinRefToDigest(t *testing.T) {
 
 // TestPinRefToDigest_ResolverParseCompatible proves that a canonical ref emitted by
 // OCISource is accepted by the ACTUAL OCI client's parse boundary without
-// contacting a registry (requirement, item 10). The resolve path strips the oci://
+// contacting a registry. The resolve path strips the oci://
 // scheme (graph.ParseDependencyRef) and hands the "<repository>@<digest>" location
 // to the go-containerregistry name parser (pkg/oci Client.parseRef ->
 // name.ParseReference). If fleet.ParseCanonicalOCIRef accepts a ref the real name

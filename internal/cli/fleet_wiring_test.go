@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/internal/testutil"
@@ -173,6 +176,27 @@ func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
 	}
 	if len(fopts.EvidenceURLs) != 1 || fopts.EvidenceURLs[0] != "http://evidence.internal:8080" {
 		t.Errorf("EvidenceURLs = %v", fopts.EvidenceURLs)
+	}
+}
+
+// TestDashboardFleetOptions_EvaluatesFreshness is the contradiction one overview
+// payload must not contain. The product model decides what counts as recent with
+// [fleet.RecentEvidenceWindow] (the overview's recent-evidence list, and an
+// observed edge's last-seen), while a target's Stale bit is decided by the build's
+// FreshnessWindow -- and a zero window disables staleness classification outright.
+// The dashboard set no window, so evidence the very same payload was already too
+// old to call recent still rendered as green "Fresh evidence", and the documented
+// rule that a target goes stale as its evidence ages past the window never fired
+// in the one deployment that consumes an Evidence Server.
+func TestDashboardFleetOptions_EvaluatesFreshness(t *testing.T) {
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "http://evidence.internal:8080")
+	fopts, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{})
+	if !ok {
+		t.Fatal("expected fleet enabled by the evidence env var alone")
+	}
+	if fopts.FreshnessWindow != fleet.RecentEvidenceWindow {
+		t.Errorf("FreshnessWindow = %v, want the product recency horizon %v",
+			fopts.FreshnessWindow, fleet.RecentEvidenceWindow)
 	}
 }
 
@@ -595,5 +619,28 @@ func TestCacheLifecycle_NoCapabilityInventsNoSource(t *testing.T) {
 	}
 	if s := sourceOfKind(snap, "cache"); s != nil {
 		t.Fatalf("invented a cache source: %+v", s)
+	}
+}
+
+// TestFleetSearch_StatusFlagNamesEveryStatus is the CLI half of the same promise
+// the MCP enum makes (TestFleetSearch_StatusEnumIsTheWholeVocabulary): the
+// parenthesised list in `--status` help is the only place a human learns what is
+// askable, and it had drifted to five values while the filter accepted seven. A
+// reader sweeping the documented list reported a fleet with no Warning and no
+// Reference services in it.
+func TestFleetSearch_StatusFlagNamesEveryStatus(t *testing.T) {
+	search, _, err := newFleetCommand(app.NewService(nil, nil), viper.New()).Find([]string{"search"})
+	if err != nil {
+		t.Fatalf("find search subcommand: %v", err)
+	}
+	usage := search.Flags().Lookup("status").Usage
+	lo, hi := strings.Index(usage, "("), strings.LastIndex(usage, ")")
+	if lo < 0 || hi < lo {
+		t.Fatalf("--status help names no vocabulary: %q", usage)
+	}
+	got := strings.Split(usage[lo+1:hi], ", ")
+	slices.Sort(got)
+	if want := fleet.CanonicalStatuses(); !slices.Equal(got, want) {
+		t.Errorf("--status help advertises %v, want the canonical vocabulary %v", got, want)
 	}
 }

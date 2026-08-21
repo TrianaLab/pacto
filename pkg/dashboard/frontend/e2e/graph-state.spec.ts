@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// Browser acceptance for Operational Graph SPATIAL STATE (requirement 13.4) and for
-// requirement 14 (semantics update while the arrangement holds still).
+// Browser acceptance for Operational Graph SPATIAL STATE: semantics update while
+// the arrangement holds still.
 //
 // The regression these prove is gone: an ordinary background refresh used to destroy and
 // rebuild the canvas, so every poll threw away wherever the user had dragged things and

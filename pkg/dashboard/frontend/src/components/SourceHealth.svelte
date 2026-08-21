@@ -2,7 +2,7 @@
   import { fleetEntityUrl } from '../lib/router.ts';
   import { sourceHealthLabel, sourceHealthTone } from '../lib/entityLabels.ts';
 
-  // Renders per-source health as navigable chips (requirement G: which sources are
+  // Renders per-source health as navigable chips (which sources are
   // partial, stale or unavailable). Each chip links to that source's detail. Sources
   // are ordered least-healthy first so a degraded source is never buried, and a
   // truncation note is honest when meta carried only the least-healthy subset.

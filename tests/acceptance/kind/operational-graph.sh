@@ -153,7 +153,7 @@ EV_VALUES="$BDIR/helm-evidence.txt"
     -helm-out "$EV_VALUES" "${DIGESTS[@]}" )
 
 echo "== managed observation sources: the declared calls, exported offline =="
-# The declarative Phase-7 form: named sources the OPERATOR mounts read-only into
+# The declarative form: named sources the OPERATOR mounts read-only into
 # the dashboard it manages. Not the ad-hoc positional --traces path — the Product
 # has to show each as a Data Source with this stable identity, and the export it
 # carries is the one the scenario derived from the declared edge, so observed and

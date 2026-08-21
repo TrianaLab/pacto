@@ -4,7 +4,7 @@
   import { hashForHref, fleetEntityUrl } from './lib/router.ts';
   import EntityIdentity from './components/EntityIdentity.svelte';
 
-  // Global entity search (requirement F): discovery across services, revisions,
+  // Global entity search: discovery across services, revisions,
   // deployments, owners and sources via /api/fleet/entities (the generated SDK
   // facade). It is a backend query, NOT a preloaded fleet list, so it respects the
   // backend's bounds and shows truncation. Keyboard model mirrors the command
@@ -58,7 +58,7 @@
     else if (e.key === 'Escape') { e.preventDefault(); onClose?.(); }
   }
 
-  // Focus trap for the modal dialog (requirement 8.3): Tab cycles within the panel's
+  // Focus trap for the modal dialog: Tab cycles within the panel's
   // focusable elements (the input + result buttons) so focus never escapes an open modal
   // search; Escape closes from any focus position (a result button, not only the input).
   function onPanelKeydown(e) {

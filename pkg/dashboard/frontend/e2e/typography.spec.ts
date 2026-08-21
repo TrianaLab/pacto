@@ -5,7 +5,7 @@ import {
 } from './typographyChecks';
 
 /**
- * Desktop typography acceptance in real Chromium, from COMPUTED styles (requirement 20).
+ * Desktop typography acceptance in real Chromium, from COMPUTED styles.
  *
  * The unit guards in `architecture.test.ts` read source: they can prove no component
  * references an undeclared token and no heading selector sets a size. They cannot prove
@@ -57,7 +57,7 @@ test.describe('typography hierarchy on desktop', () => {
 
   test('a section title is the same size whether it is an h2 or an h3', async ({ page }) => {
     test.setTimeout(SWEEP_TIMEOUT);
-    // The narrow case the requirement names, isolated so its failure message says what
+    // The narrow case, isolated so its failure message says what
     // broke rather than "one role, two sizes" from the sweep.
     //
     // The two genuinely coexist across the product: a Service page's sections are h2s

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -335,7 +336,7 @@ func TestOverview_EvidenceTruncation(t *testing.T) {
 	}
 	// The recent-evidence preview reports the TRUE total (12) while carrying only the
 	// bounded top items and reporting truncation, so a consumer can tell 10-of-12
-	// from 10-of-10 (requirement, item 12).
+	// from 10-of-10.
 	re := ov.RecentEvidence
 	if re.Total != 12 || re.Count != overviewEvidenceLimit || len(re.Items) != overviewEvidenceLimit || !re.Truncated {
 		t.Errorf("recent-evidence preview = {total:%d count:%d items:%d trunc:%v}, want total=12 count=%d truncated", re.Total, re.Count, len(re.Items), re.Truncated, overviewEvidenceLimit)
@@ -348,4 +349,49 @@ func codesOf(items []AttentionItem) []string {
 		out[i] = it.Code
 	}
 	return out
+}
+
+// The overview's compliance counters are a DISTRIBUTION, and a distribution needs an
+// exhaustive partition of its population: ComplianceTally guarantees that over all
+// seven canonical statuses plus a catch-all, and the overview used to copy out only
+// five of those eight buckets. Warning, Reference and NotEvaluated targets — all
+// reachable, all forwarded verbatim by the k8s, target-state and evidence sources —
+// left the API entirely, so the fleet landing page drew them as an unnamed grey
+// remainder while the targets list named them correctly. Two Pacto surfaces
+// classifying the same targets differently is the defect; the shortfall is not the
+// UI's to invent a meaning for.
+func TestOverview_ComplianceBucketsPartitionTheTargetPopulation(t *testing.T) {
+	c := func(name string) *contract.Contract {
+		return &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: "t"}}, Workload: contract.WorkloadService, Readiness: readyContract()}
+	}
+	statuses := []string{StatusCompliant, StatusNonCompliant, StatusUnknown, StatusWarning, StatusInvalid, StatusReference, StatusNotEvaluated}
+	col := &Collection{}
+	for i, st := range statuses {
+		name := "svc" + strconv.Itoa(i)
+		col.Revisions = append(col.Revisions, RawRevision{Bundle: &contract.Bundle{Contract: c(name), FS: fstest.MapFS{}}, Digest: "sha256:" + name})
+		col.Targets = append(col.Targets, RawTarget{Scope: "prod", Kind: "k8s", Name: name + "-app", Service: name, Digest: "sha256:" + name, Compliance: st})
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, NewMemorySource("local", "local", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewQuery(snap).Overview().Summary
+	buckets := map[string]int{
+		StatusCompliant: s.CompliantTargets, StatusNonCompliant: s.NonCompliantTargets,
+		StatusUnknown: s.UnknownTargets, StatusWarning: s.WarningTargets,
+		StatusInvalid: s.InvalidTargets, StatusReference: s.ReferenceTargets,
+		StatusNotEvaluated: s.NotEvaluatedTargets, "other": s.OtherComplianceTargets,
+	}
+	sum := 0
+	for _, n := range buckets {
+		sum += n
+	}
+	if sum != s.Targets {
+		t.Errorf("compliance buckets sum to %d, want %d (the target population): %v", sum, s.Targets, buckets)
+	}
+	for _, st := range statuses {
+		if buckets[st] != 1 {
+			t.Errorf("%s targets = %d, want 1: every canonical status is its own named bucket", st, buckets[st])
+		}
+	}
 }

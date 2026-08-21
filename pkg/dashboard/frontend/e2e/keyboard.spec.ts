@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// Keyboard-only acceptance (requirement 8.10) against the built WASM demo: global
+// Keyboard-only acceptance against the built WASM demo: global
 // shortcuts behave (open/close overlays, never hijack typing), and the Operational Graph
 // is fully operable by keyboard through the accessible relationships navigator (select a
 // node/edge, open inspection, Escape closes and restores focus, full-detail link works).

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// Browser E2E for the Phase-2 fleet information architecture against the built WASM
+// Browser E2E for the fleet information architecture against the built WASM
 // demo (real Svelte bundle + real dashboard API compiled to wasm, serving the
 // product endpoints /api/fleet/overview and /api/fleet/entities). These cover the
 // navigation workflows that only a real browser exercises: the overview landing,

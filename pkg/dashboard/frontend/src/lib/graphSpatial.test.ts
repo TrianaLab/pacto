@@ -1,6 +1,6 @@
 /**
- * Unit tests for the graph spatial-state identity and its bounded browser-local store
- * (requirement 13.2). The properties that matter are: two different QUESTIONS never
+ * Unit tests for the graph spatial-state identity and its bounded browser-local
+ * store. The properties that matter are: two different QUESTIONS never
  * share an arrangement; the store is bounded in both directions; and anything it cannot
  * vouch for reads as absent, so a stale or corrupt entry can only cost a fresh layout,
  * never a broken graph.

@@ -42,7 +42,7 @@ func buildStaticExport(uiFS fs.FS, d *dashboard.ServiceDetails, g *dashboard.Glo
 		return nil, fmt.Errorf("embedded ui missing index.html")
 	}
 
-	// Request-semantic static fixtures (ADR-6, requirement, item 1): each fixture
+	// Request-semantic static fixtures (ADR-6): each fixture
 	// names the method + path (+ response) of one operation the offline single-service
 	// app calls, so the transport matches by request semantics and an unfixtured
 	// operation fails honestly rather than returning a misleading 200 + null. The set

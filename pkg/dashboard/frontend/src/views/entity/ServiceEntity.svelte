@@ -12,7 +12,7 @@
   import LimitationsList from '../../components/LimitationsList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
 
-  // The principal operational service page (requirement D). It renders ONLY the
+  // The principal operational service page. It renders ONLY the
   // product entity-detail payload (never the snapshot): owner + ownership conflicts,
   // bounded revisions / deployments / expected-dependencies / dependents previews, the
   // observed/differences relationship summary, findings attributed to exact entities,
@@ -36,13 +36,13 @@
   // "All revisions" is the exhaustive variant of a list that is usually already on the
   // page, so it opens on request -- unless nothing is running this service, in which
   // case it is the ONLY place its revisions appear and collapsing it leaves the page
-  // saying nothing (requirement 12: the default has to be sensible, not uniform).
+  // saying nothing (the default has to be sensible, not uniform).
   const noneInUse = $derived((d.activeRevisions?.count ?? 0) === 0);
   const allTargetsHref = $derived(fleetEntityListUrl('target', { service: key }));
 
   const sum = $derived(d.summary ?? {});
   const targets = $derived(sum.targets ?? 0);
-  // Closed-state gist for the evidence disclosure (requirement 12): a reader deciding
+  // Closed-state gist for the evidence disclosure: a reader deciding
   // whether to open "Recent evidence" wants to know how recently we looked, which is the
   // one fact the count cannot carry.
   const lastSeen = $derived(d.evidence?.items?.find((e) => e.at)?.at ?? '');
@@ -64,7 +64,7 @@
 <div class="svc-entity">
   <!-- The domain used to be repeated here as a fact. It is the same string the page
        header already prints in its eyebrow (both come from Service.Domain), so showing
-       it twice cost a line and told the reader nothing new (requirement 11: reduce
+       it twice cost a line and told the reader nothing new (reduce
        text, not information). -->
   <section class="se-facts">
     {#if d.ownership}
@@ -140,10 +140,10 @@
   {/if}
 
   <!-- Inventory: WHAT this service is made of. It answers a navigation question, not an
-       operational one, so it comes after the summary and the findings (requirement 16).
+       operational one, so it comes after the summary and the findings.
        The two lists a reader almost always wants -- what is running, and which revisions
        it is running -- stay open; the exhaustive variants of the same lists open on
-       request (requirement 13). -->
+       request. -->
   <div class="se-grid">
     <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No revision is currently matched to a running target." help="The revisions at least one running target is matched to. Newest first.">
       <EntityRefList items={d.activeRevisions?.items ?? []} showStatus={false} />
@@ -179,7 +179,7 @@
     </PreviewSection>
   </div>
 
-  <!-- Diagnostic layer (requirement 11): provenance and the honest list of what could
+  <!-- Diagnostic layer: provenance and the honest list of what could
        not be determined. Both are kept in full and both are one click away. -->
   {#if (d.evidence?.count ?? 0) > 0}
     <PreviewSection title="Recent evidence" collapsible open={false} summary={lastSeen ? `Last observed ${formatDate(lastSeen)}` : 'Where the runtime picture came from'} total={d.evidence?.total ?? 0} count={d.evidence?.count ?? 0} truncated={d.evidence?.truncated}>

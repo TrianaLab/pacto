@@ -126,7 +126,7 @@
   function isTypingTarget(e) {
     const t = e.target;
     // SELECT is included: native selects use '/' and letter keys for type-ahead, so a
-    // global shortcut must not hijack them (Phase 5, requirement 8.5). contenteditable
+    // global shortcut must not hijack them. contenteditable
     // is covered via isContentEditable.
     return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
   }
@@ -167,7 +167,7 @@
 
   function handlePaletteKeydown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-      // Never stack the palette over the open Search overlay (requirement 8.5); the
+      // Never stack the palette over the open Search overlay; the
       // palette's own Escape/Cmd-K toggles it closed when it is the active overlay.
       if (searchOpen) return;
       e.preventDefault();

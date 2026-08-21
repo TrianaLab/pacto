@@ -1,5 +1,5 @@
 /**
- * Component tests for NeighborhoodGraph's refresh strategy (Part 5, requirement 13.1):
+ * Component tests for NeighborhoodGraph's refresh strategy:
  * a same-topology refresh that changes only PRESENTATION (node status/label/kind, edge
  * reconciliation state) must restyle the existing canvas in place (patchData) rather
  * than leave it stale, and must NOT relayout; an identical refresh recreates nothing;
@@ -122,7 +122,7 @@ describe('NeighborhoodGraph — refresh strategy (Part 5)', () => {
     unmount(component); document.body.removeChild(target);
   });
 
-  it('reconciles a topology change in place, keeping the same instance (requirement 13.1)', () => {
+  it('reconciles a topology change in place, keeping the same instance', () => {
     const target = document.createElement('div');
     document.body.appendChild(target);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -155,7 +155,7 @@ describe('NeighborhoodGraph — refresh strategy (Part 5)', () => {
   });
 });
 
-describe('NeighborhoodGraph — spatial persistence wiring (requirement 13.2/13.3)', () => {
+describe('NeighborhoodGraph — spatial persistence wiring', () => {
   beforeEach(() => {
     for (const f of [renderSpy, patchDataSpy, destroySpy, applyTopologySpy, resetLayoutSpy]) f.mockReset();
     sessionStorage.clear();

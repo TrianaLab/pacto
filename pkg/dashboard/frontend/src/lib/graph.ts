@@ -464,8 +464,8 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       },
     },
     // Reconciliation state on a dependency edge, rendered as a REAL visual distinction
-    // so every legend item maps to something the canvas actually draws (requirement,
-    // Part 6). The backend state is rendered verbatim, never re-inferred: color carries
+    // so every legend item maps to something the canvas actually draws. The backend
+    // state is rendered verbatim, never re-inferred: color carries
     // tone and line width/style carry confidence, so the states are distinguishable
     // without relying on color alone.
     {
@@ -568,7 +568,7 @@ export function renderGraph(
   container.innerHTML = '';
   // The canvas is a VISUAL representation; the keyboard/screen-reader model is the text
   // alternative (the connections table / relationships list). Describe it as an image
-  // rather than declaring an incomplete role="application" (requirement 8.2). A caller
+  // rather than declaring an incomplete role="application". A caller
   // that pre-set a more specific aria-label (the neighborhood graph) keeps it.
   container.setAttribute('role', 'img');
   if (!container.getAttribute('aria-label')) {

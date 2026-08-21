@@ -525,8 +525,7 @@ type TargetRecord struct {
 	// pass) from the untrusted, arbitrarily wide/deep source data. The raw map is not
 	// retained on the snapshot: an untrusted source cannot make a query, a clone or
 	// the snapshot export do work proportional to its width, because every consumer
-	// (product detail, snapshot export, SnapshotID) sees only this bounded projection
-	// (requirement, item 7).
+	// (product detail, snapshot export, SnapshotID) sees only this bounded projection.
 	ObservedRuntime RuntimePreview `json:"observedRuntime"`
 	EvidenceAt      *time.Time     `json:"evidenceAt,omitempty"`
 	ReconciledAt    *time.Time     `json:"reconciledAt,omitempty"`

@@ -6,7 +6,7 @@
   import EntityRefList from '../../components/EntityRefList.svelte';
   import PostureBars from '../../components/viz/PostureBars.svelte';
 
-  // The owner page (requirement G): the owner-scoped operational posture, bounded
+  // The owner page: the owner-scoped operational posture, bounded
   // previews of the owner's services, revisions and deployments, and an attention
   // preview for the owner's estate. Every owned/affected entity is navigable via
   // EntityLink.
@@ -20,7 +20,7 @@
   const d = $derived(detail.owner ?? {});
   const sum = $derived(d.summary ?? {});
   // The owner filter/action is built from the CANONICAL owner key, never the display
-  // label (requirement F3): the key is the stable identity the backend owner filter
+  // label: the key is the stable identity the backend owner filter
   // matches; a label is presentation and may not round-trip.
   //
   // And it travels as `ownerKey`, the EXACT filter, not as the free-text `owner`

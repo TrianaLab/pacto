@@ -87,7 +87,7 @@
 }
 
 /* ─── Vertical rhythm ───
-   Hierarchy is carried by whitespace at least as much as by size (requirement 10).
+   Hierarchy is carried by whitespace at least as much as by size.
    These are the gaps between a title and what it introduces; a component that wants
    different spacing is describing a different role. */
 .t-page-title { margin: 0 0 var(--sp-2); }

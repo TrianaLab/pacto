@@ -6,7 +6,7 @@
   import CopyableIdentifier from './CopyableIdentifier.svelte';
 
   // Renders enough identity to DISAMBIGUATE an entity from same-named entities in
-  // other domains/scopes (requirement F): kind, human label, and the qualifying
+  // other domains/scopes: kind, human label, and the qualifying
   // context (domain / scope / parent service). `ref` is a product EntityRef.
   // showKind is turned off where a caption beside the link ALREADY names the kind
   // ("Owner" next to an OWNER chip). Two labels for one fact is how a page starts

@@ -110,7 +110,9 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("owner", "", "filter by owner (team, DRI or contact)")
-	cmd.Flags().String("status", "", "filter by aggregate status (Compliant, NonCompliant, Unknown, Invalid, NotEvaluated)")
+	// Same reason as the MCP enum: the vocabulary is read from the fleet, so the
+	// help text can never advertise fewer statuses than the filter accepts.
+	cmd.Flags().String("status", "", "filter by aggregate status ("+strings.Join(fleet.CanonicalStatuses(), ", ")+")")
 	cmd.Flags().String("compliance", "", "filter to services with a target of this compliance")
 	cmd.Flags().String("source", "", "filter by observing source")
 	cmd.Flags().String("workload", "", "filter by workload (service, job, scheduled)")

@@ -17,7 +17,7 @@
   import PostureBars from '../components/viz/PostureBars.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
 
-  // The operational landing page (requirement G). It consumes /api/fleet/overview
+  // The operational landing page. It consumes /api/fleet/overview
   // as the single contract -- it never reconstructs the summary from the raw
   // snapshot -- and answers "what needs attention / is my knowledge incomplete /
   // where do I go next" without requiring graph knowledge.
@@ -85,6 +85,13 @@
   const isEmptyFleet = $derived(!!overview && totalServices === 0);
   // All-clear needs complete knowledge, zero attention AND a populated fleet.
   const canAllClear = $derived(!!overview && totalServices > 0 && allClearAllowed(knowledge, attentionTotal));
+  // "All clear" is a claim about the attention BACKLOG. "Every operational target is
+  // compliant" is a separate, universally-quantified claim about the target
+  // population, and the two do not coincide: attention fires on non-compliant,
+  // unknown and stale, so a fleet of Warning or Reference targets reaches zero
+  // attention with every one of them not compliant. The stronger sentence is only
+  // said when the distribution the same payload carries actually says so.
+  const allTargetsCompliant = $derived(totalTargets > 0 && (s.compliantTargets || 0) === totalTargets);
 
   // Band 2. The fleet posture is drawn by the SAME component a service page and an
   // owner page use, so the three surfaces cannot drift in wording, ordering or colour.
@@ -98,7 +105,10 @@
       compliant: s.compliantTargets,
       nonCompliant: s.nonCompliantTargets,
       unknown: s.unknownTargets,
+      warning: s.warningTargets,
       invalid: s.invalidTargets,
+      reference: s.referenceTargets,
+      notEvaluated: s.notEvaluatedTargets,
       other: s.otherComplianceTargets,
     },
     links: {
@@ -161,7 +171,7 @@
         <div class="all-clear" role="status">
           <strong>All clear.</strong>
           <span>
-            {#if totalTargets > 0}
+            {#if allTargetsCompliant}
               Every operational target is compliant and every data source is healthy.
             {:else}
               No open attention items, and every source is healthy.

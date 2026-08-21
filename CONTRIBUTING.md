@@ -54,7 +54,7 @@ By participating in this project, you agree to treat all contributors with respe
    ```
 
    Acceptance scenarios can be run one at a time (thin aliases over the
-   `ci-e2e-*` targets and `demo-fleet`):
+   `test-acceptance-*` targets):
 
    ```bash
    make e2e-operational-graph       # kind: FULL vertical (operator + dashboard + Evidence Server + registry), asserts end to end

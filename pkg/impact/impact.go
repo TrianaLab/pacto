@@ -326,8 +326,15 @@ func edgeEvidence(snap *fleet.FleetSnapshot, consumer, changed fleet.ServiceKey,
 		if r.Type != fleet.RelationshipDependency || r.FromService != consumer || r.ToService != changed {
 			continue
 		}
+		// Skipped, never counted. Build folds observed relationships into the
+		// snapshot unconditionally, so reading corroboration out of them here
+		// bypassed the opt-in: a declared consumer came back "declared+observed" and
+		// corroborated from a plain declared-only analysis over any snapshot with
+		// observation sources. When the caller DOES opt in, snapshotObservedEdges
+		// already supplies the same edges through observedEdges, so this is the one
+		// place the gate belongs. The continue stays: an observed relationship is
+		// not the declared one.
 		if r.Provenance == fleet.ProvenanceObserved {
-			observed = true
 			continue
 		}
 		rel = r

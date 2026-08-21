@@ -1,6 +1,6 @@
 /**
  * The visualization system's accessibility contract, asserted once here so every
- * product surface that draws a proportion inherits it (requirement 10): the bar is
+ * product surface that draws a proportion inherits it: the bar is
  * decorative, every value it encodes is printed as text, the figure has a real
  * accessible name, nothing is conveyed by colour alone, and a bucket that leads
  * somewhere is a keyboard-operable link.

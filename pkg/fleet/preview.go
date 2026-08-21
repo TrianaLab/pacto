@@ -24,7 +24,7 @@ const MaxDetailPreview = 200
 // pacto's own validation emits one ref per finding and the k8s source is bounded by
 // the object-size limit, so a realistic finding is far below this; the cap exists so
 // an untrusted extension source cannot smuggle an unbounded evidence list inside an
-// otherwise-bounded findings preview (requirement, item 8).
+// otherwise-bounded findings preview.
 const MaxEvidenceRefsPreview = 50
 
 // ProductSeverity is the finite product finding severity. It mirrors
@@ -64,8 +64,8 @@ type ProductEvidenceRefsPreview struct {
 // [finding.Finding] carries an UNBOUNDED EvidenceRefs slice and PascalCase JSON
 // (it has no tags); ProductFinding is camelCase, uses the finite [ProductSeverity]
 // enum, and bounds the evidence refs, so a product response that accepts findings
-// from extension sources can never carry an unbounded per-finding evidence list
-// (requirement, item 8). The low-level snapshot record keeps raw finding.Finding.
+// from extension sources can never carry an unbounded per-finding evidence
+// list. The low-level snapshot record keeps raw finding.Finding.
 type ProductFinding struct {
 	Code         string                     `json:"code,omitempty"`
 	Severity     ProductSeverity            `json:"severity" enum:"error,warning,info,unknown"`
@@ -80,7 +80,7 @@ type ProductFinding struct {
 // its evidence refs at MaxEvidenceRefsPreview with honest total/count/truncated.
 // It converts only the emitted prefix: an untrusted extension source can attach an
 // arbitrarily large EvidenceRefs slice, and building a bounded answer must never do
-// work (allocation/copy) proportional to that width (requirement, item 8).
+// work (allocation/copy) proportional to that width.
 func productFinding(f finding.Finding) ProductFinding {
 	total := len(f.EvidenceRefs)
 	n := min(total, MaxEvidenceRefsPreview)
@@ -112,8 +112,7 @@ func boundSlice[T any](items []T, max int) (out []T, total int, truncated bool) 
 
 // AttributedFinding is a bounded product finding paired with the canonical
 // reference of the entity it actually affects, so a finding aggregated across
-// multiple targets or revisions never loses which entity it belongs to
-// (requirement 2.4).
+// multiple targets or revisions never loses which entity it belongs to.
 type AttributedFinding struct {
 	Finding ProductFinding `json:"finding"`
 	Entity  EntityRef      `json:"entity"`
@@ -220,8 +219,8 @@ func evidencePreview(es []EvidenceItem) EvidencePreview {
 // when the preview is built from a complete edge slice, or from a neighborhood
 // that did NOT truncate. When it is built from an ALREADY-truncated neighborhood
 // the true total was bounded (nodes and edges) before it could be counted, so
-// Total is omitted rather than reported as the pre-truncation scanned count
-// (requirement, item 11). Count is always the number of edges carried; Truncated
+// Total is omitted rather than reported as the pre-truncation scanned count.
+// Count is always the number of edges carried; Truncated
 // reports that more relationships exist than are carried.
 type RelationshipsPreview struct {
 	Total     *int               `json:"total,omitempty"`
@@ -422,8 +421,8 @@ type RuntimeFact struct {
 // its width. Both the OUTPUT and the ingestion WORK are bounded: at most
 // MaxDetailPreview facts emitted, each key/value length-capped, the walk stops at
 // maxRuntimeScan inspected facts and maxRuntimeDepth nesting. The single pass over
-// the raw source map at Build is the one documented unbounded-source boundary
-// (requirement, item 7); the product query then reads this projection in O(bound).
+// the raw source map at Build is the one documented unbounded-source boundary;
+// the product query then reads this projection in O(bound).
 //
 // Total is an EXACT count of flattened facts and is present ONLY when the bounded
 // walk visited the whole structure; when the walk stopped early (scan budget or a

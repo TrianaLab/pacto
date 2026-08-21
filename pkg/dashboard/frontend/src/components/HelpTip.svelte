@@ -1,14 +1,14 @@
 <script>
-  // A SHORT definition, on demand (requirement 14).
+  // A SHORT definition, on demand.
   //
-  // The rule this component exists to enforce is the one in the requirement: hover is
+  // The rule this component exists to enforce: hover is
   // supplementary, never the sole access path. So this is a real <button> -- reachable
   // by Tab, operable by Enter/Space, targetable by touch -- that hover merely
   // anticipates. Escape closes it, a click outside closes it, and it never traps focus.
   //
   // What belongs here: a definition of a term the page uses ("Revision match", "Blast
   // radius"). What does NOT: a warning, an uncertainty, or anything actionable. Those
-  // are page content, and requirement 14 forbids putting them behind a hover.
+  // are page content, and page content never hides behind a hover.
   let { label = '', text = '' } = $props();
 
   let open = $state(false);

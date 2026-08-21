@@ -8,8 +8,7 @@ import { expect, type Page } from '@playwright/test';
  */
 
 /**
- * Shared typography acceptance, measured from COMPUTED styles in a real browser
- * (requirement 20).
+ * Shared typography acceptance, measured from COMPUTED styles in a real browser.
  *
  * A source scan cannot prove this. The bug that started the pass was
  * `font-size: var(--text-md)` against a token nobody had declared: perfectly readable
@@ -44,8 +43,8 @@ export interface RoleSample {
  * NORMAL BODY is the text that carries no role class at all -- most of the page. It is
  * measured from `main`'s own computed size rather than from a `.t-body` element, because
  * `.t-body` is an OVERRIDE for the rare place that needs to restate the default, and
- * pinning the hierarchy to it would only prove that the override exists. The requirement
- * asks that the page title beat normal body text; this is normal body text.
+ * pinning the hierarchy to it would only prove that the override exists. The claim
+ * under test is that the page title beats normal body text; this is normal body text.
  */
 export async function normalBody(page: Page): Promise<number> {
   return page.evaluate(() => {
@@ -222,7 +221,7 @@ export function assertPageHierarchy(samples: RoleSample[], label: string, body: 
 }
 
 /**
- * assertRoleCoherence is the cross-route claim, and the one the requirement is really
+ * assertRoleCoherence is the cross-route claim, and the one the type scale is really
  * about: the same visual role renders identically wherever it appears, WHATEVER element
  * carries it. An `h2` and an `h3` and a `<p>` in the section role are the same size and
  * the same weight, because the role decides and the tag does not.

@@ -1,6 +1,6 @@
 /**
  * The DISAMBIGUATING CONTEXT of an entity reference: the few bits that tell a
- * same-named entity in another domain or scope apart from this one (requirement F).
+ * same-named entity in another domain or scope apart from this one.
  *
  * This lives on its own because two components need exactly the same answer. The
  * inline `EntityIdentity` renders it beside a label in a list row; the page header

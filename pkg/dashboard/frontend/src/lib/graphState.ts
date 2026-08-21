@@ -1,11 +1,11 @@
 /**
- * Pure state + presentation helpers for the search-first Operational Graph (Phase 4).
+ * Pure state + presentation helpers for the search-first Operational Graph.
  *
  * The graph is search-first: with no focus it shows a discovery state, never a
  * whole-fleet hairball; with a focus it consumes the PRODUCT neighborhood API (never
  * the FleetSnapshot) for a bounded local neighborhood. This module owns the shareable
  * graph state (URL <-> query input) and the backend-authoritative difference/relation
- * vocabularies the UI renders verbatim (requirement O: never infer a difference from
+ * vocabularies the UI renders verbatim (never infer a difference from
  * booleans, never color-only).
  */
 import type { KnowledgeView, Direction, ProductNeighborhood } from './api.ts';
@@ -13,7 +13,7 @@ import type { KnowledgeView, Direction, ProductNeighborhood } from './api.ts';
 export const GRAPH_PERSPECTIVES = ['service', 'revision', 'target'] as const;
 export type GraphPerspective = (typeof GRAPH_PERSPECTIVES)[number];
 
-// The default focused neighborhood (requirement L): depth 1, both directions, and the
+// The default focused neighborhood: depth 1, both directions, and the
 // expected + differences views. Rationale: a newcomer's first question is "what does
 // this depend on / what depends on it, and where does intent diverge from observed
 // reality" -- expected shows intent, differences surfaces observed-not-expected and
@@ -123,7 +123,7 @@ export function relationLabel(rel: string | undefined): string {
   return rel === 'runs' ? 'Runs' : 'Depends on';
 }
 
-// ── focus/perspective validity (requirement E) ────────────────────────────────
+// ── focus/perspective validity ────────────────────────────────
 // Backend validation is stricter than "show every button": a service cannot be
 // projected as one revision or one target, and a revision perspective needs an
 // authoritatively-linked revision. These helpers make ordinary navigation unable to
@@ -163,7 +163,7 @@ export function revisionLinkAuthoritative(revisionState: string | undefined): bo
 }
 
 // The canonicalizer reads only these fields of the neighborhood; their TYPES are DERIVED
-// from the generated ProductNeighborhood via indexed access + Pick (reopen section 7), never
+// from the generated ProductNeighborhood via indexed access + Pick, never
 // a hand-mirrored wire shape with primitive fields that could drift from the SDK. CanonRef
 // narrows a generated ProductRef to the two fields the canonicalizer uses, keeping its
 // `kind` the generated enum (not a bare string).
@@ -179,8 +179,8 @@ export interface CanonNeighborhood {
  *  when switching to `perspective`, or null to keep the current focus. A perspective that
  *  reinterprets identity (target->service, target->revision, revision->service) MUST
  *  canonicalize the URL to the entity actually projected, so the URL never disagrees with
- *  the visible graph and RequestedFocus is never silently reinterpreted (requirement,
- *  Part 4). The canonical identity is read from the CURRENT neighborhood's backend data
+ *  the visible graph and RequestedFocus is never silently reinterpreted. The canonical
+ *  identity is read from the CURRENT neighborhood's backend data
  *  (its focusService, or the runs edge's linked revision), never inferred from labels. */
 export function canonicalFocusForPerspective(
   nb: CanonNeighborhood | null | undefined,
@@ -222,12 +222,12 @@ export function projectionFocusMismatch(
 /** perspectiveSupportsDepth reports whether a perspective has a real bounded depth
  *  model. The target projection is intentionally one hop (a deployment runs a revision
  *  and requires services; deeper exploration is the revision perspective's job), so
- *  its depth/expand controls are disabled rather than left inert (requirement D). */
+ *  its depth/expand controls are disabled rather than left inert. */
 export function perspectiveSupportsDepth(perspective: string): boolean {
   return perspective !== 'target';
 }
 
-// ── service-scoped corroboration (requirement B, rendered, never re-inferred) ──
+// ── service-scoped corroboration (rendered, never re-inferred) ─────────────────
 // A fine-grained (revision/target) dependency edge is never marked observed; the
 // backend surfaces the SERVICE-scoped reconciliation as context. These render that
 // verbatim and clearly scoped, so the UI never claims the fine-grained edge itself was

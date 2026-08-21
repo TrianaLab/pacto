@@ -1,5 +1,5 @@
 /**
- * Render tests for the Phase-2 product components. These assert the behaviors that
+ * Render tests for the product components. These assert the behaviors that
  * matter for the product journey: entity links use canonical/backend hrefs (never
  * invented), empty states are honest about knowledge, source health is navigable and
  * least-healthy-first, and summary counts navigate to real filtered views.
@@ -20,6 +20,8 @@ import OperationalSummary from './OperationalSummary.svelte';
 import PreviewSection from './PreviewSection.svelte';
 // @ts-expect-error
 import KnowledgeBanner from './KnowledgeBanner.svelte';
+// @ts-expect-error
+import RelationshipList from './RelationshipList.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -41,7 +43,7 @@ describe('EntityLink', () => {
   });
 });
 
-describe('EntityIdentity disambiguation (requirement F item 7)', () => {
+describe('EntityIdentity disambiguation', () => {
   it('shows domain so same-named services in different domains are distinguishable', () => {
     comp = mount(EntityIdentity, { target, props: { ref: { kind: 'service', key: 'domain-a/payments', label: 'payments', domain: 'domain-a' } } });
     expect(target.textContent).toContain('payments');
@@ -104,7 +106,7 @@ describe('EntityIdentity disambiguation (requirement F item 7)', () => {
   });
 });
 
-describe('ProductEmptyState — honest knowledge states (requirement H)', () => {
+describe('ProductEmptyState — honest knowledge states', () => {
   it('an empty result under incomplete knowledge is NEVER an all-clear', () => {
     const partial = snapshotKnowledge({ sources: [{ status: 'partial' }] });
     const state = decideViewState({ loading: false, itemCount: 0, knowledge: partial });
@@ -260,7 +262,7 @@ describe('OperationalSummary', () => {
   });
 });
 
-describe('ProductEmptyState — filtered-empty never hides incompleteness (requirement D)', () => {
+describe('ProductEmptyState — filtered-empty never hides incompleteness', () => {
   it('a filter matching nothing UNDER incomplete knowledge shows BOTH facts', () => {
     const partial = snapshotKnowledge({ sources: [{ status: 'partial' }] });
     const state = decideViewState({ loading: false, itemCount: 0, filtered: true, knowledge: partial });
@@ -281,7 +283,7 @@ describe('ProductEmptyState — filtered-empty never hides incompleteness (requi
   });
 });
 
-describe('PreviewSection — honest known vs unknown totals (requirement B)', () => {
+describe('PreviewSection — honest known vs unknown totals', () => {
   const count = (t: HTMLElement) => t.querySelector('[data-testid="preview-count"]')?.textContent?.trim() ?? '';
   const more = (t: HTMLElement) => t.querySelector('[data-testid="preview-more"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
@@ -351,5 +353,32 @@ describe('KnowledgeBanner names its own subject', () => {
 
     comp = mount(KnowledgeBanner, { target, props: { knowledge: snapshotKnowledge(null), noun: 'page' } });
     expect((target.textContent || '').replace(/\s+/g, ' ')).toContain('It did not report how complete it is, so this page may be incomplete.');
+  });
+});
+
+describe('RelationshipList — fine-grained edges are service-scoped, never Unknown', () => {
+  // A revision page's dependency is FINE-GRAINED scope: the backend deliberately sends
+  // no edge-scope `difference` there (pkg/fleet/detail.go revisionEdges) and sends the
+  // service-scoped verdict as observationScope + serviceCorroboration instead. Rendering
+  // the absent difference verbatim printed "Unknown" over a relationship the fleet had
+  // in fact corroborated.
+  const fineGrained = {
+    id: 'a|b', relation: 'dependency',
+    from: { kind: 'service', key: 'd/a', label: 'a' },
+    to: { kind: 'service', key: 'd/b', label: 'b' },
+    expected: true, observed: false, provenance: 'declared',
+    observationScope: 'service', serviceCorroboration: 'matched',
+    declaredClaims: { total: 1, count: 1, truncated: false, items: [{ required: true }] },
+  };
+
+  it('renders the service-scoped corroboration, not an edge-scope verdict', () => {
+    comp = mount(RelationshipList, { target, props: { items: [fineGrained], showClaims: true } });
+    expect(target.textContent).not.toMatch(/Unknown/);
+    expect(target.textContent).toMatch(/Service traffic corroborates it/);
+  });
+
+  it('still renders a merged service edge\'s own difference verdict', () => {
+    comp = mount(RelationshipList, { target, props: { items: [{ ...fineGrained, observationScope: undefined, serviceCorroboration: undefined, difference: 'matched' }] } });
+    expect(target.textContent).toMatch(/Matched/);
   });
 });

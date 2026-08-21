@@ -37,7 +37,7 @@ describe('snapshotKnowledge', () => {
     expect(k.incomplete).toBe(true);
   });
 
-  it('models a fully-understood empty snapshot as `empty`, NOT unknown/incomplete (requirement D)', () => {
+  it('models a fully-understood empty snapshot as `empty`, NOT unknown/incomplete', () => {
     // Backend `empty` completeness: every source healthy, no record exists.
     const k = snapshotKnowledge({ completeness: 'empty', sources: [{ status: 'available' }, { status: 'available' }] });
     expect(k.level).toBe('empty');
@@ -219,12 +219,12 @@ describe('decideViewState', () => {
     expect(decideViewState({ loading: false, itemCount: 0, filtered: true, knowledge: complete }).kind).toBe('filtered-empty');
   });
 
-  it('treats an `empty`-completeness snapshot as a genuine empty fleet, not empty-unknown (requirement D)', () => {
+  it('treats an `empty`-completeness snapshot as a genuine empty fleet, not empty-unknown', () => {
     const s = decideViewState({ loading: false, itemCount: 0, knowledge: empty });
     expect(s.kind).toBe('empty-fleet');
   });
 
-  it('filtered-empty carries the snapshot knowledge so incompleteness is not hidden (requirement D)', () => {
+  it('filtered-empty carries the snapshot knowledge so incompleteness is not hidden', () => {
     // Under complete/empty knowledge the caveat is silent, but the knowledge is present.
     const okState = decideViewState({ loading: false, itemCount: 0, filtered: true, knowledge: complete });
     expect(okState.kind).toBe('filtered-empty');

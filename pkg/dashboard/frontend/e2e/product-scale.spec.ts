@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// Phase 6 browser acceptance for SCALE and HOSTILE IDENTITY (requirements 21, 22, 25).
+// Browser acceptance for SCALE and HOSTILE IDENTITY.
 //
 // The demo fleet is small on purpose -- it is a narrative, not a stress test -- so the
 // two questions this file answers cannot be answered by browsing it:
@@ -200,7 +200,7 @@ test.describe('Product lists stay bounded and honest at scale', () => {
     await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+25000/)).toBeVisible();
     // The figures on this page describe the POPULATION, not the 25 rendered rows, and they
     // say which -- a page distribution read as a fleet distribution is the exact lie
-    // requirement 8 exists to prevent. The denominator is 25,000 and the legend adds up
+    // this file exists to prevent. The denominator is 25,000 and the legend adds up
     // to it, on a screen showing 25 services.
     await expect(page.getByText('All 25000 services in the snapshot.').first()).toBeVisible();
     await expect(page.getByText('(25% of 25000)').first()).toBeVisible();

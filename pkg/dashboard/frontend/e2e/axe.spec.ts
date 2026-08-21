@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-// Automated WCAG A/AA accessibility gate (requirement 8.9, reopen section 11.1) over
+// Automated WCAG A/AA accessibility gate over
 // representative REAL product states of the built WASM demo, in BOTH themes. It is wired
 // into the blocking dashboard browser CI (playwright, desktop project). NO rule is
 // blanket-disabled -- color-contrast is now ENFORCED (the design tokens were measured and
@@ -113,7 +113,7 @@ test.describe('WCAG A/AA axe gate over product states', () => {
     await audit(page, ti);
   });
 
-  // ── Light theme (reopen section 11.1: BOTH themes must clear AA contrast) ──
+  // ── Light theme: BOTH themes must clear AA contrast ──────────────────────
   // The badge/score/accent-heavy states are the highest contrast risk in light mode.
   test('LIGHT: Operational Overview', async ({ page }, ti) => {
     await lightTheme(page);

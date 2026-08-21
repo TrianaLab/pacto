@@ -61,9 +61,15 @@ func printServiceTargets(w io.Writer, targets []*fleet.TargetRecord) {
 
 func printServiceEdges(w io.Writer, sv *fleet.ServiceView) {
 	if len(sv.Dependencies) > 0 {
+		// The edges are the union ACROSS revisions, so one dependency legitimately
+		// appears once per revision that declares it. Each row names its declaring
+		// revision: without that, three revisions declaring the same dependency render
+		// as three identical lines, which reads as one revision declaring it three
+		// times -- a different claim about the service.
 		_, _ = fmt.Fprintf(w, "Dependencies (%d):\n", len(sv.Dependencies))
 		for _, d := range sv.Dependencies {
-			_, _ = fmt.Fprintf(w, "  %s  resolved=%t ref=%s\n", d.To, d.Resolved, orDash(d.RequestedRef))
+			_, _ = fmt.Fprintf(w, "  %s  declaredBy=%s resolved=%t ref=%s\n",
+				d.To, orDash(string(d.FromRevision)), d.Resolved, orDash(d.RequestedRef))
 		}
 	}
 	if len(sv.Dependents) > 0 {

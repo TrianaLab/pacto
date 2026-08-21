@@ -297,6 +297,51 @@ func TestFleetGetService(t *testing.T) {
 	}
 }
 
+// A service's declared dependencies are the union ACROSS its revisions, so two
+// revisions declaring the same dependency are two distinct edges. The text
+// projection has to say which revision each edge came from: identical rows read
+// as one revision declaring the dependency twice, which is a different claim
+// about the service than two revisions declaring it once each.
+func TestFleetGetService_DependencyRowsNameTheDeclaringRevision(t *testing.T) {
+	root := t.TempDir()
+	for _, v := range []string{"1.0.0", "2.0.0"} {
+		mustWrite(t, filepath.Join(root, "v"+v, "pacto.yaml"), `pactoVersion: "2.0"
+service:
+  name: dup
+  version: "`+v+`"
+dependencies:
+  - name: payments
+    ref: oci://ghcr.io/acme/payments
+    required: true
+    compatibility: ^1.0.0
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+`)
+	}
+
+	out, _, err := execFleet(t, "fleet", "get", "dup", "--local", root)
+	if err != nil {
+		t.Fatalf("get dup: %v", err)
+	}
+	var depRows []string
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.HasPrefix(ln, "  ") && strings.Contains(ln, "resolved=") {
+			depRows = append(depRows, ln)
+		}
+	}
+	if len(depRows) != 2 {
+		t.Fatalf("expected one dependency row per declaring revision, got %d:\n%s", len(depRows), out)
+	}
+	if depRows[0] == depRows[1] {
+		t.Errorf("dependency rows are indistinguishable, so the output cannot say which revision declared which edge:\n%s", depRows[0])
+	}
+}
+
 func TestFleetGetTarget(t *testing.T) {
 	root, ev := writeFleetFixture(t)
 	base := []string{"--local", root, "--target-state", ev}

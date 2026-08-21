@@ -17,7 +17,7 @@
   import { complianceSegments, ownershipSegments, ownershipHrefs, ownerRanking, statusHrefs, bucketLabel, OWNERSHIP_STATES } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
 
-  // The product Services list (requirement C / A3). It is the canonical destination of
+  // The product Services list. It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
   // Services link on fleet-capable hosts. It consumes /api/fleet/entities?kinds=service
   // through the generated SDK facade -- NEVER the legacy preloaded /api/services list
@@ -42,7 +42,7 @@
   let textDraft = $state(text);
   $effect(() => { textDraft = text; });
 
-  // One reusable, race-safe loader (requirement E): the fetcher reads the current
+  // One reusable, race-safe loader: the fetcher reads the current
   // params at request time; sync(key) dedupes the initial load and the generation
   // guard prevents an older response overwriting a newer route/filter/refresh.
   const loader = createProductLoader(() => api.fleetEntities({

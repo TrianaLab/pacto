@@ -8,7 +8,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/finding"
 )
 
-// This file is the OpenAPI vocabulary spec (requirement, item 6): it proves the
+// This file is the OpenAPI vocabulary spec: it proves the
 // finite wire vocabularies the generated TypeScript SDK narrows on are actually
 // emitted into the exported OpenAPI as enums, from Go-owned sources. In particular
 // it proves finding severity carries "unknown" (the value the engine really emits
@@ -148,7 +148,7 @@ func TestOpenAPI_FiniteEnums(t *testing.T) {
 }
 
 // TestOpenAPI_EnumsOnSpecificFields asserts each important finite vocabulary is the
-// enum on the SPECIFIC schema field that carries it (requirement, item 6), not
+// enum on the SPECIFIC schema field that carries it, not
 // merely present somewhere in the document. A global search would pass even if a
 // field lost its enum as long as some OTHER field happened to carry the same value
 // set; pinning the field makes the drift gate real.
@@ -179,7 +179,7 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		// provenance is a merged-edge value: edgeProvenance can emit the combined
 		// "declared+observed" when an edge is both declared and observed, so the OpenAPI
 		// enum (and thus the generated SDK) must declare that value, never just the two
-		// singletons (requirement, reopen section 5).
+		// singletons.
 		{"ProductEdge", "provenance", sortedSet("declared", "observed", "declared+observed")},
 		{"ProductEdge", "observationScope", sortedSet("service", "target")},
 		{"ProductEdge", "serviceCorroboration", sortedSet("matched", "expected-not-observed", "insufficient")},

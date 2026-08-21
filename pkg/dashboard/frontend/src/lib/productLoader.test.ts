@@ -1,5 +1,5 @@
 /**
- * Deterministic race tests for the reusable product loader (requirement E). Each
+ * Deterministic race tests for the reusable product loader. Each
  * uses controllable deferred promises to force a specific interleaving, so the
  * ordering guarantees are proven, not merely hoped for:
  *  - exactly one logical initial request (no onMount + effect double fire);
@@ -20,7 +20,7 @@ function deferred<T>(): Deferred<T> {
 // flush microtasks so a resolved/rejected fetcher's .then/.catch/.finally run.
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
-describe('createProductLoader (requirement E)', () => {
+describe('createProductLoader', () => {
   it('issues exactly ONE logical initial request across a repeated key', () => {
     const fetcher = vi.fn(() => deferred<string>().promise);
     const loader = createProductLoader(fetcher);

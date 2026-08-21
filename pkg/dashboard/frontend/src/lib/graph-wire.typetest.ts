@@ -1,5 +1,5 @@
 /**
- * Compile-time architecture guard (reopen section 7): the Operational Graph adapter and the
+ * Compile-time architecture guard: the Operational Graph adapter and the
  * perspective canonicalizers must consume the GENERATED ProductNeighborhood wire type, never
  * a hand-mirrored partial that could drift from the SDK. Type-checked by `npm run lint`
  * (svelte-check, threshold error); it runs no code. If a hand mirror incompatible with the

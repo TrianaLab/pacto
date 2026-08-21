@@ -3,7 +3,7 @@ import { boot, canonicalKeys, runAnalysis } from './typographyChecks';
 
 /**
  * Page-scaffold acceptance in real Chromium, from MEASURED bounding boxes and computed
- * styles (requirement 18).
+ * styles.
  *
  * The Operational graph and Change analysis are the product's two workspaces, and they
  * sat at visibly different distances from the app bar with differently-framed control

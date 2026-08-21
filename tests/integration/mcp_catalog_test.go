@@ -170,7 +170,7 @@ func findRevision(revs []catalog.Revision, name string) (catalog.Revision, bool)
 	return catalog.Revision{}, false
 }
 
-// TestMCPCatalogDiscoveryOverStdio drives the whole Phase 12 surface end to end
+// TestMCPCatalogDiscoveryOverStdio drives the whole MCP catalog surface end to end
 // against a live registry: a registry root and a local root, a revision shared
 // by both, a dependency that cannot resolve, a tag moved while the server runs,
 // and a clean shutdown.

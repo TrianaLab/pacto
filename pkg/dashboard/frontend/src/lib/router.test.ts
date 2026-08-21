@@ -252,7 +252,7 @@ describe('parseHash — query strings on non-diff routes', () => {
     });
   });
 
-  it('drops the inert graph filters no view or backend consumes (requirement J)', () => {
+  it('drops the inert graph filters no view or backend consumes', () => {
     // domain/scope/owner/status/source/freshness were placebo URL state; they are not
     // parsed into the graph route model any more.
     expect(parseHash('#/fleet/graph?perspective=service&domain=domain-a&scope=prod&owner=core&status=NonCompliant&source=k8s&freshness=stale')).toEqual({
@@ -298,7 +298,7 @@ describe('fleetUrl', () => {
   });
 });
 
-describe('parseHash — fleet product IA (Phase 2)', () => {
+describe('parseHash — fleet product IA', () => {
   it('parses the unified entity-detail routes (plural segment -> singular kind)', () => {
     expect(parseHash('#/fleet/services/payments')).toEqual({ view: 'fleet-entity', params: { kind: 'service', key: 'payments' } });
     expect(parseHash('#/fleet/revisions/svc@a')).toEqual({ view: 'fleet-entity', params: { kind: 'revision', key: 'svc@a' } });

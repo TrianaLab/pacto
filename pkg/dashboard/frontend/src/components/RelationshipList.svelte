@@ -2,6 +2,7 @@
   import EntityLink from './EntityLink.svelte';
   import IdentityBadge from './IdentityBadge.svelte';
   import { differenceLabel, differenceTone, provenanceLabel, provenanceIsImplied } from '../lib/entityLabels.ts';
+  import { corroborationLabel, corroborationTone } from '../lib/graphState.ts';
   import { shortDigest } from '../lib/format.ts';
 
   // Renders the observed/differences relationship summary (NeighborhoodEdge items):
@@ -45,6 +46,16 @@
   // more revisions than fit says so instead of implying the list is all of them.
   const claimsTruncated = (e) => showClaims && outbound(e) && !!e.declaredClaims?.truncated;
 
+  // A FINE-GRAINED edge (a revision's or a target's dependency) carries no edge-scope
+  // `difference`: observation is recorded per SERVICE, so the backend sends the
+  // service-scoped verdict as observationScope + serviceCorroboration instead. Reading
+  // the absent difference verbatim printed "Unknown" over relationships the fleet had
+  // corroborated, so each scope is rendered in its own vocabulary. Same mapping the
+  // graph drawer uses (lib/graphState.ts) -- never re-inferred from booleans.
+  const scoped = (e) => !e.difference && !!e.serviceCorroboration;
+  const verdictLabel = (e) => (scoped(e) ? corroborationLabel(e.serviceCorroboration) : differenceLabel(e.difference));
+  const verdictTone = (e) => (scoped(e) ? corroborationTone(e.serviceCorroboration) : differenceTone(e.difference));
+
   const claimFacts = (c) => {
     const out = [];
     if (c.requestedRef) out.push(['Ref', c.requestedRef]);
@@ -62,7 +73,7 @@
       <div class="rel">
         {#if selfKey}<span class="rel-word">{relationWord(e)}</span>{/if}
         <EntityLink ref={counterpart(e)} showStatus={false} showKind={!selfKey} />
-        <IdentityBadge label={differenceLabel(e.difference)} tone={differenceTone(e.difference)} />
+        <IdentityBadge label={verdictLabel(e)} tone={verdictTone(e)} />
         {#if e.provenance && !provenanceIsImplied(e.difference, e.provenance)}<span class="rel-prov">{provenanceLabel(e.provenance)}</span>{/if}
         {#if e.stale}<span class="rel-stale">stale</span>{/if}
       </div>

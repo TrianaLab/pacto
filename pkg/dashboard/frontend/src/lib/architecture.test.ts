@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 import { parse } from 'svelte/compiler';
 
 /**
- * Architecture guard (ADR-6, requirement, item 9): the generated OpenAPI SDK is
+ * Architecture guard (ADR-6): the generated OpenAPI SDK is
  * the ONLY way the dashboard talks to the backend. This test fails if new code
  * bypasses it - a raw fetch of a backend route, or a hand-built `/api/...` URL -
  * outside the single transport seam and the facade. It keeps the wire contract
@@ -218,7 +218,7 @@ describe('product visualization system', () => {
 });
 
 /**
- * Design-system guards (requirements 7, 8, 13, 14, 22).
+ * Design-system guards.
  *
  * Three defects motivated these, and each was invisible to a green test suite because
  * every one of them is a CSS declaration that silently does nothing:
@@ -594,7 +594,7 @@ describe('product vocabulary', () => {
 });
 
 /**
- * In-page navigation guard (requirements 15 and 16).
+ * In-page navigation guard.
  *
  * A long page needs a way to reach its own sections, and there are two ways to build
  * one. Only one of them is available here.

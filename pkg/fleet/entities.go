@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// EntityFilter constrains a global entity search (requirement 2.2). The zero
+// EntityFilter constrains a global entity search. The zero
 // value matches every entity of every kind, bounded by the default limit.
 type EntityFilter struct {
 	Text  string
@@ -87,7 +87,7 @@ type EntityList struct {
 
 // Entities searches services, revisions, targets, owners and sources with one
 // query, returning stable, navigable references. It powers global search, graph
-// focus search, contextual links and entity pickers (requirement 2.2). It
+// focus search, contextual links and entity pickers. It
 // returns an [InvalidQueryError] for a malformed filter rather than silently
 // defaulting.
 func (q *Query) Entities(f EntityFilter) (*EntityList, error) {

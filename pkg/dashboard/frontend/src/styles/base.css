@@ -213,7 +213,7 @@ tbody tr:hover { background: var(--c-surface-hover); }
 }
 
 /* Inline links within prose are underlined so they are distinguishable from the
-   surrounding text without relying on color alone (WCAG 1.4.1 / link-in-text-block,
-   requirement 8.8). Block/card/nav links (tiles, chips, buttons) style themselves and
+   surrounding text without relying on color alone (WCAG 1.4.1 /
+   link-in-text-block). Block/card/nav links (tiles, chips, buttons) style themselves and
    are not inline prose, so this only affects genuine in-sentence links. */
 p a { text-decoration: underline; }

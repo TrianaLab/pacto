@@ -13,7 +13,7 @@
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import PageHeader from '../components/PageHeader.svelte';
 
-  // The product Sources list (requirement G): source discovery through
+  // The product Sources list: source discovery through
   // /api/fleet/entities?kinds=source via the SDK facade, with a search box and a
   // health filter (the backend sourceHealth query param), all kept in the URL. Rows
   // navigate to the rich source page.
@@ -27,7 +27,7 @@
   let textDraft = $state(text);
   $effect(() => { textDraft = text; });
 
-  // One reusable, race-safe loader (requirement E): dedupes the initial load and
+  // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
   const loader = createProductLoader(() => api.fleetEntities({ kinds: ['source'], text: text || undefined, sourceHealth: sourceHealth || undefined, offset: pageOffset || undefined, limit: PAGE_SIZE }));
   // queryIdentity is the QUESTION (search + health filter + page); refreshTick only

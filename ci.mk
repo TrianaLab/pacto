@@ -8,12 +8,12 @@ BUNDLE_DIR := pactos/pacto-dashboard
 REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-e2e-kind-evidence ci-e2e-kind-operational-graph ci-e2e-kind-observation \
+       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile \
        ci-e2e-compose test-acceptance-compose test-browser-compose \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        ci-oci ci-gates docs-generate docs-check docs-build-strict artifact-drift release-dry-run \
-       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs demo-fleet \
+       verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
@@ -134,14 +134,11 @@ test-acceptance-kind-reconcile:
 test-acceptance-kind-evidence:
 	bash tests/acceptance/kind/evidence.sh
 
-# Compatibility aliases for the pre-Phase-8B names. Temporary.
+# Compatibility aliases for the older names. Temporary.
 ci-e2e-kind:                    test-acceptance-kind
 ci-e2e-kind-dashboard:          test-acceptance-kind-dashboard
-ci-e2e-kind-observation:        test-acceptance-kind-observation
-ci-e2e-kind-operational-graph:  test-acceptance-kind-operational-graph
 ci-e2e-kind-upgrade:            test-acceptance-kind-upgrade
 ci-e2e-kind-reconcile:          test-acceptance-kind-reconcile
-ci-e2e-kind-evidence:           test-acceptance-kind-evidence
 
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:

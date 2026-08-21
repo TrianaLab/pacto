@@ -25,7 +25,7 @@
   import LimitationsList from '../components/LimitationsList.svelte';
   import NeighborhoodGraph from '../NeighborhoodGraph.svelte';
 
-  // The product Operational Graph (Phase 4). With no focus it shows a DISCOVERY state
+  // The product Operational Graph. With no focus it shows a DISCOVERY state
   // (search only) and loads NO neighborhood and NO FleetSnapshot -- never a whole-fleet
   // hairball. With a focus it consumes the bounded PRODUCT neighborhood API and renders
   // an ACTUAL visual topology on the shared Cytoscape engine: mixed service/revision/
@@ -52,7 +52,7 @@
 
   const nb = $derived(focused ? loader.data : null);
 
-  // ── graph query identity (requirement 13) ────────────────────────────────────
+  // ── graph query identity ────────────────────────────────────
   // The canonical identity of the QUESTION being asked, independent of the refresh tick.
   // A refresh keeps it, so the canvas is reconciled in place and the user's arrangement
   // survives; a different focus/perspective/view/direction/depth changes it, so the new
@@ -70,7 +70,7 @@
   // URL under the revision perspective resolves to the linked revision). RequestedFocus
   // stays truthful; the backend supplies an explicit projectionFocus, and we replace
   // (not push) the URL to it so a reload stays on the canonical Product URL and the
-  // active perspective never contradicts the visible graph (requirement, Part 4).
+  // active perspective never contradicts the visible graph.
   $effect(() => {
     if (!shown) return;
     const canon = projectionFocusMismatch(shown, gs.kind, gs.key);
@@ -86,7 +86,7 @@
   const focusRef = $derived(shown?.requestedFocus ?? null);
   const focusNode = $derived((shown?.nodes || []).find((n) => n.focus) || null);
 
-  // Perspective options valid for THIS focus (requirement E): a service can only be a
+  // Perspective options valid for THIS focus: a service can only be a
   // service projection; a target is a revision projection only when its link is
   // authoritative. Ordinary navigation therefore never produces a backend 422.
   const perspectives = $derived(availablePerspectives(gs.kind, {
@@ -96,7 +96,7 @@
   const oneHopNote = $derived(shown && shown.effectiveDepth < gs.depth);
 
   // ── quick-inspection drawer (node or edge) ───────────────────────────────────
-  // The drawer is a NON-modal side panel (requirement 8.3): it is not focus-trapped;
+  // The drawer is a NON-modal side panel: it is not focus-trapped;
   // Escape and the Close button close it and return focus to the control that opened it
   // (a Relationships-list button in the keyboard path), and opening it moves focus into
   // the drawer so a screen reader announces it.
@@ -144,7 +144,7 @@
     const depth = perspectiveSupportsDepth(p) ? gs.depth : 1;
     // A perspective that reinterprets identity (target->service, target->revision,
     // revision->service) canonicalizes the URL to the entity actually projected, so the
-    // URL and the visible graph never disagree (requirement, Part 4). Keys come from the
+    // URL and the visible graph never disagree. Keys come from the
     // backend neighborhood data (focusService / the runs edge), never inferred. A push
     // (not replace) so Back returns to the previous canonical route.
     const canon = canonicalFocusForPerspective(shown, gs.kind, p);
@@ -169,7 +169,7 @@
   // The three layers are DEFINED in the discovery state's legend -- but a reader who
   // arrives on a focused graph from a deep link or an entity page never sees discovery,
   // and on that screen the only explanation was a `title=` tooltip: mouse-only, gone on
-  // touch, unreachable by keyboard (requirement 14). One help affordance beside the
+  // touch, unreachable by keyboard. One help affordance beside the
   // control carries all three, built from the same source so the two cannot drift.
   const VIEW_HELP = VIEW_DEFS.map((d) => `${d.label}: ${d.help}`).join(' ');
 
@@ -239,7 +239,7 @@
   </PageHeader>
 
   {#if !focused}
-    <!-- Discovery state (requirement K): search-first, no fleet hairball, no request. -->
+    <!-- Discovery state: search-first, no fleet hairball, no request. -->
     <section class="discovery" data-testid="graph-discovery">
 
       <form class="disco-search" role="search" onsubmit={submitSearch}>
@@ -267,7 +267,7 @@
       {:else if queryText.trim()}
         <p class="disco-hint" data-testid="graph-search-empty">No entities match "{queryText}".</p>
       {:else}
-        <!-- Resting discovery state (requirement, reopen section 4): an unmistakable
+        <!-- Resting discovery state: an unmistakable
              affordance that a graph renders HERE once a focus is chosen -- so the tab reads
              as a graph discovery experience, not an empty page -- without auto-rendering the
              whole fleet. -->
@@ -299,7 +299,7 @@
       </div>
     </section>
   {:else}
-    <!-- Focused neighborhood: an actual visual topology (requirements F/G/H). -->
+    <!-- Focused neighborhood: an actual visual topology. -->
     <div class="workspace-controls is-row" role="group" aria-label="Graph controls">
       <div class="gv-ctl">
         <span class="gv-ctl-k">Perspective</span>
@@ -389,10 +389,10 @@
           {#if neighborhoodIsEmpty(shown)}
             <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} are known for this focus under the selected views.</p>
           {:else}
-            <!-- Primary: the visual Cytoscape topology (requirement F). -->
+            <!-- Primary: the visual Cytoscape topology. -->
             <NeighborhoodGraph neighborhood={shown} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
 
-            <!-- Legend (requirement G/Part 6): every item is a REAL canvas distinction.
+            <!-- Legend: every item is a REAL canvas distinction.
                  Node kinds are shapes/borders; edge relation and reconciliation state are
                  line-swatches that mirror exactly what the canvas draws (line style +
                  width + tone), never a decorative badge for a state the canvas can't show.
@@ -412,7 +412,7 @@
               <span class="lg-item"><span class="lg-edge lg-insufficient"></span> Insufficient evidence</span>
             </div>
 
-            <!-- Accessible text alternative (requirement P): the same nodes and edges as
+            <!-- Accessible text alternative: the same nodes and edges as
                  a semantic list, keyboard-focusable, driving the same drawer. -->
             <details class="gv-textalt disclosure" data-testid="graph-textalt">
               <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Relationships (text)</summary>
@@ -463,7 +463,7 @@
           {/if}
         </div>
 
-        <!-- Quick-inspection drawer (requirement H). -->
+        <!-- Quick-inspection drawer. -->
         {#if selected.kind === 'node' && selected.node}
           <aside class="gv-drawer" data-testid="graph-drawer" aria-label="Node details" tabindex="-1" bind:this={drawerEl}>
             <div class="gv-drawer-head"><h2>Entity</h2><button type="button" class="gv-close" onclick={closeDrawer} aria-label="Close">x</button></div>

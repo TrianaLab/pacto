@@ -3,7 +3,7 @@
   import { knowledgeLabel } from '../lib/entityLabels.ts';
   import { degradedSourceSummary } from '../lib/knowledgeState.ts';
 
-  // Renders a knowledgeState.ViewState honestly (requirement H). It NEVER renders a
+  // Renders a knowledgeState.ViewState honestly. It NEVER renders a
   // blanket "all clear": an empty result under incomplete knowledge is shown as
   // "nothing known + knowledge is incomplete", distinct from a genuinely empty fleet
   // and from a filter that matched nothing. Loading/error variants delegate to the
@@ -34,7 +34,7 @@
     <svelte:element this={`h${level}`}>No matching {noun}</svelte:element>
     <p>No {noun} match the current filters or search.</p>
     <!-- Both facts must survive: a filter matched nothing AND knowledge is incomplete.
-         The empty match never hides the incompleteness caveat (requirement D). -->
+         The empty match never hides the incompleteness caveat. -->
     {#if state.knowledge?.incomplete}
       <span class="ps-knowledge" role="status">{knowledgeLabel(state.knowledge.level)} — the match may be incomplete.</span>
     {/if}

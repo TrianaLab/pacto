@@ -198,3 +198,32 @@ func TestBuild_ComplementaryMerge(t *testing.T) {
 		t.Errorf("service should record oci+locks+k8s sources, got %v", s.Sources)
 	}
 }
+
+// Staleness is a verdict ABOUT an evidence timestamp, so it belongs to whichever
+// contribution owns the evidence — not to an AND across every contributor. Stale is
+// only ever SET from a non-nil EvidenceAt (see targetFrom), so a contributor carrying
+// no evidence time at all has Stale==false by default, and ANDing let it clear another
+// source's staleness while that source's 30-day-old EvidenceAt stayed on the record:
+// an all-clear asserted by a source that never observed freshness at all. Absence of
+// evidence is not evidence of freshness.
+func TestMergeTarget_ContributorWithNoEvidenceDoesNotClearStale(t *testing.T) {
+	old := time.Unix(1000, 0)
+	rec := time.Unix(9000, 0)
+	check := func(name string, existing, add *TargetRecord) {
+		t.Helper()
+		mergeTarget(existing, add)
+		if !existing.Stale {
+			t.Errorf("%s: stale cleared by a contributor with no evidence timestamp (EvidenceAt is still %v)", name, existing.EvidenceAt)
+		}
+		if existing.EvidenceAt == nil || !existing.EvidenceAt.Equal(old) {
+			t.Errorf("%s: EvidenceAt = %v, want the only observed evidence time %v", name, existing.EvidenceAt, old)
+		}
+	}
+	// Both contribution orders: the merge is order-independent.
+	check("stale first",
+		&TargetRecord{Key: "prod/k8s/web", Source: "evidence", Sources: []string{"evidence"}, EvidenceAt: &old, Stale: true},
+		&TargetRecord{Key: "prod/k8s/web", Source: "k8s", ReconciledAt: &rec})
+	check("stale second",
+		&TargetRecord{Key: "prod/k8s/web", Source: "k8s", Sources: []string{"k8s"}, ReconciledAt: &rec},
+		&TargetRecord{Key: "prod/k8s/web", Source: "evidence", EvidenceAt: &old, Stale: true})
+}

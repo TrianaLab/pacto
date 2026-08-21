@@ -247,7 +247,7 @@ obscheck snapshot -base "$BASE" \
 # revisions, so an operator-managed dashboard gets its declared edges from OCI —
 # out of this scenario's scope, which is the observation packaging. That verdict
 # over an observation source is proven hermetically by
-# TestFleet_ObservedEdgeNamesItsConfiguredSource and by `make demo-fleet`.
+# TestFleet_ObservedEdgeNamesItsConfiguredSource and by `make test-acceptance-local`.
 [ "$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.status.dependencies[0].name}')" = "checkout" ] \
   && pass "the operator reconciled the same orders->checkout pair as declared" \
   || fail "the declared dependency the observed edge should reconcile against is missing"

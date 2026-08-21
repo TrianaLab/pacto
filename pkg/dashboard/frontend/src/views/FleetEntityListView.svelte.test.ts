@@ -1,5 +1,5 @@
 /**
- * The scoped inventory list (requirement 12). This is the page a bounded preview points
+ * The scoped inventory list. This is the page a bounded preview points
  * at, so the properties that matter are: it pages the SAME bounded Entities endpoint,
  * it scopes by canonical ServiceKey, it never calls a legacy name-based versions API,
  * and it renders the backend's order rather than one of its own.
@@ -40,7 +40,7 @@ function mountView(props: Record<string, unknown> = {}) {
   return { target, component };
 }
 
-describe('FleetEntityListView (requirement 12)', () => {
+describe('FleetEntityListView', () => {
   beforeEach(() => { entitiesFn.mockReset(); location.hash = ''; });
 
   it('pages the bounded Entities endpoint scoped by canonical ServiceKey', async () => {

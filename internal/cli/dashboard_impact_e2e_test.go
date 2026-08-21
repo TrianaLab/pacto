@@ -20,9 +20,8 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
-// This file is the REAL-provider Product Impact integration test (requirement
-// 2.6, ledger phase-1 item 7). It exercises the COMPLETE vertical with NO
-// staticImpact substitute:
+// This file is the REAL-provider Product Impact integration test. It exercises
+// the COMPLETE vertical with NO staticImpact substitute:
 //
 //	OCISource -> fleet.Build -> Manager/current snapshot -> dashboard Product
 //	Impact handler -> impactProviderForFleet -> Service.ImpactWithSnapshot ->

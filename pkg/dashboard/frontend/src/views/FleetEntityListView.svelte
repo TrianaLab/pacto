@@ -15,8 +15,8 @@
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { complianceSegments, readinessSegments, statusHrefs, bucketLabel, READINESS_STATES } from '../lib/distributions.ts';
 
-  // The scoped inventory list for the two kinds that have no list page of their own
-  // (requirement 12). A rich entity page shows a BOUNDED preview of its revisions or
+  // The scoped inventory list for the two kinds that have no list page of their
+  // own. A rich entity page shows a BOUNDED preview of its revisions or
   // targets; this is where "and the other 42" actually lives, served by the same
   // bounded /api/fleet/entities endpoint with a canonical `service` scope and real
   // paging -- never by a legacy name-based /api/services/{name}/versions call.

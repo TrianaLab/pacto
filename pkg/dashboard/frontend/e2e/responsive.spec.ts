@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// Responsive acceptance (requirement 8.11): at narrow widths no product route requires
+// Responsive acceptance: at narrow widths no product route requires
 // BODY-level horizontal scrolling (internal scroller regions may scroll; the page body
 // must not). Runs against the built WASM demo in the desktop project with an explicit
 // narrow viewport.
@@ -43,7 +43,7 @@ for (const w of WIDTHS) {
       expect(await bodyHasNoHorizontalOverflow(page)).toBe(true);
     });
 
-    // ── Deeper INTERACTIVE states (reopen section 11.4): the states most likely to
+    // ── Deeper INTERACTIVE states: the states most likely to
     // overflow are not the resting routes but expanded filters, open drawers and populated
     // results. Body-level horizontal overflow must never appear in any of them (internal
     // scrollers are allowed). ──

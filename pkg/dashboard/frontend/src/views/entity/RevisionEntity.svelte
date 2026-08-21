@@ -78,8 +78,7 @@
   </section>
 
   {#if id.digest || id.resolvedRef || id.requestedRef}
-    <!-- The immutable content identity, in full and still copyable, one click away
-         (requirement 13). Three rows of 71-character hex were the second thing on the
+    <!-- The immutable content identity, in full and still copyable, one click away. Three rows of 71-character hex were the second thing on the
          page and the first thing every reader scrolled past; the badge in the facts
          strip above already says whether that content is retrievable, which is the part
          that changes what you do next. -->
@@ -166,7 +165,7 @@
   {/if}
 
   <!-- Validation findings are confirmed defects in the contract itself, so they rank
-       with readiness rather than below four inventory sections (requirement 13). -->
+       with readiness rather than below four inventory sections. -->
   {#if (d.validation?.count ?? 0) > 0}
     <PreviewSection title="Validation findings" tone="err" total={d.validation?.total ?? 0} count={d.validation?.count ?? 0} truncated={d.validation?.truncated}>
       <FindingList items={d.validation?.items ?? []} />
@@ -196,8 +195,7 @@
                  so this is the real API surface, not a restatement of the declaration.
                  A revision with four interfaces of thirty operations each is 120 rows of
                  monospace before the reader reaches Configuration, so the SIZE of the
-                 surface stays on screen and the surface itself opens on request
-                 (requirement 13). Nothing is removed: the same rows, one click away, and
+                 surface stays on screen and the surface itself opens on request. Nothing is removed: the same rows, one click away, and
                  the flat cross-interface tool list further down still carries them. -->
             <details class="ri-ops disclosure">
               <summary>
@@ -448,7 +446,7 @@
     <!-- Where this content came from. The identity block above says WHAT this revision
          is; this says who told us, and when we last heard it. Both are needed to answer
          "is what I am reading still what the registry has?" -- and both are inspection
-         detail rather than the first screen (requirement 13). -->
+         detail rather than the first screen. -->
     <details class="re-prov disclosure">
       <summary>
         <span class="disclosure-caret" aria-hidden="true">&#9656;</span>

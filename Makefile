@@ -16,7 +16,7 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
 .PHONY: build test test-integration test-acceptance-local test-acceptance-compose \
         test-acceptance-compose-selftest \
         test-browser test-browser-live test-browser-compose \
-        e2e demo-fleet coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
+        e2e coverage lint check-section clean docs docs-build demo-preview-clean gen-cli-docs docker-build docker-run \
         e2e-operational-graph e2e-operational-graph-core e2e-operational-graph-up e2e-operational-graph-status \
         e2e-operational-graph-logs e2e-operational-graph-down e2e-otel e2e-dashboard-wasm e2e-dashboard-kind \
         e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
@@ -89,14 +89,13 @@ test-acceptance-compose:
 test-acceptance-compose-selftest:
 	bash tests/acceptance/local/compose-demo.sh selftest
 
-# Compatibility aliases for the pre-Phase-8B names. Temporary: they exist so
-# muscle memory and any out-of-tree caller keep working, not as second names.
+# Compatibility alias for the older name. Temporary: it exists so muscle memory
+# and any out-of-tree caller keep working, not as a second name.
 e2e: test-integration
-demo-fleet: test-acceptance-local
 
 # ── Local e2e lifecycle ──────────────────────────────────────────────
-# Thin, user-facing aliases over the ci-e2e-* targets (in ci.mk) + demo-fleet so
-# a contributor can run ONE acceptance scenario without the whole `make ci` matrix.
+# Thin, user-facing aliases over the test-acceptance-* targets (in ci.mk) so a
+# contributor can run ONE acceptance scenario without the whole `make ci` matrix.
 # Each -kind scenario self-provisions its own kind cluster (honoring KIND_CLUSTER
 # for reuse) and, on failure, dumps cluster diagnostics via tests/acceptance/kind/lib.sh.
 # To keep a failed cluster + namespace for interactive inspection instead of
@@ -123,8 +122,9 @@ e2e-operational-graph:
 	bash tests/acceptance/kind/operational-graph.sh
 
 # Cluster-free core: the hermetic operational-graph acceptance (graph, evidence,
-# OTel, reconcile, impact) — the same run as demo-fleet, verifiable anywhere Go runs.
-e2e-operational-graph-core: demo-fleet
+# OTel, reconcile, impact) — the same run as test-acceptance-local, verifiable
+# anywhere Go runs.
+e2e-operational-graph-core: test-acceptance-local
 
 # Bring the full vertical UP and LEAVE it running for manual, end-to-end testing
 # (prints how to reach the dashboard). Inspect with -status/-logs; tear down with -down.
@@ -139,7 +139,7 @@ e2e-operational-graph-down:
 
 # OTel observation acceptance is step 3 of the operational-graph story above; there
 # is no collector-backed cluster scenario, so this runs the same cluster-free run.
-e2e-otel: demo-fleet
+e2e-otel: test-acceptance-local
 
 # Level 6 — deterministic browser acceptance. Builds the WASM dashboard demo,
 # ensures Chromium is installed, then runs the Playwright suite against the built

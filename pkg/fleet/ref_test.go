@@ -48,8 +48,8 @@ func TestParseCanonicalOCIRef(t *testing.T) {
 		{"file scheme", "file:///abs/path", false, "", ""},
 		{"relative path", "./relative", false, "", ""},
 		{"empty", "", false, "", ""},
-		// Malformed repository syntax under the real OCI grammar (requirement, item
-		// 10): these carry a valid digest and a non-empty repository, so the old
+		// Malformed repository syntax under the real OCI grammar: these carry a valid
+		// digest and a non-empty repository, so the old
 		// "some non-empty text before @" check accepted them, but the
 		// go-containerregistry name parser the resolver uses rejects them.
 		{"uppercase repository", "oci://UPPER/repo@" + good, false, "", ""},

@@ -54,7 +54,7 @@ func TestEntityDetail_Service(t *testing.T) {
 }
 
 // TestRevisionRef_CarriesVersion proves a revision reference carries its declared version
-// EXPLICITLY, so a consumer (the legacy version-bookmark migration, reopen section 8) can
+// EXPLICITLY, so a consumer (the legacy version-bookmark migration) can
 // match a requested version to a canonical RevisionKey without parsing it out of a display
 // label.
 func TestRevisionRef_CarriesVersion(t *testing.T) {
@@ -362,5 +362,37 @@ func TestServiceRelationships_OnlyEdgesIncidentToTheService(t *testing.T) {
 	}
 	if d.Service.Relationships.Total == nil || *d.Service.Relationships.Total != len(want) {
 		t.Errorf("total = %v, want %d: the total must count what the list counts", d.Service.Relationships.Total, len(want))
+	}
+}
+
+// A revision page is FINE-GRAINED scope, and observation is recorded per SERVICE
+// (build.go reconciles by the from/to service pair). So a revision's declared
+// dependency gets no edge-scope declared-vs-observed verdict at all: the
+// service-scoped fact travels as ObservationScope + ServiceCorroboration, exactly as
+// projection.go's dependencyEdge already does for the same relationship in the graph.
+// Emitting a Difference here instead both over-claims (a verdict about an edge nobody
+// observed at that granularity) and contradicts itself -- "expected, not observed"
+// beside a claim whose own reconciliation says matched.
+func TestRevisionDetail_DependencyCarriesCorroborationNotAnEdgeVerdict(t *testing.T) {
+	q := obsScopeFleet(t) // a@1.0.0 declares b; service-level telemetry observes a->b
+	d, err := q.EntityDetail(KindRevision, string(revKeyForVersion(t, q, "a", "1.0.0")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Revision.Dependencies.Count != 1 {
+		t.Fatalf("dependencies = %+v, want exactly 1", d.Revision.Dependencies)
+	}
+	e := d.Revision.Dependencies.Items[0]
+	if e.Difference != "" {
+		t.Errorf("Difference = %q, want empty: a revision edge has no edge-scope verdict", e.Difference)
+	}
+	if e.ObservationScope != ObservationScopeService {
+		t.Errorf("ObservationScope = %q, want %q", e.ObservationScope, ObservationScopeService)
+	}
+	if e.ServiceCorroboration != CorroborationMatched {
+		t.Errorf("ServiceCorroboration = %q, want %q: the service edge WAS corroborated", e.ServiceCorroboration, CorroborationMatched)
+	}
+	if e.Observed {
+		t.Error("Observed = true: service telemetry never proves this specific revision edge")
 	}
 }

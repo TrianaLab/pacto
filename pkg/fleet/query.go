@@ -866,7 +866,10 @@ func (q *Query) Explain(subject string) (*ExplainResult, error) {
 }
 
 func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
-	res := &ExplainResult{Meta: q.meta(), Subject: s.Name, Kind: "service", Status: s.Status, Reasons: []Reason{}}
+	// The canonical ServiceKey, matching explainTarget's TargetKey: ExplainResult
+	// carries no domain field, so a bare name would name a DIFFERENT service (with a
+	// different status) in any fleet holding two domains' worth of the same name.
+	res := &ExplainResult{Meta: q.meta(), Subject: string(s.Key), Kind: "service", Status: s.Status, Reasons: []Reason{}}
 	for _, tk := range s.Targets {
 		res.Reasons = append(res.Reasons, targetReasons(q.snap.Targets[tk])...)
 	}

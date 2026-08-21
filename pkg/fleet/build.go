@@ -366,7 +366,6 @@ func mergeTarget(existing, add *TargetRecord) []Limitation {
 	if targetFresher(add, existing) {
 		applyEvaluation(existing, add)
 	}
-	existing.Stale = existing.Stale && add.Stale
 	existing.Limitations = append(existing.Limitations, add.Limitations...)
 	return lims
 }
@@ -467,13 +466,21 @@ func applyEvaluation(dst, src *TargetRecord) {
 	dst.ObservedRuntime = src.ObservedRuntime
 	dst.EvidenceAt = src.EvidenceAt
 	dst.ReconciledAt = src.ReconciledAt
+	// Stale is a verdict ABOUT EvidenceAt, so it travels with it. It used to be ANDed
+	// across every contributor in mergeTarget, but Stale is only ever set from a
+	// non-nil EvidenceAt (targetFrom), so a contributor carrying no evidence time had
+	// Stale==false by default and silently cleared another source's staleness while
+	// that source's old EvidenceAt stayed on the record. Owning it here keeps the pair
+	// consistent and order-independent: whichever contribution wins targetFresher owns
+	// both halves.
+	dst.Stale = src.Stale
 	dst.Source = src.Source
 }
 
 // canonicalSourceStatus normalizes a source-declared status to the finite
 // source-health vocabulary. A malformed status is normalized to a valid DEGRADED
 // state (partial) rather than emitted out-of-schema or silently upgraded to
-// available (requirement, item 5).
+// available.
 func canonicalSourceStatus(s SourceStatus) (canonical SourceStatus, invalid bool) {
 	if validSourceHealth(string(s)) {
 		return s, false
@@ -853,7 +860,7 @@ func lockFrom(raw RawRevision) *lock.Lock {
 
 // validSeverity reports whether s is a canonical finding severity. A [Source] is
 // an extension seam, so a raw finding may carry any string; only these four values
-// may reach the finite ProductFinding.severity OpenAPI enum (requirement, item 5).
+// may reach the finite ProductFinding.severity OpenAPI enum.
 func validSeverity(s finding.Severity) bool {
 	switch s {
 	case finding.SeverityError, finding.SeverityWarning, finding.SeverityInfo, finding.SeverityUnknown:
@@ -902,7 +909,7 @@ func canonicalFindings(fs []finding.Finding) (out []finding.Finding, invalid int
 // freshness and preserving source-supplied limitations plus computed ones. It
 // canonicalizes the finite compliance and finding-severity values a Source (an
 // extension seam) may set to any string, keeping the usable record and returning a
-// SOURCE_RECORD_INVALID limitation for each normalized field (requirement, item 5).
+// SOURCE_RECORD_INVALID limitation for each normalized field.
 // The returned limitations are also recorded on the target so it self-describes.
 func targetFrom(raw RawTarget, source string, now time.Time, window time.Duration) (*TargetRecord, []Limitation) {
 	compliance, complianceInvalid := canonicalCompliance(raw.Compliance)
@@ -1022,7 +1029,7 @@ func linkTargets(snap *FleetSnapshot) {
 // input -- to derive the canonical content digest and to reject a self-contradictory
 // identity -- so the two dimensions never disagree DISHONESTLY, but they may still
 // differ HONESTLY: an EXACT match to a revision Pacto cannot fetch (a trusted digest
-// with no canonical ref) is a real, valid outcome (requirement, item 6).
+// with no canonical ref) is a real, valid outcome.
 //
 // An EXACT match is a content-digest match by the effective content digest (from a
 // digest-pinned ResolvedRef, or a recorded digest that does not contradict the ref).

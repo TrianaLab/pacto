@@ -138,8 +138,7 @@ func TestProductEntities_OwnershipAndReadinessFiltersReachTheQuery(t *testing.T)
 // "declared+observed" provenance survives the actual Product Neighborhood HTTP
 // transport (not just the in-process projection): the richFleet app->lib edge is both
 // declared and observed, so under an expected+observed view the wire response must carry
-// provenance "declared+observed" -- the value the OpenAPI enum now declares
-// (requirement, reopen section 5).
+// provenance "declared+observed" -- the value the OpenAPI enum now declares.
 func TestProductNeighborhood_CombinedProvenanceOverWire(t *testing.T) {
 	q := richFleetQuery(t)
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
@@ -343,7 +342,7 @@ func TestImmutableRef(t *testing.T) {
 	}
 }
 
-// TestImmutableRef_ExactMatchButNonRetrievable is requirement item 9: Product Impact
+// TestImmutableRef_ExactMatchButNonRetrievable proves that Product Impact
 // by canonical identity rejects non-retrievable content EVEN WHEN a target's revision
 // match is exact. The two dimensions are independent -- a runtime target carrying a
 // trusted content digest with no canonical ref is an EXACT revision match (see

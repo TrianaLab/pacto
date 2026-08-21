@@ -4,7 +4,7 @@ export interface Route {
   view:
     | 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness'
     // Operational-graph (fleet) product IA. 'fleet' is the legacy operational GRAPH
-    // (now mounted at /fleet/graph); the Phase-2 product routes are separate.
+    // (now mounted at /fleet/graph); the product routes are separate.
     | 'fleet'
     | 'changes'         // /fleet/changes[/:serviceKey]  Change analysis workspace
     | 'fleet-overview'  // /fleet            operational landing page
@@ -87,7 +87,7 @@ export function parseHash(hash: string | null | undefined): Route {
   // #/readiness
   if (path === 'readiness') return { view: 'readiness', params: {} };
 
-  // Operational-graph (fleet) product IA (Phase 2). The backend route builder
+  // Operational-graph (fleet) product IA. The backend route builder
   // (fleetroute.go) emits exactly these paths as authoritative hrefs; parseFleet is
   // their frontend counterpart. Keys are percent-escaped path segments, so they
   // round-trip slash-, percent-, OCI- and domain-qualified identities.
@@ -140,7 +140,7 @@ function parseFleet(path: string, query: string): Route {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
     // Only the graph state the Product Neighborhood actually consumes lives in the
-    // route (requirement J): perspective, knowledge views, direction, depth and the
+    // route: perspective, knowledge views, direction, depth and the
     // focus (kind/sel). The former domain/scope/owner/status/source/freshness params
     // were placebo URL state no view or backend consumed, so they are not parsed.
     for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind']) {
@@ -192,7 +192,7 @@ function parseFleet(path: string, query: string): Route {
     const qs = new URLSearchParams(query);
     // Only the filters the product Services list actually implements live in its
     // route state -- scope (target-only in the Entities API) and source were inert
-    // URL params no view consumed, so they are not parsed here (requirement F1).
+    // URL params no view consumed, so they are not parsed here.
     // `ownership` is a real Entities filter over services (consistent/conflicting/
     // unowned), and it is what makes "12 services have no declared owner" a link.
     for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'offset']) {
@@ -368,7 +368,7 @@ export function fleetUrl(): string {
   return '#/fleet/graph';
 }
 
-// ── centralized fleet product navigation (Phase 2) ───────────────────────────
+// ── centralized fleet product navigation ─────────────────────────────────────
 // Every /fleet/* URL is built here; components never assemble a fleet path inline.
 // Prefer hashForHref(ref.href) when a ProductRef already carries its authoritative
 // backend href; use these builders when only (kind, key) is known.
@@ -390,7 +390,7 @@ export function fleetOverviewUrl(): string {
 // list is deep-linkable and restored by refresh/back/forward. A zero/absent offset
 // is omitted (canonical page 1). scope/source are NOT accepted: scope is a
 // target-only Entities filter and source was never wired into the Services list, so
-// carrying them would be an inert URL filter (requirement F1).
+// carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string; offset?: number;
 } = {}): string {
@@ -476,7 +476,7 @@ export function fleetGraphDiscoveryUrl(): string {
 // focus (kind + key) is a path segment; the projection/perspective, knowledge views,
 // direction and depth are query params, so back/forward restores a meaningful graph and
 // never ephemeral canvas coordinates. There are no advanced-filter params: the graph
-// only carries state the Product Neighborhood actually consumes (requirement J).
+// only carries state the Product Neighborhood actually consumes.
 export interface GraphState {
   kind?: string;
   key?: string;

@@ -96,7 +96,7 @@
   /* The lead tile is the one number the overview wants read first. It says so with a
      heavier tone edge and its position, NOT with a font-size of its own: a METRIC that
      is 18.75px in four tiles and 24.38px in the fifth is a second type scale, and a
-     second type scale is what this whole pass exists to remove (requirement 8). */
+     second type scale is what this whole pass exists to remove. */
   .tile-lead { border-left-width: 4px; }
   .tile-count { color: var(--tone-c, var(--c-text)); }
   .tile-label { font-size: var(--text-sm); color: var(--c-text-2); }

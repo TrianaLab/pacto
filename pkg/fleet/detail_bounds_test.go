@@ -14,8 +14,7 @@ import (
 )
 
 // This file holds the adversarial bounds tests for the nested product-detail
-// structures that were unbounded when phase-1 item 4 was first marked DONE:
-// ownership conflicts, readiness checks, observed runtime, and the owner-attention
+// structures: ownership conflicts, readiness checks, observed runtime, and the owner-attention
 // / service-relationship double-truncation.
 
 // A service with more than MaxDetailPreview differently-owned revisions yields a
@@ -144,7 +143,7 @@ func TestRuntimePreviewEmpty(t *testing.T) {
 }
 
 // A composite collapsed at the depth limit is summarized with a SHORT structural
-// marker, never the whole stringified value (requirement, item 13).
+// marker, never the whole stringified value.
 func TestRuntimePreview_DepthCollapseMarker(t *testing.T) {
 	huge := map[string]any{}
 	for i := 0; i < 5000; i++ {
@@ -289,8 +288,8 @@ func TestCapLen(t *testing.T) {
 
 // A single finding with more than MaxEvidenceRefsPreview evidence refs (as an
 // untrusted extension source could produce) must yield a bounded product finding:
-// the true full count as Total, Count capped at the bound, Truncated=true
-// (requirement, item 8). The raw finding.Finding stays unbounded on the low-level
+// the true full count as Total, Count capped at the bound, Truncated=true. The
+// raw finding.Finding stays unbounded on the low-level
 // snapshot; only the product shape is bounded.
 func TestProductFindingEvidenceRefsBounded(t *testing.T) {
 	over := MaxEvidenceRefsPreview + 13

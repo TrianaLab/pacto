@@ -65,7 +65,6 @@ theme:
 # the published site.
 exclude_docs: |
   superpowers/
-  architecture/dashboard-redesign-plan.md
 
 # Fail the build (under --strict) on orphan pages and broken cross-references,
 # so no page lingers outside the nav and every link/anchor resolves.

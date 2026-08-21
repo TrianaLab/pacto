@@ -305,7 +305,7 @@ test('Revisions: the readiness figure covers every revision, and a bucket opens 
   expect(f.scope).toBe(`All ${total} contract revisions in the snapshot.`);
   expect(sum(f.buckets), 'the readiness buckets do not add up to the revision population').toBe(total);
   // The unit is stated in the caption, and the word compliance is disclaimed rather than
-  // left for the reader to conflate. This is requirement 4 in its own words.
+  // left for the reader to conflate.
   expect(f.description).toContain('This is not compliance');
 
   const bucket = drillable(f, total);

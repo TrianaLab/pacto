@@ -2,7 +2,7 @@
   import EntityLink from './EntityLink.svelte';
   import { formatDate } from '../lib/dateFormat.ts';
 
-  // Renders recent/related evidence as navigable rows (requirement D/K): the
+  // Renders recent/related evidence as navigable rows: the
   // evidenced target plus when it was observed. Reused by the overview and the
   // service page so evidence rendering is not reinvented.
   let { items = [] } = $props();

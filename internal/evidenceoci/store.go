@@ -21,8 +21,9 @@ import (
 //
 // ponytail: reconstructing the whole history per commit is O(accepted records)
 // registry requests per write. It is correct, stateless and restart-proof, which
-// is what Phase 10C is for; an in-process cache invalidated by the read-after-
-// write confirmation is the upgrade path if write throughput ever matters.
+// is the whole point of making the registry the only durable store; an in-process
+// cache invalidated by the read-after-write confirmation is the upgrade path if
+// write throughput ever matters.
 type Store struct {
 	subjects SubjectList
 	repos    map[Subject]*subjectRepo

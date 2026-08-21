@@ -1,9 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// The REAL visual-graph acceptance (reopen section 3). The prior O2 test proved only the
-// wrapper, legend and text-alt list -- none of which prove a NON-HEADLESS Cytoscape renderer
-// actually painted a topology. These tests fail if renderGraph falls back to headless or
-// paints nothing, and they keep the discovery route a zero-topology search page.
+// The REAL visual-graph acceptance. A wrapper, legend and text-alt list prove none of them
+// that a NON-HEADLESS Cytoscape renderer actually painted a topology. These tests fail if
+// renderGraph falls back to headless or paints nothing, and they keep the discovery route a
+// zero-topology search page.
 //
 // It reads a narrowly-scoped readiness seam the renderer publishes on the canvas container
 // (data-graph-* attributes: headless flag, node/edge counts, and how many have real rendered

@@ -4,7 +4,7 @@
   import { identityContext, primaryLabel } from '../lib/identityContext.ts';
   import EntityStatusBadge from './EntityStatusBadge.svelte';
 
-  // The ONE page/entity header in the product (requirement 9).
+  // The ONE page/entity header in the product.
   //
   // Entity pages used to have no visible page title at all: the h1 was
   // visually-hidden for the accessibility tree, and the visible identity was the
@@ -30,7 +30,7 @@
   // `count` is the population this page is showing ("47 contract revisions"), already
   // pluralized by the caller because only the caller knows the noun. Every list route
   // had grown its own markup and class for it (`sv-total`, `lv-total`, `av-total`), so
-  // the same fact sat at three sizes in three places (requirement 18).
+  // the same fact sat at three sizes in three places.
   let {
     ref = null,
     title = '',
@@ -81,7 +81,7 @@
 
 <style>
   /* Whitespace, not another border, is what separates the page from its first
-     section (requirement 10): the header owns a generous bottom gap and nothing
+     section: the header owns a generous bottom gap and nothing
      else on the page is allowed to sit that far apart. */
   .page-hd { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
   .page-hd-eyebrow { margin: 0; display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }

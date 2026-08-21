@@ -54,9 +54,11 @@ func buildChain(t *testing.T) *fleet.FleetSnapshot {
 func TestAnalyze(t *testing.T) {
 	snap := buildChain(t)
 	// An observed edge for the direct dependent, so declared+observed corroborate.
+	// Resolved mirrors what Build sets on every observed relationship it folds in;
+	// an unresolved one deliberately corroborates nothing.
 	snap.Relationships = append(snap.Relationships, fleet.Relationship{
 		FromService: "api-gateway", To: "auth-service", ToService: "auth-service",
-		Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceObserved,
+		Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceObserved, Resolved: true,
 	})
 
 	old := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
@@ -321,8 +323,12 @@ func TestEdgeEvidence(t *testing.T) {
 		{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceObserved},                                          // observed
 		{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Required: true, Compatibility: "^1.0.0"}, // declared
 	}}
+	// The observed relationship is SKIPPED, not counted: corroboration reaches
+	// edgeEvidence only through observedEdges, which the caller gates on
+	// IncludeObserved. Skipping it must still not let it be mistaken for the
+	// declared edge, so the declared claim below is what comes back.
 	rel, declared, observed := edgeEvidence(snap, "a", "b", nil)
-	if !declared || !observed || !rel.Required || rel.Compatibility != "^1.0.0" {
+	if !declared || observed || !rel.Required || rel.Compatibility != "^1.0.0" {
 		t.Errorf("edgeEvidence = rel:%+v declared:%v observed:%v", rel, declared, observed)
 	}
 
@@ -440,5 +446,49 @@ func TestSortedKeys(t *testing.T) {
 	}
 	if got := sortedKeys(map[string]bool{"b": true, "a": true}); !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Errorf("sortedKeys = %v", got)
+	}
+}
+
+// TestAnalyze_SnapshotObservedDoesNotCorroborateWithoutOptIn is the opt-in gate
+// applied to the OTHER kind of observed edge. Shadow consumers were already gated
+// (TestAnalyze_ObservedEdgesFromSnapshot), but a consumer that DECLARED the
+// dependency was read straight off the snapshot's observed relationships, so a
+// declared-only analysis over a snapshot built with observation sources — every
+// dashboard and MCP impact call — graded it corroborated and printed
+// "declared+observed". Documented rule: observed evidence only raises confidence
+// when the caller opts in.
+func TestAnalyze_SnapshotObservedDoesNotCorroborateWithoutOptIn(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	caller := svcContract("caller", "1.0.0", contract.Owner{Team: "team-c"},
+		contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Compatibility: "^1.0.0"})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("obs", "observation",
+		&fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(caller)}},
+			Observed:  []fleet.ObservedEdge{{From: "caller", To: "auth-service", Count: 7}},
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
+
+	find := func(res *Result) AffectedConsumer {
+		t.Helper()
+		for _, c := range res.Consumers {
+			if c.Service == "caller" {
+				return c
+			}
+		}
+		t.Fatalf("declared consumer 'caller' missing from %+v", res.Consumers)
+		return AffectedConsumer{}
+	}
+	off := find(Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{}))
+	if off.Provenance != fleet.ProvenanceDeclared || off.Confidence != ConfidenceContractual {
+		t.Errorf("declared-only analysis graded the consumer %s/%s, want declared/contractual",
+			off.Provenance, off.Confidence)
+	}
+	// Opting in is what promotes it — the gate withholds evidence, it does not lose it.
+	on := find(Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{IncludeObserved: true}))
+	if on.Confidence != ConfidenceCorroborated {
+		t.Errorf("opted-in analysis graded the consumer %s, want corroborated", on.Confidence)
 	}
 }

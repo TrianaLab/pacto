@@ -16,7 +16,7 @@ import (
 const ProductSchemaVersion = "pacto.dev/fleet-product/v1"
 
 // Product-answer bounds. Every product answer is bounded so a UI or agent can
-// never be handed an unbounded response (requirement 2).
+// never be handed an unbounded response.
 const (
 	overviewAttentionLimit = 10
 	overviewEvidenceLimit  = 10
@@ -72,7 +72,7 @@ type EntityRef struct {
 	// Version is the declared contract version a REVISION reference carries, set only for
 	// revision refs. It is surfaced explicitly (not folded into the display label) so a
 	// consumer can match a requested version to a canonical RevisionKey without parsing a
-	// label -- e.g. the legacy version-bookmark migration (reopen section 8).
+	// label -- e.g. the legacy version-bookmark migration.
 	Version string `json:"version,omitempty"`
 }
 
@@ -115,7 +115,7 @@ func sourceCounts(ss []SourceState) SourceCounts {
 // ProductMeta is the completeness envelope on every product answer: the product
 // schema version plus the snapshot's identity, as-of time, completeness, source
 // health and limitations. A consumer never renders "all clear" without consulting
-// Completeness and Sources (requirement 10).
+// Completeness and Sources.
 type ProductMeta struct {
 	SchemaVersion string        `json:"schemaVersion"`
 	SnapshotID    string        `json:"snapshotId"`
@@ -214,7 +214,7 @@ func sourceEntityRef(st SourceState) EntityRef {
 }
 
 // OverviewSummary is the product landing-page count model. Every count has a
-// clickable entry point in [Overview.EntryPoints] (requirement 4): a count is
+// clickable entry point in [Overview.EntryPoints]: a count is
 // never a passive number.
 type OverviewSummary struct {
 	Services                 int `json:"services"`
@@ -223,17 +223,26 @@ type OverviewSummary struct {
 	// consumer can only show "3 non-compliant" and never "3 of 40": a distribution
 	// needs its whole, and deriving the whole client-side from a truncated list
 	// would be a fleet-wide claim made from a preview.
-	Revisions                 int `json:"revisions"`
-	Targets                   int `json:"targets"`
-	InvalidRevisions          int `json:"invalidRevisions"`
-	ExactTargetLinks          int `json:"exactTargetLinks"`
-	InferredTargetLinks       int `json:"inferredTargetLinks"`
-	AmbiguousTargetLinks      int `json:"ambiguousTargetLinks"`
-	UnresolvedTargetLinks     int `json:"unresolvedTargetLinks"`
+	Revisions             int `json:"revisions"`
+	Targets               int `json:"targets"`
+	InvalidRevisions      int `json:"invalidRevisions"`
+	ExactTargetLinks      int `json:"exactTargetLinks"`
+	InferredTargetLinks   int `json:"inferredTargetLinks"`
+	AmbiguousTargetLinks  int `json:"ambiguousTargetLinks"`
+	UnresolvedTargetLinks int `json:"unresolvedTargetLinks"`
+	// The target compliance distribution, one flat counter per bucket of the shared
+	// [ComplianceTally]. All eight are carried, not a chosen five: the tally's whole
+	// point is that its buckets are exhaustive, and a consumer drawing a proportional
+	// visual from a lossy copy has to render the shortfall as an unnamed remainder —
+	// which is how a Warning or Reference target, correctly named on the targets list,
+	// became a grey "Unclassified" slice on the landing page.
 	CompliantTargets          int `json:"compliantTargets"`
 	NonCompliantTargets       int `json:"nonCompliantTargets"`
 	UnknownTargets            int `json:"unknownTargets"`
+	WarningTargets            int `json:"warningTargets"`
 	InvalidTargets            int `json:"invalidTargets"`
+	ReferenceTargets          int `json:"referenceTargets"`
+	NotEvaluatedTargets       int `json:"notEvaluatedTargets"`
 	OtherComplianceTargets    int `json:"otherComplianceTargets"`
 	StaleTargets              int `json:"staleTargets"`
 	UnresolvedRelationships   int `json:"unresolvedRelationships"`
@@ -297,14 +306,14 @@ type EvidenceItem struct {
 	At     *time.Time `json:"at,omitempty"`
 }
 
-// Overview is the product-oriented operational summary (requirement 2.1 and
-// requirement 4). It answers "what needs attention", "which sources are
+// Overview is the product-oriented operational summary. It answers "what needs
+// attention", "which sources are
 // incomplete", "what evidence arrived recently" and "where to go next". Source
 // health is carried once, bounded, in Meta.Sources (with Meta.SourcesTruncated);
 // there is no separate unbounded source list, so no product answer ever copies
 // every source without a hard bound. Attention and RecentEvidence are explicit
 // bounded previews carrying the TRUE total, count and truncation, so a consumer can
-// tell "10 of 10" from "10 of 500" (requirement, item 12); neither is a raw bounded
+// tell "10 of 10" from "10 of 500"; neither is a raw bounded
 // array that silently discards its total.
 type Overview struct {
 	Meta           ProductMeta      `json:"meta"`
@@ -353,8 +362,9 @@ func (q *Query) Overview() *Overview {
 	sum.ExactTargetLinks, sum.InferredTargetLinks = link.Exact, link.Inferred
 	sum.AmbiguousTargetLinks, sum.UnresolvedTargetLinks = link.Ambiguous, link.Unresolved
 	sum.CompliantTargets, sum.NonCompliantTargets = comp.Compliant, comp.NonCompliant
-	sum.UnknownTargets, sum.InvalidTargets = comp.Unknown, comp.Invalid
-	sum.OtherComplianceTargets = comp.Other
+	sum.UnknownTargets, sum.WarningTargets = comp.Unknown, comp.Warning
+	sum.InvalidTargets, sum.ReferenceTargets = comp.Invalid, comp.Reference
+	sum.NotEvaluatedTargets, sum.OtherComplianceTargets = comp.NotEvaluated, comp.Other
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
 
@@ -482,7 +492,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 	return out
 }
 
-// AttentionItem is one attention row (requirement 2.5). Every item carries the
+// AttentionItem is one attention row. Every item carries the
 // route-neutral reference to the exact affected entity and recommends the next
 // step; the transport adds the entity's canonical href.
 type AttentionItem struct {

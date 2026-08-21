@@ -114,7 +114,7 @@ dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: f
 	Sources: []Source{
 		{ID: "oci", Kind: SourceRegistry},
 		{ID: "cache", Kind: SourceCache},
-		// The declarative Phase-7 form: a named source the OPERATOR mounts read-only
+		// The declarative form: a named source the OPERATOR mounts read-only
 		// into the dashboard it manages, not an ad-hoc positional traces path. The
 		// Product has to show it as a Data Source with this stable identity.
 		{ID: "orders-traces", Kind: SourceObservation},

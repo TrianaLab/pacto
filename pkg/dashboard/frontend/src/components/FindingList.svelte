@@ -2,7 +2,7 @@
   import SeverityBadge from './SeverityBadge.svelte';
   import EntityLink from './EntityLink.svelte';
 
-  // Renders findings for any rich entity page (requirement K). Items are either a
+  // Renders findings for any rich entity page. Items are either a
   // ProductFinding or an AttributedFinding ({ finding, entity }); when attributed, the
   // exact entity the finding belongs to is linked. Evidence support is shown by its
   // truthful total, never fabricated.

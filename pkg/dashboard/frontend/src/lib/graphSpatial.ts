@@ -1,5 +1,5 @@
 /**
- * Browser-local persistence for Operational Graph SPATIAL state (requirement 13.2).
+ * Browser-local persistence for Operational Graph SPATIAL state.
  *
  * Spatial state is presentation geometry and nothing else: where each node sits, and
  * how the viewport is framed. It carries no semantics, so a stale or foreign entry can

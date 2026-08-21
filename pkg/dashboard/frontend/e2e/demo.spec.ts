@@ -27,7 +27,7 @@ async function gotoGraphFocus(page: Page, kind: string, key: string) {
 
 // Search the discovery state and follow the focus link for a given default perspective
 // (service links carry no perspective; revision/target links carry theirs), proving the
-// entity kind chooses the projection (requirement E).
+// entity kind chooses the projection.
 //
 // The result is picked by canonical KEY, never by position: the demo publishes
 // same-named services in two domains, so "the first match" is whichever key happens to
@@ -136,7 +136,7 @@ test.describe('WASM dashboard demo — workflows', () => {
 
   test('M5b: a legacy service-VERSION bookmark migrates to the canonical Product Revision (keeps the version)', async ({ page }) => {
     // The old #/services/:name/versions/:version bookmark must resolve to a Product Revision
-    // (reopen section 8), never drop the version to the service page.
+    // never dropping the version to the service page.
     await page.goto('/#/services/payments-service/versions/2.0.0');
     await expect(page).toHaveURL(/#\/fleet\/revisions\//, { timeout: 20_000 });
     // The canonical revision detail shows the requested version.
@@ -179,7 +179,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0);
     await expect(page.getByRole('search')).toBeVisible();
     // The discovery affordance makes it unmistakable a graph renders after a focus is
-    // chosen (reopen section 4), so the tab is never an empty page.
+    // chosen, so the tab is never an empty page.
     await expect(page.getByTestId('graph-discovery-placeholder')).toBeVisible();
   });
 

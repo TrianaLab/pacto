@@ -44,7 +44,7 @@ export type ProductMeta = ProductOverview['meta'];
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
 // body straight from the generated `paths`, keyed by the exact path a facade method
 // calls. No dashboard backend operation is typed `unknown`: every method preserves
-// its generated response type (requirement, item 3).
+// its generated response type.
 type JSONBody<R> = R extends { content: { 'application/json': infer T } } ? T : never;
 type GetResponse<P extends keyof paths> =
   paths[P] extends { get: { responses: { 200: infer R } } } ? JSONBody<R> : never;
@@ -65,8 +65,8 @@ export type FindingSeverity = NonNullable<ProductAttentionList['items']>[number]
 // The wire query/body types come straight from the generated operations, so adding,
 // changing or removing an OPTIONAL wire request field flows into the facade type
 // automatically. The only fields redeclared are the deliberate ergonomic
-// refinements: `kinds`/`views` are arrays here but a comma-joined string on the wire
-// (requirement, item 2). Every other field is inherited, never repeated by hand.
+// refinements: `kinds`/`views` are arrays here but a comma-joined string on the
+// wire. Every other field is inherited, never repeated by hand.
 type FleetEntitiesQuery = NonNullable<operations['fleet-entities']['parameters']['query']>;
 type FleetNeighborhoodQuery = NonNullable<operations['fleet-neighborhood']['parameters']['query']>;
 type FleetAttentionQuery = NonNullable<operations['fleet-attention']['parameters']['query']>;
@@ -190,7 +190,7 @@ const DETAIL_KINDS = ['service', 'revision', 'target', 'owner', 'source'] as con
 
 /**
  * narrowEntityDetail validates the runtime invariant the generated broad shape
- * cannot enforce (requirement, item 4) and returns the discriminated union the UI
+ * cannot enforce and returns the discriminated union the UI
  * consumes: the entity exists, its kind is one of the supported kinds, EXACTLY ONE
  * detail payload is present, that payload corresponds to the kind, and no
  * contradictory payload is present. Any violation is a typed ApiContractError. Every
@@ -310,7 +310,7 @@ export const api = {
       params: { query: { old: oldRef, new: newRef, includeObserved: includeObserved ?? false } },
     })),
 
-  // ── Product-oriented operational-graph APIs (requirement 2) ──
+  // ── Product-oriented operational-graph APIs ──
   fleetOverview: (): Promise<ProductOverview> =>
     productGet(client.GET('/api/fleet/overview')),
   fleetEntities: (params: FleetEntitiesInput = {}): Promise<ProductEntityList> => {

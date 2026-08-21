@@ -1,5 +1,5 @@
 /**
- * Tests for the pure ProductNeighborhood -> GraphData adapter (requirement I/N): it
+ * Tests for the pure ProductNeighborhood -> GraphData adapter: it
  * produces a graph node for EVERY returned node, keeps mixed kinds distinct, maps
  * dependency vs runs to distinct edge types, tints only a service-projection
  * observed-not-expected difference as drift, and NEVER invents a node or an edge to a

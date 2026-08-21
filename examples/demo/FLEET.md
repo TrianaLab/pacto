@@ -23,7 +23,7 @@ alias pfleet="go run ./cmd/pacto fleet --local $BUNDLES --target-state $EVIDENCE
 ## CLI walkthrough
 
 ```bash
-# What is in the fleet? (15 services, with owners, revision and target counts)
+# What is in the fleet? (16 services, with owners, revision and target counts)
 pfleet search
 
 # Who owns what, filtered
@@ -35,9 +35,11 @@ pfleet graph auth-service --direction dependents --transitive
 
 # What needs attention right now?
 pfleet status
-#   NON_COMPLIANT  orders-service target (confirmed drift)
-#   UNKNOWN        auth-service target (insufficient evidence)
-#   STALE_EVIDENCE fraud-service target (evidence older than 24h)
+#   22 attention item(s), every category reported, e.g.
+#   MISSING_READINESS  audit-log revision (declares no readiness assessment)
+#   NON_COMPLIANT      orders-service target (confirmed drift)
+#   UNKNOWN            auth-service target (insufficient evidence)
+#   STALE_EVIDENCE     fraud-service target (evidence older than 24h)
 
 # Inspect a target's compliance and the finding behind it
 pfleet get --target commerce/orders-service

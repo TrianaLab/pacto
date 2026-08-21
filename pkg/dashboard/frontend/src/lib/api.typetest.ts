@@ -38,7 +38,7 @@ type Equal<A, B> =
 type IsAny<T> = 0 extends 1 & T ? true : false;
 type IsUnknown<T> = IsAny<T> extends true ? false : unknown extends T ? true : false;
 
-// ── requirement, item 2: facade request types are DERIVED from generated ops ──
+// ── facade request types are DERIVED from generated ops ──────────────────────
 // Every NON-transformed wire request field flows into the facade input automatically;
 // only `kinds`/`views` are the deliberate ergonomic (array vs comma-joined) refinement.
 // If a future OpenAPI change adds/removes/retypes a wire field and the facade fails to
@@ -55,14 +55,14 @@ type _NeighborhoodViewsTransformed = Expect<Equal<NonNullable<FleetNeighborhoodI
 type _AttentionDerived = Expect<Equal<FleetAttentionInput, AttentionWireQuery>>;
 type _ImpactDerived = Expect<Equal<FleetImpactInput, ImpactWireBody>>;
 
-// ── requirement, item 3: no dashboard backend operation returns `unknown` ─────
+// ── no dashboard backend operation returns `unknown` ─────────────────────────
 // The set of facade methods whose awaited return is `unknown` must be empty.
 type UnknownReturnMethods = {
   [K in keyof typeof api]: IsUnknown<Awaited<ReturnType<typeof api[K]>>> extends true ? K : never;
 }[keyof typeof api];
 type _NoUnknownReturns = Expect<Equal<UnknownReturnMethods, never>>;
 
-// ── requirement, item 4: entity detail leaves the facade as NarrowedEntityDetail ──
+// ── entity detail leaves the facade as NarrowedEntityDetail ──────────────────
 type _EntityDetailNarrowed = Expect<Equal<Awaited<ReturnType<typeof api.fleetEntityDetail>>, NarrowedEntityDetail>>;
 
 // Reference the assertion aliases so they are not reported as unused declarations.
