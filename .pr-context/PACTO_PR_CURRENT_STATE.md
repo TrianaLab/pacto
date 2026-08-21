@@ -11963,3 +11963,260 @@ failing mutations. No Phase 13 blocker remains.
 
 The PR remains an open draft. Phase 14 may now begin under the append-only and
 independent-review protocol.
+
+---
+
+## Phase 14 -- CANDIDATE: finalization and merge readiness
+
+Phase 14 is the final repository-wide audit and cleanup. It reopened no accepted
+architecture, UI, test-harness, OCI-evidence, catalog or MCP decision. Every
+change below started from a reproducible counterexample, and every one of them
+is either a production correction, a permanent test, a public-documentation
+correction or a deletion.
+
+Implementation began at head `742b6c4b`, the Phase 13 closure commit. The
+merge-base with `origin/main` was `83f2e66d` at the start and is `83f2e66d` at
+the end. History is append-only; no commit was amended, rebased, squashed, reset
+or force-pushed.
+
+### Workstream A -- CLOSED: four ontology defects, four permanent gates
+
+The audit triangulated the intended model against the code and the type system,
+and both against the public documentation and the shipped API and UI. Four
+places gave different answers. Each was reproduced with the smallest adversarial
+test that fails before the fix, fixed at the canonical semantic owner rather
+than at a projection, and then re-broken by a focused mutation to prove the new
+test actually bites.
+
+**Staleness was a verdict that could be silently cleared.** `mergeTarget` folded
+`Stale` across contributors with a logical AND while `EvidenceAt` was taken from
+whichever contribution won `targetFresher`. `Stale` is only ever set alongside a
+non-nil `EvidenceAt`, so a contributor that carried no evidence time arrived with
+`Stale == false` and cleared another source's staleness while that source's old
+`EvidenceAt` stayed on the record -- a target that had not been seen in days
+presenting as current, and doing so or not depending on merge order. `Stale` is
+a verdict *about* `EvidenceAt`, so it now travels with it in `applyEvaluation`:
+whichever contribution owns the evidence time owns the staleness. The pair is
+consistent and order-independent.
+
+**Revision-scoped dependency edges over-claimed.** `revisionEdges` reused the
+merged service-scope pipeline, which collapses contributions at service
+granularity. At revision granularity that pipeline reports "expected, not
+observed" for an edge whose observation belongs to a sibling revision of the
+same service. It now builds each edge through the fine-grained
+`dependencyEdge(from, to, rel)`, so a revision's edges describe that revision.
+
+**`explainService` named a service that a two-domain fleet cannot identify.**
+`ExplainResult` carries no domain field, so the bare service name that
+`explainService` used as its subject names a *different* service -- with a
+different status -- in any fleet holding two domains' worth of the same name.
+The subject is now the canonical `ServiceKey`, matching `explainTarget`'s
+`TargetKey`.
+
+**The public knowledge vocabulary was neither of the two the code has.**
+`docs/concepts.md` announced "four words" and listed complete, empty, partial
+and unknown. The wire enum, `pkg/fleet.Completeness`, is three-valued --
+`classifyCompleteness` is total over complete, partial and empty and has no
+unknown at all -- so a reader branching on `meta.completeness` was told to write
+a fourth case that can never fire. The consumer vocabulary, the dashboard's
+`CompletenessLevel`, is six-valued: it adds stale, unavailable and unknown,
+derived from per-source health and from an envelope that never arrived. Two of
+those three were absent from the page entirely, while the paragraphs immediately
+below the table went on to argue that stale is not unavailable without ever
+saying that both are levels an answer can be at. The table now lists all six and
+says which three travel on the wire and where the other three come from. The
+spelled-out count is gone: it was a second copy of the vocabulary's size, and it
+was already wrong.
+
+`TestKnowledgeVocabularyIsDocumentedInFull` in `tests/architecture` now holds the
+page and the two vocabularies together. Two mutations proved it bites in both
+directions: deleting the `unavailable` row from the documentation failed it, and
+adding a seventh member to the `CompletenessLevel` union failed it. Both were
+fully reverted and the tracked tree returned clean.
+
+### Workstream B -- CLOSED: nine alerts, no suppression, no weakened gate
+
+All nine inherited open code-scanning alerts were resolved by changing the code,
+not the configuration. No CodeQL query was excluded, no `nosec`, `lgtm` or
+`codeql` suppression comment was added, and the Security, govulncheck, Trivy and
+lint configurations are byte-identical to their state at `742b6c4b`.
+
+**Alerts 59 through 62 (`go/path-injection`, `pkg/oci/cache.go` lines 375, 394,
+395 and 666)** describe a genuine remote flow: a registry reference names the
+directory the cache writes to. The containment primitive `CachedStore.contained`
+was doing a string-prefix test, `strings.HasPrefix(r, "..")` -- exactly the shape
+the audit forbids, and wrong twice over. It accepted the empty string and it
+accepted `.`, both of which resolve to the cache directory itself, so a
+crafted reference could name the whole cache as a single entry. It now uses
+`filepath.IsLocal` plus an explicit guard that `.` never names the cache root,
+and every caller routes through it. The mutation proof: restoring the
+`strings.HasPrefix` form fails `TestContained_NeverNamesTheCacheDirectoryItself`
+on `contained("")`, `contained(".")`, `entryDirs("")` and `entryDirs(".")`.
+
+**Alerts 40 through 43 (`go/path-injection`, `internal/app/resolve.go` lines 35,
+43, 57 and 67)** are the evidence-ingest resolver reaching
+`Service.resolveBundle`, which dispatches to a local-filesystem branch when the
+reference is not an OCI one. The ingest policy already refuses anything but an
+immutable `oci://...@sha256:` digest before resolution is reached, so the flow
+is guarded -- but a policy is a guard in front of a branch that still exists,
+and the reference is named by a remote producer. The resolution is structural
+rather than a dismissal: the OCI branch was extracted as
+`Service.resolveOCIBundle`, and `contractResolver.Resolve` now calls it
+directly. An ingest host has no local branch left to reach; it never stats,
+reads or walks a directory somebody else chose. The mutation proof: restoring
+`r.svc.ResolveBundle(ctx, ref)` fails
+`TestEvidenceResolver_RefusesEveryLocalPathShape` on two concrete assertions --
+a real, readable, valid bundle directory and the `file://` spelling both resolve
+successfully. The test hands the resolver seven local-path spellings and
+requires refusal for each, then requires an `oci://` reference to fail on the
+missing store, proving it reached the OCI branch rather than being refused
+early.
+
+**Alert 38 (`py/incomplete-url-substring-sanitization`,
+`release/scripts/docs_check.py`)** matched an API group with a substring test, so
+a `kind` under an attacker-chosen group ending in the expected suffix would have
+been validated against Pacto's schemas. It now partitions `apiVersion` on the
+first `/` and compares the group for equality. No new test accompanies this one:
+the release script has no test seam, and CodeQL's own query for this exact
+pattern is the runnable regression check. This is recorded rather than hidden.
+
+**Alerts 65 through 72 and 74 through 81** are govulncheck and Trivy findings on
+`refs/heads/main` only. They are absent from the pull-request ref, are inherited
+rather than introduced here, and are out of scope for this branch.
+
+### Workstream C -- CLOSED: every unresolved thread handled individually
+
+The baseline, established by full pagination rather than a first page, was 199
+threads: 189 resolved and 10 unresolved. Each of the ten was inspected on its
+own; none was mass-resolved.
+
+Six are `github-code-quality` findings on
+`pkg/dashboard/ui/assets/ganttDiagram-*.js` -- one "superfluous trailing
+arguments" and five "useless assignment to local variable", all at line 1 of a
+minified, content-hashed Mermaid chunk that Vite emits. They are vendor bytes
+inside a generated bundle. Editing them is forbidden, and there is no authored
+dependency change that would make a third-party minifier stop emitting a dead
+assignment. `.gitattributes` already carries the durable rationale: the bundle is
+`linguist-generated`, the `github-code-quality` check is non-blocking, and its
+threads are resolved as generated-vendor noise and never by editing these files.
+Each thread was answered with that rationale and resolved. The hash in their
+paths no longer exists in the tree -- the cold rebuild moved the chunk from
+`i4uZHW8n` to `BBeVcuea` -- so they could not have been fixed in place even in
+principle.
+
+Four are the `github-advanced-security` threads for alerts 59 through 62 on
+`pkg/oci/cache.go`. Each was answered with the Workstream B outcome -- the
+prefix test replaced by `filepath.IsLocal` containment plus the cache-root guard,
+and the mutation that proves the new test bites -- and resolved.
+
+### Workstream D -- CLOSED: nothing survives that exists only because of this PR
+
+Every added path in the complete `origin/main...HEAD` diff was classified. There
+are no review screenshots, no Playwright traces or reports, no audit scratchpads,
+no binaries, no vendored trees, no secrets and no absolute workstation paths in
+tracked content. `mkdocs.test.yml` at the repository root was checked
+specifically and is legitimate product tooling: it is the browser-gate overlay
+referenced by `.github/workflows/docs-check.yml` and
+`playwright.docs-site.config.ts`, and its `site-test/` output is gitignored.
+
+The only tracked files that existed solely because this pull request was
+implemented and reviewed were the three coordination files under `.pr-context/`.
+They were used for the whole of this audit and are removed in the commit
+immediately after this record, so the record itself remains available in history
+while the working tree carries none of them. They are not recreated or replaced
+anywhere else in the repository. Two review-only design documents were already
+gone: `docs/architecture/dashboard-redesign-plan.md` was deleted outright, and
+`docs/superpowers/specs/2026-08-17-oci-native-evidence-referrers-design.md` was
+untracked with `git rm --cached` so it stays on disk under the gitignore rule
+that now covers that tree.
+
+The inherited untracked local agent files -- `.claude/`, `.codex/`, `.mcp.json`
+and `AGENTS.md` -- were left untracked and outside every commit, as required.
+
+### Workstream E -- CLOSED: one generated artifact had no honest gate
+
+Every tracked generated file was traced to its canonical source and its
+generator, regenerated with the normal command and confirmed byte-identical: the
+CLI reference via `make docs-generate`, the operator CRDs and chart
+documentation via the module's `docs-generate` and `helm-docs`, the dashboard
+OpenAPI export and the generated TypeScript SDK via `make gen-openapi` and
+`make check-dashboard-sdk-drift`, and the frontend bundle via `make ui-build`
+against `ci-ui-drift`.
+
+One gate was not honest. `helm-docs-check` in `integrations/kubernetes/ci.mk`
+ran `helm-docs --chart-search-root charts`, which regenerates *every* chart
+README in one pass, and then diffed only `charts/pacto-operator/README.md`. The
+`pacto-dev-gateway` chart had a hand-written README and no `README.md.gotmpl`, so
+every run of the gate silently overwrote it with bare generated output and then
+reported success -- the gate was the thing destroying the file it was supposed to
+protect. This surfaced as an unexplained `git diff --check` exit of 2 on a file
+nobody had edited. The chart now has a `README.md.gotmpl` following the operator
+chart's existing pattern, the check diffs `charts/*/README.md` -- exactly what
+helm-docs writes -- and `envoyService.type` gained the `# --` description it was
+missing. Mutation proof: moving the template away makes `helm-docs-check` fail;
+restoring it makes it pass.
+
+Documentation links and anchors are validated under strict MkDocs. `make
+docs-check` reports 9 of 9 checks passing, including strict build,
+generated-documentation determinism, fenced-contract validation, CR examples
+against the generated CRD, controller flags against `--help`, chart values and
+install snippets, and artifact coordinates against the release manifest.
+
+### Workstream F -- CLOSED: two changesets, one per released package
+
+There is one changeset per released package and not one per historical phase:
+`.changeset/operational-graph-fleet.md` for `@pacto/core` and
+`.changeset/operational-graph-operator.md` for `@pacto/k8s-module`, both
+`minor`. Both were rewritten to describe the shipped product rather than the
+implementation journey. No release notes are duplicated in a second temporary
+file. The changesets action consumes them at release time; `make
+release-dry-run` and `make artifact-drift` both pass against them, reporting
+core `v3.1.4` and kubernetes `v5.1.2` with no drift.
+
+### Workstream G -- CLOSED: the PR body describes the product
+
+The body was rewritten to describe what ships: the three identities, the three
+kinds of knowledge, the honesty distinctions, the read model, evidence as OCI
+referrers, the four surfaces, the boundaries that are preserved, the
+verification, the retained limitations and the compatibility statement. It
+contains no local path, no agent or session detail, no ledger reference and no
+phase narrative.
+
+### Local verification
+
+Run at implementation head, on the tracked tree, with no gate disabled or
+skipped:
+
+- `make ci` -- the full aggregate: static gates for both modules, architecture
+  and release gates, engine unit tests at 100.0% coverage under the race
+  detector, the in-process CLI integration suite, cluster-free local acceptance,
+  the frontend suite, the Kubernetes module's tests and chart gates, the
+  envtest operator acceptance and the OCI leg.
+- `make artifact-drift`, `make release-dry-run`, `make docs-check`, `make
+  check-section`, `make check-dashboard-sdk-drift`, `govulncheck ./...`, `git
+  diff --check`.
+- `make test-browser` -- 219 Playwright tests against the built WASM demo.
+- `make test-browser-compose` -- the published-by-digest Compose demo, both
+  live-journey runs, ending in "clone-free Compose demo acceptance PASSED".
+- `make test-acceptance-local` and `make test-integration`, the latter including
+  the MCP stdio suite and the whole `tests/acceptance/...` subtree.
+- The live Kind acceptance shards: reconcile, dashboard, evidence, observation,
+  operational-graph and upgrade.
+- `make verify-k8s-standalone` -- the standalone Kubernetes module resolves with
+  `GOWORK=off` and no replace directive.
+
+Evidence storage over OCI 1.1 referrers is exercised against a real registry in
+three places rather than mocked: the local registry that
+`tests/acceptance/local/fleet-graph.sh` starts, the registry the Compose
+acceptance publishes to and pulls from by digest, and the live Kind evidence
+shard.
+
+### Verdict
+
+**Phase 14 is a CANDIDATE awaiting independent review.** The pull request remains
+OPEN and DRAFT. This session did not mark it ready and did not merge it; the
+draft-to-ready transition is reserved for the independent closure decision.
+
+The commit immediately following this record deletes all three `.pr-context/`
+coordination files. From that commit onward this record exists only in Git
+history, which is where it belongs.
