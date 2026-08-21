@@ -2,6 +2,8 @@ package release
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -156,6 +158,58 @@ func TestChangesetsActionV2Contract(t *testing.T) {
 		}
 		if major < changesetsCLIMinMajor {
 			t.Errorf("@changesets/cli %s is v%d; changesets/action v2 requires v%d or newer", spec, major, changesetsCLIMinMajor)
+		}
+	})
+
+	// Every release unit is a private package: these are Go modules, images and
+	// charts, and none of them is published to npm. Changesets only versions them
+	// because privatePackages.version says so — and @changesets/config v4, which
+	// CLI v3 pulls in, flipped that default from true to false. Under the flipped
+	// default `changeset version` exits 0, prints "All files have been updated",
+	// consumes no changeset and bumps nothing: a release that silently does not
+	// happen. So the value is pinned explicitly here rather than inherited.
+	//
+	// release-version-test would catch it, but only when the `release` path filter
+	// fires, and .changeset/ is not in that filter — a lone edit to the config
+	// would skip it green. ci-gates has no path filter, so this is the check that
+	// always runs.
+	t.Run("private release units stay versionable", func(t *testing.T) {
+		units, err := filepath.Glob(filepath.Join(root, "release", "units", "*", "package.json"))
+		if err != nil || len(units) == 0 {
+			t.Fatalf("no release unit packages found: %v", err)
+		}
+		var private []string
+		for _, u := range units {
+			b, err := os.ReadFile(u)
+			if err != nil {
+				t.Fatalf("read %s: %v", u, err)
+			}
+			var p struct {
+				Name    string `json:"name"`
+				Private bool   `json:"private"`
+			}
+			if err := json.Unmarshal(b, &p); err != nil {
+				t.Fatalf("parse %s: %v", u, err)
+			}
+			if p.Private {
+				private = append(private, p.Name)
+			}
+		}
+		if len(private) == 0 {
+			return // nothing private: the default cannot hurt anyone.
+		}
+
+		var cfg struct {
+			PrivatePackages *struct {
+				Version *bool `json:"version"`
+			} `json:"privatePackages"`
+		}
+		if err := json.Unmarshal([]byte(readFile(t, root, ".changeset", "config.json")), &cfg); err != nil {
+			t.Fatalf("parse .changeset/config.json: %v", err)
+		}
+		if cfg.PrivatePackages == nil || cfg.PrivatePackages.Version == nil || !*cfg.PrivatePackages.Version {
+			t.Errorf("%d release units are private (%s) but .changeset/config.json does not set privatePackages.version=true — @changesets/config v4 defaults it to false, so `changeset version` would bump nothing and consume no changeset",
+				len(private), strings.Join(private, ", "))
 		}
 	})
 }
