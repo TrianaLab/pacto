@@ -69,8 +69,12 @@ helm-docs-check: ## Check that helm-docs output matches committed README.
 	@echo "==> Checking helm-docs drift..."
 	@command -v helm-docs >/dev/null 2>&1 || { echo "Error: helm-docs not installed. Install with: go install github.com/norwoodj/helm-docs/cmd/helm-docs@latest" >&2; exit 1; }
 	@helm-docs --chart-search-root charts
-	@git diff --exit-code charts/pacto-operator/README.md || \
-		{ echo "Error: Helm chart README is out of date. Run 'make helm-docs' and commit." >&2; exit 1; }
+	@# EVERY chart's README, not just the operator's. helm-docs regenerates all of
+	@# them in one pass, so a narrower check means the gate itself rewrites a chart
+	@# README on every run and reports success -- and a chart whose README was
+	@# hand-written silently loses it.
+	@git diff --exit-code -- charts/*/README.md || \
+		{ echo "Error: A Helm chart README is out of date. Run 'make helm-docs' and commit." >&2; exit 1; }
 
 .PHONY: docs-generate-check
 docs-generate-check: docs-generate ## Check that generated reference docs match committed output.

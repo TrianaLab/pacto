@@ -22,6 +22,7 @@ gateway:
 # port-forward. Set type=LoadBalancer if your cluster has an LB (e.g.
 # cloud-provider-kind or a real cloud).
 envoyService:
+  # -- Envoy data-plane Service type. Use LoadBalancer if the cluster has one.
   type: NodePort
   # -- Fixed nodePort for the HTTP listener (must be within the cluster's
   # nodePort range; 30080 pairs with the demo's kind port mapping).
