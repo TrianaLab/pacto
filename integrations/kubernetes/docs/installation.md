@@ -24,14 +24,10 @@ helm install pacto-operator \
 ```
 
 Pin a specific chart version with `--version` (recommended for reproducible
-installs; see the [compatibility table](upgrade.md#version-compatibility)):
+installs; see the [compatibility table](upgrade.md#version-compatibility)). The
+version below is the currently published chart:
 
-```bash
-helm install pacto-operator \
-  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 4.7.0 \
-  --namespace pacto-operator-system --create-namespace
-```
+--8<-- "integrations/kubernetes/docs/generated/_install-command.md"
 
 ### Common overrides
 

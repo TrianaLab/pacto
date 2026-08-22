@@ -7,14 +7,9 @@ one release group on their own cadence.
 ## Upgrade with Helm
 
 For an upgrade that does not change the CRD schema, a plain `helm upgrade` is
-enough:
+enough. The version below is the currently published chart:
 
-```bash
-helm upgrade pacto-operator \
-  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 4.7.0 \
-  --namespace pacto-operator-system
-```
+--8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
 ## Upgrading across a major version (CRD migration)
 
@@ -24,21 +19,22 @@ untouched on every `helm upgrade`. A major release that changes the CRD schema
 therefore has one extra, ordered step — **apply the new CRDs before you run
 `helm upgrade`**:
 
+**Step 1 — apply the new CRDs out of band.** Server-side apply is required: these
+CRDs are larger than the client-side last-applied-configuration annotation limit,
+and `--force-conflicts` takes ownership of the fields the previous chart install
+set.
+
 ```bash
-# 1. Apply the new CRDs out of band. Server-side apply is required: these CRDs are
-#    larger than the client-side last-applied-configuration annotation limit, and
-#    --force-conflicts takes ownership of the fields the previous chart install set.
 kubectl apply --server-side --force-conflicts \
   -f https://raw.githubusercontent.com/TrianaLab/pacto/main/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactos.yaml
 kubectl apply --server-side --force-conflicts \
   -f https://raw.githubusercontent.com/TrianaLab/pacto/main/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactorevisions.yaml
-
-# 2. Upgrade the release to the new chart version.
-helm upgrade pacto-operator \
-  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 5.0.0 \
-  --namespace pacto-operator-system
 ```
+
+**Step 2 — upgrade the release to the new chart version**, exactly the command
+from [Upgrade with Helm](#upgrade-with-helm) above:
+
+--8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
 The API version stays `v1alpha1` across the major bump and schema changes are
 additive, so the stored version is unchanged: every existing `Pacto` resource
@@ -83,7 +79,9 @@ Two things change on upgrade:
    `registry:3`) does not qualify.
 
 ```bash
-helm upgrade pacto-operator pacto/pacto-operator -n pacto-system \
+helm upgrade pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
+  --namespace pacto-operator-system \
   --set evidence.enabled=true \
   --set evidence.trust.existingSecret=pacto-evidence-trust \
   --set 'evidence.registry.subjects[0]=oci://ghcr.io/acme/checkout@sha256:<64 hex>'

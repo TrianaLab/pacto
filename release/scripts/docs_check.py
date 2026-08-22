@@ -302,6 +302,15 @@ def check_coordinates() -> None:
         for coord in re.findall(r"oci://(ghcr\.io/\S*charts/\S+)", text):
             if coord.rstrip("\\").strip() != chart_coord:
                 problems.append(f"{name}: chart coordinate {coord} != manifest {chart_coord}")
+        # A pinned version written by hand goes stale on the next chart release and
+        # ships a copy-pasteable command that 404s (this happened: 4.7.0 and 5.0.0).
+        # The pinned commands live in generated/_{install,upgrade}-command.md, built
+        # from the manifest; authored prose must --8<-- them, never inline a literal.
+        for ver in re.findall(r"--version\s+(\d\S*)", text):
+            problems.append(
+                f"{name}: hand-written --version {ver}; include "
+                f"generated/_install-command.md or _upgrade-command.md instead"
+            )
     ok = not problems
     record(ok, "(h) artifact coordinates match release-manifest", "" if ok else " ; ".join(problems[:5]))
 

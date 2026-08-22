@@ -647,16 +647,37 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
         out.append("```")
     out.append("")
     out.append("## Install from the published chart\n")
-    chart_unit = units["operator-chart"]
-    out.append(
+    out.append(chart_command(units["operator-chart"], "install"))
+    return "\n".join(out).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Pinned install/upgrade snippets  <-  release-manifest.json
+# ---------------------------------------------------------------------------
+# Hand-written pages used to carry `--version <literal>` inline, which went stale
+# every chart release and shipped copy-pasteable commands that 404. These two
+# partials are generated from the release manifest and `--8<--`'d into
+# installation.md and upgrade.md, so the literal can only ever be the published
+# one and `make docs-check` catches any drift.
+
+def chart_command(chart_unit: dict, verb: str) -> str:
+    """Fenced `helm install|upgrade` block pinned to the published chart version."""
+    extra = " --create-namespace" if verb == "install" else ""
+    return (
         "```bash\n"
-        f"helm install pacto-operator \\\n"
+        f"helm {verb} pacto-operator \\\n"
         f"  oci://{chart_unit['coordinate']} \\\n"
         f"  --version {chart_unit['version']} \\\n"
-        "  --namespace pacto-operator-system --create-namespace\n"
+        f"  --namespace pacto-operator-system{extra}\n"
         "```\n"
     )
-    return "\n".join(out).rstrip() + "\n"
+
+
+def gen_chart_command(repo_root: str, verb: str) -> str:
+    manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
+    return banner("release/release-manifest.json") + chart_command(
+        manifest["units"]["operator-chart"], verb
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -731,6 +752,8 @@ def main() -> int:
         "runtime-observations.md": gen_runtime_observations(repo_root, k8s),
         "artifact-hub.md": gen_artifact_hub(repo_root, k8s),
         "_compatibility.md": gen_compatibility(repo_root, k8s),
+        "_install-command.md": gen_chart_command(repo_root, "install"),
+        "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)
