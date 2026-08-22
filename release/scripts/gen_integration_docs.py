@@ -15,6 +15,9 @@ Source-of-truth map (page -> inputs):
   runtime-observations.md  <- internal/observer/runtime.go + pkg/evidence + pkg/finding + api enums
   artifact-hub.md          <- release/release-manifest.json + artifacthub-repo.yml + Chart.yaml
   _compatibility.md        <- integration.yaml (compatibility) + release/release-manifest.json
+  _install-command.md      <- release/release-manifest.json (operator-chart version)
+  _upgrade-command.md      <- release/release-manifest.json (operator-chart version)
+  _crd-apply.md            <- release/release-manifest.json (k8s-module release tag)
 
 Usage:
   python3 release/scripts/gen_integration_docs.py [--repo-root DIR] [--integration-dir DIR]
@@ -783,6 +786,29 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
     )
 
 
+# The CRD apply in upgrade.md used to fetch from `main`, one command above a
+# `helm upgrade` pinned to an exact chart version: the reader was told to install
+# chart X and to apply whatever CRDs happened to be on the default branch that
+# day. Same drift class as the `--version` literal above, so same fix -- pin the
+# ref to the integration release tag the docs describe.
+CRD_FILES = ("pactos", "pactorevisions")
+RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
+
+
+def gen_crd_apply(repo_root: str) -> str:
+    manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
+    tag = manifest["units"]["k8s-module"]["tag"]
+    out = [banner("release/release-manifest.json"), "```bash"]
+    for name in CRD_FILES:
+        out.append("kubectl apply --server-side --force-conflicts \\")
+        out.append(
+            f"  -f {RAW_BASE}/{tag}/integrations/kubernetes/config/crd/bases/"
+            f"pacto.trianalab.io_{name}.yaml"
+        )
+    out.append("```")
+    return "\n".join(out) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # Compatibility snippet  <-  integration.yaml + release-manifest.json
 # ---------------------------------------------------------------------------
@@ -857,6 +883,7 @@ def main() -> int:
         "_compatibility.md": gen_compatibility(repo_root, k8s),
         "_install-command.md": gen_chart_command(repo_root, "install"),
         "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
+        "_crd-apply.md": gen_crd_apply(repo_root),
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)

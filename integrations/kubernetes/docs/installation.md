@@ -17,6 +17,17 @@ The chart is published as an OCI artifact. Installing it also installs the CRDs
 (bundled under the chart's `crds/` directory) and, by default, the operator-managed
 dashboard.
 
+!!! warning "At chart defaults the operator can escalate its own privileges"
+
+    Managing the dashboard and the Evidence Server means creating their RBAC, so
+    the default install grants the operator unrestricted `create` on
+    `clusterroles` and `clusterrolebindings` — enough to grant itself anything in
+    the cluster. Its *observation* of your workloads is read-only; the install as
+    a whole is not. Install with `--set dashboard.enabled=false --set
+    evidence.enabled=false` and deploy those components yourself if that does not
+    fit your threat model. [RBAC](rbac.md) lists every rule, generated from the
+    chart.
+
 ```bash
 helm install pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \

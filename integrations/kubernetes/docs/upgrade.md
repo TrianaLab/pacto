@@ -22,14 +22,11 @@ therefore has one extra, ordered step — **apply the new CRDs before you run
 **Step 1 — apply the new CRDs out of band.** Server-side apply is required: these
 CRDs are larger than the client-side last-applied-configuration annotation limit,
 and `--force-conflicts` takes ownership of the fields the previous chart install
-set.
+set. The URLs are pinned to the release tag these docs describe, so the schema you
+apply is the one the chart in step 2 expects — not whatever is on the default
+branch today:
 
-```bash
-kubectl apply --server-side --force-conflicts \
-  -f https://raw.githubusercontent.com/TrianaLab/pacto/main/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactos.yaml
-kubectl apply --server-side --force-conflicts \
-  -f https://raw.githubusercontent.com/TrianaLab/pacto/main/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactorevisions.yaml
-```
+--8<-- "integrations/kubernetes/docs/generated/_crd-apply.md"
 
 **Step 2 — upgrade the release to the new chart version**, exactly the command
 from [Upgrade with Helm](#upgrade-with-helm) above:
