@@ -1,10 +1,10 @@
 # Example Contracts
 This section provides ready-to-use Pacto contracts for common infrastructure services. Use these as references when writing your own contracts, or as dependencies. New to authoring? Start with the [developer guide](../developers.md).
 
-For a complete, runnable demo, see the [live dashboard demo](dashboard-demo.md) — its source and curated contract set live in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo). For a real fleet on your own machine — a registry, an Evidence Server and the dashboard, pulled as one OCI artifact — see the [Docker Compose demo](compose-demo.md).
+To see the whole dashboard in your browser with nothing to install, open the [live dashboard demo](dashboard-demo.md) — its source and curated contract set live in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo). For a real fleet on your own machine — a registry, an Evidence Server and the dashboard, pulled as one OCI artifact — see the [Docker Compose demo](compose-demo.md).
 
 !!! tip
-    These contracts represent the **operational interface** of each service — not a deployment recipe. They describe what a service exposes and how it behaves — not how to deploy it. Each one composes schemas you already have — Protocol Buffers for gRPC APIs, JSON Schema for `configurations` — rather than inventing a new format; the contract is the relational layer Pacto adds around them: ownership, dependencies, compatibility, lifecycle.
+    These contracts represent the **operational interface** of each service — not a deployment recipe. They describe what a service exposes and how it behaves — not how to deploy it. Each one composes schemas you already have — an OpenAPI or AsyncAPI document, a gRPC service descriptor, JSON Schema for `configurations` — rather than inventing a new format; the contract is the relational layer Pacto adds around them: ownership, dependencies, compatibility, lifecycle. Every referenced spec file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types)).
 
 ## Available examples
 
@@ -16,7 +16,7 @@ For a complete, runnable demo, see the [live dashboard demo](dashboard-demo.md) 
 | [NGINX](nginx.md) | service | stateless/ephemeral | Reverse proxy / web server |
 | [Cron Worker](cron-worker.md) | scheduled | stateless/ephemeral | Scheduled batch job |
 | [Event Processor](event-processor.md) | service | stateless/ephemeral | Event-driven message consumer |
-| [gRPC Service](grpc-service.md) | service | stateless/ephemeral | gRPC microservice with Proto contract |
+| [gRPC Service](grpc-service.md) | service | stateless/ephemeral | Microservice exposing a gRPC service descriptor |
 | [Hybrid Cache API](hybrid-cache.md) | service | hybrid/persistent | API with local cache and upstream rebuild |
 
 ## Using examples as dependencies
@@ -38,13 +38,21 @@ dependencies:
     compatibility: "^7.0.0"
 ```
 
+The `ghcr.io/acme/…` refs above are placeholders: nothing is published there. The one Pacto contract anyone can pull is the dashboard's own, and `pacto explain` prints it:
+
+```bash
+pacto explain oci://ghcr.io/trianalab/pacto/dashboard-contract
+```
+
 See the [contract reference](../contract-reference/sections.md#dependencies) for the full dependency schema.
 
-Then use `pacto graph` to visualize the full dependency tree:
+Then run `pacto graph` from the bundle directory to see the resolved tree:
 
 ```bash
 pacto graph .
 ```
+
+It prints the service and one line per dependency. A ref it cannot resolve — the placeholders above included — becomes an error node in the tree rather than a failure; the command still exits 0.
 
 ## End-to-end: a contract in a control loop (conceptual)
 
@@ -131,4 +139,4 @@ The pure engine compares declared intent against the collected evidence:
 Evaluate(contract, evidence) -> (findings, coverage)
 ```
 
-A confirmed contradiction (for example `auth` unreachable, or the `default` configuration absent) becomes an `error` finding; an assertion the collector could not observe becomes an `unknown` finding, never a silent pass. The operator writes those findings and the resulting compliance state (`Compliant` / `NonCompliant` / `Unknown` / `Invalid`) back onto the resource, closing the loop. See [Compliance scenarios](compliance-scenarios.md) for exactly where each state is proven.
+A confirmed contradiction (for example `auth` unreachable, or the `default` configuration absent) becomes an `error` finding; an assertion the collector could not observe becomes an `unknown` finding, never a silent pass. The operator writes those findings and the resulting compliance state back onto the resource, closing the loop. See [Compliance scenarios](compliance-scenarios.md) for the full set of states and exactly where each is proven.

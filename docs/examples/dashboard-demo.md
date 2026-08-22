@@ -10,8 +10,12 @@ To run the dashboard against your own services, see
 
 It showcases the full UI against a realistic set of services:
 
-- **Operational overview & compliance** — eleven services across edge, domain,
-  infra and external tiers.
+- **Operational overview & compliance** — a fleet spanning edge, domain, infra,
+  platform and external tiers. `platform-app-config` appears twice on purpose:
+  two different services from two different sources that happen to share a name.
+  A name is not an identity (see
+  [three identities](../operational-graph.md#three-identities-never-flattened)),
+  so the graph keeps them apart instead of merging them into one row.
 - **Dependency graph** — resolved from each contract's declared dependencies,
   with blast-radius highlighting.
 - **Change analysis** — `payments-service` spans six versions; the
@@ -21,11 +25,12 @@ It showcases the full UI against a realistic set of services:
   contract revision about itself. It is a *Needs attention* category, a
   distribution over every revision in the snapshot on the **Contract revisions**
   inventory (with a filter for each of its buckets) and a section on the revision
-  itself. `payments-service` 2.1.1 declares a readiness gate that fails: a
-  required check (the LLM-safety eval suite) is `not-done`, dropping its score to
-  70, below the required 80 — while `orders-service` 1.2.0 passes, and still runs
-  on a target observed to be non-compliant, which is the difference between
-  declared preparedness and observed behaviour on one screen.
+  itself. `payments-service` 2.1.1 declares a readiness gate that fails: one
+  claim worth 30 of the 100 declared weight — the large-language-model safety
+  evaluation suite — is `not-done`, so the revision scores 70 against its
+  `minScore` of 80. `orders-service` 1.2.0 passes its own gate and still runs on
+  a target observed to be non-compliant, which is the difference between declared
+  preparedness and observed behaviour on one screen.
 
 The source and build harness live in
 [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo).
