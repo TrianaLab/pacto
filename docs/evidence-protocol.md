@@ -66,7 +66,7 @@ freshness metadata the platform needs to trust and place it.
 |-------|------|---------|
 | `apiVersion` | string | Protocol version. Must be `pacto.dev/evidence/v1`. |
 | `kind` | string | Must be `EvidenceEnvelope`. |
-| `id` | string | Unique envelope id. The CLI defaults it to a `sha256:` content hash of the evidence. |
+| `id` | string | Unique envelope id. The CLI defaults it to a `sha256:` hash over `apiVersion`, `producer.id`, `sequence` and the evidence, so two producers reporting identical evidence never collide on one id. |
 | `producer.id` | string | The environment that produced the envelope. Becomes the target's scope. |
 | `producer.version` | string | Optional producer or collector version. |
 | `producer.keyId` | string | Trust-store key id that signed this envelope. |
@@ -202,11 +202,11 @@ is mandatory**, and is what the platform relies on regardless of transport.
 
 | Method + path | Purpose | Success |
 |---------------|---------|---------|
-| `POST /api/evidence/v1/envelopes` | Accept, verify, de-duplicate, evaluate and store one envelope. | `202 Accepted` with `{ id, compliance, findings, acceptedAt }` |
+| `POST /api/evidence/v1/envelopes` | Accept, verify, de-duplicate, evaluate and store one envelope. | `202 Accepted` with `{ id, compliance, findings, acceptedAt }`, where `findings` is a count, not the findings themselves |
 | `GET /api/evidence/v1/health` | Liveness. Independent of the registry. | `200 OK` with `{ "status": "ok" }` |
 | `GET /api/evidence/v1/ready` | Readiness. `503` until every configured subject resolves and answers native Referrers discovery. | `200 OK` with `{ "status": "ready" }` |
 | `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
-| `GET /api/evidence/v1/targets` | The latest accepted target per producer, for a read-only HTTP evidence source. | `200 OK` with the versioned targets DTO (below). |
+| `GET /api/evidence/v1/targets` | The latest accepted report per target — a target being one producer reporting on one subject — for a read-only HTTP evidence source. | `200 OK` with the versioned targets DTO (below). |
 
 The `/targets` response is a versioned, self-describing DTO so a consumer can
 reconstruct a faithful operational target — not a lossy summary — and can tell a
@@ -222,7 +222,7 @@ degraded store from a healthy one:
     {
       "subject": "payments",
       "service": "payments-api",
-      "domain": "payments",
+      "domain": "ghcr.io/acme",
       "digest": "sha256:…",
       "producer": "prod-eu",
       "producerKeyId": "edge-eu-west-2026",
@@ -237,20 +237,24 @@ degraded store from a healthy one:
 }
 ```
 
-Each target carries full findings, the immutable `contractRef` (so it links to a
-concrete revision), both the evidence and accept timestamps, and producer
-provenance. `service`, `domain` and `digest` are the *resolved* logical identity,
-read from the contract `contractRef` resolved to, so a consumer attaches the
-target to the right domain-qualified service and revision instead of inferring
-one from `subject`. `schemaVersion` is the compatibility contract: a consumer
-that does not recognise it treats the source as unavailable rather than
+Each target carries its findings — the `findings` key is omitted entirely when
+there are none — the immutable `contractRef` (so it links to a concrete
+revision), both the evidence and accept timestamps, and producer provenance.
+`service`, `domain` and `digest` are the *resolved* logical identity, read from
+the contract `contractRef` resolved to, so a consumer attaches the target to the
+right domain-qualified service and revision instead of inferring one from
+`subject`; `domain` is everything in the resolved reference before its final path
+segment, such as `ghcr.io/acme`. `schemaVersion` is the compatibility contract: a
+consumer that does not recognise it treats the source as unavailable rather than
 misreading it. `health.status` is `ready` (every configured subject read
-completely, so an empty target list is authoritative), `partial` (evidence exists
-that could not be read, so absence no longer is) or `unavailable` (nothing could
-be read at all), with the counts behind that verdict beside it. `health` and
-`truncated` let a consumer mark the source *partial* — keeping the usable targets
-while surfacing that the contribution is incomplete — instead of presenting a
-full-looking graph. Both the target count and the per-target
+completely, so an empty target list is authoritative) or `partial` (evidence
+exists that could not be read, so absence no longer is), with the counts behind
+that verdict beside it. When nothing could be read at all, `/targets` does not
+return this DTO — it answers `503` with `{ "code": "registry_unavailable" }`, so
+a consumer must treat any non-200 as an unavailable source rather than an empty
+one. `health` and `truncated` let a consumer mark the source *partial* — keeping
+the usable targets while surfacing that the contribution is incomplete — instead
+of presenting a full-looking graph. Both the target count and the per-target
 findings count are bounded; `truncated` is set when either bound trims the
 response.
 
@@ -316,20 +320,20 @@ returning `202`. Replay protection therefore survives a restart because there wa
 never any local state to lose.
 
 **Reads fail honest, writes fail closed.** `GET /api/evidence/v1/ready` reports
-`503` while no subject can be read; `/targets` reports `partial` when some
-subject or artifact could not be read, and still serves what it could read.
-Ingestion refuses (`registry_unavailable` / `registry_incomplete`) whenever the
-history could not be fully reconstructed — a replay check over a partial history
-is not a replay check. An unreadable store is never rendered as an empty one.
+`503` while *any* configured subject cannot be read; `/targets` reports `partial`
+when some subject or artifact could not be read, and still serves what it could
+read. Ingestion refuses (`store_not_ready`, or `registry_unavailable` /
+`registry_incomplete` once the commit itself cannot reconstruct the history) — a
+replay check over a partial history is not a replay check. An unreadable store is
+never rendered as an empty one.
 
 **Single active writer, no distributed lock.** One replica, with the `Recreate`
 rollout strategy so an upgrade never briefly runs two. The registry offers no
 compare-and-set that would let two writers agree, and Pacto does not fake one.
 
-**Retention is the registry's.** Pacto never deletes an evidence artifact.
-Because evidence is deliberately untagged, a registry garbage-collection policy
-that prunes untagged manifests will remove it; deleting a contract manifest or
-its referrers removes the evidence attached to it.
+**Retention is the registry's.** Pacto never deletes an evidence artifact — see
+[retention, backup and garbage collection](evidence-oci-storage.md#retention-backup-and-garbage-collection)
+for what that means for a registry GC policy.
 
 ---
 

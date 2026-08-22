@@ -37,7 +37,10 @@ This writes two files into `--out`:
 With no `--producer`, the key is bound to a producer named after the key id and the
 file is a bare `<keyId>.pub` (the single-producer default). With no `--key-id`, the
 key id defaults to a short fingerprint of the public key. **Sign with the same
-`--producer` and `--key-id` you minted the key with** — a mismatch is rejected.
+`--producer` and `--key-id` you minted the key with.** `sign` will not stop you
+naming a different producer, but the platform will: verification and ingestion
+reject the envelope as `producer id is not authorized for this key`
+(`401 unauthorized_producer`).
 
 ---
 
@@ -48,6 +51,7 @@ pacto evidence sign evidence.json \
   --key ./keys/edge-eu-west-2026.key \
   --key-id edge-eu-west-2026 \
   --producer edge-eu-west \
+  --sequence 1 \
   --ttl 24h > envelope.json
 ```
 
@@ -58,10 +62,17 @@ envelope JSON. Key flags:
 
 - `--key` (required) the private-key file, `--key-id` the trust-store key id it
   maps to, `--producer` the environment id.
+- `--sequence` the producer-scoped monotonic counter (default `0`). **Every
+  report must carry a strictly greater value than the producer's last accepted
+  one**, or ingestion rejects it as a replay (`409`) — re-signing the same
+  evidence under a fresh envelope id does not help. A producer that reports more
+  than once has to persist this counter and increment it across runs.
+- `--producer-version` an optional producer or collector version, carried on the
+  wire as `producer.version`.
 - `--ttl` the validity window (default 24h; `0` disables expiry).
 - `--id` and `--issued-at` (RFC3339) pin those fields for a fully deterministic
-  envelope; otherwise `id` defaults to a content hash of the evidence and
-  `issued-at` to now.
+  envelope; otherwise `issued-at` defaults to now and `id` to a hash over the
+  protocol version, `--producer`, `--sequence` and the evidence.
 
 The signed envelope is a wire artifact, so `sign` always emits exact JSON
 regardless of `--output-format`.
@@ -108,7 +119,7 @@ apiVersion: pacto.dev/evidence-trust/v1
 keys:
   - keyId: edge-eu-2026
     producerId: edge-eu
-    publicKeyFile: edge-eu-2026.pub   # resolved relative to this config's directory
+    publicKeyFile: edge-eu-2026.pub   # a bare filename in this config's directory
     allowedSubjects:                  # path.Match globs; empty = any subject
       - payments-*
     allowedContractRepos:             # bare registry/repo prefixes; empty = any repo
@@ -147,6 +158,14 @@ resolution — there is no evidence-specific login. TLS termination is the host'
 responsibility — run `serve` behind a TLS-terminating proxy or gateway. Signature
 verification is always on and cannot be disabled.
 
+A registry on localhost, a loopback address or a private IP range is reached over
+plain HTTP automatically. **Any other registry served over plain HTTP** — an
+in-cluster registry Service name, for example — must be named in the
+`PACTO_INSECURE_REGISTRIES` environment variable, a comma-separated list of
+`host:port` values. It is scoped to exactly the hosts you list and never
+downgrades an HTTPS registry. Without it, subject resolution fails and `serve`
+never becomes ready.
+
 For registry requirements, permissions, retention and failure semantics, see
 [evidence in the registry](evidence-oci-storage.md); for how the server is
 deployed, see [deployment](evidence-protocol.md#deployment).
@@ -162,13 +181,15 @@ The protocol and its tooling hold a small set of non-negotiable invariants.
   signature bytes. The ingestion API echoes only a failure category, never the
   offending material.
 - **Sanitized, categorised failures.** Every accept outcome maps to a stable
-  HTTP status — `401` for signature, trust or freshness failures, `409` for
-  replay, `422` for a malformed or unevaluable payload — with a generic message.
-  A caller learns *what* class of thing went wrong, never internal detail it
-  could exploit.
-- **Bounded payloads.** A decoded envelope is capped at 1 MiB and 10,000
-  observations, enforced with an `io.LimitReader` before parsing, so a hostile or
-  runaway producer cannot exhaust memory at the ingestion boundary.
+  HTTP status — `400` for a body that could not be decoded, `401` for signature,
+  trust or freshness failures, `409` for replay, `422` for an unevaluable payload
+  or a rejected contract reference — with a generic message. A caller learns
+  *what* class of thing went wrong, never internal detail it could exploit.
+- **Bounded payloads.** The ingestion endpoint reads the request body through an
+  `io.LimitReader` one byte past the 1 MiB cap, so an oversized payload is
+  refused before it is parsed; decoding then rejects any envelope carrying more
+  than 10,000 observations. Neither a hostile nor a runaway producer can exhaust
+  memory at the boundary.
 - **Mandatory verification.** An unsigned envelope, an unknown key, an
   unsupported algorithm or a bad signature is always rejected. Transport
   security (TLS) is the host's job and is additive; it never substitutes for
@@ -181,9 +202,11 @@ The protocol and its tooling hold a small set of non-negotiable invariants.
   producer's, not the contract's (see
   [evidence in the registry](evidence-oci-storage.md#the-commit-protocol)).
 - **Reads fail honest, writes fail closed.** A store that could not be read
-  completely is reported as `partial` or `unavailable`, never as an authoritative
-  empty result, and ingestion refuses while the accepted history cannot be fully
-  reconstructed — a replay check over a partial history is not a replay check.
+  completely is reported as `partial`; a store that could not be read at all is
+  refused outright with `503 registry_unavailable` rather than served as an
+  authoritative empty result. Ingestion refuses while the accepted history cannot
+  be fully reconstructed — a replay check over a partial history is not a replay
+  check.
 - **Single active writer.** Exactly one, enforced operationally (one replica plus
   the `Recreate` rollout strategy) rather than with a distributed lock, because
   the registry offers no compare-and-set two writers could agree on.

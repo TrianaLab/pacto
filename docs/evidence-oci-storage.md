@@ -156,8 +156,17 @@ store as an empty one.
 | State | Meaning | `/ready` | `/targets` |
 |-------|---------|----------|------------|
 | **ready** | every subject resolved and every referrer was a valid Pacto record | `200` | `200`, authoritative |
-| **partial** | some subject failed, or some referrer was not a readable Pacto record | `200` | `200` with `health.status: partial`, the readable records still served |
+| **partial**, from a bad artifact | every subject resolved, but some referrer was not a readable Pacto record | `200` | `200` with `health.status: partial`, the readable records still served |
+| **partial**, from a bad subject | some subject failed, others were read | `503` | `200` with `health.status: partial`, the readable records still served |
 | **unavailable** | no subject could be read at all | `503` | `503` `registry_unavailable` |
+
+The two `partial` rows differ because the two probes ask different questions.
+`/targets` reports what it managed to read. `/ready` is stricter: it re-resolves
+**every** configured subject and fails on the first one that does not answer, so
+a single unreachable subject takes the host out of rotation even though the
+others are being served. That is deliberate — a host that cannot read its whole
+history cannot prove an incoming report is not a replay, so it must stop
+accepting writes.
 
 `health` carries the counts behind the state — `subjects`, `failedSubjects`,
 `invalidArtifacts` — so a consumer can distinguish "nothing was reported" from
