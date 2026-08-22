@@ -148,12 +148,14 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
     work lands — the placeholder is the starting position of a real assessment, not a
     template to delete.`,
 
-	"validate": "The `--readiness` gate is **opt-in** because it is time-dependent: it compares each check's `expires` against the run time, which would make plain `validate` non-deterministic. " +
+	"validate": "The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment — individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. " +
 		"Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). " +
 		"See the [readiness reference](contract-reference/sections.md#readiness) for the score and gate semantics.\n\n" +
 		"**Exit code:** Non-zero if validation fails.",
 
-	"explain": "**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: \"2.0\"` feature), `explain` adds a Readiness block: " +
+	"explain": "**What it covers.** `explain` summarises identity, workload, state, capabilities, interfaces, dependencies, readiness and metadata. " +
+		"It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly.\n\n" +
+		"**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: \"2.0\"` feature), `explain` adds a Readiness block: " +
 		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, " +
 		"the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table " +
 		"showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight, and `evidence`. " +
@@ -172,7 +174,7 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 		"!!! note \"`--values` has no `-f` shorthand on push\"\n" +
 		"    On every other override-taking command `-f` is the shorthand for `--values`. On `pacto push`, `-f` is `--force`, so `--values` must be spelled out in full here.",
 
-	"diff": `**Exit code:** Non-zero if breaking changes are detected.
+	"diff": `**Exit code:** Non-zero only when the overall classification is ` + "`BREAKING`" + `. A ` + "`POTENTIAL_BREAKING`" + ` result exits 0, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
 
 The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. The optional ` + "`docs/`" + ` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
 
@@ -188,7 +190,10 @@ Reports cycles, version conflicts, and unreachable dependencies.
 
 Sibling dependencies are resolved in parallel. OCI bundles are cached locally in ` + "`~/.cache/pacto/oci/`" + ` for faster subsequent operations. Use ` + "`--no-cache`" + ` to bypass the cache.`,
 
-	"doc": "Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.\n\n`--serve` serves that static site locally. `--ui swagger` launches an interactive API explorer.\n\n`--serve`, `--ui` and `-o` are mutually exclusive. Use `--interface` to pick one OpenAPI interface with `--ui`. `--target` and `--target iface=url` point try-it-out at a backend.\n\nSibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache/pacto/oci/`. `--no-cache` bypasses the cache.",
+	"doc": "The header line reports the contract's own state, not a runtime measurement: `pacto doc` reads a bundle and never observes a cluster. " +
+		"A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. " +
+		"Both are the expected result for a freshly scaffolded contract — see [Compliance states](architecture.md#compliance-model).\n\n" +
+		"Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.\n\n`--serve` serves that static site locally. `--ui swagger` launches an interactive API explorer.\n\n`--serve`, `--ui` and `-o` are mutually exclusive. Use `--interface` to pick one OpenAPI interface with `--ui`. `--target` and `--target iface=url` point try-it-out at a backend.\n\nSibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache/pacto/oci/`. `--no-cache` bypasses the cache.",
 
 	"login": "Credentials are stored in `~/.config/pacto/config.json` (or `$XDG_CONFIG_HOME/pacto/config.json`), keeping them separate from Docker's configuration.\n\n" +
 		"### GitHub Container Registry (ghcr.io)\n\n" +
@@ -205,7 +210,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"When a newer version is available, pacto displays a notification after any command:\n\n" +
 		"```\nA new version of pacto is available: v1.0.0 -> v1.2.0\nRun 'pacto update' to update.\n```\n\n" +
 		"The check runs asynchronously and adds no latency. Results are cached for 24 hours in `~/.config/pacto/update-check.json`.\n\n" +
-		"Notifications are suppressed when:\n" +
+		"Notifications are suppressed when:\n\n" +
 		"- Running a dev build\n" +
 		"- Using `--output-format json` or `--output-format markdown` (the notice shows only for text output)\n" +
 		"- The `PACTO_NO_UPDATE_CHECK=1` environment variable is set",

@@ -182,7 +182,7 @@ pacto diff <old> <new> [flags]
       --old-values stringArray   values file to merge into the old contract (can be repeated)
 ```
 
-**Exit code:** Non-zero if breaking changes are detected.
+**Exit code:** Non-zero only when the overall classification is `BREAKING`. A `POTENTIAL_BREAKING` result exits 0, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
 
 The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. The optional `docs/` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
 
@@ -243,6 +243,8 @@ pacto doc [dir | oci://ref] [flags]
       --ui string            UI type for interactive API explorer (e.g. swagger)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
+
+The header line reports the contract's own state, not a runtime measurement: `pacto doc` reads a bundle and never observes a cluster. A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. Both are the expected result for a freshly scaffolded contract — see [Compliance states](architecture.md#compliance-model).
 
 Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.
 
@@ -381,6 +383,8 @@ pacto explain [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
+**What it covers.** `explain` summarises identity, workload, state, capabilities, interfaces, dependencies, readiness and metadata. It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly.
+
 **Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: "2.0"` feature), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight, and `evidence`. The Readiness block also includes a revision-history table when `history[]` is present. `--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount`, and `expired` (boolean). Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.
 
 ---
@@ -493,11 +497,11 @@ pacto fleet search [text] [flags]
       --has-dependency      only services declaring a dependency
   -h, --help                help for search
       --label stringArray   filter by label key=value (repeatable)
-      --limit int           maximum results (0 = default)
-      --not-ready           only services not operationally ready
+      --limit int           maximum results (0 = 100, capped at 500)
+      --not-ready           only services whose readiness gate does not pass (below minScore, expired or undeclared)
       --offset int          result offset for paging
       --owner string        filter by owner (team, DRI or contact)
-      --ready               only operationally ready services
+      --ready               only services whose readiness gate passes (score >= minScore, not expired)
       --scope string        correlate to a target with this scope
       --source string       filter by observing source
       --status string       filter by aggregate status (Compliant, Invalid, NonCompliant, NotEvaluated, Reference, Unknown, Warning)
@@ -531,7 +535,7 @@ pacto fleet status [flags]
 ```
   -h, --help                help for status
       --invalid             report structurally invalid contracts
-      --limit int           maximum results (0 = default)
+      --limit int           maximum results (0 = 200)
       --missing-readiness   report revisions without a readiness assessment
       --needs-attention     report every attention category
       --non-compliant       report non-compliant targets
@@ -1033,6 +1037,7 @@ Run 'pacto update' to update.
 The check runs asynchronously and adds no latency. Results are cached for 24 hours in `~/.config/pacto/update-check.json`.
 
 Notifications are suppressed when:
+
 - Running a dev build
 - Using `--output-format json` or `--output-format markdown` (the notice shows only for text output)
 - The `PACTO_NO_UPDATE_CHECK=1` environment variable is set
@@ -1075,7 +1080,7 @@ pacto validate [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-The `--readiness` gate is **opt-in** because it is time-dependent: it compares each check's `expires` against the run time, which would make plain `validate` non-deterministic. Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). See the [readiness reference](contract-reference/sections.md#readiness) for the score and gate semantics.
+The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment — individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). See the [readiness reference](contract-reference/sections.md#readiness) for the score and gate semantics.
 
 **Exit code:** Non-zero if validation fails.
 

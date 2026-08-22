@@ -88,6 +88,7 @@ Pacto searches for plugin binaries in this order:
 2. **`~/.config/pacto/plugins/`** — user plugin directory
 
 For example, `pacto generate helm` looks for:
+
 - `pacto-plugin-helm` in `$PATH`
 - `~/.config/pacto/plugins/pacto-plugin-helm`
 
@@ -169,6 +170,7 @@ The plugin writes a JSON object to stdout:
 ### Errors
 
 If the plugin encounters an error, it should:
+
 1. Write a message to **stderr**
 2. Exit with a non-zero exit code
 

@@ -32,7 +32,15 @@ It is stateless and dependency-light: it reads a collector-stamped `Outcome` on 
 
 `Coverage` reports how many required assertions were actually evaluated versus declared. It is explanatory metadata and never changes the aggregate compliance state: an inability to observe is not a violation.
 
-The compliance model consumers derive from these findings has four substantive states — **Compliant**, **NonCompliant**, **Unknown** and **Invalid** — plus the informational **Warning**, **Reference** (the contract declares no runtime target) and **NotEvaluated** (a target exists but no evidence is available yet). The guiding rule: a confirmed contradiction is an error; an inability to observe is Unknown, not a contradiction. See [Compliance scenarios](examples/compliance-scenarios.md) for where each state is exercised.
+#### Compliance model { #compliance-model }
+
+The compliance model consumers derive from these findings has four substantive states — **Compliant**, **NonCompliant**, **Unknown** and **Invalid** — plus three informational ones:
+
+- **Warning** — a non-blocking finding.
+- **Reference** — the contract declares no workload, so there is nothing to run and nothing to observe.
+- **NotEvaluated** — the contract declares a workload but was never runtime-evaluated *at all*, which is what an offline OCI, cache or local source looks like. This is the state `pacto doc`, `pacto fleet` and the dashboard report for a bundle read off disk or out of a registry.
+
+The guiding rule: a confirmed contradiction is an error; an inability to observe is Unknown, not a contradiction. So a workload that *is* being evaluated but has no usable evidence yet resolves to **Unknown**, not `NotEvaluated` — the two are different questions, "we looked and could not tell" versus "nothing has looked". The Kubernetes operator only ever reports the former: it never emits `NotEvaluated`, though the value is in the CRD enum for parity with the engine (see [Kubernetes limitations](integrations/kubernetes/limitations.md#notevaluated-is-reserved)). See [Compliance scenarios](examples/compliance-scenarios.md) for where each state is exercised.
 
 ### Separation of concerns
 

@@ -9,6 +9,7 @@ is why one broken field can hide the rest.
 ## Layer 1: Structural (JSON Schema)
 
 Validates against the embedded `pacto-v2.0.schema.json`:
+
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
 - Enum values are valid (e.g. interface `type` is `openapi`/`asyncapi`/`grpc`, `capabilities[].type` is `health`/`metrics`/`extension`, `policies[].target` is `contract`)

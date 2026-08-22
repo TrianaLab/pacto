@@ -594,6 +594,7 @@ passing = score >= minScore          # minScore defaults to 100
 ```
 
 **Worked example.** Using the four claims from the example above (weights `20`, `15`, `25`, `10`):
+
 - `legacy-cleanup` has `status: deferred` → excluded from both numerator and denominator
 - In-scope weights: `20 + 15 + 25 = 60` (total)
 - `dashboard` (`done`, weight `20`) → earns `20`

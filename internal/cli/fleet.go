@@ -117,12 +117,16 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().String("source", "", "filter by observing source")
 	cmd.Flags().String("workload", "", "filter by workload (service, job, scheduled)")
 	cmd.Flags().StringArray("label", nil, "filter by label key=value (repeatable)")
-	cmd.Flags().Bool("ready", false, "only operationally ready services")
-	cmd.Flags().Bool("not-ready", false, "only services not operationally ready")
+	// "Ready" here is the contract's own declared readiness gate passing (score >=
+	// minScore, assessment not expired) -- not a Kubernetes readiness probe and not
+	// compliance. Spelled out because three unrelated things in this product are
+	// called readiness.
+	cmd.Flags().Bool("ready", false, "only services whose readiness gate passes (score >= minScore, not expired)")
+	cmd.Flags().Bool("not-ready", false, "only services whose readiness gate does not pass (below minScore, expired or undeclared)")
 	cmd.Flags().Bool("has-capability", false, "only services declaring a capability")
 	cmd.Flags().Bool("has-dependency", false, "only services declaring a dependency")
 	cmd.Flags().String("scope", "", "correlate to a target with this scope")
-	cmd.Flags().Int("limit", 0, "maximum results (0 = default)")
+	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultSearchLimit, fleet.MaxSearchLimit))
 	cmd.Flags().Int("offset", 0, "result offset for paging")
 	return cmd
 }
@@ -253,7 +257,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Bool("stale", false, "report targets with stale evidence")
 	cmd.Flags().Bool("missing-readiness", false, "report revisions without a readiness assessment")
 	cmd.Flags().Bool("unresolved-deps", false, "report unresolved declared dependencies")
-	cmd.Flags().Int("limit", 0, "maximum results (0 = default)")
+	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d)", fleet.DefaultStatusLimit))
 	return cmd
 }
 

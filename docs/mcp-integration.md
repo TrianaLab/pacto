@@ -220,6 +220,7 @@ on `pacto_create`, and of `add_interfaces`, `remove_interfaces`,
 Creates a new Pacto contract from structured input. The tool infers contract details from a natural-language description and explicit parameters.
 
 **Key inputs:**
+
 - `name` (required) — service name
 - `description` — natural-language description (triggers automatic inference of interfaces and runtime)
 - `interfaces` — [JSON-encoded](#structured-inputs-are-json-encoded-strings) array of `{name, type, visibility?}` objects. `type` is one of `openapi`, `asyncapi` or `grpc` — the only three the [contract schema](contract-reference/sections.md#interfaces) allows. There is no `ref` input: the contract's required `interfaces[].ref` is derived as `interfaces/<name>.yaml`.
@@ -244,6 +245,7 @@ The persistence rows take effect only when `stores_data=true` — `stores_data` 
 Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, validates the result, and writes back atomically. The validation step has a real gap — see the warning below.
 
 **Key inputs:**
+
 - `path` — directory containing `pacto.yaml` (defaults to `.`)
 - `add_interfaces` / `remove_interfaces` — add or remove interfaces. `add_interfaces` takes the same [JSON-encoded](#structured-inputs-are-json-encoded-strings) `{name, type, visibility?}` objects as `pacto_create`; `remove_interfaces` takes a JSON-encoded array of interface names.
 - `add_dependencies` / `remove_dependencies` — add or remove dependencies
@@ -266,6 +268,7 @@ Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, 
 Validates a contract and returns structured results including errors, warnings, a contract summary, and actionable suggestions for improvement.
 
 **Output includes:**
+
 - `valid` — whether the contract passes validation
 - `errors` / `warnings` — validation issues with path, code, and message
 - `summary` — parsed contract overview (name, version, interfaces, runtime state)
