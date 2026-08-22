@@ -1,4 +1,8 @@
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+# `--match 'v[0-9]*'` restricts to core "vX.Y.Z" tags. Without it git describe
+# picks the most recent tag of any kind, which is usually the k8s submodule's
+# (integrations/kubernetes/vX.Y.Z) -- so a from-source `pacto version` reported
+# the integration's version as the CLI's. Same guard as examples/demo/Makefile.
+VERSION ?= $(shell git describe --tags --always --dirty --match 'v[0-9]*' 2>/dev/null || echo "dev")
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)"
