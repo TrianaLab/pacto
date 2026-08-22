@@ -74,7 +74,7 @@ pacto diff oci://ghcr.io/acme/svc:1.0 oci://ghcr.io/acme/svc:2.0
 pacto dashboard                              # auto-detects local, OCI and K8s sources
 ```
 
-The [Quickstart](https://pacto.run/latest/quickstart) goes from zero to a published contract in two minutes.
+The [Quickstart](https://pacto.run/latest/quickstart) goes from zero to a published contract in about five minutes, using a throwaway local registry so you need no account.
 
 ## What a contract captures
 
@@ -141,7 +141,7 @@ Pacto composes the interface tools it sits between (OpenAPI, config schemas) and
 
 | | Versioned artifact | Semantic diff | Dependency graph | Transitive policy | Runtime verify | Orchestrator-agnostic | Deploys? |
 |---|---|---|---|---|---|---|---|
-| **Score** | — | — | — | — | — | ✅ | No |
+| **Score** ([score.dev](https://score.dev)) | — | — | — | — | — | ✅ | No |
 | **Crossplane Configuration** | ✅ | — | Partial | — | Partial | — | Yes |
 | **KubeVela** / OAM | — | Partial | Partial | — | Partial | Partial | Yes |
 | **Radius** | — | — | ✅ | — | — | Partial | Yes |
@@ -186,13 +186,20 @@ go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 git clone https://github.com/TrianaLab/pacto.git && cd pacto && make build
 ```
 
+The installer script also installs the two official plugins and leaves a
+version-stamped binary that `pacto update` can upgrade in place. `go install`
+and `make build` install `pacto` alone into `$GOBIN`, and a `go install` build
+reports its version as `dev` because the stamp is applied at release time. The
+[Installation guide](https://pacto.run/latest/installation) covers pinning a
+version, installing without `sudo` and uninstalling.
+
 ## Documentation
 
 Full documentation at **[pacto.run](https://pacto.run)**.
 
 | Guide | Description |
 |-------|-------------|
-| [Quickstart](https://pacto.run/latest/quickstart) | From zero to a published contract in 2 minutes |
+| [Quickstart](https://pacto.run/latest/quickstart) | From zero to a published contract in about 5 minutes |
 | [Contract Reference](https://pacto.run/latest/contract-reference) | Every field, validation rule and change classification |
 | [For Developers](https://pacto.run/latest/developers) | Write and maintain contracts alongside your code |
 | [For Platform Engineers](https://pacto.run/latest/platform-engineers) | Consume contracts for deployment, policies and graphs |

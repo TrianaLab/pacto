@@ -133,19 +133,28 @@ Port 5001 rather than 5000 because macOS binds 5000 for AirPlay.
 # Auto-tags with service.version; skips if that tag already exists (--force overwrites)
 $ pacto push oci://localhost:5001/demo/my-service-pacto -p my-service
 Pushed my-service@0.1.0 -> localhost:5001/demo/my-service-pacto:0.1.0
-Digest: sha256:444b9b22...
+Digest: sha256:<64 hex characters>
 ```
 
-No `pacto login` here — a local registry needs no credentials. Against a real
-registry, authenticate first:
+The digest is the full 64-character hash, and it is content-addressed: yours
+will differ from anyone else's the moment you edit the contract.
+
+No `pacto login` here — a local registry needs no credentials. A real registry
+needs two things you have to arrange yourself: an account you can publish to
+(`your-org` must be a GitHub user or organisation you own) and, for GHCR, a
+personal access token carrying the `write:packages` scope. With both in hand:
 
 ```bash
 $ pacto login ghcr.io -u your-username
+Password:
+Login succeeded for ghcr.io
 $ pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
-GHCR needs a token with the `write:packages` scope, and `your-org` must be an
-organisation or user you can publish to.
+Paste the token at the `Password:` prompt; it is not echoed. `login` stores the
+credentials in `~/.config/pacto/config.json` without contacting the registry, so
+`Login succeeded` only means they were saved — a wrong token or a missing scope
+surfaces on the `push`.
 
 !!! note "`pacto pack` is not a step on this path"
     `pacto pack my-service` writes `my-service-0.1.0.tar.gz`, a bundle you can
@@ -252,7 +261,7 @@ survive, both outside this directory:
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | Write and maintain contracts | [For Developers](developers.md) |
 | Consume contracts for deployment | [For Platform Engineers](platform-engineers.md) |
-| See contracts for real services | [Examples](examples/index.md) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC, and more) |
+| See contracts for real services | [Examples](examples/index.md) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more) |
 | Integrate with CI/CD | [GitHub Actions](github-actions.md) |
 | Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph |
 | Runtime compliance in Kubernetes | [Kubernetes Operator](integrations/kubernetes/overview.md) |
