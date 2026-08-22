@@ -1,0 +1,100 @@
+import { expect, test, type Page } from '@playwright/test';
+
+// The same Level 6 gate as mermaid.spec.ts, pointed at the other thing only a real
+// browser can see: whether the site can be *operated* from the keyboard. Neither
+// `mkdocs build --strict` nor any Markdown check can observe focus, and both of
+// the behaviours below failed silently — the page looked right in a screenshot
+// while a keyboard reader was stranded.
+//
+// Two pages, because they differ in the way that matters: the home page uses the
+// hero template from overrides/ and its first heading is far down the document,
+// so its skip link has real distance to cover; every other page uses the stock
+// Material template and skips barely a screen.
+const PAGES = ['/', '/quickstart/'];
+
+/** Where the keyboard is, described well enough to name in a failure message. */
+async function focused(page: Page) {
+  return page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return null;
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    return {
+      tag: el.tagName.toLowerCase(),
+      id: el.id,
+      className: typeof el.className === 'string' ? el.className : '',
+      text: (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40),
+      // Answered here, in the same read as everything else. Asking a second
+      // page.evaluate() where the focus is lets it move between the two, which
+      // produced a failure whose message named an element that satisfied the
+      // assertion it had just failed.
+      inContent: !!el.closest('.md-content'),
+      // A ring drawn on a zero-sized element is not a ring anyone can see, so the
+      // element's own box is part of the question, not separate from it.
+      ring: style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0,
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+    };
+  });
+}
+
+for (const path of PAGES) {
+  test(`the skip link moves focus, not just the viewport (${path})`, async ({ page }) => {
+    await page.goto(path);
+
+    // Tab once: Material's skip link is deliberately the first stop on the page.
+    await page.keyboard.press('Tab');
+    const skip = await focused(page);
+    expect(skip?.className, 'the first tab stop is the skip link').toContain('md-skip');
+
+    const href = await page.locator('.md-skip').getAttribute('href');
+    const targetId = decodeURIComponent(new URL(href!, page.url()).hash.slice(1));
+    expect(targetId, 'the skip link names a target').not.toBe('');
+
+    await page.keyboard.press('Enter');
+
+    // The regression this exists for: the browser scrolls to a heading, headings
+    // are not focusable, focus stays on <body>, and the next Tab restarts at the
+    // top — so "skip to content" returns the reader to the header they skipped.
+    // Asserting on scrollY would have passed throughout. docs/javascripts/skip-link.js.
+    const landed = await focused(page);
+    expect(landed, 'activating the skip link leaves focus somewhere').not.toBeNull();
+    expect(landed!.id, 'focus is on the skip link target itself').toBe(targetId);
+
+    // And onward from there: the next stop must be inside the content, not back
+    // in the header — otherwise focus moved but the sequence did not.
+    await page.keyboard.press('Tab');
+    const next = await focused(page);
+    expect(
+      next?.inContent,
+      `the stop after the target is inside the content, got ${JSON.stringify(next)}`,
+    ).toBe(true);
+  });
+
+  test(`every early tab stop shows where the focus is (${path})`, async ({ page }) => {
+    await page.goto(path);
+
+    // Far enough to cross the header, the palette switch, the search field, the
+    // repository link and the whole nav tab row — the stretch where Material
+    // ships no focus ring of its own and a reader has nothing to follow.
+    const invisible: unknown[] = [];
+    for (let i = 0; i < 18; i++) {
+      await page.keyboard.press('Tab');
+      const stop = await focused(page);
+      if (!stop) break;
+      // A zero-box control (the palette radio) is legitimate as long as the label
+      // standing in for it draws the ring; ask the DOM which element is painted.
+      const painted =
+        stop.ring && stop.width > 0 && stop.height > 0
+          ? true
+          : await page.evaluate(() => {
+              const proxy = document.activeElement?.nextElementSibling;
+              if (!proxy) return false;
+              const style = getComputedStyle(proxy);
+              return style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0;
+            });
+      if (!painted) invisible.push({ stop: i + 1, ...stop });
+    }
+    expect(invisible, 'tab stops with no visible focus indicator').toEqual([]);
+  });
+}
