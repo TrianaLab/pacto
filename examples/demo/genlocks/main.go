@@ -181,9 +181,10 @@ func depBearing(c *contract.Contract) bool {
 //
 // Two demo-specific deviations from the real builder in internal/app:
 //
-//	(a) Pins are content-derived hashes (lock.HashFS over the bundle FS) suitable
-//	    for offline e2e, NOT live OCI manifest digests — the demo never contacts a
-//	    registry. The `digest` field carries this content hash by design.
+//	(a) Pins are content-derived hashes (sha256 over the target's raw pacto.yaml —
+//	    see contractDigest) suitable for offline e2e, NOT live OCI manifest
+//	    digests: the demo never contacts a registry. The `digest` field carries
+//	    this content hash by design.
 //	(b) The closure walk mirrors internal/app's walkClosure / buildReferenceClosure
 //	    (policies first, then configs; one lock entry per declared reference
 //	    occurrence; the walk deduplicated by resolved bundle, which terminates

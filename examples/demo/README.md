@@ -65,8 +65,8 @@ The dependency-bearing demo bundles ship a committed `pacto.lock` (plus a
 `.pactoignore` that re-includes it with `!pacto.lock`), so the demo dashboard
 shows resolved dependency/reference pins offline. `pacto.lock` is default-ignored
 when packing a bundle; `.pactoignore` opts it back in so the lock travels with the
-embedded bundle. Only dep-bearing bundles get a lock — leaf bundles (postgresql,
-redis, stripe-api, email-provider, platform-*) carry none.
+embedded bundle. Only dep-bearing bundles get a lock — leaf bundles (audit-log,
+postgresql, redis, stripe-api, email-provider, platform-*) carry none.
 
 Regenerate with:
 
@@ -74,16 +74,19 @@ Regenerate with:
 make demo-locks            # runs ./genlocks, then commit the result
 ```
 
-`genlocks` is OFFLINE and DETERMINISTIC: the demo's `oci://ghcr.io/...` refs don't
-resolve without a live registry, so it resolves the closure BY SERVICE NAME within
-`./bundles` (every referenced service is present). The lockfile `digest` is a
-**content-derived pin for the offline demo, not a live registry digest**: it is
-the `lock.HashFS` content hash of the target bundle (computed over the default
-ignore set, so the lock files never feed their own hash). Re-running `make
-demo-locks` is byte-identical, so the committed demo data stays stable. The
-original declared `oci://` ref is preserved verbatim in each entry's `ref`. There
-is no k8s runtime in the demo, so no drift is asserted — pins are shown without a
-drift status, which is correct offline.
+`genlocks` is OFFLINE and DETERMINISTIC: it never contacts a registry, so it
+resolves the closure BY SERVICE NAME within `./bundles` (every referenced service
+is present). The lockfile `digest` is a **content-derived pin for the offline
+demo, not a live registry digest**: it is sha256 over the target's raw
+`pacto.yaml`, which is the address `EmbedSource` computes and the demo fleet
+publishes for every revision, so a pinned reference correlates to a revision the
+demo actually holds. Re-running `make demo-locks` is byte-identical, so the
+committed demo data stays stable. The original declared `oci://` ref is preserved
+verbatim in each entry's `ref`. There is no k8s runtime in the demo, so no drift
+is asserted — pins are shown without a drift status, which is correct offline.
+
+Because that pin is not an OCI manifest digest, the real CLI cannot verify these
+locks: see [Why these use published refs](#why-these-use-published-refs-and-not-bundles).
 
 ## Build
 
@@ -100,26 +103,45 @@ make serve                 # preview at http://localhost:8088/pacto/demo/
 scratch dir and copies it into `dist/`; it never modifies the committed
 `pkg/dashboard/ui` (which the real `pacto dashboard` server uses).
 
-## Explore the contracts on the CLI (offline)
+## Explore the contracts on the CLI
 
-These work on the local bundles with no registry. Build the CLI first with
-`make build` at the repo root.
+The demo contracts are published at `ghcr.io/trianalab/pacto/<service>`, so these
+resolve over the network. Build the CLI first with `make build` at the repo root.
 
 ```bash
-# A breaking change: payments-service v1.2.0 -> v2.0.0 (drops /charges).
+# A breaking change: payments-service 1.2.0 -> 2.0.0 (drops /charges).
 make breaking-change
 
-# A non-breaking evolution: v1.0.0 -> v1.1.0.
+# A smaller evolution, 1.0.0 -> 1.1.0: additive paths and a new config key, but a
+# tightened field description, so Pacto classifies it POTENTIAL_BREAKING.
 make evolution
 
-# Inspect any contract.
+# Resolve the dependency closure.
+make graph
+
+# Inspect any contract — a published ref or a local bundle path.
 make explain REF=bundles/payments-service/v2.1.0
 ```
 
-Full contract validation (`pacto validate`) and live graph resolution
-(`pacto graph`) resolve refs over the network and require the contracts to be
-published to a registry; this demo publishes nothing, so use the live dashboard
-above for the dependency graph.
+`pacto validate` works the same way:
+
+```bash
+pacto validate oci://ghcr.io/trianalab/pacto/payments-service:2.1.1
+pacto validate oci://ghcr.io/trianalab/pacto/payments-service:2.1.1 --readiness
+```
+
+The second one fails on purpose: 2.1.1 declares a readiness gate of 80 and one
+30-weight claim is `not-done`, so it scores 70 and reports `READINESS_GATE_UNMET`.
+
+### Why these use published refs and not `./bundles`
+
+Every dependency-bearing bundle here carries a `pacto.lock` written by
+[`genlocks`](genlocks), whose pins are content hashes of `pacto.yaml` rather than
+OCI manifest digests — deliberately, so the offline WebAssembly demo can show lock
+pins without a registry. Any command that verifies a committed lock (`diff`,
+`validate`, `graph`, `push`) re-resolves the closure and hard-fails on the
+mismatch, so a local-path `pacto diff` can only ever print
+`LOCK_DIGEST_MISMATCH`. Lock verification is skipped for an `oci://` ref.
 
 ## Size
 
