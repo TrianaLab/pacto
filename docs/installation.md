@@ -1,7 +1,17 @@
 # Installation
----
+
+Three ways in. The installer script is the shortest and the only one that also
+brings the plugins; Go and from-source builds are for contributors and for
+machines that already have a Go toolchain.
 
 ## Via installer script
+
+You need a POSIX shell, `curl` or `wget`, and either the ability to `sudo` into
+`/usr/local/bin` or a writable directory of your own (see *Installing without
+sudo* below). Linux and macOS run it directly; on Windows use Git Bash, MSYS2 or
+Cygwin. The script downloads `checksums.txt` alongside the binary and verifies
+SHA-256 with `sha256sum` or `shasum`; if the checksums file or both tools are
+missing it prints `Warning: ... skipping verification` and installs anyway.
 
 Install with one command:
 

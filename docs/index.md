@@ -31,7 +31,7 @@ state:
 ```
 
 !!! success "One file, checked and shipped"
-    Everything above is validated (structure, cross-references and policy), versioned with semver and distributed as an OCI (Open Container Initiative) artifact.
+    Everything above is validated (structure, cross-references and policy), versioned with semver — semantic versioning, the `MAJOR.MINOR.PATCH` scheme — and distributed as an OCI (Open Container Initiative) artifact: the same registries that already hold your container images.
 
 ## What is Pacto?
 
@@ -179,7 +179,7 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 - **3-layer validation** — structural (JSON Schema), cross-field (reference and consistency checks including state vs. persistence) and policy enforcement
 - **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees to show the full blast radius
 - **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries; sibling deps are fetched in parallel
-- **OCI distribution** — push/pull contracts to any OCI registry (GHCR, ECR, ACR, Docker Hub, Harbor); bundles are cached locally for fast repeated operations
+- **OCI distribution** — push/pull contracts to any OCI registry: GitHub Container Registry (GHCR), Amazon Elastic Container Registry (ECR), Azure Container Registry (ACR), Docker Hub, Harbor; bundles are cached locally for fast repeated operations
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables and configuration details
 - **SBOM diffing** — an optional software bill of materials (SBOM) in SPDX or CycloneDX format with automatic package-level change detection on `pacto diff`

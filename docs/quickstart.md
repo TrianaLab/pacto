@@ -122,12 +122,21 @@ rules, including how `partial` claims earn part of their weight.
 A contract is only useful once other people can resolve it. Start a throwaway
 registry so you can do the whole round trip with no account:
 
+Docker has to be **running**, not just installed: if the daemon (or Docker
+Desktop) is down, `docker run` fails with a connection error naming the Docker
+socket rather than anything about Pacto.
+
 ```bash
 $ docker run -d --rm -p 5001:5000 --name pacto-registry registry:3
+6202c6df98fc5f50cf3b3375ea112d0928b274cb3bd6aa7b7d25d1e8e6b56aa2
 ```
 
-It listens on `localhost:5001`, holds nothing on disk and disappears in step 9.
-Port 5001 rather than 5000 because macOS binds 5000 for AirPlay.
+`registry:3` is the official `registry` image — CNCF Distribution
+(`github.com/distribution/distribution/v3`), the reference OCI registry. Docker
+pulls it the first time and prints download progress, then prints the container
+ID as above; yours will differ. It listens on `localhost:5001`, holds nothing on
+disk and disappears in step 9. Port 5001 rather than 5000 because macOS binds
+5000 for AirPlay.
 
 ```bash
 # Auto-tags with service.version; skips if that tag already exists (--force overwrites)
@@ -234,9 +243,11 @@ breaking changes detected
 ```
 
 The exit code is 1 when the classification is `BREAKING` — that is the CI gate.
-See [Detecting breaking changes](developers.md#detecting-breaking-changes) and
-the [GitHub Actions](github-actions.md) integration for wiring it into a
-pipeline.
+Removing an API path is one rule out of the full table:
+[Change classification](contract-reference/diff.md) lists every field `pacto diff`
+compares and the verdict it reaches for each. See
+[Detecting breaking changes](developers.md#detecting-breaking-changes) and the
+[GitHub Actions](github-actions.md) integration for wiring it into a pipeline.
 
 ## 9. Clean up
 
