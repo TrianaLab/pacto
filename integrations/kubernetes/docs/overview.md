@@ -11,10 +11,13 @@ live workload and reports whether they align.
 
 **It observes your workloads and never modifies them.** It is not, however, a
 read-only component overall: at chart defaults it also deploys and manages
-Pacto's own dashboard and Evidence Server, which means creating Deployments,
-Services, ServiceAccounts and RBAC of its own. Those grants are broad enough to
-allow privilege escalation, and turning the managed components off removes them
--- read [RBAC](rbac.md) before installing into a cluster where that matters.
+Pacto's own dashboard, which means creating a Deployment, Service,
+ServiceAccount, Secret and cluster-scoped RBAC of its own. Those grants are broad
+enough to allow privilege escalation, and turning the managed components off
+removes them -- read [RBAC](rbac.md) before installing into a cluster where that
+matters. The Evidence Server is the operator's other managed component; it is
+**off** at chart defaults and needs `evidence.enabled=true` plus a trust store
+and a subject list (see [Installation](installation.md#the-evidence-server-is-off-by-default)).
 
 ## Where it fits
 

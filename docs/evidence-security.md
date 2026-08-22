@@ -123,7 +123,7 @@ keys:
     allowedSubjects:                  # path.Match globs; empty = any subject
       - payments-*
     allowedContractRepos:             # bare registry/repo prefixes; empty = any repo
-      - ghcr.io/acme/contracts
+      - registry.example.com/acme/contracts
 ```
 
 Loading validates the schema version, the identifier grammar, duplicate key ids,
@@ -141,7 +141,7 @@ enforce scopes it cannot express.
 ```bash
 pacto evidence serve \
   --trust ./trust \
-  --subject oci://ghcr.io/acme/payments-api@sha256:1a2b…
+  --subject oci://registry.example.com/acme/payments-api@sha256:1a2b…
 ```
 
 `serve` starts the ingestion host: it loads the trust store from `--trust`,

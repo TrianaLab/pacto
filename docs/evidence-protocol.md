@@ -89,7 +89,7 @@ A full envelope on the wire:
   "expiresAt": "2026-07-30T10:00:00Z",
   "evidenceSet": {
     "Subject": { "kind": "service", "name": "payments-api" },
-    "ContractRef": "oci://ghcr.io/acme/payments-api@sha256:1a2b…",
+    "ContractRef": "oci://registry.example.com/acme/payments-api@sha256:1a2b…",
     "Source": "edge-collector",
     "ObservedAt": "2026-07-29T09:59:00Z",
     "Observations": [
@@ -222,14 +222,14 @@ degraded store from a healthy one:
     {
       "subject": "payments",
       "service": "payments-api",
-      "domain": "ghcr.io/acme",
+      "domain": "registry.example.com/acme",
       "digest": "sha256:…",
       "producer": "prod-eu",
       "producerKeyId": "edge-eu-west-2026",
       "compliance": "Compliant",
       "coverage": { "evaluated": 3, "required": 5 },
       "findings": [ … ],
-      "contractRef": "oci://ghcr.io/acme/payments@sha256:…",
+      "contractRef": "oci://registry.example.com/acme/payments@sha256:…",
       "evidenceAt": "2026-07-29T11:00:00Z",
       "acceptedAt": "2026-07-29T11:05:00Z"
     }
@@ -244,7 +244,7 @@ revision), both the evidence and accept timestamps, and producer provenance.
 the contract `contractRef` resolved to, so a consumer attaches the target to the
 right domain-qualified service and revision instead of inferring one from
 `subject`; `domain` is everything in the resolved reference before its final path
-segment, such as `ghcr.io/acme`. `schemaVersion` is the compatibility contract: a
+segment, such as `registry.example.com/acme`. `schemaVersion` is the compatibility contract: a
 consumer that does not recognise it treats the source as unavailable rather than
 misreading it. `health.status` is `ready` (every configured subject read
 completely, so an empty target list is authoritative) or `partial` (evidence

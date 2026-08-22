@@ -72,8 +72,9 @@ Two things change on upgrade:
    empty world. The bucket values (`evidence.storage.*`) are gone.
 2. **Your registry must serve the native Referrers API.** Pacto refuses the
    legacy referrers-tag fallback, so a registry without the endpoint leaves the
-   Evidence Server permanently not-ready. CNCF distribution (`registry:2`,
-   `registry:3`) does not qualify.
+   Evidence Server permanently not-ready. Neither GHCR nor CNCF distribution
+   (`registry:2`, `registry:3`) qualifies — see [Evidence in
+   OCI](../../evidence-oci-storage.md) for what was checked.
 
 ```bash
 helm upgrade pacto-operator \
@@ -81,7 +82,7 @@ helm upgrade pacto-operator \
   --namespace pacto-operator-system \
   --set evidence.enabled=true \
   --set evidence.trust.existingSecret=pacto-evidence-trust \
-  --set 'evidence.registry.subjects[0]=oci://ghcr.io/acme/checkout@sha256:<64 hex>'
+  --set 'evidence.registry.subjects[0]=oci://registry.example.com/acme/checkout@sha256:<64 hex>'
 ```
 
 An existing `pacto-evidence-data` PVC from an earlier release is **not** deleted

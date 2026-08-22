@@ -345,13 +345,24 @@ def gen_rbac(k8s: str) -> str:
     out.append("")
 
     if component_only:
+        values = load_yaml_docs(os.path.join(k8s, "charts/pacto-operator/values.yaml"))[0]
+        state = {
+            c: bool((values.get(c) or {}).get("enabled")) for c in ("dashboard", "evidence")
+        }
+        defaults_sentence = " and ".join(
+            f"`{c}.enabled` is **{'on' if on else 'off'}**" for c, on in state.items()
+        )
+        enabled_now = [c for c, on in state.items() if on]
         out.append("## Additionally granted when a managed component is enabled\n")
         out.append(
-            "`dashboard.enabled` and `evidence.enabled` are **on by default**. When either "
-            "is on, the operator manages that component's Deployment, Service, ServiceAccount "
-            "and RBAC for you, and the chart widens the ClusterRole accordingly. Rendering the "
-            "chart with `--set dashboard.enabled=false --set evidence.enabled=false` removes "
-            "every rule in this table.\n"
+            "When a managed component is on, the operator creates and reconciles that "
+            "component's Deployment, Service, ServiceAccount and RBAC for you, and the chart "
+            f"widens the ClusterRole accordingly. At chart defaults {defaults_sentence}, so "
+            "every rule below is what a default install adds"
+            + (f" for the {' and '.join(enabled_now)}" if enabled_now else "")
+            + ". Rendering the chart with `"
+            + " ".join(f"--set {c}.enabled=false" for c in state)
+            + "` removes every rule in this table.\n"
         )
         out.extend(_rbac_rules_table(component_only))
         out.append("")

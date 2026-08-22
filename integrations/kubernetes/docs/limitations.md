@@ -4,10 +4,17 @@ The operator is deliberately read-only and conservative: it never fabricates a
 violation from evidence it cannot trust. The boundaries below follow directly from
 that stance.
 
-## Read-only
+## Read-only towards your workloads
 
-The operator never modifies workloads, restarts pods or changes cluster state. It
-observes and reports only.
+The operator never modifies the workloads it observes: it does not restart pods,
+edit Deployments or change anything it was pointed at. Observation is read and
+report only.
+
+It is not a read-only component overall. At chart defaults it manages the Pacto
+dashboard for you, which means creating a Deployment, Service, ServiceAccount,
+Secret, ClusterRole and ClusterRoleBinding of its own — and the grants that allow
+that are broad enough to escalate privilege. [RBAC](rbac.md) has the full rule
+list and the flags that switch the managed components off.
 
 ## Observation boundaries
 

@@ -39,7 +39,7 @@ Present in every install, including one with every managed component disabled. W
 
 ## Additionally granted when a managed component is enabled
 
-`dashboard.enabled` and `evidence.enabled` are **on by default**. When either is on, the operator manages that component's Deployment, Service, ServiceAccount and RBAC for you, and the chart widens the ClusterRole accordingly. Rendering the chart with `--set dashboard.enabled=false --set evidence.enabled=false` removes every rule in this table.
+When a managed component is on, the operator creates and reconciles that component's Deployment, Service, ServiceAccount and RBAC for you, and the chart widens the ClusterRole accordingly. At chart defaults `dashboard.enabled` is **on** and `evidence.enabled` is **off**, so every rule below is what a default install adds for the dashboard. Rendering the chart with `--set dashboard.enabled=false --set evidence.enabled=false` removes every rule in this table.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
