@@ -40,6 +40,7 @@ Validates semantic references and consistency:
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
 | OCI dependency uses tag instead of digest | `TAG_NOT_DIGEST` (warning) |
 | `configurations[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
+| `configurations[].schema` file does not exist in the bundle | `FILE_NOT_FOUND` |
 | `configurations[].schema` file is not valid JSON | `INVALID_CONFIG_JSON` |
 | `configurations[].schema` file is not valid JSON Schema | `INVALID_CONFIG_SCHEMA` |
 | `configurations[].values` don't match the schema | `CONFIG_VALUES_VALIDATION_FAILED` |
