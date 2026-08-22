@@ -174,6 +174,8 @@ checkPluginsVersion() {
   fi
   if [ -z "$PLUGINS_TAG" ]; then
     echo "Warning: failed to fetch latest plugins version, skipping plugin installation" >&2
+    echo "  $BINARY_NAME itself is installed. Re-run this script to retry, or download" >&2
+    echo "  the plugins from https://github.com/$PLUGINS_REPO/releases" >&2
     return 1
   fi
 }
@@ -213,13 +215,24 @@ installPlugins() {
 
 help() {
   echo "Usage: get-pacto.sh [--version <version>] [--no-sudo] [--help]"
-  echo "  --version, -v specify version (e.g. v1.2.3)"
+  echo "  --version, -v specify version (e.g. v3.2.1); default: latest release"
   echo "  --no-sudo     disable sudo for installation"
   echo "  --help, -h    show help"
+  echo ""
+  echo "Environment:"
+  echo "  PACTO_INSTALL_DIR  install directory (default: /usr/local/bin); must exist"
+  echo "  GH_TOKEN           GitHub token for version lookup, to avoid the"
+  echo "                     anonymous API rate limit (60 requests/hour per IP)"
 }
 
+# Must end on a successful command: bash takes the exit status of the last
+# command in an EXIT trap as the script's status, so a bare failing test here
+# turned `--help` and "already installed" (both `exit 0`) into exit 1.
 cleanup() {
-  [ -n "$DOWNLOAD_DIR" ] && rm -rf "$DOWNLOAD_DIR"
+  if [ -n "$DOWNLOAD_DIR" ]; then
+    rm -rf "$DOWNLOAD_DIR"
+  fi
+  return 0
 }
 
 trap cleanup EXIT
