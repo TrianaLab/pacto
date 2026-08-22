@@ -20,8 +20,10 @@ Or via Go:
 go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 ```
 
-See [Installation](installation.md) for the other methods, for installing
-without `sudo` and for what each method does and does not include.
+See [Installation](installation.md) for the other methods, for
+[installing without `sudo`](installation.md#installing-without-sudo), and for
+what to do if the script exits with `Failed to fetch latest version` — that is
+the anonymous GitHub API rate limit, not a broken release.
 
 ## 2. Scaffold a contract
 
@@ -168,7 +170,9 @@ surfaces on the `push`.
 !!! note "`pacto pack` is not a step on this path"
     `pacto pack my-service` writes `my-service-0.1.0.tar.gz`, a bundle you can
     hand to someone with no registry access. `pacto push` reads the directory
-    directly and rejects a tarball, so packing before pushing does nothing.
+    directly and rejects a tarball (`my-service-0.1.0.tar.gz is not a
+    directory`), so packing before pushing does nothing. No other Pacto command
+    reads the archive either — whoever receives it extracts it first.
 
 ## 7. Read it back
 
@@ -243,6 +247,12 @@ breaking changes detected
 ```
 
 The exit code is 1 when the classification is `BREAKING` — that is the CI gate.
+
+Both sides of a diff can be local, so this check needs no registry at all:
+`pacto diff ./v1 ./v2` compares two directories and prints the same
+classification. That is the form to reach for when comparing a release branch
+against `main` in CI.
+
 Removing an API path is one rule out of the full table:
 [Change classification](contract-reference/diff.md) lists every field `pacto diff`
 compares and the verdict it reaches for each. See

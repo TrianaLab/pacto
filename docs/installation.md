@@ -7,11 +7,19 @@ machines that already have a Go toolchain.
 ## Via installer script
 
 You need a POSIX shell, `curl` or `wget`, and either the ability to `sudo` into
-`/usr/local/bin` or a writable directory of your own (see *Installing without
-sudo* below). Linux and macOS run it directly; on Windows use Git Bash, MSYS2 or
-Cygwin. The script downloads `checksums.txt` alongside the binary and verifies
-SHA-256 with `sha256sum` or `shasum`; if the checksums file or both tools are
-missing it prints `Warning: ... skipping verification` and installs anyway.
+`/usr/local/bin` or a writable directory of your own (see [Installing without
+sudo](#installing-without-sudo)). Linux and macOS run it directly; on Windows use
+Git Bash, MSYS2 or Cygwin. The script downloads `checksums.txt` alongside the
+binary and verifies SHA-256 with `sha256sum` or `shasum`; if the checksums file
+or both tools are missing it prints `Warning: ... skipping verification` and
+installs anyway.
+
+Note that the two paths differ here: [`pacto update`](#updating) aborts rather
+than replace a binary it could not verify, while the installer proceeds. On a
+machine with neither `sha256sum` nor `shasum`, a first install is therefore
+unverified. If you need it to fail closed instead, take a
+[release binary](https://github.com/TrianaLab/pacto/releases) and check it
+against the release's `checksums.txt` yourself.
 
 Install with one command:
 
@@ -32,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
   | bash -s -- --version v3.1.4
 ```
 
-!!! warning "If the script cannot find a version"
+!!! warning "If the script cannot find a version (GitHub API rate limit)"
     The script resolves the version through the anonymous GitHub API, which
     allows 60 requests per hour per IP address. On a shared or NAT'd address it
     can run out and exit without installing anything, reporting
@@ -45,20 +53,34 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
       | GH_TOKEN="$(gh auth token)" bash
     ```
 
-!!! warning "Installing without sudo"
-    The installer writes to `/usr/local/bin` and calls `sudo` to do it. `--no-sudo`
-    is what turns that off. Choosing a writable directory does **not**: the script
-    still calls `sudo` even when the target needs no elevation, so to install into
-    your home directory you need both.
+    `gh auth token` just prints the token the [GitHub CLI](https://cli.github.com/)
+    already holds. Without `gh`, create a fine-grained personal access token with
+    no permissions selected at
+    [github.com/settings/tokens](https://github.com/settings/tokens) and pass it
+    directly: `GH_TOKEN=github_pat_… bash`.
 
-    ```bash
-    # Install to a directory you own, with no sudo at all
-    curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh \
-      | PACTO_INSTALL_DIR="$HOME/.local/bin" bash -s -- --no-sudo
-    ```
+### Installing without sudo
 
-    `$HOME/.local/bin` must be on your `PATH`, and the directory must already exist —
-    the script does not create it.
+The installer writes to `/usr/local/bin` and calls `sudo` to do it. `--no-sudo`
+is what turns that off. Choosing a writable directory does **not**: the script
+still calls `sudo` even when the target needs no elevation, so to install into
+your home directory you need both.
+
+```bash
+# Install to a directory you own, with no sudo at all
+curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh \
+  | PACTO_INSTALL_DIR="$HOME/.local/bin" bash -s -- --no-sudo
+```
+
+`$HOME/.local/bin` must be on your `PATH`, and the directory must already exist —
+the script does not create it. Everything the script reads from the environment
+composes, so a rate-limited machine installing into its own directory passes
+both:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh \
+  | GH_TOKEN="$(gh auth token)" PACTO_INSTALL_DIR="$HOME/.local/bin" bash -s -- --no-sudo
+```
 
 ## Via Go
 

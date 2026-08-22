@@ -13,8 +13,7 @@ flowchart LR
     A[Write code] --> B[Infer schemas]
     B --> C[Define pacto.yaml]
     C --> D[pacto validate]
-    D --> E[pacto pack]
-    E --> F[pacto push]
+    D --> F[pacto push]
     F --> G[CI / Platform picks it up]
 ```
 
@@ -192,20 +191,27 @@ See [Validation layers](contract-reference/validation.md#validation-layers) for 
 
 To also enforce the readiness gate — the `readiness:` block `pacto init` scaffolds into your contract — run `pacto validate --readiness`. It fails if the derived readiness score is below `minScore`. Plain `pacto validate` does not enforce it because the gate is time-dependent (the assessment's expiry is compared against the run time). See [Contract Reference — readiness](contract-reference/sections.md#readiness).
 
-### 8. Pack and push
+### 8. Push
 
 ```bash
-pacto pack my-service
 pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
-Use a [`.pactoignore`](pactoignore.md) file to keep build artifacts and other cruft out of the packed bundle.
+`push` reads the bundle directory and uploads it. There is no packing step in
+front of it: hand it a `.tar.gz` and it answers `my-service-0.1.0.tar.gz is not
+a directory`. Use a [`.pactoignore`](pactoignore.md) file to keep build
+artifacts and other cruft out of what gets uploaded.
 
 If the artifact already exists in the registry, `pacto push` prints a warning and exits without pushing. Use `--force` to overwrite:
 
 ```bash
 pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service --force
 ```
+
+`pacto pack my-service` is a separate path, not a step on this one: it writes
+`my-service-0.1.0.tar.gz` for handing to someone with no registry access. No
+Pacto command reads that archive back — the recipient extracts it and points
+`validate`, `explain` or `diff` at the resulting directory.
 
 ---
 
