@@ -145,8 +145,12 @@ func TestNothingOnTheComposeDemoPathTouchesOras(t *testing.T) {
 		"tests/acceptance/local/compose-demo.sh": readFile(t, root, "tests", "acceptance", "local", "compose-demo.sh"),
 		"docs/examples/compose-demo.md":          readFile(t, root, "docs", "examples", "compose-demo.md"),
 	}
-	// The two jobs that run that harness / that publish the unit, in full: an
-	// `uses:` line installing ORAS is as much a regression as a call to it.
+	// The SHELL of the two jobs that run that harness / publish the unit. The ban
+	// is on ORAS touching THIS ARTIFACT, not on the job having ORAS installed:
+	// demo-compose installs it to read and write the release ledger, which is a
+	// generic OCI artifact and nothing to do with the Compose application. Banning
+	// the `uses:` line too is what deleted that install in 45abda33 and half-shipped
+	// release run 32560058692. What must never appear here is a CALL.
 	for file, jobs := range map[string]map[string]wfJob{
 		"ci.yml":      workflowJobs(t, root, "ci.yml"),
 		"release.yml": workflowJobs(t, root, "release.yml"),
@@ -156,11 +160,7 @@ func TestNothingOnTheComposeDemoPathTouchesOras(t *testing.T) {
 			if !ok {
 				continue
 			}
-			b, err := yaml.Marshal(job)
-			if err != nil {
-				t.Fatalf("re-encode %s job %s: %v", file, name, err)
-			}
-			subjects[file+" job "+name] = string(b)
+			subjects[file+" job "+name] = job.runs()
 		}
 	}
 	for name, text := range subjects {

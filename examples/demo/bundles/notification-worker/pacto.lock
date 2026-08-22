@@ -9,8 +9,8 @@ dependencies:
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/email-provider
       constraint: ^1.0.0
-      version: 1.0.0
-      digest: sha256:31f12d0ba035a93bb4551c96ad606194b96f7b9ca6456f0df2c017c48eb4cb2a
+      version: 1.0.1
+      digest: sha256:11006ec73f4decd917adc0cc61558489a399262ebc007238a4c216fb608f0fdb
 references:
     - kind: config
       name: platform

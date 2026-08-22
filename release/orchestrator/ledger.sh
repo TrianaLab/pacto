@@ -33,17 +33,43 @@ REPO="${PACTO_LEDGER_REPO:?PACTO_LEDGER_REPO required}"
 case "$REPO" in
   *ghcr.io*|*trianalab*) [ "${PACTO_ALLOW_PROD:-}" = "1" ] || { echo "refusing prod ledger repo '$REPO' without PACTO_ALLOW_PROD=1" >&2; exit 1; } ;;
 esac
+# Fail-closed on a MISSING TOOL, not just a missing tag. The ledger is an OCI
+# artifact read and written with oras|jq; when a job forgets to install one, every
+# read returns the empty string, the empty string is indistinguishable from "this
+# transaction recorded nothing", and a release half-ships. That is release run
+# 32560058692. An absent tool is a job misconfiguration, so say which job and how.
+for tool in oras jq; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "::error::ledger.sh $CMD: '$tool' is not installed, but the release ledger ($REPO) is an OCI artifact read and written with it. Install it in this job (ORAS: oras-project/setup-oras) — an uninstalled tool reads as an empty ledger, which is how a release half-ships." >&2
+    exit 1
+  }
+done
 orasFlags() { case "$REPO" in localhost*|127.0.0.1*) printf -- '--plain-http';; esac; }
 # OCI tags allow [A-Za-z0-9_.-]; sanitize txn/unit-derived tags defensively.
 tagsan() { printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'; }
 ref() { printf '%s:%s' "$REPO" "$(tagsan "$1")"; }
 
-# pull <tag> -> ledger.json content on stdout ("" if the tag is absent). A fresh
+# pull <tag> -> ledger.json content on stdout ("" if the tag is ABSENT). A fresh
 # temp dir per call so concurrent/repeated pulls never collide on the filename.
+#
+# Only a genuine 404 yields "". Any other failure — auth, TLS, DNS, rate limit,
+# a registry outage — is fatal, because "" is load-bearing everywhere upstream
+# (it means "not yet recorded" and unlocks the write path), and reporting an
+# UNREADABLE ledger as an EMPTY one is precisely how a resumed release both
+# re-initializes a live transaction and republishes a completed unit. Callers
+# assign the result to a variable first, so `set -e` propagates this exit.
 pull() {
-  local d; d="$(mktemp -d)"
+  local d out rc=0
+  d="$(mktemp -d)"
   # shellcheck disable=SC2046  # $(orasFlags) is intentionally unquoted: empty => no arg.
-  if oras pull $(orasFlags) "$(ref "$1")" -o "$d" >/dev/null 2>&1; then cat "$d/ledger.json" 2>/dev/null || true; fi
+  out="$(oras pull $(orasFlags) "$(ref "$1")" -o "$d" 2>&1)" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    cat "$d/ledger.json" 2>/dev/null || true
+  elif ! printf '%s' "$out" | grep -qiE 'not found|NAME_UNKNOWN|MANIFEST_UNKNOWN|404'; then
+    rm -rf "$d"
+    echo "::error::ledger read failed for $(ref "$1") (exit $rc) — refusing to report an unreadable ledger as an empty one: $out" >&2
+    exit 1
+  fi
   rm -rf "$d"
 }
 # push_immutable <tag> <json>: write the doc to an immutable tag. If the tag

@@ -229,7 +229,12 @@ jobs:
           # formula as release/orchestrator/detect.mjs and dry-run.sh, expressed in
           # jq: sorted-key compact JSON of {unit: version}, hashed with no newline.
           MSHA="$(jq -cS '.units | map_values(.version)' release/release-manifest.json | tr -d '\n' | sha256sum | cut -d' ' -f1)"
-          if [ -n "$(bash release/orchestrator/ledger.sh get "$TXN")" ]; then
+          # Assigned first, deliberately: a command substitution inside `[ ... ]`
+          # discards its exit status, so a FAILED ledger read would be
+          # indistinguishable from an ABSENT one and would take the init branch —
+          # re-initializing a live transaction is exactly what must never be silent.
+          META="$(bash release/orchestrator/ledger.sh get "$TXN")"
+          if [ -n "$META" ]; then
             # Resume: the existing ledger must describe THIS exact transaction —
             # matching transactionId + sourceSha + manifestSha — else fail closed.
             # (manifest read from the source_sha checkout, so MSHA is the source's.)
@@ -472,7 +477,11 @@ jobs:
       - name: Resume check (ledger)
         id: v
         run: |
-          if [ "$(bash release/orchestrator/ledger.sh status "$PACTO_RELEASE_TXN" demo-bundles)" = complete ]; then
+          # Assigned first so a failed ledger read aborts the step: inside
+          # `[ ... ]` the exit status is discarded, an unreadable ledger reads as
+          # "not complete", and the step republishes to a production coordinate.
+          STATE="$(bash release/orchestrator/ledger.sh status "$PACTO_RELEASE_TXN" demo-bundles)"
+          if [ "$STATE" = complete ]; then
             echo "state=identical" >> "$GITHUB_OUTPUT"
           else
             echo "state=absent" >> "$GITHUB_OUTPUT"
@@ -494,7 +503,10 @@ jobs:
   # scenario) projected into ONE compose file and published by Docker Compose
   # itself, because Compose owns this OCI artifact type — `docker compose publish`
   # writes it and `docker compose -f oci://…@sha256:…` runs it, with no generic OCI
-  # tool and no install step in between. The demo runs the dashboard image THIS
+  # tool in between. (ORAS is still installed below: this job READS the release
+  # ledger, which is an OCI artifact, to pin the dashboard image by digest, and
+  # WRITES it through publish-oci-unit.sh. Removing that install is what half-shipped
+  # release run 32560058692.) The demo runs the dashboard image THIS
   # transaction published, which is why the job depends on it; `always()` keeps a
   # single-unit recovery runnable on its own, exactly as the final `release` job does.
   #
@@ -534,6 +546,11 @@ jobs:
         run: |
           go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install ORAS
+        # NOT for the Compose artifact — Compose publishes that (see the job
+        # comment). For the release LEDGER, which this job reads below and writes
+        # through publish-oci-unit.sh, and which ledger.sh pulls with oras.
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
