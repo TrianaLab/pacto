@@ -10,10 +10,15 @@ demo is published as an OCI artifact that Docker Compose owns and runs directly:
 
 ```sh
 docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
-  -p pacto-demo up -d --wait
+  -p pacto-demo up -d --wait -y
 ```
 
 Then open <http://localhost:8080/#/fleet>.
+
+`-y` answers the one question Compose asks before it runs a stack it fetched
+from a registry: it lists the variables the artifact declares — the three ports
+below — and waits for a yes. Leave the flag off to read that list first; keep it
+on anywhere without a terminal, where the unanswered prompt cancels the run.
 
 You need [Docker Compose](https://docs.docker.com/compose/) 2.34 or newer —
 nothing else, not even the Pacto CLI. 2.34 is the release that added
@@ -27,16 +32,18 @@ registry, `docker login <registry>` first.
 ## The digest
 
 The artifact is immutable and addressed by digest — that is what makes "the demo
-you ran" a thing that can be named. Each release publishes its digest in the
-release notes, and Docker resolves it from the tag for you:
+you ran" a thing that can be named. Each release publishes the demo under one
+tag — the Pacto version it shipped with — so one command turns a released
+version into the digest to run:
 
 ```sh
-docker manifest inspect -v ghcr.io/trianalab/pacto/demo:<version>
+docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.2.1
 ```
 
-The `Descriptor.digest` it prints is the value to pass to `-f oci://…@`. Run the
-demo by digest, not by tag: a tag is a publication convenience and can be moved,
-and the whole point of this artifact is that it cannot.
+The `Descriptor.digest` it prints is the value to pass to `-f oci://…@`; swap
+`3.2.1` for the release you want. Run the demo by digest, not by tag: a tag is a
+publication convenience and can be moved, and the whole point of this artifact
+is that it cannot.
 
 The images inside are pinned the same way. Both are named by digest rather than
 by tag, so the artifact you pinned runs the bytes it was released with, however
@@ -64,9 +71,9 @@ never collide.
 
 | | |
 |---|---|
-| `checkout` | two published revisions, one of them deployed |
+| `checkout` | two published revisions, 1.1.0 dropping an API path 1.0.0 exposed |
 | `orders` | declares a dependency on `checkout`, and is observed calling it |
-| `payments` | never published to this fleet — it arrives as signed evidence from another environment |
+| `payments` | published like the others, but nothing here runs it — it reaches the fleet as signed evidence from a remote environment |
 
 Follow the graph from `orders` to `checkout`, open a revision to read its
 contract, and compare `checkout` 1.0.0 with 1.1.0 to see a change analysed.
@@ -77,8 +84,8 @@ observation source and signed evidence. Every fixture input travels inside the
 application itself as a Compose `config`, so there is nothing on your disk for
 the demo to read and nothing for you to keep. The one thing absent is the
 operational targets a controller reconciles — Compose has no controller, so the
-demo claims no running workload. Everything else is identical, and a parity test
-keeps it that way.
+demo's only target is the one the remote evidence reports. Everything else is
+identical, and a parity test keeps it that way.
 
 ## Ports
 
@@ -91,7 +98,7 @@ copy needs:
 PACTO_DEMO_DASHBOARD_PORT=8081 PACTO_DEMO_EVIDENCE_PORT=8687 \
 PACTO_DEMO_REGISTRY_PORT=5052 \
   docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<other-digest> \
-    -p pacto-demo-next up -d --wait
+    -p pacto-demo-next up -d --wait -y
 ```
 
 Two digests, two project names, two sets of ports: both run at once, and
@@ -108,7 +115,7 @@ The **service images** are pulled once and then cached by Docker, so
 
 ```sh
 docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
-  -p pacto-demo up -d --wait --pull never
+  -p pacto-demo up -d --wait -y --pull never
 ```
 
 The **application** is read from the registry by `-f oci://…` on every
@@ -137,7 +144,7 @@ registry:
 
 ```sh
 docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
-  -p pacto-demo up -d --wait --force-recreate evidence
+  -p pacto-demo up -d --wait -y --force-recreate evidence
 ```
 
 That is also why the demo's registry is zot rather than CNCF distribution: the
@@ -157,8 +164,8 @@ anonymously, over the demo's private Compose network.
 A Compose OCI application is exactly one compose file — there is no second layer
 to carry a README, and Compose offers no way to hand you one. So this page is the
 reference, and the application points at it: `x-pacto-demo.documentation` in the
-file you just ran is the URL of this document. Nothing in the artifact pretends
-to expose a file you cannot get out of it.
+file you just ran is the GitHub URL of this page's Markdown source. Nothing in
+the artifact pretends to expose a file you cannot get out of it.
 
 ## The other demos
 

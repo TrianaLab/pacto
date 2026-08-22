@@ -1,7 +1,7 @@
 # Collectors and the evidence boundary
 
-Pacto's architecture is four roles, not three tools. The CLI, dashboard and
-Kubernetes operator are *products* built around these roles:
+The CLI, dashboard and Kubernetes operator are three *products*. Underneath them
+the architecture is four roles, and each product is built around some of them:
 
 - **Contract** — declares stable service intent (`pacto.yaml`).
 - **Collectors / evidence producers** — observe one environment and emit `Evidence`.
@@ -57,7 +57,8 @@ flowchart LR
 
 The engine is pure and platform-neutral; the dashboard, operator status and CI are
 consumers or hosts, not collectors. Pacto does not ship ECS, Nomad, Terraform or
-cloud collectors — the dotted "custom collector" is a design extension point only.
+cloud collectors — the "custom collector" box in the diagram above is a design
+extension point only.
 
 ## The roles
 
