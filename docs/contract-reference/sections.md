@@ -10,7 +10,9 @@ pactoVersion: "2.0"
 
 Every contract is validated against the single tracked JSON Schema,
 [`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json).
-Any other value is a hard error (`UNSUPPORTED_PACTO_VERSION`).
+Any other value is a hard error: the contract fails to load before validation
+runs and reports `PARSE_ERROR` (`unsupported pactoVersion "2.1"; only "2.0" is
+supported`). See [Validation layers](validation.md).
 
 ---
 
@@ -114,7 +116,7 @@ Declares the service's communication boundaries. Optional — a service with no 
 | `grpc` | gRPC service descriptor |
 
 !!! note
-    Interface names must be unique within a contract. Every interface requires a `ref` (`INTERFACE_REF_REQUIRED` otherwise), and the referenced file must exist in the bundle and parse as JSON or YAML (`FILE_NOT_FOUND` / `INVALID_INTERFACE_SPEC` otherwise). There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.
+    Interface names must be unique within a contract. Every interface requires a non-empty `ref` (`SCHEMA_VIOLATION` otherwise), and the referenced file must exist in the bundle and parse as JSON or YAML (`FILE_NOT_FOUND` / `INVALID_INTERFACE_SPEC` otherwise). There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.
 
 ---
 

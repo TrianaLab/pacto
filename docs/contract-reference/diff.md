@@ -14,7 +14,6 @@ Any change not matched by a specific rule below defaults to **POTENTIAL_BREAKING
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `pactoVersion` | Added / Modified / Removed | NON_BREAKING |
 | `service.name` | Modified | **BREAKING** |
 | `service.version` | Modified | NON_BREAKING |
 | `service.owner.team` | Added / Modified / Removed | NON_BREAKING |
@@ -25,7 +24,9 @@ The owner block is compared field by field, so changing a `dri` or adding a
 contact while the `team` is unchanged surfaces the specific change rather than an
 opaque whole-owner modification. Contacts are keyed by `type:value`; a `purpose`
 change on an existing contact is a modification. `service` carries identity only —
-there is no `image` or `chart` field to diff.
+there is no `image` or `chart` field to diff. `pactoVersion` is not diffable
+either: `"2.0"` is the only value that loads, so both sides always match and a
+version change is a load error rather than a change entry.
 
 ## Interfaces
 
@@ -124,9 +125,15 @@ guarantee (`POTENTIAL_BREAKING`).
 
 | Field | Change | Classification |
 |-------|--------|----------------|
-| `openapi.parameters` | Added | POTENTIAL_BREAKING |
+| `openapi.parameters` | Added (optional) | POTENTIAL_BREAKING |
+| `openapi.parameters` | Added (`required: true`) | **BREAKING** |
 | `openapi.parameters` | Removed | **BREAKING** |
-| `openapi.parameters` | Modified | POTENTIAL_BREAKING |
+| `openapi.parameters` | Modified (optional → required) | **BREAKING** |
+| `openapi.parameters` | Modified (any other) | POTENTIAL_BREAKING |
+
+Requiring a parameter is the one parameter change that escalates: introducing a new
+`required` parameter, or flipping an existing one from optional to required, is
+`BREAKING` because existing clients omit it. Relaxing required to optional is not.
 
 Parameters are identified by `name` + `in` (location: query, path, header, cookie). A parameter renamed or moved to a different location is treated as a removal + addition.
 
