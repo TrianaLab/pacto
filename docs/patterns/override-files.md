@@ -1,6 +1,6 @@
 # Override files as the deployment surface
 
-**Problem.** The same component runs in dev, staging, and production with different replica counts, resource limits, database sizes, and secret sets. You want each environment self-contained, validated against the same schemas, and not maintained alongside Helm `values.yaml` files.
+**Problem.** The same component runs in dev, staging and production with different replica counts, resource limits, database sizes and secret sets. You want each environment self-contained, validated against the same schemas and not maintained alongside Helm `values.yaml` files.
 
 **Primitives.** YAML files per environment, applied with `-f` (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). One file per component per environment.
 
@@ -21,6 +21,7 @@ Each file is self-contained and follows the same shape as [pattern 3](composable
 # overrides/values.prod.yaml
 configurations:
   - name: deployment
+    required: true
     schema: configuration/deployment/schema.json
     values:
       replicas: 5
@@ -28,6 +29,7 @@ configurations:
         requests: { cpu: 2000m, memory: 2Gi }
 
   - name: postgres
+    required: true
     schema: configuration/postgres/schema.json
     values:
       instances: 3
