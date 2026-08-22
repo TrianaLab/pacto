@@ -29,14 +29,14 @@ check("GET /health 200", call("GET", "/health").status === 200);
 
 const services = json(call("GET", "/api/services"));
 check("GET /api/services returns fleet", Array.isArray(services) && services.length >= 10, `${services.length} services`);
-check("fleet includes payments-service@2.1.0",
-  services.some((s) => s.name === "payments-service" && s.version === "2.1.0"));
+check("fleet includes payments-service@2.1.1",
+  services.some((s) => s.name === "payments-service" && s.version === "2.1.1"));
 
 const graphRes = call("GET", "/api/graph");
 check("GET /api/graph 200 with content", graphRes.status === 200 && graphRes.body.length > 100, `${graphRes.body.length} bytes`);
 
 const versions = json(call("GET", "/api/services/payments-service/versions"));
-check("payments-service has 5 versions", Array.isArray(versions) && versions.length === 5, `${versions.length}`);
+check("payments-service has 6 versions", Array.isArray(versions) && versions.length === 6, `${versions.length}`);
 const v200 = versions.find((v) => v.version === "2.0.0");
 check("2.0.0 classified BREAKING", v200 && v200.classification === "BREAKING", v200 && v200.classification);
 
@@ -58,11 +58,11 @@ for (const [name, path] of [
   check(`GET ${path} ok`, res.status === 200, `${name} status ${res.status}`);
 }
 
-// Readiness showcase: payments-service 2.1.0 declares a readiness block that
+// Readiness showcase: payments-service 2.1.1 declares a readiness block that
 // fails its gate (an expired ai-evals check drops the score to 70 < 80);
 // orders-service 1.2.0 declares an all-current block that passes.
 const pay = json(call("GET", "/api/services/payments-service"));
-check("payments 2.1.0 exposes readiness", pay.readiness != null);
+check("payments 2.1.1 exposes readiness", pay.readiness != null);
 check("payments readiness Score 70", pay.readiness && pay.readiness.score === 70, pay.readiness && `score ${pay.readiness.score}`);
 check("payments readiness gate FAIL", pay.readiness && pay.readiness.passing === false);
 

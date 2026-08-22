@@ -48,8 +48,8 @@ func TestGetServiceReturnsLatest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetService: %v", err)
 	}
-	if d.Version != "2.1.0" {
-		t.Errorf("payments-service current version = %q, want 2.1.0", d.Version)
+	if d.Version != "2.1.1" {
+		t.Errorf("payments-service current version = %q, want 2.1.1", d.Version)
 	}
 }
 
@@ -59,7 +59,7 @@ func TestGetVersionsDescendingWithClassification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVersions: %v", err)
 	}
-	wantOrder := []string{"2.1.0", "2.0.0", "1.2.0", "1.1.0", "1.0.0"}
+	wantOrder := []string{"2.1.1", "2.1.0", "2.0.0", "1.2.0", "1.1.0", "1.0.0"}
 	if len(vs) != len(wantOrder) {
 		t.Fatalf("got %d versions, want %d", len(vs), len(wantOrder))
 	}
@@ -108,12 +108,12 @@ func TestGetDiffDefaultsToLatest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDiff: %v", err)
 	}
-	if d.To.Version != "2.1.0" {
-		t.Errorf("to version = %q, want resolved latest 2.1.0", d.To.Version)
+	if d.To.Version != "2.1.1" {
+		t.Errorf("to version = %q, want resolved latest 2.1.1", d.To.Version)
 	}
 }
 
-// TestReadinessShowcase pins the two readiness fixtures: payments-service 2.1.0
+// TestReadinessShowcase pins the two readiness fixtures: payments-service 2.1.1
 // fails its gate (Score 70 < minScore 80) and orders-service 1.2.0 passes. Dates
 // are durable sentinels, so these hold regardless of when the test runs.
 func TestReadinessShowcase(t *testing.T) {
@@ -124,7 +124,7 @@ func TestReadinessShowcase(t *testing.T) {
 		t.Fatalf("GetService(payments-service): %v", err)
 	}
 	if pay.Readiness == nil {
-		t.Fatal("payments-service 2.1.0 should expose readiness")
+		t.Fatal("payments-service 2.1.1 should expose readiness")
 	}
 	if pay.Readiness.MinScore != 80 {
 		t.Errorf("payments minScore = %d, want 80", pay.Readiness.MinScore)
