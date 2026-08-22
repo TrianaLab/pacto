@@ -137,13 +137,17 @@ The dashboard uses a matching per-section vocabulary — `present`, `empty`,
 (`AUTH_FAILED`, `NOT_FOUND`, `UNAVAILABLE`, `CANCELLED`) and a generic message, so
 credentials, tokens and host names never leak to a consumer.
 
-The list of sources on a query answer's `meta` is bounded, so the answer also
-carries `sourceCounts`: every source in the snapshot tallied by health state, over
-the complete population that list was cut from. Counting the sources a consumer
-received would understate the fleet precisely when it matters, because the capped
-list is deliberately biased toward the least healthy. A status the read model does
-not recognize is never folded into a bucket — `total` simply stays above the sum
-of the buckets, rather than the tally adding up perfectly and being wrong.
+A query answer's `meta` lists every source in the snapshot. The **product
+answers** the dashboard reads — the `/api/fleet/*` envelope, schema version
+`pacto.dev/fleet-product/v1` — cap that list at 50 sources, least healthy first,
+and flag the cut with `sourcesTruncated`. Because the list is capped there, a
+product answer also carries `sourceCounts`: every source in the snapshot tallied
+by health state, over the complete population the list was cut from. Counting the
+sources a consumer received would understate the fleet precisely when it matters,
+because the capped list is deliberately biased toward the least healthy. A status
+the read model does not recognize is never folded into a bucket — `total` simply
+stays above the sum of the buckets, rather than the tally adding up perfectly and
+being wrong.
 
 ---
 
@@ -151,8 +155,11 @@ of the buckets, rather than the tally adding up perfectly and being wrong.
 
 The read model is queried through five pure operations. None performs I/O; a
 single snapshot serves concurrent queries. **Every answer carries a `meta`
-envelope with `asOf`, `completeness` and `limitations`** — a consumer can always
-tell how much of the system the answer actually covers.
+envelope with `schemaVersion`, `snapshotId`, `asOf`, `completeness`,
+`limitations` and `sources`** — a consumer can always tell how much of the system
+the answer actually covers. `schemaVersion` (`pacto.dev/fleet/v1`) is the
+compatibility contract to branch on; `snapshotId` is the content digest that
+proves two answers came from the same system view.
 
 | Query | Answers |
 |-------|---------|
@@ -167,22 +174,44 @@ the answer's `meta.completeness` tells the caller whether absence is trustworthy
 Errors are typed: a missing identity is a not-found, an ambiguous one lists its
 matches.
 
+A `pacto fleet search --output-format json` answer over a local bundle root with
+an unreachable OCI source:
+
 ```json
 {
   "meta": {
+    "schemaVersion": "pacto.dev/fleet/v1",
+    "snapshotId": "sha256:c81df8fd572ecaa7c884968e728daff5b47c40b8e8c5cbcf1926c19740db95a9",
     "asOf": "2026-07-29T10:00:00Z",
     "completeness": "partial",
     "limitations": [
       { "code": "SOURCE_UNAVAILABLE", "source": "oci",
         "message": "source oci is unavailable; its records are missing from this snapshot" }
+    ],
+    "sources": [
+      { "id": "local", "kind": "local", "status": "available",
+        "lastSuccessfulSync": "2026-07-29T10:00:00Z",
+        "observedAt": "2026-07-29T10:00:00Z",
+        "revisionCount": 25, "targetCount": 0 },
+      { "id": "oci", "kind": "oci", "status": "unavailable",
+        "error": { "code": "UNAVAILABLE", "message": "the source is unavailable" },
+        "revisionCount": 0, "targetCount": 0 }
     ]
   },
   "total": 1,
+  "count": 1,
   "services": [
-    { "name": "payments-api", "owner": "payments", "status": "Compliant" }
+    { "key": "payments-service", "name": "payments-service",
+      "owner": "team/payments", "status": "NotEvaluated",
+      "revisionCount": 6, "targetCount": 0, "sources": ["local"] }
   ]
 }
 ```
+
+`total` is the whole matched population; `count` is how many rows this page
+carries. `key` is the service's canonical identity — match on it, not on `name`,
+which is not unique across domains. `owner` here is the authored owner label, not
+the canonical owner key (see [ownership](#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole)).
 
 ---
 
@@ -528,7 +557,7 @@ files you declared and no others, never recursively, and never writes to them.
 Changing a source changes the pod template, so Kubernetes rolls the dashboard;
 reordering the list does not, because order is not identity.
 
-`file` is a plain file name, not a path: no `/`, no whitespace, and no comma
+`file` is a plain file name, not a path: no `/`, no whitespace and no comma
 (the character that separates fields on the controller's flag). Give a source
 its own backing and mount its export at the top of it, rather than reaching into
 a subdirectory — which also makes the mount the read root, with nothing above it

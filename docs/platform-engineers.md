@@ -113,7 +113,7 @@ References differ from dependencies: a **dependency** declares a runtime relatio
 pacto generate helm oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
-This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes manifests, or whatever your plugin generates. See the [Plugin Development](plugins.md) guide.
+This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes manifests or whatever your plugin generates. See the [Plugin Development](plugins.md) guide.
 
 ---
 
@@ -211,19 +211,28 @@ See [Layer 3: Policy enforcement](contract-reference/validation.md#layer-3-polic
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
 Classification: BREAKING
-Changes (4):
+Changes (7):
+  [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
   [BREAKING] state.type (modified): state.type modified [stateless -> stateful]
-  [BREAKING] state.persistence.durability (modified): ... [ephemeral -> persistent]
-  [BREAKING] interfaces (removed): interfaces removed [- metrics]
+  [BREAKING] state.persistence.durability (modified): state.persistence.durability modified [ephemeral -> persistent]
+  [POTENTIAL_BREAKING] dependencies.ref (modified): dependencies.ref modified [auth-service: oci://ghcr.io/acme/auth-service-pacto:1.5.0 -> auth-service: oci://ghcr.io/acme/auth-service-pacto:2.3.0]
+  [POTENTIAL_BREAKING] dependencies.compatibility (modified): dependencies.compatibility modified [auth-service: ^1.5.0 -> auth-service: ^2.0.0]
   [BREAKING] dependencies (removed): dependencies removed [- redis]
+  [BREAKING] interfaces (removed): interfaces removed [- grpc-api]
+
+Dependency auth-service [NON_BREAKING] (1):
+  [NON_BREAKING] service.version (modified): service.version modified [1.5.0 -> 2.3.0]
 
 Dependency graph changes:
 payments-api
 ├─ auth-service  1.5.0 → 2.3.0
-└─ postgres      -16.0.0
+└─ redis         -7.2.0
+breaking changes detected
 ```
 
-Every change is classified as `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING`; when both bundles include an `sbom/` directory, package-level SBOM changes are reported but stay informational (they don't affect the classification or exit code). See [Change Classification Rules](contract-reference/diff.md#change-classification-rules) for the full table plus the OpenAPI, JSON-Schema and SBOM diff mechanics.
+Read it in three parts. **Changes** is this contract's own diff, each row classified `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING`. A **Dependency** block appears for each dependency whose own contract changed, classified separately — `auth-service` only bumped its version, so nothing there is breaking. **Dependency graph changes** is the resolved closure: `→` for a version change, `-` for a removal, `+` for an addition.
+
+The headline `Classification:` is the worst classification anywhere in that output, dependency blocks included — so a diff whose own **Changes** rows are all non-breaking can still print `BREAKING` and exit 1 because a dependency's contract broke underneath it. A dependency is only diffed when it resolves in both trees: one that was added, removed or unreachable gets no block, and only shows up in the graph section. When both bundles include an `sbom/` directory, package-level SBOM changes are reported but stay informational. See [Change Classification Rules](contract-reference/diff.md#change-classification-rules) for the full table plus the OpenAPI, JSON-Schema and SBOM diff mechanics.
 
 ---
 
@@ -295,12 +304,12 @@ Storage lifecycle stays yours: Pacto reads, never writes, and never rotates. A s
 
 ## Tips
 
-- **Build a plugin for your platform.** A Helm plugin, Terraform plugin, or custom manifest generator can consume Pacto contracts deterministically.
+- **Build a plugin for your platform.** A Helm plugin, Terraform plugin or custom manifest generator can consume Pacto contracts deterministically.
 - **Use `pacto graph` to understand impact.** Before upgrading a shared service, check what depends on it.
 - **Disable cache in CI.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale. `--no-cache` is a cold-start flag: it skips disk *reads* of pre-existing cached bundles, but bundles fetched during the run are still *written* to disk and reused within the same session.
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
 - **Use JSON output.** Every inspection command (explain, diff, graph, validate, generate, doc) supports `--output-format json` for programmatic consumption.
 - **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
-- **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis, and contract generation.
+- **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis and contract generation.
 - **Close the loop with the operator.** The [Kubernetes Operator](integrations/kubernetes/overview.md) is one runtime evidence source: it observes deployed workloads and reports whether they still match their contracts — workload alignment, state model, capability reachability, interface availability and more — as typed findings, never modifying your workloads. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.
