@@ -11,6 +11,38 @@ kubectl get pacto <name> -o yaml | yq '.status'
 The finding codes referenced below are defined on the
 [Runtime observations](runtime-observations.md) page.
 
+## Reading the conditions
+
+`status.contractStatus` says *what* the verdict is. The conditions say *which
+stage produced it*, which is usually what you need to fix. There are three, and
+each one's `reason` is a fixed identifier you can match on:
+
+| Condition | Status | Reason | What happened |
+| --- | --- | --- | --- |
+| `ContractValid` | `True` | `Parsed` | The contract loaded and passed validation. |
+| `ContractValid` | `True` | `ReferenceOnly` | Same, and the contract declares no `spec.target`, so nothing further is observed. |
+| `ContractValid` | `False` | `Invalid` | The contract loaded and is structurally wrong. `status.validation` names the errors. |
+| `ContractValid` | `Unknown` | `Unavailable` | The contract could not be **obtained** -- registry unreachable, auth rejected, tag not found. Validity is undetermined, so `status.validation` is deliberately left empty. |
+| `RuntimeObserved` | `True` | `Found` | Runtime evidence was collected. |
+| `RuntimeObserved` | `False` | `ObservationFailed` | A cluster query errored. The message carries the API error. |
+| `ReadinessSatisfied` | `True` | `Satisfied` | `score >= minScore`. |
+| `ReadinessSatisfied` | `False` | `BelowMinScore` | The gate is not met. The message breaks the score down by claim status. |
+| `ReadinessSatisfied` | `False` | `Expired` | The assessment is past its `expires:` date, which scores it 0. |
+
+Two absences are meaningful:
+
+- **`RuntimeObserved` is missing entirely** when the reconciliation never got as
+  far as observing -- a reference-only contract, or one that failed at
+  `ContractValid`. Its absence is not a failed observation.
+- **`ReadinessSatisfied` is missing entirely** when the contract declares no
+  `readiness:` block. The operator does not report a gate that was never
+  declared.
+
+Conditions are sticky: each keeps its `lastTransitionTime` while its status is
+unchanged, and carries the `observedGeneration` it was set from. A condition
+whose `observedGeneration` is behind `metadata.generation` was not re-evaluated
+on the latest spec.
+
 ## Status is `Unknown`
 
 `Unknown` means a required assertion could not be evaluated -- it is not a

@@ -236,6 +236,46 @@ def check_flags() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (j) documented condition types + reasons  <-  the api constants
+# ---------------------------------------------------------------------------
+
+def check_conditions() -> None:
+    """The troubleshooting table names Condition/Reason identifiers verbatim.
+
+    Those are the strings an operator greps their CR status for, so a rename in
+    api/v1alpha1/conditions.go silently invalidates the page. Compare the table
+    against the constants rather than restating them here: nothing in this check
+    hard-codes a reason, so it stays correct when a real one is added.
+    """
+    src = open(os.path.join(K8S, "api", "v1alpha1", "conditions.go"),
+               encoding="utf-8").read()
+    types = set(re.findall(r"^\tCondition\w+\s*=\s*\"(\w+)\"", src, re.M))
+    reasons = set(re.findall(r"^\tReason\w+\s*=\s*\"(\w+)\"", src, re.M))
+
+    doc_path = os.path.join(K8S, "docs", "troubleshooting.md")
+    doc = open(doc_path, encoding="utf-8").read()
+    rows = re.findall(r"^\| `(\w+)` \| `(?:True|False|Unknown)` \| `(\w+)` \|",
+                      doc, re.M)
+
+    problems = []
+    for cond, reason in rows:
+        if cond not in types:
+            problems.append(f"unknown condition type `{cond}`")
+        if reason not in reasons:
+            problems.append(f"unknown reason `{reason}` on `{cond}`")
+    for cond in sorted(types - {c for c, _ in rows}):
+        problems.append(f"condition type `{cond}` is not in the table")
+
+    ok = bool(rows) and not problems
+    detail = f"{len(rows)} rows over {len(types)} condition types"
+    if not rows:
+        detail = "no condition rows found in troubleshooting.md"
+    elif problems:
+        detail = " ; ".join(problems[:5])
+    record(ok, "(j) documented conditions match api constants", detail)
+
+
+# ---------------------------------------------------------------------------
 # (g) chart values + install snippets  <-  real Helm chart
 # ---------------------------------------------------------------------------
 
@@ -379,6 +419,7 @@ def main() -> int:
     check_flags()                                # (f)
     check_chart()                                # (g)
     check_coordinates()                          # (h)
+    check_conditions()                           # (j)
 
     # (i) twice = no diff
     proc = run(["make", "docs-generate"])
