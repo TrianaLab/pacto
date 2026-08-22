@@ -171,18 +171,17 @@ The root public package. Contains pure Go types and logic with **zero I/O and ze
 
 ### `pkg/validation` -- Validation engine
 
-Four-layer, short-circuit validation:
+Three-layer, short-circuit validation:
 
 ```mermaid
 flowchart LR
     A[Layer 1<br/>Structural<br/>JSON Schema] --> B[Layer 2<br/>Cross-Field<br/>Reference Validation]
-    B --> C[Layer 3<br/>Semantic<br/>Consistency Checks]
-    C --> D[Layer 4<br/>Policy<br/>Enforcement]
+    B --> C[Layer 3<br/>Policy<br/>Resolution + Enforcement]
 ```
 
 Each layer short-circuits -- if it produces errors, subsequent layers are skipped. See [Validation layers](contract-reference/validation.md#validation-layers) for the per-layer rules and error codes. `Validate()` resolves policies locally (used by pack/push); `ValidateWithResolver()` resolves referenced policy contracts recursively (used by the validate command).
 
-This package also holds the runtime evaluator, `Evaluate(contract, evidence) -> ([]finding.Finding, Coverage)` (`evaluate.go`) — the pure function described under [The engine](#the-engine-evaluatecontract-evidence). It compares declared intent against a collector-produced `evidence.EvidenceSet` and returns typed findings plus coverage. It is stateless and free of platform dependencies, so the [Kubernetes operator](integrations/kubernetes/overview.md) consumes it without pulling k8s types into the core library. Structural validation and runtime evaluation are distinct: the four layers above decide whether a contract is *valid*; `Evaluate` decides whether a valid contract *matches observed reality*.
+This package also holds the runtime evaluator, `Evaluate(contract, evidence) -> ([]finding.Finding, Coverage)` (`evaluate.go`) — the pure function described under [The engine](#the-engine-evaluatecontract-evidence). It compares declared intent against a collector-produced `evidence.EvidenceSet` and returns typed findings plus coverage. It is stateless and free of platform dependencies, so the [Kubernetes operator](integrations/kubernetes/overview.md) consumes it without pulling k8s types into the core library. Structural validation and runtime evaluation are distinct: the three layers above decide whether a contract is *valid*; `Evaluate` decides whether a valid contract *matches observed reality*.
 
 ### `pkg/evidence` -- Runtime observation model
 

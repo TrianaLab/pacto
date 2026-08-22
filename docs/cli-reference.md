@@ -739,7 +739,7 @@ Notifications are suppressed when:
 
 ## `pacto validate`
 
-Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, checking structural, cross-field, and semantic rules.
+Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field, and policy.
 
 ```
 pacto validate [dir | oci://ref] [flags]

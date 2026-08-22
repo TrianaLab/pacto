@@ -55,7 +55,7 @@ Pacto is useful today without any of this. It catches breaking changes, resolves
 
 **Compose, don't reinvent.** The interfaces a service exposes already have schemas, each owned by the system that maintains it. Pacto references those schemas instead of inventing a configuration language: the configuration you declare in a contract *is* the configuration that feeds the system beneath it, validated once, with no second definition to drift. A reference is correct by construction; a copy is wrong the moment the original changes.
 
-**Invalid contracts must not propagate.** Every contract passes structural, cross-field, semantic and policy validation before it can be published. If it is invalid it does not reach the registry. If it introduces a breaking change, CI catches it.
+**Invalid contracts must not propagate.** Every contract passes structural, cross-field and policy validation before it can be published. If it is invalid it does not reach the registry. If it introduces a breaking change, CI catches it.
 
 ## What Pacto Is
 
