@@ -45,7 +45,7 @@ Pacto is useful today without any of this. It catches breaking changes, resolves
 
 **Operational knowledge is a first-class artifact.** It deserves the same rigor as API specs and container images — authored, versioned, validated, distributed and verified.
 
-**Declarative over procedural.** A contract describes *what* a service is, not *how* to run it. It is committed alongside source code, versioned with semver and immutable once published. Consumers decide how to act on it.
+**Declarative over procedural.** A contract describes *what* a service is, not *how* to run it. It is committed alongside source code, versioned with semver and immutable once published — republishing a version that already exists is refused unless it is explicitly forced. Consumers decide how to act on it.
 
 **Declaration is separate from observation.** The contract is stable author intent. Runtime state and environment evidence are external to it, gathered by collectors and evaluated against it. The engine combines declared intent and evidence into structured, explainable results; it does not embed runtime state in the declaration.
 

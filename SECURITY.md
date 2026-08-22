@@ -2,11 +2,14 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| latest  | :white_check_mark: |
+Pacto ships two independently versioned lines:
 
-Only the latest release is actively supported with security updates. We recommend always running the most recent version.
+| Component | Supported |
+| --------- | --------- |
+| Pacto CLI and core library (`v3.x`) | latest release only |
+| Kubernetes operator, Helm chart and Go module (`v5.x`) | latest release only |
+
+Only the latest release of each line is actively supported with security updates. `releases/latest` on GitHub tracks the core; the operator version released alongside it is recorded in `release/release-manifest.json`. We recommend always running the most recent version of both.
 
 ## Reporting a Vulnerability
 
@@ -14,7 +17,7 @@ If you discover a security vulnerability in Pacto, please report it responsibly.
 
 ### How to Report
 
-1. **Email:** Send a detailed report to the maintainers via [GitHub Security Advisories](https://github.com/TrianaLab/pacto/security/advisories/new).
+1. **Report privately:** open a [GitHub Security Advisory](https://github.com/TrianaLab/pacto/security/advisories/new). There is no email channel.
 2. Include the following in your report:
    - A description of the vulnerability
    - Steps to reproduce the issue
@@ -30,7 +33,8 @@ If you discover a security vulnerability in Pacto, please report it responsibly.
 ## Security Practices
 
 - The core CLI runs at **build time and CI time** — it has no runtime agents, sidecars, or persistent infrastructure. The optional [Kubernetes Operator](https://github.com/TrianaLab/pacto/tree/main/integrations/kubernetes) adds runtime compliance.
-- The operator observes cluster state **read-only and non-intrusively** — it never modifies your workloads. It runs with **least-privilege RBAC** and ships as a **distroless, non-root** image.
+- The operator reads cluster state to compare it against contracts and never modifies the workloads it observes. It does create and manage its own components — the dashboard and the Evidence Server — and with the chart's default `dashboard.enabled: true` that requires cluster-wide write on Deployments, Services, ServiceAccounts, Secrets, ClusterRoles and ClusterRoleBindings. Set `dashboard.enabled: false` for an install whose only writes are Events and its own custom resources.
+- The operator ships as a **distroless, non-root** image (`gcr.io/distroless/static:nonroot`, UID 65532) and runs with `readOnlyRootFilesystem: true` and `allowPrivilegeEscalation: false`.
 - Contracts are distributed as **OCI artifacts** through standard container registries.
 - All dependencies are kept up to date and monitored for known vulnerabilities.
 

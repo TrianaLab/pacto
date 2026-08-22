@@ -10,10 +10,19 @@ By participating in this project, you agree to treat all contributors with respe
 
 ### Prerequisites
 
+To build and test the Go engine:
+
 - [Go 1.26+](https://go.dev/dl/)
 - [Git](https://git-scm.com/)
 - A terminal with `make` available
 - [golangci-lint](https://golangci-lint.run/welcome/install/) (for linting)
+
+`make ci` runs the gates for the whole monorepo, so it needs more than that:
+
+- [Node 22+](https://nodejs.org/) and npm — the dashboard frontend gates and the release orchestrator's Node tests
+- [Helm](https://helm.sh/docs/intro/install/) and [helm-docs](https://github.com/norwoodj/helm-docs) — the operator chart gates
+- [Python 3.12+](https://www.python.org/downloads/) with `pip install -r docs/requirements.txt` — the documentation gates
+- Network access on first run: `ci-cyclo` fetches `gocyclo`, and the operator's tests download envtest assets
 
 ### Setting Up Your Development Environment
 
@@ -42,16 +51,18 @@ By participating in this project, you agree to treat all contributors with respe
    make ci
    ```
 
-   This runs everything the CI pipeline checks — formatting, vetting, cyclomatic complexity, linting, 100% unit test coverage, and e2e tests. **Always run `make ci` before pushing** to catch issues early.
+   This runs the same gates GitHub Actions runs on a pull request — formatting, vetting, cyclomatic complexity, linting, unit tests at 100% total coverage, the CLI integration suite, the frontend suite, the operator's envtest suite and the chart gates. **Always run `make ci` before pushing** to catch issues early. The kind, Compose and browser acceptances are not part of it; they need a Docker daemon and run in their own CI jobs.
 
    You can also run individual targets:
 
    ```bash
-   make test         # unit tests
-   make e2e          # Go end-to-end tests (build tag e2e)
-   make lint         # gofmt + go vet
-   make coverage     # coverage report with HTML output
+   make test              # unit tests
+   make test-integration  # in-process CLI integration suite (build tag `integration`)
+   make lint              # gofmt + go vet
+   make coverage          # coverage report with HTML output
    ```
+
+   `make e2e` is a deprecated alias for `make test-integration`.
 
    Acceptance scenarios can be run one at a time (thin aliases over the
    `test-acceptance-*` targets):
@@ -130,7 +141,7 @@ Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues
 
 2. **Make your changes.** Keep commits focused and atomic.
 
-3. **Write or update tests.** All new functionality must include tests. All bug fixes must include a regression test. The project enforces **100% statement coverage** on all packages.
+3. **Write or update tests.** All new functionality must include tests. All bug fixes must include a regression test. The project enforces **100% total statement coverage** across the measured packages — see [Testing](#testing).
 
 4. **Run the CI pipeline locally before pushing:**
 
@@ -138,17 +149,17 @@ Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues
    make ci
    ```
 
-   This is the same check that runs in GitHub Actions. If `make ci` passes locally, the pipeline will pass too.
+   This is the same set of gates GitHub Actions runs on a pull request. The kind, Compose and browser acceptances run only in CI.
 
 5. **Write a clear commit message** following the project's convention:
 
    ```
    feat: add support for gRPC interface validation
-   fix: resolve $ref in nested configuration schemas
-   docs: update quickstart with OCI push example
+   fix(oci): resolve $ref in nested configuration schemas
+   feat!: rename the readiness gate field
    ```
 
-   Use the format `<type>: <description>` where type is one of: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`.
+   Individual commit messages are not checked automatically, but your **pull request title** is: `.github/workflows/pr-title.yml` requires `<type>[(scope)][!]: <description>`, where type is one of `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`, `perf`, `build` or `style`. Put `!` before the colon for a breaking change.
 
 6. **Open a pull request** against `main`. Fill in the PR template and link any related issues.
 
@@ -211,32 +222,32 @@ pick the level for a new test.** The short version:
 | Kind / system acceptance | `tests/acceptance/kind/` | `make test-acceptance-kind` |
 | Browser acceptance, deterministic | `pkg/dashboard/frontend/e2e/` | `make test-browser` |
 | Live-browser acceptance | `pkg/dashboard/frontend/e2e-live/` | `make test-browser-live` |
-| Release verification | `tests/release/`, `release/orchestrator/` | `make ci-gates`, `make release-dry-run` |
+| Release verification | `tests/release/`, `release/orchestrator/` | `make ci-gates`, `make ci-oci`, `make release-dry-run` |
 
-- The project enforces **100% statement coverage** on everything outside `tests/`. `make ci` will fail if any package drops below 100%.
+- The project enforces **100% total statement coverage**. `ci-test` measures every package except `tests/`, `testutil`, `cmd/gendocs`, `cmd/genbundle` and `examples/`, and fails if the *total* is not 100.0%.
 - Run `make coverage` to generate a coverage report and identify uncovered lines.
 
 ### CI Quality Gates
 
-The `make ci` target runs all quality gates in order:
+`make ci` runs seven legs, in this order:
 
-| Gate | What it checks |
-|------|---------------|
-| `ci-fmt` | All files are `gofmt`-formatted |
-| `ci-vet` | `go vet` passes on all packages |
-| `ci-cyclo` | No function exceeds cyclomatic complexity 15 |
-| `ci-lint` | `golangci-lint` reports zero issues |
-| `ci-docs` | CLI reference docs are up to date |
-| `ci-test` | Unit tests pass with 100% coverage |
-| `test-integration` | The in-process CLI integration suite passes |
-| `test-acceptance-local` | The cluster-free acceptance story passes |
-| `ci-gates` | Architecture/invariant and release-verification gates pass |
+| Leg | What it checks |
+|-----|---------------|
+| `ci-static` | `gofmt`, `go vet`, cyclomatic complexity, `golangci-lint`, the U+00A7 section-sign gate, and drift in the CLI reference, the dashboard UI build and the generated dashboard SDK — plus the operator module's own static leg |
+| `ci-gates` | Architecture/invariant (`tests/architecture/`) and release-verification (`tests/release/`) gates |
+| `ci-engine` | Unit tests at 100% total coverage, the in-process CLI integration suite, and the cluster-free local acceptance |
+| `ci-dashboard` | Frontend lint and the Vitest suite |
+| `ci-integration-kubernetes` | The operator's envtest suite and the Helm chart gates (lint, template, unittest, schema, docs drift) |
+| `ci-e2e-envtest` | The operator acceptance matrix against a real API server, with no cluster |
+| `ci-oci` | The public `pkg/oci` tests and the release orchestrator's Node tests |
+
+Docker-dependent legs — `ci-e2e-compose` and the `test-acceptance-kind-*` scenarios — are not part of `make ci` and run as their own CI jobs.
 
 ### Documentation
 
 - Update docs if your change affects user-facing behavior, CLI flags, or the contract specification.
-- Documentation lives in `docs/` and is built with Jekyll.
-- Run `make docs` to preview the documentation site locally.
+- Documentation lives in `docs/` and is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) (`mkdocs.yml`), versioned with [mike](https://github.com/jimporter/mike).
+- Run `make docs` to build the site, then `make docs-serve` to preview it locally.
 - CLI reference docs are auto-generated. Run `make gen-cli-docs` if you add or change CLI commands.
 
 ### Operator (Kubernetes integration)
@@ -292,7 +303,7 @@ artifacts.
 
 ## Questions?
 
-If you're unsure about anything, feel free to [open a discussion](https://github.com/TrianaLab/pacto/issues) or ask in your pull request. We're happy to help!
+If you're unsure about anything, feel free to [open an issue](https://github.com/TrianaLab/pacto/issues/new/choose) or ask in your pull request. We're happy to help!
 
 ## License
 
