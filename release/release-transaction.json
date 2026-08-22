@@ -1,13 +1,19 @@
 {
   "changedGroups": [
-    "core"
+    "core",
+    "kubernetes"
   ],
   "changedUnits": [
     "cli",
     "core",
     "dashboard-contract-bundle",
     "dashboard-image",
-    "demo-bundles"
+    "demo-bundles",
+    "demo-compose",
+    "k8s-docs",
+    "k8s-module",
+    "operator-chart",
+    "operator-image"
   ],
   "dependencyOrder": [
     "core:go-module",
@@ -15,6 +21,7 @@
     "core:dashboard-contract-bundle",
     "core:cli",
     "core:demo-bundles",
+    "core:demo-compose",
     "kubernetes:go-mod-pin",
     "kubernetes:go-module",
     "kubernetes:operator-image",
@@ -27,40 +34,44 @@
     "dashboard-contract-bundle": "ghcr.io/trianalab/pacto/dashboard-contract",
     "dashboard-image": "ghcr.io/trianalab/pacto/dashboard",
     "demo-bundles": "ghcr.io/trianalab/pacto",
+    "demo-compose": "ghcr.io/trianalab/pacto/demo",
     "k8s-docs": "mkdocs:integrations/kubernetes",
     "k8s-module": "github.com/trianalab/pacto/integrations/kubernetes/v5",
     "operator-chart": "ghcr.io/trianalab/pacto/charts/pacto-operator",
     "operator-image": "ghcr.io/trianalab/pacto/operator"
   },
   "expectedTags": {
-    "cli": "v3.1.4",
-    "core": "v3.1.4",
-    "dashboard-contract-bundle": "3.1.4",
-    "dashboard-image": "3.1.4",
-    "demo-bundles": "3.1.4",
-    "k8s-docs": "5.1.2",
-    "k8s-module": "integrations/kubernetes/v5.1.2",
-    "operator-chart": "5.1.2",
-    "operator-image": "5.1.2"
+    "cli": "v3.2.0",
+    "core": "v3.2.0",
+    "dashboard-contract-bundle": "3.2.0",
+    "dashboard-image": "3.2.0",
+    "demo-bundles": "3.2.0",
+    "demo-compose": "3.2.0",
+    "k8s-docs": "5.2.0",
+    "k8s-module": "integrations/kubernetes/v5.2.0",
+    "operator-chart": "5.2.0",
+    "operator-image": "5.2.0"
   },
-  "manifestSha": "fa4107206f29165fa69caab5477e7427e511ec8a0602bc44ed34d64934459f30",
+  "manifestSha": "ebd3acb8366acea07ee01755536ae3e0c48a1f5af97d46b3ca60cefc4f680162",
   "newVersions": {
+    "cli": "3.2.0",
+    "core": "3.2.0",
+    "dashboard-contract-bundle": "3.2.0",
+    "dashboard-image": "3.2.0",
+    "demo-bundles": "3.2.0",
+    "demo-compose": "3.2.0",
+    "k8s-docs": "5.2.0",
+    "k8s-module": "5.2.0",
+    "operator-chart": "5.2.0",
+    "operator-image": "5.2.0"
+  },
+  "previousVersions": {
     "cli": "3.1.4",
     "core": "3.1.4",
     "dashboard-contract-bundle": "3.1.4",
     "dashboard-image": "3.1.4",
     "demo-bundles": "3.1.4",
-    "k8s-docs": "5.1.2",
-    "k8s-module": "5.1.2",
-    "operator-chart": "5.1.2",
-    "operator-image": "5.1.2"
-  },
-  "previousVersions": {
-    "cli": "3.1.3",
-    "core": "3.1.3",
-    "dashboard-contract-bundle": "3.1.3",
-    "dashboard-image": "3.1.3",
-    "demo-bundles": "3.1.3",
+    "demo-compose": "3.1.4",
     "k8s-docs": "5.1.2",
     "k8s-module": "5.1.2",
     "operator-chart": "5.1.2",
@@ -69,7 +80,7 @@
   "ready": true,
   "schema": "pacto-release-transaction/v1",
   "sourceSha": "",
-  "transactionId": "282c4f35362755f6",
+  "transactionId": "522e9507410f16fc",
   "units": {
     "cli": {
       "status": "pending"
@@ -84,6 +95,21 @@
       "status": "pending"
     },
     "demo-bundles": {
+      "status": "pending"
+    },
+    "demo-compose": {
+      "status": "pending"
+    },
+    "k8s-docs": {
+      "status": "pending"
+    },
+    "k8s-module": {
+      "status": "pending"
+    },
+    "operator-chart": {
+      "status": "pending"
+    },
+    "operator-image": {
       "status": "pending"
     }
   }
