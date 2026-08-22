@@ -25,10 +25,14 @@
         A single YAML contract that describes how a service behaves —
         validated, versioned and distributed as an OCI artifact.
       </p>
+      <!-- Each label names its true destination. "Live demo" opens the running
+           in-browser dashboard at /demo/ (built into the docs tree by
+           `make docs`; see the Makefile), not the page that describes it —
+           a reader who clicks "Live demo" wants the demo, not an interstitial. -->
       <div class="pacto-hero__actions">
-        <a href="{{ 'quickstart/' | url }}" class="md-button md-button--primary">Get started</a>
-        <a href="{{ 'contract-reference/' | url }}" class="md-button">Specification</a>
-        <a href="{{ 'examples/dashboard-demo/' | url }}" class="md-button">Live demo</a>
+        <a href="{{ 'quickstart/' | url }}" class="md-button md-button--primary">Quickstart</a>
+        <a href="{{ 'demo/' | url }}#/fleet" class="md-button">Live demo</a>
+        <a href="{{ 'contract-reference/' | url }}" class="md-button">Contract reference</a>
       </div>
     </div>
   </section>
