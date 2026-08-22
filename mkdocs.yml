@@ -236,7 +236,10 @@ nav:
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
       - Architecture: architecture.md
-  - Maintainers:
+  # Not "Maintainers" — readers clicked that expecting governance or a list of
+  # people and got CI internals. These two pages are contributor-facing
+  # architecture for the test suite and the release pipeline.
+  - Project internals:
       - Testing architecture: maintainers/testing.md
       - Release architecture: maintainers/releases.md
   # changelog.md is assembled at build time from release/units/*/CHANGELOG.md

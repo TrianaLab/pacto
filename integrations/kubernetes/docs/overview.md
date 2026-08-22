@@ -17,7 +17,7 @@ enough to allow privilege escalation, and turning the managed components off
 removes them -- read [RBAC](rbac.md) before installing into a cluster where that
 matters. The Evidence Server is the operator's other managed component; it is
 **off** at chart defaults and needs `evidence.enabled=true` plus a trust store
-and a subject list (see [Installation](installation.md#the-evidence-server-is-off-by-default)).
+and a subject list (see [Install the Kubernetes operator](installation.md#the-evidence-server-is-off-by-default)).
 
 ## Where it fits
 
@@ -70,7 +70,7 @@ observation dimensions are documented in
 
 ## Where to go next
 
-- [Installation](installation.md) -- install the operator with Helm.
+- [Install the Kubernetes operator](installation.md) -- install it with Helm.
 - [Contract bindings](contract-bindings.md) -- bind a contract to a workload.
 - [Runtime observations](runtime-observations.md) -- what the operator observes and how it reasons.
 - [Operator configuration](operator-configuration.md) -- flags and environment variables.

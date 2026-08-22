@@ -1,4 +1,4 @@
-# Installation
+# Install the Kubernetes operator
 
 The operator is distributed as a Helm chart and a controller image. Coordinates
 and versions are on the [Artifact Hub](artifact-hub.md) page; every value flag is

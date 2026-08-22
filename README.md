@@ -127,7 +127,7 @@ Everything a contract enables, from one artifact:
 - **Operational docs** — `pacto doc` renders Markdown, an offline dashboard-grade HTML site or an interactive API explorer (`--ui swagger`, rendered with Scalar)
 - **Readiness scoring** — operational-readiness assessment per service, surfaced in the fleet view
 - **Runtime verification** — with the [operator](https://pacto.run/latest/integrations/kubernetes/overview/), whether deployed workloads still match their contract
-- **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub and Harbor with local caching; signable with cosign or Notary
+- **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub and Harbor with local caching; a digest reference is immutable. Pacto does not sign bundles or check signatures on them, so add cosign or Notary if your supply chain needs it — what Pacto *does* sign is [evidence envelopes](https://pacto.run/latest/evidence-security/) (Ed25519, verification always on) and its [own published chart and image](https://pacto.run/latest/integrations/kubernetes/artifact-hub/)
 - **Reproducibility and supply chain** — `pacto.lock` for pinned resolution, gitignore-style `.pactoignore` for packaging
 - **Extensibility** — out-of-process plugins generate deployment artifacts; `pacto mcp` exposes contract operations to Claude, Cursor and Copilot
 
