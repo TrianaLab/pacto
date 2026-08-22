@@ -1,6 +1,10 @@
 # Validation layers
 
-Pacto validates contracts through three successive layers. Each layer short-circuits — if it fails, subsequent layers are skipped.
+`pacto validate` runs three successive layers over a contract, and so does
+anything else that has to trust one: `pack` and `push` both refuse before they
+write or transmit a byte, and the operator revalidates every bundle it loads.
+Each layer short-circuits — if it fails, the layers after it are skipped, which
+is why one broken field can hide the rest.
 
 ## Layer 1: Structural (JSON Schema)
 

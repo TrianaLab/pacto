@@ -149,7 +149,7 @@ to read: it should match the release you just installed — or say `dev` if you
 used `go install`. If it names an older release, an earlier copy is still ahead
 on your `PATH`; `which pacto` (`where pacto` on Windows) shows which one won.
 
-## Updating
+## Update or roll back the CLI { #updating }
 
 `pacto update` works on a version-stamped binary — one from the installer
 script or a GitHub release. A `go install` build cannot use it; re-run

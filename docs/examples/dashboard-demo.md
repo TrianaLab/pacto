@@ -5,6 +5,11 @@ of demo contracts are compiled to WebAssembly, with no backend or live registry.
 
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
+The whole engine ships to your browser, so the first visit downloads about
+11 MB of compiled WebAssembly (57 MB unpacked). Give it a moment on a slow
+connection; the browser caches it afterwards. Nothing you do in it leaves the
+tab — there is no backend to leave for.
+
 To run the dashboard against your own services, see
 [Dashboard container](../dashboard-docker.md).
 
@@ -15,7 +20,10 @@ It showcases the full UI against a realistic set of services:
   two different services from two different sources that happen to share a name.
   A name is not an identity (see
   [three identities](../operational-graph.md#three-identities-never-flattened)),
-  so the graph keeps them apart instead of merging them into one row.
+  so the graph keeps them apart instead of merging them into one row. The
+  overview opens on a degraded-source banner on purpose: of the fixture's six
+  data sources one is unavailable and one is partial, because a fleet view that
+  only ever shows complete knowledge teaches you nothing about the day it isn't.
 - **Dependency graph** — resolved from each contract's declared dependencies,
   with blast-radius highlighting.
 - **Change analysis** — `payments-service` spans six versions; the
