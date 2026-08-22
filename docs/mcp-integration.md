@@ -51,6 +51,19 @@ Fleet query tools deserve explicit safety framing:
 - **A missing result under partial coverage does not prove absence.** If a source
   was unavailable, a "not found" means "not known here", not "does not exist". An
   unavailable source is never rendered as an empty result.
+- **The snapshot is frozen for the session.** `pacto mcp --fleet` builds one
+  snapshot at startup, and every `pacto_fleet_*` answer is served from it: the same
+  `asOf` and the same `snapshotId` for the life of the process, however far the
+  cluster or the registry moves underneath. A service deployed after the server
+  started will not appear until you restart it. `pacto_impact` is the one
+  exception — it resolves its two refs and rebuilds the snapshot on every call, so
+  its `asOf` advances while the fleet tools' does not. When the two disagree, they
+  are describing two different moments, not two different worlds.
+- **It reads; it does not reconcile and does not store.** Answering is all it
+  does. Acting on a contract in a cluster is the
+  [Kubernetes operator's](integrations/kubernetes/overview.md) job, and durable
+  evidence lives in an [Evidence Server](evidence-protocol.md) someone else runs —
+  `--evidence-url` reads one, it never becomes one. Nothing survives the process.
 
 See [The Pacto Operational Graph](operational-graph.md) for the read model these
 tools query and the query semantics they expose.
@@ -272,7 +285,11 @@ Validates a contract and returns structured results including errors, warnings, 
 - `valid` — whether the contract passes validation
 - `errors` / `warnings` — validation issues with path, code, and message
 - `summary` — parsed contract overview (name, version, interfaces, runtime state)
-- `suggestions` — actionable improvements with tool call references (e.g., "add a health interface" with the exact `pacto_edit` call to do it)
+- `suggestions` — improvements for a contract that is already valid. There are
+  four, each fired by an absent section: no interfaces, no `state`, no
+  configuration, no dependencies. Only the first carries a `toolCall` (the exact
+  `pacto_edit` arguments to add an `openapi` interface); the other three are
+  prose. An invalid contract returns no suggestions at all — fix the errors first.
 
 ### pacto_schema
 
@@ -540,13 +557,24 @@ Once connected, you can work with contracts conversationally:
 ```
 You:    Create a pacto contract for a stateful Go HTTP API called user-service
         that stores data in PostgreSQL
-Claude: [creates pacto.yaml with HTTP interface, postgres dependency,
-         stateful runtime, and persistent storage]
+Claude: [creates pacto.yaml with an http-api openapi interface, state.type
+         stateful and persistence.durability persistent -- and no dependency]
+
+You:    Add a dependency on payments-api
+Claude: [calls pacto_edit with add_dependencies]
 
 You:    Check the contract in ./payments-api
-Claude: payments-api is valid. Suggestions: declare a health capability
-        bound to the rest-api interface, add an owner.
+Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
+        service depends on others, declare them explicitly."
 ```
+
+The first answer is the honest one, and it is worth reading twice.
+[Dependencies are never inferred](#pacto_create) — a description that names
+PostgreSQL still produces no `dependencies` section, which is why the second
+prompt exists. `PostgreSQL` is also not the word that made this contract
+stateful: matching is whole-word, so `postgres` counts and `PostgreSQL` does not.
+Here "stateful" and "stores data" did the work. Ask for the same contract without
+those two phrases and you get a stateless one.
 
 ---
 

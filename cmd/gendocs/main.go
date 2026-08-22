@@ -153,8 +153,9 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 		"See the [readiness reference](contract-reference/sections.md#readiness) for the score and gate semantics.\n\n" +
 		"**Exit code:** Non-zero if validation fails.",
 
-	"explain": "**What it covers.** `explain` summarises identity, workload, state, capabilities, interfaces, dependencies, readiness and metadata. " +
-		"It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly.\n\n" +
+	"explain": "**What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. " +
+		"It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly. " +
+		"`metadata` is carried by `--output-format json` only; the text output omits it.\n\n" +
 		"**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: \"2.0\"` feature), `explain` adds a Readiness block: " +
 		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, " +
 		"the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table " +

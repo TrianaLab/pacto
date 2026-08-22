@@ -302,6 +302,35 @@ Storage lifecycle stays yours: Pacto reads, never writes, and never rotates. A s
 
 ---
 
+## Fleet queries without a browser
+
+`pacto fleet` answers the same questions the dashboard's Operational Graph view answers, from a terminal or a CI job. It builds one snapshot from the sources you name — `--local`, `--oci`, `--k8s`, `--evidence-url`, `--traces`, `--cache` — then queries it with `search`, `get`, `graph`, `status` and `explain`:
+
+```bash
+$ pacto fleet search --local ./contracts
+1 of 1 service(s):
+  payments-api                 NotEvaluated owner=acme/payments  revs=1 targets=0
+```
+
+`NotEvaluated` is not a failure here: nothing has told the fleet where this service runs, so there is no operational target to evaluate it against. Add `--k8s` or an Evidence Server and the same service gets a compliance state per target.
+
+**Read the completeness before you read the rows.** A degraded source is reported, never quietly dropped:
+
+```bash
+$ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0
+1 of 1 service(s):
+  payments-api                 NotEvaluated owner=acme/payments  revs=1 targets=0
+warning: answer is partial (as of 2026-08-23T01:30:40+02:00)
+  - [SOURCE_PARTIAL] source oci returned a partial result
+  - [SOURCE_RECORD_INVALID] ref ghcr.io/acme/unreachable-pacto:1.0.0 could not be resolved: artifact not found: ghcr.io/acme/unreachable-pacto:1.0.0
+```
+
+An unreachable registry never becomes an empty result, so a service missing from a `partial` answer may be one the missing source knew about. The header is equally deliberate: `1 of 1` is *this page* of `total` matches — `search` returns 100 rows unless you raise `--limit` (500 is the cap), so a bounded page can never be mistaken for the whole fleet. `--output-format json` carries the same facts in a `meta` envelope — `completeness`, `limitations`, per-source status — for a CI job to branch on.
+
+[Freshness and completeness](operational-graph.md#freshness-and-completeness) has the full vocabulary, [query semantics](operational-graph.md#query-semantics) the five operations, and the [`pacto fleet` reference](cli-reference.md#pacto-fleet) every flag.
+
+---
+
 ## Tips
 
 - **Build a plugin for your platform.** A Helm plugin, Terraform plugin or custom manifest generator can consume Pacto contracts deterministically.

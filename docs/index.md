@@ -179,7 +179,7 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 - **3-layer validation** — structural (JSON Schema), cross-field (reference and consistency checks including state vs. persistence) and policy enforcement
 - **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees to show the full blast radius
 - **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries; sibling deps are fetched in parallel
-- **OCI distribution** — push/pull contracts to any OCI registry: GitHub Container Registry (GHCR), Amazon Elastic Container Registry (ECR), Azure Container Registry (ACR), Docker Hub, Harbor; bundles are cached locally for fast repeated operations
+- **OCI distribution** — push/pull contracts to any OCI registry: GitHub Container Registry (GHCR), Amazon Elastic Container Registry (ECR), Azure Container Registry (ACR), Docker Hub, Harbor; bundles are cached locally for fast repeated operations. A contract is an ordinary OCI artifact and needs nothing special; storing *evidence* beside it does — see [registry requirements](evidence-oci-storage.md#registry-requirements), which GHCR does not currently meet
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables and configuration details
 - **SBOM diffing** — an optional software bill of materials (SBOM) in SPDX or CycloneDX format with automatic package-level change detection on `pacto diff`
@@ -239,6 +239,7 @@ These primitives compose into reusable platform patterns — root + component co
 
 Ready to try it? Install the CLI and write your first contract in the
 [Quickstart](quickstart.md). For the full positioning and rationale, see the
-[Manifesto](manifesto.md).
+[Manifesto](manifesto.md). Pacto is MIT licensed and developed in the open at
+[github.com/TrianaLab/pacto](https://github.com/TrianaLab/pacto).
 
 Pacto is an **operational contract system** that tells platforms, pipelines and agents what a service *is* — and whether observed reality still matches what was declared.

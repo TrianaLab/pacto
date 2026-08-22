@@ -39,8 +39,13 @@ in-cluster request surface:
 
 - **Metrics observation** requires `--enable-metrics-observation`; otherwise the
   metrics dimension returns `Unsupported`.
-- **Active health probing (Tier A)** requires `--enable-probing`; otherwise health
-  uses only passive readiness-probe and EndpointSlice signals (Tier B).
+- **Active health probing** requires `--enable-probing`: the operator issues an
+  in-cluster HTTP GET against the health capability's own port and path. Without
+  it, health falls back to what the cluster already knows -- an `httpGet`
+  readiness probe on the container behind that port, plus a Ready EndpointSlice
+  endpoint -- which observes the workload rather than the declared endpoint. The
+  flag help and the [observation reference](runtime-observations.md) call these
+  two *Tier A* and *Tier B*; nothing the operator reports uses those labels.
 - **Interface name-match discovery** requires `--interface-name-match-discovery`
   and only ever assists positive availability -- it never produces an absent or
   error result.

@@ -383,7 +383,7 @@ pacto explain [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-**What it covers.** `explain` summarises identity, workload, state, capabilities, interfaces, dependencies, readiness and metadata. It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly.
+**What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly. `metadata` is carried by `--output-format json` only; the text output omits it.
 
 **Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: "2.0"` feature), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight, and `evidence`. The Readiness block also includes a revision-history table when `history[]` is present. `--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount`, and `expired` (boolean). Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.
 

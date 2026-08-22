@@ -94,11 +94,23 @@ validated, never observed. Add a `spec.target` to enable runtime observation.
 ## Metrics or health always `Unknown`
 
 The metrics dimension returns `Unsupported` unless `--enable-metrics-observation`
-is set, and active health probing (Tier A) requires `--enable-probing`. With
-probing off, health uses only passive readiness-probe and EndpointSlice signals.
-Both are controller flags the Helm chart does not expose — see
+is set, and active health probing requires `--enable-probing`. Both are
+controller flags the Helm chart does not expose — see
 [Opt-in features](limitations.md#opt-in-features) before you try to enable them,
 and [Operator configuration](operator-configuration.md) for what they do.
+
+With probing off, health is read from the workload instead, and that fallback is
+narrower than it sounds: it needs an **`httpGet` readiness probe** on the
+container behind the health capability's port, plus a Ready endpoint for it. A
+liveness-only pod, an `exec` or `tcpSocket` probe, or no probe at all leaves
+nothing to read, and the dimension reports `Unknown`. So does a pod that has the
+probe and is not Ready.
+
+Passive observation can therefore confirm health but never contradict it. A
+declared health endpoint is reported *absent* only when an active probe gets a
+`404` on it for longer than the
+[stabilization window](limitations.md#stabilization-delay) — which is another way
+of saying that `Unknown` here is the honest answer, not a broken one.
 
 ## Operator RBAC errors
 
