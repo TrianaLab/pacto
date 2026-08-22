@@ -61,6 +61,19 @@ for (const path of PAGES) {
     expect(landed, 'activating the skip link leaves focus somewhere').not.toBeNull();
     expect(landed!.id, 'focus is on the skip link target itself').toBe(targetId);
 
+    // And it is still there once the page settles. The skip link's href is a
+    // full URL, so instant navigation refetches the page and replaces the body
+    // behind the reader's back; the heading focused above is detached and focus
+    // silently returns to <body> ~200ms later. Asserting only the line above
+    // passed throughout that. docs/javascripts/skip-link.js.
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(300);
+    const settled = await focused(page);
+    expect(
+      settled?.id,
+      `focus survives the re-render, got ${JSON.stringify(settled)}`,
+    ).toBe(targetId);
+
     // And onward from there: the next stop must be inside the content, not back
     // in the header — otherwise focus moved but the sequence did not.
     await page.keyboard.press('Tab');
