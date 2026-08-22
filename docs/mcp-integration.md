@@ -12,15 +12,31 @@ you exactly what invoking it can and cannot do.
 
 | Family | Tools | What they do | Safety boundary |
 |--------|-------|--------------|-----------------|
-| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation. |
+| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation — with a [known gap](#pacto_edit). |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a timeout and does not follow cross-origin redirects. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain` | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. | Read-only always; they observe nothing and change nothing. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#mcp-tool-pacto_impact) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report a change's blast radius. | Read-only always; they observe nothing and change nothing. |
 
 The three families answer three different questions: authoring tools shape *what a
 contract says*, generated service tools *do something to a running service*, and
 fleet query tools *understand the system as it is*. An agent should never confuse
 them — invoking `createRefund` moves money; `pacto_fleet_get` never leaves the
 read model.
+
+!!! warning "The boundary is documented, not machine-advertised"
+    Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
+    `annotations` member on any tool — not `readOnlyHint`, not `destructiveHint`,
+    not `idempotentHint` — including on `pacto_create` and `pacto_edit`, which
+    write contract files, and on a generated tool such as `createRefund`, which
+    moves money. The [annotations](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
+    MCP defines for exactly this purpose are absent, so a client **cannot** tell a
+    read tool from a write tool automatically and **will not** warn you before a
+    write. The boundary described on this page is enforced by you, not by your
+    client: build allow-lists by hand. The only machine-usable signal is the tool
+    name. `pacto_check`, `pacto_schema`, `pacto_fleet_*`, `pacto_impact` and
+    `pacto_catalog_revision` are read-only; `pacto_create` and `pacto_edit` write
+    contract files; generated service tools carry no `pacto_` prefix at all and
+    reach a live service, so treat every unprefixed tool as unsafe unless you
+    started the server without `--allow-writes`.
 
 Fleet query tools deserve explicit safety framing:
 
@@ -176,6 +192,29 @@ The assistant works entirely through the tool interface — Pacto runs each oper
 | `pacto_check` | Validate a contract and return errors, warnings, and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. Call this first if the assistant needs schema details. |
 
+### Structured inputs are JSON-encoded strings
+
+Every authoring-tool input that carries structure has the MCP wire type `string`,
+and the value is JSON *serialised into a string* — not a JSON array or object.
+That is true of `interfaces`, `dependencies`, `config_properties` and `metadata`
+on `pacto_create`, and of `add_interfaces`, `remove_interfaces`,
+`add_dependencies`, `remove_dependencies`, `add_config_properties`,
+`set_metadata` and `remove_metadata` on `pacto_edit`:
+
+```json
+{
+  "name": "orders",
+  "interfaces": "[{\"name\":\"api\",\"type\":\"openapi\"}]"
+}
+```
+
+!!! warning
+    Passing a real JSON array or object where the JSON-encoded string is expected
+    is a **silent no-op**. The argument is discarded, the call still succeeds and
+    `changes` comes back `null` — nothing is written and nothing is reported. An
+    absent error is therefore not evidence that the edit happened: check the
+    result's `changes` and `summary`.
+
 ### pacto_create
 
 Creates a new Pacto contract from structured input. The tool infers contract details from a natural-language description and explicit parameters.
@@ -183,11 +222,11 @@ Creates a new Pacto contract from structured input. The tool infers contract det
 **Key inputs:**
 - `name` (required) — service name
 - `description` — natural-language description (triggers automatic inference of interfaces and runtime)
-- `interfaces` — JSON array of `{name, type, port?, visibility?}` objects
+- `interfaces` — [JSON-encoded](#structured-inputs-are-json-encoded-strings) array of `{name, type, visibility?}` objects. `type` is one of `openapi`, `asyncapi` or `grpc` — the only three the [contract schema](contract-reference/sections.md#interfaces) allows. There is no `ref` input: the contract's required `interfaces[].ref` is derived as `interfaces/<name>.yaml`.
 - `stores_data`, `data_survives_restart`, `data_shared_across_instances` — intent-level runtime flags mapped to contract primitives
 - `dry_run` — validate and return the result without writing files
 
-**Description inference:** When a description mentions terms like "REST API" or "gRPC", the tool infers the matching interface; a datastore term like "PostgreSQL" or "Redis" flips the runtime to stateful; and a messaging term like "Kafka" adds an event interface. Dependencies are never inferred — declare them explicitly via the `dependencies` input. Explicit inputs always override inferred values.
+**Description inference:** When a description mentions terms like "REST API" or "gRPC", the tool infers the matching interface; a datastore term like `postgres` or `redis` flips the runtime to stateful; and a messaging term like `kafka` adds an `asyncapi` interface. Matching is case-insensitive but **whole-word**, so `Postgres` and `postgres` are recognised while `PostgreSQL` is not. Dependencies are never inferred — declare them explicitly via the `dependencies` input. Explicit inputs always override inferred values.
 
 **Runtime mapping:** Intent-level flags are deterministically mapped to contract primitives:
 
@@ -202,17 +241,25 @@ The persistence rows take effect only when `stores_data=true` — `stores_data` 
 
 ### pacto_edit
 
-Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, validates the result, and writes back atomically.
+Modifies an existing contract. Reads the current `pacto.yaml`, applies changes, validates the result, and writes back atomically. The validation step has a real gap — see the warning below.
 
 **Key inputs:**
 - `path` — directory containing `pacto.yaml` (defaults to `.`)
-- `add_interfaces` / `remove_interfaces` — add or remove interfaces
+- `add_interfaces` / `remove_interfaces` — add or remove interfaces. `add_interfaces` takes the same [JSON-encoded](#structured-inputs-are-json-encoded-strings) `{name, type, visibility?}` objects as `pacto_create`; `remove_interfaces` takes a JSON-encoded array of interface names.
 - `add_dependencies` / `remove_dependencies` — add or remove dependencies
 - Runtime flags (`stores_data`, `data_survives_restart`, etc.)
 - `dry_run` — validate without writing
 
-!!! warning
-    `pacto_edit` only scaffolds stub files for HTTP and gRPC interfaces. Other interface types (e.g. `event`) are added to `pacto.yaml` with a `contract:` path, but no file is created for them, so `pacto_edit` can report success while a referenced interface file is missing. Create those files yourself after the edit.
+!!! warning "`pacto_edit` can write a bundle that `pacto validate` rejects"
+    `pacto_edit` scaffolds a stub spec file only for `openapi` and `grpc`
+    interfaces. An `asyncapi` interface is added to `pacto.yaml` with a derived
+    `ref: interfaces/<name>.yaml` and **no file is created**, so the tool reports
+    success — `changes: ["added interface …"]` — while the referenced file is
+    missing, and `pacto validate` then exits non-zero with `FILE_NOT_FOUND`. The
+    tool's "validates the result before writing" does not catch this: it validates
+    an in-memory bundle in which every missing `ref` is substituted with a stub, so
+    the check passes against a filesystem that is not the one written to disk.
+    Create the AsyncAPI document yourself after the edit.
 
 ### pacto_check
 
@@ -245,7 +292,9 @@ The authoring tools above are always available. When you additionally pass a **b
 pacto mcp ./my-service --base-url https://api.example.com
 ```
 
-For every operation in each `http` interface's OpenAPI contract, Pacto registers one MCP tool whose input schema is derived from the operation's parameters and request body, and whose handler invokes the live endpoint. The bundle author writes nothing extra — the interface already describes what the tool needs.
+For every operation in each `openapi` interface's contract, Pacto registers one MCP tool whose input schema is derived from the operation's parameters and request body, and whose handler invokes the live endpoint. (`openapi` is the interface *type*; an interface's *name* is free-form, so a bundle may well name one `http`.) The bundle author writes nothing extra — the interface already describes what the tool needs.
+
+The tool's name is the operation's `operationId`. When an operation declares none, Pacto derives `<method>_<path>` with every non-alphanumeric character collapsed to a single `_` — `GET /health` becomes `get_health` — and disambiguates a collision with a numeric suffix (`get_health_2`). An agent allow-list keyed on tool names therefore depends on the OpenAPI document declaring `operationId` for every operation.
 
 The server also sets its MCP *instructions* to tell the assistant that these tools invoke the live service, whether writes are enabled, and how to use `pacto_skill`. That generic "how to use these capabilities" guidance lives in Pacto itself — bundles only ship *domain-specific* skills (below), never a boilerplate usage guide.
 
@@ -267,7 +316,13 @@ Only safe read operations (`GET`/`HEAD`) are exposed unless you opt in to mutati
 pacto mcp ./my-service --base-url https://api.example.com --allow-writes
 ```
 
-Skipped operations are logged to stderr, so nothing is silently dropped.
+A per-interface count of skipped operations is logged to stderr, so nothing is dropped silently:
+
+```
+pacto mcp: skipped 2 mutating operation(s) in interface "api" (use --allow-writes to expose)
+```
+
+The individual operations are not named, at any verbosity — to see exactly which ones would appear, compare `tools/list` with and without `--allow-writes`.
 
 ### Base URL
 
@@ -275,7 +330,7 @@ The live host comes from `--base-url`, falling back to the spec's `servers[0]` U
 
 ### Authentication
 
-Credentials are supplied per OpenAPI security scheme with the repeatable `--auth name=value` flag and applied to each request according to the scheme's declaration:
+Credentials are supplied per OpenAPI security scheme with the repeatable `--auth name=value` flag and applied to each request according to the scheme's declaration. The `http` in the table below is an OpenAPI *security-scheme* type, unrelated to Pacto's interface types (`openapi`, `asyncapi`, `grpc`):
 
 | Scheme type | How the credential is applied |
 |-------------|-------------------------------|
@@ -524,7 +579,11 @@ Connect your client to `http://127.0.0.1:8585/mcp` (or your chosen port).
 
 3. Check your MCP configuration file for JSON syntax errors.
 
-4. Use verbose mode to see debug output:
+4. Use verbose mode to see debug output for the server's *startup* work — resolving a bundle reference or a `--root` against a registry:
    ```bash
-   pacto mcp -v
+   pacto mcp ./my-service --base-url https://api.example.com -v
    ```
+   Once the server is running it logs nothing per tool call, and plain `pacto mcp`
+   resolves nothing at startup, so there `-v` adds no output beyond the single
+   `MCP server running on stdio` line. To inspect what the server actually
+   exposes, call `tools/list` from your client (in Claude Code, `/mcp`).
