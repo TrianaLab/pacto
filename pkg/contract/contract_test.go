@@ -331,6 +331,47 @@ func TestContract_ReferenceRefs_Empty(t *testing.T) {
 	}
 }
 
+// The rule stated over DECLARATIONS, not over refs: a name declared once inline
+// and once by ref is still declared twice, and one name used for a configuration
+// AND for a policy is legal, because the two are looked up under different kinds.
+func TestContract_DuplicateDeclarations(t *testing.T) {
+	c := &Contract{
+		Configurations: []Configuration{
+			{Name: "app", Schema: "config/app.json"},
+			{Name: "shared", Ref: "oci://r/cfg"},
+			{Name: "app", Ref: "oci://r/app"},
+		},
+		Policies: []Policy{
+			{Name: "shared", Schema: "policy/shared.json"},
+			{Name: "sec", Schema: "policy/sec.json"},
+			{Name: "sec", Ref: "oci://r/sec"},
+		},
+	}
+	want := []Duplicate{
+		{Kind: ReferenceKindPolicy, Name: "sec", Index: 2, First: 1},
+		{Kind: ReferenceKindConfig, Name: "app", Index: 2, First: 0},
+	}
+	got := c.DuplicateDeclarations()
+	if len(got) != len(want) {
+		t.Fatalf("expected %d duplicates, got %d: %+v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("duplicate[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestContract_DuplicateDeclarations_None(t *testing.T) {
+	c := &Contract{
+		Configurations: []Configuration{{Name: "app"}, {Name: "other"}},
+		Policies:       []Policy{{Name: "sec"}},
+	}
+	if got := c.DuplicateDeclarations(); got != nil {
+		t.Errorf("expected no duplicates, got %+v", got)
+	}
+}
+
 func TestCapability_StandardTypes(t *testing.T) {
 	h := Capability{Type: CapabilityHealth}
 	m := Capability{Type: CapabilityMetrics}

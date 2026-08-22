@@ -136,3 +136,127 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secret=old-secret"
 
+
+  - it: should include no trace-source arg by default
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-trace-source"
+
+  - it: should include a PVC-backed observation source arg
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: traces.json
+          existingClaim: orders-trace-export
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=orders,file=traces.json,existingClaim=orders-trace-export"
+
+  - it: should include a ConfigMap-backed observation source arg
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: fixture
+          file: traces.json
+          configMap: fixture-traces
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=fixture,file=traces.json,configMap=fixture-traces"
+
+  # An "=" in the file name survives the wire: only the FIRST "=" of a field
+  # separates key from value, so the parser reads this back as one file name.
+  - it: should carry an = in the file name through unescaped
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: trace=export.json
+          existingClaim: orders-trace-export
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=orders,file=trace=export.json,existingClaim=orders-trace-export"
+
+  # The counterexample the wire cannot represent. Rejecting it in the schema is
+  # what keeps every value the chart accepts parseable by the controller.
+  - it: should reject a file name containing the flag's field separator
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: trace,part.json
+          existingClaim: orders-trace-export
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject a nested file path
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: exports/traces.json
+          existingClaim: orders-trace-export
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject a backing name that is not a Kubernetes object name
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: traces.json
+          existingClaim: Orders_Trace_Export
+    asserts:
+      - failedTemplate: {}
+
+  - it: should pass every declared observation source through
+    set:
+      dashboard.enabled: true
+      dashboard.observation.sources:
+        - name: orders
+          file: traces.json
+          existingClaim: orders-trace-export
+        - name: checkout
+          file: traces.json
+          configMap: checkout-traces
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=orders,file=traces.json,existingClaim=orders-trace-export"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-trace-source=name=checkout,file=traces.json,configMap=checkout-traces"
+
+  - it: should drop the trace-source args when the dashboard is disabled
+    set:
+      dashboard.enabled: false
+      dashboard.observation.sources:
+        - name: orders
+          file: traces.json
+          existingClaim: orders-trace-export
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-trace-source"
+
+  - it: should not declare a plain-HTTP registry allowance by default
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[*].name
+          pattern: "PACTO_INSECURE_REGISTRIES"
+
+  - it: should pass the plain-HTTP registry hosts to the controller environment
+    set:
+      insecureRegistries:
+        - pacto-registry.pacto-system.svc.cluster.local:5000
+        - other.svc:5000
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PACTO_INSECURE_REGISTRIES
+            value: "pacto-registry.pacto-system.svc.cluster.local:5000,other.svc:5000"

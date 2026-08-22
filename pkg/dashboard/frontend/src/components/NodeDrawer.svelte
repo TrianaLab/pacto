@@ -12,7 +12,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if data}
-  <aside class="drawer" role="complementary" aria-label="Service details for {data.name}">
+  <aside class="drawer" aria-label="Service details for {data.name}">
     <div class="drawer-head">
       <div class="drawer-title">
         <span class="drawer-name">{data.name}</span>

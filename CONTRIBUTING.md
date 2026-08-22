@@ -48,10 +48,60 @@ By participating in this project, you agree to treat all contributors with respe
 
    ```bash
    make test         # unit tests
-   make e2e          # end-to-end tests
+   make e2e          # Go end-to-end tests (build tag e2e)
    make lint         # gofmt + go vet
    make coverage     # coverage report with HTML output
    ```
+
+   Acceptance scenarios can be run one at a time (thin aliases over the
+   `test-acceptance-*` targets):
+
+   ```bash
+   make e2e-operational-graph       # kind: FULL vertical (operator + dashboard + Evidence Server + registry), asserts end to end
+   make e2e-operational-graph-core  # cluster-free fleet story: graph, evidence, OTel, reconcile, impact
+   make e2e-otel                    # OTel observation acceptance (part of the operational-graph-core run)
+   make e2e-dashboard-wasm          # browser (Playwright) suite against the built WASM dashboard demo
+   make e2e-reconcile-kind          # kind: full operator reconcile cycle (dashboard enabled)
+   make e2e-dashboard-kind          # kind: dashboard enabled/disabled lifecycle, no crashloop
+   make e2e-evidence-kind           # kind: operator-managed Evidence Server + real in-cluster ingestion
+   make e2e-upgrade-kind            # kind: real v4 -> v5 chart + CRD migration
+   ```
+
+   The `-kind` scenarios each self-provision a kind cluster (reused via
+   `KIND_CLUSTER`) and, on failure, dump cluster diagnostics before exiting. To
+   keep a failed cluster and its namespace for inspection instead of tearing it
+   down, set `KEEP_E2E_CLUSTER=1` (e.g. `KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind`).
+
+   **Test the whole product locally.** To bring up a fully-configured install
+   (operator + dashboard + Evidence Server + an in-cluster registry, with
+   reconciled Pacto CRs — including a declared dependency edge — and a signed
+   EvidenceEnvelope ingested as an external target) and leave it running so you can
+   click through the Operational Graph and Impact in a browser:
+
+   ```bash
+   make e2e-operational-graph-up      # bring it up and leave it running (prints how to reach the dashboard)
+   make e2e-operational-graph-status  # component health
+   make e2e-operational-graph-logs    # component logs
+   make e2e-operational-graph-down    # tear it down
+   ```
+
+   After `-up`, port-forward the dashboard and open the graph:
+
+   ```bash
+   export KUBECONFIG=$(mktemp) && kind get kubeconfig --name pacto-og > $KUBECONFIG
+   kubectl -n pacto-system port-forward svc/pacto-dashboard 8080:3000
+   open http://localhost:8080/#/fleet
+   ```
+
+   For the same product story with **no cluster at all**, the in-browser WASM demo
+   runs the real dashboard + API compiled to wasm over embedded data:
+
+   ```bash
+   make -C examples/demo build && make -C examples/demo serve   # then open the printed URL
+   ```
+
+   The docs site (which embeds the WASM demo at `/demo/`) is built by
+   `make docs` / `make docs-build`.
 
 ## How to Contribute
 
@@ -126,7 +176,12 @@ pacto/
     update/           #   Version update checker
     testutil/         #   Shared test utilities
   schema/             # Standalone JSON schema copy
-  tests/e2e/          # End-to-end tests
+  tests/              # Tests that are not about one package
+    integration/      #   CLI driven in process against a real registry
+    architecture/     #   Structural rules about the repository itself
+    acceptance/local/ #   Whole user stories, no cluster
+    acceptance/kind/  #   The product against a real Kubernetes cluster
+    release/          #   The release system produces what it claims
   docs/               # Documentation site (MkDocs)
   scripts/            # Build and install scripts
 ```
@@ -142,9 +197,23 @@ Core domain logic lives in `pkg/` and can be imported by external projects. Infr
 
 ### Testing
 
-- **Unit tests** live alongside the code they test (`_test.go` files).
-- **End-to-end tests** live in `tests/e2e/` and use the `e2e` build tag.
-- The project enforces **100% statement coverage**. `make ci` will fail if any package drops below 100%.
+Pacto has eight test levels. A test belongs to exactly one, chosen by what it
+proves — never by filename or language. **[Testing
+architecture](docs/maintainers/testing.md) is the full guide, including how to
+pick the level for a new test.** The short version:
+
+| Level | Lives in | Run with |
+|-------|----------|----------|
+| Unit | beside the code (`_test.go`, `*.test.ts`) | `make test`, `make ci-ui` |
+| Integration | `tests/integration/`, `integrations/kubernetes/test/` | `make test-integration` |
+| Architecture / invariant | `tests/architecture/` | `make ci-gates` |
+| Local acceptance, cluster-free | `tests/acceptance/local/` | `make test-acceptance-local` |
+| Kind / system acceptance | `tests/acceptance/kind/` | `make test-acceptance-kind` |
+| Browser acceptance, deterministic | `pkg/dashboard/frontend/e2e/` | `make test-browser` |
+| Live-browser acceptance | `pkg/dashboard/frontend/e2e-live/` | `make test-browser-live` |
+| Release verification | `tests/release/`, `release/orchestrator/` | `make ci-gates`, `make release-dry-run` |
+
+- The project enforces **100% statement coverage** on everything outside `tests/`. `make ci` will fail if any package drops below 100%.
 - Run `make coverage` to generate a coverage report and identify uncovered lines.
 
 ### CI Quality Gates
@@ -159,7 +228,9 @@ The `make ci` target runs all quality gates in order:
 | `ci-lint` | `golangci-lint` reports zero issues |
 | `ci-docs` | CLI reference docs are up to date |
 | `ci-test` | Unit tests pass with 100% coverage |
-| `e2e` | End-to-end tests pass |
+| `test-integration` | The in-process CLI integration suite passes |
+| `test-acceptance-local` | The cluster-free acceptance story passes |
+| `ci-gates` | Architecture/invariant and release-verification gates pass |
 
 ### Documentation
 

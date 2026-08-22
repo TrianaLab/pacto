@@ -3,7 +3,10 @@
 
 html {
   font-family: var(--font-sans);
-  font-size: var(--text-base);
+  /* The rem BASE, which is a different thing from the body text size and must not be
+     written as a rem token -- see the size-ramp note in tokens.css. A percentage keeps
+     the app proportional to whatever default font size the reader has configured. */
+  font-size: 93.75%;
   line-height: var(--line-height);
   -webkit-font-smoothing: antialiased;
   background: var(--c-bg);
@@ -21,7 +24,15 @@ html {
   overflow-x: clip;
 }
 
-body { min-height: 100vh; overflow-x: clip; }
+/* Unclassed text is BODY text, so it takes the body role here rather than inheriting
+   the rem base. Before this, ordinary paragraph copy painted at 15px while `.t-body`
+   -- the class for exactly that role -- painted at 14.06px. */
+body {
+  min-height: 100vh; overflow-x: clip;
+  font-size: var(--role-body-size);
+  font-weight: var(--role-body-weight);
+  line-height: var(--role-body-lh);
+}
 
 a { color: var(--c-accent); text-decoration: none; transition: color var(--transition); }
 a:hover { color: var(--c-accent-hover); text-decoration: underline; }
@@ -69,10 +80,24 @@ pre {
 /* Selection */
 ::selection { background: var(--c-accent-bg); color: var(--c-accent); }
 
-/* Headings */
-h1 { font-size: var(--text-xl); font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; }
-h2 { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; line-height: 1.35; }
-h3 { font-size: var(--text-base); font-weight: 600; }
+/* Headings — the TAG DEFAULTS, expressed as the role each level usually plays.
+   They exist so an unclassed heading is never browser-default; the moment a
+   component knows better it says so with a .t-* role class, and the role wins.
+   h4/h5/h6 used to fall through to the browser's own scale (0.83em, 0.67em),
+   which is how a deeply nested section title ended up smaller than its own body
+   text. Every level now lands on the ramp. */
+h1 {
+  font-size: var(--role-page-title-size); font-weight: var(--role-page-title-weight);
+  letter-spacing: -0.02em; line-height: var(--role-page-title-lh);
+}
+h2 {
+  font-size: var(--role-section-title-size); font-weight: var(--role-section-title-weight);
+  letter-spacing: -0.01em; line-height: var(--role-section-title-lh);
+}
+h3, h4, h5, h6 {
+  font-size: var(--role-subsection-title-size); font-weight: var(--role-subsection-title-weight);
+  line-height: var(--role-subsection-title-lh);
+}
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); table-layout: auto; }
@@ -149,8 +174,11 @@ tbody tr:hover { background: var(--c-surface-hover); }
     padding: var(--sp-4) var(--sp-4);
   }
 
-  h1 { font-size: 1.375rem; }
-  h2 { font-size: 1.125rem; }
+  /* No mobile heading shrink. The two hardcoded overrides that used to live here
+     (1.375rem / 1.125rem) were off the ramp, and shrinking the page title toward
+     its own section titles is exactly the collapse this hierarchy exists to
+     prevent. A 24px title wraps at 320px; wrapping is not a problem, an
+     indistinguishable title is. */
 
   /* Make tables horizontally scrollable on mobile */
   .table-wrap {
@@ -168,3 +196,24 @@ tbody tr:hover { background: var(--c-surface-hover); }
   code { word-break: break-all; }
   pre { max-width: 100%; }
 }
+
+/* Visually-hidden but present in the accessibility tree: a page-level heading or a
+   status label a screen reader must announce while the visual design uses a richer
+   custom component. Standard clip technique. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Inline links within prose are underlined so they are distinguishable from the
+   surrounding text without relying on color alone (WCAG 1.4.1 /
+   link-in-text-block). Block/card/nav links (tiles, chips, buttons) style themselves and
+   are not inline prose, so this only affects genuine in-sentence links. */
+p a { text-decoration: underline; }

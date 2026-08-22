@@ -1,0 +1,37 @@
+{{- if and .Values.evidence.enabled .Values.evidence.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-evidence
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: evidence
+  {{- with .Values.evidence.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.evidence.ingress.className }}
+  ingressClassName: {{ .Values.evidence.ingress.className }}
+  {{- end }}
+  {{- if .Values.evidence.ingress.tls }}
+  tls:
+    {{- toYaml .Values.evidence.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.evidence.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "pacto-operator.fullname" $ }}-evidence
+                port:
+                  number: {{ $.Values.evidence.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

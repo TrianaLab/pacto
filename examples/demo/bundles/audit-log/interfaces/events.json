@@ -1,0 +1,29 @@
+{
+  "asyncapi": "2.6.0",
+  "info": {
+    "title": "Audit Log Events",
+    "version": "1.0.0",
+    "description": "Domain events the audit log consumes and persists for compliance"
+  },
+  "channels": {
+    "audit.event.recorded": {
+      "subscribe": {
+        "operationId": "onAuditEvent",
+        "summary": "A domain event to be persisted to the audit trail",
+        "message": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "event_id": { "type": "string" },
+              "actor": { "type": "string" },
+              "action": { "type": "string" },
+              "resource": { "type": "string" },
+              "occurred_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["event_id", "action", "occurred_at"]
+          }
+        }
+      }
+    }
+  }
+}

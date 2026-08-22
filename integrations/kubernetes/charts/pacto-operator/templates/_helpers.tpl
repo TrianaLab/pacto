@@ -102,5 +102,42 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- with .Values.dashboard.observation }}
+{{- range .sources }}
+{{- $backing := "" }}
+{{- if .existingClaim }}{{ $backing = printf "existingClaim=%s" .existingClaim }}{{ else if .configMap }}{{ $backing = printf "configMap=%s" .configMap }}{{ end }}
+- --dashboard-trace-source=name={{ required "each dashboard.observation.sources entry needs a name" .name }},file={{ required "each dashboard.observation.sources entry needs a file" .file }},{{ required "each dashboard.observation.sources entry needs exactly one of existingClaim or configMap" $backing }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.evidence.enabled }}
+- --enable-evidence-server
+{{- if .Values.evidence.trust.existingSecret }}
+- --evidence-trust-secret={{ .Values.evidence.trust.existingSecret }}
+{{- end }}
+{{- range (required "evidence.registry.subjects is required when evidence is enabled: the registry holding those contract revisions IS the evidence store" .Values.evidence.registry.subjects) }}
+- --evidence-subject={{ . }}
+{{- end }}
+{{- if .Values.evidence.registry.credentialsSecret }}
+- --evidence-credentials-secret={{ .Values.evidence.registry.credentialsSecret }}
+{{- end }}
+{{- with .Values.evidence.resources }}
+{{- if .requests }}
+{{- if .requests.cpu }}
+- --evidence-cpu-request={{ .requests.cpu }}
+{{- end }}
+{{- if .requests.memory }}
+- --evidence-memory-request={{ .requests.memory }}
+{{- end }}
+{{- end }}
+{{- if .limits }}
+{{- if .limits.cpu }}
+- --evidence-cpu-limit={{ .limits.cpu }}
+{{- end }}
+{{- if .limits.memory }}
+- --evidence-memory-limit={{ .limits.memory }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}

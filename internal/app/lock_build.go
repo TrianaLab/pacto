@@ -84,47 +84,129 @@ func referenceBaseDir(ref string) string {
 	return base
 }
 
-// buildReferenceClosure pins the full transitive config/policy reference closure.
-// Deduplicated by declared ref string, which also terminates cycles.
+// buildReferenceClosure pins the full transitive config/policy reference closure:
+// one entry per DECLARATION, tagged with the content identity of the contract
+// that declared it (lock.Reference.From, "" for the root).
+//
+// Three properties matter and none is free:
+//
+//   - Every declaration is emitted, even when two of them share a declared ref
+//     string. A ref string is text a human wrote in one contract; the same text
+//     in two contracts is two references. Collapsing them either drops a real
+//     closure member or files one contract's resolution under another's name.
+//   - The walk is deduplicated by the RESOLVED bundle -- its registry digest, or
+//     its resolved absolute path for a local ref -- not by that text. A relative
+//     ref is resolved against the directory of the contract that declared it, so
+//     "./config" declared in two directories denotes two different bundles;
+//     conversely two different ref strings may name one bundle. Resolved identity
+//     is what makes the walk finite, so cycles still terminate.
+//   - A declaration reached by several routes is ONE declaration. It lives once,
+//     inside one immutable contract, so it is emitted once, under an identity
+//     that does not mention any route. Emitting it per route would make the lock
+//     depend on which route the walk took first, and the routes are recoverable
+//     from the entries anyway (see lock.Reference.DestinationID).
+//
+// It fails closed twice over. *lock.DuplicateDeclarationError when a contract in
+// the closure declares one (kind, name) twice, so it holds two declarations the
+// lock could not tell apart; and *lock.AmbiguousError when one identity would
+// have to hold two different resolutions. Those are the only two ways the
+// closure can outgrow what the lock can represent.
 func (s *Service) buildReferenceClosure(ctx context.Context, root *contract.Contract, baseDir string) ([]lock.Reference, error) {
-	seen := map[string]bool{}
+	walked := map[string]bool{}            // resolved bundle identity -> already recursed into
+	resolved := map[string]refResolution{} // (dir, ref text) -> resolution, so a repeat costs no fetch
+	seen := map[lock.Occurrence]lock.Reference{}
 	var out []lock.Reference
-	var walk func(c *contract.Contract, dir string) error
-	walk = func(c *contract.Contract, dir string) error {
+	var walk func(c *contract.Contract, dir, from string) error
+	walk = func(c *contract.Contract, dir, from string) error {
+		// Asked of the contract's DECLARATIONS, before resolving anything. A
+		// duplicate is a property of the contract, not of what its refs happen to
+		// resolve to: two duplicates pointing at the same bytes are still two
+		// declarations, and one of them carrying an inline schema instead of a ref
+		// hides the pair from the walk below entirely.
+		if dups := c.DuplicateDeclarations(); len(dups) > 0 {
+			return &lock.DuplicateDeclarationError{Occurrence: lock.Occurrence{
+				From: from, Kind: dups[0].Kind, Name: dups[0].Name}}
+		}
 		for _, d := range c.ReferenceRefs() {
-			if seen[d.Ref] {
-				continue
-			}
-			seen[d.Ref] = true
-			entry, child, childDir, err := s.resolveReference(ctx, d, dir)
-			if err != nil {
-				return err
-			}
-			out = append(out, entry)
-			if child != nil {
-				if err := walk(child, childDir); err != nil {
+			memo, ok := resolved[dir+"\x00"+d.Ref]
+			if !ok {
+				var err error
+				if memo, err = s.resolveReference(ctx, d, dir); err != nil {
 					return err
 				}
+				resolved[dir+"\x00"+d.Ref] = memo
+			}
+			// The memo answers "what does this ref text resolve to from this
+			// directory", which is all it can answer: two scopes in one contract may
+			// share a ref string, and the declaration is the caller's, not the
+			// memo's. Kind and Name come from the declaration every time.
+			entry := memo.entry
+			entry.From, entry.Kind, entry.Name = from, d.Kind, d.Name
+			if prev, dup := seen[entry.Occurrence()]; dup {
+				if prev != entry {
+					return &lock.AmbiguousError{Occurrence: entry.Occurrence(),
+						First: refOrigin(prev), Second: refOrigin(entry)}
+				}
+				continue // the same declaration, reached again by another route
+			}
+			seen[entry.Occurrence()] = entry
+			out = append(out, entry)
+			if memo.child == nil || walked[memo.identity] {
+				continue
+			}
+			walked[memo.identity] = true
+			// The child's declarations are tagged with the child's own content
+			// identity, not with the route to it, so they are the same wherever
+			// the walk arrives from.
+			if err := walk(memo.child, memo.childDir, entry.DestinationID()); err != nil {
+				return err
 			}
 		}
 		return nil
 	}
-	if err := walk(root, baseDir); err != nil {
+	if err := walk(root, baseDir, ""); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
+// refOrigin renders where a reference entry points, for an ambiguity message:
+// the text the author wrote (Ref for OCI, Path for local) plus the identity it
+// pinned, since two declarations can share the text and differ in what it
+// resolved to -- which is exactly the case that raises the message.
+func refOrigin(r lock.Reference) string {
+	where := r.Ref
+	if where == "" {
+		where = r.Path
+	}
+	return where + " (" + r.DestinationID() + ")"
+}
+
+// refResolution is what one ref text resolves to from one directory: the pinned
+// half of a lock entry, the referenced bundle's contract and base dir for
+// recursion, and the resolved identity that terminates the walk.
+//
+// entry deliberately carries NO declaration fields (From, Kind, Name). It is
+// memoized per (dir, ref text) and several declarations may share that key, so
+// filling them here would file the second declaration under the first one's
+// name. identity is runtime-only and never serialized.
+type refResolution struct {
+	entry    lock.Reference
+	child    *contract.Contract
+	childDir string
+	identity string
+}
+
 // resolveReference pins one reference and returns the referenced bundle's
-// contract (for recursion) and its base dir ("" for OCI). Any resolve/pull/
-// hash/load failure yields *lock.UnresolvedError (fail closed).
-func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef, dir string) (lock.Reference, *contract.Contract, string, error) {
-	r := lock.Reference{Kind: d.Kind, Name: d.Name}
+// contract (for recursion), its base dir ("" for OCI) and its resolved identity.
+// Any resolve/pull/hash/load failure yields *lock.UnresolvedError (fail closed).
+func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef, dir string) (refResolution, error) {
+	var r lock.Reference
 	parsed := graph.ParseDependencyRef(d.Ref)
 
 	if parsed.IsLocal() {
 		if dir == "" {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: "local reference inside an OCI bundle cannot be resolved"}
+			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: "local reference inside an OCI bundle cannot be resolved"}
 		}
 		path := parsed.Location
 		if !filepath.IsAbs(path) {
@@ -132,32 +214,34 @@ func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef,
 		}
 		b, err := loadLocalBundle(path)
 		if err != nil {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
+			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
 		h, err := lock.HashFS(b.FS)
 		if err != nil {
-			return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
+			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
 		r.Source = "local"
 		r.Path = parsed.Location
 		r.ContentHash = h
 		r.Version = b.Contract.Service.Version
-		return r, b.Contract, path, nil
+		// The resolved absolute path, not the content hash: two byte-identical
+		// bundle directories still resolve their own relative refs differently.
+		return refResolution{entry: r, child: b.Contract, childDir: path, identity: "local:" + path}, nil
 	}
 
 	resolvedRef, digest, err := resolveDigest(ctx, s.BundleStore, parsed.Location, "")
 	if err != nil {
-		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
+		return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 	}
 	b, err := s.BundleStore.Pull(ctx, resolvedRef)
 	if err != nil {
-		return lock.Reference{}, nil, "", &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
+		return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 	}
 	r.Source = "oci"
 	r.Ref = d.Ref
 	r.Digest = digest
 	r.Version = b.Contract.Service.Version
-	return r, b.Contract, "", nil
+	return refResolution{entry: r, child: b.Contract, childDir: "", identity: "oci:" + digest}, nil
 }
 
 // entryFromEdge builds a dependency lock entry from a resolved graph node,

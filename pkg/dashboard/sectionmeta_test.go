@@ -118,6 +118,42 @@ func TestMarkRuntimeOverrides(t *testing.T) {
 		t.Error("did not expect owner override when owners match")
 	}
 
+	// An owner is a structure, not the string it renders as. A team and a person
+	// who share a label are two owners, so the cluster naming one where the bundle
+	// names the other IS an override — and the same owner with its contacts listed
+	// in the other order is NOT.
+	email, chat := contract.OwnerContact{Type: "email", Value: "a@acme.com"}, contract.OwnerContact{Type: "chat", Value: "#b"}
+	for _, tc := range []struct {
+		name     string
+		from, rt contract.Owner
+		want     bool
+	}{{
+		name: "a team replaced by a person of the same name",
+		from: contract.Owner{Team: "team-a"},
+		rt:   contract.Owner{DRI: "team-a"},
+		want: true,
+	}, {
+		name: "the same owner with its contacts reordered",
+		from: contract.Owner{Team: "team-a", Contacts: []contract.OwnerContact{email, chat}},
+		rt:   contract.Owner{Team: "team-a", Contacts: []contract.OwnerContact{chat, email}},
+		want: false,
+	}, {
+		name: "the same team, escalating to somebody else",
+		from: contract.Owner{Team: "team-a", DRI: "alice"},
+		rt:   contract.Owner{Team: "team-a", DRI: "bob"},
+		want: true,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := &ServiceDetails{SectionMeta: map[string]SectionInfo{}}
+			markRuntimeOverrides(got,
+				&ServiceDetails{Service: Service{Version: "1.0.0", Owner: tc.from}},
+				&ServiceDetails{Service: Service{Version: "1.0.0", Owner: tc.rt}})
+			if _, ok := got.SectionMeta["owner"]; ok != tc.want {
+				t.Errorf("owner override = %v, want %v", ok, tc.want)
+			}
+		})
+	}
+
 	// No-op guards (nil base/runtime/sectionMeta).
 	markRuntimeOverrides(&ServiceDetails{}, nil, rt)
 	markRuntimeOverrides(&ServiceDetails{}, base, nil)

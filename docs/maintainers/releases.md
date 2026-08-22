@@ -12,7 +12,7 @@ groups (a group releases together or not at all):
 
 | Group | Units | Coordinate kind |
 |-------|-------|-----------------|
-| **core** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles |
+| **core** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles`, `demo-compose` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles, OCI demo artifact |
 | **kubernetes** | `k8s-module`, `operator-image`, `operator-chart`, `k8s-docs` | Go module tag, OCI image, Helm/OCI chart, versioned docs |
 
 `release/release-manifest.json` is the source of truth for the units, their
@@ -89,8 +89,22 @@ path (both production `release.yml` and the staging dry-run call them). For each
   (idempotent) and skip.
 - **adopt** — the remote exists with no recorded digest (a push-before-record crash)
   but its identity proves it is *this* transaction's artifact: a content-addressed
-  digest match (bundles, chart) or matching OCI `revision`+`version` provenance
-  labels (images). Record the remote digest and skip re-pushing.
+  digest match (bundles, chart), matching OCI `revision`+`version` provenance
+  labels (images), or the complete native Compose identity (`demo-compose`, whose
+  publisher is `docker compose publish` — it stamps a moving `created` timestamp
+  into the manifest and writes no provenance, so `PACTO_EXPECT_CONTENT` — the
+  `sha256` of the projected compose file — is its identity). Record the remote
+  digest and skip re-pushing.
+
+  "Complete" is the operative word for that last one: an `artifactType` of exactly
+  `application/vnd.docker.compose.project`, exactly one layer, that layer's media
+  type exactly `application/vnd.docker.compose.file+yaml`, and its digest exactly
+  `PACTO_EXPECT_CONTENT`. Bytes are not a type — any artifact can carry the same
+  compose file as one octet-stream layer under any artifact type, and adopting it
+  on the strength of a layer count and a digest would record something
+  `docker compose -f oci://…` cannot run. `verify-oci.sh` is the one place that
+  rule lives; `publish-oci-unit.sh` asserts through it after its own push, before
+  the ledger records the unit complete, rather than keeping a second copy.
 - **conflict** — anything else: fail closed, never overwrite an immutable tag.
 
 **Crash recovery** is two-phase: record the plan (expected digest) before touching

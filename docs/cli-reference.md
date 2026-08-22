@@ -38,13 +38,13 @@ Non-semver tags (e.g. `latest`, `main`) are ignored during resolution. Digest-pi
 
 ## `pacto dashboard`
 
-Launches a contract exploration dashboard that aggregates data from all
+Launches an operational dashboard that aggregates data from all
 available sources (local filesystem, Kubernetes, OCI registries).
 
 The dashboard is the exploration and observability layer of the Pacto system.
-It visualizes the same contracts the CLI manages and the operator verifies —
-dependency graphs, version history, interfaces, configuration schemas, diffs,
-and runtime compliance — in a single unified view.
+It visualizes the same contracts the CLI manages and the operator verifies,
+organised around four workflows: an operational Overview, the Services
+inventory, the Operational Graph, and Change analysis.
 
 Each positional argument is a pacto source reference:
   - oci://registry/repo  → OCI registry source (can be repeated)
@@ -100,12 +100,14 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
-      --cors-origin string   explicit cross-origin allowed to call the API (default: same-origin only)
-      --diagnostics          enable source diagnostics panel in the dashboard UI
-  -h, --help                 help for dashboard
-      --host string          bind address for the dashboard server (default "127.0.0.1")
-      --namespace string     Kubernetes namespace (empty = all namespaces)
-      --port int             port for the dashboard server (default 3000)
+      --cors-origin string         explicit cross-origin allowed to call the API (default: same-origin only)
+      --diagnostics                enable source diagnostics panel in the dashboard UI
+  -h, --help                       help for dashboard
+      --host string                bind address for the dashboard server (default "127.0.0.1")
+      --namespace string           Kubernetes namespace (empty = all namespaces)
+      --port int                   port for the dashboard server (default 3000)
+      --trace-source stringArray   named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
+      --traces stringArray         OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached), and `--diagnostics` to expose the `/api/debug/*` endpoints.
@@ -214,6 +216,19 @@ Sibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache
 
 ---
 
+## `pacto evidence`
+
+Produce and verify the signed, versioned envelopes that carry a Pacto EvidenceSet from a remote or disconnected environment to a platform that ingests it. Keys are Ed25519; the wire format is defined by pkg/evidenceenvelope.
+
+
+**Flags:**
+
+```
+  -h, --help   help for evidence
+```
+
+---
+
 ## `pacto explain`
 
 Parses a pacto.yaml in the given directory (or oci:// reference) and produces a human-readable summary of the service contract.
@@ -237,6 +252,28 @@ pacto explain [dir | oci://ref] [flags]
 ```
 
 **Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: "2.0"` feature), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight, and `evidence`. The Readiness block also includes a revision-history table when `history[]` is present. `--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount`, and `expired` (boolean). Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.
+
+---
+
+## `pacto fleet`
+
+Compose contracts, contract revisions and operational targets from local bundles and ingested evidence into a versioned, navigable graph, then search, inspect, traverse and explain it. Every answer reports its as-of time and completeness.
+
+
+**Flags:**
+
+```
+      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --freshness duration         mark target evidence older than this as stale (0 disables)
+  -h, --help                       help for fleet
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+```
 
 ---
 
@@ -299,6 +336,43 @@ Dependencies resolved from local paths are annotated with `[local]`. Shared depe
 Reports cycles, version conflicts, and unreachable dependencies.
 
 Sibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.
+
+---
+
+## `pacto impact`
+
+Composes a semantic contract diff (old→new) with the operational graph to answer what a change's real blast radius is: which consumers are affected, how strong the evidence is and whether their declared compatibility still holds.
+
+Exit status is non-zero when the change is BREAKING and at least one active consumer is incompatible with the new version (mirrors `pacto diff`).
+
+```
+pacto impact <old> <new> [flags]
+```
+
+**Examples:**
+
+```
+  # Impact of upgrading a local service against the local fleet
+  pacto impact ./svc-v1 ./svc-v2 --local .
+
+  # Include observed (runtime) evidence and emit JSON
+  pacto impact oci://ghcr.io/acme/svc:1.0.0 ./svc --include-observed --output-format json
+```
+
+**Flags:**
+
+```
+      --freshness duration         mark target evidence older than this as stale (0 disables)
+  -h, --help                       help for impact
+      --include-observed           let observed (runtime) relationships raise consumer confidence
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --new-set stringArray        set a value on the new contract (e.g. --new-set service.version=2.0.0)
+      --new-values stringArray     values file to merge into the new contract (can be repeated)
+      --old-set stringArray        set a value on the old contract (e.g. --old-set service.version=1.0.0)
+      --old-values stringArray     values file to merge into the old contract (can be repeated)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets (repeatable)
+      --traces string              OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
+```
 
 ---
 
@@ -436,6 +510,10 @@ Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents.
 
 When a bundle reference (local directory or oci:// ref) is given, the server also exposes one executable tool per OpenAPI operation in the bundle's http interfaces, plus a pacto_skill tool for any skills/*.md domain knowledge. Read-only (GET/HEAD) operations are exposed by default; pass --allow-writes to expose mutating operations.
 
+With --root, the server instead exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so a registry tag that moves later does not change the session. Roots that do not resolve stay visible as partial knowledge. Discovery is not authorization and nothing in the catalog executes.
+
+A bundle reference, --root and --fleet select different servers and cannot be combined.
+
 ```
 pacto mcp [bundle-ref] [flags]
 ```
@@ -455,17 +533,30 @@ pacto mcp [bundle-ref] [flags]
   # Include mutating operations and an auth credential
   pacto mcp oci://ghcr.io/acme/svc:1.0.0 --base-url https://api.example.com \
     --auth bearerAuth=$TOKEN --allow-writes
+
+  # Expose a contract catalog discovered from explicit roots
+  pacto mcp --root oci://ghcr.io/acme/platform:1.4.0 --root ./experimental-platform
 ```
 
 **Flags:**
 
 ```
-      --allow-writes       expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --auth stringArray   credential for a security scheme as name=value (repeatable)
-      --base-url string    base URL for live invocation (overrides the OpenAPI servers[] URL)
-  -h, --help               help for mcp
-      --port int           port for HTTP transport (default 8585)
-  -t, --transport string   transport type: stdio or http (default "stdio")
+      --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --auth stringArray           credential for a security scheme as name=value (repeatable)
+      --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --cache                      include the local OCI cache as offline baseline revisions (--fleet)
+      --evidence-url stringArray   base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)
+      --fleet                      expose read-only operational-graph (fleet) query tools
+      --freshness duration         mark target evidence older than this as stale (--fleet)
+  -h, --help                       help for mcp
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster (--fleet)
+      --local stringArray          local bundle root(s) for --fleet (repeatable) (default [.])
+      --namespace string           namespace for --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision for --fleet (repeatable)
+      --port int                   port for HTTP transport (default 8585)
+      --root stringArray           contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
+  -t, --transport string           transport type: stdio or http (default "stdio")
 ```
 
 The server exposes the following tools:
@@ -477,9 +568,33 @@ The server exposes the following tools:
 | `pacto_check` | Validate a contract and return errors, warnings, and actionable improvement suggestions. |
 | `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |
 
-These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs. When a **bundle reference** (a local directory or an `oci://` ref) is passed on the command line, it is resolved and its OpenAPI operations are additionally exposed as executable agent tools, alongside a `pacto_skill` tool for any bundled skills.
+These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs.
 
-See [MCP Integration](mcp-integration.md) for detailed setup with Claude and other AI tools, and [Agent capabilities](mcp-integration.md#agent-capabilities) for serving a bundle's operations as tools.
+### Server modes
+
+The default server exposes the authoring tools above. Three flags select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:
+
+| Invocation | Server |
+|------------|--------|
+| `pacto mcp` | Authoring tools. |
+| `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |
+| `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |
+| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |
+
+`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.
+
+See [MCP Integration](mcp-integration.md) for detailed setup with Claude and other AI tools, [Agent capabilities](mcp-integration.md#agent-capabilities) for serving a bundle's operations as tools, and [Contract catalog discovery](mcp-integration.md#contract-catalog-discovery) for the catalog surface.
+
+---
+
+## `pacto otel`
+
+
+**Flags:**
+
+```
+  -h, --help   help for otel
+```
 
 ---
 

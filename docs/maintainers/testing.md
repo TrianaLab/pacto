@@ -1,0 +1,523 @@
+# Testing architecture
+
+Pacto has eight test levels. **A test belongs to exactly one**, chosen by what it
+proves — never by its filename, its language, or the feature that happened to
+introduce it.
+
+That rule is the whole architecture. Everything below follows from it: where a
+level lives, which language owns it, what may be shared between harnesses, and
+how you pick a home for a test you are about to write.
+
+## The taxonomy
+
+| # | Level | What it proves | Lives in | Language | Run with |
+|---|-------|----------------|----------|----------|----------|
+| 1 | Unit | One package, in isolation | beside the code (`*_test.go`, `*.test.ts`) | Go, TypeScript | `make test`, `make ci-ui` |
+| 2 | Integration | Several real components wired together, nothing over a network a user could reach | `tests/integration/`, `integrations/kubernetes/test/` | Go | `make test-integration`, `make ci-e2e-envtest` |
+| 3 | Architecture / invariant | Structural rules about the repository itself | `tests/architecture/` | Go | `make ci-gates` |
+| 4 | Local acceptance, cluster-free | A whole user story, with no Kubernetes | `tests/acceptance/local/` | Shell + Go | `make test-acceptance-local`, `make test-acceptance-compose` |
+| 5 | Kind / system acceptance | The product against a real Kubernetes cluster | `tests/acceptance/kind/` | Shell + Go | `make test-acceptance-kind` |
+| 6 | Browser acceptance, deterministic | A real shipped artifact over fixed data | `pkg/dashboard/frontend/e2e/` (dashboard), `pkg/dashboard/frontend/e2e-docs-site/` (documentation site) | TypeScript | `make test-browser`, `make test-browser-docs-site` |
+| 7 | Live-browser acceptance | The real frontend against a real running deployment | `pkg/dashboard/frontend/e2e-live/` | TypeScript | `make test-browser-live`, `make test-browser-compose` |
+| 8 | Release verification | The release system produces what it claims | `tests/release/`, `release/orchestrator/` | Go, Node | `make ci-gates`, `make release-dry-run` |
+
+Two names in the tree predate the taxonomy and are kept for the convention of
+the module that owns them. Both are **level 2, integration**, and are labelled as
+such where they are invoked:
+
+- `tests/integration/` drives the CLI in process against a real in-process OCI
+  registry and a real plugin binary. It was called `e2e` for historical reasons
+  only; the build tag is now `integration`.
+- `integrations/kubernetes/test/e2e` runs the operator's acceptance matrix
+  against an **envtest** control plane — a real API server, but no cluster and no
+  kubelet. `test-e2e` is the kubebuilder convention inside that module.
+
+Make target names state the level, not the feature history. The pre-existing
+`e2e-*` names remain as temporary compatibility aliases so muscle memory and any
+out-of-tree caller keep working; they are aliases, not second names.
+
+## Which language owns which level, and why
+
+**Go by default.** Anything with substantial non-browser logic — lifecycle,
+retained state, retries, semantic assertions, diagnostics — is Go. It is typed,
+it is testable, and a gate that decides whether a live cluster passed should
+itself have tests. Two acceptance gates are Go programs for exactly that reason:
+
+- `tests/acceptance/kind/productready` waits for the live Product API to prove
+  the operational-graph fixture, and emits the canonical entity keys it
+  discovered.
+- `tests/acceptance/kind/obscheck` decodes the operator's Deployment wiring and
+  the resulting Product snapshot for the observation scenario.
+
+Both have their own unit suites, run by `make test-integration` (they live under
+`/tests/`, which the coverage gate excludes, so they are tested explicitly rather
+than implicitly). Neither could exist as `curl | grep`: the claims are about
+typed structures, and a shell pipeline that "found the string" proves much less
+than it appears to.
+
+**TypeScript owns browser-visible workflows.** Playwright drives Chromium; a
+journey through the real bundle cannot be expressed anywhere else.
+
+**Shell is limited to genuinely thin process orchestration.** Bringing a cluster
+up, building an image, installing a chart, forwarding a port, applying a
+manifest. A short readable sequence of real commands is the clearest possible
+description of "install this and see what happens", and rewriting it in Go would
+buy nothing. The moment a harness starts *deciding* things — parsing JSON,
+comparing structures, accumulating verdicts — that part moves to Go.
+
+Go is also free to execute real `kind`, `helm`, `kubectl` and `docker` when those
+boundaries are what the test proves. Language uniformity is not a goal: a large
+shell file that owns real lifecycle responsibilities is fine, and a small one
+that quietly makes semantic judgements is not.
+
+## Shared harness code
+
+Every stable shared concern has **one** implementation.
+
+`tests/acceptance/kind/lib.sh` is that implementation for the cluster scenarios.
+It owns process execution and pass/fail reporting, eventually-conditions and
+timeouts, cluster lifecycle and teardown, image loading, chart packaging and
+Helm invocation, port-forwarding, readiness waits, the in-cluster registry and
+trust keypair, bundle publishing, and failure diagnostics. Every `*.sh` under
+`tests/acceptance/kind/` sources it.
+
+What stays in the scenarios is **scenario-specific orchestration**: their EXIT
+traps, their fixtures, their own assertions, and anything a single scenario needs
+in a form no other scenario shares. Sharing something two harnesses merely
+resemble each other in is how a helper acquires five boolean parameters.
+
+Two behaviours in `lib.sh` are load-bearing and documented at their definition —
+change them only with a reason:
+
+- `pf` waits for the forward to be *ready*, not merely started, and reports on
+  stderr. A port-forward that has not bound yet fails the next command with a
+  connection error that reads like a product bug.
+- `fail` writes to stderr for the same reason: call sites routinely silence a
+  helper's chatty stdout, and a reason written to stdout would be silenced with
+  it, leaving a run that exits 1 saying nothing.
+
+`tests/acceptance/local/` has no cluster to manage and keeps its own small
+helpers; `integrations/kubernetes/test/utils` serves the operator module.
+
+### Getting an image into the kind node
+
+`load_images` is the only way an image reaches a node, and it is deliberately
+**not** `kind load docker-image`. That command pipes `docker save` into `ctr
+images import --all-platforms` inside the node, which cannot work when the host
+holds only part of a multi-platform image — the state Docker Desktop's
+containerd image store leaves a pulled tag such as `registry:2` in. The node is
+asked for a platform that was never fetched and the run dies at the loading
+boundary:
+
+```text
+ERROR: failed to load image: command "docker exec ... ctr --namespace=k8s.io
+images import --all-platforms --digests --snapshotter=overlayfs -" failed
+Command Output: ctr: content digest sha256:46faa9a1...: not found
+```
+
+That digest is another platform's **manifest**, not the image. Four identities
+are in play and none is interchangeable: the Docker image ID, the multi-platform
+**index** digest, a per-platform **manifest** digest, and the **config** digest.
+Under the containerd image store `docker image inspect --format {{.Id}}` reports
+the index digest while the node reports the config digest, so kind's "already
+present?" short-circuit can never match — it re-imports every time, and fails
+every time. Flattening the image by hand does not survive either: the scenario
+pulls the tag again on the next run.
+
+`tests/acceptance/kind/kindload` (Go, unit-tested) owns the decisions:
+
+1. the **node** is asked which platform it runs (`uname -m` in the node
+   container) — not the host, not `runtime.GOARCH`, not an OS name;
+2. the export is narrowed with `docker save --platform` when the docker CLI in
+   front of it accepts that flag, read off `docker save --help`: a capability
+   check, not a product check;
+3. the archive is proven **self-contained** before the node sees it — every
+   descriptor it references, recursively, must have its content inside. This is
+   exactly what `--all-platforms` demands, checked where the diagnostic can name
+   the missing platform instead of inside the node where it is a bare digest;
+4. `kind load image-archive` imports it, which has no identity short-circuit to
+   get wrong;
+5. `crictl` is asked, **on every node**, whether the reference now resolves to
+   the config digest that was exported.
+
+Step 5 is what lets a scenario write `imagePullPolicy: Never` and mean it: an
+image the node pulled from Docker Hub under the same name carries a different
+config digest and fails the check. Nothing on this path branches on an operating
+system, so CI's classic image store and a Docker Desktop workstation execute the
+same code.
+
+When it fails: `archive is not self-contained` means the export still carried a
+platform whose content is not local, and the message names both the digest and
+the platform — on a docker CLI older than 28 there is no `docker save
+--platform` to narrow with, so upgrade it. `resolves to ... not the loaded ...`
+means the node already holds a different image under that name; remove it with
+`ctr -n k8s.io images rm` in the node and re-run.
+
+## Declarative scenarios and their projections
+
+When several surfaces describe the *same* fixture, the fixture is declared once
+as data and each surface becomes a projection of it.
+
+`tests/acceptance/scenario` is that declaration for the operational-graph
+vertical. It expresses services, revisions, targets (as the deployed revision),
+data sources, relationships, evidence, and which service plays which part in the
+browser journeys. Its projections:
+
+| Projection | Consumer |
+|------------|----------|
+| `Materialize` | the contract bundle directories both harnesses publish |
+| `TraceExport` | the OTLP export the operator mounts as an observation source |
+| `Plan` | the tab-delimited execution plan both harnesses read as data |
+| `PactoCRs` | the cluster projection of the deployed targets, once digests exist |
+| `EvidencePayloads` | the EvidenceSet each declared envelope carries |
+| `HelmValues` | the observation sources the Kubernetes surface configures |
+| `Compose` | the Docker Compose surface, distributed as an OCI artifact |
+| `Digests` | the demo's evidence pins, computed before any registry exists |
+| `FactCount` | the denominator the Product gate reports progress against |
+
+### Two surfaces, and the difference between them
+
+The scenario is projected onto **Kubernetes** and onto **Compose**. They are the
+same fixture — same services, revisions, dependency edge, observation source and
+signed evidence — and `tests/acceptance/scenario/parity_test.go` proves it by
+comparing the *rendered* projections rather than the fields they came from.
+
+Where a platform genuinely cannot do something, that is **declared as a missing
+capability**, never expressed as a shorter run. `Surface` names what each
+provides; Compose does not provide `operational-target`, because nothing there
+reconciles a Pacto CR. `FactCount(surface)` subtracts exactly the facts that
+depend on the missing capability, the gate prints which capability it skipped,
+and the browser journey that opens a target skips with the same reason. A parity
+test asserts the difference is *only* that, so a Compose leg cannot quietly
+become a weaker run while still reporting "N of N facts".
+
+Adding a surface therefore means adding a `Capability`, not adding a branch.
+
+The **expected Product facts are not a separate document — they are the
+scenario**. `productready` walks the value: a declared revision must be one
+canonical retrievable revision, a deployed one must have exactly one operational
+target linking to it, a relationship with an `ObservedBy` must be declared,
+observed and reconciled.
+
+Three rules keep this from becoming a framework:
+
+1. **Bundle content stays literal.** A fixture contract is meant to be read, and
+   a generator for it would be a second, untested implementation of the contract
+   schema. The package's tests materialize the literals and parse them back with
+   the real `contract.Parse`, proving the declared identity and the file agree.
+2. **A projection exists only when it has a consumer.** Each one above earned its
+   place by having a surface that reads it. The Helm values projected are the
+   ones the *scenario* decides — which observation sources exist, under which
+   identities; the operator image, the insecure registry and the enabled
+   components stay in the harness, because they are properties of the run and
+   have no counterpart on the other surface. Projecting those too would be
+   uniformity for its own sake.
+3. **Journey inputs are discovered, not declared.** A `ServiceKey` is
+   domain-escaped and a `RevisionKey` carries a content id. Reconstructing those
+   escapes in a test would be a second implementation of the identity rules that
+   could agree with itself while disagreeing with the product. The gate publishes
+   the keys the Product returned, and the browser suite addresses exactly those.
+
+Not every fixture belongs here. `observation.sh` keeps its own literal exports
+because a malformed export and identity-escaping service names are the *subject*
+of that scenario, not incidental data. `tests/acceptance/local/fleet-graph.sh`
+describes a different story with different services and is not a projection of
+anything.
+
+### The three claims the Compose demo makes about itself
+
+`tests/acceptance/local/compose-demo.sh` proves the demo the way a stranger meets
+it. Three of its claims are easy to state loosely and all three are stated here
+as narrowly as they are tested.
+
+**Docker Compose owns this artifact, end to end.** The demo is not a directory
+someone tarred into a registry. `docker compose publish` writes it and
+`docker compose -f oci://…@sha256:… -p <name> up` runs it, with no generic OCI
+tool anywhere on either path — the harness does not install ORAS and CI does not
+either. The published application is one layer holding the projected compose file
+verbatim, so `sha256` of what the projector emitted is the artifact's content
+identity; the acceptance asserts exactly that equality against the manifest it
+reads back. There is no run directory, no local `compose.yaml` on the execution
+path and no bind mount in the published model: every immutable fixture input —
+the plan, the seed script, the bundle documents, the observation fixture — travels
+inside the application as a Compose `config` with inline `content`, and only the
+mutable runtime state (the embedded registry, the Evidence Server's keys) lives in
+a named volume. Project identity is the user's: an explicit `-p` per copy, never a
+top-level `name:` that would make two versions collide.
+
+That ownership reaches the release. `demo-compose` publishes through the same
+`publish-oci-unit.sh` adapter as every other OCI unit, with
+`docker compose publish` as its push command. Compose stamps
+`org.opencontainers.image.created` into the manifest and writes no
+revision/version annotations, so neither a precomputed digest nor provenance
+adoption can recover its crash window — which is why the adapter learned
+`PACTO_EXPECT_CONTENT`. What that key matches is the whole native Compose
+identity, never the bytes on their own: `artifactType`
+`application/vnd.docker.compose.project`, exactly one layer, layer media type
+`application/vnd.docker.compose.file+yaml`, layer digest the expected one. The
+same tuple is the adoption rule and the post-push assertion, because it is
+literally the same code — `publish-oci-unit.sh` asks `verify-oci.sh` rather than
+keeping its own copy, which is how the assertion had drifted down to a layer
+count and a digest and would adopt an `application/vnd.example.not-compose`
+artifact carrying the same file. `dry-run.sh` ITEM 3b exercises all of it for real
+against the staging registry: a genuine `docker compose publish` is adopted, and
+the same bytes under a foreign artifact type, under a foreign layer media type,
+with an extra layer, with no compose layer, or with different bytes are each
+refused — on the crash-window path and on the absent-tag path, where the
+assertion has to run before the ledger records anything.
+
+**Immutability reaches the images.** The artifact is published once and pulled by
+digest, which is worth nothing while the compose file inside it names its images
+by tag: the tag moves, and the same artifact digest starts executing different
+bytes. `scenario.Compose` therefore refuses any reference without an `@sha256:`
+of 64 lower-case hex characters, so a tag fails at projection rather than in
+somebody's demo. In the release, the dashboard pin is the digest the ledger
+recorded for the `dashboard-image` unit — read back with `ledger.sh digest`, and
+`demo-compose` fails closed if the transaction has none, because a narrowed
+recovery must not publish an artifact naming an image nothing verified. The
+registry pin is `scenario.ComposeDefaultRegistryImage`, a constant this
+repository updates by hand.
+
+Both are **index** digests, which matters for the same reason it matters to
+`kind load` above: an index digest still lets Docker resolve the child that
+matches the host, while a per-platform manifest digest is the same string shape
+and would emulate everywhere else. The acceptance re-derives the difference
+rather than trusting the comment — it resolves every pin the pulled artifact
+names and asserts each one came back as the host's own architecture, which a
+child digest could not.
+
+**The network boundary is a boundary, not an absence of pulls.** The claim is:
+*after the demo artifact and its digest-pinned images have been pulled, the stack
+requires no external network access; its private Compose service network remains
+available because the dashboard, Evidence Server and embedded registry must
+communicate with each other.* `docker compose up --pull never` on its own proves
+only the first four words of that, on a runner that still has the whole Internet
+and still has the registry the artifact came from. So stage 11 removes both: the
+artifact-distribution registry is stopped, and rules keyed to the project's own
+bridge refuse anything that leaves it.
+
+Two chains, because a packet leaving the demo can leave by two paths that share
+no netfilter hook: `INPUT` for what is addressed to the host itself, `FORWARD` —
+and so `DOCKER-USER` — for what the host routes onward. A rule in one is
+invisible to the other, so one control cannot stand for both, and a stage that
+installed rules in both while only ever probing a host address would stay green
+with the whole `DOCKER-USER` arm deleted. The stage therefore builds one
+deliberately different endpoint per hook and probes each:
+
+- **host-local** — a `registry:2` in the *host's* network namespace, addressed at
+  the demo bridge's own gateway. A packet to a host address is delivered locally
+  and never reaches `FORWARD`.
+- **forwarded** — the artifact registry again, reached over a veth pair whose
+  `/30` is chosen at run time out of `198.18.0.0/15`. That address is nobody's
+  local address, so getting to it is routing, which is `FORWARD` and therefore
+  `DOCKER-USER`. Docker's own MASQUERADE makes the reply path work without a
+  second rule. `198.18.0.0/15` is RFC 2544's reserved benchmarking space: nothing
+  on the public Internet routes it, which is a statement about the Internet and
+  not about this machine. A lab, a VPN or a second copy of this harness can
+  perfectly well have a route into it here, so the range is only where the
+  harness *looks* — it derives candidate `/30`s from its run id and takes the
+  first one no local route and no local address already claims, and fails rather
+  than picking one if all of them are taken.
+
+Both are proved reachable before any filter — otherwise "could not reach out" and
+"was never able to" are the same observation. Then the `DOCKER-USER` arm goes in
+alone and the forwarded route must close **while the host-local one stays open**,
+which is simultaneously the independence proof and the proof that the forwarded
+endpoint really is forwarded. Then the `INPUT` arm closes the other one. An
+`ESTABLISHED,RELATED` accept leads both chains so the reply leg of a
+host-to-published-port connection survives. Two counterexamples follow, one per
+route: the one startup dependency that talks to a registry is redirected at each
+endpoint in turn and the run must fail, so a filter that silently stopped applying
+cannot leave the assertions above passing. `internal: true` is not used — it takes
+the published ports away with the egress, which would contradict the second half
+of the claim.
+
+The stage keeps two operations apart that are easy to conflate. **Fetching the
+application** is a registry read that `-f oci://…` performs on every invocation;
+Compose has no offline mode for it, and the stage proves that by asserting the
+application becomes unreadable the moment its registry stops. **Pulling the
+service images** is a separate daemon operation that `--pull never` refuses. So
+the application is fetched once, online, with `--pull never` proving no image
+moved; the volumes are then emptied, the arms installed, the registry stopped, and
+the project restarted **by project name** — which is why a project created online
+can be operated offline. The Product gate and the live browser journeys then run
+against that isolated stack.
+
+Everything the stage installs lives in the host's network namespace and outlives
+the script if it dies, so each installer records what it did and the exit trap
+takes the rules, the veth pair, the host-local endpoint, both projects and the
+Compose OCI cache entries back down.
+
+**The harness owns only what it created.** It runs privileged, in the host's
+namespace, on machines it does not know — so every fixed name it once used was a
+name it could have taken from something else, and `ip link del` or `docker rm -f`
+before claiming one is destroying a stranger's resource to make room. So each
+invocation derives a random `RUN_ID` and suffixes its interfaces, its endpoint
+containers, its registry and its image with it (inside `IFNAMSIZ`'s 15
+characters, which `ip link add` enforces rather than truncates). If a name is
+somehow already taken, or every candidate `/30` is routed, the harness refuses
+before it mutates anything. Cleanup is the same rule read backwards: a resource
+is recorded only once *this* invocation has successfully created it, and only
+recorded resources are removed.
+
+Three things that rule has to survive, because "created it" is harder to pin
+down than it reads:
+
+- **A recorded name is not a recorded resource.** A container name is a lease
+  that ends with the container holding it, so cleanup records the immutable
+  container id instead — otherwise the endpoint the run shuts down early frees a
+  name, and whoever takes it next is a stranger cleanup would delete. Cleanup
+  holds no fixed name and sweeps no prefix.
+- **Created and started are two events.** The daemon really does create a
+  container and then refuse to start it — a host port somebody else published is
+  enough — so the harness splits `docker create` from `docker start` and records
+  the id between them. A container that never ran is still this invocation's to
+  take away.
+- **Ownership of an interface begins at `ip link add`, not at the preflight.**
+  The preflight is a diagnostic: a name that reads as free can be taken before
+  the next line runs, and `ip link add` is the atomic operation that says who
+  won. A failure before it deletes nothing; a failure after it removes that pair
+  and nothing else.
+
+The two documented Compose project names are ownership too. `docker compose -p
+NAME down -v --remove-orphans` needs no file — it is purely label-driven — so the
+authority to run it comes from stage 0 having found both names holding nothing,
+and the helper modes below, which exit long before stage 0, have no authority to
+tear down a demo somebody is running.
+
+**"Holding nothing" means every class that teardown removes.** `down -v
+--remove-orphans` removes three — containers, named volumes and networks — and a
+claim is only as good as the class it forgets. The network is the one that can be
+there alone: `up` creates it before anything else and a `down` without `-v`
+leaves it standing, so a project that is nothing but a network reads as empty to
+anything that looks only for containers and volumes. Stage 0 therefore reads all
+three under each name and refuses on any of them, and it arms the authority in a
+single assignment after both names are through, so a refusal on the second never
+leaves the first one claimed.
+
+`bash tests/acceptance/local/compose-demo.sh selftest` is the proof, and
+`make test-acceptance-compose-selftest` runs it ahead of the acceptance in CI. It
+plants sentinels — an interface, a harness-shaped container, an occupied `/30`,
+an unrelated project under a name the documentation never uses and, under each
+documented project name, a container, a network and a volume wearing the labels
+`down -v` reads — then drives the harness into every path that could take one. It
+asserts that a name already held is refused rather than deleted; that an
+interface appearing *after* the preflight survives the create that loses the race
+to it; that a failure later in the wiring removes only the pair this run made;
+that no netfilter rule is touched on any of those ways out; that a claimed `/30`
+is stepped over rather than hijacked; that a normal run, an induced failure and a
+container the daemon refuses to start all end with the real `EXIT` trap taking
+that run's resources and nothing else; that a documented name holding nothing but
+a Compose network is refused by a real invocation — under either name, including
+when the *second* is the occupied one — which keeps that exact network and arms
+nothing; and that the planted projects, and the unrelated one beside them, still
+hold every container, network and volume they did.
+
+## Deterministic browser tests versus live-browser tests
+
+These are levels 6 and 7, and they stay apart. Determinism and liveness are
+different properties, and a merged suite proves neither.
+
+**Level 6, `pkg/dashboard/frontend/e2e/`** runs against the WASM demo build
+(`examples/demo`): the real frontend bundle over an in-browser backend seeded
+with fixed data. It is hermetic, needs no cluster, and is the right home for
+anything about rendering, layout, accessibility, keyboard interaction,
+responsiveness, graph behaviour and visual state. Because the data cannot move,
+it can assert exact content.
+
+**Level 7, `pkg/dashboard/frontend/e2e-live/`** runs against a real running
+deployment, on keys discovered from the live Product API. It proves the real
+bundle, real HTTP API and real data render together. It cannot assert fixed
+content — the fixture's identities are discovered at run time — so it asserts the
+*journeys*.
+
+One suite, two deployments: the port-forwarded dashboard of a Kind cluster
+(`make test-browser-live`) and the pulled Compose demo (`make
+test-browser-compose`). Both are driven by the same specs over the same
+discovered fixture, and the fixture carries the surface it was discovered on, so
+the journey that opens an operational target **skips with a stated reason** on
+Compose instead of being quietly absent. A second suite would have been a second
+set of journeys to keep in step with the product.
+
+A test that could pass against fixed data belongs in level 6. Only journeys that
+need real data belong in level 7, and level 7 does not duplicate what level 6
+already covers.
+
+## Two products at level 6
+
+Level 6 has two suites because Pacto ships two things a browser opens: the
+dashboard and the documentation site. They are one level and two ownerships, and
+the boundary between them is the artifact under test — never the subject matter.
+
+**`pkg/dashboard/frontend/e2e/`** owns the dashboard bundle, run by
+`make test-browser`, gated by the `dashboard-e2e` job in CI. `e2e/mermaid.spec.ts`
+lives here and proves that *bundle documentation renders inside the dashboard*.
+
+**`pkg/dashboard/frontend/e2e-docs-site/`** owns the MkDocs output, run by
+`make test-browser-docs-site`, gated by the Docs check workflow. It builds the
+real site with `mkdocs build --strict` through `mkdocs.test.yml` — an `INHERIT`
+overlay on the real `mkdocs.yml` — serves it over HTTP and drives Chromium
+against it.
+
+Sharing stops at the pinned Playwright and Chromium installation, which is why
+the second suite lives in the frontend package rather than growing a second
+browser toolchain somewhere else. Config, `testDir`, project name, Make target
+and CI job are all separate: a dashboard regression and a documentation
+regression must not be able to mask each other.
+
+Four things about the docs-site suite are load-bearing:
+
+- **The overlay changes exactly one key that matters.** Material's instant
+  navigation only intercepts a click whose URL appears in `sitemap.xml`, and the
+  sitemap is written from `site_url`. Served at `127.0.0.1` against the
+  production `site_url`, nothing is ever intercepted and the instant-navigation
+  case would silently measure two ordinary page loads. The overlay points
+  `site_url` at the test origin, so the port in `mkdocs.test.yml` and the one in
+  `playwright.docs-site.config.ts` have to agree.
+- **Every cross-origin request is aborted.** The site has to be self-sufficient.
+  This is what keeps the diagram runtime pinned: Material's own fallback fetches
+  an unpinned `mermaid@11` from unpkg, and `release/scripts/mkdocs_mermaid_hook.py`
+  stages the lockfile-resolved copy into the site instead. Delete the hook or its
+  `extra_javascript` entry and all three tests fail.
+- **Rendered output is asserted, not source text.** Material renders each diagram
+  into a *closed* shadow root, so the suite forces open mode via an init script —
+  the encapsulation flag changes, nothing else does — then asserts a non-empty
+  SVG with a real layout box and the labels a reader would read.
+- **Coverage is declared, so it cannot rot.** Each covered page lists its
+  diagrams and their expected labels, and the count is checked against the built
+  HTML. Adding a diagram to a covered page fails the gate until it is declared.
+
+The site's diagrams as a whole are still covered by `make mermaid-check`, which
+parses every fence in the repository. That is the syntax gate; this is the
+behaviour gate, on the pages worth driving a browser through: a core page, a page
+the integration hook injects, and an instant navigation between two of them.
+
+## Choosing a home for a new test
+
+Ask, in order:
+
+1. **Is it a rule about the repository rather than the product?** ("core must
+   stay Kubernetes-free", "generated artifacts are current") → level 3,
+   `tests/architecture/`.
+2. **Is it about the release system?** → level 8, `tests/release/`.
+3. **Can one package prove it?** → level 1, beside the code. Prefer this. The
+   100% coverage gate applies here.
+4. **Does it need several real components, but nothing a user could reach over a
+   network?** → level 2, `tests/integration/` (engine) or
+   `integrations/kubernetes/test/` (operator, envtest).
+5. **Is it a whole user story that needs no cluster?** → level 4,
+   `tests/acceptance/local/`.
+6. **Does it need a real Kubernetes cluster?** → level 5,
+   `tests/acceptance/kind/`, as one of the existing scenarios or a new one.
+7. **Is it browser-visible?** → level 6 if fixed data can prove it, level 7 only
+   if it genuinely needs live cluster data. At level 6, pick the suite by the
+   artifact under test: the dashboard bundle or the built documentation site.
+
+Two more rules once you have picked:
+
+- **Each Kind scenario is one boundary.** They are not merged: a merged cluster
+  run cannot say which boundary broke, and cannot be sharded across CI. If your
+  test is a new boundary, it is a new scenario with a new `make` target.
+- **A new semantic assertion goes in Go.** If you find yourself reaching for
+  `jq`, `grep` or an embedded interpreter inside a harness, the assertion belongs
+  in that scenario's Go gate — where it can have a test of its own.

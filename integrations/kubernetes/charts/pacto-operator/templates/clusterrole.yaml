@@ -68,6 +68,18 @@ rules:
     resources: [clusterroles, clusterrolebindings]
     verbs: [get, delete]
     resourceNames: [pacto-dashboard]
+  # Evidence Server teardown — ALWAYS granted, so an operator upgraded from
+  # enabled -> disabled can remove the Deployment and Service it created. That is
+  # the whole footprint: the accepted evidence is in the registry and is not
+  # touched by removing the component.
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, delete]
+    resourceNames: [pacto-evidence]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, delete]
+    resourceNames: [pacto-evidence]
   {{- if .Values.dashboard.enabled }}
   # Dashboard lifecycle management
   - apiGroups: [""]
@@ -85,4 +97,18 @@ rules:
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [clusterroles, clusterrolebindings]
     verbs: [create, delete, get, list, patch, update, watch]
+  {{- end }}
+  {{- if .Values.evidence.enabled }}
+  # Evidence Server lifecycle management. No storage permission of any kind: the
+  # server is stateless and accepted evidence lives in the contract registry, so
+  # the operator has nothing durable to create in the cluster.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, get, list, watch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, delete, patch, update]
   {{- end }}

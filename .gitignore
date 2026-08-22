@@ -1,5 +1,8 @@
-# Built binary
-pacto
+# Built binary (root only; do not ignore the cmd/pacto source directory)
+/pacto
+# ...and wherever a local GOBIN puts it. `make build` writes to $(GOBIN), which is
+# ./bin on some setups, and a 49MB Mach-O once reached a branch that way.
+/bin/
 
 # IDE
 .idea/
@@ -16,8 +19,9 @@ coverage.html
 # Local Go build cache (created when GOCACHE points into the tree)
 .gocache/
 
-# MkDocs build output
+# MkDocs build output (/site is `make docs-build`; /site-test is the browser gate)
 /site/
+/site-test/
 
 # Python tooling caches (release/scripts docs generator + checker)
 __pycache__/
@@ -42,6 +46,11 @@ pactos/*/configuration/schema.json
 pactos/*/sbom/
 .superpowers/
 
+# Working specs and plans. They are scoped to the work in flight, they go stale
+# the moment it lands, and mkdocs already excludes them from the published site
+# -- so they are never committed either. Durable design belongs in docs/.
+docs/superpowers/
+
 # runtime-regenerated publisher proof transcripts (non-deterministic namespaces)
 release/proofs/
 .mono-*.workflow.js
@@ -49,3 +58,6 @@ release/proofs/
 
 # repowise deterministic index/cache (built in CI on demand)
 .repowise/
+/demo
+/localregistry
+/genbundle

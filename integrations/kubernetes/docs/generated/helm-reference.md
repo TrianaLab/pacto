@@ -27,6 +27,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.ingress.enabled` | `false` | Enable Ingress for the dashboard |
 | `dashboard.ingress.hosts` | `null` | Ingress hosts |
 | `dashboard.ingress.tls` | `[]` | Ingress TLS configuration |
+| `dashboard.observation.sources` | `[]` | Offline OTLP/JSON trace exports to mount read-only into the dashboard, so its Operational Graph can reconcile declared dependencies against observed ones. Each entry is one named data source: `name` is its stable Data Source identity (a DNS-1123 label) — reordering this list never renames a source, and it must not collide with any other data source the dashboard has (the live cluster, OCI, the disk cache, local bundles, an Evidence Server); `file` is the trace file's name directly inside that source's mount — a single path segment, so mount a claim whose export sits at the top of its own directory; and exactly one of `existingClaim` (an existing PVC, for real exports) or `configMap` (small static exports only, ~1 MiB cap) supplies it. Pacto reads exactly the declared files — through a root it cannot follow a symlink out of — never writes to them and never scans the mount. Whoever owns that storage owns producing and rotating the exports. This configures OFFLINE input only: Pacto ships no OTLP receiver and deploys no collector. |
 | `dashboard.ociSecret` | `""` | Optional Secret name for OCI registry credentials (backward compatible). Supports Opaque secrets (keys: registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. Ignored when ociSecrets is set. |
 | `dashboard.ociSecrets` | `[]` | List of Secret names for OCI registry credentials. Supports Opaque (with registry key) and kubernetes.io/dockerconfigjson secrets. When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry. Takes precedence over ociSecret. |
 | `dashboard.resources.limits.memory` | `512Mi` |  |
@@ -35,11 +36,31 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.service.nodePort` | `""` | Node port (only used when type is NodePort) |
 | `dashboard.service.port` | `3000` | Dashboard service port |
 | `dashboard.service.type` | `ClusterIP` | Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-dashboard) for pod-to-pod communication. This chart-managed Service provides configurable external access and serves as the backend for Ingress/HTTPRoute resources. Selects dashboard pods via operator-defined labels. |
+| `evidence.enabled` | `false` | Enable the operator-managed Evidence Server deployment. Disabled by default. When enabled the operator reconciles a SEPARATE Evidence Server Deployment and an internal Service; the image is the same runtime image as the dashboard and is not user-configurable. The Evidence Server is single- writer, so its replica count is fixed at one. |
+| `evidence.httpRoute.enabled` | `false` | Enable Gateway API HTTPRoute for the Evidence Server. |
+| `evidence.httpRoute.hostnames` | `[]` | Hostnames for the HTTPRoute. |
+| `evidence.httpRoute.parentRefs` | `[]` | Parent gateway references. |
+| `evidence.httpRoute.rules` | `[]` | HTTPRoute rules. When empty, a single catch-all rule routes to the chart-managed evidence Service on evidence.service.port. |
+| `evidence.ingress.annotations` | `{}` | Ingress annotations. |
+| `evidence.ingress.className` | `""` | Ingress class name. |
+| `evidence.ingress.enabled` | `false` | Enable Ingress for the Evidence Server. |
+| `evidence.ingress.hosts` | `null` | Ingress hosts. |
+| `evidence.ingress.tls` | `[]` | Ingress TLS configuration. |
+| `evidence.registry.credentialsSecret` | `""` | Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with credentials for that registry, mounted read-only. The chart never creates it and never renders its contents. Empty means anonymous or in-cluster access. |
+| `evidence.registry.subjects` | `[]` | Required when evidence is enabled: the exact, immutable contract revisions evidence may be reported against, each an oci://<repo>@sha256:<digest> reference. The registry holding them IS the durable evidence store — every accepted record is published as an OCI 1.1 referrer of one of these manifests — so the chart installs nothing durable in the cluster. A mutable tag is rejected: it could be moved onto another manifest and silently change what the stored evidence reports on. |
+| `evidence.resources.limits.memory` | `256Mi` |  |
+| `evidence.resources.requests.cpu` | `25m` |  |
+| `evidence.resources.requests.memory` | `64Mi` |  |
+| `evidence.service.nodePort` | `""` | Node port (only used when type is NodePort). |
+| `evidence.service.port` | `8686` | Evidence service port. |
+| `evidence.service.type` | `ClusterIP` | Evidence exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-evidence) for in-cluster access; this chart-managed Service provides optional external access and backs any Ingress/HTTPRoute. |
+| `evidence.trust.existingSecret` | `""` | Name of an existing Secret of trusted producer public keys, mounted read-only. Signature verification is mandatory, so this is required when evidence is enabled. |
 | `fullnameOverride` | `""` | Override the full release name |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `image.repository` | `ghcr.io/trianalab/pacto/operator` | Controller image repository |
 | `image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
 | `imagePullSecrets` | `[]` | Image pull secrets for private registries |
+| `insecureRegistries` | `[]` | Registry hosts (`host:port`) to reach over plain HTTP instead of HTTPS, for a controlled in-cluster registry. Scoped per host, so every other registry stays HTTPS-only. The controller, the managed dashboard and the managed Evidence Server all inherit it — each resolves contract refs itself. |
 | `leaderElection.enabled` | `true` | Enable leader election for HA deployments |
 | `metrics.enabled` | `true` | Enable the metrics endpoint |
 | `metrics.secure` | `true` | Serve metrics over HTTPS |

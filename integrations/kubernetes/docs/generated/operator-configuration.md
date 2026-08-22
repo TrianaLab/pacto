@@ -18,10 +18,19 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-memory-request` | `string` |  | Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default. |
 | `-dashboard-oci-secret` | `string` |  | Optional: name of a Secret in the operator namespace containing OCI registry credentials. Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. Ignored when --dashboard-oci-secrets is set. |
 | `-dashboard-oci-secrets` | `string` |  | Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. Takes precedence over --dashboard-oci-secret. |
+| `-dashboard-trace-source` | `value` |  | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
 | `-enable-dashboard` | `bool` |  | Enable the managed Pacto dashboard deployment. Disabled by default. |
+| `-enable-evidence-server` | `bool` |  | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
 | `-enable-http2` | `bool` |  | If set, HTTP/2 will be enabled for the metrics and webhook servers |
 | `-enable-metrics-observation` | `bool` |  | Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported. |
 | `-enable-probing` | `bool` |  | Enable active in-cluster HTTP probing of health capability endpoints (Tier A). Off by default; when off, health uses passive readiness-probe and EndpointSlice signals only. |
+| `-evidence-cpu-limit` | `string` |  | CPU limit for the Evidence Server container. Empty uses the built-in default. |
+| `-evidence-cpu-request` | `string` |  | CPU request for the Evidence Server container. Empty uses the built-in default. |
+| `-evidence-credentials-secret` | `string` |  | Optional: name of an existing kubernetes.io/dockerconfigjson Secret with contract-registry credentials, mounted read-only. Empty means anonymous or in-cluster registry access. |
+| `-evidence-memory-limit` | `string` |  | Memory limit for the Evidence Server container. Empty uses the built-in default. |
+| `-evidence-memory-request` | `string` |  | Memory request for the Evidence Server container. Empty uses the built-in default. |
+| `-evidence-subject` | `value` |  | Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. The registry holding it IS the durable evidence store — accepted records are published as OCI 1.1 referrers of that manifest. At least one is required when the Evidence Server is enabled. |
+| `-evidence-trust-secret` | `string` |  | Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled. |
 | `-health-probe-bind-address` | `string` | `:8081` | The address the probe endpoint binds to. |
 | `-interface-name-match-discovery` | `bool` |  | Enable resolving an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never produces an absent or error result). |
 | `-kubeconfig` | `string` |  | Paths to a kubeconfig. Only required if out-of-cluster. |

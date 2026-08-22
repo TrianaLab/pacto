@@ -63,6 +63,8 @@ A shared, machine-readable operational contract for a service, and the engine th
 
 The contract composes a service's interfaces and adds the operational layer no single interface owns: identity, capabilities, configuration, dependencies, policies, compatibility and readiness. The engine is a pure function over a contract and evidence: it produces typed, explainable findings and a coverage measure, distinguishing a confirmed contradiction from an inability to observe. Around that core, collectors gather evidence, plugins generate artifacts, controllers act and a dashboard makes all of it visible. Everything a platform, a pipeline or an agent needs to inspect and validate a service comes from one versioned artifact.
 
+Composed across a platform, those contracts, their revisions and the targets they run in form a versioned, verifiable **operational graph**: Pacto turns platform knowledge into a read model that humans, automation and agents can reason over, its four capabilities being **Diff · Graph · Enforce · Verify**. The comparison to Internal Developer Platforms is deliberate. IDPs make platform *capabilities* consumable by humans through portals, golden paths, catalogues and workflows. Pacto makes platform *knowledge* consumable by machines through contracts, relationships, constraints, tools and evidence. It is not an IDP, a portal, a deployment engine or an authorization system — it is the machine-readable operational layer *over* a platform, and a human portal and an agent can consume the same Pacto graph.
+
 ## What Pacto Is NOT
 
 **Not an autonomous infrastructure agent.** Pacto describes and verifies services. It does not decide to act on infrastructure on its own.

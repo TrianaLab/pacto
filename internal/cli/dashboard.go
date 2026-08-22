@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -13,6 +16,8 @@ import (
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/impact"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
@@ -21,13 +26,13 @@ func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobr
 	cmd := &cobra.Command{
 		Use:   "dashboard [sources...]",
 		Short: "Start a local web dashboard for exploring service contracts",
-		Long: `Launches a contract exploration dashboard that aggregates data from all
+		Long: `Launches an operational dashboard that aggregates data from all
 available sources (local filesystem, Kubernetes, OCI registries).
 
 The dashboard is the exploration and observability layer of the Pacto system.
-It visualizes the same contracts the CLI manages and the operator verifies —
-dependency graphs, version history, interfaces, configuration schemas, diffs,
-and runtime compliance — in a single unified view.
+It visualizes the same contracts the CLI manages and the operator verifies,
+organised around four workflows: an operational Overview, the Services
+inventory, the Operational Graph, and Change analysis.
 
 Each positional argument is a pacto source reference:
   - oci://registry/repo  → OCI registry source (can be repeated)
@@ -78,8 +83,18 @@ Services are grouped by name across sources and merged using priority rules:
 			noCache := v.GetBool("no-cache")
 			diagnostics := v.GetBool("dashboard.diagnostics")
 			corsOrigin := v.GetString("dashboard.cors-origin")
+			traces := v.GetStringSlice("dashboard.traces")
+			traceSources := v.GetStringSlice("dashboard.trace-sources")
 
 			dir, repos, err := parseDashboardArgs(args)
+			if err != nil {
+				return err
+			}
+
+			// Resolve the observation sources before anything is started: a
+			// configuration that cannot name its Data Sources unambiguously is a
+			// startup error, not something to discover halfway through a snapshot.
+			observation, err := observationSources(traces, traceSources)
 			if err != nil {
 				return err
 			}
@@ -158,6 +173,29 @@ Services are grouped by name across sources and merged using priority rules:
 				server.SetResolver(oci.NewResolver(svc.BundleStore))
 			}
 
+			// Enable the read-only operational-graph (fleet) endpoints from every
+			// source the dashboard detected — local bundles, OCI repos, the disk
+			// cache and the live cluster — so the operational graph reflects the
+			// whole fleet, not just the local root. The dashboard becomes a
+			// CONSUMER of the reusable fleet layer rather than re-deriving graph,
+			// freshness and completeness semantics itself. A single snapshot
+			// Manager serves many requests from one coherent, atomically-refreshed
+			// snapshot instead of rebuilding per request.
+			if fopts, ok := dashboardFleetOptions(dir, repos, namespace, observation, detectResult); ok {
+				discover := clusterContractRefs(detectResult)
+				cacheUse := cacheLifecycle{
+					permitted:    !noCache,
+					baseline:     fopts.IncludeCache,
+					materialized: cacheMaterialization(svc.BundleStore),
+				}
+				mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+					return svc.Fleet(ctx, withClusterContractRefs(ctx, fopts, discover, cacheUse))
+				}, fleet.ManagerOptions{})
+				go mgr.Start(cmd.Context(), fleetRefreshInterval)
+				server.SetFleetProvider(managerFleetProvider(mgr))
+				server.SetImpactProvider(impactProviderForFleet(svc, mgr))
+			}
+
 			// Track OCI discovery state for progressive loading in the UI.
 			if detectResult.OCI != nil {
 				server.SetOCISource(detectResult.OCI)
@@ -211,6 +249,8 @@ Services are grouped by name across sources and merged using priority rules:
 	cmd.Flags().String("namespace", "", "Kubernetes namespace (empty = all namespaces)")
 	cmd.Flags().Bool("diagnostics", false, "enable source diagnostics panel in the dashboard UI")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
+	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
+	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
@@ -218,6 +258,8 @@ Services are grouped by name across sources and merged using priority rules:
 	_ = v.BindPFlag("dashboard.namespace", cmd.Flags().Lookup("namespace"))
 	_ = v.BindPFlag("dashboard.diagnostics", cmd.Flags().Lookup("diagnostics"))
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
+	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
+	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 
 	return cmd
 }
@@ -415,4 +457,227 @@ func wireOCIEnrichment(
 
 		return true
 	}
+}
+
+// fleetRefreshInterval is how often the dashboard's snapshot Manager rebuilds
+// the operational graph in the background.
+const fleetRefreshInterval = 30 * time.Second
+
+// currentSnapshot returns the Manager's published snapshot (the original, with
+// its query indexes intact — NOT a serialization clone), triggering a coalesced
+// first build if none exists yet.
+func currentSnapshot(ctx context.Context, mgr *fleet.Manager) (*fleet.FleetSnapshot, error) {
+	snap, err := mgr.Current()
+	if errors.Is(err, fleet.ErrNoSnapshot) {
+		if rerr := mgr.Refresh(ctx); rerr != nil {
+			return nil, rerr
+		}
+		return mgr.Current()
+	}
+	return snap, err
+}
+
+// currentQuery returns a query over the Manager's published snapshot, triggering
+// a coalesced first build if none exists yet.
+func currentQuery(ctx context.Context, mgr *fleet.Manager) (*fleet.Query, error) {
+	snap, err := currentSnapshot(ctx, mgr)
+	if err != nil {
+		return nil, err
+	}
+	return fleet.NewQuery(snap), nil
+}
+
+// managerFleetProvider serves the fleet query from a shared snapshot Manager.
+func managerFleetProvider(mgr *fleet.Manager) func(context.Context) (*fleet.Query, error) {
+	return func(ctx context.Context) (*fleet.Query, error) { return currentQuery(ctx, mgr) }
+}
+
+// impactProviderForFleet returns an impact provider backing /api/fleet/impact.
+// It resolves the old/new refs and analyzes the change against the SAME snapshot
+// the dashboard is currently serving (the Manager's published one), so the impact
+// answer's snapshotId matches the Operational Graph the user is looking at — never
+// a freshly rebuilt, divergent snapshot. Extracted so the wiring is testable.
+func impactProviderForFleet(svc *app.Service, mgr *fleet.Manager) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+		// Use the ORIGINAL published snapshot (with its query indexes), not a
+		// serialization clone — impact traverses the dependency graph, which a
+		// clone cannot answer.
+		snap, err := currentSnapshot(ctx, mgr)
+		if err != nil {
+			return nil, err
+		}
+		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
+			OldPath: oldRef, NewPath: newRef,
+			IncludeObserved: includeObserved,
+		}, snap)
+	}
+}
+
+// observationSources resolves the dashboard's two ways of naming offline trace
+// input into one identified list: `--traces PATH` keeps the ad-hoc positional
+// id, while `--trace-source NAME=PATH` carries an explicit id that survives
+// reordering — the form a declarative configuration (the operator-managed
+// dashboard) uses. Ids are rejected as duplicates here rather than collapsed
+// downstream: an identity two configured sources share is not an identity.
+//
+// A named source also declares a read root: the file's own directory, which it
+// may not read outside of. That is what makes the declarative form safe over
+// storage Pacto does not own — the operator mounts each source at its own
+// directory with the export directly inside it, so the file's parent IS the
+// mount, and a symlink placed in the volume cannot walk out of it.
+func observationSources(traces, named []string) ([]app.ObservationSourceSpec, error) {
+	specs := app.TraceFileSources(traces)
+	for _, raw := range named {
+		// Cut on the FIRST "=", so a path may contain one and a name may not.
+		name, p, found := strings.Cut(raw, "=")
+		if !found || name == "" || p == "" {
+			return nil, fmt.Errorf("invalid --trace-source %q: want NAME=PATH", raw)
+		}
+		specs = append(specs, app.ObservationSourceSpec{
+			ID: name, Root: filepath.Dir(p), Path: filepath.Base(p),
+		})
+	}
+	seen := make(map[string]struct{}, len(specs))
+	for _, s := range specs {
+		if _, dup := seen[s.ID]; dup {
+			return nil, fmt.Errorf("duplicate observation source name %q: each trace source needs its own stable identity", s.ID)
+		}
+		seen[s.ID] = struct{}{}
+	}
+	return specs, nil
+}
+
+// clusterContractRefs returns the callback that reads the contract references
+// the live cluster attributes to its services, or nil when no Kubernetes source
+// was detected. The source is captured once, at detection: a cluster that later
+// becomes unreadable contributes no references, which is what the callback
+// already reports.
+func clusterContractRefs(dr *dashboard.DetectResult) func(context.Context) []string {
+	if dr.K8s == nil {
+		return nil
+	}
+	return dashboard.ContractRefProviderFromSource(dr.K8s)
+}
+
+// cacheLifecycle answers one question per refresh — may the disk cache
+// contribute a baseline? — from three facts that are NOT the same fact.
+//
+// Deriving it from "are there OCI refs right now" conflated all three. An
+// operator-managed pod starts with an emptyDir cache and no reconciled CRs, so
+// the baseline is off; refs then appear, the pulls fill the cache — and the next
+// Kubernetes read that fails or comes back empty took the cache away again,
+// exactly when the offline baseline was the only thing left that could answer.
+// The same expression also turned the cache on for explicit refs under
+// --no-cache, publishing a source over pre-existing entries the store then
+// refuses to read: a partial baseline made of limitations.
+type cacheLifecycle struct {
+	// permitted is false when --no-cache excluded whatever the cache already
+	// held. Cold start is a promise about pre-existing state, and the walk that
+	// backs a cache source cannot tell those entries from this session's.
+	permitted bool
+	// baseline is what startup detection found: a cache with content to read.
+	baseline bool
+	// materialized asks the store whether THIS process has filled the cache,
+	// which is the fact a pod's empty startup cache cannot report and no
+	// re-inspection of a discovery result can substitute for.
+	materialized func() bool
+}
+
+// contributes reports whether this refresh should read the disk cache.
+func (c cacheLifecycle) contributes() bool {
+	return c.permitted && (c.baseline || c.materialized())
+}
+
+// cacheMaterialization reports whether the store has written cache entries
+// during this process. A store that cannot say has not filled anything this
+// process can claim.
+func cacheMaterialization(store oci.BundleStore) func() bool {
+	if m, ok := store.(interface{ Materialized() bool }); ok {
+		return m.Materialized
+	}
+	return func() bool { return false }
+}
+
+// withClusterContractRefs returns the snapshot options for ONE refresh: the
+// configured sources plus whatever contract references the cluster reports right
+// now, and the cache verdict for this moment in the cache's lifecycle.
+//
+// The refresh, not startup, is the only honest place to ask. An operator-managed
+// dashboard is created by the operator BEFORE any Pacto CR has been reconciled,
+// so a set of references read once at startup is the empty set — permanently,
+// for the life of the pod. The Product would then show runtime targets with no
+// contract revision behind them: no declared dependencies, no reconciliation
+// against what was observed, and no change analysis, on a cluster where the
+// operator had resolved every one of those contracts.
+//
+// Explicit `oci://` arguments still win their place in the list; discovery adds
+// to what the operator configured rather than replacing it.
+func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discover func(context.Context) []string, cache cacheLifecycle) app.FleetOptions {
+	if discover != nil {
+		if found := discover(ctx); len(found) > 0 {
+			seen := make(map[string]struct{}, len(opts.OCIRefs)+len(found))
+			merged := make([]string, 0, len(opts.OCIRefs)+len(found))
+			for _, ref := range slices.Concat(opts.OCIRefs, found) {
+				if _, dup := seen[ref]; dup {
+					continue
+				}
+				seen[ref] = struct{}{}
+				merged = append(merged, ref)
+			}
+			opts.OCIRefs = merged
+		}
+	}
+	opts.IncludeCache = cache.contributes()
+	return opts
+}
+
+// dashboardFleetOptions builds fleet source options from everything the
+// dashboard detected, so the operational-graph endpoints span the whole fleet.
+// The second return is false when no source is active (fleet stays disabled).
+func dashboardFleetOptions(dir string, repos []string, namespace string, observation []app.ObservationSourceSpec, dr *dashboard.DetectResult) (app.FleetOptions, bool) {
+	// Recency is one horizon per product surface, not one per code path. The
+	// overview already calls evidence older than [fleet.RecentEvidenceWindow] not
+	// recent; leaving the build's window at zero disabled staleness classification
+	// altogether, so the same payload simultaneously withheld a target from its
+	// recent-evidence list and painted it green "Fresh evidence". `pacto fleet`
+	// defaults the window off because there a human picks --freshness per query;
+	// a long-running dashboard has nobody to ask, and "never evaluated" is not a
+	// safe thing to render as fresh.
+	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow}
+	ok := false
+	if dr.Local != nil && dir != "" {
+		fopts.LocalRoots = []string{dir}
+		ok = true
+	}
+	// Offline OTLP/JSON trace files become observation sources, so the normal
+	// dashboard's Operational Graph, reconciliation and Impact see observed
+	// dependencies. They come from --traces / PACTO_DASHBOARD_TRACES (ad-hoc,
+	// positional ids) or --trace-source / PACTO_DASHBOARD_TRACE_SOURCES (explicit,
+	// stable ids — what the operator-managed dashboard is configured with after
+	// mounting each file read-only).
+	if len(observation) > 0 {
+		fopts.ObservationSources = observation
+		ok = true
+	}
+	if dr.OCI != nil && len(repos) > 0 {
+		fopts.OCIRefs = repos
+		ok = true
+	}
+	if dr.Cache != nil {
+		fopts.IncludeCache = true
+		ok = true
+	}
+	if dr.K8s != nil {
+		fopts.IncludeK8s = true
+		fopts.K8sNamespace = namespace
+		ok = true
+	}
+	// An operator-wired dashboard learns its managed Evidence Server via env; when
+	// set, consume its read-only contribution. Unset means no evidence source
+	// (unconfigured), not an unavailable one — so add nothing.
+	if url := os.Getenv("PACTO_EVIDENCE_SOURCE_URL"); url != "" {
+		fopts.EvidenceURLs = append(fopts.EvidenceURLs, url)
+		ok = true
+	}
+	return fopts, ok
 }

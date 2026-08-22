@@ -1,5 +1,5 @@
 # Build stage — uses Go's native cross-compilation (no QEMU needed)
-FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.23 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine3.23 AS build
 
 ARG TARGETARCH
 
@@ -31,6 +31,11 @@ RUN mkdir -p /home/pacto/.cache/pacto/oci && chown -R pacto:pacto /home/pacto/.c
 
 USER pacto
 WORKDIR /home/pacto
+
+# Explicit, so the OCI cache resolves to the mounted writable directory even when
+# a pod securityContext sets runAsUser and the runtime never consults /etc/passwd
+# for HOME. Without it the cache is silently disabled on a read-only root.
+ENV HOME=/home/pacto
 
 # Dashboard defaults
 ENV PACTO_NO_UPDATE_CHECK=1

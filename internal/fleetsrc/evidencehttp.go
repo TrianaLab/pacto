@@ -1,0 +1,187 @@
+package fleetsrc
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/strictjson"
+)
+
+// evidenceTargetsPath is the read-only projection an Evidence Server exposes.
+const evidenceTargetsPath = "/api/evidence/v1/targets"
+
+// evidenceSchemaVersion is the read-only evidence-source DTO wire model this
+// consumer understands. A server advertising a different schema is treated as
+// unavailable rather than silently misread — the version is the compatibility
+// contract, not a hint. It mirrors evidenceingest.TargetsSchemaVersion; the two
+// packages are wired only over the wire, so the constant is duplicated rather
+// than importing across the internal/pkg boundary.
+const evidenceSchemaVersion = "pacto.dev/evidence-source/v2"
+
+// maxEvidenceBodyBytes bounds the response body an evidence source reads, so a
+// misbehaving or hostile server cannot exhaust memory. The server already caps
+// the target count; this is a defensive second bound.
+const maxEvidenceBodyBytes = 4 << 20 // 4 MiB
+
+// EvidenceHTTPSource consumes an Evidence Server's read-only Operational Graph
+// contribution over HTTP, WITHOUT touching its durable store — the consumer
+// never gets registry credentials or enumerates referrers itself. It GETs the
+// server's /targets projection and maps each accepted target into an external
+// fleet target. A transport failure or non-200 response is returned as an error
+// so [fleet.Build] records the source as unavailable — never as an empty result
+// that would silently drop a whole environment from the graph.
+type EvidenceHTTPSource struct {
+	id      string
+	baseURL string
+	client  *http.Client
+}
+
+// NewEvidenceHTTPSource returns a read-only HTTP evidence source over baseURL.
+// The client has a short timeout; it is a field so tests can inject their own.
+func NewEvidenceHTTPSource(id, baseURL string) *EvidenceHTTPSource {
+	if id == "" {
+		id = "evidence-http"
+	}
+	return &EvidenceHTTPSource{id: id, baseURL: baseURL, client: &http.Client{Timeout: 10 * time.Second}}
+}
+
+// ID implements [fleet.Source].
+func (s *EvidenceHTTPSource) ID() string { return s.id }
+
+// Kind implements [fleet.Source].
+func (s *EvidenceHTTPSource) Kind() string { return "evidence-http" }
+
+// evidenceTargetsResponse mirrors the server's versioned /targets DTO EXACTLY:
+// the response is strictly decoded (unknown fields rejected), so any field the
+// server adds bumps the schema version, which this consumer rejects rather than
+// silently dropping. Every field a faithful fleet target needs — full findings,
+// contract linkage, freshness, provenance and store health — is carried, so an
+// external target is not a lossy summary.
+type evidenceTargetsResponse struct {
+	SchemaVersion string    `json:"schemaVersion"`
+	GeneratedAt   time.Time `json:"generatedAt"`
+	Health        struct {
+		Status           string `json:"status"`
+		Subjects         int    `json:"subjects"`
+		FailedSubjects   int    `json:"failedSubjects"`
+		InvalidArtifacts int    `json:"invalidArtifacts"`
+	} `json:"health"`
+	Truncated bool `json:"truncated"`
+	Targets   []struct {
+		Subject       string            `json:"subject"`
+		Service       string            `json:"service"`
+		Domain        string            `json:"domain"`
+		Digest        string            `json:"digest"`
+		Producer      string            `json:"producer"`
+		ProducerKeyID string            `json:"producerKeyId"`
+		Compliance    string            `json:"compliance"`
+		Coverage      fleet.Coverage    `json:"coverage"`
+		Findings      []finding.Finding `json:"findings"`
+		ContractRef   string            `json:"contractRef"`
+		EvidenceAt    time.Time         `json:"evidenceAt"`
+		AcceptedAt    time.Time         `json:"acceptedAt"`
+	} `json:"targets"`
+}
+
+// Collect GETs the server's read-only targets projection and maps each into an
+// external fleet target. Any transport, status or decode failure is returned so
+// the source is recorded as unavailable rather than empty — including the 503 a
+// server returns when it could read none of its configured subjects. A partial
+// or truncated server yields a SourcePartial collection (usable targets kept,
+// the limitation surfaced), never a silently-healthy-looking empty one.
+func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, error) {
+	url := s.baseURL + evidenceTargetsPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("evidence source %s returned HTTP %d", url, resp.StatusCode)
+	}
+	var body evidenceTargetsResponse
+	// Strict: reject unknown fields AND trailing data, bounded by the LimitReader.
+	if err := strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body); err != nil {
+		return nil, err
+	}
+	if body.SchemaVersion != evidenceSchemaVersion {
+		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q", url, body.SchemaVersion, evidenceSchemaVersion)
+	}
+
+	col := &fleet.Collection{}
+	for _, t := range body.Targets {
+		if !fleet.ValidStatus(t.Compliance) {
+			// A record with a status this consumer cannot interpret is kept out of
+			// the graph but surfaced, so a bad record is never confused with none.
+			col.Limitations = append(col.Limitations, fleet.Limitation{
+				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+				Message: fmt.Sprintf("evidence target %q reported unknown compliance status", t.Subject),
+			})
+			continue
+		}
+		evidenceAt, acceptedAt, coverage := t.EvidenceAt, t.AcceptedAt, t.Coverage
+		// Name is the operational target (subject); Service/Domain/Digest are the
+		// RESOLVED logical identity the server derived from the ContractRef — used
+		// as-is, never inferred from Subject, so the target links to the correct
+		// domain-qualified service and revision. Fall back to deriving the digest
+		// from the ref only when the server omitted it.
+		digest := t.Digest
+		if digest == "" {
+			digest = digestFromRef(t.ContractRef)
+		}
+		col.Targets = append(col.Targets, fleet.RawTarget{
+			Scope:        t.Producer,
+			Kind:         "external",
+			Name:         t.Subject,
+			Service:      t.Service,
+			Domain:       t.Domain,
+			ResolvedRef:  t.ContractRef,
+			Digest:       digest,
+			Compliance:   t.Compliance,
+			Findings:     t.Findings,
+			Coverage:     &coverage,
+			EvidenceAt:   &evidenceAt,
+			ReconciledAt: &acceptedAt,
+		})
+	}
+
+	// An unreadable subject, an invalid published artifact or a truncated response
+	// means the contribution is incomplete: mark the source partial so downstream
+	// answers carry the honesty rather than presenting a full-looking graph.
+	if degraded, msg := evidenceDegraded(body); degraded {
+		col.State = &fleet.SourceState{Status: fleet.SourcePartial}
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: fleet.LimitationSourcePartial, Source: s.id, Message: msg,
+		})
+	}
+	return col, nil
+}
+
+// evidenceDegraded reports whether the server's contribution is incomplete and a
+// sanitized reason. Any non-ready status, unreadable subject, invalid published
+// artifact or truncated body counts. The counts are read independently of the
+// status so a server that reports them without downgrading its own status still
+// makes the consumer honest.
+func evidenceDegraded(body evidenceTargetsResponse) (bool, string) {
+	switch {
+	case body.Health.FailedSubjects > 0:
+		return true, fmt.Sprintf("evidence store could not read %d of %d contract subject(s)",
+			body.Health.FailedSubjects, body.Health.Subjects)
+	case body.Health.InvalidArtifacts > 0:
+		return true, fmt.Sprintf("evidence store reported %d invalid evidence artifact(s)", body.Health.InvalidArtifacts)
+	case body.Health.Status != "" && body.Health.Status != "ready":
+		return true, fmt.Sprintf("evidence store health %q", body.Health.Status)
+	case body.Truncated:
+		return true, "evidence source response was truncated"
+	}
+	return false, ""
+}

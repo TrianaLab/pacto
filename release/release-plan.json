@@ -30,6 +30,12 @@
           "kind": "oci-image",
           "tag": "3.1.4",
           "unit": "demo-bundles"
+        },
+        {
+          "coordinate": "ghcr.io/trianalab/pacto/demo",
+          "kind": "oci-image",
+          "tag": "3.1.4",
+          "unit": "demo-compose"
         }
       ],
       "tags": [
@@ -85,6 +91,7 @@
     "core:dashboard-contract-bundle",
     "core:cli",
     "core:demo-bundles",
+    "core:demo-compose",
     "kubernetes:go-mod-pin",
     "kubernetes:go-module",
     "kubernetes:operator-image",

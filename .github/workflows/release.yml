@@ -67,14 +67,20 @@ jobs:
           python-version: '3.12'
       - run: pip install pyyaml
       - run: npm ci --ignore-scripts
+      # changesets/action v2 renamed every input this step uses (version ->
+      # version-script, title -> pr-title, commit -> commit-message) and moved
+      # authentication from the GITHUB_TOKEN environment variable to the
+      # github-token input. An unknown `with:` key is a warning, not an error, so a
+      # bare SHA bump would keep this step green while silently running the default
+      # `changeset version` — no release plan, no transaction, no regenerated docs.
+      # tests/release/changesets_action_contract_test.go is the standing proof.
       - name: Open or update the Version Packages PR
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a # v2.1.0
         with:
-          version: npm run release:version:docs
-          title: "chore: version packages"
-          commit: "chore: version packages"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          version-script: npm run release:version:docs
+          pr-title: "chore: version packages"
+          commit-message: "chore: version packages"
 
   # Decide from the release transaction (never from a file diff). Emits the
   # changedUnits set that every publisher gates on. Fail-closed for a bad dispatch.
@@ -483,6 +489,102 @@ jobs:
         if: steps.v.outputs.state == 'absent'
         run: bash release/orchestrator/ledger.sh record "$PACTO_RELEASE_TXN" demo-bundles "ghcr.io/trianalab/pacto" "${{ needs.detect.outputs.core_version }}" "n/a" complete
 
+  # pacto-publishes: demo-compose
+  # The clone-free Compose demo: the canonical acceptance scenario (tests/acceptance/
+  # scenario) projected into ONE compose file and published by Docker Compose
+  # itself, because Compose owns this OCI artifact type — `docker compose publish`
+  # writes it and `docker compose -f oci://…@sha256:…` runs it, with no generic OCI
+  # tool and no install step in between. The demo runs the dashboard image THIS
+  # transaction published, which is why the job depends on it; `always()` keeps a
+  # single-unit recovery runnable on its own, exactly as the final `release` job does.
+  #
+  # Compose owns the manifest too, and it stamps org.opencontainers.image.created
+  # into it — so the artifact digest moves between two publishes of identical bytes
+  # and cannot be precomputed — while emitting no revision/version annotations to
+  # adopt by. What it does emit is ONE layer holding the compose file verbatim, so
+  # sha256 of the projected file IS the artifact's content identity. That is what
+  # this unit hands the adapter (PACTO_EXPECT_CONTENT): asserted after the push, and
+  # the crash-window adoption rule.
+  demo-compose:
+    needs: [detect, ledger-init, dashboard-image]
+    if: >-
+      always() && needs.detect.outputs.release == 'true' &&
+      contains(fromJSON(needs.detect.outputs.units_json), 'demo-compose') &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
+      PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
+      PACTO_ALLOW_PROD: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.detect.outputs.source_sha }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Install Docker Compose (it publishes this unit)
+        uses: docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2 # v2.3.0
+        with:
+          version: v5.5.0
+      - name: Install crane (content adoption reads the published manifest)
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the dashboard image this transaction published
+        id: image
+        run: |
+          # The demo artifact is immutable and pulled by digest, so the images it
+          # runs have to be pinned the same way — a tag here would let one demo
+          # digest execute different bytes after the tag moved. The digest comes
+          # from the LEDGER, which is where publish-oci-unit.sh recorded what
+          # `dashboard-image` actually published (the multi-arch INDEX digest
+          # `imagetools create` assembled). No second store and no second adapter:
+          # the same ledger.sh every other unit reads, which is also why a
+          # single-unit recovery dispatch — where no job output survives — still
+          # resolves the right image.
+          #
+          # Fail closed. If this transaction has no recorded dashboard-image
+          # digest, the demo would pin an image nothing in this release verified,
+          # and a narrowed recovery must not publish that.
+          d="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" dashboard-image)"
+          if ! [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::transaction $PACTO_RELEASE_TXN records no dashboard-image digest (got '${d:-<empty>}') — refusing to publish a demo artifact pinned to an unverified image"
+            exit 1
+          fi
+          echo "digest=$d" >> "$GITHUB_OUTPUT"
+          echo "demo pins the dashboard image at $d"
+      - name: Project the demo application
+        id: project
+        env:
+          VER: ${{ needs.detect.outputs.core_version }}
+        run: |
+          go run ./tests/acceptance/scenario/project demo \
+            -out "$RUNNER_TEMP/compose.yaml" \
+            -pacto-image "ghcr.io/trianalab/pacto/dashboard@${{ steps.image.outputs.digest }}" \
+            -version "$VER"
+          # The content identity, computed before anything is uploaded: this is the
+          # blob `docker compose publish` puts in the artifact's one layer, so it is
+          # both the post-push assertion and the crash-window adoption key.
+          echo "content=sha256:$(sha256sum "$RUNNER_TEMP/compose.yaml" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Publish the demo application (shared adapter)
+        env:
+          REF: ghcr.io/trianalab/pacto/demo:${{ needs.detect.outputs.core_version }}
+          VER: ${{ needs.detect.outputs.core_version }}
+          PACTO_EXPECT_CONTENT: ${{ steps.project.outputs.content }}
+        run: |
+          bash release/orchestrator/publish-oci-unit.sh demo-compose "$REF" "$VER" -- \
+            docker compose -f "$RUNNER_TEMP/compose.yaml" publish -y "$REF"
+
   # pacto-publishes: k8s-module
   # The nested integration module tag. Needs core-tag: the integration go.mod pins
   # the published core, so core must be tagged first for the tag to resolve.
@@ -812,7 +914,7 @@ jobs:
   # advertises missing assets. Binaries are reproducible: the build date is derived
   # from the source commit, so a re-run produces byte-identical artifacts.
   release:
-    needs: [detect, core-tag, dashboard-image, dashboard-contract-bundle, demo-bundles, k8s-module, operator-image, operator-chart, docs]
+    needs: [detect, core-tag, dashboard-image, dashboard-contract-bundle, demo-bundles, demo-compose, k8s-module, operator-image, operator-chart, docs]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'cli') &&

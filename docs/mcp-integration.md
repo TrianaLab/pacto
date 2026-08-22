@@ -4,6 +4,147 @@ Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 Point the server at a bundle (`pacto mcp <bundle-ref>`) and it goes further: every operation in the bundle's OpenAPI interface becomes an executable agent tool, and any `skills/*.md` domain guides the bundle ships are exposed too — making an existing contract immediately agent-ready without writing per-tool glue. See [Agent capabilities](#agent-capabilities) below.
 
 ---
+## Three tool families and their boundaries
+
+Pacto exposes three distinct families of MCP tools. They do very different things,
+so their safety boundaries differ — knowing which family a tool belongs to tells
+you exactly what invoking it can and cannot do.
+
+| Family | Tools | What they do | Safety boundary |
+|--------|-------|--------------|-----------------|
+| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation. |
+| **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a timeout and does not follow cross-origin redirects. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain` | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. | Read-only always; they observe nothing and change nothing. |
+
+The three families answer three different questions: authoring tools shape *what a
+contract says*, generated service tools *do something to a running service*, and
+fleet query tools *understand the system as it is*. An agent should never confuse
+them — invoking `createRefund` moves money; `pacto_fleet_get` never leaves the
+read model.
+
+Fleet query tools deserve explicit safety framing:
+
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md)
+  — an immutable read model — and perform no I/O against live systems.
+- **Pacto does not determine authorization.** These tools expose knowledge; they
+  never grant, scope or revoke a permission. Whether an agent *may* act stays with
+  policy and IAM systems.
+- **Partial or stale results are incomplete knowledge.** Every answer carries an
+  `asOf` time, a `completeness` value and structured `limitations`. Branch on
+  those before trusting an answer.
+- **A missing result under partial coverage does not prove absence.** If a source
+  was unavailable, a "not found" means "not known here", not "does not exist". An
+  unavailable source is never rendered as an empty result.
+
+See [The Pacto Operational Graph](operational-graph.md) for the read model these
+tools query and the query semantics they expose.
+
+A fourth server mode — [contract catalog discovery](#contract-catalog-discovery) —
+is not a tool family: it is mostly MCP *resources*, with a single lookup tool. It
+is also the one mode that does not carry the authoring tools alongside its own.
+The other three do: `pacto mcp <bundle-ref>` and `pacto mcp --fleet` each add
+their family on top of `pacto_create`, `pacto_edit`, `pacto_check` and
+`pacto_schema`.
+
+---
+## Contract catalog discovery
+
+`pacto mcp --root <ref>` starts a **read-only contract catalog**: the roots you
+name, plus their dependency closure, resolved once at startup and then frozen for
+the life of the process.
+
+```bash
+# One published platform, one contract you are still working on
+pacto mcp \
+  --root oci://ghcr.io/acme/platform:1.4.0 \
+  --root ./experimental-platform
+```
+
+`--root` is repeatable and takes either a local bundle directory or an `oci://`
+reference. Nothing is discovered that you did not name: Pacto does not crawl a
+registry, guess repository names or read a catalog file. The set of roots is the
+whole input, and the closure of those roots is the whole output.
+
+### The surface
+
+| URI / tool | What it answers |
+|------------|-----------------|
+| `pacto://catalog` | What this catalog is: schema version, catalog id, generation time, the bounds that applied, the completeness of the whole answer, and every requested root — including roots that did not resolve, and why. |
+| `pacto://catalog/closure` | What is in it: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and the conflicts and cycles left visible rather than resolved — under the same catalog metadata. |
+| `pacto_catalog_revision` | One revision by its full identity — service name, domain, content scheme and content digest. |
+
+That is the whole surface. Catalog mode registers no authoring tools:
+`pacto_create` and `pacto_edit` write contract files, and a server started for
+read-only discovery must not be a way to modify one.
+
+`pacto://catalog` is the cheaper read, so reading it first is the recommended
+order — but it is not a precondition. Both resources carry the same catalog
+metadata, so either one is safe to read on its own. The repetition is
+deliberate: a resource can be read alone, in any order, and a payload carrying
+only data would be indistinguishable from an authoritative answer whenever the
+data happened to be empty. Ask for two roots that both fail to resolve and the
+closure is empty in every collection — the metadata travelling with it is what
+says `partial`, names each `ROOT_UNRESOLVED`, and keeps the two roots you
+actually requested visible.
+
+The lookup is a tool rather than a URI template because a revision's identity is
+four structured fields, and a service name or domain may contain `/`, `:`, `%` or
+arbitrary UTF-8. Encoding that into a path segment would mean re-parsing it at
+the other end, and two different identities could arrive as one. The identity
+stays structured from the query to the answer.
+
+### What it is not
+
+- **A catalog is not the fleet.** The catalog describes *contracts* reachable
+  from the roots you named. It says nothing about deployments, environments,
+  runtime targets or observed state — those are [Fleet query tools](#three-tool-families-and-their-boundaries)
+  over the [Operational Graph](operational-graph.md). A requested root is an
+  input to discovery, never a runtime target.
+- **Discovery is not authorization.** Learning that a revision exists says
+  nothing about whether you may read, deploy or call it. Authorization stays with
+  your policy and IAM systems.
+- **Discovery is not execution.** Nothing in this surface invokes anything. If
+  you want a bundle's operations as callable tools, that is the separate
+  [Agent capabilities](#agent-capabilities) mode.
+- **It is a session, not a store.** There is no database, no daemon state and no
+  background refresh. The catalog lives in the process and disappears with it.
+
+### Partial is not empty, and not complete
+
+Every catalog reports its `completeness`. A root or a dependency that could not
+be resolved stays visible — with a category such as `NOT_FOUND`, `AUTH_FAILED` or
+`UNAVAILABLE`, never a raw registry error — and the whole answer is marked
+`partial`.
+
+Treat the three states as different facts:
+
+- `complete` — everything reachable from the roots resolved.
+- `partial` — some of it did not. A revision you cannot find here is *unknown*,
+  not proven absent.
+- An empty catalog is never started at all: `pacto mcp --root ""` fails rather
+  than serve an authoritative "there is nothing here".
+
+### Requested, resolved, identity
+
+Three things that look alike and are not:
+
+| | Example | Stability |
+|---|---|---|
+| Requested reference | `oci://ghcr.io/acme/platform:1.4.0` | A tag. It can move. |
+| Resolved reference | `ghcr.io/acme/platform@sha256:…` | Immutable, as of startup. |
+| Content identity | scheme `oci` + digest `sha256:…` | What the bytes *are*. This is identity. |
+
+A mutable tag is resolved exactly once, at startup. If someone re-points that tag
+while the server is running, the session does not change: the same query returns
+the same digest it returned before. To pick up a moved tag, restart the server.
+
+Local roots work the same way, with a content hash over the bundle's files in
+place of a registry digest: two byte-identical directories are one revision, and
+a path is never an identity. Local and registry roots go through the same
+reference parsing, credentials and cache the rest of the CLI uses — catalog mode
+adds no second client and no second credential path.
+
+---
 ## Why MCP?
 
 [MCP](https://modelcontextprotocol.io) is an open standard that lets AI tools invoke external functions through structured tool calls. With the Pacto MCP server, an assistant calls tools like `pacto_create` or `pacto_check` and gets structured JSON back — creating, editing and validating contracts in a single conversation instead of copy-pasting CLI output.

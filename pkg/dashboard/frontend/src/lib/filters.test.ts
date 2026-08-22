@@ -117,7 +117,7 @@ describe('applyFilters', () => {
   });
 
   it('filters by owner key', () => {
-    const f: FilterState = { ...EMPTY_FILTERS, owner: 'team/pay' };
+    const f: FilterState = { ...EMPTY_FILTERS, owner: 'team:team/pay' };
     const result = applyFilters(svcs, f);
     expect(result).toHaveLength(2);
     expect(result.map(s => s.name).sort()).toEqual(['billing', 'pay']);
@@ -170,7 +170,7 @@ describe('applyFilters', () => {
   });
 
   it('applies multiple filters (AND logic)', () => {
-    const f: FilterState = { ...EMPTY_FILTERS, owner: 'team/pay', contractStatus: 'Compliant' };
+    const f: FilterState = { ...EMPTY_FILTERS, owner: 'team:team/pay', contractStatus: 'Compliant' };
     const result = applyFilters(svcs, f);
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('pay');

@@ -44,6 +44,13 @@ spec:
                   fieldPath: metadata.namespace
             - name: OPERATOR_DEPLOYMENT_NAME
               value: {{ include "pacto-operator.fullname" . }}
+            {{- with .Values.insecureRegistries }}
+            {{- /* Inherited by the managed dashboard and Evidence Server, which
+                   resolve contract refs themselves. Per-host, so https registries
+                   are unaffected. */}}
+            - name: PACTO_INSECURE_REGISTRIES
+              value: {{ join "," . | quote }}
+            {{- end }}
           args:
             {{- include "pacto-operator.controllerArgs" . | nindent 12 }}
           ports:

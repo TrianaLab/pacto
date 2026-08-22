@@ -5,6 +5,11 @@ Pacto follows a layered architecture where dependencies flow predominantly in on
 
 ## Conceptual model
 
+> The distinctions this model refuses to collapse — service vs revision vs target,
+> declared vs observed, evidence vs finding, empty vs unknown — are indexed on the
+> [Concepts](concepts.md) page. This page covers how the code is arranged to keep
+> them apart.
+
 A Pacto contract describes the relationships between a service's interfaces and how they change over time — ownership, dependencies, compatibility and readiness. A single JSON Schema describes one interface in isolation and structurally cannot express how interfaces relate or evolve; that relational and temporal layer is Pacto's differentiator. It is why the core splits into `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and `pkg/validation` (structural enforcement and evidence evaluation).
 
 Underneath, Pacto composes the interfaces you already have rather than inventing a configuration language. An interface is a JSON Schema, OpenAPI spec or event schema — a service's config interface is its config JSON Schema, an API interface is its OpenAPI document. Where an interface is already owned by another system, Pacto composes it instead of reinventing it. Composition is the on-ramp; the operational contract is the differentiator.
@@ -228,6 +233,19 @@ Builds a dependency graph by recursively fetching contracts from OCI registries 
 - `RenderTree()` / `RenderDiffTree()` -- tree-style rendering with connectors
 - `DiffGraphs()` -- structural diff between two dependency graphs
 
+### `pkg/catalog` -- Bounded contract catalog
+
+Turns a finite, explicitly supplied set of contract roots plus their dependency closure into a bounded, immutable catalog. Nothing is crawled or inferred: a root exists in the catalog because a caller named it.
+
+- `Build(ctx, Request)` -- resolves every reference exactly once and returns a frozen `*Catalog`. Afterwards queries are pure, network-free, deterministically ordered and safe for concurrent readers; a registry tag that moves later does not move the catalog
+- `Resolver` port -- reference parsing, credentials, caching and registry access live in a caller-supplied adapter (`internal/app`'s `CatalogResolver()`), never in the catalog itself
+- `Bounds` -- explicit ceilings on roots, revisions, edges, depth and resolver calls, charged before the work they admit
+- Three separations the model never collapses: requested ref is not resolved ref is not content identity; a revision is not a declaration is not a path; partial is not empty and is not complete
+
+`pkg/graph` answers "what does this one bundle depend on" for a human reading a tree. `pkg/catalog` answers "what is in this explicit set of roots and their closure" for a machine, with the identity and completeness discipline that answer needs. It is not the operational fleet -- `pkg/fleet` describes runtime targets and observation, and the two share vocabulary but no model. Discovery is not authorization and discovery is not execution.
+
+The catalog core is framework-independent by construction: it imports `pkg/contract`, go-digest and the standard library, and nothing else. `tests/architecture/boundary_test.go` enforces that, so catalog semantics can never become a property of one delivery mechanism. Exposed over MCP by `pacto mcp --root` -- see [MCP integration → Contract catalog discovery](mcp-integration.md#contract-catalog-discovery).
+
 ### `pkg/override` -- YAML overrides
 
 Applies value-file and `--set` overrides to raw YAML before parsing. Supports deep merge, dot-separated paths, and array index notation.
@@ -297,7 +315,18 @@ Key components:
 
 ### `internal/mcp` -- MCP server
 
-Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools. Each MCP tool handler delegates to an `internal/app` service method -- no business logic lives here. The server communicates over stdio (default) or HTTP (`pacto mcp -t http`) and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor and Copilot. See the [MCP integration](mcp-integration.md) guide for setup.
+Thin adapter layer that exposes Pacto operations as [Model Context Protocol](https://modelcontextprotocol.io) tools and resources. Each handler delegates to an `internal/app` service method or projects an already-built core model -- no business logic lives here. The server communicates over stdio (default) or HTTP (`pacto mcp -t http`) and is started via `pacto mcp`. Used by AI tools such as Claude, Cursor and Copilot. See the [MCP integration](mcp-integration.md) guide for setup.
+
+One invocation selects exactly one server, and the modes cannot be combined:
+
+| Invocation | Surface |
+|------------|---------|
+| `pacto mcp` | Authoring tools over `internal/app` |
+| `pacto mcp <bundle-ref>` | Authoring tools plus one bundle's OpenAPI operations and skills (`pkg/capability`) |
+| `pacto mcp --fleet` | Authoring tools plus read-only operational-graph queries (`pkg/fleet`) |
+| `pacto mcp --root <ref>` | Read-only contract catalog discovery (`pkg/catalog`) — this surface only |
+
+Catalog mode builds the catalog once, before serving, from the repeated `--root` references. It is mostly MCP *resources* rather than tools, and the served session is frozen: handlers project the immutable `*Catalog` and reach neither a registry nor the filesystem. It is also the one mode that does **not** register the authoring tools: two of them write `pacto.yaml` to disk, so a mode whose whole promise is read-only discovery starts from a bare server and adds only the discovery surface.
 
 ### `internal/logger` -- Logger setup
 
@@ -311,7 +340,9 @@ Performs async version checking against the GitHub releases API. Started in a ba
 
 ## Dashboard architecture
 
-The dashboard is complex enough to warrant its own design section. It provides a web-based UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, and diffs -- aggregated from multiple data sources. See the [Dashboard Container](dashboard-docker.md) guide for deployment.
+The dashboard is complex enough to warrant its own design section. It provides a web-based UI aggregated from multiple data sources. See the [Dashboard Container](dashboard-docker.md) guide for deployment.
+
+The sections below describe the **contract-exploration substrate**: the source model, aggregation and the `/api/services`-family endpoints, which are what a non-fleet host (the offline `pacto doc` export) serves. On a fleet-capable host that substrate is presented through the product IA -- **Overview**, **Services**, **Operational Graph** and **Change analysis** -- served by the bounded `/api/fleet/*` product endpoints described in [operational graph](operational-graph.md).
 
 ### Source model
 
@@ -529,3 +560,5 @@ These rules must be preserved by future changes. Each exists for a specific reas
 | OCI discovery is continuous, not one-shot | New services and versions pushed after startup must surface without restarting the dashboard. The background loop re-runs discovery every 60 seconds. |
 | K8s enrichment retries stop on permanent errors | If the Pacto CRD is not installed (`ListServices` returns "resource not found"), `EnrichFromK8s` nils the K8s source so the retry loop exits immediately instead of waiting 30 seconds. |
 | UI data refresh must not disrupt user state | DOM morphing preserves scroll position, form values, `<details>` open/closed state, and D3-managed containers. Debug panels use `patchDOM` instead of `innerHTML` replacement. |
+| `pkg/fleet` is route-neutral | The operational graph owns canonical identities, query facts, completeness and limitations, and returns route-neutral entity references. Turning a reference into a navigable URL is a *transport* concern: the dashboard product transport adds an href built from the canonical key through a single route builder. MCP and other non-dashboard consumers read the same facts and must never receive dashboard URLs. Enforced by `TestFleetStaysRouteNeutral` in `tests/architecture`. |
+| OpenAPI is the only wire truth for the dashboard | Huma generates the OpenAPI contract from the Go handlers; the TypeScript request/response types and the fetch transport are generated from that contract into `pkg/dashboard/frontend/src/lib/generated/` and committed with a DO NOT EDIT notice. Handwritten frontend code may add ergonomics but must never redeclare a DTO field or build an `/api/...` URL by hand — a third, hand-maintained copy of the wire schema drifts silently. Enforced by `make check-dashboard-sdk-drift`, which regenerates both artifacts and fails on any diff. |

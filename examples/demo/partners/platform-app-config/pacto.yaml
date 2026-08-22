@@ -1,0 +1,25 @@
+pactoVersion: '2.0'
+service:
+  name: platform-app-config
+  version: 1.0.0
+  owner:
+    team: partner-integrations
+    dri: nadia.okoro
+    contacts:
+    - type: email
+      value: partner-integrations@acme.com
+      purpose: escalation
+configurations:
+- name: default
+  schema: configuration/schema.json
+  required: true
+metadata:
+  tier: platform
+  category: configuration
+  criticality: medium
+  summary: The partner domain's own application configuration schema, distinct from
+    the core one of the same name.
+  repo: github.com/trianalab/pacto-demo/partners-platform-app-config
+  tags:
+  - partners
+  - configuration

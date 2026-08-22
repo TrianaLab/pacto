@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -115,10 +116,19 @@ func readLockFile(path string) (*lock.Lock, error) {
 // compareLocks returns a typed error if `existing` diverges from `fresh`.
 // Dependencies are matched by Name (the closure cannot hold one service at two
 // versions — that is a build-time conflict). References are matched by their
-// stable identity (OCI Ref / local Path), since transitive references can share
-// the same (kind, name) across bundles. A different digest/content-hash yields a
+// occurrence identity (declaring contract + kind + name), since transitive
+// references routinely share a (kind, name) — and, for a relative local ref,
+// even a Path — across bundles. A different digest/content-hash yields a
 // DriftError/LocalDriftError; a changed membership yields a StaleError.
+//
+// A lock written under an older schema is reported stale rather than compared:
+// it does not record what the current schema compares on, and reading it as if
+// it did would silently reinterpret it.
 func compareLocks(existing, fresh *lock.Lock) error {
+	if existing.LockVersion != lock.CurrentLockVersion {
+		return &lock.StaleError{Detail: fmt.Sprintf("lockVersion %d predates the current schema (%d)",
+			existing.LockVersion, lock.CurrentLockVersion)}
+	}
 	if len(existing.Dependencies) != len(fresh.Dependencies) {
 		return &lock.StaleError{Detail: "dependency set changed"}
 	}
@@ -135,16 +145,26 @@ func compareLocks(existing, fresh *lock.Lock) error {
 	if len(existing.References) != len(fresh.References) {
 		return &lock.StaleError{Detail: "reference set changed"}
 	}
-	byID := make(map[string]lock.Reference, len(existing.References))
+	// Keyed on the occurrence STRUCT, never on a rendering of it: names accept any
+	// character, so any string built by joining them can be forged by a legal name
+	// and would silently file two references in one slot.
+	byID := make(map[lock.Occurrence]lock.Reference, len(existing.References))
 	for _, er := range existing.References {
-		byID[referenceID(er)] = er
+		byID[er.Occurrence()] = er
 	}
 	for _, fr := range fresh.References {
-		er, ok := byID[referenceID(fr)]
+		id := fr.Occurrence()
+		er, ok := byID[id]
 		if !ok {
-			return &lock.StaleError{Detail: "new reference " + fr.Kind + "/" + fr.Name}
+			return &lock.StaleError{Detail: "new reference: " + id.String()}
 		}
-		if err := compareEntry(fr.Kind+"/"+fr.Name, fr.Source, er.Digest, er.ContentHash, fr.Digest, fr.ContentHash); err != nil {
+		// A reference repointed at a different source is stale even when both
+		// happen to resolve to the same bytes today: the lock no longer records
+		// what the contract declares.
+		if er.Source != fr.Source || er.Ref != fr.Ref || er.Path != fr.Path {
+			return &lock.StaleError{Detail: id.String() + " now points at a different source"}
+		}
+		if err := compareEntry(id.String(), fr.Source, er.Digest, er.ContentHash, fr.Digest, fr.ContentHash); err != nil {
 			return err
 		}
 	}
@@ -164,15 +184,6 @@ func compareEntry(name, source, lockedDigest, lockedHash, freshDigest, freshHash
 		return &lock.DriftError{Name: name, Locked: lockedDigest, Current: freshDigest}
 	}
 	return nil
-}
-
-// referenceID returns a reference's stable identity: its OCI Ref, or its local
-// Path. Two transitive references can share (kind, name); their Ref/Path cannot.
-func referenceID(r lock.Reference) string {
-	if r.Source == "local" {
-		return "local:" + r.Path
-	}
-	return "oci:" + r.Ref
 }
 
 // mergePreservingPins keeps existing dependency pins whose constraint is

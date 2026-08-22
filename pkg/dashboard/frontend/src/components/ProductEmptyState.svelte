@@ -1,0 +1,87 @@
+<script>
+  import EmptyState from './EmptyState.svelte';
+  import { knowledgeLabel } from '../lib/entityLabels.ts';
+  import { degradedSourceSummary } from '../lib/knowledgeState.ts';
+
+  // Renders a knowledgeState.ViewState honestly. It NEVER renders a
+  // blanket "all clear": an empty result under incomplete knowledge is shown as
+  // "nothing known + knowledge is incomplete", distinct from a genuinely empty fleet
+  // and from a filter that matched nothing. Loading/error variants delegate to the
+  // shared EmptyState so styling stays in one place.
+  let {
+    state,
+    noun = 'items',
+    onRetry = null,
+    onClearFilters = null,
+    // Heading level of every variant's title, forwarded to EmptyState so the two
+    // components agree. Defaults to 2: a product empty state replaces a whole page or
+    // workspace body, directly under that page's h1, and a hard-coded 3 was a skipped
+    // level. A caller nesting one inside an h2 section passes 3.
+    level = 2,
+  } = $props();
+</script>
+
+{#if state.kind === 'loading'}
+  <EmptyState loading={true} {level} />
+{:else if state.kind === 'backend-error'}
+  <EmptyState error={true} title="Can’t reach the Pacto backend" message={state.message} {onRetry} {level} />
+{:else if state.kind === 'schema-error'}
+  <EmptyState error={true} title="Dashboard is out of date" message={`${state.message} Reload the page or upgrade the dashboard.`} {onRetry} {level} />
+{:else if state.kind === 'not-found'}
+  <EmptyState error={true} title="Not found" message={state.message} {level} />
+{:else if state.kind === 'filtered-empty'}
+  <div class="state-box">
+    <svelte:element this={`h${level}`}>No matching {noun}</svelte:element>
+    <p>No {noun} match the current filters or search.</p>
+    <!-- Both facts must survive: a filter matched nothing AND knowledge is incomplete.
+         The empty match never hides the incompleteness caveat. -->
+    {#if state.knowledge?.incomplete}
+      <span class="ps-knowledge" role="status">{knowledgeLabel(state.knowledge.level)} — the match may be incomplete.</span>
+    {/if}
+    {#if onClearFilters}
+      <button type="button" class="ps-btn" onclick={onClearFilters}>Clear filters</button>
+    {/if}
+  </div>
+{:else if state.kind === 'empty-unknown'}
+  <!-- The non-negotiable case: no items, but knowledge is incomplete. This is NOT
+       "all clear" — it is a lack of knowledge, shown as such. -->
+  <div class="state-box is-unknown" role="status">
+    <svelte:element this={`h${level}`}>No {noun} known</svelte:element>
+    <p>Knowledge is incomplete, so this is not a clean bill of health.</p>
+    <span class="ps-knowledge">{knowledgeLabel(state.knowledge.level)}</span>
+    <!-- One sentence from the ONE place that words these counts, so this screen and
+         the KnowledgeBanner cannot describe different populations. -->
+    {#if degradedSourceSummary(state.knowledge)}<p class="ps-detail">{degradedSourceSummary(state.knowledge)}.</p>{/if}
+    {#if onRetry}<button type="button" class="ps-btn" onclick={onRetry}>Retry</button>{/if}
+  </div>
+{:else if state.kind === 'empty-fleet'}
+  <div class="state-box">
+    <svelte:element this={`h${level}`}>No {noun} yet</svelte:element>
+    <p>Nothing here yet. Once contracts are published or running targets are observed, {noun} appear here.</p>
+  </div>
+{/if}
+
+<style>
+  .state-box {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3);
+    gap: var(--sp-2);
+  }
+  .state-box :is(h2, h3) { color: var(--c-text-2); }
+  .state-box.is-unknown :is(h2, h3) { color: var(--c-warn); }
+  .ps-knowledge {
+    font-size: var(--text-xs); font-weight: 600; color: var(--c-warn);
+    background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
+    padding: 2px 8px; border-radius: var(--radius-xs);
+  }
+  .ps-detail { font-size: var(--text-sm); margin: 0; }
+  /* The sentence is built for mid-caveat use ("...at least 50 data sources are
+     unavailable, so..."); standing alone it starts a paragraph. */
+  .ps-detail::first-letter { text-transform: uppercase; }
+  .ps-btn {
+    margin-top: var(--sp-2); background: none; border: 1px solid var(--c-border);
+    border-radius: var(--radius-xs); color: var(--c-accent); font: inherit;
+    padding: 6px 14px; min-height: var(--touch-min); cursor: pointer;
+  }
+  .ps-btn:hover { background: var(--c-surface-inset); }
+</style>

@@ -29,9 +29,16 @@ ci-vet:
 	@echo "==> Running go vet..."
 	go vet ./...
 
+# Its OWN analysis cache. This module lints with a custom build (the logcheck
+# plugin); the engine module lints with the stock binary. Left to the default they
+# share one directory under $HOME — which CI additionally restores from an earlier
+# commit — so what a linter reports comes to depend on which build wrote the cache
+# first and on what the tree looked like when it did. That is how this leg started
+# reporting SA5011 against `t.Fatal` guards on CI that no local run, cold cache
+# included, could reproduce. A per-module cache makes the answer the code's.
 ci-lint: golangci-lint
 	@echo "==> Running linter..."
-	"$(GOLANGCI_LINT)" run
+	GOLANGCI_LINT_CACHE="$(LOCALBIN)/.golangci-lint-cache" "$(GOLANGCI_LINT)" run
 
 .PHONY: helm-template
 helm-template: ## Render chart templates and validate output.
@@ -62,8 +69,12 @@ helm-docs-check: ## Check that helm-docs output matches committed README.
 	@echo "==> Checking helm-docs drift..."
 	@command -v helm-docs >/dev/null 2>&1 || { echo "Error: helm-docs not installed. Install with: go install github.com/norwoodj/helm-docs/cmd/helm-docs@latest" >&2; exit 1; }
 	@helm-docs --chart-search-root charts
-	@git diff --exit-code charts/pacto-operator/README.md || \
-		{ echo "Error: Helm chart README is out of date. Run 'make helm-docs' and commit." >&2; exit 1; }
+	@# EVERY chart's README, not just the operator's. helm-docs regenerates all of
+	@# them in one pass, so a narrower check means the gate itself rewrites a chart
+	@# README on every run and reports success -- and a chart whose README was
+	@# hand-written silently loses it.
+	@git diff --exit-code -- charts/*/README.md || \
+		{ echo "Error: A Helm chart README is out of date. Run 'make helm-docs' and commit." >&2; exit 1; }
 
 .PHONY: docs-generate-check
 docs-generate-check: docs-generate ## Check that generated reference docs match committed output.

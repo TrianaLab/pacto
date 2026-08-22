@@ -70,47 +70,43 @@ func TestBuildStaticExport_HappyPath(t *testing.T) {
 		t.Fatalf("buildStaticExport failed: %v", err)
 	}
 
-	// Check index.html exists and was modified
+	// Check index.html exists and was modified.
 	idx, ok := files["index.html"]
 	if !ok {
 		t.Fatal("index.html missing from export")
 	}
-	if !bytes.Contains(idx, []byte("__PACTO_STATIC__")) {
-		t.Error("index.html missing __PACTO_STATIC__ injection")
-	}
-	if !bytes.Contains(idx, []byte("test-service")) {
-		t.Error("service name not embedded in snapshot")
-	}
-	if !bytes.Contains(idx, []byte("</head>")) {
-		t.Error("index.html structure corrupted")
-	}
 
-	// The detail view loads its graph via GET /api/graph, whose body is a flat
-	// GlobalGraph ({nodes:[...]}). The static payload must embed g under that
-	// route, and must NOT use the old per-service /graph route the view never calls.
-	if !bytes.Contains(idx, []byte(`"/api/graph"`)) {
-		t.Error("static payload missing /api/graph route")
+	// The injected payload must carry the marker, the service name, the head close,
+	// the flat /api/graph route (with a nodes array), and - proving the fixtures are
+	// request-semantic records rather than a raw-URL->response map - an HTTP method
+	// plus the explicit offline services-list and cross-references fixtures. It must
+	// NOT embed the dead per-service /graph route the detail view never calls.
+	mustContain := []string{
+		"__PACTO_STATIC__", "test-service", "</head>",
+		`"/api/graph"`, `"nodes"`,
+		`"method":"GET"`, `"path":"/api/services"`, `"path":"/api/services/test-service/refs"`,
 	}
-	if !bytes.Contains(idx, []byte(`"nodes"`)) {
-		t.Error("static /api/graph payload missing nodes array")
+	for _, want := range mustContain {
+		if !bytes.Contains(idx, []byte(want)) {
+			t.Errorf("index.html payload missing %q", want)
+		}
 	}
 	if bytes.Contains(idx, []byte("/api/services/test-service/graph")) {
 		t.Error("dead /api/services/{name}/graph route should not be embedded")
 	}
 
-	// Verify script is before </head>
+	// Verify script is before </head>.
 	headIdx := bytes.Index(idx, []byte("</head>"))
 	scriptIdx := bytes.Index(idx, []byte("__PACTO_STATIC__"))
 	if scriptIdx == -1 || headIdx == -1 || scriptIdx > headIdx {
 		t.Error("script not injected before </head>")
 	}
 
-	// Check assets are copied
-	if _, ok := files["assets/app.js"]; !ok {
-		t.Error("assets/app.js not copied")
-	}
-	if _, ok := files["assets/style.css"]; !ok {
-		t.Error("assets/style.css not copied")
+	// Check assets are copied with their content.
+	for _, a := range []string{"assets/app.js", "assets/style.css"} {
+		if _, ok := files[a]; !ok {
+			t.Errorf("%s not copied", a)
+		}
 	}
 	if string(files["assets/app.js"]) != `console.log("app");` {
 		t.Error("assets/app.js content wrong")

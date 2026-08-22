@@ -175,14 +175,14 @@ func TestBuildLockReferences(t *testing.T) {
 	if len(l.References) != 2 {
 		t.Fatalf("expected 2 references, got %d: %+v", len(l.References), l.References)
 	}
-	cfg, ok := l.Reference("config", "cfg")
+	cfg, ok := l.RootReference("config", "cfg")
 	if !ok {
 		t.Fatalf("config ref cfg missing: %+v", l.References)
 	}
 	if cfg.Source != "oci" || cfg.Ref != "oci://ghcr.io/acme/cfg:1.0.0" || cfg.Digest == "" || cfg.Version != "1.0.0" {
 		t.Errorf("config ref wrong: %+v", cfg)
 	}
-	pol, ok := l.Reference("policy", "sec")
+	pol, ok := l.RootReference("policy", "sec")
 	if !ok {
 		t.Fatalf("policy ref sec missing: %+v", l.References)
 	}
@@ -206,7 +206,7 @@ func TestBuildLockLocalReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildLock: %v", err)
 	}
-	ref, ok := l.Reference("config", "localcfg")
+	ref, ok := l.RootReference("config", "localcfg")
 	if !ok {
 		t.Fatalf("local config ref missing: %+v", l.References)
 	}
@@ -614,8 +614,10 @@ func TestBuildReferenceClosureTransitive(t *testing.T) {
 	}
 }
 
-// TestBuildReferenceClosureCycle covers a P<->Q cycle: dedupe by declared ref
-// string terminates the walk, each pinned exactly once.
+// TestBuildReferenceClosureCycle covers a P<->Q cycle: dedupe by RESOLVED bundle
+// identity terminates the walk. Three occurrences are declared around the cycle
+// (root->p, p->q, q->p) and all three are pinned; the walk simply stops rather
+// than recursing into p a second time.
 func TestBuildReferenceClosureCycle(t *testing.T) {
 	pContract := policyRefContract("p", "1.0.0", "oci://r/q")
 	qContract := policyRefContract("q", "1.0.0", "oci://r/p")
@@ -635,8 +637,8 @@ func TestBuildReferenceClosureCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cycle should terminate: %v", err)
 	}
-	if len(refs) != 2 {
-		t.Fatalf("want p and q once each, got %d", len(refs))
+	if len(refs) != 3 {
+		t.Fatalf("want the three occurrences around the cycle, got %d: %+v", len(refs), refs)
 	}
 }
 
@@ -738,7 +740,7 @@ func TestBuildLockOCIRootReferenceBaseDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildLock: %v", err)
 	}
-	pol, ok := l.Reference("policy", "sec")
+	pol, ok := l.RootReference("policy", "sec")
 	if !ok || pol.Version != "2.0.0" || pol.Digest == "" {
 		t.Errorf("policy ref wrong: %+v", pol)
 	}

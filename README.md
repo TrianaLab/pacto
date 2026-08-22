@@ -6,7 +6,9 @@
 
 A service's operational behavior — interfaces, dependencies, runtime semantics, configuration and readiness — is scattered across Helm values, wikis and dashboards, and drifts from what's actually running. Pacto captures it once in a validated, versioned contract (`pacto.yaml`), distributes it through your existing OCI registry and lets `pacto diff` catch breaking changes while the operator catches runtime drift. It doesn't replace OpenAPI, Helm, Terraform, Backstage or Kubernetes — it adds the operational contract layer between them, composing the interfaces you already own and adding what no single one does: ownership, dependencies, compatibility and readiness over time.
 
-**[Documentation](https://pacto.run)** · **[Quickstart](https://pacto.run/latest/quickstart)** · **[Specification](https://pacto.run/latest/contract-reference)** · **[Examples](https://pacto.run/latest/examples)** · **[Live demo](https://pacto.run/latest/demo/)**
+Composed across a platform, those contracts become more than per-service files: **Pacto turns platform knowledge into a versioned, verifiable operational graph that humans, automation and agents can reason over** — its four capabilities are **Diff · Graph · Enforce · Verify**. Internal Developer Platforms make platform *capabilities* consumable by humans through portals, golden paths, catalogues and workflows; Pacto makes platform *knowledge* consumable by machines through contracts, relationships, constraints, tools and evidence. Pacto is not an IDP, a portal, a deployment engine or an authorization system — it is the machine-readable operational layer *over* a platform, and a human portal and an agent can consume the same Pacto graph.
+
+**[Documentation](https://pacto.run)** · **[Quickstart](https://pacto.run/latest/quickstart)** · **[Specification](https://pacto.run/latest/contract-reference)** · **[Examples](https://pacto.run/latest/examples)** · **[Live demo](https://pacto.run/latest/demo/#/fleet)**
 
 > **Why Pacto exists** — [MANIFEST.md](MANIFEST.md)
 

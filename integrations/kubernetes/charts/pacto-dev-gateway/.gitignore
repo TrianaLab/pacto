@@ -1,0 +1,3 @@
+# Vendored Helm dependency archives — re-fetched with `helm dependency build`
+# (pinned by Chart.lock). Not committed: this dev chart is not published.
+charts/

@@ -2,9 +2,9 @@ package dashboard
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,6 +12,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // TestCacheSource_ConcurrentRescanAndReads exercises Rescan() (which swaps the
@@ -54,56 +58,6 @@ service:
 	}
 	close(stop)
 	wg.Wait()
-}
-
-func TestExtractTar_Hardening(t *testing.T) {
-	t.Run("rejects symlink", func(t *testing.T) {
-		var buf bytes.Buffer
-		tw := tar.NewWriter(&buf)
-		_ = tw.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"})
-		_ = tw.Close()
-		if _, err := extractTar(&buf); err == nil || !strings.Contains(err.Error(), "unsupported tar entry type") {
-			t.Fatalf("expected unsupported-entry error, got %v", err)
-		}
-	})
-
-	t.Run("too many entries", func(t *testing.T) {
-		var buf bytes.Buffer
-		tw := tar.NewWriter(&buf)
-		for i := 0; i <= maxBundleEntries; i++ {
-			_ = tw.WriteHeader(&tar.Header{Name: fmt.Sprintf("f%d", i), Typeflag: tar.TypeReg, Size: 0})
-		}
-		_ = tw.Close()
-		if _, err := extractTar(&buf); err == nil || !strings.Contains(err.Error(), "too many entries") {
-			t.Fatalf("expected too-many-entries error, got %v", err)
-		}
-	})
-
-	t.Run("dotdot in filename allowed", func(t *testing.T) {
-		var buf bytes.Buffer
-		tw := tar.NewWriter(&buf)
-		content := []byte("ok")
-		_ = tw.WriteHeader(&tar.Header{Name: "my..file.yaml", Typeflag: tar.TypeReg, Size: int64(len(content)), Mode: 0644})
-		_, _ = tw.Write(content)
-		_ = tw.Close()
-		fsys, err := extractTar(&buf)
-		if err != nil {
-			t.Fatalf("legitimate '..' name should be accepted, got %v", err)
-		}
-		if data, err := fs.ReadFile(fsys, "my..file.yaml"); err != nil || string(data) != "ok" {
-			t.Fatalf("expected file extracted, got %q err=%v", data, err)
-		}
-	})
-
-	t.Run("path traversal rejected", func(t *testing.T) {
-		var buf bytes.Buffer
-		tw := tar.NewWriter(&buf)
-		_ = tw.WriteHeader(&tar.Header{Name: "sub/../escape.txt", Typeflag: tar.TypeReg, Size: 0})
-		_ = tw.Close()
-		if _, err := extractTar(&buf); err == nil || !strings.Contains(err.Error(), "invalid path") {
-			t.Fatalf("expected invalid-path error, got %v", err)
-		}
-	})
 }
 
 func writeBundleTarGzFile(t *testing.T, path string, pactoYAML string) {
@@ -236,6 +190,122 @@ service:
 	}
 	if len(versions) != 2 {
 		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+}
+
+// walkStore is a registry that answers every reference with a bundle naming the
+// service encoded in its repository, so entries written through the REAL
+// CachedStore can be told apart after the round trip.
+type walkStore struct{}
+
+func (walkStore) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", nil
+}
+func (walkStore) Resolve(_ context.Context, ref string) (string, error) {
+	return "sha256:" + strings.NewReplacer("/", "-", ":", "-", "@", "-").Replace(ref), nil
+}
+func (walkStore) ListTags(context.Context, string) ([]string, error) { return nil, nil }
+func (walkStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
+	repo, _, _ := strings.Cut(strings.TrimPrefix(ref[strings.LastIndex(ref, "/")+1:], "/"), ":")
+	repo, _, _ = strings.Cut(repo, "@")
+	y := []byte(fmt.Sprintf("pactoVersion: \"2.0\"\nservice:\n  name: %s\n  version: 9.9.9\n", repo))
+	return &contract.Bundle{
+		Contract: &contract.Contract{
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: repo, Version: "9.9.9"},
+		},
+		RawYAML: y,
+		FS:      fstest.MapFS{"pacto.yaml": &fstest.MapFile{Data: y, Mode: fs.FileMode(0o644)}},
+	}, nil
+}
+
+// TestCacheSource_ScanReportsTheRecordedReference holds the index to the
+// reference each entry was actually pulled under, for entries the real cache
+// really wrote — the only ones whose layout is not a test's own guess.
+//
+// The path is an ENCODING of the reference, never the reference: it escapes a
+// registry port, and it spells "no tag" as %00. Reconstructing from it published
+// "ghcr.io/org/worker:%00", a reference no registry has and no user can pull.
+// The recorded reference is kept exactly as recorded, and the version key is
+// derived from it separately — from the digest when one pins the entry, from the
+// contract when nothing names a version at all.
+func TestCacheSource_ScanReportsTheRecordedReference(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	store := oci.NewCachedStore(walkStore{})
+	ctx := context.Background()
+
+	for _, tc := range []struct{ ref, service, wantVersion string }{
+		{"ghcr.io/org/api:1.0.0", "api", "1.0.0"},                       // tagged
+		{"localhost:5000/demo/checkout:2.0.0", "checkout", "2.0.0"},     // a registry port
+		{"ghcr.io/org/worker", "worker", "9.9.9"},                       // no tag at all
+		{"ghcr.io/org/pinned@sha256:abc123", "pinned", "sha256:abc123"}, // digest-pinned
+	} {
+		if _, err := store.Pull(ctx, tc.ref); err != nil {
+			t.Fatalf("Pull(%s): %v", tc.ref, err)
+		}
+		t.Run(tc.service, func(t *testing.T) {
+			versions, err := NewCacheSource(store.CacheDir()).GetVersions(ctx, tc.service)
+			if err != nil {
+				t.Fatalf("GetVersions(%s): %v", tc.service, err)
+			}
+			if len(versions) != 1 {
+				t.Fatalf("versions = %+v, want the one cached entry", versions)
+			}
+			if versions[0].Ref != tc.ref {
+				t.Errorf("Ref = %q, want the exact recorded %q", versions[0].Ref, tc.ref)
+			}
+			if versions[0].Version != tc.wantVersion {
+				t.Errorf("Version = %q, want %q", versions[0].Version, tc.wantVersion)
+			}
+		})
+	}
+}
+
+// TestCacheSource_OneArtifactIsIndexedOnce is the other half of not retiring the
+// legacy entry: after an upgrade the same reference is on disk twice, under the
+// old key and the new one. Nothing removes the old copy — removing a directory
+// of a shared cache by pathname takes whichever generation is installed at that
+// instant — so the walker is what must not double-count it.
+func TestCacheSource_OneArtifactIsIndexedOnce(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	store := oci.NewCachedStore(walkStore{})
+	ctx := context.Background()
+	const ref = "localhost:5000/demo/checkout:1.0.0"
+
+	if _, err := store.Pull(ctx, ref); err != nil {
+		t.Fatalf("Pull(%s): %v", ref, err)
+	}
+	// The entry an earlier build left at the legacy key: same reference, same
+	// digest, a second directory.
+	legacy := filepath.Join(store.CacheDir(), filepath.FromSlash(strings.ReplaceAll(ref, ":", "/")))
+	writeBundleTarGzFile(t, filepath.Join(legacy, oci.CachedBundleFile),
+		"pactoVersion: \"2.0\"\nservice:\n  name: checkout\n  version: 9.9.9\n")
+	digest, err := walkStore{}.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCachedRefWithDigest(t, legacy, ref, digest)
+
+	versions, err := NewCacheSource(store.CacheDir()).GetVersions(ctx, "checkout")
+	if err != nil {
+		t.Fatalf("GetVersions: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Errorf("versions = %+v, want the one artifact indexed once", versions)
+	}
+}
+
+// writeCachedRefWithDigest records the COMPLETE identity of an entry — the
+// reference and the digest it was pulled at — exactly as the OCI cache writes it
+// beside every bundle.
+func writeCachedRefWithDigest(t *testing.T, dir, ref, digest string) {
+	t.Helper()
+	b, err := json.Marshal(oci.CachedRef{Ref: ref, Digest: digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, oci.CachedRefFile), b, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -698,203 +768,6 @@ service:
 	}
 }
 
-func TestLoadBundleTarGz_BadGzip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bundle.tar.gz")
-	if err := os.WriteFile(path, []byte("not gzip"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := loadBundleTarGz(path)
-	if err == nil {
-		t.Fatal("expected error for bad gzip file")
-	}
-}
-
-func TestExtractTar_DirectoryEntry(t *testing.T) {
-	// Create a tar with a directory entry and a regular file.
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-
-	// Add directory entry.
-	_ = tw.WriteHeader(&tar.Header{
-		Name:     "subdir/",
-		Typeflag: tar.TypeDir,
-		Mode:     0755,
-	})
-
-	// Add a non-pacto.yaml file.
-	data := []byte("some other file content")
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "subdir/other.txt",
-		Size: int64(len(data)),
-		Mode: 0644,
-	})
-	_, _ = tw.Write(data)
-
-	// Add pacto.yaml.
-	yamlData := []byte(`pactoVersion: "2.0"`)
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "pacto.yaml",
-		Size: int64(len(yamlData)),
-		Mode: 0644,
-	})
-	_, _ = tw.Write(yamlData)
-	_ = tw.Close()
-
-	fsys, err := extractTar(&buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify directory entry exists.
-	_, err = fs.Stat(fsys, "subdir")
-	if err != nil {
-		t.Errorf("expected subdir directory entry, got error: %v", err)
-	}
-
-	// Verify non-pacto file exists.
-	content, err := fs.ReadFile(fsys, "subdir/other.txt")
-	if err != nil {
-		t.Fatalf("expected to read other.txt: %v", err)
-	}
-	if string(content) != "some other file content" {
-		t.Errorf("unexpected content: %q", string(content))
-	}
-}
-
-func TestExtractTar_TraversalPath(t *testing.T) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	data := []byte("evil")
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "../../../etc/passwd",
-		Size: int64(len(data)),
-		Mode: 0644,
-	})
-	_, _ = tw.Write(data)
-	_ = tw.Close()
-
-	_, err := extractTar(&buf)
-	if err == nil {
-		t.Fatal("expected error for path traversal")
-	}
-}
-
-func TestLoadBundleTarGz_MissingPactoYAML(t *testing.T) {
-	// Create a valid gzip/tar file but without pacto.yaml inside.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bundle.tar.gz")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gw := gzip.NewWriter(f)
-	tw := tar.NewWriter(gw)
-	data := []byte("some content")
-	_ = tw.WriteHeader(&tar.Header{Name: "other.txt", Size: int64(len(data)), Mode: 0644})
-	_, _ = tw.Write(data)
-	_ = tw.Close()
-	_ = gw.Close()
-	_ = f.Close()
-
-	_, err = loadBundleTarGz(path)
-	if err == nil {
-		t.Fatal("expected error for tar without pacto.yaml")
-	}
-}
-
-func TestLoadBundleTarGz_CorruptTarInsideGzip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bundle.tar.gz")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gw := gzip.NewWriter(f)
-	// Write garbage (not a valid tar) inside gzip.
-	_, _ = gw.Write([]byte("this is not a tar stream"))
-	_ = gw.Close()
-	_ = f.Close()
-
-	_, err = loadBundleTarGz(path)
-	if err == nil {
-		t.Fatal("expected error for corrupt tar inside gzip")
-	}
-}
-
-func TestLoadBundleTarGz_NonExistentFile(t *testing.T) {
-	_, err := loadBundleTarGz("/nonexistent/path/bundle.tar.gz")
-	if err == nil {
-		t.Fatal("expected error for non-existent file")
-	}
-}
-
-func TestLoadBundleTarGz_InvalidContract(t *testing.T) {
-	// Valid gzip/tar with pacto.yaml that fails contract.Parse.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bundle.tar.gz")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gw := gzip.NewWriter(f)
-	tw := tar.NewWriter(gw)
-	data := []byte("not: valid: contract: [[[")
-	_ = tw.WriteHeader(&tar.Header{Name: "pacto.yaml", Size: int64(len(data)), Mode: 0644})
-	_, _ = tw.Write(data)
-	_ = tw.Close()
-	_ = gw.Close()
-	_ = f.Close()
-
-	_, err = loadBundleTarGz(path)
-	if err == nil {
-		t.Fatal("expected error for invalid contract YAML")
-	}
-}
-
-func TestExtractTar_OversizedFile(t *testing.T) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	// Create a file that exceeds maxBundleFileSize (10MB).
-	// We set the tar header size large but only write enough to trigger the check.
-	data := make([]byte, maxBundleFileSize+1)
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "big.bin",
-		Size: int64(len(data)),
-		Mode: 0644,
-	})
-	_, _ = tw.Write(data)
-	_ = tw.Close()
-
-	_, err := extractTar(&buf)
-	if err == nil {
-		t.Fatal("expected error for oversized file")
-	}
-}
-
-func TestExtractTar_TotalSizeExceeded(t *testing.T) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	// Create multiple files that together exceed maxBundleTotalSize (50MB).
-	// Write 6 files of ~9MB each = ~54MB total > 50MB limit.
-	fileSize := 9 * 1024 * 1024
-	for i := 0; i < 6; i++ {
-		data := make([]byte, fileSize)
-		_ = tw.WriteHeader(&tar.Header{
-			Name: fmt.Sprintf("file%d.bin", i),
-			Size: int64(len(data)),
-			Mode: 0644,
-		})
-		_, _ = tw.Write(data)
-	}
-	_ = tw.Close()
-
-	_, err := extractTar(&buf)
-	if err == nil {
-		t.Fatal("expected error for total size exceeded")
-	}
-}
-
 func TestCacheSource_GetVersions_Classification(t *testing.T) {
 	root := t.TempDir()
 
@@ -1036,39 +909,6 @@ func writeBundleTarGzWithFiles(t *testing.T, path string, pactoYAML string, extr
 
 	_ = tw.Close()
 	_ = gw.Close()
-}
-
-func TestExtractTar_SkipsDotEntry(t *testing.T) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-
-	// Entry with name "./" should be skipped.
-	_ = tw.WriteHeader(&tar.Header{
-		Name:     "./",
-		Typeflag: tar.TypeDir,
-		Mode:     0755,
-	})
-
-	data := []byte("content")
-	_ = tw.WriteHeader(&tar.Header{
-		Name: "file.txt",
-		Size: int64(len(data)),
-		Mode: 0644,
-	})
-	_, _ = tw.Write(data)
-	_ = tw.Close()
-
-	fsys, err := extractTar(&buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content, err := fs.ReadFile(fsys, "file.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(content) != "content" {
-		t.Errorf("unexpected content: %q", string(content))
-	}
 }
 
 func TestCacheSource_GetServiceVersion(t *testing.T) {

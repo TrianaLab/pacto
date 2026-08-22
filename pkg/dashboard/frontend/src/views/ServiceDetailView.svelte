@@ -823,7 +823,7 @@
 
   .detail-skeleton { padding: var(--sp-4) 0; }
 
-  .btn-active { background: var(--c-accent); color: white; }
+  .btn-active { background: var(--c-accent); color: var(--c-on-accent); }
 
   /* Child combinator so `padding: 0` applies only to the wrapper cell, not the
      nested DiffChangesTable's cells (a descendant selector made those rows tight). */

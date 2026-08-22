@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, ownersUrl } from '../lib/router.ts';
-  import { ownerKey, extractOwnerDetail, relatedSubgraph } from '../lib/format.ts';
+  import { ownerKey, UNOWNED_KEY, ownerKeyLabel, ownerKeyKind, extractOwnerDetail, relatedSubgraph } from '../lib/format.ts';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import GraphPanel from '../GraphPanel.svelte';
@@ -17,8 +17,14 @@
 
   // Services belonging to this owner
   let ownerServices = $derived(
-    services.filter((s) => (ownerKey(s.owner) || '(unowned)') === owner)
+    services.filter((s) => (ownerKey(s.owner) || UNOWNED_KEY) === owner)
   );
+
+  // `owner` is the canonical key that routed here. The reader gets the name, plus
+  // the namespace — without it a team and a person of the same name have two
+  // indistinguishable pages.
+  let ownerLabel = $derived(owner === UNOWNED_KEY ? owner : ownerKeyLabel(owner));
+  let ownerKind = $derived(ownerKeyKind(owner));
 
   // Structured owner detail extracted from services
   let ownerDetail = $derived(extractOwnerDetail(owner, ownerServices));
@@ -32,7 +38,7 @@
     graphData ? relatedSubgraph(graphData, (n) => ownerServiceNames.has(n.serviceName)) : null,
   );
 
-  let crumbs = $derived([{ label: 'Owners', href: ownersUrl() }, { label: owner }]);
+  let crumbs = $derived([{ label: 'Owners', href: ownersUrl() }, { label: ownerLabel }]);
 
   async function loadOwnerGraph() {
     graphLoading = true;
@@ -52,7 +58,8 @@
 <Breadcrumbs trail={crumbs} />
 
 <header class="detail-header fade-in-up">
-  <h1>{owner}</h1>
+  <h1>{ownerLabel}</h1>
+  {#if ownerKind}<span class="owner-kind-badge">{ownerKind}</span>{/if}
   <span class="text-2">{ownerServices.length} service{ownerServices.length !== 1 ? 's' : ''}</span>
 </header>
 
@@ -153,6 +160,12 @@
   .detail-header {
     display: flex; align-items: center; gap: var(--sp-3);
     margin-bottom: var(--sp-5); flex-wrap: wrap;
+  }
+
+  .owner-kind-badge {
+    font-size: var(--text-xs); color: var(--c-text-2);
+    border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+    padding: 1px var(--sp-2);
   }
 
   .text-2 { color: var(--c-text-2); }

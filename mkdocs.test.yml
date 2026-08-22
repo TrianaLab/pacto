@@ -1,0 +1,17 @@
+# Browser-gate overlay on the real mkdocs.yml. Everything — theme, overrides,
+# markdown extensions, hooks, strict validation — is INHERITed; the gate must
+# test the site the site is, not a simplified copy of it.
+#
+# Exactly one key differs, and it has to. Material's instant navigation only
+# intercepts a click whose URL is in sitemap.xml, and the sitemap is written from
+# `site_url`. Served at 127.0.0.1 against the production `site_url`, every entry
+# resolves to a different origin, no click is ever intercepted, and instant
+# navigation is silently inert — so a suite that kept the production `site_url`
+# would "pass" the instant-navigation case having only measured full page loads.
+#
+# The port here and PORT in pkg/dashboard/frontend/playwright.docs-site.config.ts
+# must agree. Nothing enforces that but the gate itself: disagree, and instant
+# navigation degrades to full loads and the instant-navigation test fails.
+INHERIT: mkdocs.yml
+site_url: http://127.0.0.1:4322/
+site_dir: site-test

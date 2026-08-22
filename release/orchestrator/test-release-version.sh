@@ -69,7 +69,7 @@ eq "$(jq -r '.units["k8s-module"].version' release/release-manifest.json)" "$pre
 # transaction is ready with exactly the core fixed group
 eq "$(jq -r '.ready' release/release-transaction.json)" "true" "transaction ready"
 got_units="$(jq -rc '.changedUnits | sort' release/release-transaction.json)"
-eq "$got_units" '["cli","core","dashboard-contract-bundle","dashboard-image","demo-bundles"]' "changedUnits"
+eq "$got_units" '["cli","core","dashboard-contract-bundle","dashboard-image","demo-bundles","demo-compose"]' "changedUnits"
 eq "$(jq -r '.previousVersions.core' release/release-transaction.json)" "$prev_core" "previousVersions.core"
 eq "$(jq -r '.newVersions.core' release/release-transaction.json)" "$new_core" "newVersions.core"
 # manifestSha matches sha256 of the stable newVersions map

@@ -2,6 +2,9 @@
   import { serviceUrl, ownerUrl } from '../lib/router.ts';
   import {
     ownerKey,
+    ownerDisplay,
+    ownerKeyKind,
+    UNOWNED_KEY,
     readinessBucket,
     readinessBucketLabel,
     readinessBucketClass,
@@ -50,7 +53,9 @@
         svc,
         name: svc.name,
         owner: svc.owner,
-        ownerName: ownerKey(svc.owner) || '(unowned)',
+        ownerKey: ownerKey(svc.owner),
+        ownerName: ownerDisplay(svc.owner) || UNOWNED_KEY,
+        ownerKind: ownerKeyKind(ownerKey(svc.owner)),
         bucket: readinessBucket(svc),
         r,
         score: r ? r.score : -1,
@@ -66,7 +71,7 @@
     const dir = sortAsc ? 1 : -1;
     return [...decorated].sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name) * dir;
-      if (sortBy === 'owner') return a.ownerName.localeCompare(b.ownerName) * dir;
+      if (sortBy === 'owner') return (a.ownerName.localeCompare(b.ownerName) || a.ownerKey.localeCompare(b.ownerKey)) * dir;
       if (sortBy === 'done') return (a.done - b.done) * dir;
       return compareScoresUnassessedLast(a.score, b.score, dir); // 'score' (-1 = not configured, always last)
     });
@@ -204,10 +209,12 @@
                 <a href={serviceUrl(row.name)} class="service-name" onclick={(e) => e.stopPropagation()}>{row.name}</a>
               </td>
               <td>
-                {#if row.ownerName === '(unowned)'}
+                {#if !row.ownerKey}
                   <span class="text-dim owner-name">{row.ownerName}</span>
                 {:else}
-                  <a class="owner-name" href={ownerUrl(row.ownerName)} onclick={(e) => { e.stopPropagation(); setFilter('owner', row.ownerName); }}>{row.ownerName}</a>
+                  <!-- The link and the filter carry the canonical key; the reader
+                       reads the name, with the namespace as the tie-breaker. -->
+                  <a class="owner-name" href={ownerUrl(row.ownerKey)} data-tip="{row.ownerKind}: {row.ownerName}" onclick={(e) => { e.stopPropagation(); setFilter('owner', row.ownerKey); }}>{row.ownerName}</a>
                 {/if}
               </td>
               <td>
@@ -359,7 +366,7 @@
 
   .seg-btn.active {
     background: var(--c-accent);
-    color: #fff;
+    color: var(--c-on-accent);
   }
   .cat-name {
     display: inline-flex; align-items: center; gap: 5px;

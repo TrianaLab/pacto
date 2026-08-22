@@ -145,6 +145,10 @@ func TestUnmarshal_RejectsBadCombos(t *testing.T) {
 		`{"kind":"CapabilityObserved","subject":{"kind":"capability","name":"health"},"outcome":"Observed","value":{"nope":true},"provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`,
 		`not json`, // fails in the json scanner before UnmarshalJSON is dispatched
 		`123`,      // valid JSON token, wrong shape: reaches UnmarshalJSON and fails its inner decode
+		// An unknown field inside an observation is rejected (review section S8): a
+		// custom UnmarshalJSON does not inherit the outer decoder's strictness, so
+		// the observation must decode strictly on its own.
+		`{"kind":"CapabilityObserved","subject":{"kind":"capability","name":"health"},"outcome":"Failed","provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"},"surprise":1}`,
 	}
 	for i, s := range cases {
 		var o Observation

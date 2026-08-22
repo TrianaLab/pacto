@@ -101,7 +101,11 @@
 
   let isSameService = $derived(fromName === toName);
 
-  onMount(() => { initVersions(); });
+  // This view is the legacy, name+version-keyed compare screen, and App mounts it ONLY
+  // on a non-Fleet host (the offline `pacto doc` export). A Fleet host canonicalizes
+  // #/diff to the Change analysis workspace, so the cross-link into the product impact
+  // workspace that used to live here was unreachable code and is gone with it.
+  onMount(initVersions);
 </script>
 
 <nav class="breadcrumb" aria-label="Breadcrumb">
@@ -115,6 +119,7 @@
 </nav>
 
 <h1 style="margin-bottom:var(--sp-5)">Compare Versions</h1>
+
 
 <div class="diff-controls">
   <div class="diff-side">

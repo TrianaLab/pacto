@@ -1,4 +1,4 @@
-lockVersion: 1
+lockVersion: 3
 pacto:
     version: 0.0.0
 root:
@@ -10,17 +10,17 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/redis
       constraint: ^7.0.0
       version: 7.2.0
-      digest: sha256:62ea5244d912c65257e16fb538df281a802c9541771a04f3a512ba114d30bc37
+      digest: sha256:f9485712de500349ab7afcd16927535963e69c1499ecb0482f3f5af3b207034a
 references:
     - kind: config
       name: platform
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/platform-app-config
       version: 1.0.0
-      digest: sha256:1ae13ed5c1779963835f2feb187261b2fe42f6c4fe12a7a3b2b05f020a1275b5
+      digest: sha256:621781dac22b3d9716d87a920b80c00f1471052f036bccc0a68003e223f20967
     - kind: policy
       name: http-security
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
       version: 1.0.0
-      digest: sha256:37a6efb94754ea8d622cbb87ed184d6a270ec7b54a5571f003c74d544663dca3
+      digest: sha256:43b85f6522c75dee67041cffbbff8b990c34b954c090ca6bafa60c4d814d4fff

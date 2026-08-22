@@ -14,17 +14,35 @@ export function statusClass(status: string | undefined): string {
 const STATUS_LABELS: Record<string, string> = {
   Compliant: 'Compliant',
   Warning: 'Warning',
-  NonCompliant: 'Non-Compliant',
+  // Sentence case, matching the attention vocabulary these badges sit beside. The
+  // Title-Case-With-Hyphens forms were transliterations of the wire enum, so one screen
+  // could show "Not compliant" as a triage category and "Non-Compliant" as the badge on
+  // the very service it was describing.
+  NonCompliant: 'Not compliant',
   Invalid: 'Invalid',
   Unknown: 'Unknown',
   Reference: 'Reference',
-  NotEvaluated: 'Not Evaluated',
+  NotEvaluated: 'Not evaluated',
 };
 
 export function statusLabel(status: string | undefined): string {
   if (!status) return 'Unknown';
   return STATUS_LABELS[status] || status;
 }
+
+/**
+ * Every compliance status a filter may offer, worst-first so the pickers order the way
+ * the triage lists do. Derived from STATUS_LABELS, so a status the product can badge is
+ * never a status the product cannot filter for: two views each hand-listed four of the
+ * seven, and both omitted NotEvaluated -- the value most rows in the services list
+ * actually carry.
+ *
+ * Reference is excluded deliberately: it marks a bundle that exists only to be
+ * referenced by others, not an assessment outcome, so it is not a state to triage by.
+ */
+export const STATUS_FILTER_OPTIONS: string[] =
+  ['NonCompliant', 'Invalid', 'Warning', 'Unknown', 'NotEvaluated', 'Compliant']
+    .filter((s) => s in STATUS_LABELS);
 
 export function complianceClass(score: number): string {
   if (score >= 80) return 'score-ok';
@@ -76,6 +94,28 @@ export function classificationClass(c: string): string {
   if (c === 'BREAKING') return 'badge-err';
   if (c === 'POTENTIAL_BREAKING') return 'badge-warn';
   if (c === 'NON_BREAKING') return 'badge-ok';
+  return 'badge-neutral';
+}
+
+// ── Fleet completeness (operational-graph coverage) ──
+
+const COMPLETENESS_LABELS: Record<string, string> = {
+  complete: 'Complete',
+  partial: 'Partial',
+  empty: 'Empty',
+};
+
+/** Human label for a fleet snapshot/answer completeness. */
+export function completenessLabel(c: string | undefined): string {
+  if (!c) return 'Unknown';
+  return COMPLETENESS_LABELS[c] || c;
+}
+
+/** Badge class for a completeness — a partial answer reads as a warning. */
+export function completenessClass(c: string | undefined): string {
+  if (c === 'complete') return 'badge-ok';
+  if (c === 'partial') return 'badge-warn';
+  if (c === 'empty') return 'badge-neutral';
   return 'badge-neutral';
 }
 
@@ -192,6 +232,20 @@ export function shortDigest(digest: string | null | undefined, n: number = 8): s
   return hex.slice(0, n);
 }
 
+/**
+ * Shorten every content digest embedded in a piece of display text.
+ *
+ * A canonical revision key carries a 64-hex digest, so any sentence built around one
+ * ("these revisions declare different owners: ...") turns into a wall of hex that
+ * hides the words that matter. This keeps a recognizable prefix -- still enough to
+ * tell two revisions apart at a glance -- and leaves the exact value to the copyable
+ * identifier and the tooltip. Text with no digest in it comes back untouched.
+ */
+export function abbreviateDigests(text: string | null | undefined, n: number = 12): string {
+  if (!text) return '';
+  return text.replace(/[a-z0-9]+:([0-9a-f]{32,})/g, (_m, hex: string) => `${hex.slice(0, n)}…`);
+}
+
 /** Badge class for drift status (locked, drift, unlocked, unknown). */
 export function driftBadgeClass(status: string | null | undefined): string {
   if (status === 'locked') return 'badge-ok';
@@ -265,7 +319,7 @@ export function paginate<T>(items: T[], page: number, perPage: number): Paginate
 
 // ── Owner helpers ──
 
-/** Extract a display string from the owner object. */
+/** The owner's name as a reader sees it: the team if there is one, else the DRI. */
 export function ownerDisplay(owner: unknown): string {
   if (!owner || typeof owner !== 'object') return '';
   const o = owner as Record<string, unknown>;
@@ -275,11 +329,64 @@ export function ownerDisplay(owner: unknown): string {
 }
 
 /**
- * Canonical owner key used for grouping, aggregation, and navigation.
- * Normalization: structured.team > structured.dri > empty.
- * This is the single source of truth — reuse everywhere.
+ * Canonical owner IDENTITY: `team:NAME` or `dri:NAME`, mirroring
+ * `contract.OwnerKey` on the server so a link built here and a link built there
+ * are the same link.
+ *
+ * The namespace is what makes it an identity rather than a label. A team called
+ * `alice` and a person called `alice` render identically and are not the same
+ * owner: merging them would put two estates on one page, two backlogs in one
+ * count, and — worst — would make a service whose revisions name each of them
+ * look consistently owned.
+ *
+ * Only the FIRST colon delimits, so an owner name may contain any punctuation
+ * (`a:b:c`, `external/sendgrid`) and still round-trip. An owner declared with
+ * contacts alone has no key: it is ownership that cannot be navigated to, not
+ * ownership that is absent — see `unidentifiedOwnership` in the fleet aggregate.
  */
-export const ownerKey = ownerDisplay;
+export function ownerKey(owner: unknown): string {
+  if (!owner || typeof owner !== 'object') return '';
+  const o = owner as Record<string, unknown>;
+  if (o.team) return `team:${String(o.team)}`;
+  if (o.dri) return `dri:${String(o.dri)}`;
+  return '';
+}
+
+/**
+ * The bucket for services with no canonical owner identity: no team and no DRI.
+ * Not a canonical key — `parseOwnerKey` rejects it — so nothing routes to it by
+ * accident.
+ */
+export const UNOWNED_KEY = '(unowned)';
+
+/** One half of a parsed canonical owner key. */
+export interface ParsedOwnerKey { kind: 'team' | 'dri'; value: string }
+
+/**
+ * Split a canonical owner key back into its namespace and name, or null if the
+ * string is not one. Fail closed: a bare owner name is ambiguous — it could be
+ * either namespace — and guessing would silently route a reader to one of two
+ * different owners.
+ */
+export function parseOwnerKey(key: string): ParsedOwnerKey | null {
+  const at = key.indexOf(':');
+  if (at <= 0 || at === key.length - 1) return null;
+  const kind = key.slice(0, at);
+  if (kind !== 'team' && kind !== 'dri') return null;
+  return { kind, value: key.slice(at + 1) };
+}
+
+/** The name inside a canonical owner key — what a reader reads. */
+export function ownerKeyLabel(key: string): string {
+  return parseOwnerKey(key)?.value ?? key;
+}
+
+/** How a canonical owner key's namespace is written for a reader: Team or DRI. */
+export function ownerKeyKind(key: string): string {
+  const p = parseOwnerKey(key);
+  if (!p) return '';
+  return p.kind === 'dri' ? 'DRI' : 'Team';
+}
 
 /** Extract the team from an owner object. */
 export function ownerTeam(owner: unknown): string {
@@ -372,7 +479,12 @@ export function extractOwnerDetail(ownerKeyStr: string, services: Array<Record<s
 // ── Owner aggregation ──
 
 export interface OwnerAggregation {
+  /** Canonical identity — what groups, links and drill-downs use. */
   key: string;
+  /** The owner's name as authored — what a reader reads. Never the key. */
+  label: string;
+  /** `Team` or `DRI`: the namespace that makes two same-named owners tellable apart. */
+  kind: string;
   services: number;
   compliant: number;
   warning: number;
@@ -814,11 +926,13 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
       m.evaluationCoverage.required += ec.required || 0;
     }
 
-    // Owner aggregation
-    const key = ownerKey(svc.owner) || '(unowned)';
+    // Owner aggregation. Grouped by canonical identity, so a team and a person of
+    // the same name get a row each; labelled by name, so neither row shows a reader
+    // the encoding.
+    const key = ownerKey(svc.owner) || UNOWNED_KEY;
     let agg = ownerMap.get(key);
     if (!agg) {
-      agg = { key, services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
+      agg = { key, label: key === UNOWNED_KEY ? UNOWNED_KEY : ownerKeyLabel(key), kind: ownerKeyKind(key), services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
     }
     agg.services++;
@@ -895,7 +1009,9 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     agg.runtimeEvaluated = agg.compliant + agg.warning + agg.nonCompliant + agg.unknown;
     agg.conclusive = agg.compliant + agg.warning + agg.nonCompliant;
   }
-  m.byOwner = Array.from(ownerMap.values()).sort((a, b) => a.key.localeCompare(b.key));
+  // Ordered by the name a reader scans for; the key only breaks ties, so a `dri:`
+  // owner never sorts below every `team:` one purely because of its encoding.
+  m.byOwner = Array.from(ownerMap.values()).sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
 
   // Finalize readiness metrics
   if (m.readiness.configured > 0) {

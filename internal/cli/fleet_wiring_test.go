@@ -1,0 +1,646 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/spf13/viper"
+
+	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/oci"
+)
+
+// TestBuildMCPServer_WithFleet covers the --fleet branch of buildMCPServer: no
+// bundle ref, fleet enabled, so a fleet-backed server is returned.
+func TestBuildMCPServer_WithFleet(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v")
+	cmd.SetContext(context.Background())
+	if err := cmd.Flags().Set("fleet", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("local", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	server, err := buildMCPServer(cmd, svc, "v", nil)
+	if err != nil {
+		t.Fatalf("buildMCPServer --fleet: %v", err)
+	}
+	if server == nil {
+		t.Fatal("expected a fleet MCP server")
+	}
+
+	// A cancelled context makes the fleet snapshot build fail, exercising the
+	// error branch of the --fleet path.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cmd.SetContext(ctx)
+	if _, err := buildMCPServer(cmd, svc, "v", nil); err == nil {
+		t.Fatal("buildMCPServer --fleet with a cancelled context: expected an error")
+	}
+}
+
+// TestMCPImpactProvider exercises the pacto_impact provider closure wired into
+// the MCP fleet server: a nonexistent old revision makes svc.Impact fail, which
+// covers the closure body and its fleet-options capture.
+func TestMCPImpactProvider(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	cmd := newMCPCommand(svc, "v")
+	cmd.SetContext(context.Background())
+	provide := mcpImpactProvider(cmd, svc)
+	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
+		t.Fatal("expected an error resolving nonexistent revisions")
+	}
+	// A nonexistent traces path is a read error before any resolution.
+	if _, err := provide(context.Background(), "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
+		t.Fatal("expected a traces read error")
+	}
+	// A readable traces file is consumed (implying include-observed), then the
+	// nonexistent revisions make Impact fail — covering the read-success path.
+	tf := filepath.Join(t.TempDir(), "traces.json")
+	if err := os.WriteFile(tf, []byte(`{"resourceSpans":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
+		t.Fatal("expected a resolution error after reading traces")
+	}
+}
+
+// writeCLIBundle writes a minimal valid bundle so old/new/fleet revisions resolve
+// as local paths in the wiring tests.
+func writeCLIBundle(t *testing.T, dir, name, version string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "pactoVersion: \"2.0\"\nservice:\n  name: " + name + "\n  version: \"" + version + "\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestImpactProviderForFleet exercises the dashboard /api/fleet/impact provider
+// closure: the resolve-error branch, and (section 2.2) that a successful impact answer
+// binds to the Manager's PUBLISHED snapshot — same snapshotId the fleet endpoints
+// serve, never a rebuilt one.
+func TestImpactProviderForFleet(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	fleetRoot := t.TempDir()
+	writeCLIBundle(t, filepath.Join(fleetRoot, "orders"), "orders", "2.0.0")
+	mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{fleetRoot}})
+	}, fleet.ManagerOptions{})
+	provide := impactProviderForFleet(svc, mgr)
+
+	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false); err == nil {
+		t.Fatal("expected an error resolving nonexistent revisions")
+	}
+
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	writeCLIBundle(t, oldDir, "orders", "1.0.0")
+	writeCLIBundle(t, newDir, "orders", "2.0.0")
+	res, err := provide(context.Background(), oldDir, newDir, false)
+	if err != nil {
+		t.Fatalf("impact against the published snapshot: %v", err)
+	}
+	fleetQ, err := managerFleetProvider(mgr)(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.SnapshotID == "" || res.SnapshotID != fleetQ.SnapshotID() {
+		t.Errorf("impact snapshotId %q must equal the dashboard's published snapshot %q", res.SnapshotID, fleetQ.SnapshotID())
+	}
+
+	// When the published snapshot is unavailable (first build fails on a cancelled
+	// context), the provider surfaces that error rather than rebuilding.
+	mgr2 := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{fleetRoot}})
+	}, fleet.ManagerOptions{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := impactProviderForFleet(svc, mgr2)(ctx, oldDir, newDir, false); err == nil {
+		t.Fatal("expected an error when the published snapshot is unavailable")
+	}
+}
+
+// TestDashboardFleetOptions maps detected sources onto fleet options.
+func TestDashboardFleetOptions(t *testing.T) {
+	// Unset (empty) env → no evidence source added, unconfigured stays disabled.
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
+	// No sources -> disabled.
+	if _, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{}); ok {
+		t.Error("expected fleet disabled with no sources")
+	}
+	// Every source active.
+	dr := &dashboard.DetectResult{
+		Local: &dashboard.LocalSource{},
+		OCI:   &dashboard.OCISource{},
+		Cache: &dashboard.CacheSource{},
+		K8s:   &dashboard.K8sSource{},
+	}
+	fopts, ok := dashboardFleetOptions("./svc", []string{"ghcr.io/x/a"}, "prod", nil, dr)
+	if !ok {
+		t.Fatal("expected fleet enabled")
+	}
+	if len(fopts.LocalRoots) != 1 || fopts.LocalRoots[0] != "./svc" {
+		t.Errorf("LocalRoots = %v", fopts.LocalRoots)
+	}
+	if len(fopts.OCIRefs) != 1 || fopts.OCIRefs[0] != "ghcr.io/x/a" {
+		t.Errorf("OCIRefs = %v", fopts.OCIRefs)
+	}
+	if !fopts.IncludeCache || !fopts.IncludeK8s || fopts.K8sNamespace != "prod" {
+		t.Errorf("cache/k8s wiring wrong: %+v", fopts)
+	}
+	if len(fopts.EvidenceURLs) != 0 {
+		t.Errorf("expected no evidence URLs with env unset, got %v", fopts.EvidenceURLs)
+	}
+}
+
+// TestDashboardFleetOptions_EvidenceURL proves the operator-wired env var adds a
+// read-only evidence source and enables the fleet even with no other source.
+func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "http://evidence.internal:8080")
+	fopts, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{})
+	if !ok {
+		t.Fatal("expected fleet enabled by the evidence env var alone")
+	}
+	if len(fopts.EvidenceURLs) != 1 || fopts.EvidenceURLs[0] != "http://evidence.internal:8080" {
+		t.Errorf("EvidenceURLs = %v", fopts.EvidenceURLs)
+	}
+}
+
+// TestDashboardFleetOptions_EvaluatesFreshness is the contradiction one overview
+// payload must not contain. The product model decides what counts as recent with
+// [fleet.RecentEvidenceWindow] (the overview's recent-evidence list, and an
+// observed edge's last-seen), while a target's Stale bit is decided by the build's
+// FreshnessWindow -- and a zero window disables staleness classification outright.
+// The dashboard set no window, so evidence the very same payload was already too
+// old to call recent still rendered as green "Fresh evidence", and the documented
+// rule that a target goes stale as its evidence ages past the window never fired
+// in the one deployment that consumes an Evidence Server.
+func TestDashboardFleetOptions_EvaluatesFreshness(t *testing.T) {
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "http://evidence.internal:8080")
+	fopts, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{})
+	if !ok {
+		t.Fatal("expected fleet enabled by the evidence env var alone")
+	}
+	if fopts.FreshnessWindow != fleet.RecentEvidenceWindow {
+		t.Errorf("FreshnessWindow = %v, want the product recency horizon %v",
+			fopts.FreshnessWindow, fleet.RecentEvidenceWindow)
+	}
+}
+
+// TestDashboardFleetOptions_Traces proves --traces / PACTO_DASHBOARD_TRACES wires
+// an observation source into the normal dashboard and enables the fleet alone.
+// The path-only form keeps its ad-hoc positional ids — that compatibility is the
+// point, so a one-off command line never has to invent persistent identities.
+func TestDashboardFleetOptions_Traces(t *testing.T) {
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
+	obs, err := observationSources([]string{"/tmp/a.json", "/tmp/b.json"}, nil)
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	fopts, ok := dashboardFleetOptions("", nil, "", obs, &dashboard.DetectResult{})
+	if !ok {
+		t.Fatal("expected fleet enabled by trace files alone")
+	}
+	want := []app.ObservationSourceSpec{
+		{ID: "observation-1", Path: "/tmp/a.json"},
+		{ID: "observation-2", Path: "/tmp/b.json"},
+	}
+	if !reflect.DeepEqual(fopts.ObservationSources, want) {
+		t.Errorf("ObservationSources = %+v, want %+v", fopts.ObservationSources, want)
+	}
+}
+
+// TestObservationSources_IdentitySurvivesReordering is the identity counterexample
+// a declarative configuration must not fail: two named trace sources swap places
+// and keep their ids, because the id is declared, not derived from list position.
+func TestObservationSources_IdentitySurvivesReordering(t *testing.T) {
+	forward, err := observationSources(nil, []string{"a=/mnt/a/traces.json", "b=/mnt/b/traces.json"})
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	reversed, err := observationSources(nil, []string{"b=/mnt/b/traces.json", "a=/mnt/a/traces.json"})
+	if err != nil {
+		t.Fatalf("observationSources reversed: %v", err)
+	}
+	byID := func(specs []app.ObservationSourceSpec) map[string]string {
+		m := map[string]string{}
+		for _, s := range specs {
+			m[s.ID] = filepath.Join(s.Root, s.Path)
+		}
+		return m
+	}
+	if !reflect.DeepEqual(byID(forward), byID(reversed)) {
+		t.Errorf("reordering rewrote identity: %+v vs %+v", forward, reversed)
+	}
+	if got := byID(forward)["a"]; got != "/mnt/a/traces.json" {
+		t.Errorf("source a = %q", got)
+	}
+}
+
+// TestObservationSources_SameBasenameStaysTwoSources proves identity does not come
+// from the filesystem: two sources whose files share a basename are two Data
+// Sources, not one.
+func TestObservationSources_SameBasenameStaysTwoSources(t *testing.T) {
+	got, err := observationSources(nil, []string{"eu=/mnt/eu/traces.json", "us=/mnt/us/traces.json"})
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	// Each source reads inside its own mount, so the two identical file names stay
+	// two sources rather than one path shared by both.
+	want := []app.ObservationSourceSpec{
+		{ID: "eu", Root: "/mnt/eu", Path: "traces.json"},
+		{ID: "us", Root: "/mnt/us", Path: "traces.json"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("sources = %+v, want %+v", got, want)
+	}
+}
+
+// TestObservationSources_DeclaresTheFilesOwnDirectoryAsItsRoot pins the rule the
+// operator's mount layout depends on: a named source may read inside the
+// directory its file sits in, and the root plus the file recompose exactly the
+// path that was configured. Nothing else in the container is reachable, whatever
+// the mounted volume happens to contain.
+func TestObservationSources_DeclaresTheFilesOwnDirectoryAsItsRoot(t *testing.T) {
+	const path = "/var/lib/pacto/observation/orders/traces.json"
+	got, err := observationSources(nil, []string{"orders=" + path})
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("sources = %+v, want 1", got)
+	}
+	if got[0].Root != "/var/lib/pacto/observation/orders" {
+		t.Errorf("root = %q, want the file's own mount directory", got[0].Root)
+	}
+	if joined := filepath.Join(got[0].Root, got[0].Path); joined != path {
+		t.Errorf("root+path = %q, want the configured %q", joined, path)
+	}
+}
+
+// TestObservationSources_AdHocTracesDeclareNoRoot keeps the command line working
+// as a command line: a path a person typed names whatever it names, including a
+// symlink, because there is no declared mount for it to escape from.
+func TestObservationSources_AdHocTracesDeclareNoRoot(t *testing.T) {
+	got, err := observationSources([]string{"/tmp/a.json"}, nil)
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	if len(got) != 1 || got[0].Root != "" || got[0].Path != "/tmp/a.json" {
+		t.Errorf("sources = %+v, want an unrooted /tmp/a.json", got)
+	}
+}
+
+// TestObservationSources_Rejects covers the configuration counterexamples: a
+// duplicate identity (including one colliding with a positional --traces id) and
+// the malformed NAME=PATH forms. None of them may be silently repaired.
+func TestObservationSources_Rejects(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		traces []string
+		named  []string
+		want   string
+	}{
+		{"duplicate named", nil, []string{"a=/x.json", "a=/y.json"}, `duplicate observation source name "a"`},
+		{"collides with positional", []string{"/x.json"}, []string{"observation=/y.json"}, `duplicate observation source name "observation"`},
+		{"no separator", nil, []string{"/x.json"}, `invalid --trace-source "/x.json"`},
+		{"empty name", nil, []string{"=/x.json"}, `invalid --trace-source "=/x.json"`},
+		{"empty path", nil, []string{"a="}, `invalid --trace-source "a="`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := observationSources(tc.traces, tc.named)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestObservationSources_PathMayContainEquals proves the NAME=PATH split is on the
+// FIRST separator, so a path carrying an "=" is configuration, not a parse error.
+func TestObservationSources_PathMayContainEquals(t *testing.T) {
+	got, err := observationSources(nil, []string{"a=/mnt/x=y/traces.json"})
+	if err != nil {
+		t.Fatalf("observationSources: %v", err)
+	}
+	if len(got) != 1 || got[0].Root != "/mnt/x=y" || got[0].Path != "traces.json" {
+		t.Errorf("sources = %+v", got)
+	}
+}
+
+// TestManagerFleetProvider covers the dashboard's Manager-backed fleet provider:
+// the lazy first build (ErrNoSnapshot -> refresh -> query) and the served-cached
+// path, plus the refresh-error path on a cancelled context.
+func TestManagerFleetProvider(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	dir := t.TempDir()
+	mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
+	}, fleet.ManagerOptions{})
+	provider := managerFleetProvider(mgr)
+
+	// First call: no snapshot yet -> coalesced build then query.
+	q, err := provider(context.Background())
+	if err != nil || q == nil {
+		t.Fatalf("first call: q=%v err=%v", q, err)
+	}
+	// Second call: served from the published snapshot.
+	q2, err := provider(context.Background())
+	if err != nil || q2.SnapshotID() != q.SnapshotID() {
+		t.Fatalf("second call should serve the same snapshot: %v", err)
+	}
+
+	// A fresh manager whose first build is triggered with a cancelled context
+	// returns the refresh error.
+	mgr2 := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{dir}})
+	}, fleet.ManagerOptions{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := managerFleetProvider(mgr2)(ctx); err == nil {
+		t.Fatal("cancelled first build should return an error")
+	}
+}
+
+// TestClusterContractRefs proves the callback exists only when a cluster was
+// detected: with no Kubernetes source there is nothing to ask.
+func TestClusterContractRefs(t *testing.T) {
+	if got := clusterContractRefs(&dashboard.DetectResult{}); got != nil {
+		t.Error("expected no callback without a Kubernetes source")
+	}
+	if got := clusterContractRefs(&dashboard.DetectResult{K8s: &dashboard.K8sSource{}}); got == nil {
+		t.Error("expected a callback when a Kubernetes source was detected")
+	}
+}
+
+// TestWithClusterContractRefs proves each refresh asks the cluster again and
+// merges what it reports behind the explicitly configured refs, without
+// duplicating a ref both already name.
+func TestWithClusterContractRefs(t *testing.T) {
+	base := app.FleetOptions{OCIRefs: []string{"ghcr.io/x/a", "reg.svc:5000/demo/orders"}}
+	ctx := context.Background()
+
+	// No callback at all, and a cluster that reports nothing, both leave the
+	// configured refs exactly as they are.
+	for name, discover := range map[string]func(context.Context) []string{
+		"no cluster":    nil,
+		"empty cluster": func(context.Context) []string { return nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := withClusterContractRefs(ctx, base, discover, cacheUnfilled())
+			if !reflect.DeepEqual(got.OCIRefs, base.OCIRefs) {
+				t.Errorf("OCIRefs = %v, want %v", got.OCIRefs, base.OCIRefs)
+			}
+		})
+	}
+
+	calls := 0
+	discover := func(context.Context) []string {
+		calls++
+		return []string{"reg.svc:5000/demo/orders", "reg.svc:5000/demo/checkout@sha256:abc"}
+	}
+	got := withClusterContractRefs(ctx, base, discover, cacheUnfilled())
+	want := []string{
+		"ghcr.io/x/a",
+		"reg.svc:5000/demo/orders",
+		"reg.svc:5000/demo/checkout@sha256:abc",
+	}
+	if !reflect.DeepEqual(got.OCIRefs, want) {
+		t.Errorf("OCIRefs = %v, want %v", got.OCIRefs, want)
+	}
+	if base.OCIRefs[0] != "ghcr.io/x/a" || len(base.OCIRefs) != 2 {
+		t.Errorf("the configured options were mutated: %v", base.OCIRefs)
+	}
+	// A second refresh re-asks rather than reusing the first answer.
+	withClusterContractRefs(ctx, base, discover, cacheUnfilled())
+	if calls != 2 {
+		t.Errorf("discover called %d times, want 2", calls)
+	}
+}
+
+// cacheUnfilled is the lifecycle of a run that may use the cache, started with
+// nothing in it and has pulled nothing into it yet.
+func cacheUnfilled() cacheLifecycle {
+	return cacheLifecycle{permitted: true, materialized: func() bool { return false }}
+}
+
+// TestCacheLifecycle_Contributes pins the three dimensions apart. Discovery is
+// deliberately absent from all of them: whether a ref happened to be readable in
+// this refresh says nothing about whether the cache holds a baseline.
+func TestCacheLifecycle_Contributes(t *testing.T) {
+	filled, empty := func() bool { return true }, func() bool { return false }
+	for name, tc := range map[string]struct {
+		lifecycle cacheLifecycle
+		want      bool
+	}{
+		"nothing to read yet":      {cacheLifecycle{permitted: true, materialized: empty}, false},
+		"startup found a cache":    {cacheLifecycle{permitted: true, baseline: true, materialized: empty}, true},
+		"this session filled it":   {cacheLifecycle{permitted: true, materialized: filled}, true},
+		"--no-cache over a full 1": {cacheLifecycle{baseline: true, materialized: filled}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.lifecycle.contributes(); got != tc.want {
+				t.Errorf("contributes() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// cacheHarness points the OCI disk cache at a private directory and returns a
+// service over a REAL CachedStore in front of a registry the test controls.
+func cacheHarness(t *testing.T) (*app.Service, *oci.CachedStore, *testutil.MockBundleStore) {
+	t.Helper()
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	reg := &testutil.MockBundleStore{}
+	store := oci.NewCachedStore(reg)
+	return app.NewService(store, nil), store, reg
+}
+
+// offline makes every registry call fail, leaving the disk cache as the only
+// thing that can answer.
+func offline(reg *testutil.MockBundleStore) {
+	down := errors.New("registry unreachable")
+	reg.PullFn = func(context.Context, string) (*contract.Bundle, error) { return nil, down }
+	reg.ResolveFn = func(context.Context, string) (string, error) { return "", down }
+	reg.ListTagsFn = func(context.Context, string) ([]string, error) { return nil, down }
+}
+
+// sourceOfKind returns the snapshot's source of the given kind, or nil.
+func sourceOfKind(snap *fleet.FleetSnapshot, kind string) *fleet.SourceState {
+	for i, s := range snap.Sources {
+		if s.Kind == kind {
+			return &snap.Sources[i]
+		}
+	}
+	return nil
+}
+
+// TestCacheLifecycle_TheCacheThisSessionFilledOutlivesDiscovery walks the
+// operator-startup sequence. The pod's cache is an emptyDir, so startup finds
+// nothing; refs appear once the operator has reconciled a Pacto CR; the pulls
+// fill the cache. A later Kubernetes read that fails or returns nothing must not
+// take that baseline away — it is the only thing left that can answer.
+func TestCacheLifecycle_TheCacheThisSessionFilledOutlivesDiscovery(t *testing.T) {
+	ctx := context.Background()
+	svc, store, reg := cacheHarness(t)
+	const ref = "reg.svc:5000/demo/orders:1.0.0"
+	cache := cacheLifecycle{permitted: true, materialized: cacheMaterialization(store)}
+
+	// Refresh 1: no cluster references yet, and nothing in the cache to read.
+	first := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string { return nil }, cache)
+	if first.IncludeCache {
+		t.Error("nothing has been pulled and startup found nothing: there is no baseline to publish")
+	}
+
+	// Refresh 2: the operator has resolved a contract, so the refresh pulls it —
+	// and that pull is what materializes the cache.
+	second := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string { return []string{ref} }, cache)
+	if _, err := svc.Fleet(ctx, second); err != nil {
+		t.Fatalf("Fleet() error: %v", err)
+	}
+	if !store.Materialized() {
+		t.Fatal("the pull did not fill the disk cache")
+	}
+
+	// Refresh 3: the cluster read comes back empty (or failed). The baseline the
+	// session just wrote must still be read, and must still answer with the
+	// registry gone.
+	offline(reg)
+	third := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string { return nil }, cache)
+	if !third.IncludeCache {
+		t.Fatal("a cache this session filled must survive a refresh that discovers nothing")
+	}
+	snap, err := svc.Fleet(ctx, third)
+	if err != nil {
+		t.Fatalf("offline Fleet() error: %v", err)
+	}
+	got := sourceOfKind(snap, "cache")
+	if got == nil {
+		t.Fatal("no cache source in the snapshot")
+	}
+	if got.Status != fleet.SourceAvailable || got.RevisionCount == 0 {
+		t.Fatalf("cache source = %s with %d revisions, want an available baseline", got.Status, got.RevisionCount)
+	}
+
+	// And it is on DISK, not merely in this store's memory: a second process over
+	// the same cache directory, with the registry down, reads the same baseline.
+	cold := app.NewService(oci.NewCachedStore(reg), nil)
+	coldSnap, err := cold.Fleet(ctx, app.FleetOptions{IncludeCache: true})
+	if err != nil {
+		t.Fatalf("cold Fleet() error: %v", err)
+	}
+	if s := sourceOfKind(coldSnap, "cache"); s == nil || s.RevisionCount != got.RevisionCount {
+		t.Fatalf("a cold store read %v from the same cache directory, want %d revisions", s, got.RevisionCount)
+	}
+}
+
+// TestCacheLifecycle_NoCacheNeverPublishesWhatWasAlreadyThere holds the
+// documented cold start: --no-cache excludes the entries that were on disk
+// before the process started. The walk behind a cache source cannot tell those
+// from this session's, and the store refuses to read them, so publishing the
+// source at all yields a baseline made of limitations.
+func TestCacheLifecycle_NoCacheNeverPublishesWhatWasAlreadyThere(t *testing.T) {
+	ctx := context.Background()
+	svc, store, reg := cacheHarness(t)
+	const preexisting = "reg.svc:5000/demo/orders:9.9.9"
+	const session = "reg.svc:5000/demo/orders:1.0.0"
+
+	// Something was already in the cache when the process started.
+	if _, err := oci.NewCachedStore(reg).Pull(ctx, preexisting); err != nil {
+		t.Fatalf("seeding the cache: %v", err)
+	}
+	store.DisableCache() // --no-cache
+	cache := cacheLifecycle{permitted: false, materialized: cacheMaterialization(store)}
+
+	opts := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string { return []string{session} }, cache)
+	if opts.IncludeCache {
+		t.Fatal("--no-cache must not publish a cache source over pre-existing entries")
+	}
+	snap, err := svc.Fleet(ctx, opts)
+	if err != nil {
+		t.Fatalf("Fleet() error: %v", err)
+	}
+	if s := sourceOfKind(snap, "cache"); s != nil {
+		t.Fatalf("cold start published a cache source: %+v", s)
+	}
+	for key := range snap.Revisions {
+		if strings.Contains(string(key), "9.9.9") {
+			t.Fatalf("a pre-existing cache entry reached the snapshot: %s", key)
+		}
+	}
+	// Same-session materialization keeps its documented behavior: the pull
+	// happened, it was persisted, and its revision is in the snapshot — via the
+	// registry source, not by re-opening the cold cache.
+	if !store.Materialized() {
+		t.Error("--no-cache must still persist this session's pulls")
+	}
+	if len(snap.Revisions) != 1 {
+		t.Errorf("revisions = %d, want only the one this session pulled", len(snap.Revisions))
+	}
+	// A later refresh does not change its mind once the cache has content.
+	if again := withClusterContractRefs(ctx, app.FleetOptions{}, nil, cache); again.IncludeCache {
+		t.Error("--no-cache is a promise about pre-existing state, not a first-refresh rule")
+	}
+}
+
+// TestCacheLifecycle_NoCapabilityInventsNoSource: a dashboard whose store cannot
+// cache anything has no baseline to offer. Deriving the cache from "there are
+// OCI refs" published an unavailable cache source that never existed.
+func TestCacheLifecycle_NoCapabilityInventsNoSource(t *testing.T) {
+	ctx := context.Background()
+	svc := app.NewService(nil, nil)
+	cache := cacheLifecycle{permitted: true, materialized: cacheMaterialization(nil)}
+
+	opts := withClusterContractRefs(ctx, app.FleetOptions{}, func(context.Context) []string {
+		return []string{"reg.svc:5000/demo/orders:1.0.0"}
+	}, cache)
+	if opts.IncludeCache {
+		t.Fatal("a store that cannot cache has nothing to contribute")
+	}
+	snap, err := svc.Fleet(ctx, opts)
+	if err != nil {
+		t.Fatalf("Fleet() error: %v", err)
+	}
+	if s := sourceOfKind(snap, "cache"); s != nil {
+		t.Fatalf("invented a cache source: %+v", s)
+	}
+}
+
+// TestFleetSearch_StatusFlagNamesEveryStatus is the CLI half of the same promise
+// the MCP enum makes (TestFleetSearch_StatusEnumIsTheWholeVocabulary): the
+// parenthesised list in `--status` help is the only place a human learns what is
+// askable, and it had drifted to five values while the filter accepted seven. A
+// reader sweeping the documented list reported a fleet with no Warning and no
+// Reference services in it.
+func TestFleetSearch_StatusFlagNamesEveryStatus(t *testing.T) {
+	search, _, err := newFleetCommand(app.NewService(nil, nil), viper.New()).Find([]string{"search"})
+	if err != nil {
+		t.Fatalf("find search subcommand: %v", err)
+	}
+	usage := search.Flags().Lookup("status").Usage
+	lo, hi := strings.Index(usage, "("), strings.LastIndex(usage, ")")
+	if lo < 0 || hi < lo {
+		t.Fatalf("--status help names no vocabulary: %q", usage)
+	}
+	got := strings.Split(usage[lo+1:hi], ", ")
+	slices.Sort(got)
+	if want := fleet.CanonicalStatuses(); !slices.Equal(got, want) {
+		t.Errorf("--status help advertises %v, want the canonical vocabulary %v", got, want)
+	}
+}

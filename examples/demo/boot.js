@@ -7,6 +7,40 @@
 (function () {
   "use strict";
 
+  // Canonical demo entry: the public WASM Live Demo is deliberately Fleet-capable, so
+  // its HOME is the product Operational Overview (#/fleet), not the superseded legacy
+  // landing. When the demo is reached with NO meaningful hash route (bare /demo/, "#",
+  // or the legacy "#/"), canonicalize to #/fleet HERE -- in the demo bootstrap, before
+  // the Svelte app's ES module runs and reads the hash -- so the user never sees a
+  // legacy-landing flash. An explicit deep link (any other non-empty hash, e.g.
+  // "#/fleet/graph", "#/fleet/services/<key>", "#/readiness") is preserved untouched.
+  // This lives in the DEMO bootstrap ONLY (boot.js ships solely with the demo), so a
+  // generic non-Fleet dashboard is never forced to assume Fleet exists.
+  (function canonicalizeDemoEntry() {
+    var h = window.location.hash;
+    // Canonicalize with history.replaceState (not a hash assignment): a REPLACE leaves no
+    // legacy URL in history, so Back never bounces off a route that immediately
+    // re-canonicalizes, and it does not reload the document. The app's ES module runs
+    // AFTER this and reads the already-canonical location.hash.
+    function canon(hash) { window.history.replaceState(null, "", hash); }
+    if (h === "" || h === "#" || h === "#/") {
+      canon("#/fleet");
+      return;
+    }
+    // The superseded legacy LIST roots map to their product equivalents (the demo is
+    // Fleet-capable, so these concepts live in the product IA). Doing it here, before the
+    // Svelte app runs, means the demo never even briefly mounts a legacy screen. The app
+    // itself performs the same capability-gated redirect for live Fleet hosts; this is
+    // the demo's flash-free fast path. Name-bearing legacy detail URLs (#/services/<name>,
+    // #/owners/<id>) are left for the app to resolve through the Product API; any product
+    // or other deep link is preserved untouched.
+    var LEGACY = { "#/services": "#/fleet/services", "#/graph": "#/fleet/graph", "#/owners": "#/fleet/owners" };
+    var path = h.split("?")[0];
+    if (LEGACY[path]) {
+      canon(LEGACY[path]);
+    }
+  })();
+
   // Capture the real fetch before we shadow window.fetch below.
   var realFetch = window.fetch.bind(window);
 
@@ -47,19 +81,34 @@
 
   window.fetch = function (input, init) {
     init = init || {};
+    var isRequest = typeof Request !== "undefined" && input instanceof Request;
     var rawURL = typeof input === "string" ? input : input.url;
     var u = new URL(rawURL, window.location.href);
     if (!isApiPath(u.pathname)) {
       return realFetch(input, init);
     }
-    var method = (init.method || (typeof input !== "string" && input.method) || "GET").toUpperCase();
-    var body = init.body != null ? String(init.body) : null;
-    return window.__pactoReady.then(function () {
-      var res = window.__pactoServe(method, u.pathname + u.search, body);
-      return new Response(res.body, {
-        status: res.status,
-        headers: { "Content-Type": res.contentType || "application/json" },
+    var method = (init.method || (isRequest ? input.method : "GET") || "GET").toUpperCase();
+    // The body may be carried on init.body (a string) OR on a Request object -- the
+    // generated openapi-fetch client passes a Request whose body is NOT on init, so a
+    // POST body must be read from the Request itself (its text() is async). Reading it
+    // here is what lets POST operations (e.g. the product Impact analysis) work in the
+    // in-browser demo, not only query-param GETs.
+    var bodyPromise;
+    if (init.body != null) {
+      bodyPromise = Promise.resolve(String(init.body));
+    } else if (isRequest && method !== "GET" && method !== "HEAD") {
+      bodyPromise = input.clone().text();
+    } else {
+      bodyPromise = Promise.resolve(null);
+    }
+    return window.__pactoReady
+      .then(function () { return bodyPromise; })
+      .then(function (body) {
+        var res = window.__pactoServe(method, u.pathname + u.search, body && body.length ? body : null);
+        return new Response(res.body, {
+          status: res.status,
+          headers: { "Content-Type": res.contentType || "application/json" },
+        });
       });
-    });
   };
 })();

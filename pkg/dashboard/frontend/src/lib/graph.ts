@@ -13,6 +13,7 @@ import fcose from 'cytoscape-fcose';
 import expandCollapse from 'cytoscape-expand-collapse';
 import { reasonTooltip } from './format.ts';
 import { wrapWideRanks } from './layout.ts';
+import { prefersReducedMotion } from './chartkit.ts';
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
@@ -42,6 +43,11 @@ export interface GraphEdge {
   lockedDigest?: string;
   lockedVersion?: string;
   driftStatus?: string;
+  // edgeState is the backend-provided reconciliation state the canvas renders as a
+  // real visual distinction (matched / expected-not-observed / drift / insufficient),
+  // never re-inferred. Empty = a plain declared edge (no comparison in view). See
+  // lib/neighborhoodGraph.ts, which derives it from difference/serviceCorroboration.
+  edgeState?: string;
 }
 
 export interface GraphNode {
@@ -50,6 +56,11 @@ export interface GraphNode {
   status: string;
   version?: string;
   reason?: string;    // why unresolved: non_oci_ref, auth_failed, no_semver_tags, not_found, discovering
+  // kind distinguishes what a node represents so the renderer can style it and the
+  // viewer is never misled about the layer: 'target' is a deployed instance,
+  // 'service' is a logical service (incl. a dependency-service aggregate in the
+  // target perspective), 'revision' is a content-addressed revision. Absent = service.
+  kind?: 'service' | 'revision' | 'target';
   edges?: GraphEdge[];
 }
 
@@ -115,13 +126,65 @@ export function buildVersionSubgraph(detail: VersionDetail, services: FleetEntry
   return { nodes };
 }
 
+/** GraphRenderError is thrown when the VISUAL Cytoscape renderer fails to initialize in
+ *  an environment that CAN paint (a real browser). It is never thrown in a non-painting
+ *  environment (unit tests build the model headless on purpose, see canPaint2D). The view
+ *  catches it to show an explicit render-error state and keep the text alternative, rather
+ *  than a silently-empty canvas that would still pass tests. */
+export class GraphRenderError extends Error {
+  constructor(cause?: unknown) {
+    super('The visual graph renderer failed to initialize.');
+    this.name = 'GraphRenderError';
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
+  }
+}
+
+/** GraphDiagnostics is a narrowly-scoped, read-only readiness snapshot of a rendered
+ *  graph: whether it is headless, its node/edge counts, and how many nodes/edges have real
+ *  rendered geometry. It exposes only what is already visible on the canvas (never internal
+ *  Cytoscape state), so the browser acceptance can prove a non-headless renderer actually
+ *  painted a topology rather than just mounting an empty container. */
+export interface GraphDiagnostics {
+  headless: boolean;
+  nodeCount: number;
+  edgeCount: number;
+  nodesWithBox: number;
+  edgesRendered: number;
+}
+
 export interface GraphControls {
   nodes: GraphNode[];
   destroy: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
   resetView: () => void;
+  /** Fit the whole graph in view without clearing the pinned focus (ephemeral). */
+  fit: () => void;
+  /** Update presentation fields (node status/label/kind, edge state) in place without
+   *  a relayout, for a same-topology refresh. */
+  patchData: (graphData: GraphData) => void;
   applyFilter: (fn: ((n: GraphNode) => boolean) | null) => void;
+  /** Read-only readiness snapshot of the rendered graph (see GraphDiagnostics). */
+  diagnostics: () => GraphDiagnostics;
+  /** Reconcile a CHANGED topology in place: surviving node ids keep their exact
+   *  positions, vanished elements are removed, and only genuinely new nodes are laid
+   *  out (near their neighbors). The viewport is left alone. */
+  applyTopology: (graphData: GraphData) => void;
+  /** Discard the current arrangement: run a fresh layout from scratch and fit. This is
+   *  NOT the same operation as fit(), which only re-frames what is already arranged. */
+  resetLayout: () => void;
+  /** The current spatial state: every node's model position plus pan/zoom. This is what
+   *  a caller persists; it contains presentation coordinates only, no semantics. */
+  spatialState: () => SpatialState;
+}
+
+/** SpatialState is the graph's presentation geometry: where the user put things and how
+ *  they are looking at it. It carries no semantic data — a stale or foreign one can only
+ *  ever misplace a node, never misreport a status. */
+export interface SpatialState {
+  positions: Record<string, { x: number; y: number }>;
+  pan: { x: number; y: number };
+  zoom: number;
 }
 
 interface RenderOptions {
@@ -137,8 +200,35 @@ interface RenderOptions {
   groups?: Map<string, string>;
   /** Fired on single-tap pin (serviceName) and unpin / background tap (null). */
   onSelect?: (serviceName: string | null) => void;
+  /** Fired on single-tap with the node's stable id (null on unpin/background). The
+   *  product Operational Graph uses this (not onSelect) so a node is identified by its
+   *  canonical (kind,key) id, which is unique across mixed node kinds. */
+  onSelectNode?: (id: string | null) => void;
+  /** Fired when an edge is tapped, with the edge's stable id (null on background). */
+  onSelectEdge?: (id: string | null) => void;
+  /** Fired once the first layout settles, with a read-only GraphDiagnostics snapshot. The
+   *  view publishes it as a stable readiness seam for the visual-graph browser acceptance. */
+  onReady?: (d: GraphDiagnostics) => void;
   /** When true, single-tap opens the service (embedded graphs). Default: false = spotlight. */
   tapToOpen?: boolean;
+  /** 'visible' shows a bounded neighborhood's edges at rest with arrowheads; 'faint'
+   *  (default) keeps the whole-fleet map's calm faint-until-focus edges. */
+  edgeStyle?: 'faint' | 'visible';
+  /** When false, the initial focus node is highlighted but NOT auto-spotlighted (so a
+   *  bounded neighborhood shows all its edges at rest, dependency vs runs distinct,
+   *  instead of dimming to the focus's cone). Default true (whole-fleet behavior). */
+  autoSpotlightFocus?: boolean;
+  /** Previously-saved node positions (node id -> model position) to restore instead of
+   *  laying out. Ids that are not in the current graph are ignored, and nodes with no
+   *  saved position are laid out around the restored ones — so a stale saved state can
+   *  never make the graph unusable, only partially pre-arranged. */
+  savedPositions?: Record<string, { x: number; y: number }>;
+  /** Previously-saved pan/zoom, restored after the graph is ready. Restoring a viewport
+   *  is only meaningful together with savedPositions; on its own it is ignored. */
+  savedViewport?: { pan: { x: number; y: number }; zoom: number } | null;
+  /** Fired (debounced) whenever the user changes the spatial state: dragging a node,
+   *  panning, or zooming. The caller decides whether and where to persist it. */
+  onSpatialChange?: (s: SpatialState) => void;
   // Accepted for API compatibility; the "+N" expand chip is superseded by
   // click-to-focus, so these are ignored.
   hidden?: Map<string, number>;
@@ -190,8 +280,9 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
         label: version ? `${name}\n${version}` : name,
         status: n.status,
         reason: n.reason || '',
+        kind: n.kind || 'service',
         external: n.status === 'external' ? 1 : 0,
-        isFocus: n.serviceName === focusId ? 1 : 0,
+        isFocus: n.serviceName === focusId || n.id === focusId ? 1 : 0,
         parent: label ? groupId(label) : undefined,
       },
     });
@@ -200,6 +291,10 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
     for (const e of n.edges || []) {
       if (!ids.has(e.targetId)) continue;
       const etype = e.type || 'dependency';
+      // The reconciliation state drives a real edge visual (see cyStylesheet). A
+      // legacy driftStatus folds into the same state vocabulary so both the whole-fleet
+      // graph and the product neighborhood share one grammar.
+      const state = e.edgeState || (e.driftStatus === 'drift' ? 'drift' : '');
       els.push({
         data: {
           id: `${n.id}→${e.targetId}:${etype}`,
@@ -207,7 +302,8 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
           target: e.targetId,
           etype,
           required: e.required ? 1 : 0,
-          drift: e.driftStatus === 'drift' ? 1 : 0,
+          drift: state === 'drift' ? 1 : 0,
+          state,
         },
       });
     }
@@ -231,7 +327,8 @@ export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
   }
   return {
     name: 'fcose',
-    animate: 'end',
+    // Honor prefers-reduced-motion: settle instantly rather than animating the layout.
+    animate: prefersReducedMotion() ? false : 'end',
     animationDuration: 600,
     animationEasing: 'ease-out',
     fit: true,
@@ -241,6 +338,11 @@ export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
     nodeRepulsion: 6500,
     packComponents: true,
     nodeDimensionsIncludeLabels: true,
+    // fCoSE seeds from random positions by default, so the SAME graph laid out twice
+    // lands somewhere different each time. That turns every refresh into a visible
+    // reshuffle and makes "the layout was preserved" unprovable. Seeded from the
+    // existing positions instead, the same input produces the same arrangement.
+    randomize: false,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 }
@@ -248,6 +350,19 @@ export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
 interface Palette {
   surface: string; text: string; textDim: string; border: string;
   ok: string; warn: string; err: string; info: string; neutral: string; accent: string;
+}
+
+/** canPaint2D feature-detects a real 2D canvas in the container's document. A browser has
+ *  one; jsdom (unit tests, no `canvas` package) does not. This selects the headless model
+ *  ONLY for a genuine non-painting environment, WITHOUT a broad try/catch around the
+ *  Cytoscape init that would also swallow a real visual-renderer failure and leave an empty
+ *  container behind (the silent-fallback bug this replaces). */
+function canPaint2D(doc: Document): boolean {
+  try {
+    return !!doc.createElement('canvas').getContext('2d');
+  } catch {
+    return false;
+  }
 }
 
 function resolvePalette(container: HTMLElement): Palette {
@@ -273,15 +388,14 @@ function nodeColor(pal: Palette, status: string, reason: string): string {
   return (pal as any)[STATUS_TO_PAL[status]] || pal.neutral;
 }
 
-/** Edge/arrow color by kind. */
-function edgeColor(pal: Palette, drift: boolean, reference: boolean): string {
-  if (drift) return pal.warn;
-  if (reference) return pal.accent;
-  return pal.textDim;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
+export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyle: 'faint' | 'visible' = 'faint'): any[] {
+  // A bounded focused neighborhood (edgeStyle 'visible') shows its edges at rest with
+  // arrowheads, because there are only a handful and the whole point is to read them.
+  // The whole-fleet map ('faint') keeps edges near-invisible until a node is focused so
+  // it reads as a calm scatter, not an edge cloud.
+  const restOpacity = layout === 'layered' ? 0.35 : edgeStyle === 'visible' ? 0.55 : EDGE_REST;
+  const restArrow = layout === 'layered' || edgeStyle === 'visible' ? 'triangle' : 'none';
   return [
     {
       selector: 'node',
@@ -313,6 +427,20 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
       },
     },
     {
+      // A deployed instance (target perspective) reads as an ellipse so it is never
+      // mistaken for a logical service/revision node (round-rectangle). This keeps
+      // the physical vs logical distinction honest at a glance.
+      selector: "node[kind='target']",
+      style: { shape: 'ellipse' },
+    },
+    {
+      // An immutable revision node reads as a dashed-border round-rectangle, matching
+      // the legend swatch, so it is distinguishable from a logical service (solid
+      // border) without relying on color.
+      selector: "node[kind='revision']",
+      style: { 'border-style': 'dashed' },
+    },
+    {
       selector: 'edge',
       style: {
         // Layered = the dependency TREE: orthogonal taxi edges flowing top→down with
@@ -325,15 +453,53 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
         'control-point-step-size': 24,
         width: 1,
         'line-color': pal.textDim,
-        'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' ? 'dashed' : 'solid'),
-        'target-arrow-shape': layout === 'layered' ? 'triangle' : 'none',
+        'line-style': (ele: EdgeSingular) => (ele.data('etype') === 'reference' || ele.data('etype') === 'runs' ? 'dashed' : 'solid'),
+        'target-arrow-shape': restArrow,
         'target-arrow-color': pal.textDim,
         'arrow-scale': 0.85,
-        opacity: layout === 'layered' ? 0.35 : EDGE_REST,
+        opacity: restOpacity,
         'transition-property': 'opacity, width, line-color',
         'transition-duration': '0.12s',
         'transition-timing-function': 'ease-out',
       },
+    },
+    // Reconciliation state on a dependency edge, rendered as a REAL visual distinction
+    // so every legend item maps to something the canvas actually draws. The backend
+    // state is rendered verbatim, never re-inferred: color carries
+    // tone and line width/style carry confidence, so the states are distinguishable
+    // without relying on color alone.
+    {
+      // matched / corroborated: declared intent backed by observation. Confident solid
+      // line in the ok tone.
+      selector: "edge[state='matched']",
+      style: { 'line-color': pal.ok, 'target-arrow-color': pal.ok, width: 2 },
+    },
+    {
+      // expected-not-observed: declared but not witnessed in the window (not proof it
+      // is unused). Info tone, kept solid.
+      selector: "edge[state='expected-not-observed']",
+      style: { 'line-color': pal.info, 'target-arrow-color': pal.info },
+    },
+    {
+      // drift (observed-not-expected): observed at runtime but never declared. The
+      // attention state: warn tone and a thicker line.
+      selector: "edge[state='drift']",
+      style: { 'line-color': pal.warn, 'target-arrow-color': pal.warn, width: 2.5 },
+    },
+    {
+      // insufficient: declared with no observation to reconcile against. A dotted line
+      // in the neutral tone reads as "unverified" without color alone.
+      selector: "edge[state='insufficient']",
+      style: { 'line-color': pal.neutral, 'target-arrow-color': pal.neutral, 'line-style': 'dotted' },
+    },
+    {
+      // A "runs" edge (a deployment runs a revision) is a structural identity link,
+      // not a declared-vs-observed dependency: render it dashed in the info tone so it
+      // reads distinctly from a solid dependency edge (never color alone -- the dash
+      // and the legend carry the distinction too). Declared last so it wins for runs
+      // edges (which never carry a reconciliation state).
+      selector: "edge[etype='runs']",
+      style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed' },
     },
     // Compound group boxes (owner clusters): a labelled, team-tinted region.
     {
@@ -395,31 +561,44 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered'): any[] {
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, tapToOpen }: RenderOptions = {},
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, onSelectNode, onSelectEdge, onReady, tapToOpen, edgeStyle = 'faint', autoSpotlightFocus = true, savedPositions, savedViewport, onSpatialChange }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
   const hasGroups = !!(groups && groups.size);
   container.innerHTML = '';
-  // Accessible fallback lives in the connections table; mark the canvas as a
-  // presentational application region.
-  container.setAttribute('role', 'application');
-  container.setAttribute('aria-label', 'Dependency graph (see the connections table for a text version)');
+  // The canvas is a VISUAL representation; the keyboard/screen-reader model is the text
+  // alternative (the connections table / relationships list). Describe it as an image
+  // rather than declaring an incomplete role="application". A caller
+  // that pre-set a more specific aria-label (the neighborhood graph) keeps it.
+  container.setAttribute('role', 'img');
+  if (!container.getAttribute('aria-label')) {
+    container.setAttribute('aria-label', 'Dependency graph (visual). See the connections table for a text version.');
+  }
 
   const pal = resolvePalette(container);
   const baseOpts = {
     elements: buildElements(graphData, focusId, groups),
-    style: cyStylesheet(pal, layout),
+    style: cyStylesheet(pal, layout, edgeStyle),
     minZoom: 0.2,
     maxZoom: 3,
     boxSelectionEnabled: false,
   };
+  const headlessMode = !canPaint2D(container.ownerDocument);
   let cy: Core;
-  try {
-    cy = cytoscape({ container, ...baseOpts });
-  } catch {
-    // No 2D canvas (e.g. the jsdom test env) — build the model headless so the
-    // controls API still works and can be unit-tested; the browser always has canvas.
+  if (headlessMode) {
+    // Non-painting environment (jsdom unit tests, very old browsers): build the model
+    // headless so the controls API is still unit-testable. This is an explicit
+    // environment decision, never a fallback that hides a real browser render failure.
     cy = cytoscape({ headless: true, styleEnabled: true, ...baseOpts });
+  } else {
+    // A painting environment (a real browser): the VISUAL renderer MUST succeed. If it
+    // throws, surface it as a typed GraphRenderError so the view shows an honest
+    // render-error state plus the text alternative, never a silently-empty canvas.
+    try {
+      cy = cytoscape({ container, ...baseOpts });
+    } catch (e) {
+      throw new GraphRenderError(e);
+    }
   }
 
   // Collapsible owner boxes (native compound nodes + the expand-collapse extension).
@@ -428,9 +607,10 @@ export function renderGraph(
   if (hasGroups) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const reduce = prefersReducedMotion();
       ecApi = (cy as any).expandCollapse({
-        layoutBy: { name: 'fcose', animate: 'end', animationDuration: 500, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
-        fisheye: false, animate: true, animationDuration: 400, undoable: false, cueEnabled: true,
+        layoutBy: { name: 'fcose', animate: reduce ? false : 'end', animationDuration: 500, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
+        fisheye: false, animate: !reduce, animationDuration: 400, undoable: false, cueEnabled: true,
       });
     } catch { ecApi = null; }
   }
@@ -518,10 +698,24 @@ export function renderGraph(
     clickFocusId = clickFocusId === id ? null : id;
     applyDimming();
     onSelect?.(clickFocusId ? n.data('serviceName') : null);
-    if (clickFocusId) cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
+    onSelectNode?.(clickFocusId ? id : null);
+    if (clickFocusId) {
+      // Our own centering, not a pan the user asked for.
+      suppressViewport(400);
+      if (prefersReducedMotion()) cy.center(n);
+      else cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
+    }
+  });
+  // Edge tap: open the relationship's quick-inspection drawer (the product graph
+  // reads the backend-authoritative edge; it never navigates away automatically).
+  cy.on('tap', 'edge', (evt) => {
+    const e = evt.target as EdgeSingular;
+    onSelectEdge?.(e.id());
   });
   cy.on('tap', (evt) => {
-    if (evt.target === cy && clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); }
+    if (evt.target !== cy) return;
+    onSelectEdge?.(null);
+    if (clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); onSelectNode?.(null); }
   });
 
   // Hover previews the spotlight (click pins it). A pinned focus takes precedence.
@@ -538,13 +732,144 @@ export function renderGraph(
     applyDimming(); // restore the resting owner/filter emphasis (batched, clears HL)
   });
 
-  // Pin the initial focus (service-detail page) before the first layout.
-  if (focusId) {
+  // Pin the initial focus (service-detail page) before the first layout, unless the
+  // caller wants the focus highlighted without dimming to its cone (bounded
+  // neighborhood: show every edge at rest, dependency vs runs distinct).
+  if (focusId && autoSpotlightFocus) {
     const fn = cy.nodes().filter((n) => n.data('serviceName') === focusId || n.id() === focusId);
     if (fn.nonempty()) clickFocusId = fn.first().id();
   }
 
-  function layoutAndFit(): void {
+  // computeDiagnostics reports the read-only readiness of the rendered graph: headless
+  // flag, node/edge counts, and how many nodes/edges have real rendered geometry (a nonzero
+  // rendered bounding box). It reads only what the canvas already shows, so it is a safe
+  // acceptance seam (see GraphDiagnostics), not a leak of internal state.
+  function computeDiagnostics(): GraphDiagnostics {
+    const base: GraphDiagnostics = { headless: headlessMode, nodeCount: cy.nodes().size(), edgeCount: cy.edges().size(), nodesWithBox: 0, edgesRendered: 0 };
+    // A headless instance has no renderer, so rendered geometry is undefined; report zeros
+    // rather than calling renderedBoundingBox (which needs a renderer). The browser
+    // acceptance requires headless=false anyway.
+    if (headlessMode) return base;
+    let nodesWithBox = 0;
+    cy.nodes().forEach((n) => {
+      const bb = n.renderedBoundingBox();
+      if ((bb.w ?? 0) > 0 && (bb.h ?? 0) > 0) nodesWithBox++;
+    });
+    let edgesRendered = 0;
+    cy.edges().forEach((e) => {
+      const bb = e.renderedBoundingBox();
+      if ((bb.w ?? 0) > 0 || (bb.h ?? 0) > 0) edgesRendered++;
+    });
+    return { ...base, nodesWithBox, edgesRendered };
+  }
+
+  // ── Spatial state ────────────────────────────────────────────────────────
+  // Where the user put things, and how they are looking at it. It is presentation
+  // geometry and nothing else, so a stale or foreign one can only misplace a node --
+  // never misreport a status. It is deliberately kept OUT of the semantic refresh path:
+  // a background poll that changes a compliance verdict must not move the canvas.
+
+  // Ids we restored a position for. Non-empty means the user has already arranged this
+  // exact graph query, so the initial layout is skipped entirely.
+  const restored = new Set<string>();
+  // True once the arrangement or the viewport belongs to the user (a drag, a pan, a
+  // zoom, or a restored state). While it is false the container-resize handler is free
+  // to re-fit; once true, re-fitting would throw away a deliberate choice.
+  let userAdjusted = false;
+  // Viewport events fire for our OWN fits and centering animations too. Programmatic
+  // changes announce themselves here so they are not mistaken for user intent.
+  let suppressViewportUntil = 0;
+  let spatialTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function suppressViewport(ms: number): void { suppressViewportUntil = Date.now() + ms; }
+
+  function snapshotSpatial(): SpatialState {
+    const positions: Record<string, { x: number; y: number }> = {};
+    cy.nodes().forEach((n) => {
+      if (n.isParent()) return; // a compound box is positioned BY its children
+      positions[n.id()] = { x: n.position('x'), y: n.position('y') };
+    });
+    return { positions, pan: { ...cy.pan() }, zoom: cy.zoom() };
+  }
+
+  // Debounced: a drag or a pinch-zoom emits a continuous stream of events, and the
+  // caller writes this to storage.
+  function emitSpatial(): void {
+    if (!onSpatialChange) return;
+    clearTimeout(spatialTimer);
+    spatialTimer = setTimeout(() => onSpatialChange(snapshotSpatial()), 250);
+  }
+
+  function restoreSavedPositions(): void {
+    if (!savedPositions) return;
+    cy.batch(() => {
+      cy.nodes().forEach((n) => {
+        const p = savedPositions[n.id()];
+        // Ids not in the saved state are ignored rather than defaulted, so a saved
+        // state from a smaller graph pre-arranges what it knows and leaves the rest
+        // to be placed.
+        if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+        n.position({ x: p.x, y: p.y });
+        restored.add(n.id());
+      });
+    });
+  }
+  restoreSavedPositions();
+
+  // How far a brand-new node sits from the neighbor it attaches to.
+  const NEW_NODE_OFFSET = 150;
+
+  // placeNewNodes gives nodes that have no position yet a deterministic spot beside the
+  // neighbors they connect to, WITHOUT touching anything already placed. Running a full
+  // layout instead would be less code and would also move every surviving node -- which
+  // is the exact regression this exists to prevent.
+  function placeNewNodes(fresh: Set<string>): void {
+    if (!fresh.size) return;
+    const settled = cy.nodes().filter((n) => !fresh.has(n.id()) && !n.isParent());
+    const bb = settled.nonempty() ? settled.boundingBox() : null;
+    const center = bb ? { x: bb.x1 + bb.w / 2, y: bb.y1 + bb.h / 2 } : { x: 0, y: 0 };
+    const radius = bb ? Math.max(200, bb.w / 2 + 140) : 200;
+    const ids = [...fresh].sort(); // stable: the same new set always lands the same way
+    cy.batch(() => {
+      ids.forEach((id, i) => {
+        const n = cy.getElementById(id);
+        if (n.empty()) return;
+        const angle = (i * 2 * Math.PI) / ids.length;
+        const anchors = n.neighborhood('node').filter((m) => !fresh.has(m.id()) && !(m as NodeSingular).isParent());
+        if (anchors.nonempty()) {
+          let sx = 0;
+          let sy = 0;
+          anchors.forEach((m) => { sx += m.position('x'); sy += m.position('y'); });
+          const ax = sx / anchors.size();
+          const ay = sy / anchors.size();
+          n.position({ x: ax + Math.cos(angle) * NEW_NODE_OFFSET, y: ay + Math.sin(angle) * NEW_NODE_OFFSET });
+        } else {
+          // Nothing to attach to: park it on a ring outside the settled graph, where it
+          // is visible as an arrival rather than buried under the existing arrangement.
+          n.position({ x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius });
+        }
+      });
+    });
+  }
+
+  // fitView fits the whole graph in view, honoring prefers-reduced-motion (an instant
+  // fit rather than an animated pan/zoom).
+  function fitView(duration: number): void {
+    suppressViewport(duration + 150);
+    if (prefersReducedMotion()) cy.fit(cy.elements(), 30);
+    else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration, easing: 'ease-out' });
+  }
+
+  function settle(): void {
+    if (filterFn) applyFilter(filterFn);
+    else applyDimming();
+    // The graph has laid out and painted: publish the readiness snapshot for the
+    // visual-graph browser acceptance (a real non-headless canvas with rendered nodes
+    // and edges), and never before positions exist.
+    onReady?.(computeDiagnostics());
+  }
+
+  function runLayout(): void {
     const l = cy.layout(cyLayout(layout));
     l.one('layoutstop', () => {
       // Layered tree: fold any over-wide level into sub-rows sized to the CURRENT
@@ -555,12 +880,38 @@ export function renderGraph(
         wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 24, ranksep: 80, maxWidth: (cy.width() || 1000) - 60 });
         cy.batch(() => cy.nodes().forEach((n) => { const p = pos.get(n.id()); if (p) n.position(p); }));
       }
-      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 250, easing: 'ease-out' });
-      if (filterFn) applyFilter(filterFn);
-      else applyDimming();
+      fitView(250);
+      settle();
+      emitSpatial();
     });
     l.run();
   }
+
+  function layoutAndFit(): void {
+    if (restored.size === 0) { runLayout(); return; }
+    // The user already arranged this exact graph query. Laying it out again would
+    // discard that, so only the nodes the saved state did not know about are placed,
+    // and the saved viewport (if any) is restored rather than re-fitted.
+    const fresh = new Set<string>();
+    cy.nodes().forEach((n) => { if (!n.isParent() && !restored.has(n.id())) fresh.add(n.id()); });
+    placeNewNodes(fresh);
+    if (savedViewport && Number.isFinite(savedViewport.zoom) && savedViewport.zoom > 0) {
+      suppressViewport(150);
+      cy.zoom(savedViewport.zoom);
+      cy.pan({ ...savedViewport.pan });
+      userAdjusted = true;
+    } else {
+      fitView(0);
+    }
+    settle();
+  }
+
+  cy.on('dragfree', 'node', () => { userAdjusted = true; emitSpatial(); });
+  cy.on('viewport', () => {
+    if (Date.now() < suppressViewportUntil) return;
+    userAdjusted = true;
+    emitSpatial();
+  });
 
   // Lay out only once the container has a real size — cy often initialises before
   // the container is measured, which produced the "renders wrong until you click"
@@ -577,8 +928,11 @@ export function renderGraph(
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         if (clickFocusId) return; // don't disrupt a pinned focus
-        if (layout === 'layered') layoutAndFit();
-        else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 200 });
+        // A panel opening must not undo a pan the user just made. Re-fitting is only
+        // ever a courtesy for a viewport nobody has touched.
+        if (userAdjusted) return;
+        if (layout === 'layered') runLayout();
+        else fitView(200);
       }, 150);
     });
     ro.observe(container);
@@ -596,13 +950,100 @@ export function renderGraph(
     cy.zoom({ level: cy.zoom() * factor, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
   }
 
+  // patchData updates the mutable PRESENTATION fields of the existing elements in place
+  // (node status/label/kind, edge reconciliation state), WITHOUT a relayout, so a
+  // background refresh that changes only semantics (e.g. Compliant -> NonCompliant, or a
+  // difference verdict) restyles the canvas immediately instead of leaving it stale. It
+  // assumes the topology is unchanged (same node ids and edge ids); the caller rebuilds
+  // when the topology changes. Cytoscape restyles an element when its data changes, so
+  // the status/kind/state selectors re-apply.
+  function patchData(next: GraphData): void {
+    const byId = new Map((next.nodes || []).map((n) => [n.id, n]));
+    cy.batch(() => {
+      for (const cn of cy.nodes()) {
+        const n = byId.get(cn.id());
+        if (!n) continue;
+        const { name, version } = nodeLabel(n);
+        cn.data('status', n.status);
+        cn.data('label', version ? `${name}\n${version}` : name);
+        cn.data('serviceName', n.serviceName);
+        cn.data('kind', n.kind || 'service');
+      }
+      for (const n of next.nodes || []) {
+        for (const e of n.edges || []) {
+          const etype = e.type || 'dependency';
+          const ce = cy.getElementById(`${n.id}→${e.targetId}:${etype}`);
+          if (ce.empty()) continue;
+          const state = e.edgeState || (e.driftStatus === 'drift' ? 'drift' : '');
+          ce.data('state', state);
+          ce.data('drift', state === 'drift' ? 1 : 0);
+        }
+      }
+    });
+  }
+
+  // applyTopology reconciles a CHANGED topology in place. Everything that survives keeps
+  // the exact position it had; only elements that genuinely appeared are added (and
+  // placed near their neighbors), and only elements that genuinely vanished are removed.
+  // The viewport is untouched. Rebuilding the instance instead would be far less code and
+  // would relayout the whole graph, which is what made a background refresh feel like a
+  // different screen.
+  function applyTopology(next: GraphData): void {
+    const els = buildElements(next, focusId, groups);
+    const keep = new Set(els.map((e) => String(e.data.id)));
+    const before = new Set<string>();
+    cy.nodes().forEach((n) => { if (!n.isParent()) before.add(n.id()); });
+    cy.batch(() => {
+      cy.elements().filter((e) => !keep.has(e.id())).remove();
+      const existing = new Set<string>();
+      cy.elements().forEach((e) => { existing.add(e.id()); });
+      const added = els.filter((e) => !existing.has(String(e.data.id)));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (added.length) cy.add(added as any);
+    });
+    // Semantic fields of the survivors still need updating: a topology change and a
+    // status change routinely arrive in the same refresh.
+    patchData(next);
+    const fresh = new Set<string>();
+    cy.nodes().forEach((n) => { if (!n.isParent() && !before.has(n.id())) fresh.add(n.id()); });
+    placeNewNodes(fresh);
+    fresh.forEach((id) => restored.add(id)); // now arranged; a later refresh must keep it
+    if (filterFn) applyFilter(filterFn);
+    else applyDimming();
+    emitSpatial();
+  }
+
+  // resetLayout is the explicit escape hatch: discard the current arrangement and lay the
+  // graph out again from scratch. It is NOT fit() -- fit re-frames what is already
+  // arranged, this rearranges. The grid seed matters: fCoSE is seeded from the current
+  // positions (randomize: false), so without it "reset" would start from the very
+  // arrangement it is meant to discard.
+  function resetLayout(): void {
+    restored.clear();
+    userAdjusted = false;
+    const ids: string[] = [];
+    cy.nodes().forEach((n) => { if (!n.isParent()) ids.push(n.id()); });
+    ids.sort();
+    const cols = Math.max(1, Math.ceil(Math.sqrt(ids.length)));
+    cy.batch(() => ids.forEach((id, i) => {
+      cy.getElementById(id).position({ x: (i % cols) * 180, y: Math.floor(i / cols) * 140 });
+    }));
+    runLayout();
+  }
+
   return {
     nodes,
-    destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); cy.destroy(); },
+    destroy: () => { ro?.disconnect(); clearTimeout(resizeTimer); clearTimeout(spatialTimer); cy.destroy(); },
     zoomIn: () => zoomBy(1.4),
     zoomOut: () => zoomBy(0.7),
-    resetView: () => { clickFocusId = null; applyDimming(); cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 300 }); },
+    resetView: () => { clickFocusId = null; applyDimming(); fitView(300); },
+    fit: () => fitView(250),
+    patchData,
+    applyTopology,
+    resetLayout,
+    spatialState: snapshotSpatial,
     applyFilter,
+    diagnostics: computeDiagnostics,
   };
 }
 

@@ -3,7 +3,6 @@ service:
   name: email-provider
   version: 1.0.0
   owner:
-    team: external/sendgrid
     contacts:
     - type: url
       value: https://support.sendgrid.com

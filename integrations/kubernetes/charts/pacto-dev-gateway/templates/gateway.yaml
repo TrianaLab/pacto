@@ -1,0 +1,22 @@
+{{/*
+The Gateway the pacto-operator dashboard/Evidence HTTPRoutes attach to. It has a
+single HTTP listener; by default it accepts HTTPRoutes from ALL namespaces so the
+operator's routes (in its own namespace) can bind without extra ReferenceGrants —
+appropriate for local development, not for production.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.gateway.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-dev-gateway.labels" . | nindent 4 }}
+spec:
+  gatewayClassName: {{ .Values.gateway.className }}
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: {{ .Values.gateway.port }}
+      allowedRoutes:
+        namespaces:
+          from: {{ if .Values.gateway.allowRoutesFromAllNamespaces }}All{{ else }}Same{{ end }}

@@ -37,12 +37,12 @@ func run() error {
 	ctx, stop := signalContext()
 	defer stop()
 
-	keychain := oci.NewKeychain(oci.CredentialOptions{
-		Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
-		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
-		Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
-	})
-	store := oci.NewCachedStore(oci.NewClient(keychain))
+	keychain := oci.NewKeychain(oci.EnvCredentialOptions())
+	var clientOpts []oci.ClientOption
+	if hosts := oci.EnvInsecureRegistries(); len(hosts) > 0 {
+		clientOpts = append(clientOpts, oci.WithInsecureRegistries(hosts...))
+	}
+	store := oci.NewCachedStore(oci.NewClient(keychain, clientOpts...))
 
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
 	app.SetBuildVersion(version)

@@ -610,27 +610,52 @@ func RepoProviderFromSource(src DataSource) func(ctx context.Context) []string {
 	}
 }
 
+// ContractRefProviderFromSource returns a callback reporting the contract
+// references a runtime source currently attributes to its services: each exact
+// resolvedRef the operator resolved, AND the repository that ref names.
+//
+// Both are needed, and they answer different questions. The exact ref names the
+// revision a target is RUNNING — immutable when the operator pinned a digest, and
+// the only reference that can make a target's revision link exact rather than
+// inferred. The repository resolves to the newest PUBLISHED revision, which is
+// what makes "a newer revision exists" and a change analysis against it
+// answerable at all. Reporting only repositories, as OCI background discovery
+// does, drops the running revision from the graph whenever it is not also the
+// latest tag — precisely the case an operator pins a digest to create.
+//
+// A source failure yields no references rather than an error: the caller
+// assembles snapshot sources, where a cluster that cannot be read right now is
+// the absence of contributed references, not a reason to abandon the snapshot.
+func ContractRefProviderFromSource(src DataSource) func(ctx context.Context) []string {
+	return func(ctx context.Context) []string {
+		resolved, err := resolvedRefsFromSource(ctx, src)
+		if err != nil {
+			return nil
+		}
+		refs := make([]string, 0, len(resolved))
+		seen := make(map[string]bool, len(resolved))
+		for _, ref := range resolved {
+			for _, candidate := range []string{ref, stripTag(ref)} {
+				if candidate != "" && !seen[candidate] {
+					seen[candidate] = true
+					refs = append(refs, candidate)
+				}
+			}
+		}
+		return refs
+	}
+}
+
 // discoverOCIReposFromSource queries a DataSource for services and extracts
 // unique OCI repository references from their resolvedRef / imageRef fields.
 func discoverOCIReposFromSource(ctx context.Context, src DataSource) ([]string, error) {
-	services, err := src.ListServices(ctx)
+	resolved, err := resolvedRefsFromSource(ctx, src)
 	if err != nil {
-		logging.LoggerFromContext(ctx).Warn("OCI repo discovery: failed to list services", "error", err)
 		return nil, err
 	}
-
 	seen := make(map[string]bool)
 	var repos []string
-
-	for _, svc := range services {
-		d, err := src.GetService(ctx, svc.Name)
-		if err != nil || d == nil {
-			continue
-		}
-		ref := d.ResolvedRef
-		if ref == "" {
-			continue
-		}
+	for _, ref := range resolved {
 		repo := stripTag(ref)
 		if repo != "" && !seen[repo] {
 			seen[repo] = true
@@ -638,4 +663,24 @@ func discoverOCIReposFromSource(ctx context.Context, src DataSource) ([]string, 
 		}
 	}
 	return repos, nil
+}
+
+// resolvedRefsFromSource lists the non-empty resolvedRef of every service a
+// source reports, in source order. A service the source cannot detail is
+// skipped: one unreadable service must not hide the rest.
+func resolvedRefsFromSource(ctx context.Context, src DataSource) ([]string, error) {
+	services, err := src.ListServices(ctx)
+	if err != nil {
+		logging.LoggerFromContext(ctx).Warn("OCI repo discovery: failed to list services", "error", err)
+		return nil, err
+	}
+	var refs []string
+	for _, svc := range services {
+		d, err := src.GetService(ctx, svc.Name)
+		if err != nil || d == nil || d.ResolvedRef == "" {
+			continue
+		}
+		refs = append(refs, d.ResolvedRef)
+	}
+	return refs, nil
 }

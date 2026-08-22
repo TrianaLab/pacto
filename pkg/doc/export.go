@@ -42,11 +42,26 @@ func buildStaticExport(uiFS fs.FS, d *dashboard.ServiceDetails, g *dashboard.Glo
 		return nil, fmt.Errorf("embedded ui missing index.html")
 	}
 
-	routes := map[string]any{
-		"/api/services/" + d.Name:                 d,
-		"/api/graph":                              g,
-		"/api/services/" + d.Name + "/versions":   []dashboard.Version{{Version: d.Version, IsCurrent: true}},
-		"/api/services/" + d.Name + "/dependents": []any{},
+	// Request-semantic static fixtures (ADR-6): each fixture
+	// names the method + path (+ response) of one operation the offline single-service
+	// app calls, so the transport matches by request semantics and an unfixtured
+	// operation fails honestly rather than returning a misleading 200 + null. The set
+	// is exactly the offline contract: the services list (empty), this service, its
+	// graph, its versions, its dependents, and its cross-references (a deliberate,
+	// EXPLICIT null - not a universal fallback).
+	routes := []map[string]any{
+		// The offline export is a NON-Fleet host: it serves the single-service legacy UI
+		// and none of the /api/fleet/* product endpoints. Declaring capabilities
+		// explicitly (fleet:false) lets the SPA resolve its host class definitively -- so
+		// it renders the legacy service view (its only UI here) instead of waiting on an
+		// unanswerable capabilities probe, and never offers a dead Fleet nav item.
+		{"method": "GET", "path": "/api/capabilities", "response": map[string]any{"fleet": false, "impact": false, "observed": false}},
+		{"method": "GET", "path": "/api/services", "response": []any{}},
+		{"method": "GET", "path": "/api/services/" + d.Name, "response": d},
+		{"method": "GET", "path": "/api/graph", "response": g},
+		{"method": "GET", "path": "/api/services/" + d.Name + "/versions", "response": []dashboard.Version{{Version: d.Version, IsCurrent: true}}},
+		{"method": "GET", "path": "/api/services/" + d.Name + "/dependents", "response": []any{}},
+		{"method": "GET", "path": "/api/services/" + d.Name + "/refs", "response": nil},
 	}
 	// payload holds only marshalable structs; Marshal cannot fail here.
 	payload, _ := json.Marshal(map[string]any{"service": d.Name, "routes": routes})

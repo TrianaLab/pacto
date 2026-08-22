@@ -69,11 +69,28 @@ service:
 
 **Dashboard integration:**
 
-The dashboard uses a canonical owner key for aggregation and navigation:
-1. If owner has `team` → uses `team`
-2. If owner has `dri` (no team) → uses `dri`
+The dashboard aggregates and navigates by a canonical owner key that is **namespaced by
+which field named the owner**, written `kind:name`:
 
-This key is used consistently across the owners aggregation view (`#/owners`), owner detail view (`#/owners/:key`), service list filtering and dependency graph highlighting. See [Platform engineers — dashboard](../platform-engineers.md) for how the dashboard renders these views.
+1. If owner has `team` → `team:<team>`
+2. If owner has `dri` (no team) → `dri:<dri>`
+3. If owner has neither (contacts only) → no canonical key. The service is still owned,
+   and the dashboard counts it as such, but there is no owner to rank or link to.
+
+The namespace is part of the identity, not decoration: a team called `payments` and a DRI
+called `payments` are two different owners with two different estates, and `team:payments`
+never resolves to `dri:payments`. Only the name is shown on screen — the namespace is
+surfaced as a `Team` / `DRI` badge where two owners would otherwise be indistinguishable.
+
+Conversely, everything *except* team and DRI is metadata: two services declaring the same
+`team` are one owner even when they name different DRIs or different contacts.
+
+This key is used consistently across the owners view (`#/fleet/owners`), owner entity
+pages (`#/fleet/owners/team:payments`), the exact `ownerKey` service filter and dependency
+graph highlighting. The separate free-text `owner` filter is a human search over team, DRI
+and contacts — it is deliberately not an identity, and may match several owners at once.
+See [Platform engineers — dashboard](../platform-engineers.md) for how the dashboard
+renders these views.
 
 ---
 
@@ -463,6 +480,13 @@ state for the service in a provider-neutral way. Each claim has a completion sta
 optional category and weight. The assessment includes an expiry date and scoring
 configuration. Pacto computes a readiness score from claim statuses and weights.
 
+Readiness is a **declared self-assessment**: it is what the service's authors say
+they have done, and Pacto checks the arithmetic and the expiry, not the underlying
+work. It is therefore a different question from **compliance**, which is decided
+from observed [evidence](../evidence-protocol.md) about a running workload. The
+dashboard keeps them apart: readiness appears on a revision and as a *Needs
+attention* category, never as a compliance verdict.
+
 ```yaml
 readiness:
   expires: "2027-06-30"  # assessment-level expiry (YYYY-MM-DD)
@@ -517,7 +541,7 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `expires` | string | Yes | Assessment-level expiry as a strict `YYYY-MM-DD` date. If the current date is past this date, ALL claims earn 0 weight regardless of status. Parsing is exact round-trip: zero-padded fields required and the value must re-serialize unchanged, so `2026-1-1`, RFC 3339 timestamps and impossible dates (e.g. `2026-02-30`) are rejected. |
-| `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (full compliance required). Enforced by `pacto validate --readiness` and the operator. |
+| `minScore` | integer | No | Gate threshold on the same 0–100 scale as the score. Omitted ⇒ `100` (every claim must be complete). Enforced by `pacto validate --readiness` and the operator. |
 | `partialCredit` | number | No | Multiplier for `partial` status claims (0.0–1.0). Omitted ⇒ `0.5` (half credit). |
 | `claims` | [Claim](#claim-fields)[] | Yes | At least one claim. |
 | `history` | [HistoryEntry](#history-entry)[] | No | Audit trail of readiness assessment changes. |

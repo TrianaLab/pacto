@@ -44,6 +44,13 @@
     "fullnameOverride": {
       "type": "string"
     },
+    "insecureRegistries": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "serviceAccount": {
       "type": "object",
       "additionalProperties": false,
@@ -214,6 +221,67 @@
             "type": "string"
           }
         },
+        "observation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. Not an OTLP receiver and not a collector.",
+          "properties": {
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "file"
+                ],
+                "oneOf": [
+                  {
+                    "required": [
+                      "existingClaim"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "configMap"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Stable Data Source identity; reordering the list never renames a source.",
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                    "maxLength": 59
+                  },
+                  "file": {
+                    "type": "string",
+                    "description": "Trace file name directly inside this source's mount directory. A single path segment: no directory separator, no whitespace, and no comma (the operator's trace-source flag is comma-delimited).",
+                    "minLength": 1,
+                    "pattern": "^[^/,\\s]+$",
+                    "not": {
+                      "pattern": "^\\.\\.?$"
+                    }
+                  },
+                  "existingClaim": {
+                    "type": "string",
+                    "description": "Existing PVC holding the trace export. A Kubernetes object name (DNS-1123 subdomain).",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                  },
+                  "configMap": {
+                    "type": "string",
+                    "description": "ConfigMap holding a small, static trace export. A Kubernetes object name (DNS-1123 subdomain).",
+                    "minLength": 1,
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                  }
+                }
+              }
+            }
+          }
+        },
         "service": {
           "type": "object",
           "additionalProperties": false,
@@ -316,6 +384,172 @@
           }
         }
       }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "subjects": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^oci://[^@]+@sha256:[0-9a-f]{64}$"
+              }
+            },
+            "credentialsSecret": {
+              "type": "string"
+            }
+          }
+        },
+        "trust": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string"
+            }
+          }
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "ClusterIP",
+                "NodePort",
+                "LoadBalancer"
+              ]
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "nodePort": {
+              "type": [
+                "string",
+                "integer"
+              ]
+            }
+          }
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "className": {
+              "type": "string"
+            },
+            "annotations": {
+              "type": "object"
+            },
+            "hosts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "pathType": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "tls": {
+              "type": "array"
+            }
+          }
+        },
+        "httpRoute": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "parentRefs": {
+              "type": "array"
+            },
+            "hostnames": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rules": {
+              "type": "array"
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits for the Evidence Server container",
+          "properties": {
+            "limits": {
+              "type": "object"
+            },
+            "requests": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "required": [
+              "registry"
+            ],
+            "properties": {
+              "registry": {
+                "required": [
+                  "subjects"
+                ],
+                "properties": {
+                  "subjects": {
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "nodeSelector": {
       "type": "object"

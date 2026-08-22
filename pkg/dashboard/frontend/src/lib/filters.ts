@@ -87,7 +87,8 @@ export function filtersActive(f: FilterState): boolean {
 /**
  * Apply all active filters to a service list.
  * - search: matches name OR owner (case-insensitive)
- * - owner: matches ownerKey (exact)
+ * - owner: matches the canonical owner key exactly (`team:NAME` / `dri:NAME`), so
+ *   a team and a person of the same name filter to different services
  * - category: matches any readiness check's category
  * - contractStatus: matches svc.contractStatus
  * - readinessStatus: matches readinessBucket(svc)

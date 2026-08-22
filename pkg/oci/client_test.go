@@ -134,6 +134,29 @@ func TestClient_PushPull_Roundtrip(t *testing.T) {
 	}
 }
 
+func TestClient_InsecureRegistries_PerHost(t *testing.T) {
+	// A plain-HTTP registry reached WITHOUT the global name.Insecure, only via
+	// WithInsecureRegistries for that host — the mechanism the evidence-server E2E
+	// uses for its in-cluster registry, without weakening any other host.
+	reg := registry.New()
+	srv := httptest.NewServer(reg)
+	t.Cleanup(srv.Close)
+	host := strings.TrimPrefix(srv.URL, "http://")
+
+	client := oci.NewClient(authn.DefaultKeychain, oci.WithInsecureRegistries(host, ""))
+	ctx := context.Background()
+	ref := host + "/test/repo:v1"
+	if _, err := client.Push(ctx, ref, newTestBundle()); err != nil {
+		t.Fatalf("Push over per-host-insecure HTTP registry: %v", err)
+	}
+	if _, err := client.Pull(ctx, ref); err != nil {
+		t.Fatalf("Pull over per-host-insecure HTTP registry: %v", err)
+	}
+	// (The negative — a non-listed host staying https — can't be exercised against
+	// a loopback httptest registry, which go-containerregistry auto-treats as
+	// insecure; the scoping is per-host by construction in parseRef.)
+}
+
 func TestClient_Push_InvalidRef(t *testing.T) {
 	client, _ := newTestClient(t)
 	ctx := context.Background()

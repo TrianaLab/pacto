@@ -156,9 +156,39 @@ func TestResolver_LocalOnly_CacheMiss(t *testing.T) {
 	}
 }
 
+func TestResolver_LocalOnly_NeverContactsRegistry(t *testing.T) {
+	// A CachedStore's Pull falls through to the registry on a cache miss. LocalOnly
+	// must read the cache directly instead, or an offline caller that walks every
+	// cached ref (the dashboard's fleet cache source) turns a disk walk into one
+	// network wait per ref and blocks until the registry answers.
+	cached, inner := newCachedStoreWithTempDir(t)
+	resolver := oci.NewResolver(cached)
+	ctx := context.Background()
+
+	if _, err := cached.Pull(ctx, "ghcr.io/org/svc:1.0.0"); err != nil {
+		t.Fatalf("warming the cache: %v", err)
+	}
+	if got := inner.pullCount.Load(); got != 1 {
+		t.Fatalf("warm-up made %d registry pulls, want 1", got)
+	}
+
+	if _, err := resolver.Resolve(ctx, "ghcr.io/org/svc:1.0.0", oci.LocalOnly); err != nil {
+		t.Fatalf("cached ref should resolve offline: %v", err)
+	}
+	var notFound *oci.ArtifactNotFoundError
+	_, err := resolver.Resolve(ctx, "ghcr.io/org/other:9.9.9", oci.LocalOnly)
+	if !errors.As(err, &notFound) {
+		t.Fatalf("uncached ref = %T %v, want ArtifactNotFoundError", err, err)
+	}
+	if got := inner.pullCount.Load(); got != 1 {
+		t.Errorf("LocalOnly made %d registry pulls, want 0 beyond the warm-up", got-1)
+	}
+}
+
 func TestResolver_LocalOnly_TypedErrorPassthrough(t *testing.T) {
-	// A cached store can still reach the registry, so a typed auth error must
-	// surface as-is even in LocalOnly mode — not be masked as a cache miss.
+	// A store with no cache of its own has nothing local to read, so LocalOnly
+	// falls back to its Pull; a typed auth error must surface as-is rather than
+	// being masked as a cache miss.
 	store := &mockStore{
 		pullErr: &oci.AuthenticationError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("401")},
 	}

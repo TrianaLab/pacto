@@ -31,21 +31,87 @@
   --c-info: #60a5fa;
   --c-info-bg: rgba(96, 165, 250, 0.08);
   --c-info-border: rgba(96, 165, 250, 0.18);
-  --c-neutral: #64748b;
+  /* slate-400, not slate-500: the neutral tone is a TEXT color on identity badges
+     ("Insufficient evidence", "Unknown"), and slate-500 on the dark surface is only
+     4.16:1 at badge size. slate-400 is 7.7:1, and reads at least as well as a dot or a
+     chart fill does. The light theme keeps slate-500, which clears AA there. */
+  --c-neutral: #94a3b8;
   --c-neutral-bg: rgba(100, 116, 139, 0.08);
   --c-accent: #818cf8;
   --c-accent-bg: rgba(129, 140, 248, 0.08);
+  --c-accent-border: rgba(129, 140, 248, 0.28);
   --c-accent-hover: #a5b4fc;
+  /* Text/icon color to place ON a solid --c-accent fill (buttons, active segments).
+     White on the light-indigo dark-mode accent is only 2.98:1; a dark ink is 6.47:1, so
+     on-accent controls read at AA. (Light theme flips this to white; see below.) */
+  --c-on-accent: #0a0e17;
 
-  /* Typography — scaled up for readability at 100% zoom */
+  /* ── Typography: the SIZE RAMP ──
+     One ramp, no gaps. 1rem inside the app is 15px (base.css sets the rem base to
+     93.75% of the browser's own 16px default, so a reader who has raised that default
+     still scales), and each step's rendered pixel value is listed below. Nothing
+     outside this block may invent a size: a component picks a ROLE (see roles below),
+     and the role picks the step.
+
+     The rem base is deliberately NOT one of these tokens. `html { font-size:
+     var(--text-base) }` resolved 0.9375rem against the browser's 16px and set the root
+     to 15px -- after which the very same token resolved to 14.06px everywhere else.
+     One name, two sizes, and the larger of them was the default body text, which no
+     role could reproduce and nothing could match. */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  --text-xs: 0.75rem;    /* 12px (was 11px) */
-  --text-sm: 0.875rem;   /* 14px (was 13px) */
-  --text-base: 0.9375rem; /* 15px (was 14px) */
-  --text-lg: 1.25rem;    /* 20px (was 18px) */
-  --text-xl: 1.625rem;   /* 26px (was 24px) */
+  --text-xs: 0.75rem;     /* 11.25px */
+  --text-sm: 0.875rem;    /* 13.13px */
+  --text-base: 0.9375rem; /* 14.06px */
+  --text-md: 1.125rem;    /* 16.88px — the step between base and lg that section titles need */
+  --text-lg: 1.25rem;     /* 18.75px */
+  --text-xl: 1.625rem;    /* 24.38px */
+  --text-2xl: 2rem;       /* 30px */
   --line-height: 1.65;
+
+  /* ── Typography: the ROLES ──
+     A role is what a piece of text IS in the product, and it is the only thing a
+     component chooses. Heading LEVEL is a separate dimension: it says where the
+     text sits in the accessibility outline, never how large it is, so a section
+     rendered as h3 because it is nested still looks like every other section.
+     Use them through the .t-* classes in typography.css; these tokens exist so a
+     component that must set the size on its own element still lands on the ramp. */
+  --role-page-title-size: var(--text-xl);
+  --role-page-title-weight: 700;
+  --role-page-title-lh: 1.25;
+
+  --role-section-title-size: var(--text-md);
+  --role-section-title-weight: 600;
+  --role-section-title-lh: 1.35;
+
+  --role-subsection-title-size: var(--text-base);
+  --role-subsection-title-weight: 600;
+  --role-subsection-title-lh: 1.4;
+
+  --role-body-size: var(--text-base);
+  --role-body-weight: 400;
+  --role-body-lh: var(--line-height);
+
+  --role-body-2-size: var(--text-sm);
+  --role-body-2-weight: 400;
+  --role-body-2-lh: 1.6;
+
+  --role-label-size: var(--text-xs);
+  --role-label-weight: 500;
+  --role-label-lh: 1.4;
+  --role-label-tracking: 0.04em;
+
+  --role-meta-size: var(--text-xs);
+  --role-meta-weight: 400;
+  --role-meta-lh: 1.5;
+
+  --role-metric-size: var(--text-lg);
+  --role-metric-weight: 700;
+  --role-metric-lh: 1.2;
+
+  --role-code-size: var(--text-xs);
+  --role-code-weight: 400;
+  --role-code-lh: 1.5;
 
   /* Spacing — slightly larger scale */
   --sp-1: 4px;
@@ -56,10 +122,12 @@
   --sp-6: 32px;
   --sp-8: 40px;
 
-  /* Radii */
+  /* Radii — one ramp, same rule as the type ramp: no component invents a value. */
   --radius: 10px;
+  --radius-md: 8px;
   --radius-sm: 6px;
   --radius-xs: 4px;
+  --radius-pill: 999px;
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -87,15 +155,17 @@
   --c-text-3: #5f6d80; /* clears AA 4.5:1 on light surfaces, still dimmer than text-2 */
   --c-border: #e2e8f0;
   --c-border-subtle: rgba(0, 0, 0, 0.04);
-  --c-ok: #059669;
-  --c-ok-bg: rgba(5, 150, 105, 0.06);
-  --c-ok-border: rgba(5, 150, 105, 0.15);
-  --c-warn: #d97706;
-  --c-warn-bg: rgba(217, 119, 6, 0.06);
-  --c-warn-border: rgba(217, 119, 6, 0.15);
-  /* red-700: deepened from #dc2626 so warn(amber)↔err(red) clears the normal-vision
-     ΔE≥15 floor in light mode (was 14.4, now 18.8) — full-color readers can tell an
-     amber "partial" segment from a red "not-done" segment. warn stays amber. */
+  /* emerald-700: deepened from #059669 so ok-as-text (badges, scores, diff-added) clears
+     AA 4.5:1 on the white light surface (was 3.77, now 5.48). */
+  --c-ok: #047857;
+  --c-ok-bg: rgba(4, 120, 87, 0.06);
+  --c-ok-border: rgba(4, 120, 87, 0.15);
+  /* amber-700: deepened from #d97706 so warn-as-text clears AA 4.5:1 on white (was 3.19,
+     now 5.02) while staying amber — warn(amber)↔err(red) is ΔE 27 (well over the ΔE≥15
+     normal-vision floor), so a "partial" segment still reads distinct from "not done". */
+  --c-warn: #b45309;
+  --c-warn-bg: rgba(180, 83, 9, 0.06);
+  --c-warn-border: rgba(180, 83, 9, 0.15);
   --c-err: #b91c1c;
   --c-err-bg: rgba(185, 28, 28, 0.06);
   --c-err-border: rgba(185, 28, 28, 0.15);
@@ -104,9 +174,14 @@
   --c-info-border: rgba(37, 99, 235, 0.15);
   --c-neutral: #64748b;
   --c-neutral-bg: rgba(100, 116, 139, 0.06);
-  --c-accent: #6366f1;
-  --c-accent-bg: rgba(99, 102, 241, 0.06);
-  --c-accent-hover: #4f46e5;
+  /* indigo-600: deepened from #6366f1 so accent-as-text (links, badges) AND white-on-accent
+     controls both clear AA 4.5:1 on the light surface (was 4.47/4.27, now 6.29/6.01). */
+  --c-accent: #4f46e5;
+  --c-accent-bg: rgba(79, 70, 229, 0.06);
+  --c-accent-border: rgba(79, 70, 229, 0.24);
+  --c-accent-hover: #4338ca;
+  /* On the darker light-mode accent, white now clears AA (6.29:1). */
+  --c-on-accent: #ffffff;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
 }

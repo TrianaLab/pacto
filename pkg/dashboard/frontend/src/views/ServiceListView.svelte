@@ -166,7 +166,7 @@
     transition: all var(--transition);
   }
   .graph-cta:hover {
-    background: var(--c-accent); color: white;
+    background: var(--c-accent); color: var(--c-on-accent);
     text-decoration: none; box-shadow: var(--shadow-md);
   }
   .graph-cta-text { flex: 1; }

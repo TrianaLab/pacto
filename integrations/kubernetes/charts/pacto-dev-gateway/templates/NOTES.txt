@@ -1,0 +1,33 @@
+pacto-dev-gateway installed (local development only).
+
+  GatewayClass : {{ .Values.gateway.className }}
+  Gateway      : {{ .Values.gateway.name }} (namespace {{ .Release.Namespace }})
+  Listener     : HTTP on port {{ .Values.gateway.port }}
+  Envoy Service: {{ .Values.envoyService.type }}{{ if eq .Values.envoyService.type "NodePort" }} (nodePort {{ .Values.envoyService.httpNodePort }}){{ end }}
+
+Point the pacto-operator dashboard/Evidence HTTPRoutes at this Gateway:
+
+  helm upgrade --install pacto-operator ... \
+    --set dashboard.httproute.enabled=true \
+    --set dashboard.httproute.parentRefs[0].name={{ .Values.gateway.name }} \
+    --set dashboard.httproute.parentRefs[0].namespace={{ .Release.Namespace }}
+
+{{- if eq .Values.envoyService.type "NodePort" }}
+
+For kind, map the nodePort to localhost when creating the cluster:
+
+  kind create cluster --config - <<EOF
+  kind: Cluster
+  apiVersion: kind.x-k8s.io/v1alpha4
+  nodes:
+    - role: control-plane
+      extraPortMappings:
+        - containerPort: {{ .Values.envoyService.httpNodePort }}
+          hostPort: 8080
+  EOF
+
+Then reach the dashboard at http://localhost:8080/ — no port-forward.
+{{- end }}
+
+This chart is a developer convenience. It is NOT part of the production Pacto
+packaging and must not be installed in a production cluster.

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   breakableIdentifierHtml,
   statusClass,
+  statusLabel,
+  STATUS_FILTER_OPTIONS,
   complianceClass,
   complianceStatusClass,
   methodClass,
@@ -16,6 +18,10 @@ import {
   isReasonActionable,
   ownerDisplay,
   ownerKey,
+  parseOwnerKey,
+  ownerKeyLabel,
+  ownerKeyKind,
+  UNOWNED_KEY,
   ownerTeam,
   ownerMatchesFilter,
   ownerIsStructured,
@@ -45,9 +51,12 @@ import {
   summarizeFleet,
   summarize,
   shortDigest,
+  abbreviateDigests,
   driftBadgeClass,
   driftBadgeLabel,
   evaluationCoverageLabel,
+  completenessLabel,
+  completenessClass,
 } from './format.ts';
 
 describe('statusClass', () => {
@@ -151,6 +160,30 @@ describe('classificationClass', () => {
   it('maps unknown to badge-neutral', () => expect(classificationClass('other')).toBe('badge-neutral'));
 });
 
+describe('completenessLabel', () => {
+  it('maps complete/partial/empty to labels', () => {
+    expect(completenessLabel('complete')).toBe('Complete');
+    expect(completenessLabel('partial')).toBe('Partial');
+    expect(completenessLabel('empty')).toBe('Empty');
+  });
+  it('falls back to Unknown for missing and echoes unknown values', () => {
+    expect(completenessLabel(undefined)).toBe('Unknown');
+    expect(completenessLabel('weird')).toBe('weird');
+  });
+});
+
+describe('completenessClass', () => {
+  it('maps complete to ok, partial to warn, empty to neutral', () => {
+    expect(completenessClass('complete')).toBe('badge-ok');
+    expect(completenessClass('partial')).toBe('badge-warn');
+    expect(completenessClass('empty')).toBe('badge-neutral');
+  });
+  it('falls back to neutral for missing/unknown', () => {
+    expect(completenessClass(undefined)).toBe('badge-neutral');
+    expect(completenessClass('weird')).toBe('badge-neutral');
+  });
+});
+
 describe('changeTypeClass', () => {
   it('maps added to diff-added', () => expect(changeTypeClass('added')).toBe('diff-added'));
   it('maps removed to diff-removed', () => expect(changeTypeClass('removed')).toBe('diff-removed'));
@@ -240,8 +273,64 @@ describe('ownerDisplay', () => {
   it('prefers team over dri', () => expect(ownerDisplay({ team: 't', dri: 'd' })).toBe('t'));
 });
 
+// A DISPLAY LABEL IS NOT AN IDENTITY. ownerKey used to BE ownerDisplay, which made a
+// team called alice and a person called alice one owner: one page holding two
+// estates, one ranking row counting both, and a service whose revisions named each
+// of them classified as consistently owned.
 describe('ownerKey', () => {
-  it('is the same function as ownerDisplay', () => expect(ownerKey).toBe(ownerDisplay));
+  it('namespaces the team and the DRI so two owners of one name never merge', () => {
+    expect(ownerKey({ team: 'alice' })).toBe('team:alice');
+    expect(ownerKey({ dri: 'alice' })).toBe('dri:alice');
+    expect(ownerKey({ team: 'alice' })).not.toBe(ownerKey({ dri: 'alice' }));
+    // Both still READ as the same name, because they are both called alice.
+    expect(ownerDisplay({ team: 'alice' })).toBe(ownerDisplay({ dri: 'alice' }));
+  });
+
+  it('prefers the team, and is empty when nobody is named', () => {
+    expect(ownerKey({ team: 't', dri: 'd' })).toBe('team:t');
+    expect(ownerKey({ dri: 'd' })).toBe('dri:d');
+    // Contacts alone: ownership is declared, but there is no identity to route to.
+    expect(ownerKey({ contacts: [{ type: 'chat', value: '#sre' }] })).toBe('');
+    expect(ownerKey({})).toBe('');
+    expect(ownerKey(null)).toBe('');
+    expect(ownerKey('team/payments')).toBe('');
+  });
+
+  // Only the FIRST colon delimits, so an owner name may contain anything the schema
+  // permits — including a string that looks like another key — and still round-trip.
+  it('round-trips names containing separators and punctuation', () => {
+    for (const name of ['team/payments', 'dri:alice', 'a:b:c', 'external/sendgrid', 'ünïcode', '#hash', '?q=1&r=2']) {
+      for (const kind of ['team', 'dri'] as const) {
+        const key = ownerKey({ [kind]: name });
+        expect(key).toBe(`${kind}:${name}`);
+        expect(parseOwnerKey(key)).toEqual({ kind, value: name });
+        expect(ownerKeyLabel(key)).toBe(name);
+      }
+    }
+  });
+
+  it('matches the Go encoding, so a link built here and there is one link', () => {
+    // contract.OwnerKey.String() in pkg/contract/owner.go.
+    expect(ownerKey({ team: 'platform' })).toBe('team:platform');
+    expect(ownerKeyKind('team:platform')).toBe('Team');
+    expect(ownerKeyKind('dri:alice')).toBe('DRI');
+  });
+});
+
+describe('parseOwnerKey', () => {
+  // Fail closed. A bare name is ambiguous — it could be either namespace — and
+  // guessing would silently route a reader to one of two different owners.
+  it('rejects anything that is not unambiguously a canonical key', () => {
+    for (const bad of ['', 'alice', 'team', 'team:', 'dri:', ':alice', 'Team:alice', 'TEAM:alice', 'owner:alice', UNOWNED_KEY]) {
+      expect(parseOwnerKey(bad)).toBeNull();
+      expect(ownerKeyKind(bad)).toBe('');
+    }
+  });
+
+  it('gives back the raw string as a label when it is not a key, rather than nothing', () => {
+    expect(ownerKeyLabel(UNOWNED_KEY)).toBe(UNOWNED_KEY);
+    expect(ownerKeyLabel('alice')).toBe('alice');
+  });
 });
 
 describe('ownerTeam', () => {
@@ -281,15 +370,15 @@ describe('aggregateByOwner', () => {
   it('groups by canonical owner key', () => {
     const result = aggregateByOwner(services);
     const keys = result.map((r) => r.key);
-    expect(keys).toContain('team-a');
-    expect(keys).toContain('team-b');
+    expect(keys).toContain('team:team-a');
+    expect(keys).toContain('team:team-b');
     expect(keys).toContain('(unowned)');
-    expect(keys).toContain('alice');
+    expect(keys).toContain('dri:alice');
   });
 
   it('counts services correctly', () => {
     const result = aggregateByOwner(services);
-    const teamA = result.find((r) => r.key === 'team-a')!;
+    const teamA = result.find((r) => r.key === 'team:team-a')!;
     expect(teamA.services).toBe(3); // 'a', 'b', and 'd' (structured with team: team-a)
     expect(teamA.compliant).toBe(2);
     expect(teamA.warning).toBe(1);
@@ -297,13 +386,13 @@ describe('aggregateByOwner', () => {
 
   it('computes blast radius sum', () => {
     const result = aggregateByOwner(services);
-    const teamA = result.find((r) => r.key === 'team-a')!;
+    const teamA = result.find((r) => r.key === 'team:team-a')!;
     expect(teamA.totalBlast).toBe(3); // 2 + 1 + 0
   });
 
   it('computes compliance as the share of assessed services that are compliant', () => {
     const result = aggregateByOwner(services);
-    const teamA = result.find((r) => r.key === 'team-a')!;
+    const teamA = result.find((r) => r.key === 'team:team-a')!;
     // 2 compliant of 3 assessed (2 Compliant + 1 Warning + 0 Unknown/Invalid) → 67
     expect(teamA.compliancePercent).toBe(67);
   });
@@ -349,7 +438,7 @@ describe('aggregateByOwner', () => {
       { name: 'd', owner: { team: 't' }, contractStatus: 'NotEvaluated', blastRadius: 0 },
     ];
     const result = aggregateByOwner(svc);
-    const team = result.find((r) => r.key === 't')!;
+    const team = result.find((r) => r.key === 'team:t')!;
     const segTotal = team.compliant + team.warning + team.nonCompliant + team.reference + team.unknown + team.invalid + team.notEvaluated;
     expect(segTotal).toBe(team.services);
   });
@@ -363,7 +452,7 @@ describe('aggregateByOwner', () => {
       { name: 'e', owner: { team: 't' }, contractStatus: 'Reference', blastRadius: 0 },
       { name: 'f', owner: { team: 't' }, contractStatus: 'NotEvaluated', blastRadius: 0 },
     ];
-    const team = aggregateByOwner(svc).find((r) => r.key === 't')!;
+    const team = aggregateByOwner(svc).find((r) => r.key === 'team:t')!;
     // runtimeEvaluated = compliant + warning + nonCompliant + unknown (Reference/NotEvaluated excluded)
     expect(team.runtimeEvaluated).toBe(4);
     // conclusive = compliant + warning + nonCompliant (Unknown excluded)
@@ -382,7 +471,7 @@ describe('aggregateByOwner', () => {
       { name: 'd', owner: { team: 'team-r' }, contractStatus: 'Reference' }, // no readiness → notConfigured
     ];
     const result = aggregateByOwner(svc);
-    const team = result.find((r) => r.key === 'team-r')!;
+    const team = result.find((r) => r.key === 'team:team-r')!;
     expect(team.services).toBe(4);
     expect(team.ready).toBe(1);
     expect(team.partial).toBe(1);
@@ -396,7 +485,7 @@ describe('aggregateByOwner', () => {
       { name: 'y', owner: { team: 'clean-team' }, contractStatus: 'Compliant', blastRadius: 0, complianceScore: 100 },
     ];
     const result = aggregateByOwner(svc);
-    const team = result.find((r) => r.key === 'clean-team')!;
+    const team = result.find((r) => r.key === 'team:clean-team')!;
     expect(team.compliant).toBe(2);
     expect(team.warning).toBe(0);
     expect(team.nonCompliant).toBe(0);
@@ -412,7 +501,7 @@ describe('aggregateByOwner', () => {
       { name: 'd', owner: { team: 'mixed' }, contractStatus: 'Reference', blastRadius: 0 },
     ];
     const result = aggregateByOwner(svc);
-    const team = result.find((r) => r.key === 'mixed')!;
+    const team = result.find((r) => r.key === 'team:mixed')!;
     expect(team.compliant).toBe(1);
     expect(team.warning).toBe(1);
     expect(team.nonCompliant).toBe(1);
@@ -425,7 +514,7 @@ describe('aggregateByOwner', () => {
       { name: 'r1', owner: { team: 'ref-only' }, contractStatus: 'Reference', blastRadius: 0 },
     ];
     const result = aggregateByOwner(svc);
-    const team = result.find((r) => r.key === 'ref-only')!;
+    const team = result.find((r) => r.key === 'team:ref-only')!;
     expect(team.reference).toBe(1);
     expect(team.compliant).toBe(0);
     expect(team.compliancePercent).toBe(-1);
@@ -605,14 +694,14 @@ describe('aggregateByOwner — sorting/filtering support', () => {
   it('supports sort by services (descending)', () => {
     const result = aggregateByOwner(services);
     const sorted = [...result].sort((a, b) => b.services - a.services);
-    expect(sorted[0].key).toBe('team-a');
+    expect(sorted[0].key).toBe('team:team-a');
     expect(sorted[0].services).toBe(2);
   });
 
   it('supports sort by blast radius (descending)', () => {
     const result = aggregateByOwner(services);
     const sorted = [...result].sort((a, b) => b.totalBlast - a.totalBlast);
-    expect(sorted[0].key).toBe('team-b');
+    expect(sorted[0].key).toBe('team:team-b');
     expect(sorted[0].totalBlast).toBe(10);
   });
 
@@ -620,7 +709,7 @@ describe('aggregateByOwner — sorting/filtering support', () => {
     const result = aggregateByOwner(services);
     const sorted = [...result].sort((a, b) => a.compliancePercent - b.compliancePercent);
     // team-b: 0/1=0%, team-a: 1/2=50%, team-c: 2/2=100% (share of assessed compliant)
-    expect(sorted[0].key).toBe('team-b');
+    expect(sorted[0].key).toBe('team:team-b');
     expect(sorted[0].compliancePercent).toBe(0);
   });
 
@@ -628,14 +717,14 @@ describe('aggregateByOwner — sorting/filtering support', () => {
     const result = aggregateByOwner(services);
     const filtered = result.filter((o) => o.warning > 0);
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].key).toBe('team-a');
+    expect(filtered[0].key).toBe('team:team-a');
   });
 
   it('supports filter: has non-compliant', () => {
     const result = aggregateByOwner(services);
     const filtered = result.filter((o) => o.nonCompliant > 0);
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].key).toBe('team-b');
+    expect(filtered[0].key).toBe('team:team-b');
   });
 
   it('supports filter: fully compliant (100%)', () => {
@@ -643,14 +732,14 @@ describe('aggregateByOwner — sorting/filtering support', () => {
     const filtered = result.filter((o) => o.compliancePercent === 100);
     // team-c: 2 of 2 assessed compliant → 100%
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].key).toBe('team-c');
+    expect(filtered[0].key).toBe('team:team-c');
   });
 
   it('supports text filter by owner key', () => {
     const result = aggregateByOwner(services);
     const filtered = result.filter((o) => o.key.toLowerCase().includes('team-b'));
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].key).toBe('team-b');
+    expect(filtered[0].key).toBe('team:team-b');
   });
 });
 
@@ -1163,7 +1252,7 @@ describe('summarize', () => {
 
     // Owner aggregation
     expect(m.byOwner).toHaveLength(3); // team-a, team-b, (unowned)
-    const teamA = m.byOwner.find((o) => o.key === 'team-a')!;
+    const teamA = m.byOwner.find((o) => o.key === 'team:team-a')!;
     expect(teamA.services).toBe(2);
     expect(teamA.compliant).toBe(1);
     expect(teamA.warning).toBe(1);
@@ -1226,14 +1315,42 @@ describe('summarize', () => {
       { name: 'b', owner: { team: 'alpha' }, contractStatus: 'Compliant', readiness: { ...rdy().readiness, checks: [{ id: '2', type: 'url', category: 'aaa', status: 'done', weight: 1, earnedWeight: 1, excluded: false }] } },
     ];
     const m = summarize(services);
-    expect(m.byOwner[0].key).toBe('alpha');
-    expect(m.byOwner[1].key).toBe('zebra');
+    expect(m.byOwner[0].key).toBe('team:alpha');
+    expect(m.byOwner[1].key).toBe('team:zebra');
+    // Sorted by the NAME a reader scans, so the `team:`/`dri:` prefix never decides
+    // the order.
+    expect(m.byOwner.map((o) => o.label)).toEqual(['alpha', 'zebra']);
     expect(m.byCategory[0].category).toBe('aaa');
     expect(m.byCategory[1].category).toBe('zzz');
   });
 });
 
 // ── Lock and drift helpers ──
+
+describe('abbreviateDigests', () => {
+  const digest = `sha256:${'a1b2c3d4'.repeat(8)}`;
+  it('shortens a digest embedded in a sentence so the words around it stay readable', () => {
+    expect(abbreviateDigests(`api-gateway@${digest}: platform-foundations`)).toBe(
+      'api-gateway@a1b2c3d4a1b2…: platform-foundations',
+    );
+  });
+  it('shortens every digest in the text, not just the first', () => {
+    const out = abbreviateDigests(`${digest} and ${digest}`);
+    expect(out).toBe('a1b2c3d4a1b2… and a1b2c3d4a1b2…');
+  });
+  it('leaves text without a digest exactly as it was', () => {
+    expect(abbreviateDigests('prod/k8s/api-gateway')).toBe('prod/k8s/api-gateway');
+    expect(abbreviateDigests('domain payments')).toBe('domain payments');
+  });
+  it('leaves a short tag-like reference alone (it is not a digest)', () => {
+    expect(abbreviateDigests('svc@v1.2.0')).toBe('svc@v1.2.0');
+    expect(abbreviateDigests('registry:5000/app')).toBe('registry:5000/app');
+  });
+  it('returns empty string for null and undefined', () => {
+    expect(abbreviateDigests(null)).toBe('');
+    expect(abbreviateDigests(undefined)).toBe('');
+  });
+});
 
 describe('shortDigest', () => {
   it('strips sha256: prefix and truncates to 8 chars by default', () => {
@@ -1426,7 +1543,33 @@ describe('summarize B-2 ruling', () => {
       { name: 'b', owner: { team: 't' }, contractStatus: 'Unknown', blastRadius: 0 },
     ];
     const m = summarize(services);
-    const team = m.byOwner.find((o) => o.key === 't')!;
+    const team = m.byOwner.find((o) => o.key === 'team:t')!;
     expect(team.compliancePercent).toBe(50); // 1/(1+1) = 50%, Unknown in denominator
+  });
+});
+
+describe('STATUS_FILTER_OPTIONS', () => {
+  // Both status pickers used to hand-list four of the seven statuses, and both omitted
+  // NotEvaluated -- the value most rows in the services list actually carry, so the
+  // dominant state in a list was missing from that list's own filter.
+  const BADGEABLE = ['Compliant', 'Warning', 'NonCompliant', 'Invalid', 'Unknown', 'NotEvaluated'];
+
+  it('offers every status the product can badge', () => {
+    for (const s of BADGEABLE) expect(STATUS_FILTER_OPTIONS).toContain(s);
+  });
+
+  // Reference marks a bundle that exists only to be referenced, not an assessment
+  // outcome, so it is not a state anyone triages by.
+  it('omits Reference, which is not an assessment outcome', () => {
+    expect(STATUS_FILTER_OPTIONS).not.toContain('Reference');
+  });
+
+  // Pins the order (worst first, the way the triage lists read) AND that every option is
+  // a wire value the badges know: a typo'd one would fall through statusLabel and show
+  // the raw token in the picker above rows badged in plain words.
+  it('reads worst-first, in the same words the badges use', () => {
+    expect(STATUS_FILTER_OPTIONS.map(statusLabel)).toEqual([
+      'Not compliant', 'Invalid', 'Warning', 'Unknown', 'Not evaluated', 'Compliant',
+    ]);
   });
 });

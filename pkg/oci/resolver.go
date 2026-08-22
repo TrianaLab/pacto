@@ -102,6 +102,32 @@ func (r *Resolver) Resolve(ctx context.Context, ref string, mode ResolveMode) (*
 // Additional error type:
 //   - *NoMatchingVersionError: no tags satisfy the constraint
 func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint string, mode ResolveMode) (*contract.Bundle, error) {
+	bundle, _, err := r.resolvePinned(ctx, ref, constraint, mode)
+	return bundle, err
+}
+
+// ResolvePinned is [Resolver.Resolve] plus the identity of the artifact the
+// returned bundle actually came from, obtained as ONE observation with the
+// content (see [CachedStore.PullPinned]). Asking the registry for a digest AFTER
+// a pull is a second observation of a mutable tag: re-pushed in between, it
+// names bytes the caller never read.
+//
+// LocalOnly reports the record written beside the cached bundle, read from the
+// same cache generation as the bytes — never re-derived, which offline would
+// mean dialing a registry the mode promised not to touch. Its Ref is what the
+// cache says these bytes ARE. An entry that recorded nothing reports nothing,
+// and the caller's own reference is then all there is.
+//
+// Remote resolution reports the digest alone, because there is no second
+// identity to carry: the bytes came from the registry under the reference this
+// call named, or from a cache entry that STATES that reference — a stored
+// generation naming any other reference is not a hit for this one and the
+// registry is asked (see [CachedStore.pullCached]).
+func (r *Resolver) ResolvePinned(ctx context.Context, ref string, mode ResolveMode) (*contract.Bundle, CachedRef, error) {
+	return r.resolvePinned(ctx, ref, "", mode)
+}
+
+func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mode ResolveMode) (*contract.Bundle, CachedRef, error) {
 	ref = strings.TrimPrefix(ref, "oci://")
 
 	if mode == LocalOnly {
@@ -115,12 +141,12 @@ func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint strin
 			// Pass through typed errors (auth/unreachable/not-found/invalid) —
 			// only a genuine no-match-for-constraint becomes NoMatchingVersion.
 			if typed := classifyPullError(err); typed != nil {
-				return nil, typed
+				return nil, CachedRef{}, typed
 			}
 			if constraint != "" {
-				return nil, &NoMatchingVersionError{Ref: ref, Constraint: constraint, Err: err}
+				return nil, CachedRef{}, &NoMatchingVersionError{Ref: ref, Constraint: constraint, Err: err}
 			}
-			return nil, &ArtifactNotFoundError{Ref: ref, Err: err}
+			return nil, CachedRef{}, &ArtifactNotFoundError{Ref: ref, Err: err}
 		}
 		ref = resolved
 	}
@@ -180,35 +206,109 @@ func classifyPullError(err error) error {
 	return nil
 }
 
-func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, error) {
-	bundle, err := r.store.Pull(ctx, ref)
-	if err != nil {
-		// A cached store can still reach the registry, so surface typed
-		// auth/not-found/unreachable/invalid errors rather than masking every
-		// failure as a local-cache miss.
-		if typed := classifyPullError(err); typed != nil {
-			return nil, typed
-		}
-		return nil, &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
-	}
-	if bundle.Contract == nil {
-		return nil, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
-	}
-	return bundle, nil
+// cachedPuller is a store that can serve from its own cache, with the identity
+// recorded for what it serves, without contacting the registry (see
+// [CachedStore.PullCachedPinned]).
+type cachedPuller interface {
+	PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool)
 }
 
-func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, error) {
+func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {
+	// A cached store's Pull falls through to the REGISTRY on a cache miss, so
+	// asking it to Pull would make LocalOnly a network call -- the exact opposite
+	// of what the mode promises, and enough to hang a caller that walks thousands
+	// of cached refs offline. Read the cache directly when the store can.
+	if cp, ok := r.store.(cachedPuller); ok {
+		bundle, rec, hit := cp.PullCachedPinned(ctx, ref)
+		if !hit {
+			return nil, CachedRef{}, &ArtifactNotFoundError{Ref: ref, Err: errors.New("not found in local cache")}
+		}
+		// The whole record travels, reference included: it came from the generation
+		// that supplied these bytes, and the reference the caller used to find it is
+		// only a lookup key.
+		return localBundle(ref, bundle, rec)
+	}
+	// A store with no cache of its own has nothing "local" to read; its Pull is
+	// the only option, and its typed auth/not-found/unreachable errors are more
+	// useful to the caller than a blanket cache miss.
 	bundle, err := r.store.Pull(ctx, ref)
 	if err != nil {
 		if typed := classifyPullError(err); typed != nil {
-			return nil, typed
+			return nil, CachedRef{}, typed
 		}
-		return nil, err
+		return nil, CachedRef{}, &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
+	}
+	// Nothing recorded an identity for these bytes, so none is claimed.
+	return localBundle(ref, bundle, CachedRef{})
+}
+
+func localBundle(ref string, bundle *contract.Bundle, rec CachedRef) (*contract.Bundle, CachedRef, error) {
+	if bundle.Contract == nil {
+		return nil, CachedRef{}, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
+	}
+	return bundle, rec, nil
+}
+
+func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {
+	bundle, digest, err := pullPinned(ctx, r.store, ref)
+	if err != nil {
+		if typed := classifyPullError(err); typed != nil {
+			return nil, CachedRef{}, typed
+		}
+		return nil, CachedRef{}, err
 	}
 	if bundle.Contract == nil {
-		return nil, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
+		return nil, CachedRef{}, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
 	}
-	return bundle, nil
+	// Only the digest: these bytes were fetched under the reference this call
+	// named — or served by a cache entry that states it, since one stating any
+	// other reference is a miss — so the caller already holds their reference and
+	// no cache generation is claiming a different one.
+	return bundle, CachedRef{Digest: digest}, nil
+}
+
+// pinnedPuller is a store that binds the manifest digest it reports to the bytes
+// it downloaded (see [CachedStore.PullPinned]).
+type pinnedPuller interface {
+	PullPinned(ctx context.Context, ref string) (*contract.Bundle, string, error)
+}
+
+// pullPinned pulls ref and reports the digest of the artifact that answered. A
+// store that can bind the two itself (and cache the result) is asked to; any
+// other store is pinned generically.
+func pullPinned(ctx context.Context, store BundleStore, ref string) (*contract.Bundle, string, error) {
+	if pp, ok := store.(pinnedPuller); ok {
+		return pp.PullPinned(ctx, ref)
+	}
+	return resolveAndPull(ctx, store, ref)
+}
+
+// resolveAndPull fetches ref and the manifest digest of the artifact that
+// answered, as ONE observation.
+//
+// A tag is MUTABLE, so "download the tag" and "ask what the tag points at" are
+// two observations of a moving target: re-pushed in between, the second answers
+// with a digest naming bytes nobody downloaded, and the caller then publishes
+// bundle A under digest B. So the tag is resolved ONCE and the content is
+// fetched from the digest-pinned reference the resolve named — digest and bytes
+// agree by construction. A registry that will not answer the resolve leaves the
+// identity unknown and the tag is fetched as written: real content, no claimed
+// digest, which is the honest report.
+func resolveAndPull(ctx context.Context, store BundleStore, ref string) (*contract.Bundle, string, error) {
+	digest, target := digestFromRef(ref), ref
+	if digest == "" {
+		// An empty digest is "the registry would not say", whether it arrived as an
+		// error or as a blank answer. Pinning to it would fetch "<repo>@", which
+		// names nothing.
+		if d, err := store.Resolve(ctx, ref); err == nil && d != "" {
+			digest, target = d, PinRefToDigest(ref, d)
+		}
+	}
+	bundle, err := store.Pull(ctx, target)
+	if err != nil {
+		return nil, "", err
+	}
+	return bundle, digest, nil
 }
 
 // FilterSemverTags returns only valid semver tags, sorted descending (latest first).

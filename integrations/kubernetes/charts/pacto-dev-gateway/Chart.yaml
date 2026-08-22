@@ -1,0 +1,27 @@
+apiVersion: v2
+name: pacto-dev-gateway
+description: >-
+  Local-development API gateway for Pacto. Installs the Envoy Gateway controller
+  (Gateway API implementation) plus a GatewayClass and a Gateway so the
+  pacto-operator chart's dashboard/Evidence HTTPRoutes have a controller to attach
+  to — giving a stable local URL instead of kubectl port-forward. This is a
+  developer-convenience chart; it is NOT part of the production Pacto packaging and
+  is not published to Artifact Hub.
+type: application
+version: 0.1.0
+appVersion: v1.2.1
+keywords:
+  - pacto
+  - gateway-api
+  - envoy
+  - local-development
+dependencies:
+  # The Envoy Gateway controller. Its crds/ (Gateway API + EnvoyProxy CRDs) are
+  # installed by Helm before this chart's templates, so the GatewayClass/Gateway/
+  # EnvoyProxy resources below apply in the same release. Disable with
+  # envoyGateway.enabled=false to reuse an already-installed controller.
+  - name: gateway-helm
+    alias: envoyGateway
+    version: v1.2.1
+    repository: oci://docker.io/envoyproxy
+    condition: envoyGateway.enabled

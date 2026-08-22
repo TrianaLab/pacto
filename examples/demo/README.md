@@ -22,7 +22,7 @@ For the runtime compliance story, see the real end-to-end journeys, which reconc
 a contract on a live cluster and drive its status through a Compliant → Unknown →
 Compliant transition:
 
-- kind acceptance harness: [`tests/e2e/kind/run.sh`](../../tests/e2e/kind/run.sh)
+- kind acceptance harness: [`tests/acceptance/kind/reconcile.sh`](../../tests/acceptance/kind/reconcile.sh)
 - operator envtest acceptance suite: `make -C integrations/kubernetes test-e2e`
 - scenario-to-proof map: [`docs/examples/compliance-scenarios.md`](../../docs/examples/compliance-scenarios.md)
 
@@ -41,6 +41,17 @@ index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base
 ```
 
 - `source_embed.go` — indexes the embedded bundles and implements `dashboard.DataSource`.
+- `source_fleet.go` — builds the operational graph the product UI reads: the embedded
+  revisions plus five sources, so the demo shows a real estate rather than a clean
+  one. A registry (what was declared), a cluster collector (what is running), a
+  telemetry collector that corroborates two of those targets and contributes the
+  observed call edges, a partial registry mirror and an unreachable edge cluster.
+  Between them the targets cover three compliance verdicts (Compliant,
+  NonCompliant and Unknown), exact and inferred revision matches alongside targets
+  with nothing to match against, fresh / stale / never-observed evidence, one
+  service running in two scopes, and the labels and observed runtime values a
+  target page exists to show. Nothing is invented: a target with no evidence stays Unknown, and
+  the only EXACT match pins the real content digest of an embedded revision.
 - `main_wasm.go` — builds the dashboard's Huma API in memory and exposes `__pactoServe`.
 - `boot.js` — loads the wasm engine and shims `fetch` for `/api`, `/health`, `/metrics`.
 

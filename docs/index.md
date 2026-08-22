@@ -42,12 +42,34 @@ Pacto doesn't invent a new configuration language. An interface is a JSON Schema
 The contract states stable operational *intent*. It is deliberately not a deployment manifest and not a snapshot of every runtime detail — how a service is scheduled, scaled and wired stays with the platform, and what reality currently looks like is an *observation* gathered separately and evaluated against the contract. Pacto is an **operational contract system** made of three complementary pieces:
 
 - **CLI** — author, validate, diff, explain and publish contracts
-- **Dashboard** — explore contracts, dependency graphs, versions, readiness and diffs visually
+- **Dashboard** — see operational state, the service inventory, the operational graph and change analysis visually
 - **Kubernetes Operator** — one runtime evidence source that verifies live workloads still match the contract
 
 No sidecars. No new distribution plane. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification.
 
 Underneath those products is one model — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits **Evidence**, the pure engine evaluates `Contract × Evidence`, and consumers surface or act on the results. The stable extension boundary is the `EvidenceSet`; the Kubernetes operator hosts the first shipped collector, and other collectors may live inside or outside this repo. See [Collectors and the evidence boundary](collectors.md).
+
+---
+
+## From one contract to an operational graph
+
+A single contract describes one service. Composed across a whole platform, those
+contracts, their revisions and the targets they run in become a **versioned,
+verifiable operational graph that humans, automation and agents can reason over**.
+Pacto is to service operations what OpenAPI is to HTTP APIs — and where an OpenAPI
+document describes one interface, the operational graph describes the relationships
+*between* many services and how far a change reaches. Its four capabilities are
+**Diff · Graph · Enforce · Verify**.
+
+Think of it against Internal Developer Platforms. IDPs make platform *capabilities*
+consumable by humans through portals, golden paths, catalogues and workflows.
+Pacto makes platform *knowledge* consumable by machines through contracts,
+relationships, constraints, tools and evidence. Pacto is not an IDP, a portal, a
+deployment engine or an authorization system — it is the machine-readable
+operational layer *over* a platform. A human portal and an agent can consume the
+same Pacto graph. See [The Pacto Operational Graph](operational-graph.md), and
+[Concepts](concepts.md) for the distinctions that graph is careful never to
+collapse.
 
 ---
 
@@ -112,7 +134,7 @@ Pacto earns its keep when operational knowledge is scattered, implicit, or outda
 1. Developer writes a pacto.yaml alongside their code
 2. pacto validate checks it (structure, cross-references, policy)
 3. pacto push ships the contract to an OCI registry as a versioned artifact
-4. pacto dashboard explores contracts, graphs, versions, and diffs visually
+4. pacto dashboard shows operational state, the graph, and change analysis
 5. The Kubernetes operator verifies runtime stays faithful to the contract
 ```
 
@@ -163,7 +185,7 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
 - **Rich documentation** — `pacto doc` generates Markdown with architecture diagrams, interface tables, and configuration details
 - **SBOM diffing** — optional SPDX or CycloneDX SBOM inclusion with automatic package-level change detection on `pacto diff`
-- **Contract exploration dashboard** — `pacto dashboard` launches a web UI for navigating contracts, dependency graphs, version history, interface details, configuration schemas, readiness and diffs across local, OCI, and Kubernetes sources
+- **Operational dashboard** — `pacto dashboard` launches a web UI organised around four workflows — an operational **Overview**, the **Services** inventory, the **Operational Graph** and **Change analysis** — across local, OCI, and Kubernetes data sources
 - **Runtime fidelity verification** — the optional [Kubernetes Operator](integrations/kubernetes/overview.md) continuously checks that deployed services match their contracts — workload alignment, state model, capability reachability, and more
 - **AI assistant integration** — `pacto mcp` exposes contract create, edit, validate and schema operations as [MCP](https://modelcontextprotocol.io) tools for Claude, Cursor and GitHub Copilot
 
@@ -215,6 +237,7 @@ These primitives compose into reusable platform patterns — root + component co
 - **Not another configuration language** — an interface is a JSON Schema, OpenAPI or protobuf definition you already own; Pacto composes those rather than replacing them
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
+- **Not an IDP, portal or authorization system** — it is the machine-readable operational layer *over* a platform, not the portal humans click or the system that decides who may act
 
 See the [Manifesto](manifesto.md) for the full positioning and rationale.
 

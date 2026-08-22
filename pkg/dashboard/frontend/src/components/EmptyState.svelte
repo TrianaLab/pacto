@@ -1,7 +1,13 @@
 <script>
   // `error` (string or true) switches to an error variant with an optional Retry
   // button — so a failed fetch never masquerades as a benign empty state.
-  let { title = undefined, message = undefined, loading = false, error = null, onRetry = null } = $props();
+  //
+  // `level` is the heading level of the title. It used to be hard-coded to 3, which
+  // made an empty state sitting directly under a page's h1 a skipped level (h1 -> h3),
+  // a real WCAG 1.3.1 heading-order failure on any route whose whole content was an
+  // empty state. It defaults to 2 -- the common case, a page or workspace with nothing
+  // to show -- and a caller nesting one INSIDE an h2 section passes 3.
+  let { title = undefined, message = undefined, loading = false, error = null, onRetry = null, level = 2 } = $props();
 
   const errorText = $derived(message || (typeof error === 'string' ? error : ''));
 </script>
@@ -21,13 +27,13 @@
       <p style="margin-top:var(--sp-3); color:var(--c-text-3)">{message}</p>
     {/if}
   {:else if error}
-    <h3>{title || 'Couldn’t load'}</h3>
+    <svelte:element this={`h${level}`}>{title || 'Couldn’t load'}</svelte:element>
     {#if errorText}<p>{errorText}</p>{/if}
     {#if onRetry}
       <button type="button" class="retry-btn" onclick={onRetry}>Retry</button>
     {/if}
   {:else if title || message}
-    {#if title}<h3>{title}</h3>{/if}
+    {#if title}<svelte:element this={`h${level}`}>{title}</svelte:element>{/if}
     {#if message}<p>{message}</p>{/if}
   {/if}
 </div>
@@ -42,12 +48,14 @@
     text-align: center;
     color: var(--c-text-3);
     gap: var(--sp-3);
-    animation: fadeIn 0.3s ease-out;
+    /* No opacity fade-in: an in-flight opacity animation transiently dips the muted
+       title/message text below the AA contrast ratio (axe samples it mid-fade), and the
+       fade added no real value on a resting empty/error state. */
   }
-  .state-box h3 {
+  .state-box :is(h2, h3) {
     color: var(--c-text-2);
   }
-  .state-box.is-error h3 {
+  .state-box.is-error :is(h2, h3) {
     color: var(--c-err);
   }
   .retry-btn {

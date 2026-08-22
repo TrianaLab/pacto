@@ -191,8 +191,7 @@ func TestCachedStore_Pull_CorruptGzipFallsBack(t *testing.T) {
 	}
 
 	// Corrupt the cached file with invalid gzip data.
-	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store1, ref), "bundle.tar.gz")
 	if err := os.WriteFile(cachePath, []byte("not gzip"), 0644); err != nil {
 		t.Fatalf("failed to corrupt cache: %v", err)
 	}
@@ -215,7 +214,7 @@ func TestCachedStore_Pull_CorruptGzipFallsBack(t *testing.T) {
 func TestCachedStore_Pull_SaveErrorIgnored(t *testing.T) {
 	cacheDir := t.TempDir()
 	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	inner := &countingStore{bundle: newTestBundle()}
 	store := oci.NewCachedStore(inner)
@@ -298,7 +297,7 @@ func TestCachedStore_DisableCache_StillWritesToDisk(t *testing.T) {
 	}
 
 	// Verify bundle was written to disk.
-	cachePath := filepath.Join(store.CacheDir(), strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store, ref), "bundle.tar.gz")
 	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
 		t.Fatalf("expected bundle.tar.gz to be written at %s after DisableCache", cachePath)
 	}
@@ -319,7 +318,7 @@ func TestCachedStore_DisabledWhenHomeDirFails(t *testing.T) {
 	old := oci.SetUserHomeDirFn(func() (string, error) {
 		return "", errors.New("no home")
 	})
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	inner := &countingStore{bundle: newTestBundle()}
 	store := oci.NewCachedStore(inner)
@@ -353,8 +352,7 @@ func TestCachedStore_Pull_CorruptTarFallsBack(t *testing.T) {
 	}
 
 	// Overwrite with valid gzip but invalid tar content.
-	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store1, ref), "bundle.tar.gz")
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	_, _ = gw.Write([]byte("not a tar"))
@@ -394,8 +392,7 @@ func TestCachedStore_Pull_MissingPactoYamlFallsBack(t *testing.T) {
 	}
 
 	// Overwrite cache with valid gzip+tar but no pacto.yaml.
-	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store1, ref), "bundle.tar.gz")
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -439,8 +436,7 @@ func TestCachedStore_Pull_InvalidPactoYamlFallsBack(t *testing.T) {
 	}
 
 	// Overwrite with valid gzip+tar containing invalid pacto.yaml.
-	cachePath := filepath.Join(cacheDir, ".cache", "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store1, ref), "bundle.tar.gz")
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -471,7 +467,7 @@ func TestCachedStore_Pull_InvalidPactoYamlFallsBack(t *testing.T) {
 func TestCachedStore_Pull_ReadOnlyCacheDirIgnored(t *testing.T) {
 	cacheDir := t.TempDir()
 	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
-	defer oci.SetUserHomeDirFn(old)
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
 
 	inner := &countingStore{bundle: newTestBundle()}
 	store := oci.NewCachedStore(inner)
@@ -617,8 +613,7 @@ func TestCachedStore_XDGCacheHome(t *testing.T) {
 		t.Fatalf("Pull() error: %v", err)
 	}
 
-	cachePath := filepath.Join(customCache, "pacto", "oci",
-		strings.ReplaceAll(ref, ":", "/"), "bundle.tar.gz")
+	cachePath := filepath.Join(cachedDir(store, ref), "bundle.tar.gz")
 	if _, err := os.Stat(cachePath); err != nil {
 		t.Errorf("expected cache file at %s: %v", cachePath, err)
 	}
@@ -678,6 +673,113 @@ func TestCachedStore_Pull_AllFilesSurviveDiskCache(t *testing.T) {
 		}
 		if !strings.Contains(string(data), wantSubstr) {
 			t.Errorf("%s content = %q, want it to contain %q", path, string(data), wantSubstr)
+		}
+	}
+}
+
+// resolveErrStore is a countingStore whose registry refuses to state a digest.
+type resolveErrStore struct{ countingStore }
+
+func (s *resolveErrStore) Resolve(context.Context, string) (string, error) {
+	return "", errors.New("registry says no")
+}
+
+// cachedDir is where the store writes ref's bundle and its sidecar. It mirrors
+// the unexported entryDir rule: entries live in a reserved namespace no legacy
+// key can reach, the tag is a directory of its own, and every other ':' — a
+// registry port, a digest algorithm — is escaped inside its segment so that two
+// references never spell to one entry.
+func cachedDir(store *oci.CachedStore, ref string) string {
+	repo, tag := ref, "%00"
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		repo, tag = ref[:colon], strings.ReplaceAll(ref[colon+1:], ":", "%3A")
+	}
+	return filepath.Join(store.CacheDir(), "_v2",
+		filepath.FromSlash(strings.ReplaceAll(repo, ":", "%3A")), tag)
+}
+
+func TestCachedStore_Pull_WritesRefSidecar(t *testing.T) {
+	store, inner := newCachedStoreWithTempDir(t)
+	ref := "localhost:5000/demo/checkout:1.0.0"
+
+	if _, err := store.Pull(context.Background(), ref); err != nil {
+		t.Fatalf("Pull() error: %v", err)
+	}
+
+	// The PATH cannot say what this is: ':' is spelled '/', so the port and the
+	// tag are indistinguishable from path segments. The sidecar can, and must —
+	// otherwise the same published artifact enters the fleet a second time under
+	// a guessed domain and a derived content digest.
+	rec, ok := oci.ReadCachedRef(cachedDir(store, ref))
+	if !ok {
+		t.Fatal("no ref sidecar beside the cached bundle")
+	}
+	if rec.Ref != ref {
+		t.Errorf("sidecar ref = %q, want the exact pulled ref %q", rec.Ref, ref)
+	}
+	if rec.Digest != "sha256:abc123" {
+		t.Errorf("sidecar digest = %q, want the manifest digest the registry reported", rec.Digest)
+	}
+	if inner.pullCount.Load() != 1 {
+		t.Errorf("expected 1 inner pull, got %d", inner.pullCount.Load())
+	}
+}
+
+func TestCachedStore_Pull_SidecarTakesDigestFromPinnedRef(t *testing.T) {
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
+
+	// A digest-pinned ref already carries its own identity, so recording it costs
+	// no round trip — this store's Resolve would have reported a different digest.
+	inner := &resolveErrStore{countingStore{bundle: newTestBundle()}}
+	store := oci.NewCachedStore(inner)
+	ref := "ghcr.io/x/svc@sha256:deadbeef"
+
+	if _, err := store.Pull(context.Background(), ref); err != nil {
+		t.Fatalf("Pull() error: %v", err)
+	}
+	rec, ok := oci.ReadCachedRef(cachedDir(store, ref))
+	if !ok || rec.Digest != "sha256:deadbeef" {
+		t.Errorf("sidecar = %+v (ok=%v), want the digest the ref already pins", rec, ok)
+	}
+}
+
+func TestCachedStore_Pull_SidecarDigestUnknownWhenRegistryWontSay(t *testing.T) {
+	cacheDir := t.TempDir()
+	old := oci.SetUserHomeDirFn(func() (string, error) { return cacheDir, nil })
+	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
+
+	inner := &resolveErrStore{countingStore{bundle: newTestBundle()}}
+	store := oci.NewCachedStore(inner)
+	ref := "ghcr.io/x/svc:1.0.0"
+
+	if _, err := store.Pull(context.Background(), ref); err != nil {
+		t.Fatalf("Pull() error: %v", err)
+	}
+	// Unknown, not guessed: the reader reports an approximate identity rather
+	// than inventing an immutable one.
+	rec, ok := oci.ReadCachedRef(cachedDir(store, ref))
+	if !ok || rec.Ref != ref || rec.Digest != "" {
+		t.Errorf("sidecar = %+v (ok=%v), want the ref with no digest", rec, ok)
+	}
+}
+
+func TestReadCachedRef_Unusable(t *testing.T) {
+	dir := t.TempDir()
+	if _, ok := oci.ReadCachedRef(dir); ok {
+		t.Error("absent sidecar reported as usable")
+	}
+	for name, body := range map[string]string{
+		"corrupt":   "{not json",
+		"empty ref": `{"digest":"sha256:abc"}`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, oci.CachedRefFile), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := oci.ReadCachedRef(dir); ok {
+			t.Errorf("%s sidecar reported as usable", name)
 		}
 	}
 }

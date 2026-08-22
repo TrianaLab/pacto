@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"io"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
 // embeddedBundles holds the demo contracts baked into the wasm binary at build
@@ -20,6 +22,15 @@ import (
 //
 //go:embed bundles
 var embeddedBundles embed.FS
+
+// embeddedPartners holds a SECOND domain's contracts. They are kept out of
+// ./bundles deliberately: one of them is another "platform-app-config", and the
+// legacy name-keyed source cannot hold two services with the same name. Only the
+// operational graph, which identifies a service by domain AND name, can — which
+// is the whole reason this domain exists in the demo.
+//
+//go:embed partners
+var embeddedPartners embed.FS
 
 // handler is the in-memory dashboard router (the same Huma operations the real
 // `pacto dashboard` server serves), driven per request from JavaScript.
@@ -39,11 +50,33 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	partnersRoot, err := fs.Sub(embeddedPartners, "partners")
+	if err != nil {
+		panic(err)
+	}
+	partners, err := NewEmbedSource(partnersRoot)
+	if err != nil {
+		panic(err)
+	}
 
 	// nil UI fs and nil resolver: the static host serves the UI, and the graph
 	// resolves from the embedded contracts' declared dependencies — no OCI.
 	srv := dashboard.NewServer(src, nil)
 	srv.SetVersion(version) // surfaced via /health → shown in the navbar
+
+	// Wire the operational graph (fleet) and impact provider from the embedded
+	// bundles + deterministic targets, so the Operational Graph and Impact pages
+	// prove the full product story in the browser with no server and no OCI.
+	if snap, byRef, err := buildDemoFleet(src, partners); err != nil {
+		panic(err)
+	} else {
+		q := fleet.NewQuery(snap)
+		srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return q, nil })
+		srv.SetImpactProvider(demoImpactProvider(snap, byRef))
+		// The observed capability is derived from the snapshot's observed edges;
+		// the demo carries them, so no flag is needed.
+	}
+
 	mux := http.NewServeMux()
 	api := humago.New(mux, dashboard.APIConfig())
 	srv.RegisterOperations(api)

@@ -52,6 +52,28 @@ type Config struct {
 	// When set, all namespaced dashboard resources are created with this owner,
 	// enabling ArgoCD to display them in the resource tree.
 	OwnerRef *metav1ac.OwnerReferenceApplyConfiguration
+
+	// EvidenceSourceURL, when set, is the internal URL of the operator-managed
+	// Evidence Server. The operator sets it when the evidence component is also
+	// enabled, so the dashboard consumes the evidence Operational Graph
+	// contribution read-only over HTTP (never mounting its bucket). Empty means
+	// no evidence source is configured (the dashboard reports it as unconfigured,
+	// not unavailable).
+	EvidenceSourceURL string
+
+	// InsecureRegistries is the comma-separated list of registry hosts the
+	// dashboard may reach over plain HTTP, inherited verbatim from the operator's
+	// own environment. The dashboard resolves contract revisions itself, so a
+	// controlled in-cluster registry has to be reachable by the workload, not just
+	// by the controller. Empty means every registry is https-only.
+	InsecureRegistries string
+
+	// Observation declares offline OTLP/JSON trace files to mount read-only into
+	// the dashboard, each under a stable Data Source name. Pacto reads exactly the
+	// declared files and never scans the mount; the trace exports themselves are
+	// produced and rotated by whoever owns their storage. This configures OFFLINE
+	// input only — Pacto ships no OTLP receiver and no collector.
+	Observation []ObservationSource
 }
 
 // EffectiveOCISecrets returns the resolved list of OCI secret names.
@@ -143,7 +165,7 @@ func (c Config) Validate() error {
 	if err := c.Resources.Validate(); err != nil {
 		return err
 	}
-	return nil
+	return c.validateObservation()
 }
 
 func hasLatestTag(image string) bool {

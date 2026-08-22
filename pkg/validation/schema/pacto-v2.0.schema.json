@@ -50,7 +50,7 @@
             "contacts": {
               "type": "array",
               "minItems": 1,
-              "description": "Provider-neutral ownership and escalation contact points.",
+              "description": "Provider-neutral ownership and escalation contact points. The list is a set: order carries no meaning, and repeating an identical contact point names the same one contact point rather than adding another.",
               "items": {
                 "type": "object",
                 "required": ["type", "value"],

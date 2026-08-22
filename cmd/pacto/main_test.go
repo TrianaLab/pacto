@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+func TestRun_InsecureRegistriesEnv(t *testing.T) {
+	t.Setenv("PACTO_INSECURE_REGISTRIES", "reg.local:5000, other:5001")
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+	os.Args = []string{"pacto", "version"}
+	if err := run(); err != nil {
+		t.Fatalf("run with insecure registries env: %v", err)
+	}
+}
+
 func TestSignalContext_CancelsOnSignal(t *testing.T) {
 	ctx, stop := signalContext()
 	defer stop()

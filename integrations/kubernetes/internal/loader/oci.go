@@ -21,7 +21,8 @@ import (
 
 // OCIPuller pulls Pacto contract bundles from OCI registries.
 type OCIPuller struct {
-	keychain authn.Keychain
+	keychain   authn.Keychain
+	clientOpts []oci.ClientOption
 }
 
 // NewOCIPuller creates an OCIPuller with credentials resolved via the Pacto
@@ -33,7 +34,30 @@ func NewOCIPuller() *OCIPuller {
 			Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
 			Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
 		}),
+		clientOpts: InsecureClientOptions(os.Getenv(InsecureRegistriesEnvVar)),
 	}
+}
+
+// InsecureRegistriesEnvVar names the comma-separated list of registry hosts to
+// reach over plain HTTP. The operator honours the same variable the pacto CLI
+// does, so one chart value configures the controller and the workloads it
+// manages identically.
+const InsecureRegistriesEnvVar = "PACTO_INSECURE_REGISTRIES"
+
+// InsecureClientOptions turns a comma-separated host list into OCI client
+// options. It is scoped per host, so https registries are unaffected; an empty
+// or blank list yields no options at all.
+func InsecureClientOptions(hosts string) []oci.ClientOption {
+	var parsed []string
+	for h := range strings.SplitSeq(hosts, ",") {
+		if s := strings.TrimSpace(h); s != "" {
+			parsed = append(parsed, s)
+		}
+	}
+	if len(parsed) == 0 {
+		return nil
+	}
+	return []oci.ClientOption{oci.WithInsecureRegistries(parsed...)}
 }
 
 // Pull fetches a Pacto bundle from an OCI registry reference.
@@ -44,7 +68,7 @@ func (p *OCIPuller) Pull(ctx context.Context, ref string, authOverride *authn.Au
 	ref = strings.TrimPrefix(ref, "oci://")
 
 	kc := p.effectiveKeychain(authOverride)
-	client := oci.NewClient(kc)
+	client := oci.NewClient(kc, p.clientOpts...)
 
 	// Resolve tag if not explicitly specified
 	resolvedRef, err := oci.ResolveRef(ctx, client, ref, "")
@@ -98,7 +122,7 @@ func (p *OCIPuller) ListTags(ctx context.Context, ref string, authOverride *auth
 	}
 
 	kc := p.effectiveKeychain(authOverride)
-	client := oci.NewClient(kc)
+	client := oci.NewClient(kc, p.clientOpts...)
 
 	tags, err := client.ListTags(ctx, ref)
 	if err != nil {

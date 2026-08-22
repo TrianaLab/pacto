@@ -49,6 +49,39 @@ helm install pacto-operator \
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
 - `dashboard.enabled` toggles the operator-managed dashboard.
 
+### Offline trace sources for the dashboard
+
+The dashboard's Operational Graph reconciles declared dependencies against
+observed ones, and observed evidence arrives as **offline OTLP/JSON trace
+exports**. The operator can mount them for you:
+
+```yaml
+dashboard:
+  enabled: true
+  observation:
+    sources:
+      - name: orders                      # stable Data Source identity
+        file: traces.json                 # relative to this source's mount
+        existingClaim: orders-trace-export
+```
+
+Each source is mounted **read-only** at `/var/lib/pacto/observation/<name>/`, and
+the dashboard reads exactly `<mount>/<file>` — no directory scanning, no writes.
+Use `existingClaim` for real exports (some other workload writes into the PVC) or
+`configMap` for small static exports; exactly one of the two per source. The
+`name` is the identity the API and UI show, so reordering the list never renames a
+source. Two entries claiming the same name are rejected by the operator when it
+reads its configuration; a name that collides with one of the dashboard's *other*
+data sources — the live cluster, OCI, the disk cache — is refused by the dashboard
+before a snapshot is built, rather than published as one name owned by two sources
+(see [Named observation sources](../../operational-graph.md#named-observation-sources)).
+
+Whoever owns that storage owns producing and rotating the exports. Pacto ships
+**no OTLP receiver** and deploys no collector: nothing listens on 4317 or 4318. If
+a source is missing or malformed the dashboard stays up and reports that Data
+Source as unavailable; a readable but old export is a healthy source with stale
+evidence, not a claim that a dependency vanished.
+
 See the [Helm reference](helm-reference.md) for the full value list and the
 [Operator configuration](operator-configuration.md) page for the underlying
 controller flags each value maps to.

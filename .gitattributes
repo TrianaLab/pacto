@@ -11,4 +11,15 @@
 # (e.g. spurious "semicolon insertion" on mermaid). That check is non-blocking
 # (not in the CI `required` set); its threads are resolved as generated-vendor
 # noise, never by editing these files.
-pkg/dashboard/ui/** linguist-generated=true
+#
+# `-whitespace` unsets Git's whitespace-error checking for the same paths, so
+# `git diff --check` stops failing on the minifier's output. The bundles carry
+# trailing whitespace inside minified string and template literals, where it is
+# content rather than sloppiness: it is what the source asked for, and stripping
+# it would change what the browser renders. The only two ways to "fix" it are to
+# hand-edit a generated file or to weaken the check for the whole repository,
+# and both are worse than telling Git the truth about these paths. The scope is
+# exactly the generated tree, so every authored file — Go, Svelte, TypeScript,
+# Markdown, YAML — is still whitespace-checked. Drift in this tree is caught by
+# `ci-ui-drift` rebuilding it, which is the gate that actually applies here.
+pkg/dashboard/ui/** linguist-generated=true -whitespace

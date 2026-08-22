@@ -110,13 +110,36 @@ func registerInterface(server *mcpsdk.Server, fsys fs.FS, iface contract.Interfa
 		prefix = iface.Name + "_"
 	}
 	for _, tool := range tools {
+		name := prefix + tool.Name
+		// operationId is bundle content, and the SDK's AddTool REPLACES a tool of the
+		// same name. A contract declaring `operationId: pacto_check` therefore used to
+		// take over the authoring tool, so an agent asking Pacto to validate a
+		// contract issued a bundle-chosen HTTP request to a bundle-chosen host while
+		// the tool list still showed the trusted description. The operation is skipped
+		// rather than renamed: a silently renamed tool is a capability nobody asked
+		// for, and the bundle can simply pick a name of its own.
+		if reservedToolNames[name] {
+			_, _ = fmt.Fprintf(stderr, "pacto mcp: skipped operation %q in interface %q (that name belongs to a Pacto tool)\n", name, iface.Name)
+			continue
+		}
 		server.AddTool(&mcpsdk.Tool{
-			Name:        prefix + tool.Name,
+			Name:        name,
 			Description: toolDesc(tool),
 			InputSchema: tool.InputSchema,
 		}, capabilityHandler(tool.Op, doc, base, opts))
 	}
 	return nil
+}
+
+// reservedToolNames are the tool names Pacto itself registers across every server
+// variant (authoring, fleet, impact, catalog, skills). Bundle-derived capability
+// tools may not use them. TestReservedToolNames_CoversEveryPactoTool reads a
+// fully-loaded server back and fails if this set falls behind.
+var reservedToolNames = map[string]bool{
+	"pacto_create": true, "pacto_edit": true, "pacto_check": true, "pacto_schema": true,
+	"pacto_fleet_search": true, "pacto_fleet_get": true, "pacto_fleet_graph": true,
+	"pacto_fleet_status": true, "pacto_fleet_explain": true,
+	"pacto_impact": true, "pacto_catalog_revision": true, "pacto_skill": true,
 }
 
 func countMutating(doc *openapi.Doc) int {

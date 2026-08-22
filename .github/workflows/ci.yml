@@ -37,7 +37,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           filters: |
@@ -68,6 +68,10 @@ jobs:
               - 'go.mod'
               - '**/Dockerfile'
               - 'examples/demo/**'
+              # The acceptance tree holds the canonical scenario every vertical
+              # projects — the kind fixture AND the distributed Compose artifact —
+              # plus the shared harness. A change there changes what they prove.
+              - 'tests/acceptance/**'
 
   ci-static:
     needs: changes
@@ -108,6 +112,28 @@ jobs:
           cache: 'npm'
           cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - run: make ci-dashboard
+
+  # Browser-level acceptance for the redesigned Operational Graph + Impact UI:
+  # build the WASM dashboard demo and drive it in a real (headless Chromium)
+  # browser with Playwright. No cluster required.
+  dashboard-e2e:
+    needs: changes
+    if: needs.changes.outputs.dashboard == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the demo build's `git describe` needs tags
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: pkg/dashboard/frontend/package-lock.json
+      - name: Deterministic browser acceptance over the built WASM demo
+        run: make test-browser
 
   ci-integration-kubernetes:
     needs: changes
@@ -196,17 +222,56 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [reconcile, dashboard, upgrade]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # The operational-graph scenario drives the LIVE dashboard in Chromium via
+      # Playwright, so it needs Node (the other scenarios do not).
+      - if: matrix.scenario == 'operational-graph'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+      # The evidence scenario's store is the OCI registry itself, so it needs an
+      # INDEPENDENT OCI client: ORAS is the observer that proves a third party
+      # discovers what Pacto published, and publishes evidence Pacto reads back.
+      - if: matrix.scenario == 'evidence'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         run: go install sigs.k8s.io/kind@v0.30.0
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-      - run: make ci-e2e-kind-${{ matrix.scenario }}
+      - run: make test-acceptance-kind-${{ matrix.scenario }}
+
+  # The same product vertical on the OTHER surface, proved the way a stranger meets
+  # it: the demo application is published to a local registry with `docker compose
+  # publish` and then executed straight out of it BY DIGEST. Nothing on the
+  # execution path reads the repository — not even a compose file — which is the
+  # claim, so it is the test. Same `e2e` filter as the kind shards: the heavy
+  # verticals run for anything that can change what they prove, plus the nightly
+  # schedule + manual dispatch.
+  ci-e2e-compose:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      # The demo's browser leg drives the LIVE dashboard in Chromium via Playwright.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+      # A Compose that owns this artifact type. The runner's own version is not a
+      # thing this repository controls, and the floor the demo declares
+      # (scenario.ComposeMinVersion) is what the harness enforces against it.
+      - uses: docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2 # v2.3.0
+        with:
+          version: v5.5.0
+      - run: make ci-e2e-compose
 
   release-dry-run:
     needs: changes
@@ -233,6 +298,10 @@ jobs:
         # stores + reads the ledger as an OCI artifact via oras — exactly as the
         # production publishers do.
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+      # The dry run rehearses the demo-compose unit, which Docker Compose publishes.
+      - uses: docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2 # v2.3.0
+        with:
+          version: v5.5.0
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - run: make release-dry-run
@@ -303,6 +372,7 @@ jobs:
       - artifact-drift
       - operator-build
       - ci-e2e-kind
+      - ci-e2e-compose
       - release-dry-run
       - release-version-test
     runs-on: ubuntu-latest

@@ -1,0 +1,155 @@
+suite: evidence server tests
+tests:
+  # --- operator args wiring ---
+  - it: does not pass evidence flags when evidence is disabled (default)
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-evidence-server
+
+  - it: passes the evidence flags when enabled
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-evidence-server
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-trust-secret=my-keys
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-subject=oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      # The bucket store is gone: no flag may reintroduce a second place evidence
+      # could live.
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: evidence-(bucket-url|prefix|persistence|existing-claim|storage-class)
+
+  - it: passes every configured subject and the credentials secret
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.credentialsSecret: registry-creds
+      evidence.registry.subjects:
+        - oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+        - oci://ghcr.io/acme/payments@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-subject=oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-subject=oci://ghcr.io/acme/payments@sha256:2222222222222222222222222222222222222222222222222222222222222222
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --evidence-credentials-secret=registry-creds
+
+  # Enabling evidence without naming a subject is an install-time failure, not a
+  # server that starts and reports an authoritative empty world.
+  - it: fails when evidence is enabled with no subject
+    template: templates/deployment.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+    asserts:
+      - failedTemplate:
+          # `.` for the separator on purpose: helm's bundled schema validator and
+          # the standalone plugin spell the failing path differently, and a gate
+          # that only fires on one of them is a gate that silently stops firing.
+          errorPattern: "evidence.registry.subjects"
+
+  # --- RBAC ---
+  # A fresh install grants no storage permission at all. Regaining PVC RBAC would
+  # mean the operator could once again create a place evidence lives outside the
+  # registry.
+  - it: never grants PVC RBAC
+    template: templates/clusterrole.yaml
+    set:
+      evidence.enabled: true
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
+    asserts:
+      - notExists:
+          path: $.rules[?(@.resources[*]=="persistentvolumeclaims")]
+
+  - it: always grants evidence teardown RBAC
+    template: templates/clusterrole.yaml
+    set:
+      evidence.enabled: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [deployments]
+            verbs: [get, delete]
+            resourceNames: [pacto-evidence]
+
+  # --- optional exposure ---
+  - it: renders no chart external evidence Service by default (ClusterIP, no exposure)
+    template: templates/evidence-service.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an external evidence Service for NodePort
+    template: templates/evidence-service.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
+      evidence.service.type: NodePort
+      evidence.service.nodePort: 30686
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 8686
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/component: evidence
+            app.kubernetes.io/name: pacto-evidence
+
+  - it: renders an evidence Ingress when enabled
+    template: templates/evidence-ingress.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
+      evidence.ingress.enabled: true
+    asserts:
+      - isKind:
+          of: Ingress
+
+  - it: renders no evidence Ingress by default
+    template: templates/evidence-ingress.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an evidence HTTPRoute when enabled
+    template: templates/evidence-httproute.yaml
+    set:
+      evidence.enabled: true
+      evidence.trust.existingSecret: my-keys
+      evidence.registry.subjects: [oci://ghcr.io/acme/orders@sha256:1111111111111111111111111111111111111111111111111111111111111111]
+      evidence.httpRoute.enabled: true
+    asserts:
+      - isKind:
+          of: HTTPRoute

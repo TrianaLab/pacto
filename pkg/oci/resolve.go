@@ -2,6 +2,7 @@ package oci
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,6 +15,12 @@ import (
 type TagLister interface {
 	ListTags(ctx context.Context, repo string) ([]string, error)
 }
+
+// ErrNoMatchingTag means the repository published no semver tag the request
+// could accept. It is a sentinel so a caller can tell "the registry holds
+// nothing for you" apart from "the registry could not be asked" without
+// matching on message text.
+var ErrNoMatchingTag = errors.New("no matching tag")
 
 // HasExplicitTag reports whether an OCI reference includes an explicit tag
 // or digest (e.g. "repo:v1" or "repo@sha256:...").
@@ -54,9 +61,9 @@ func BestTag(tags []string, constraint string) (string, error) {
 
 	if len(versions) == 0 {
 		if constraint != "" {
-			return "", fmt.Errorf("no tags satisfy constraint %q", constraint)
+			return "", fmt.Errorf("no tags satisfy constraint %q: %w", constraint, ErrNoMatchingTag)
 		}
-		return "", fmt.Errorf("no semver tags found")
+		return "", fmt.Errorf("no semver tags found: %w", ErrNoMatchingTag)
 	}
 
 	sort.Sort(semver.Collection(versions))

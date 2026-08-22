@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Partner Platform App Config",
+  "type": "object",
+  "properties": {
+    "PARTNER_ID": {
+      "type": "string"
+    },
+    "SETTLEMENT_WINDOW_MINUTES": {
+      "type": "integer",
+      "default": 15
+    },
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ],
+      "default": "info"
+    }
+  },
+  "required": [
+    "PARTNER_ID"
+  ]
+}

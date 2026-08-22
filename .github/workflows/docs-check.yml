@@ -15,8 +15,21 @@ on:
       - 'integrations/**/integration.yaml'
       - 'release/scripts/gen_integration_docs.py'
       - 'release/scripts/mkdocs_integration_hook.py'
+      - 'release/scripts/mkdocs_mermaid_hook.py'
       - 'release/scripts/docs_check.py'
+      - 'release/scripts/check_mermaid.py'
       - '.github/workflows/docs-check.yml'
+      # Inputs to the browser gate over the built site. The overlay config decides
+      # what is served and whether instant navigation engages; the spec and its
+      # config are the gate itself; the lockfile pins the Mermaid runtime the site
+      # now ships; Makefile/ci.mk are the dependency path that runs any of it.
+      - 'mkdocs.test.yml'
+      - 'pkg/dashboard/frontend/e2e-docs-site/**'
+      - 'pkg/dashboard/frontend/playwright.docs-site.config.ts'
+      - 'pkg/dashboard/frontend/package.json'
+      - 'pkg/dashboard/frontend/package-lock.json'
+      - 'Makefile'
+      - 'ci.mk'
       # Generated docs are regenerated from these cross-module sources, so a change
       # to any of them can drift the committed docs. docs-check must run to catch it
       # (see release/scripts/gen_integration_docs.py + docs_check.py for the inputs).
@@ -57,10 +70,29 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # Node provides npx, which check_mermaid.py uses to run mermaid-cli (mmdc),
+      # and the frontend's pinned Playwright + Mermaid for the browser gate below.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: pkg/dashboard/frontend/package-lock.json
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      # Blocking mermaid syntax gate: render every fenced ```mermaid block via mmdc.
+      # mkdocs --strict does not parse mermaid, so this is the only gate that sees
+      # EVERY diagram. Runs standalone for fast, clearly-labeled feedback; docs-check
+      # also depends on mermaid-check, so the gate holds even if this step is removed.
+      - name: Mermaid syntax gate
+        run: make mermaid-check
       # Full documentation gate: regenerate + zero-drift + strict build + validate
       # every fenced contract / CR example / flag / chart / artifact coordinate, and
       # prove docs-generate is deterministic (twice = no diff). See docs_check.py.
       - name: Docs check
         run: make docs-check
+      # What neither gate above can see: the site as a reader meets it. Builds the
+      # real site, serves it, and drives Chromium at a core page, an injected
+      # integration page and an instant navigation between two of them, with
+      # cross-origin requests aborted. See docs/maintainers/testing.md.
+      - name: Browser acceptance over the built site
+        run: make test-browser-docs-site

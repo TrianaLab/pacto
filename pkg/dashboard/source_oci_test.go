@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1376,6 +1378,38 @@ func TestRepoProviderFromSource(t *testing.T) {
 		if !expected[r] {
 			t.Errorf("unexpected repo %q", r)
 		}
+	}
+}
+
+// A digest-pinned running revision is NOT the latest tag, so reporting only the
+// repository would drop it: the provider must contribute both the exact ref and
+// the repository it names.
+func TestContractRefProviderFromSource(t *testing.T) {
+	src := &stubDataSource{
+		services: []Service{{Name: "svc-a"}, {Name: "svc-b"}, {Name: "svc-c"}},
+		details: map[string]*ServiceDetails{
+			"svc-a": {ResolvedRef: "reg.svc:5000/demo/a@sha256:" + strings.Repeat("a", 64)},
+			// Same repository as svc-a: the repo must not be contributed twice.
+			"svc-b": {ResolvedRef: "reg.svc:5000/demo/a:1.0.0"},
+			"svc-c": {}, // no ref at all
+		},
+	}
+	got := ContractRefProviderFromSource(src)(context.Background())
+	want := []string{
+		"reg.svc:5000/demo/a@sha256:" + strings.Repeat("a", 64),
+		"reg.svc:5000/demo/a",
+		"reg.svc:5000/demo/a:1.0.0",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("refs = %v, want %v", got, want)
+	}
+}
+
+// An unreadable cluster contributes no references — never a broken snapshot.
+func TestContractRefProviderFromSource_ListError(t *testing.T) {
+	src := &stubDataSource{listErr: fmt.Errorf("connection refused")}
+	if got := ContractRefProviderFromSource(src)(context.Background()); got != nil {
+		t.Errorf("refs = %v, want nil", got)
 	}
 }
 

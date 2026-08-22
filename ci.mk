@@ -8,9 +8,13 @@ BUNDLE_DIR := pactos/pacto-dashboard
 REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
-       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile ci-oci ci-gates docs-generate docs-check artifact-drift release-dry-run \
+       ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile \
+       ci-e2e-compose test-acceptance-compose test-browser-compose \
+       test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
+       test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
+       ci-oci ci-gates docs-generate docs-check docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
-       gen-openapi gen-config-schema gen-sbom gen-bundle
+       gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
 # The root aggregate. Every leg delegates to the REAL underlying gate across the
@@ -18,11 +22,13 @@ REPOWISE_VERSION ?= 0.36.0
 # .github/workflows/ci.yml requires.
 ci: ci-static ci-gates ci-engine ci-dashboard ci-integration-kubernetes ci-e2e-envtest ci-oci
 
-# Cross-cutting architecture + release gates. tests/architecture is the import-
-# boundary gate (core must stay k8s-free); tests/release holds the one-publisher,
-# demo-ref and release-plan gates. Both live under /tests/, which ci-test EXCLUDES
-# (grep -v /tests/), so they get their own leg here and an ALWAYS-run CI job — a
-# gate that never runs is not a gate.
+# Cross-cutting architecture/invariant + release-verification gates.
+# tests/architecture holds the structural rules about the repository itself (core
+# must stay k8s-free, collector docs exist, fleet routes stay neutral, the OTel
+# path stays offline, the U+00A7 checker really rejects the glyph); tests/release
+# holds the one-publisher, demo-ref and release-plan gates. Both live under
+# /tests/, which ci-test EXCLUDES (grep -v /tests/), so they get their own leg
+# here and an ALWAYS-run CI job — a gate that never runs is not a gate.
 ci-gates:
 	go test ./tests/architecture/... ./tests/release/...
 
@@ -30,11 +36,35 @@ ci-gates:
 ci-static: ci-static-engine
 	$(MAKE) -C integrations/kubernetes ci-static
 
-# Engine static gates (fmt, vet, cyclo, lint, CLI docs drift, UI build drift).
-ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint ci-docs ci-ui-drift
+# Engine static gates (fmt, vet, cyclo, lint, U+00A7 section-sign gate, CLI docs
+# drift, UI build drift, generated dashboard SDK drift). check-section is blocking
+# here, not only under `lint`. The SDK drift gate runs after ci-ui-drift so the
+# frontend's node_modules (npm ci) are already installed for the TS generator; the
+# composite CI action provides the pinned Go for the OpenAPI export step.
+ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-drift check-dashboard-sdk-drift
 
-# Engine leg: unit tests (100% coverage gate) + engine e2e.
-ci-engine: ci-test e2e
+# Engine leg: unit tests (100% coverage gate) + the in-process CLI integration
+# suite + the cluster-free local acceptance (tests/acceptance/local/fleet-graph.sh).
+# The Compose demo acceptance is NOT here: it needs a Docker daemon and an image
+# build, and ci-engine is the leg a contributor runs on a laptop with nothing
+# installed. It has its own job, ci-e2e-compose.
+ci-engine: ci-test test-integration test-acceptance-local
+
+# The distributed Compose demo, end to end from a registry: push the artifact,
+# pull it BY DIGEST into an empty directory outside the checkout, start it there
+# and prove the same canonical fixture the Kind vertical proves — minus the
+# capability Compose declares it does not have. See docs/maintainers/testing.md.
+#
+# test-browser-compose rather than test-acceptance-compose: same script, browser
+# leg on. The Playwright run costs a couple of minutes on top of a bring-up that
+# already happened, and the demo's claim is that the DASHBOARD works — proving only
+# the JSON API would leave the part users actually look at untested on this surface.
+#
+# The selftest goes first and is separate: it proves the harness only destroys
+# resources it created itself, which is a property of the harness rather than of
+# the demo, and it costs seconds. Running it after the acceptance would mean
+# learning that the privileged script is unsafe only once it had already run.
+ci-e2e-compose: test-acceptance-compose-selftest test-browser-compose
 
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui
@@ -44,7 +74,10 @@ ci-integration-kubernetes:
 	$(MAKE) -C integrations/kubernetes ci-test
 	$(MAKE) -C integrations/kubernetes ci-chart
 
-# Operator acceptance matrix against envtest (no cluster required).
+# Operator acceptance matrix against envtest — a real API server, no cluster and
+# no kubelet, so this is LEVEL 2 (integration) despite the kubebuilder-standard
+# `test-e2e` name inside the module. The name is kept because it is the
+# convention of the module that owns it; the level is stated here.
 ci-e2e-envtest:
 	$(MAKE) -C integrations/kubernetes test-e2e
 
@@ -59,20 +92,53 @@ ci-e2e-envtest:
 #: a REAL cross-major chart + CRD migration (install the
 # published v4 chart + its v4 CRDs, server-side apply the new CRDs, helm upgrade to
 # the v5 chart, prove existing resources survive). dashboard-modes + upgrade run
-# first (fast guards); run.sh then covers the full enabled reconcile cycle.
-# CI shards these three self-provisioning scenarios across a matrix (each spins up
-# its own kind cluster, so they run independently in parallel); `make ci-e2e-kind`
-# still runs all three locally.
-ci-e2e-kind: ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile
+# first (fast guards); reconcile.sh then covers the full enabled reconcile cycle.
+# CI shards these self-provisioning scenarios across a matrix (each spins up its
+# own kind cluster, so they run independently in parallel); `make
+# test-acceptance-kind` still runs them all locally. The evidence scenario proves
+# the operator-managed Evidence Server component (Deployment/Service/retained PVC,
+# readiness, dashboard auto-wiring) in the existing operator chart.
+#
+# Each scenario is ONE boundary. They are not merged: a merged cluster run cannot
+# say which boundary broke, and cannot be sharded.
+test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
+	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation
 
-ci-e2e-kind-dashboard:
-	bash tests/e2e/kind/dashboard-modes.sh
+test-acceptance-kind-dashboard:
+	bash tests/acceptance/kind/dashboard-modes.sh
 
-ci-e2e-kind-upgrade:
-	bash tests/e2e/kind/v4-to-v5-upgrade.sh
+# Operator-managed OFFLINE observation packaging: a declared Helm observation
+# source becomes a read-only mount whose stable Data Source identity and observed
+# edge both show up in the live Product API — and a broken one is explicit
+# unavailable knowledge instead of a silently empty graph. Narrow by design (no
+# browser leg); the broad live journey is test-acceptance-kind-operational-graph.
+test-acceptance-kind-observation:
+	bash tests/acceptance/kind/observation.sh
 
-ci-e2e-kind-reconcile:
-	bash tests/e2e/kind/run.sh
+# Full operational-graph vertical + a LIVE browser acceptance: brings up operator +
+# dashboard + Evidence Server + registry with reconciled CRs and ingested evidence,
+# then drives the LIVE dashboard in Chromium via Playwright. Runs on CI's classic
+# Docker image store and on a Docker Desktop workstation alike: images reach the
+# node through tests/acceptance/kind/kindload, which narrows each export to the
+# node's own platform instead of asking containerd to import platforms this host
+# never pulled. See docs/maintainers/testing.md.
+test-acceptance-kind-operational-graph:
+	bash tests/acceptance/kind/operational-graph.sh browser
+
+test-acceptance-kind-upgrade:
+	bash tests/acceptance/kind/upgrade-v4-v5.sh
+
+test-acceptance-kind-reconcile:
+	bash tests/acceptance/kind/reconcile.sh
+
+test-acceptance-kind-evidence:
+	bash tests/acceptance/kind/evidence.sh
+
+# Compatibility aliases for the older names. Temporary.
+ci-e2e-kind:                    test-acceptance-kind
+ci-e2e-kind-dashboard:          test-acceptance-kind-dashboard
+ci-e2e-kind-upgrade:            test-acceptance-kind-upgrade
+ci-e2e-kind-reconcile:          test-acceptance-kind-reconcile
 
 # OCI leg: the public oci package tests + the staging release-publisher tests.
 ci-oci:
@@ -97,8 +163,18 @@ docs-generate: gen-cli-docs
 	done
 
 # Preview the assembled site locally (the hook assembles integration docs at build time).
-docs-serve:
+# Every mkdocs/mike entry point in this repository carries $(MERMAID_RUNTIME): the
+# site serves its own diagram runtime and the hook fails closed without it, so a
+# target that reaches mkdocs without the prerequisite is a clean-checkout failure.
+docs-serve: $(MERMAID_RUNTIME)
 	mkdocs serve
+
+# The strict build on its own, against a throwaway dir: the post-merge validation
+# net in .github/workflows/docs.yml. It exists so that workflow calls a target that
+# owns the runtime prerequisite instead of invoking mkdocs directly — on a clean
+# runner a direct `mkdocs build --strict` aborts in the Mermaid hook.
+docs-build-strict: $(MERMAID_RUNTIME)
+	mkdocs build --strict --site-dir "$$(mktemp -d)"
 
 # Publish the versioned site with mike. The site version tracks Pacto CORE (from
 # release/release-manifest.json). Integration docs carry their OWN version stamp in
@@ -119,16 +195,33 @@ docs-serve:
 # RELEASE docs deploy (release.yml, unit k8s-docs): publish the EXACT released core
 # version and move the `latest` alias + default. Only a release transaction may
 # touch a stable version or latest.
-docs-deploy: docs-generate
+#
+# mike runs mkdocs internally, so the release publisher needs the same pinned
+# Mermaid runtime every other entry point stages. Expressing it here is what lets
+# release.yml keep calling plain `make docs-deploy` on a clean runner: the
+# prerequisite travels with the target instead of being re-implemented in the job.
+docs-deploy: docs-generate $(MERMAID_RUNTIME)
 	@ver=$${PACTO_DOCS_CORE_VERSION:-$$(python3 -c "import json;print(json.load(open('release/release-manifest.json'))['units']['core']['version'])")}; \
 	echo "==> mike deploy --push --update-aliases $$ver latest (release)"; \
 	mike deploy --push --update-aliases "$$ver" latest; \
 	mike set-default --push latest
 
+# Blocking Mermaid syntax gate: every fenced ```mermaid block in docs/ +
+# integrations/ must render via mermaid-cli (mmdc). mkdocs --strict does NOT parse
+# mermaid (pymdownx.superfences only wraps it for client-side render), so a broken
+# diagram ships silently — this is the only gate that covers EVERY fence. What it
+# cannot see is the site: test-browser-docs-site drives the built pages in a real
+# browser, for a few of them. Syntax everywhere, behaviour where it matters.
+mermaid-check:
+	python3 release/scripts/check_mermaid.py
+
 # Full documentation gate: regenerate from scratch, prove zero drift and zero
 # second-run diff, strict build, and validate every fenced contract / CR example /
-# flag / chart / artifact coordinate against the real sources. See docs_check.py.
-docs-check:
+# flag / chart / artifact coordinate against the real sources. Runs mermaid-check
+# first so a broken diagram fails the same gate. The strict build stages the pinned
+# Mermaid runtime into the site, so it needs the frontend dependency installed.
+# See docs_check.py + check_mermaid.py.
+docs-check: mermaid-check $(MERMAID_RUNTIME)
 	python3 release/scripts/docs_check.py
 
 # artifact-drift = one-publisher-per-artifact gate + apply-release-plan

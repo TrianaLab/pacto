@@ -1,4 +1,4 @@
-lockVersion: 1
+lockVersion: 3
 pacto:
     version: 0.0.0
 root:
@@ -10,7 +10,7 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/fraud-service
       constraint: ^1.0.0
       version: 1.0.0
-      digest: sha256:43f5e2c5fae57886921678d2d84d249b005a3fcebe16430635edbc7903ab9acc
+      digest: sha256:3e20654ce2a826bf2dc685974a5d51e8632b5a14bfbda9f870188a87eab6e034
       dependsOn:
         - redis
     - name: postgresql
@@ -18,29 +18,29 @@ dependencies:
       ref: oci://ghcr.io/trianalab/pacto/postgresql
       constraint: ^16.0.0
       version: 16.0.0
-      digest: sha256:5df5c6c08e82bf3a6f1ab512a8d13f2948e2b92cf13c7c28f354ae1f3794b2bf
+      digest: sha256:92a1f1c2b273490a54e80f8e599632fcde7bba2c5215f02bb1460e6c63dc0f3e
     - name: redis
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/redis
       constraint: ^7.0.0
       version: 7.2.0
-      digest: sha256:62ea5244d912c65257e16fb538df281a802c9541771a04f3a512ba114d30bc37
+      digest: sha256:f9485712de500349ab7afcd16927535963e69c1499ecb0482f3f5af3b207034a
     - name: stripe-api
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/stripe-api
       constraint: ^2024.01.01
       version: 2024.01.01
-      digest: sha256:8c5fae3f3c2ef7fe805c525f62befa78663a7e87cae88010704533fdc1504d08
+      digest: sha256:fd4ab81035d3bfe3f80e8030f046a901d5a898e5b18cff8b3a264dd7e7451c93
 references:
     - kind: config
       name: platform
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/platform-app-config
       version: 1.0.0
-      digest: sha256:1ae13ed5c1779963835f2feb187261b2fe42f6c4fe12a7a3b2b05f020a1275b5
+      digest: sha256:621781dac22b3d9716d87a920b80c00f1471052f036bccc0a68003e223f20967
     - kind: policy
       name: http-security
       source: oci
       ref: oci://ghcr.io/trianalab/pacto/platform-http-policy
       version: 1.0.0
-      digest: sha256:37a6efb94754ea8d622cbb87ed184d6a270ec7b54a5571f003c74d544663dca3
+      digest: sha256:43b85f6522c75dee67041cffbbff8b990c34b954c090ca6bafa60c4d814d4fff

@@ -3,7 +3,7 @@
  * Each render fn takes a container element, data and options, draws an SVG.
  */
 import * as d3 from 'd3';
-import { readinessBucketLabel } from './format';
+import { readinessBucketLabel, ownerKeyLabel, ownerKeyKind } from './format';
 import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
 import { categoryIconInner } from './categoryIcons';
 
@@ -1011,7 +1011,7 @@ export function renderHeatmap(
     .on('mouseenter', function (event, d) {
       if (d.score != null) {
         d3.select(this).transition().duration(150).attr('opacity', 0.8);
-        const content = `${d.owner} · ${d.category} · ${d.score}% · ${d.n} checks`;
+        const content = `${ownerKeyLabel(d.owner)} · ${d.category} · ${d.score}% · ${d.n} checks`;
         tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
       }
     })
@@ -1081,7 +1081,12 @@ export function renderHeatmap(
     .style('font-size', 'var(--text-xs)')
     .style('font-weight', '500')
     .style('fill', 'var(--c-text-2)')
-    .text((d) => d);
+    // Rows are keyed by canonical owner identity so a team and a person of the same
+    // name stay two rows, but a reader reads the name, not the encoding.
+    .text((d) => {
+      const kind = ownerKeyKind(d);
+      return kind ? `${ownerKeyLabel(d)} (${kind})` : d;
+    });
 
   // Sequential legend: gradient bar
   const legendX = margin.left + data.categories.length * (cellSize + gap) + 20;
