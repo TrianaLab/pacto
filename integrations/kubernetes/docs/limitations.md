@@ -52,14 +52,57 @@ See [Operator configuration](operator-configuration.md) for these flags.
     fixed argument list with no `extraArgs` value. On the documented install
     path there is currently **no way to turn any of them on**: `helm template`
     the chart and the container's `args` contain none of them, and no value adds
-    them. Enabling them today means editing the rendered Deployment yourself
-    (which Helm will revert on the next `helm upgrade`), and metrics observation
-    additionally needs the `metrics-observation-role` ClusterRole, which lives in
-    the repository's kustomize overlay (`config/rbac/metrics-observation/`) and is
-    not packaged in the chart either.
+    them. Treat these as not-yet-available through Helm rather than as switches
+    you can flip.
 
-    Treat these as not-yet-available through Helm rather than as switches you can
-    flip. They are reachable from a kustomize deployment of `config/`.
+    The only way to turn one on today is to add the flag to the running
+    Deployment yourself, accepting that it is not managed state:
+
+    ```bash
+    kubectl patch deployment pacto-operator -n pacto-operator-system \
+      --type=json \
+      -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-probing"}]'
+    ```
+
+    **This does not survive `helm upgrade`.** Helm re-renders `args` from the
+    template and your addition disappears, silently — the operator comes back
+    with the feature off and nothing reports that it changed. Re-apply the patch
+    after every upgrade, or do not rely on the feature yet.
+
+    Metrics observation needs one more thing: the operator's ServiceAccount has
+    no read access to `monitoring.coreos.com`, so `--enable-metrics-observation`
+    alone changes nothing. Grant it alongside the chart's own RBAC — a separate
+    ClusterRole, never a patch of `manager-role`, whose rules are an atomic list
+    a strategic merge would wipe:
+
+    ```yaml
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: metrics-observation-role
+    rules:
+      - apiGroups: ["monitoring.coreos.com"]
+        resources: ["servicemonitors", "podmonitors"]
+        verbs: ["get", "list", "watch"]
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: metrics-observation-rolebinding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: metrics-observation-role
+    subjects:
+      - kind: ServiceAccount
+        name: pacto-operator                  # the chart's ServiceAccount
+        namespace: pacto-operator-system      # the release namespace
+    ```
+
+    The repository also carries a kustomize overlay at
+    `config/rbac/metrics-observation/`, but `config/` is kubebuilder scaffolding:
+    it is not published with a release, and no test or CI job deploys from it.
+    It is a source of the YAML above, not a supported install path.
 
 ## `NotEvaluated` is reserved
 

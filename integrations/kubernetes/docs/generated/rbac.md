@@ -10,7 +10,7 @@ Every table below is rendered from the Helm chart itself, so it is the permissio
 
 !!! note
 
-    The repository also contains `config/rbac/role.yaml`, a kubebuilder-generated `manager-role` used by the kustomize deployment under `config/`. It is a different object with a different name and is **not** what `helm install` creates. If you deploy with kustomize rather than Helm, read that file directly.
+    The repository also contains `config/rbac/role.yaml`, a kubebuilder-generated `manager-role`. It is a different object with a different name and is **not** what `helm install` creates. It belongs to the `config/` kustomize scaffolding, which is not published with a release and is deployed by no test or CI job -- Helm is the only supported install path.
 
 ## Always granted (`pacto-operator-manager`)
 
@@ -67,7 +67,7 @@ Created in the release namespace and bound to the same ServiceAccount. Used only
 
 ## Optional: metrics-observation ClusterRole
 
-Needed alongside the base role when `--enable-metrics-observation` is set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, so the base grants are untouched. **The Helm chart does not package it** -- it lives in `config/rbac/metrics-observation/` and is reachable from a kustomize deployment; see [Opt-in features](limitations.md#opt-in-features).
+Needed alongside the base role when `--enable-metrics-observation` is set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, so the base grants are untouched. **The Helm chart does not package it, and the chart cannot set the flag that needs it** -- apply the two objects yourself. [Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |

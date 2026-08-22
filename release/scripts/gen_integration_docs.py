@@ -329,9 +329,10 @@ def gen_rbac(k8s: str) -> str:
     out.append("!!! note\n")
     out.append(
         "    The repository also contains `config/rbac/role.yaml`, a kubebuilder-generated "
-        "`manager-role` used by the kustomize deployment under `config/`. It is a different "
-        "object with a different name and is **not** what `helm install` creates. If you "
-        "deploy with kustomize rather than Helm, read that file directly.\n"
+        "`manager-role`. It is a different object with a different name and is **not** what "
+        "`helm install` creates. It belongs to the `config/` kustomize scaffolding, which is "
+        "not published with a release and is deployed by no test or CI job -- Helm is the "
+        "only supported install path.\n"
     )
 
     out.append(f"## Always granted (`{cr_name}`)\n")
@@ -406,9 +407,9 @@ def gen_rbac(k8s: str) -> str:
         out.append(
             "Needed alongside the base role when `--enable-metrics-observation` is set. It is a "
             "separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, "
-            "so the base grants are untouched. **The Helm chart does not package it** -- it lives "
-            "in `config/rbac/metrics-observation/` and is reachable from a kustomize deployment; "
-            "see [Opt-in features](limitations.md#opt-in-features).\n"
+            "so the base grants are untouched. **The Helm chart does not package it, and the "
+            "chart cannot set the flag that needs it** -- apply the two objects yourself. "
+            "[Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.\n"
         )
         out.extend(_rbac_rules_table(metrics_role["rules"]))
         out.append("")
@@ -459,25 +460,82 @@ def parse_flags(help_text: str) -> list[dict]:
     return flags
 
 
+def chart_arg_flags(helper: str) -> dict[str, str]:
+    """Map flag name -> how the chart renders it, for every controller arg the
+    chart can emit.
+
+    The Deployment's args come from one helper template and there is no
+    `extraArgs` value, so a flag the helper never emits is unreachable on the
+    documented install path -- saying "set them via chart values" of every flag
+    was simply false. Read from the template rather than hardcoded, so a new
+    chart value updates the page. Three outcomes:
+
+      "chart value" -- the arg line interpolates a value, or an enclosing
+                       if/with/range guard tests one, so values.yaml decides.
+      "always on"   -- the chart emits it unconditionally with a literal, so it
+                       is fixed at the chart's value and no value changes it.
+      (absent)      -- the helper never emits it.
+    """
+    body = helper[helper.index('define "pacto-operator.controllerArgs"'):]
+    nxt = body.find("\n{{- define ")
+    out: dict[str, str] = {}
+    guards: list[str] = []
+    for line in (body if nxt < 0 else body[:nxt]).splitlines():
+        m = re.match(r"^\s*-\s+--([a-z0-9-]+)", line)
+        if m:
+            controlled = ".Values" in line or any(".Values" in g for g in guards)
+            out[m.group(1)] = "chart value" if controlled else "always on"
+        opens = len(re.findall(r"\{\{-?\s*(?:if|with|range)\b", line))
+        closes = len(re.findall(r"\{\{-?\s*end\b", line))
+        guards.extend([line] * opens)
+        for _ in range(closes):
+            if guards:
+                guards.pop()
+    return out
+
+
 def gen_operator_configuration(repo_root: str, k8s: str) -> str:
     help_text = controller_help(repo_root)
     flags = parse_flags(help_text)
     main_src = read(os.path.join(k8s, "cmd/main.go"))
     env_vars = sorted(set(re.findall(r'os\.Getenv\("([^"]+)"\)', main_src)))
 
+    helper = read(os.path.join(k8s, "charts/pacto-operator/templates/_helpers.tpl"))
+    chart_flags = chart_arg_flags(helper)
+
     out = [banner("`go run ./integrations/kubernetes/cmd --help` (real output) + cmd/main.go")]
     out.append("# Operator configuration\n")
     out.append(
         "Controller flags and their exact defaults are captured from the operator's real "
-        "`--help` output. Set them via chart values or by editing the Deployment args.\n"
+        "`--help` output.\n"
+    )
+    out.append(
+        "**Two different defaults can apply to the same flag.** The Default column below is "
+        "the *binary's* default -- what you get running the controller with no arguments. The "
+        "Helm chart renders its own fixed argument list, so where a chart value exists it "
+        "decides, and its default may differ. `-enable-dashboard` is the one that catches "
+        "people out: the binary defaults it off, the chart's `dashboard.enabled` defaults it "
+        "on, and a chart install therefore runs the managed dashboard. See the "
+        "[Helm reference](helm-reference.md) for the values and their defaults.\n"
+    )
+    out.append(
+        "**A flag the chart never renders cannot be set on the documented install path.** The "
+        "chart has no `extraArgs`, so the *Via chart* column is the whole story: `chart value` "
+        "means some value in `values.yaml` renders this flag; `always on` means the chart "
+        "hardcodes it and no value changes it; `no` means the chart never passes it, and "
+        "reaching it requires patching the Deployment after install -- which `helm upgrade` "
+        "then reverts. See [Limitations](limitations.md#opt-in-features).\n"
     )
     out.append("## Command-line flags\n")
-    out.append("| Flag | Type | Default | Description |")
-    out.append("| --- | --- | --- | --- |")
+    out.append("| Flag | Type | Default | Via chart | Description |")
+    out.append("| --- | --- | --- | --- | --- |")
     for f in flags:
         default = f"`{f['default']}`" if f["default"] != "" else ""
         typ = f"`{f['type']}`" if f["type"] else "`bool`"
-        out.append(f"| `-{f['name']}` | {typ} | {default} | {oneline(f['desc'])} |")
+        settable = chart_flags.get(f["name"], "no")
+        out.append(
+            f"| `-{f['name']}` | {typ} | {default} | {settable} | {oneline(f['desc'])} |"
+        )
     out.append("")
     if env_vars:
         out.append("## Environment variables\n")
