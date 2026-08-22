@@ -165,7 +165,7 @@ metadata:
 
 ## Minimal contract
 
-Only `pactoVersion` and `service` are required. All other sections — `interfaces`, `configurations`, `policies`, `dependencies`, `workload`, `state`, `capabilities`, `readiness`, `verification`, and `metadata` — are optional:
+Only `pactoVersion` and `service` are required. All other sections — `workload`, `state`, `interfaces`, `configurations`, `policies`, `dependencies`, `capabilities`, `readiness`, `metadata` and `extensions` — are optional:
 
 ```yaml
 pactoVersion: "2.0"
