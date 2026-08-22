@@ -26,7 +26,7 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 		Long: "Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents. " +
 			"Supports stdio (default) and HTTP transports.\n\n" +
 			"When a bundle reference (local directory or oci:// ref) is given, the server also " +
-			"exposes one executable tool per OpenAPI operation in the bundle's http interfaces, " +
+			"exposes one executable tool per OpenAPI operation in the bundle's openapi interfaces, " +
 			"plus a pacto_skill tool for any skills/*.md domain knowledge. Read-only (GET/HEAD) " +
 			"operations are exposed by default; pass --allow-writes to expose mutating operations.\n\n" +
 			"With --root, the server instead exposes a read-only contract catalog: the given roots " +
