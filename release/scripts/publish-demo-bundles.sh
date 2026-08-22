@@ -31,9 +31,18 @@
 # In production mode (PACTO_ALLOW_PROD=1) it only performs step 2 against the
 # production coordinate; the offline-lock regen and live proof are dev/PR concerns.
 #
+# --check is the PR-time half of this script: it runs step 2's byte-exact
+# immutability gate against the OWNED production coordinate, READ-ONLY, and stops
+# before the push. It is the only way to learn on a pull request that a demo
+# fixture edit has made a published immutable tag unpublishable — a fact that
+# otherwise surfaces mid-release, after irreversible units have shipped.
+# Exit: 0 clean, 1 conflict, 75 (EX_TEMPFAIL) the registry could not be read, so
+# the gate proved nothing and the caller should warn rather than block.
+#
 # Usage:
 #   release/scripts/publish-demo-bundles.sh            # staging + proof
 #   release/scripts/publish-demo-bundles.sh --push     # same (explicit)
+#   release/scripts/publish-demo-bundles.sh --check    # read-only gate, no push
 #   PACTO_DEMO_REGISTRY=127.0.0.1:5002/pacto-demo release/scripts/publish-demo-bundles.sh
 set -euo pipefail
 
@@ -43,11 +52,26 @@ COORD="${PACTO_DEMO_REGISTRY:-localhost:5001/pacto-demo}"
 BUNDLES="$ROOT/examples/demo/bundles"
 OWNED="ghcr.io/trianalab/pacto"   # committed refs' coordinate (== demo-bundles unit coordinate)
 PROOF="$ROOT/release/proofs/demo-artifacts.txt"
+EX_TEMPFAIL=75
+
+CHECK=0
+case "${1:-}" in
+  --check) CHECK=1 ;;
+  --push|"") ;;
+  *) echo "usage: $(basename "$0") [--push|--check]" >&2; exit 2 ;;
+esac
+if [ "$CHECK" = "1" ]; then
+  # The coordinate whose immutability is actually at stake is the owned one, and
+  # checking it needs no permission to write it.
+  COORD="${PACTO_DEMO_REGISTRY:-$OWNED}"
+fi
 
 # ---- production guard (refuse a production-looking target unless PACTO_ALLOW_PROD) ----
 host_path="${COORD#*/}"
 if { printf '%s' "$COORD" | grep -qi 'ghcr\.io'; } || { printf '%s' "$host_path" | grep -qi 'trianalab'; }; then
-  if [ "${PACTO_ALLOW_PROD:-}" != "1" ]; then
+  # --check is exempt: it is a read, and requiring the production opt-in to READ
+  # would mean the gate could only ever run in the job that also publishes.
+  if [ "${PACTO_ALLOW_PROD:-}" != "1" ] && [ "$CHECK" = "0" ]; then
     echo "REFUSED: production-looking target '$COORD' — point PACTO_DEMO_REGISTRY at a disposable local registry (or set PACTO_ALLOW_PROD=1 in the canonical publisher)" >&2
     exit 1
   fi
@@ -59,7 +83,8 @@ fi
 # The pacto binary is only used by the staging proof (offline-lock regen + live
 # resolution checks). Production mode pushes via `go run ./publishbundles` and
 # never touches it, so only require it in staging.
-if [ "$PROD" = "0" ]; then
+# --check never resolves anything either: it reads digests and stops.
+if [ "$PROD" = "0" ] && [ "$CHECK" = "0" ]; then
   command -v "$PACTO_BIN" >/dev/null 2>&1 || { echo "pacto binary not found at $PACTO_BIN (build: go build -o /tmp/pacto ./cmd/pacto)" >&2; exit 1; }
 fi
 
@@ -71,7 +96,7 @@ cleanup() { rm -rf "$WORK" "$XDG_CACHE_HOME"; }
 trap cleanup EXIT
 
 # ---- step 1: regenerate committed offline locks (deterministic) ----
-if [ "$PROD" = "0" ]; then
+if [ "$PROD" = "0" ] && [ "$CHECK" = "0" ]; then
   echo "==> genlocks: regenerate committed offline demo locks"
   ( cd "$ROOT/examples/demo" && go run ./genlocks >/dev/null )
 fi
@@ -96,13 +121,35 @@ find "$WORK/bundles" -name pacto.lock -delete   # regenerated fresh against the 
 # This is byte-exact, not a semantic `pacto diff`: a change to any auxiliary,
 # interface or unreferenced file moves the digest and is caught.
 MIGRATE="${PACTO_DEMO_MIGRATE:-0}"
+if [ "$CHECK" = "1" ]; then
+  MIGRATE=0   # a read-only check must never be waved through by the migration escape hatch
+fi
 if command -v crane >/dev/null 2>&1; then
-  CONFLICTS=() ; MIGRATED=()
-  rdig() { crane digest "$1" 2>/dev/null || crane digest --insecure "$1" 2>/dev/null || true; }
+  CONFLICTS=() ; MIGRATED=() ; READABLE=0 ; UNREADABLE=()
+  # rdig <ref>: prints the remote digest, prints nothing when the tag is genuinely
+  # ABSENT, and exits non-zero when the registry could not be read at all. The old
+  # `|| true` conflated the last two, so an outage, an expired token or a rate
+  # limit read as "nothing published yet" and the byte-exact gate waved every
+  # bundle straight through to an overwrite.
+  rdig() {
+    local out
+    if out="$(crane digest "$1" 2>&1)" || out="$(crane digest --insecure "$1" 2>&1)"; then
+      printf '%s' "$out"; return 0
+    fi
+    case "$out" in
+      *MANIFEST_UNKNOWN*|*NAME_UNKNOWN*|*[Nn]ot" "found*|*404*) return 0 ;;   # absent
+    esac
+    printf '%s' "$out" >&2
+    return 1
+  }
   while read -r tag local_d; do
     [ -n "$tag" ] && [ -n "$local_d" ] || continue
-    remote_d="$(rdig "$COORD/$tag")"
+    if ! remote_d="$(rdig "$COORD/$tag")"; then
+      UNREADABLE+=("$COORD/$tag")
+      continue
+    fi
     [ -z "$remote_d" ] && continue                     # absent -> will publish
+    READABLE=$((READABLE+1))
     [ "$remote_d" = "$local_d" ] && continue            # identical digest -> no-op
     if [ "$MIGRATE" = "1" ]; then
       MIGRATED+=("$COORD/$tag: $remote_d -> $local_d")
@@ -115,7 +162,30 @@ if command -v crane >/dev/null 2>&1; then
     printf '    %s\n' "${CONFLICTS[@]}" >&2
     exit 1
   fi
+  if [ "${#UNREADABLE[@]}" -gt 0 ]; then
+    # Not "no conflict": no answer. Pushing on no answer is the overwrite this
+    # gate exists to prevent, so the push path fails hard and --check reports
+    # EX_TEMPFAIL so its caller can warn instead of blocking on someone else's outage.
+    echo "could not read ${#UNREADABLE[@]} tag(s) from $COORD — the immutability gate proved nothing:" >&2
+    printf '    %s\n' "${UNREADABLE[@]}" >&2
+    [ "$CHECK" = "1" ] && exit "$EX_TEMPFAIL"
+    exit 1
+  fi
+  if [ "$CHECK" = "1" ] && [ "$READABLE" = "0" ]; then
+    # Every tag came back absent. Either this is a fresh coordinate or the check is
+    # pointed somewhere it cannot see the published set — in both cases it compared
+    # nothing, and a gate that compares nothing must not report success.
+    echo "no published demo tag was found at $COORD — nothing was compared, so this check is not evidence of immutability" >&2
+    exit "$EX_TEMPFAIL"
+  fi
   [ "${#MIGRATED[@]}" -gt 0 ] && { echo "==> MIGRATION: replacing ${#MIGRATED[@]} tag(s) (audit inventory old->new):"; printf '    %s\n' "${MIGRATED[@]}"; }
+  if [ "$CHECK" = "1" ]; then
+    echo "==> immutability OK: $READABLE published demo tag(s) at $COORD are byte-identical to this tree; the rest are new"
+    exit 0
+  fi
+elif [ "$CHECK" = "1" ]; then
+  echo "REFUSED: crane is required for the byte-exact immutability check. Install it: go install github.com/google/go-containerregistry/cmd/crane@latest" >&2
+  exit 1
 elif [ "$PROD" = "1" ]; then
   # Never publish to a production coordinate without the byte-exact immutability gate:
   # a missing crane would otherwise let changed content overwrite an immutable tag.

@@ -143,6 +143,47 @@ rule. A changed bundle needs a new contract version; replacing content under an
 existing tag is refused unless the deliberate one-time migration is explicitly
 authorized.
 
+Because that refusal happens *during* the release — after other units have already
+published irreversibly — the same gate runs read-only at PR time as CI's
+`demo-bundle-immutability` leg (`publish-demo-bundles.sh --check`). It compares each
+bundle's locally computed OCI digest against the published one and never pushes.
+Exit 75 means the registry could not be read: the check compared nothing, so CI warns
+rather than blocking, and that is not evidence there is no conflict.
+
+## Every job installs the CLIs its scripts reach
+
+A job's shell runs scripts, and those scripts run `oras`, `crane`, `cosign`, `syft`
+and `helm`, none of which the runner image provides. Nothing in the YAML declares
+that dependency — the install step and the script that needs the tool sit in
+different files. `tests/release/workflow_tooling_test.go` walks each job's shell
+through its `make` targets and the transitive closure of the scripts it invokes, and
+fails when a job can reach a gated CLI it never installed. It is one-directional: an
+unused install is not an error, an uninstalled use is.
+
+This matters more than a missing binary usually would, because the release scripts
+answer questions with strings. `ledger.sh` returning `""` means "nothing recorded" —
+which is also what it returned when `oras` was absent. It now refuses to run without
+its tools, and distinguishes a genuine 404 from a registry it could not read at all.
+Callers must assign its output to a variable before testing it: inside `[ "$(…)" ]`
+the exit status is discarded, so a failed read reads as an empty one.
+
+## Abandoned transaction `522e9507410f16fc` (3.2.0 / 5.2.0)
+
+Run [32560058692](https://github.com/TrianaLab/pacto/actions/runs/32560058692) published
+four units and then failed on the two defects above. Its versions were **tagged and
+resolvable through the Go module proxy but never released**: v3.2.0 and v5.2.0 have no
+GitHub Release, and `releases/latest` — which the CLI's update check and
+`scripts/get-pacto.sh` both read — correctly skips them. Do **not** create a back-dated
+Release for either; GitHub picks `latest` by creation time, so it would advertise them
+as newer than whatever has shipped since.
+
+The transaction is not resumable: every publisher checks out `ref: source_sha`, which
+is the commit whose demo fixture cannot be published. It was superseded by 3.2.1 / 5.2.1
+rather than recovered. Its ledger entries stay in
+`ghcr.io/trianalab/pacto-release-ledger` permanently, so a recovery dispatch for that
+transaction id remains armed and would still refuse to double-publish the four units
+that did complete.
+
 ## Manual maintainer actions (post-merge, not automated)
 
 - First production publish + Artifact Hub listing.
