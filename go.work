@@ -5,4 +5,4 @@ use (
 	./integrations/kubernetes
 )
 
-replace github.com/trianalab/pacto/v3 v3.2.0 => .
+replace github.com/trianalab/pacto/v3 v3.2.1 => .
