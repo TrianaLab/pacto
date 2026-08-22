@@ -54,10 +54,10 @@ resolve it before running `helm upgrade`. See the [CRD reference](crd-reference.
 for the current field set.
 
 This exact flow is exercised end to end against a real cluster by
-`tests/acceptance/kind/upgrade-v4-v5.sh` (the `ci-e2e-kind-upgrade` gate): it installs
-the real previous-major (v4) chart with its v4 CRDs, server-side applies the new
-CRDs, then `helm upgrade`s to the current chart and asserts the pre-existing
-resource survives and reconciles.
+`tests/acceptance/kind/upgrade-v4-v5.sh` (the `upgrade` leg of CI's `ci-e2e-kind`
+job): it installs the real previous-major (v4) chart with its v4 CRDs,
+server-side applies the new CRDs, then `helm upgrade`s to the current chart and
+asserts the pre-existing resource survives and reconciles.
 
 ## Upgrading an installation with the Evidence Server enabled
 
