@@ -232,7 +232,7 @@ nav:
           - Contract sections: contract-reference/sections.md
           - Validation layers: contract-reference/validation.md
           - Contract overrides: contract-reference/overrides.md
-          - Change classification: contract-reference/diff.md
+          - Diff and change classification: contract-reference/diff.md
       - CLI reference: cli-reference.md
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md

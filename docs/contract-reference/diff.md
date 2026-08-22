@@ -1,4 +1,4 @@
-# Change classification: what counts as a breaking change { #change-classification-rules }
+# pacto diff and change classification: what counts as a breaking change { #change-classification-rules }
 
 `pacto diff` classifies every detected change using a deterministic rule table. This is what powers breaking change detection in CI pipelines, and the tables below are the complete list — every field Pacto compares and the verdict it reaches.
 
