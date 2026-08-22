@@ -62,10 +62,11 @@ verdict — requires retrievability and says so when it is missing; anything tha
 needs only the *identity* does not.
 
 **Declared ownership is not a canonical owner identity, and a contact point is
-neither.** A contract declares an owning team or a DRI; Pacto canonicalizes that
-declaration into an owner identity whose kind and value are both part of the key,
-so a team and a person who happen to share a string never merge. An email address
-or a chat channel is how you reach an owner, not who they are.
+neither.** A contract declares an owning team or a directly responsible individual
+(DRI); Pacto canonicalizes that declaration into an owner identity whose kind and
+value are both part of the key, so a team and a person who happen to share a string
+never merge. An email address or a chat channel is how you reach an owner, not who
+they are.
 
 ---
 

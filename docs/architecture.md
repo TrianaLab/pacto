@@ -10,21 +10,15 @@ Pacto follows a layered architecture where dependencies flow predominantly in on
 > [Concepts](concepts.md) page. This page covers how the code is arranged to keep
 > them apart.
 
-A Pacto contract describes the relationships between a service's interfaces and how they change over time — ownership, dependencies, compatibility and readiness. A single JSON Schema describes one interface in isolation and structurally cannot express how interfaces relate or evolve; that relational and temporal layer is Pacto's differentiator. It is why the core splits into `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and `pkg/validation` (structural enforcement and evidence evaluation).
-
-Underneath, Pacto composes the interfaces you already have rather than inventing a configuration language. An interface is a JSON Schema, OpenAPI spec or event schema — a service's config interface is its config JSON Schema, an API interface is its OpenAPI document. Where an interface is already owned by another system, Pacto composes it instead of reinventing it. Composition is the on-ramp; the operational contract is the differentiator.
-
-> This mirrors the classic split between *interfaces* (configuration schema) and *requirements* (dependencies): composition covers the interfaces half, dependencies and compatibility cover the requirements half.
-
-In one line: **JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.**
+A Pacto contract describes the relationships between a service's interfaces and how they change over time — ownership, dependencies, compatibility and readiness — while composing the interface specs you already own instead of replacing them. That positioning is explained on the [home page](index.md#what-is-pacto); what matters here is that the relational and temporal layer is why the core splits into `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and `pkg/validation` (structural enforcement and evidence evaluation).
 
 ### Declaration versus observation
 
-The contract is stable author *intent*: what a service is operationally, independent of any orchestrator. What a service actually looks like at runtime is an *observation*, and it lives entirely outside the declared contract. The V2 core is built around that separation. The `Contract` type (`pkg/contract`) carries only intent — there is no `runtime` block, no port, no scaling and no image field; those are delivery and observation concerns owned by integrations. Runtime facts are carried by a separate `EvidenceSet` (`pkg/evidence`), produced by a collector, and the engine reasons over the two together.
+The contract is stable author *intent*: what a service is operationally, independent of any orchestrator. What a service actually looks like at runtime is an *observation*, and it lives entirely outside the declared contract. The core is built around that separation. The `Contract` type (`pkg/contract`) carries only intent — there is no `runtime` block, no port, no scaling and no image field; those are delivery and observation concerns owned by integrations. Runtime facts are carried by a separate `EvidenceSet` (`pkg/evidence`), produced by a collector, and the engine reasons over the two together.
 
 ### The engine: `Evaluate(contract, evidence)`
 
-The heart of V2 is a pure function (`pkg/validation/evaluate.go`):
+The heart of the system is a pure function (`pkg/validation/evaluate.go`):
 
 ```text
 Evaluate(contract.Contract, evidence.EvidenceSet) -> ([]finding.Finding, Coverage)
@@ -42,7 +36,7 @@ The compliance model consumers derive from these findings has four substantive s
 
 ### Separation of concerns
 
-The V2 model keeps eight roles distinct. Some are first-class Go types; where a concept is useful but not a first-class type, this is stated explicitly.
+The model keeps ten roles distinct. Some are first-class Go types; where a concept is useful but not a first-class type, this is stated explicitly.
 
 | Concept | Where it lives | First-class type? |
 |---|---|---|
@@ -67,7 +61,7 @@ Two clarifications the naming can obscure:
 These roles compose into a loop that a platform or an agent can drive. Steps 1, 2, 5 and 6 are implemented in this codebase (the CLI, the dashboard, the collector and `Evaluate`); steps 3 and 4 are performed by external systems Pacto integrates with, not by Pacto itself.
 
 1. **Declare.** A contract states the service's identity, interfaces, capabilities, configuration, dependencies and policies — its operational intent.
-2. **Read.** A platform, a controller or an agent inspects the contract (`pacto explain`, the dashboard API, or generated tools over MCP) to learn what the service is and what it can do.
+2. **Read.** A platform, a controller or an agent inspects the contract (`pacto explain`, the dashboard API or generated tools over MCP) to learn what the service is and what it can do.
 3. **Constrain.** External controls — policies, permissions, admission, IAM — decide which actions are allowed. Pacto validates a contract against policy schemas; it does not grant runtime permissions.
 4. **Act.** Controllers, deploy systems, plugins or agents perform actions through existing infrastructure and tools.
 5. **Observe.** Collectors obtain runtime evidence from the real system and produce a `pkg/evidence` `EvidenceSet` (the Kubernetes collector is the first shipped one).
@@ -83,7 +77,7 @@ graph TD
     MAIN --> APP
     MAIN --> OCI
     MAIN --> PLUG
-    CLI --> LOG[internal/logger<br/>Logger Setup]
+    CLI --> LOG[pkg/logging<br/>Contextual Logger]
     CLI --> MCP[internal/mcp<br/>MCP Server]
     CLI --> UPDATE[internal/update<br/>Update Checker]
     MCP --> APP
@@ -111,7 +105,6 @@ graph TD
     DIFF --> SBOM[pkg/sbom<br/>SBOM Parser & Differ]
     VAL --> GRAPH
     DOC --> GRAPH
-    DOC --> VAL
     VAL --> CONTRACT[pkg/contract<br/>Domain Model]
     DOC --> CONTRACT
     DIFF --> CONTRACT
@@ -124,11 +117,11 @@ graph TD
 
     classDef pkg fill:#e0f0ff,stroke:#4a90d9
     classDef internal fill:#fff3e0,stroke:#e6a23c
-    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH,OCI,LOCK,IGN,FIND,EVID,CAP,SKILL pkg
-    class APP,CLI,LOG,MCP,MAIN,UPDATE internal
+    class CONTRACT,VAL,DIFF,GRAPH,PLUG,DOC,SBOM,OVER,DASH,OCI,LOCK,IGN,FIND,EVID,CAP,SKILL,LOG pkg
+    class APP,CLI,MCP,MAIN,UPDATE internal
 ```
 
-Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](integrations/kubernetes/overview.md). So are the engine packages the operator consumes — `pkg/contract`, `pkg/evidence`, `pkg/finding` and `pkg/validation` — none of which import Kubernetes (enforced by the import-boundary gate `tests/architecture/boundary_test.go`). A collector feeds the engine by producing a `pkg/evidence` `EvidenceSet`; there is no core collector interface to implement.
+The diagram shows the load-bearing edges, not every import — `pkg/catalog`, `pkg/fleet`, `pkg/impact` and `pkg/openapi` are left out to keep it readable. Dependencies flow **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable by external consumers such as the [Kubernetes Operator](integrations/kubernetes/overview.md). So are the engine packages the operator consumes — `pkg/contract`, `pkg/evidence`, `pkg/finding` and `pkg/validation` — none of which import Kubernetes (enforced by the import-boundary gate `tests/architecture/boundary_test.go`). A collector feeds the engine by producing a `pkg/evidence` `EvidenceSet`; there is no core collector interface to implement.
 
 ---
 
@@ -147,12 +140,14 @@ Infrastructure adapters live in `internal/` because they depend on external syst
 | Package | Role |
 |---------|------|
 | `internal/mcp` | Model Context Protocol server for AI tool integration |
-| `internal/logger` | Global `slog` configuration |
+| `internal/k8sclient` | Shared, dashboard-independent Kubernetes access seam |
+| `internal/fleetsrc` | Concrete, cluster-free `fleet.Source` implementations |
+| `internal/evidenceoci` | Persists accepted evidence as OCI 1.1 referrers |
 | `internal/update` | Async GitHub version checking and self-update |
 
 Test infrastructure lives in `internal/testutil`, which provides shared mocks and fixtures (`MockBundleStore`, `MockPluginRunner`, `TestBundle()`) used across test packages.
 
-`pkg/dashboard` is the largest core package — a self-contained app component (HTTP server, multi-source aggregation, graph, compliance, K8s client, embedded SPA) that the operator also embeds.
+`pkg/dashboard` is the largest core package — a self-contained app component (HTTP server, multi-source aggregation, graph, compliance, K8s client, embedded single-page app) that the operator also embeds.
 
 ---
 
@@ -162,7 +157,7 @@ Test infrastructure lives in `internal/testutil`, which provides shared mocks an
 
 The root public package. Contains pure Go types and logic with **zero I/O and zero framework dependencies**. Imports nothing from the project.
 
-- `Contract` -- the root aggregate. Top-level `Service`, `Interfaces`, `Configurations`, `Dependencies`, `State`, `Workload` (a string), `Capabilities`, `Policies`, `Readiness`, `Verification`, `Metadata`, `Extensions`. There is no `Runtime` wrapper and no port/scaling/image field — those are delivery and observation concerns, external to the declared contract.
+- `Contract` -- the root aggregate. Top-level `Service`, `Interfaces`, `Configurations`, `Dependencies`, `State`, `Workload` (a string), `Capabilities`, `Policies`, `Readiness`, `Metadata`, `Extensions`. There is no `Runtime` wrapper and no port/scaling/image field — those are delivery and observation concerns, external to the declared contract.
 - `Service`, `Interface`, `Configuration`, `Policy`, `Dependency`, `Capability`, `State` -- the section types (the V2 model; `ServiceIdentity`/`Runtime`/`ConfigurationSource`/`PolicySource` from v1 no longer exist)
 - `Parse()` -- YAML deserialization
 - `Bundle` -- `Contract` + `fs.FS` (the contract plus the files it composes)
@@ -247,7 +242,7 @@ The catalog core is framework-independent by construction: it imports `pkg/contr
 
 ### `pkg/override` -- YAML overrides
 
-Applies value-file and `--set` overrides to raw YAML before parsing. Supports deep merge, dot-separated paths, and array index notation.
+Applies value-file and `--set` overrides to raw YAML before parsing. Supports deep merge, dot-separated paths and array index notation.
 
 ### `pkg/doc` -- Documentation generator
 
@@ -297,7 +292,7 @@ Each CLI command maps to exactly one service method. This layer orchestrates `pk
 
 ### `internal/cli` -- CLI layer
 
-Cobra command handlers and Viper configuration. **Zero business logic** -- only input parsing, orchestration, and output formatting.
+Cobra command handlers and Viper configuration. **Zero business logic** -- only input parsing, orchestration and output formatting.
 
 ### `pkg/oci` -- OCI adapter
 
@@ -322,14 +317,14 @@ One invocation selects exactly one server, and the modes cannot be combined:
 |------------|---------|
 | `pacto mcp` | Authoring tools over `internal/app` |
 | `pacto mcp <bundle-ref>` | Authoring tools plus one bundle's OpenAPI operations and skills (`pkg/capability`) |
-| `pacto mcp --fleet` | Authoring tools plus read-only operational-graph queries (`pkg/fleet`) |
+| `pacto mcp --fleet` | Authoring tools plus read-only operational-graph queries (`pkg/fleet`) and `pacto_impact` blast-radius analysis (`pkg/impact`) |
 | `pacto mcp --root <ref>` | Read-only contract catalog discovery (`pkg/catalog`) — this surface only |
 
 Catalog mode builds the catalog once, before serving, from the repeated `--root` references. It is mostly MCP *resources* rather than tools, and the served session is frozen: handlers project the immutable `*Catalog` and reach neither a registry nor the filesystem. It is also the one mode that does **not** register the authoring tools: two of them write `pacto.yaml` to disk, so a mode whose whole promise is read-only discovery starts from a bare server and adds only the discovery surface.
 
-### `internal/logger` -- Logger setup
+### `pkg/logging` -- Contextual logger
 
-Configures Go's standard `log/slog` default logger based on the `--verbose` flag. When verbose mode is enabled, debug-level messages are emitted to stderr; otherwise only warnings and above are shown. Called once during CLI initialization via `PersistentPreRunE` -- all packages use `slog.Debug()` directly with no wrappers.
+Builds one `*slog.Logger` per CLI invocation in the root `PersistentPreRunE` (`internal/cli/root.go`) and carries it on the command context. Call sites obtain it with `logging.LoggerFromContext`, which falls back to `slog.Default()` when no logger is on the context (library callers, tests, the operator). `--verbose` selects debug level and writes to the command's stderr; otherwise only warnings and above are emitted. The logger is deliberately **not** a process global -- nothing calls `slog.SetDefault()` -- so concurrent in-process `Execute` calls never race on a shared logger.
 
 ### `internal/update` -- Update checker
 
@@ -341,7 +336,7 @@ Performs async version checking against the GitHub releases API. Started in a ba
 
 The dashboard is complex enough to warrant its own design section. It provides a web-based UI aggregated from multiple data sources. See the [Dashboard Container](dashboard-docker.md) guide for deployment.
 
-The sections below describe the **contract-exploration substrate**: the source model, aggregation and the `/api/services`-family endpoints, which are what a non-fleet host (the offline `pacto doc` export) serves. On a fleet-capable host that substrate is presented through the product IA -- **Overview**, **Services**, **Operational Graph** and **Change analysis** -- served by the bounded `/api/fleet/*` product endpoints described in [operational graph](operational-graph.md).
+The sections below describe the **contract-exploration substrate**: the source model, aggregation and the `/api/services`-family endpoints, which are what a non-fleet host (the offline `pacto doc` export) serves. On a fleet-capable host that substrate is presented through the product navigation -- **Overview**, **Services**, **Operational graph** and **Change analysis** -- served by the bounded `/api/fleet/*` product endpoints described in [operational graph](operational-graph.md).
 
 ### Source model
 
@@ -361,8 +356,8 @@ The dashboard exposes up to **four source types**:
 `OCISource` runs a **continuous background loop** (not one-shot):
 
 1. **Shallow scan** (synchronous, at first `ListServices` call) -- one `ListTags` + `Pull` per configured repo. Fast.
-2. **Deep discovery** (background goroutine) -- BFS across dependency refs, prefetches all semver versions. Closes `s.done` after the first cycle, ending the "discovering" UI state.
-3. **Periodic rediscovery** -- after the first cycle, re-runs every 60 seconds (`ociRediscoverInterval`). Picks up new services, dependencies, and versions pushed since the last scan. Each cycle rescans the internal cache and invalidates in-memory caches so enrichment data (hash, classification) surfaces immediately.
+2. **Deep discovery** (background goroutine) -- a breadth-first search across dependency refs, prefetching all semver versions. Closes `s.done` after the first cycle, ending the "discovering" UI state.
+3. **Periodic rediscovery** -- after the first cycle, re-runs every 60 seconds (`ociRediscoverInterval`). Picks up new services, dependencies and versions pushed since the last scan. Each cycle rescans the internal cache and invalidates in-memory caches so enrichment data (hash, classification) surfaces immediately.
 
 `K8sSource` is query-on-demand with a 3-second list cache TTL. Each API call fetches fresh data -- no background polling or watching.
 
@@ -393,7 +388,7 @@ Version history is merged across sources in a defined order (`resolverVersionSou
 3. **local** -- current on-disk version
 4. **cache** -- the offline disk-cache baseline, consulted last
 
-When a live OCI registry is configured, `OCISource.GetVersions()` already enriches its bare tag listings with hash, createdAt, and classification from materialized bundles, so the separate `cache` entry contributes nothing extra. When no live registry is configured, the `cache` source supplies the version catalog from disk.
+When a live OCI registry is configured, `OCISource.GetVersions()` already enriches its bare tag listings with hash, createdAt and classification from materialized bundles, so the separate `cache` entry contributes nothing extra. When no live registry is configured, the `cache` source supplies the version catalog from disk.
 
 Versions are deduplicated by version string. When the same version appears in multiple sources, `enrichVersion()` fills empty fields (hash, createdAt, classification, ref) from later sources without overwriting existing values.
 
@@ -407,14 +402,14 @@ Classification requires **materialized bundles** -- both the current and previou
 
 `CacheSource` (`source_cache.go`) reads materialized OCI bundles from the disk cache (`~/.cache/pacto/oci/`). It plays **two distinct roles** depending on whether a live OCI registry is configured:
 
-- **Internal enrichment (live OCI present).** It backs `OCISource`, providing contract hash, classification, and createdAt enrichment for registry tag listings. In this mode it is invisible — `ActiveSources()` exposes the disk cache under the `"oci"` key.
+- **Internal enrichment (live OCI present).** It backs `OCISource`, providing contract hash, classification and createdAt enrichment for registry tag listings. In this mode it is invisible — `ActiveSources()` exposes the disk cache under the `"oci"` key.
 - **Offline contract source (no live OCI).** It is promoted to a first-class `cache` source: `ActiveSources()` exposes it under the `"cache"` key and `BuildResolvedSource()` includes it as the lowest-priority contract source (`local` > `oci` > `cache`).
 
 The flow when live OCI is present:
 
 1. `OCISource.SetCache(cs)` wires a `CacheSource` internally
-2. `OCISource.GetVersions()` lists tags from the registry (bare version + ref), then enriches each version with hash, createdAt, and classification from the internal cache
-3. Cache rescans happen in three places: after each background discovery cycle (`discoverAndPrefetch`), after resolve operations, and after fetch-all-versions -- all call `RescanCache()` + memory cache invalidation so new data surfaces immediately
+2. `OCISource.GetVersions()` lists tags from the registry (bare version + ref), then enriches each version with hash, createdAt and classification from the internal cache
+3. Cache rescans happen in three places: after each background discovery cycle (`discoverAndPrefetch`), after resolve operations and after fetch-all-versions -- all call `RescanCache()` + memory cache invalidation so new data surfaces immediately
 
 The `createdAt` timestamp from cached bundles reflects **local materialization time** (when the bundle was pulled to disk), not the registry push time. OCI registries do not expose push timestamps via tag listing.
 
@@ -475,7 +470,7 @@ The dashboard builds two graph representations:
 
 Both graphs use **ref-alias mapping** (`buildRefAliases()`) to resolve OCI repository names (e.g., `my-service-pacto`) to contract service names (e.g., `my-service`), based on `imageRef` and `chartRef` fields from the service index.
 
-`computeBlastRadius()` performs BFS on the reverse dependency graph (required deps only) to count how many services would be transitively affected if a given service breaks.
+`computeBlastRadius()` performs a breadth-first search on the reverse dependency graph (required deps only) to count how many services would be transitively affected if a given service breaks.
 
 Multi-version **conflict detection** (`detectConflicts()` in `pkg/graph`) is a CLI-only concern used during `pacto graph` resolution; the dashboard does not call it, so version conflicts across the aggregated index are not surfaced through the dashboard API. A node can also appear with incomplete edges if its service details failed to load during a concurrent index rebuild; such nodes are rendered from the index alone.
 
@@ -506,7 +501,7 @@ Key API operations:
 | `/api/versions` | POST | List registry tags, optionally fetch all |
 | `/api/debug/*` | GET | Diagnostics (requires `--diagnostics` flag) |
 
-When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically discovers OCI repositories from CRD `resolvedRef` fields, enabling full contract bundles, version history, and diffs without explicit OCI arguments.
+When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically discovers OCI repositories from CRD `resolvedRef` fields, enabling full contract bundles, version history and diffs without explicit OCI arguments.
 
 ### Version tracking
 
@@ -517,7 +512,7 @@ The dashboard computes version tracking semantics from two sources:
 - **Update available** (`updateAvailable`): true when `latestAvailable` is a higher semver than the current `version`. Computed by `isUpdateAvailable()`. This is informational -- it does **not** affect contract compliance status.
 - **Current version marker** (`isCurrent`): set on the `Version` entry matching `ServiceDetails.Version` via `markCurrentVersion()`.
 
-Operator-provided `resolutionPolicy` is propagated through the K8s source (`serviceDetailsFromK8sStatus`), carried forward by `enrichWithRuntime()`, and preserved by the index/detail enrichment in `server.go`, which applies the fallback only when no policy is already set.
+Operator-provided `resolutionPolicy` is propagated through the K8s source (`serviceDetailsFromK8sStatus`), carried forward by `enrichWithRuntime()` and preserved by the index/detail enrichment in `server.go`, which applies the fallback only when no policy is already set.
 
 These fields are populated during the service-index cache rebuild in `server.go` and surfaced through the existing `/api/services` and `/api/services/{name}` endpoints.
 
@@ -528,7 +523,7 @@ These fields are populated during the service-index cache rebuild in `server.go`
 1. **Pure core** -- `pkg/*` packages have zero CLI/Kubernetes dependencies and are reusable from any Go program
 2. **Strict layering** -- CLI → App → Core (`pkg/`) → Domain (`pkg/contract`)
 3. **Declaration separated from observation** -- the contract is stable intent (`pkg/contract`); runtime facts are separate evidence (`pkg/evidence`) collected outside the core by a collector (any component that produces a valid `EvidenceSet`; the Kubernetes collector is the first shipped one). The pure `Evaluate` function in `pkg/validation` reasons over both and never observes or acts itself
-4. **No global state** -- all instances created in the composition root (`main.go`); the only global is `slog.SetDefault()` configured once at startup
+4. **No global state** -- all instances are created in the composition root (`main.go`); even the logger is built per invocation and carried on the command context (`pkg/logging`), never installed as a process global
 5. **Interface-based** -- engines depend on interfaces (`DataSource`, `BundleStore`, `ContractFetcher`, `PluginRunner`), not concrete implementations
 6. **Out-of-process plugins** -- language-agnostic, version-independent
 7. **Embedded schemas** -- JSON Schema compiled into the binary
@@ -558,6 +553,6 @@ These rules must be preserved by future changes. Each exists for a specific reas
 | `SectionMeta` is populated on every service-detail path | Both the resolved (multi-source) path and the single-source `getService` path compute `SectionMeta`, so the UI can always distinguish `present` / `empty` / `not_applicable` / `unavailable` and label each section's `source`. |
 | OCI discovery is continuous, not one-shot | New services and versions pushed after startup must surface without restarting the dashboard. The background loop re-runs discovery every 60 seconds. |
 | K8s enrichment retries stop on permanent errors | If the Pacto CRD is not installed (`ListServices` returns "resource not found"), `EnrichFromK8s` nils the K8s source so the retry loop exits immediately instead of waiting 30 seconds. |
-| UI data refresh must not disrupt user state | DOM morphing preserves scroll position, form values, `<details>` open/closed state, and D3-managed containers. Debug panels use `patchDOM` instead of `innerHTML` replacement. |
+| UI data refresh must not disrupt user state | DOM morphing preserves scroll position, form values, `<details>` open/closed state and D3-managed containers. Debug panels use `patchDOM` instead of `innerHTML` replacement. |
 | `pkg/fleet` is route-neutral | The operational graph owns canonical identities, query facts, completeness and limitations, and returns route-neutral entity references. Turning a reference into a navigable URL is a *transport* concern: the dashboard product transport adds an href built from the canonical key through a single route builder. MCP and other non-dashboard consumers read the same facts and must never receive dashboard URLs. Enforced by `TestFleetStaysRouteNeutral` in `tests/architecture`. |
 | OpenAPI is the only wire truth for the dashboard | Huma generates the OpenAPI contract from the Go handlers; the TypeScript request/response types and the fetch transport are generated from that contract into `pkg/dashboard/frontend/src/lib/generated/` and committed with a DO NOT EDIT notice. Handwritten frontend code may add ergonomics but must never redeclare a DTO field or build an `/api/...` URL by hand — a third, hand-maintained copy of the wire schema drifts silently. Enforced by `make check-dashboard-sdk-drift`, which regenerates both artifacts and fails on any diff. |
