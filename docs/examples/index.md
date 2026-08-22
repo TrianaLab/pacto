@@ -21,7 +21,7 @@ To see the whole dashboard in your browser with nothing to install, open the [li
 
 ## Using examples as dependencies
 
-A JSON Schema or `.proto` describes one interface in isolation; wiring these contracts together as `dependencies` — with compatibility ranges — is Pacto describing the relationships between interfaces and how they change.
+A JSON Schema or a gRPC service descriptor describes one interface in isolation; wiring these contracts together as `dependencies` — with compatibility ranges — is Pacto describing the relationships between interfaces and how they change.
 
 You can reference these contracts (once published to a registry) as dependencies in your own `pacto.yaml`:
 

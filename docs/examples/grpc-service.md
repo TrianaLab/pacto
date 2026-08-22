@@ -1,6 +1,6 @@
 # gRPC Service
 
-A Pacto contract for a gRPC microservice — a user service exposing a Protocol Buffer API with internal visibility.
+A Pacto contract for a gRPC microservice — a user service exposing a gRPC API with internal visibility.
 
 ```yaml
 pactoVersion: "2.0"
