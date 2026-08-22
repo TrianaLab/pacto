@@ -47,7 +47,7 @@ your machine; only the field names are fixed.
 
 ## Via Go
 
-Requires [Go 1.26](https://go.dev/dl/) or later.
+Requires [Go 1.26.6](https://go.dev/dl/) or later — the version in `go.mod`.
 
 ```bash
 go install github.com/trianalab/pacto/v3/cmd/pacto@latest
@@ -68,6 +68,13 @@ The binary is placed in your `$GOBIN` directory (typically `~/go/bin`).
     the installer script does. If you need `pacto generate`, install the plugins
     separately from [`TrianaLab/pacto-plugins`](https://github.com/TrianaLab/pacto-plugins)
     and put them on your `PATH`. See [Plugins](plugins.md).
+
+!!! note "`go install` does not stamp a version"
+    Release metadata is injected at link time, which `go install` does not do,
+    so a Go-installed binary reports `Pacto: dev`, `Git Commit: unknown` and
+    `Build Date: unknown`. It is the same code; only the stamp is missing.
+    `make build` from a clone stamps them from your checkout. Use the installer
+    script or a release binary when the reported version has to be meaningful.
 
 ## Updating
 
