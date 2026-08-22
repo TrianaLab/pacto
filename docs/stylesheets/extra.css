@@ -469,3 +469,40 @@
 [data-md-color-scheme="slate"] .md-option:focus-visible + label:not([hidden]) {
   outline-color: var(--pacto-indigo-light);
 }
+
+/* Inline links are told apart from the text around them by colour alone, and no
+   indigo can carry that on its own: to clear 3:1 against #212121 body text a
+   link needs a relative luminance of at least 0.143, and to clear 4.5:1 against
+   a white page it needs at most 0.183 -- a window too thin to sit in safely,
+   and the dark scheme measures worse (1.83:1). Underline links that sit inside
+   a block of text, which is the only place the rule is about; buttons, nav,
+   tabs, heading anchors and the hero are untouched because nothing surrounds
+   them to be confused with. Image links keep their clean edge. */
+.md-typeset p > a:not(.md-button),
+.md-typeset li > a:not(.md-button),
+.md-typeset td > a:not(.md-button),
+.md-typeset dd > a:not(.md-button) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+.md-typeset p > a:has(> img),
+.md-typeset li > a:has(> img),
+.md-typeset td > a:has(> img) {
+  text-decoration: none;
+}
+
+/* Five of Material's syntax-highlight tokens resolve to --md-default-fg-color
+   --light (#717171). That is 4.8:1 on the white page and passes, but code sits
+   on #f5f5f5, where the same grey measures 4.47:1 and fails AA by three
+   hundredths -- on comments and shell variables, in nearly every code block on
+   the site. Darkening the five code tokens to #5c5c5c (6.1:1 on the code
+   surface) fixes it without moving the secondary text colour everywhere else.
+   The slate scheme measures clean and is left alone. */
+[data-md-color-scheme="default"] {
+  --md-code-hl-comment-color: #5c5c5c;
+  --md-code-hl-generic-color: #5c5c5c;
+  --md-code-hl-operator-color: #5c5c5c;
+  --md-code-hl-punctuation-color: #5c5c5c;
+  --md-code-hl-variable-color: #5c5c5c;
+}

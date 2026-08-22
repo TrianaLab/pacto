@@ -6,7 +6,11 @@
      wordmark. Copy lives here — edit the headline/tagline/CTAs below. Styles: stylesheets/extra.css. -->
 {% block tabs %}
   {{ super() }}
-  <section class="pacto-hero md-typeset">
+  <!-- Named, because a <section> is only a landmark once it has an accessible
+       name. Unnamed, everything below sat outside every landmark and a screen
+       reader jumping by region skipped the entire hero — headline, tagline and
+       all three calls to action. -->
+  <section class="pacto-hero md-typeset" aria-label="Introduction">
     <div class="pacto-hero__glow" aria-hidden="true"></div>
     <div class="pacto-hero__inner">
       <div class="pacto-hero__brand">

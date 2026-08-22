@@ -149,6 +149,7 @@ extra_javascript:
   - javascripts/logo-spin.js
   - javascripts/version-selector.js
   - javascripts/skip-link.js
+  - javascripts/aria-labels.js
   # Staged by release/scripts/mkdocs_mermaid_hook.py. Deferred, so it evaluates
   # after the parser finishes but still before DOMContentLoaded -- which is when
   # Material mounts the diagrams and looks for a `mermaid` global. Finding one, it
