@@ -28,10 +28,15 @@ docker run -p 3000:3000 \
 
 ## Local Development
 
-Build and run the dashboard container locally using Make:
+To build the image yourself rather than pull it, you need the repository — both
+targets below run `docker build` against the repository root and tag the image with
+the version derived from your checkout's git state:
 
 ```bash
-# Build the image (tagged with current git version)
+git clone https://github.com/TrianaLab/pacto.git
+cd pacto
+
+# Build the image (tagged with the version derived from git describe)
 make docker-build
 
 # Build and run (mounts ~/.kube/config and ~/.cache/pacto automatically)
@@ -65,7 +70,7 @@ The two trace variables are the container's only way to feed observed dependenci
 
 ## Data Sources
 
-The dashboard auto-detects available data sources at startup. See the [source model](architecture.md#source-model) and [resolution model](architecture.md#resolution-model) in architecture.md for how sources merge and prioritize; the container-specific bindings are:
+The dashboard auto-detects available data sources at startup. See the [source model](architecture.md#source-model) and [resolution model](architecture.md#resolution-model) for how sources merge and prioritize; the container-specific bindings are:
 
 - **oci**: Enabled when `PACTO_DASHBOARD_REPO` is set, or auto-discovered from K8s `resolvedRef` fields. Provides contract bundles, version history, interfaces and diffs. (On-disk cache at `/home/pacto/.cache/pacto/oci/` is used internally — see [architecture](architecture.md#source-model).)
 - **cache**: The on-disk OCI cache is internal to the OCI source; it surfaces as a distinct `cache` source only as an offline baseline when no registry is configured and the cache has entries.

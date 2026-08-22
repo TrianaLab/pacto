@@ -32,7 +32,7 @@ These patterns are always applied, even when no `.pactoignore` file exists:
 - `.pactoignore`
 - `.DS_Store`
 
-**Note:** `pacto.lock` is **not** in the default ignore list. When a lockfile is present it ships inside the bundle by default (see [lockfile.md](lockfile.md)). To keep it out of a pushed bundle, add an explicit `pacto.lock` line to `.pactoignore`.
+**Note:** `pacto.lock` is **not** in the default ignore list. When a lockfile is present it ships inside the bundle by default (see [the lockfile](lockfile.md)). To keep it out of a pushed bundle, add an explicit `pacto.lock` line to `.pactoignore`.
 
 ---
 

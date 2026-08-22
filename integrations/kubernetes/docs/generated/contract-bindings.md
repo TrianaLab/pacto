@@ -58,7 +58,6 @@ metadata:
   name: orders-api
   namespace: shop
 spec:
-  checkIntervalSeconds: 300
   contractRef:
     oci: ghcr.io/acme/orders-api-pacto:1.2.0
   target:
@@ -73,3 +72,5 @@ spec:
         key: app.yaml
         format: yaml
 ```
+
+This page covers the binding fields only. The rest of `spec` -- including `checkIntervalSeconds`, which sets how often the operator re-checks compliance -- is in the [CRD reference](crd-reference.md).

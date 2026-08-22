@@ -6,10 +6,14 @@ from a "remote" environment and the dashboard showing the operational graph
 they add up to.
 
 There is no repository to clone, nothing to build and no file to download. The
-demo is published as an OCI artifact that Docker Compose owns and runs directly:
+demo is published as an OCI artifact that Docker Compose owns and runs directly.
+Resolve the release you want to the digest it published, then run that digest:
 
 ```sh
-docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
+DEMO=$(docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.2.1 \
+  | sed -n 's/.*"digest": "\(sha256:[a-f0-9]*\)".*/\1/p' | head -1)
+
+docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$DEMO" \
   -p pacto-demo up -d --wait -y
 ```
 
@@ -31,19 +35,20 @@ registry, `docker login <registry>` first.
 
 ## The digest
 
-The artifact is immutable and addressed by digest — that is what makes "the demo
-you ran" a thing that can be named. Each release publishes the demo under one
-tag — the Pacto version it shipped with — so one command turns a released
-version into the digest to run:
+Each release publishes the demo under one tag — the Pacto version it shipped
+with — so a tag is all you need to know; swap `3.2.1` above for the release you
+want. What actually runs is the digest that tag resolved to, never the tag
+itself: a tag is a publication convenience and can be moved, and the whole point
+of this artifact is that it cannot. That is what makes "the demo you ran" a thing
+that can be named — paste the `$DEMO` value into an issue and anyone gets the
+same bytes.
 
-```sh
-docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.2.1
-```
+`$DEMO` is the shell variable the first command sets, and the rest of this page
+reuses it. In a fresh shell, resolve it again.
 
-The `Descriptor.digest` it prints is the value to pass to `-f oci://…@`; swap
-`3.2.1` for the release you want. Run the demo by digest, not by tag: a tag is a
-publication convenience and can be moved, and the whole point of this artifact
-is that it cannot.
+To read the descriptor yourself rather than through `sed`, run
+`docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.2.1` — the `sed` above
+lifts its first `digest` field, which is `Descriptor.digest`.
 
 The images inside are pinned the same way. Both are named by digest rather than
 by tag, so the artifact you pinned runs the bytes it was released with, however
@@ -95,16 +100,19 @@ Override any of them with `PACTO_DEMO_DASHBOARD_PORT`,
 copy needs:
 
 ```sh
+# the same digest for a second copy, or another release resolved the same way
+OTHER=$DEMO
+
 PACTO_DEMO_DASHBOARD_PORT=8081 PACTO_DEMO_EVIDENCE_PORT=8687 \
 PACTO_DEMO_REGISTRY_PORT=5052 \
-  docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<other-digest> \
+  docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$OTHER" \
     -p pacto-demo-next up -d --wait -y
 ```
 
-Two digests, two project names, two sets of ports: both run at once, and
-`down -v` on one leaves the other untouched. That is also how you move between
-versions — start the new one beside the old, compare them, then remove the one
-you do not want.
+Two project names, two sets of ports: both run at once, and `down -v` on one
+leaves the other untouched. Point `$OTHER` at a different release's digest and
+that is also how you move between versions — start the new one beside the old,
+compare them, then remove the one you do not want.
 
 ## Offline
 
@@ -114,7 +122,7 @@ The **service images** are pulled once and then cached by Docker, so
 `--pull never` runs the demo without reaching for them again:
 
 ```sh
-docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
+docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$DEMO" \
   -p pacto-demo up -d --wait -y --pull never
 ```
 
@@ -143,7 +151,7 @@ the same target, because the server rebuilds everything it knows by asking the
 registry:
 
 ```sh
-docker compose -f oci://ghcr.io/trianalab/pacto/demo@sha256:<digest> \
+docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$DEMO" \
   -p pacto-demo up -d --wait -y --force-recreate evidence
 ```
 

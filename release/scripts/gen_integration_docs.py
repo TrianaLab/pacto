@@ -615,7 +615,6 @@ def gen_contract_bindings(k8s: str) -> str:
         "  name: orders-api\n"
         "  namespace: shop\n"
         "spec:\n"
-        "  checkIntervalSeconds: 300\n"
         "  contractRef:\n"
         "    oci: ghcr.io/acme/orders-api-pacto:1.2.0\n"
         "  target:\n"
@@ -630,6 +629,11 @@ def gen_contract_bindings(k8s: str) -> str:
         "        key: app.yaml\n"
         "        format: yaml\n"
         "```\n"
+    )
+    out.append(
+        "This page covers the binding fields only. The rest of `spec` -- including "
+        "`checkIntervalSeconds`, which sets how often the operator re-checks compliance -- "
+        "is in the [CRD reference](crd-reference.md).\n"
     )
     return "\n".join(out).rstrip() + "\n"
 
@@ -913,7 +917,8 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
         "Kubernetes integration ships on its own cadence, a Kubernetes-only release does NOT "
         "add a new core version entry to the selector: it republishes the current core "
         "version in place with regenerated integration docs, and this compatibility table "
-        "shows the integration version those docs describe.\n"
+        "shows the integration version those docs describe. Pick a core version from the "
+        "selector to read the integration docs that shipped with it.\n"
     )
     return "\n".join(out).rstrip() + "\n"
 

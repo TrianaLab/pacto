@@ -91,15 +91,4 @@ are not visible to this release; producers re-report current state. Back it up i
 you want the history, then retire it manually:
 [retiring a legacy bucket or PVC](../../evidence-oci-storage.md#retiring-a-legacy-bucket-or-pvc).
 
-## Compatibility
-
 --8<-- "integrations/kubernetes/docs/generated/_compatibility.md"
-
-## Documentation versions
-
-The documentation site's version selector (top of every page) tracks Pacto core
-releases. A Kubernetes-only release does not add a new core version to the selector;
-it republishes the current core version in place with regenerated integration docs.
-The compatibility table above always reflects the integration version the docs you
-are reading describe. Pick a core version from the selector to read the docs that
-shipped with that release.
