@@ -1,13 +1,20 @@
 # Kubernetes integration
 
-The Pacto Kubernetes integration is a read-only operator that continuously checks
-whether running workloads match their declared [Pacto](../../index.md) service
-contracts. Teams declare operational intent in a contract -- workload type, state
-and persistence, interfaces, capabilities, dependencies and configurations -- then
+The Pacto Kubernetes integration is an operator that continuously checks whether
+running workloads match their declared [Pacto](../../index.md) service contracts.
+Teams declare operational intent in a contract -- workload type, state and
+persistence, interfaces, capabilities, dependencies and configurations -- then
 deploy separately through Helm or Kustomize. Nothing connects the two sides at
 runtime, so contracts drift from reality silently. The operator closes that gap:
 it watches `Pacto` custom resources, reads the referenced contract, observes the
-live workload and reports whether they align. It never modifies your workloads.
+live workload and reports whether they align.
+
+**It observes your workloads and never modifies them.** It is not, however, a
+read-only component overall: at chart defaults it also deploys and manages
+Pacto's own dashboard and Evidence Server, which means creating Deployments,
+Services, ServiceAccounts and RBAC of its own. Those grants are broad enough to
+allow privilege escalation, and turning the managed components off removes them
+-- read [RBAC](rbac.md) before installing into a cluster where that matters.
 
 ## Where it fits
 

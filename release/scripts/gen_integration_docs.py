@@ -257,41 +257,144 @@ def gen_helm_reference(k8s: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _rbac_rules_table(rules: list[dict]) -> list[str]:
-    out = ["| API groups | Resources | Verbs |", "| --- | --- | --- |"]
+    out = ["| API groups | Resources | Verbs | Limited to |", "| --- | --- | --- | --- |"]
     def sortkey(rule):
         return (",".join(rule.get("apiGroups", [])), ",".join(rule.get("resources", [])))
     for rule in sorted(rules, key=sortkey):
         groups = ", ".join(f"`{g or '\"\" (core)'}`" for g in rule.get("apiGroups", []))
         res = ", ".join(f"`{r}`" for r in rule.get("resources", []))
         verbs = ", ".join(f"`{v}`" for v in sorted(rule.get("verbs", [])))
-        out.append(f"| {groups} | {res} | {verbs} |")
+        names = rule.get("resourceNames") or []
+        scope = ", ".join(f"`{n}`" for n in names) if names else "*not name-restricted*"
+        out.append(f"| {groups} | {res} | {verbs} | {scope} |")
+    return out
+
+
+def _rule_key(rule: dict) -> tuple:
+    return (
+        tuple(rule.get("apiGroups", [])),
+        tuple(rule.get("resources", [])),
+        tuple(sorted(rule.get("verbs", []))),
+        tuple(rule.get("resourceNames", []) or []),
+    )
+
+
+def helm_rbac(k8s: str, *set_args: str) -> dict[tuple[str, str], dict]:
+    """Render the chart and return its RBAC objects keyed by (kind, name).
+
+    Generated from `helm template`, not from config/rbac/role.yaml: the chart is
+    the only documented install path, and its ClusterRole is a different object
+    from the kubebuilder-generated `manager-role` under config/. Documenting the
+    latter described permissions no chart user has.
+    """
+    chart = os.path.join(k8s, "charts", "pacto-operator")
+    cmd = ["helm", "template", "pacto-operator", chart]
+    for s in set_args:
+        cmd += ["--set", s]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit(f"helm template failed: {proc.stderr.strip()[:400]}")
+    out = {}
+    for doc in yaml.safe_load_all(proc.stdout):
+        if doc and doc.get("kind") in ("ClusterRole", "Role"):
+            out[(doc["kind"], doc["metadata"]["name"])] = doc
     return out
 
 
 def gen_rbac(k8s: str) -> str:
-    role = load_yaml_docs(os.path.join(k8s, "config/rbac/role.yaml"))[0]
+    full = helm_rbac(k8s)
+    minimal = helm_rbac(k8s, "dashboard.enabled=false", "evidence.enabled=false")
     metrics_docs = load_yaml_docs(
         os.path.join(k8s, "config/rbac/metrics-observation/servicemonitor_rbac.yaml")
     )
-    out = [banner("config/rbac/role.yaml + config/rbac/metrics-observation/servicemonitor_rbac.yaml")]
+
+    cr_name = next(n for (k, n) in full if k == "ClusterRole")
+    role_name = next((n for (k, n) in full if k == "Role"), None)
+    full_rules = full[("ClusterRole", cr_name)]["rules"]
+    min_keys = {_rule_key(r) for r in minimal[("ClusterRole", cr_name)]["rules"]}
+    always = [r for r in full_rules if _rule_key(r) in min_keys]
+    component_only = [r for r in full_rules if _rule_key(r) not in min_keys]
+
+    out = [banner("helm template of charts/pacto-operator (+ config/rbac/metrics-observation)")]
     out.append("# RBAC\n")
     out.append(
-        "The operator's base `ClusterRole` (`manager-role`) is generated from "
-        "kubebuilder markers into `config/rbac/role.yaml`. It is the exact permission "
-        "set the controller needs to reconcile Pacto resources and observe runtime state.\n"
+        "Every table below is rendered from the Helm chart itself, so it is the permission "
+        "set an install actually creates. The chart creates one cluster-scoped "
+        f"`ClusterRole` (`{cr_name}`) bound to the controller's ServiceAccount, and one "
+        f"namespaced `Role` (`{role_name}`) for leader election.\n"
     )
-    out.append("## Base ClusterRole (`manager-role`)\n")
-    out.extend(_rbac_rules_table(role["rules"]))
+    out.append("!!! note\n")
+    out.append(
+        "    The repository also contains `config/rbac/role.yaml`, a kubebuilder-generated "
+        "`manager-role` used by the kustomize deployment under `config/`. It is a different "
+        "object with a different name and is **not** what `helm install` creates. If you "
+        "deploy with kustomize rather than Helm, read that file directly.\n"
+    )
+
+    out.append(f"## Always granted (`{cr_name}`)\n")
+    out.append(
+        "Present in every install, including one with every managed component disabled. "
+        "Workloads and their wiring are read-only; the writes are on Pacto's own resources, "
+        "on events, and on the specific named objects a previous install may have created "
+        "(so the operator can clean them up after you disable a component).\n"
+    )
+    out.extend(_rbac_rules_table(always))
     out.append("")
+
+    if component_only:
+        out.append("## Additionally granted when a managed component is enabled\n")
+        out.append(
+            "`dashboard.enabled` and `evidence.enabled` are **on by default**. When either "
+            "is on, the operator manages that component's Deployment, Service, ServiceAccount "
+            "and RBAC for you, and the chart widens the ClusterRole accordingly. Rendering the "
+            "chart with `--set dashboard.enabled=false --set evidence.enabled=false` removes "
+            "every rule in this table.\n"
+        )
+        out.extend(_rbac_rules_table(component_only))
+        out.append("")
+        escalating = [
+            r for r in component_only
+            if "rbac.authorization.k8s.io" in (r.get("apiGroups") or [])
+            and not r.get("resourceNames")
+            and {"create", "update", "patch"} & set(r.get("verbs", []))
+        ]
+        if escalating:
+            out.append('!!! warning "This grant allows privilege escalation"\n')
+            out.append(
+                "    The rules above include unrestricted `create` on `clusterroles` and "
+                "`clusterrolebindings`. A subject that can create a ClusterRoleBinding can "
+                "grant itself any permission in the cluster, so at chart defaults the operator "
+                "is effectively cluster-admin-capable, not read-only. This is what lets it "
+                "create the managed components' RBAC.\n"
+            )
+            out.append(
+                "    If your threat model does not allow that, install with "
+                "`--set dashboard.enabled=false --set evidence.enabled=false` and deploy those "
+                "components yourself. The operator then keeps only the *Always granted* table "
+                "plus narrow `get`/`delete` on the specific objects a previous install may have "
+                "left behind.\n"
+            )
+
+    if role_name:
+        out.append(f"## Namespaced Role (`{role_name}`)\n")
+        out.append(
+            "Created in the release namespace and bound to the same ServiceAccount. Used only "
+            "for the controller-runtime leader election lease.\n"
+        )
+        out.extend(_rbac_rules_table(minimal[("Role", role_name)]["rules"]))
+        out.append("")
+
     metrics_role = next(
         (d for d in metrics_docs if d.get("kind") == "ClusterRole"), None
     )
     if metrics_role:
         out.append("## Optional: metrics-observation ClusterRole\n")
         out.append(
-            "Applied ALONGSIDE the base role only when `--enable-metrics-observation` is "
-            "set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch "
-            "of `manager-role`, so the base grants are untouched.\n"
+            "Needed alongside the base role when `--enable-metrics-observation` is set. It is a "
+            "separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, "
+            "so the base grants are untouched. **The Helm chart does not package it** -- it lives "
+            "in `config/rbac/metrics-observation/` and is reachable from a kustomize deployment; "
+            "see [Opt-in features](limitations.md#opt-in-features).\n"
         )
         out.extend(_rbac_rules_table(metrics_role["rules"]))
         out.append("")

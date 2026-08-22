@@ -9,22 +9,41 @@ Install with one command:
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 ```
 
-!!! warning
-    The installer script may request elevated permissions (sudo) to install the binary to `/usr/local/bin`. To install without elevated permissions, pass `--no-sudo` through to the script, or set `PACTO_INSTALL_DIR` to a custom directory as an environment variable before `bash`:
+This installs three binaries into `/usr/local/bin`: `pacto` itself and the two
+official plugins, `pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`
+(see [Plugins](plugins.md)). Plugin installation is best-effort — if it fails,
+`pacto` is still installed.
+
+!!! warning "Installing without sudo"
+    The installer writes to `/usr/local/bin` and calls `sudo` to do it. `--no-sudo`
+    is what turns that off. Choosing a writable directory does **not**: the script
+    still calls `sudo` even when the target needs no elevation, so to install into
+    your home directory you need both.
 
     ```bash
-    # Install without sudo
-    curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash -s -- --no-sudo
-
-    # Install to a custom directory
-    curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | PACTO_INSTALL_DIR="$HOME/.local/bin" bash
+    # Install to a directory you own, with no sudo at all
+    curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh \
+      | PACTO_INSTALL_DIR="$HOME/.local/bin" bash -s -- --no-sudo
     ```
+
+    `$HOME/.local/bin` must be on your `PATH`, and the directory must already exist —
+    the script does not create it.
 
 Verify the installation:
 
 ```bash
 pacto version
 ```
+
+```text
+Pacto:                v3.2.1
+Git Commit:           497a8a79e229a61179184ec338edc4677b1d6ebb
+Build Date:           2026-08-22T18:03:35+02:00
+Go OS/Arch:           darwin/arm64
+```
+
+The version, commit, date and platform reflect the release you installed and
+your machine; only the field names are fixed.
 
 ## Via Go
 
@@ -44,6 +63,12 @@ make build
 
 The binary is placed in your `$GOBIN` directory (typically `~/go/bin`).
 
+!!! note "The Go and from-source paths install `pacto` only"
+    Neither `go install` nor `make build` installs the official plugins — only
+    the installer script does. If you need `pacto generate`, install the plugins
+    separately from [`TrianaLab/pacto-plugins`](https://github.com/TrianaLab/pacto-plugins)
+    and put them on your `PATH`. See [Plugins](plugins.md).
+
 ## Updating
 
 If you installed pacto via the installer script or from a GitHub release, you can update in-place:
@@ -52,8 +77,8 @@ If you installed pacto via the installer script or from a GitHub release, you ca
 # Update to the latest release
 pacto update
 
-# Update to a specific version
-pacto update v1.2.0
+# Update to (or roll back to) a specific released version
+pacto update v3.1.4
 ```
 
 This downloads the new binary, **verifies its SHA-256 against the `checksums.txt` published with the release**, and only then replaces the current one. If the download fails verification, the update is aborted and the existing binary is left untouched.
@@ -62,6 +87,30 @@ This downloads the new binary, **verifies its SHA-256 against the `checksums.txt
     If you installed via `go install`, use `go install github.com/trianalab/pacto/v3/cmd/pacto@latest` to update instead.
 
 Pacto also checks for updates automatically and notifies you when a newer version is available. See the [`pacto update` reference](cli-reference.md#pacto-update) for [update notifications](cli-reference.md#update-notifications) and the [`PACTO_NO_UPDATE_CHECK` environment variable](cli-reference.md#environment-variables).
+
+## Uninstall
+
+Pacto has no uninstaller. Remove the binaries, then the state they wrote:
+
+```bash
+# 1. The binaries (adjust the directory if you set PACTO_INSTALL_DIR, or use
+#    ~/go/bin if you installed with `go install` or `make build`).
+sudo rm -f /usr/local/bin/pacto \
+           /usr/local/bin/pacto-plugin-schema-infer \
+           /usr/local/bin/pacto-plugin-openapi-infer
+
+# 2. Registry credentials and the update-check timestamp.
+rm -rf ~/.config/pacto
+
+# 3. The pulled-bundle cache.
+rm -rf ~/.cache/pacto
+```
+
+If you set `XDG_CONFIG_HOME` or `XDG_CACHE_HOME`, the last two live under
+`$XDG_CONFIG_HOME/pacto` and `$XDG_CACHE_HOME/pacto` instead. Removing
+`~/.config/pacto` deletes stored registry credentials; run
+[`pacto logout <registry>`](cli-reference.md#pacto-logout) first if you would
+rather remove them one registry at a time.
 
 ## Build targets
 

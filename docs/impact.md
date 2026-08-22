@@ -113,9 +113,16 @@ release check is not blind to undeclared traffic.
 pacto impact <old> <new> --local .
 ```
 
-`<old>` and `<new>` are the two revisions to compare — bundle paths or refs. The
-fleet source flags are shared with [`pacto fleet`](operational-graph.md): repeat
-`--local` for each bundle root to scan when building the snapshot.
+`<old>` and `<new>` are the two revisions to compare — bundle paths or refs.
+
+`pacto impact` builds its snapshot from **offline sources only** — `--local`
+(repeatable, defaults to `.`), `--target-state` and `--traces`. It takes a subset
+of the source flags [`pacto fleet`](operational-graph.md) accepts: there is no
+`--k8s`, `--oci`, `--cache` or `--evidence-url` here, and passing one fails with
+`unknown flag`. To analyse a fleet you do not have on disk, pull those bundles
+first with [`pacto pull`](cli-reference.md#pacto-pull) and point `--local` at the
+directory. The two revisions being compared are separate from the fleet snapshot
+and *may* be `oci://` references.
 
 Turn on runtime corroboration with `--include-observed`, or supply an OTLP/JSON
 trace export with `--traces` (which implies it) so observed traffic raises

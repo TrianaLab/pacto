@@ -40,6 +40,20 @@ in-cluster request surface:
 
 See [Operator configuration](operator-configuration.md) for these flags.
 
+!!! warning "The chart does not expose these flags"
+    All three are controller command-line flags, and the Helm chart renders a
+    fixed argument list with no `extraArgs` value. On the documented install
+    path there is currently **no way to turn any of them on**: `helm template`
+    the chart and the container's `args` contain none of them, and no value adds
+    them. Enabling them today means editing the rendered Deployment yourself
+    (which Helm will revert on the next `helm upgrade`), and metrics observation
+    additionally needs the `metrics-observation-role` ClusterRole, which lives in
+    the repository's kustomize overlay (`config/rbac/metrics-observation/`) and is
+    not packaged in the chart either.
+
+    Treat these as not-yet-available through Helm rather than as switches you can
+    flip. They are reachable from a kustomize deployment of `config/`.
+
 ## `NotEvaluated` is reserved
 
 `NotEvaluated` is a valid `contractStatus` enum value that the operator does not

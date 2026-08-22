@@ -64,11 +64,16 @@ validated, never observed. Add a `spec.target` to enable runtime observation.
 The metrics dimension returns `Unsupported` unless `--enable-metrics-observation`
 is set, and active health probing (Tier A) requires `--enable-probing`. With
 probing off, health uses only passive readiness-probe and EndpointSlice signals.
-See [Operator configuration](operator-configuration.md).
+Both are controller flags the Helm chart does not expose — see
+[Opt-in features](limitations.md#opt-in-features) before you try to enable them,
+and [Operator configuration](operator-configuration.md) for what they do.
 
 ## Operator RBAC errors
 
 If the logs show forbidden errors reading Services, workloads or EndpointSlices,
-confirm the operator's `ClusterRole` is installed. For the optional
-metrics-observation feature apply the separate `metrics-observation-role` too. See
-[RBAC](rbac.md).
+confirm the operator's `ClusterRole` is installed. See [RBAC](rbac.md).
+
+The optional metrics-observation feature needs an additional
+`metrics-observation-role` ClusterRole, which the Helm chart does not package —
+see [Opt-in features](limitations.md#opt-in-features) for what is and is not
+reachable through the chart.
