@@ -109,6 +109,12 @@ def yaml_docs(block: str) -> list:
 # (d) fenced Pacto contracts  <-  pacto CLI
 # ---------------------------------------------------------------------------
 
+# What a real .proto file looks like. Not valid JSON and not valid YAML — which
+# is the point: the validator must see the same INVALID_INTERFACE_SPEC a reader
+# copying the example would get.
+PROTO_STUB = 'syntax = "proto3";\n\nservice Stub {\n}\n'
+
+
 def is_local_ref(val) -> bool:
     return (
         isinstance(val, str)
@@ -154,15 +160,24 @@ def check_contracts(pacto_bin: str, md_files: list[str]) -> None:
                         dest = os.path.join(tmp, ref)
                         os.makedirs(os.path.dirname(dest), exist_ok=True)
                         with open(dest, "w", encoding="utf-8") as fh:
-                            fh.write("{}\n")  # universal parse-only stub
+                            # A stub has to be exactly as parseable as the real
+                            # file. Every spec kind the validator supports is JSON
+                            # or YAML, so "{}" stands in for all of them — except a
+                            # .proto, which is protobuf IDL and which the validator
+                            # rejects with INVALID_INTERFACE_SPEC. Stubbing that
+                            # with "{}" would pass a doc example the real CLI fails.
+                            fh.write(PROTO_STUB if ref.endswith(".proto") else "{}\n")
                     proc = run([pacto_bin, "validate", tmp])
                     if proc.returncode == 0:
                         ok += 1
                     else:
-                        failures.append(
-                            f"{os.path.relpath(path, REPO_ROOT)}: "
-                            f"{proc.stdout.strip() or proc.stderr.strip()}"
+                        # The ERROR lines (with the diagnostic code) go to stderr;
+                        # stdout carries only "<dir> is invalid", so preferring
+                        # stdout would report a failure with no reason.
+                        out = " ".join(
+                            (proc.stderr.strip() or proc.stdout.strip()).split()
                         )
+                        failures.append(f"{os.path.relpath(path, REPO_ROOT)}: {out}")
                 finally:
                     shutil.rmtree(tmp, ignore_errors=True)
     detail = f"{ok}/{total} fenced contracts valid"
