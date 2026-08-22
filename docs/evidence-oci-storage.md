@@ -49,9 +49,32 @@ oras discover --distribution-spec v1.1-referrers-api <repo>@sha256:<digest>
 
 Without `--distribution-spec` the ORAS CLI falls back to the tag scheme on its
 own, so an unpinned `oras discover` that "works" proves nothing about the
-endpoint Pacto uses. Known-conformant registries include zot, Harbor, ECR, ACR,
-Artifactory and GHCR. CNCF distribution (`registry:2`, `registry:3`) implements
-no referrers endpoint at all and cannot host evidence.
+endpoint Pacto uses. A conformant registry answers
+`GET /v2/<name>/referrers/<digest>` with **HTTP 200** and an OCI image index,
+empty if nothing refers to that digest. The spec is explicit that it must not
+answer 404, because a client reads 404 as "not implemented" and falls back to the
+tag scheme.
+
+| Registry | Referrers API | How this was checked |
+|---|---|---|
+| zot | Yes | `200` + empty index |
+| Docker Hub | Yes | `200` + empty index |
+| Harbor, ECR, ACR, Artifactory | Documented by the vendor | vendor documentation, not probed here |
+| **GHCR** | **No** | `404 MANIFEST_UNKNOWN` |
+| CNCF distribution (`registry:2`, `registry:3`) | No | route absent; `oras discover` reports `unsupported` |
+
+!!! warning "GHCR cannot host Pacto evidence"
+    GitHub Container Registry returns `404 MANIFEST_UNKNOWN` from the referrers
+    endpoint, so the Evidence Server stays permanently not-ready against it.
+    This is worth calling out because GHCR is where the rest of this
+    documentation publishes *contracts*, and it works fine for that — contracts
+    are ordinary OCI artifacts and need no referrers support. Only evidence does.
+
+    Note what that implies. A record is attached to its contract revision **in
+    the same repository**, so this is not a matter of pointing evidence somewhere
+    else: a contract you want to carry evidence has to be published to a
+    conformant registry in the first place. Contracts you only validate, diff and
+    resolve can stay in GHCR.
 
 ### Permissions
 
@@ -91,7 +114,7 @@ evidence:
   registry:
     credentialsSecret: my-registry-creds   # optional; must already exist
     subjects:
-      - oci://ghcr.io/acme/checkout@sha256:<64 hex>
+      - oci://registry.example.com/acme/checkout@sha256:<64 hex>
 ```
 
 The chart never creates that Secret and never renders its contents; it is mounted
@@ -106,8 +129,8 @@ world.
 
 ```bash
 pacto evidence serve \
-  --subject oci://ghcr.io/acme/checkout@sha256:<64 hex> \
-  --subject oci://ghcr.io/acme/payments@sha256:<64 hex> \
+  --subject oci://registry.example.com/acme/checkout@sha256:<64 hex> \
+  --subject oci://registry.example.com/acme/payments@sha256:<64 hex> \
   --trust ./keys
 ```
 
@@ -208,7 +231,7 @@ no longer manages. To retire it:
 2. confirm nothing mounts it: with evidence enabled on this release, the Evidence
    Server pod has no volumes other than its read-only trust and credential
    mounts;
-3. delete it: `kubectl delete pvc pacto-evidence-data -n pacto-system`.
+3. delete it: `kubectl delete pvc pacto-evidence-data -n pacto-operator-system`.
 
 Records in the old bucket are not visible to this release. Producers re-report
 current state, which is what an operational graph reports anyway.
@@ -223,7 +246,7 @@ by any OCI 1.1 client:
 ```bash
 # what Pacto published, seen by a third party
 oras discover --distribution-spec v1.1-referrers-api --format json \
-  ghcr.io/acme/checkout@sha256:<64 hex>
+  registry.example.com/acme/checkout@sha256:<64 hex>
 ```
 
 Malformed input is malformed for everyone: the payload is decoded strictly, so an
