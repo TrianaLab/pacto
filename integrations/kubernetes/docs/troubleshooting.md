@@ -44,6 +44,43 @@ unchanged, and carries the `observedGeneration` it was set from. A condition
 whose `observedGeneration` is behind `metadata.generation` was not re-evaluated
 on the latest spec.
 
+## Reading the events
+
+The `Events:` block that closes `kubectl describe pacto <name>` is the
+reconciliation's own account of itself. Conditions say what the state *is*;
+events say what *changed*, including things no field records -- a tag being
+force-pushed underneath you, or a readiness gate flipping.
+
+```bash
+kubectl describe pacto <name>                       # events are the last block
+kubectl get events --field-selector involvedObject.name=<name> \
+  --sort-by=.lastTimestamp
+```
+
+The operator emits exactly seven, and no others:
+
+| Reason | Type | Emitted when | What it tells you |
+| --- | --- | --- | --- |
+| `ContractInvalid` | `Warning` | The contract was obtained and judged invalid | Carries the same message as the `ContractValid` / `Invalid` condition. Fix the contract. |
+| `ContractUnavailable` | `Warning` | The contract could not be obtained at all | Registry unreachable, auth rejected, tag missing. See [Contract not resolving](#contract-not-resolving). |
+| `ValidationFailed` | `Warning` | A contract resolved to a status that is neither `Compliant` nor `Reference` | Carries the counts -- `ContractStatus: NonCompliant, 2 errors, 1 warnings`. `status.findings` names each one. |
+| `RevisionCreated` | `Normal` | A `PactoRevision` was created for a newly resolved contract | `Created revision <name> for contract v<version>`. Expected on the first resolve and on every version change; not a problem. |
+| `TagOverwritten` | `Warning` | A tag that already resolved now points at a different digest | Someone force-pushed the tag. See [Choosing a reference form](contract-bindings.md#choosing-a-reference-form). |
+| `ReadinessGateUnmet` | `Warning` | The readiness gate went from met to unmet | The message breaks the score down by claim status. |
+| `ReadinessRecovered` | `Normal` | The readiness gate went from unmet to met | The other half of the pair above. |
+
+Two things about them are easy to misread:
+
+- **Only the two readiness events are transition-gated.** The rest are emitted by
+  the reconcile that produces them, so a contract that stays broken keeps
+  producing one. Kubernetes folds repeats of the same reason and message into a
+  single entry with a rising `Count`, so a `Count` of 40 means forty failed
+  reconciles, not forty distinct faults.
+- **Events expire.** The API server discards them after its `--event-ttl`, one
+  hour by default. An absent event means nothing -- absence is not evidence that
+  it never fired. Conditions and `status` are the durable record; events are the
+  narration.
+
 ## Status is `Unknown`
 
 `Unknown` means a required assertion could not be evaluated -- it is not a

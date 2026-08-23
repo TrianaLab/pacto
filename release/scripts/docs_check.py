@@ -13,6 +13,8 @@ ledger for every claim family:
   (g) chart values + install snippets are valid against the real Helm chart
   (h) artifact coordinates match release/release-manifest.json
   (i) twice = no diff: a second `docs-generate` produces byte-identical output
+  (j) documented conditions + reasons match the api/v1alpha1 constants
+  (k) documented events match the reasons the recorder actually emits
 
 Exit code is non-zero if any check fails.
 """
@@ -291,6 +293,131 @@ def check_conditions() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (k) documented event reasons  <-  the recorder call sites
+# ---------------------------------------------------------------------------
+
+# corev1's own constants. Upstream, not ours: a local rename cannot reach them,
+# and anything else in the type position is reported rather than assumed.
+EVENT_TYPES = {"EventTypeNormal": "Normal", "EventTypeWarning": "Warning"}
+
+
+def go_call_args(text: str, limit: int) -> list[str]:
+    """Split the head of a Go argument list, honouring nesting and strings."""
+    args, cur, depth, in_str, esc = [], "", 0, False, False
+    for ch in text:
+        if in_str:
+            cur += ch
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            cur += ch
+        elif ch in "([{":
+            depth += 1
+            cur += ch
+        elif ch in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+            cur += ch
+        elif ch == "," and depth == 0:
+            args.append(cur.strip())
+            cur = ""
+            if len(args) >= limit:
+                return args
+        else:
+            cur += ch
+    args.append(cur.strip())
+    return args
+
+
+def resolve_event_token(tok: str, src: str, api_consts: dict, seen=None) -> list[str]:
+    """Resolve an event-type or event-reason argument to the strings it can be.
+
+    Returns [] when the token resolves to nothing, which the caller reports.
+    """
+    seen = seen or set()
+    if tok.startswith('"') and tok.endswith('"') and len(tok) > 1:
+        return [tok[1:-1]]
+    if "." in tok:                                   # pactov1alpha1.X / corev1.X
+        name = tok.rsplit(".", 1)[1]
+        if name in EVENT_TYPES:
+            return [EVENT_TYPES[name]]
+        return [api_consts[name]] if name in api_consts else []
+    if not tok.isidentifier() or tok in seen:        # a local variable, once
+        return []
+    seen.add(tok)
+    out = []
+    for rhs in re.findall(rf"^\s*{re.escape(tok)}\s*(?::=|=)\s*(.+?)\s*$", src, re.M):
+        out.extend(resolve_event_token(rhs, src, api_consts, seen))
+    return sorted(set(out))
+
+
+def check_events() -> None:
+    """The troubleshooting events table names the reasons the recorder emits.
+
+    Those are the strings an operator greps `kubectl get events` for, so a new
+    call site or a renamed reason silently invalidates the page. Resolve the real
+    call sites rather than restating them here: a literal is taken as-is, an
+    api/v1alpha1 `EventXxx` constant is looked up, and a local variable is
+    resolved through its assignments in the same file. A token that resolves to
+    none of those is reported, so a new emission pattern fails this gate instead
+    of slipping past it.
+    """
+    api_src = open(os.path.join(K8S, "api", "v1alpha1", "conditions.go"),
+                   encoding="utf-8").read()
+    api_consts = dict(re.findall(r"^\t(\w+)\s*=\s*\"(\w+)\"", api_src, re.M))
+
+    problems, emitted = [], {}
+    controller = os.path.join(K8S, "internal", "controller")
+    for path in sorted(glob.glob(os.path.join(controller, "*.go"))):
+        if path.endswith("_test.go"):
+            continue
+        src = open(path, encoding="utf-8").read()
+        where = os.path.basename(path)
+        for m in re.finditer(r"Recorder\.Eventf?\(", src):
+            line_end = src.find("\n", m.end())
+            args = go_call_args(src[m.end():line_end if line_end > 0 else len(src)], 3)
+            if len(args) < 3 or not all(args[:3]):
+                problems.append(f"{where}: cannot read the reason argument -- "
+                                "put object, type and reason on the call line")
+                continue
+            types = resolve_event_token(args[1], src, api_consts)
+            reasons = resolve_event_token(args[2], src, api_consts)
+            if not types or not reasons:
+                problems.append(f"{where}: unresolvable event ({args[1]}, {args[2]})")
+                continue
+            for reason in reasons:
+                emitted.setdefault(reason, set()).update(types)
+
+    doc_path = os.path.join(K8S, "docs", "troubleshooting.md")
+    doc = open(doc_path, encoding="utf-8").read()
+    rows = re.findall(r"^\| `(\w+)` \| `(Normal|Warning)` \|", doc, re.M)
+
+    for reason, etype in rows:
+        if reason not in emitted:
+            problems.append(f"documented event `{reason}` is emitted nowhere")
+        elif etype not in emitted[reason]:
+            problems.append(f"`{reason}` is documented `{etype}`, emitted as "
+                            + "/".join(sorted(emitted[reason])))
+    for reason in sorted(set(emitted) - {r for r, _ in rows}):
+        problems.append(f"event `{reason}` is not in the table")
+
+    ok = bool(rows) and not problems
+    detail = f"{len(rows)} rows over {len(emitted)} emitted reasons"
+    if not rows:
+        detail = "no event rows found in troubleshooting.md"
+    elif problems:
+        detail = " ; ".join(problems[:5])
+    record(ok, "(k) documented events match the recorder call sites", detail)
+
+
+# ---------------------------------------------------------------------------
 # (g) chart values + install snippets  <-  real Helm chart
 # ---------------------------------------------------------------------------
 
@@ -435,6 +562,7 @@ def main() -> int:
     check_chart()                                # (g)
     check_coordinates()                          # (h)
     check_conditions()                           # (j)
+    check_events()                               # (k)
 
     # (i) twice = no diff
     proc = run(["make", "docs-generate"])
