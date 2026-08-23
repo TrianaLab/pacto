@@ -6,6 +6,6 @@
 ```bash
 helm install pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 5.2.1 \
+  --version 5.2.2 \
   --namespace pacto-operator-system --create-namespace
 ```

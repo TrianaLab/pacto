@@ -7,8 +7,8 @@
 # Helm reference
 
 - **Chart**: `pacto-operator`
-- **Chart version**: `5.2.1`
-- **App version**: `5.2.1`
+- **Chart version**: `5.2.2`
+- **App version**: `5.2.2`
 
 Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come from the chart's `# --` value annotations.
 

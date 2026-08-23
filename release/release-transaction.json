@@ -1,14 +1,12 @@
 {
   "changedGroups": [
-    "core"
+    "kubernetes"
   ],
   "changedUnits": [
-    "cli",
-    "core",
-    "dashboard-contract-bundle",
-    "dashboard-image",
-    "demo-bundles",
-    "demo-compose"
+    "k8s-docs",
+    "k8s-module",
+    "operator-chart",
+    "operator-image"
   ],
   "dependencyOrder": [
     "core:go-module",
@@ -42,13 +40,25 @@
     "dashboard-image": "3.2.2",
     "demo-bundles": "3.2.2",
     "demo-compose": "3.2.2",
-    "k8s-docs": "5.2.1",
-    "k8s-module": "integrations/kubernetes/v5.2.1",
-    "operator-chart": "5.2.1",
-    "operator-image": "5.2.1"
+    "k8s-docs": "5.2.2",
+    "k8s-module": "integrations/kubernetes/v5.2.2",
+    "operator-chart": "5.2.2",
+    "operator-image": "5.2.2"
   },
-  "manifestSha": "f5ee5e8e2f27c226b89f43b37da5005e54e0904e563539202e6c39e65d0a3ffb",
+  "manifestSha": "ea4e6d0092e8a7f90828bd757f71d96c6c00df55642a29704078791187100026",
   "newVersions": {
+    "cli": "3.2.2",
+    "core": "3.2.2",
+    "dashboard-contract-bundle": "3.2.2",
+    "dashboard-image": "3.2.2",
+    "demo-bundles": "3.2.2",
+    "demo-compose": "3.2.2",
+    "k8s-docs": "5.2.2",
+    "k8s-module": "5.2.2",
+    "operator-chart": "5.2.2",
+    "operator-image": "5.2.2"
+  },
+  "previousVersions": {
     "cli": "3.2.2",
     "core": "3.2.2",
     "dashboard-contract-bundle": "3.2.2",
@@ -60,39 +70,21 @@
     "operator-chart": "5.2.1",
     "operator-image": "5.2.1"
   },
-  "previousVersions": {
-    "cli": "3.2.1",
-    "core": "3.2.1",
-    "dashboard-contract-bundle": "3.2.1",
-    "dashboard-image": "3.2.1",
-    "demo-bundles": "3.2.1",
-    "demo-compose": "3.2.1",
-    "k8s-docs": "5.2.1",
-    "k8s-module": "5.2.1",
-    "operator-chart": "5.2.1",
-    "operator-image": "5.2.1"
-  },
   "ready": true,
   "schema": "pacto-release-transaction/v1",
   "sourceSha": "",
-  "transactionId": "97b3d20fd40f16f5",
+  "transactionId": "3bf445d36fd2c3fc",
   "units": {
-    "cli": {
+    "k8s-docs": {
       "status": "pending"
     },
-    "core": {
+    "k8s-module": {
       "status": "pending"
     },
-    "dashboard-contract-bundle": {
+    "operator-chart": {
       "status": "pending"
     },
-    "dashboard-image": {
-      "status": "pending"
-    },
-    "demo-bundles": {
-      "status": "pending"
-    },
-    "demo-compose": {
+    "operator-image": {
       "status": "pending"
     }
   }
