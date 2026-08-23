@@ -2902,7 +2902,7 @@ enough. The version below is the currently published chart:</p>
 -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pacto-operator<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>oci://ghcr.io/trianalab/pacto/charts/pacto-operator<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--version<span class="w"> </span><span class="m">5</span>.2.1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--version<span class="w"> </span><span class="m">5</span>.2.2<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>--namespace<span class="w"> </span>pacto-operator-system
 </span></code></pre></div>
 <div class="admonition warning">
@@ -2936,9 +2936,9 @@ branch today:</p>
 -->
 
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>--server-side<span class="w"> </span>--force-conflicts<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>-f<span class="w"> </span>https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v5.2.1/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactos.yaml
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>-f<span class="w"> </span>https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v5.2.2/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactos.yaml
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>kubectl<span class="w"> </span>apply<span class="w"> </span>--server-side<span class="w"> </span>--force-conflicts<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span>-f<span class="w"> </span>https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v5.2.1/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactorevisions.yaml
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span>-f<span class="w"> </span>https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v5.2.2/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactorevisions.yaml
 </span></code></pre></div>
 <p><strong>Step 2 — upgrade the release to the new chart version</strong>, exactly the command
 from <a href="#upgrade-with-helm">Upgrade with Helm</a> above:</p>
@@ -2949,7 +2949,7 @@ from <a href="#upgrade-with-helm">Upgrade with Helm</a> above:</p>
 -->
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>pacto-operator<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>oci://ghcr.io/trianalab/pacto/charts/pacto-operator<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--version<span class="w"> </span><span class="m">5</span>.2.1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--version<span class="w"> </span><span class="m">5</span>.2.2<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--namespace<span class="w"> </span>pacto-operator-system
 </span></code></pre></div>
 <p>The API version stays <code>v1alpha1</code> across the major bump and the stored version is
@@ -3068,27 +3068,27 @@ records stay in the registry where they were written.</p>
 <tbody>
 <tr>
 <td>Operator image</td>
-<td><code>5.2.1</code></td>
+<td><code>5.2.2</code></td>
 <td><code>&gt;=3.0.0</code></td>
 </tr>
 <tr>
 <td>Operator chart</td>
-<td><code>5.2.1</code></td>
+<td><code>5.2.2</code></td>
 <td><code>&gt;=3.0.0</code></td>
 </tr>
 <tr>
 <td>Go module</td>
-<td><code>5.2.1</code></td>
+<td><code>5.2.2</code></td>
 <td><code>&gt;=3.0.0</code></td>
 </tr>
 <tr>
 <td>Integration docs</td>
-<td><code>5.2.1</code></td>
+<td><code>5.2.2</code></td>
 <td><code>&gt;=3.0.0</code></td>
 </tr>
 </tbody>
 </table>
-<p>This documentation set corresponds to Pacto core <code>3.2.2</code>. The integration's own version (currently operator/chart <code>5.2.1</code>, docs <code>5.2.1</code>) advances on its own release cadence.</p>
+<p>This documentation set corresponds to Pacto core <code>3.2.2</code>. The integration's own version (currently operator/chart <code>5.2.2</code>, docs <code>5.2.2</code>) advances on its own release cadence.</p>
 <h3 id="version-selector">Version selector<a class="headerlink" href="#version-selector" title="Anchor link">&para;</a></h3>
 <p>The site version selector (top of the page) tracks Pacto core releases. Because the Kubernetes integration ships on its own cadence, a Kubernetes-only release does NOT add a new core version entry to the selector: it republishes the current core version in place with regenerated integration docs, and this compatibility table shows the integration version those docs describe. Pick a core version from the selector to read the integration docs that shipped with it.</p>
 
