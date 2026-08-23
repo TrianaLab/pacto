@@ -207,7 +207,7 @@ See [Layer 3: Policy enforcement](contract-reference/validation.md#layer-3-polic
 
 ## Breaking change detection
 
-`pacto diff` compares contract fields, deep-diffs referenced interface specs (e.g. OpenAPI) and resolves both dependency trees to show the full blast radius — every downstream service a change can affect. Gate CI on its exit code — it exits non-zero when the classification is `BREAKING`.
+`pacto diff` compares contract fields, deep-diffs referenced interface specs (e.g. OpenAPI) and resolves both dependency trees, so a change inside a dependency is classified alongside the service's own. That is the *downward* view. The blast radius — every consumer a change can reach — runs the other way and needs a fleet snapshot: that is [`pacto impact`](impact.md). Gate CI on the diff's exit code, but read [what a non-zero exit does and does not mean](cli-reference.md#exit-codes) first.
 
 ```bash
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \

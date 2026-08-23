@@ -134,7 +134,7 @@ Pacto earns its keep when operational knowledge is scattered, implicit or outdat
 
 - **You manage many services** and discover their runtime needs in production — Pacto makes every service self-describing up front, not reverse-engineered from Helm charts.
 - **Runtime assumptions live in deployment configs** — Pacto separates *what a service is* from *how it's deployed*.
-- **Dependencies are undocumented** — declare them once; `pacto diff` shows the full blast radius (every service transitively affected) before a change ships.
+- **Dependencies are undocumented** — declare them once; `pacto diff` then shows what changed across the whole dependency tree, and [`pacto impact`](impact.md) names the consumers a change would break before it ships.
 - **CI can't catch operational breaking changes** — a removed interface, an incompatible dependency bump or a dropped capability is caught when contracts are validated and diffed in the pipeline.
 - **Onboarding is slow** — a developer runs `pacto init`, fills in the contract and pushes; the platform has everything it needs to provision the service.
 
@@ -191,7 +191,7 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 ## Key capabilities
 
 - **3-layer validation** — structural (JSON Schema), cross-field (reference and consistency checks including state vs. persistence) and policy enforcement
-- **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees to show the full blast radius
+- **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees, so a change inside a dependency is classified too. It looks *down* the tree; [`pacto impact`](impact.md) is the one that looks up it, naming the consumers a breaking change would reach
 - **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries; sibling deps are fetched in parallel
 - **OCI distribution** — push/pull contracts to any OCI registry: GitHub Container Registry (GHCR), Amazon Elastic Container Registry (ECR), Azure Container Registry (ACR), Docker Hub, Harbor; bundles are cached locally for fast repeated operations. A contract is an ordinary OCI artifact and needs nothing special; storing *evidence* beside it does — see [registry requirements](evidence-oci-storage.md#registry-requirements), which GHCR does not currently meet
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
