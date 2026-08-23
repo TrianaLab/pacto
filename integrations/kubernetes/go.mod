@@ -9,7 +9,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	go.opentelemetry.io/otel/exporters/prometheus v0.67.0
 	go.opentelemetry.io/otel/sdk/metric v1.45.0
-	k8s.io/apimachinery v0.36.3
+	k8s.io/apimachinery v0.36.4
 	k8s.io/client-go v0.36.3
 	sigs.k8s.io/controller-runtime v0.24.1
 )
@@ -24,7 +24,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
-	k8s.io/streaming v0.36.3 // indirect
+	k8s.io/streaming v0.36.4 // indirect
 )
 
 require (
