@@ -10,8 +10,8 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
       error goes to **stderr as plain text and stdout stays empty**, whatever
       `--output-format` said. But a *verdict* of "no" is a result, not a
       failure: `pacto validate` on an invalid contract and `pacto diff` on a
-      breaking change both print their whole JSON document to stdout **and** exit
-      1. So the exit code does not tell you whether there is anything to parse —
+      breaking change both print their whole JSON document to stdout **and**
+      exit 1. So the exit code does not tell you whether there is anything to parse —
       an empty stdout does. Read stdout when it is non-empty; read the exit code
       for the verdict.
     - **`markdown` is implemented by `pacto diff` only**, for posting a diff as a
@@ -40,6 +40,47 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
       --output-format string   output format (text, json, markdown) (default "text")
   -v, --verbose                enable verbose output
 ```
+
+---
+
+## Exit codes
+
+Pacto exits `0` or `1` and nothing else. `0` means the command produced its
+result and the result was acceptable; `1` means anything else. Because there is
+no third code, **the exit status alone never distinguishes "the check failed"
+from "the command could not run"**.
+
+| Exits `1` | Exits `0` |
+| --- | --- |
+| `pacto diff` where the overall classification is `BREAKING` | a `POTENTIAL_BREAKING` or `NON_BREAKING` diff |
+| `pacto validate` reporting at least one error | validation that reported only warnings |
+| `pacto lock --check` on a stale lockfile, or with none at all (`LOCK_MISSING`) | a lockfile that is up to date |
+| **any command that could not run** — an unresolvable reference, an unreadable bundle, an unknown flag | `pacto impact` run on declared-only sources, *whatever* it classifies (see below) |
+
+Two rows deserve emphasis, because both silently break a CI gate:
+
+- A `pacto diff` against a reference that does not exist exits `1` exactly like a
+  breaking change does.
+- `pacto impact` exits non-zero only when the change is breaking **and** a live
+  source shows an incompatible consumer. With declared-only sources there are no
+  consumers to find, so it prints `Classification: BREAKING` and still exits `0`.
+
+**Use stdout, not the exit code, to tell a verdict from a failure.** A command
+that produced a verdict writes it to stdout and puts a one-line summary on
+stderr. A command that could not run writes *nothing* to stdout:
+
+| Invocation | Exit | stdout | stderr |
+| --- | --- | --- | --- |
+| `pacto diff --output-format json OLD NEW` (breaking) | `1` | the full JSON result | `breaking changes detected` |
+| `pacto diff --output-format json oci://…/absent:1.0.0 NEW` | `1` | *empty* | `old contract: artifact not found: …` |
+
+So the rule for a script is: branch on stdout when it is non-empty, and treat an
+empty stdout with a non-zero exit as a tool failure rather than a verdict.
+
+!!! warning "JSON key casing is not uniform"
+    `pacto validate` emits `Path`, `Valid` and `Errors` in PascalCase; every other
+    command emits camelCase (`oldPath`, `classification`). One parser will not read
+    both without allowing for it.
 
 ---
 
@@ -185,7 +226,7 @@ pacto diff <old> <new> [flags]
       --old-values stringArray   values file to merge into the old contract (can be repeated)
 ```
 
-**Exit code:** Non-zero only when the overall classification is `BREAKING`. A `POTENTIAL_BREAKING` result exits 0, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
+**Exit code:** `1` when the overall classification is `BREAKING` — and also `1` when the diff could not be produced at all, so a non-zero exit is not by itself a contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A `POTENTIAL_BREAKING` result exits `0`, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
 
 The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. The optional `docs/` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
 
