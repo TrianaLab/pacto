@@ -21,6 +21,7 @@
   function focusTarget(id) {
     var el = document.getElementById(id);
     if (!el) return false;
+    if (document.activeElement === el) return true;
     // -1 keeps the heading out of the normal tab sequence; it only ever
     // receives focus from this link. Tabbing on continues into the content.
     el.setAttribute("tabindex", "-1");
@@ -46,12 +47,21 @@
       pendingId = null;
       return;
     }
-    // Step in only while nothing holds the focus. If the reader has already
-    // tabbed on, this re-render is not ours to correct.
-    if (document.activeElement && document.activeElement !== document.body) {
+    // Step aside only if the reader has already tabbed on -- that re-render is
+    // not ours to correct. Our own target still holding the focus is not that:
+    // it is the normal state on the first batch of the re-render, and reading
+    // it as "the reader moved on" disarmed this observer before the detach it
+    // exists to correct ever arrived. Measured on the built site, that guard
+    // fired on batch 1 of every single load, on both pages, which left the
+    // heading unrestored whenever the swap did detach it -- rarely, and only
+    // under load, which is the worst way for an accessibility fix to fail.
+    var active = document.activeElement;
+    if (active && active !== document.body && active.id !== pendingId) {
       pendingId = null;
       return;
     }
-    if (focusTarget(pendingId)) pendingId = null;
+    // Stay armed for the rest of the window rather than disarming on the first
+    // success, so a heading replaced a second time is still put back.
+    focusTarget(pendingId);
   }).observe(document.documentElement, { childList: true, subtree: true });
 })();

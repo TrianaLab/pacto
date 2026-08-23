@@ -84,6 +84,50 @@ for (const path of PAGES) {
     ).toBe(true);
   });
 
+  test(`the skip link target survives being replaced (${path})`, async ({ page }) => {
+    // The test above asserts the outcome the reader sees, and it passed for
+    // months while the restoration behind it was dead: the observer in
+    // docs/javascripts/skip-link.js disarmed on the first mutation batch of
+    // every load, because our own target still holding the focus looked to it
+    // like a reader who had tabbed on. Focus survived anyway whenever the
+    // re-render happened not to detach the heading -- which is most of the
+    // time, and not all of it. This asserts the mechanism instead of the luck:
+    // replace the heading node, which is what a re-render does to it, and it
+    // has to come back.
+    await page.goto(path);
+    await page.keyboard.press('Tab');
+    const href = await page.locator('.md-skip').getAttribute('href');
+    const targetId = decodeURIComponent(new URL(href!, page.url()).hash.slice(1));
+    await page.keyboard.press('Enter');
+
+    // Deliberately short: the restoration is bounded at 2s from the click, and
+    // a test that races that bound would trade one flake for another.
+    await page.waitForTimeout(400);
+    await page.evaluate((id) => {
+      const h = document.getElementById(id)!;
+      h.parentNode!.replaceChild(h.cloneNode(true), h);
+    }, targetId);
+    await page.waitForTimeout(200);
+    const restored = await focused(page);
+    expect(
+      restored?.id,
+      `focus follows the target through a re-render, got ${JSON.stringify(restored)}`,
+    ).toBe(targetId);
+
+    // The other half of the same guard: staying armed for the rest of the
+    // window must not let it steal the focus back from a reader who moved on.
+    await page.keyboard.press('Tab');
+    const moved = await focused(page);
+    expect(moved?.id, 'the reader has tabbed off the target').not.toBe(targetId);
+    await page.evaluate(() => document.body.appendChild(document.createElement('span')));
+    await page.waitForTimeout(200);
+    const kept = await focused(page);
+    expect(
+      kept?.id,
+      `a later re-render does not take the focus back, got ${JSON.stringify(kept)}`,
+    ).not.toBe(targetId);
+  });
+
   test(`every early tab stop shows where the focus is (${path})`, async ({ page }) => {
     await page.goto(path);
 
