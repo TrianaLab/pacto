@@ -2,6 +2,9 @@
 template: home.html
 ---
 
+<!-- Why hidden: see the note beside the visible heading in overrides/home.html. -->
+<h1 hidden>One contract for every cloud-native service</h1>
+
 ```yaml title="pacto.yaml"
 pactoVersion: "2.0"
 
@@ -48,6 +51,16 @@ The contract states stable operational *intent*. It is deliberately not a deploy
 No sidecars. No new distribution plane. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification.
 
 Underneath those products is one model — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits evidence, a pure engine evaluates the contract against that evidence, and consumers surface or act on the result. The Kubernetes operator hosts the first shipped collector; anything that produces valid evidence can be one. See [Collectors and the evidence boundary](collectors.md).
+
+---
+
+## What Pacto is not
+
+- **Not a deployment tool** — it describes *what* to deploy, not *how*
+- **Not another configuration language** — an interface is an OpenAPI, AsyncAPI or gRPC descriptor you already own, and a configuration is your own JSON Schema; Pacto composes those rather than replacing them
+- **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
+- **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
+- **Not an IDP, portal or authorization system** — it is the machine-readable operational layer *over* an Internal Developer Platform (IDP), not the portal humans click or the system that decides who may act
 
 ---
 
@@ -101,9 +114,10 @@ collapse.
 
 ---
 
-## Who reads a contract?
+## What consumes a contract?
 
-A contract is written once and read by everything that needs to understand the service:
+A contract is written once and read by every *system* that needs to understand the
+service. (For the people, see [Who is Pacto for?](#who-is-pacto-for) further down.)
 
 - **Platform engineering** — controllers and generators consume the contract to provision infrastructure, wire networking and gate promotion, instead of reverse-engineering a service from its Helm chart.
 - **CI pipelines** — `pacto diff` classifies breaking changes and `pacto validate` enforces policy before a merge or a publish.
@@ -229,13 +243,7 @@ These primitives compose into reusable platform patterns — root + component co
 
 ---
 
-## What Pacto is not
-
-- **Not a deployment tool** — it describes *what* to deploy, not *how*
-- **Not another configuration language** — an interface is an OpenAPI, AsyncAPI or gRPC descriptor you already own, and a configuration is your own JSON Schema; Pacto composes those rather than replacing them
-- **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
-- **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
-- **Not an IDP, portal or authorization system** — it is the machine-readable operational layer *over* a platform, not the portal humans click or the system that decides who may act
+## Where to go next
 
 Ready to try it? The [live dashboard demo](examples/dashboard-demo.md) runs a
 real fleet in your browser with nothing to install. When you want your own

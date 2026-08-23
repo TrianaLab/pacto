@@ -32,6 +32,40 @@ in a cluster. A target is not the service. Keeping them separate is what lets th
 graph answer "which *revision* runs *where*, and is *that instance* compliant"
 without guessing.
 
+### How certainly a target is matched to a revision
+
+Knowing a target exists is not the same as knowing which revision it runs, so
+every target records **how** the link was made. Four outcomes:
+
+| Match | What Pacto knows |
+|-------|------------------|
+| `exact` | The target's content digest matches a revision's. Authoritative: this is the revision running there. |
+| `inferred` | A *unique* correlation by mutable tag or version suffix. Probably right, not proof. |
+| `ambiguous` | Several revisions match that mutable reference. **No link is made** — a guess is never presented as fact — and the target carries a `REVISION_LINK_AMBIGUOUS` limitation. |
+| `unresolved` | Nothing matched, or the target's identity contradicts itself (a recorded digest that disagrees with its digest-pinned reference). No link, and a limitation on the target saying so. |
+
+The bottom two are not a failure to report. They *are* the report, and they sit
+on the target itself so a consumer can classify a link without parsing
+snapshot-level messages.
+
+The two read surfaces spell this differently, and the CLI's spelling has a trap:
+
+- **Snapshot and `pacto fleet get --target` JSON** carry `revisionMatch`, which
+  is `omitempty` and only ever `exact` or `inferred`. **An absent
+  `revisionMatch` is the finding** — it means ambiguous or unresolved. Read the
+  target's `limitations` to learn which.
+- **The entity-detail API** (`GET /api/fleet/entities/target?key=…`, what the
+  dashboard reads) carries `linkState`, always present, with all four values
+  spelled out.
+
+Two things this axis is *not*. It is not whether Pacto can fetch that revision's
+content: an `exact` match can name content sitting in a registry Pacto cannot
+read, and that is an honest outcome rather than a contradiction ([match
+certainty is not content retrievability](concepts.md#identity)). And its
+`inferred` is a different word from the `inferred` relationship provenance
+below — one is how a *target* was matched to a revision, the other is how an
+*edge* was derived.
+
 ---
 
 ## Relationships: declared, observed, inferred

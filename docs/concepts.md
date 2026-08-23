@@ -48,7 +48,9 @@ basename, a policy entry name or a path leaf is a label, never an identity.
 facts about one operational target and Pacto reports both.
 
 - *Match certainty* asks: do we know which revision this target is running?
-  It is `exact`, `inferred`, `ambiguous` or `unresolved`.
+  It is `exact`, `inferred`, `ambiguous` or `unresolved` — [what each value
+  means, and which field carries
+  it](operational-graph.md#how-certainly-a-target-is-matched-to-a-revision).
 - *Content retrievability* asks: can Pacto fetch exactly that content now? It
   depends on whether a digest is present, whether the reference is mutable and
   whether the artifact is reachable at all.

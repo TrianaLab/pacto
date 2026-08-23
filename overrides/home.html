@@ -1,15 +1,18 @@
 {% extends "main.html" %}
 
-<!-- Landing hero. Rendered only for pages with `template: home.html` metadata (docs/index.md).
-     It sits where the tabs render; the page's markdown renders below it as usual. Light &
-     airy: the hero inherits the page background and floats a soft indigo glow behind the
-     wordmark. Copy lives here — edit the headline/tagline/CTAs below. Styles: stylesheets/extra.css. -->
+{# Landing hero. Rendered only for pages with `template: home.html` metadata (docs/index.md).
+   It sits where the tabs render; the page's markdown renders below it as usual. Light &
+   airy: the hero inherits the page background and floats a soft indigo glow behind the
+   wordmark. Copy lives here — edit the headline/tagline/CTAs below. Styles: stylesheets/extra.css.
+
+   Jinja comments, not HTML ones: an HTML comment inside a rendered block is served to
+   every visitor. These notes are for whoever edits the template, not for the browser. #}
 {% block tabs %}
   {{ super() }}
-  <!-- Named, because a <section> is only a landmark once it has an accessible
-       name. Unnamed, everything below sat outside every landmark and a screen
-       reader jumping by region skipped the entire hero — headline, tagline and
-       all three calls to action. -->
+  {# Named, because a <section> is only a landmark once it has an accessible
+     name. Unnamed, everything below sat outside every landmark and a screen
+     reader jumping by region skipped the entire hero — headline, tagline and
+     all three calls to action. #}
   <section class="pacto-hero md-typeset" aria-label="Introduction">
     <div class="pacto-hero__glow" aria-hidden="true"></div>
     <div class="pacto-hero__inner">
@@ -24,21 +27,32 @@
         <span class="pacto-hero__wordmark">pacto</span>
       </div>
       <p class="pacto-hero__eyebrow">Open contract standard</p>
+      {# This is the page's only <h1>. Material's partials/content.html injects one
+         when the rendered markdown contains no h1 element, and on this page that
+         injection lands as a meaningless "Home" below the hero — a second top-level
+         heading a screen reader announces as the document's title. docs/index.md
+         therefore opens with a `hidden` h1 whose only job is to suppress it. Change
+         the headline here and there together. #}
       <h1 class="pacto-hero__title">One contract for every cloud-native service</h1>
-      <!-- Plain words here, the precise term one screen down. This line is the
-           first thing anyone reads, and "OCI artifact" was landing before
-           anything on the page had expanded either word. -->
+      {# Plain words here, the precise term one screen down. This line is the
+         first thing anyone reads, and "OCI artifact" was landing before
+         anything on the page had expanded either word. #}
       <p class="pacto-hero__tagline">
         A single YAML contract declaring how a service is meant to behave —
         validated, versioned and distributed through any container registry.
       </p>
-      <!-- Each label names its true destination. "Live demo" opens the running
-           in-browser dashboard at /demo/ (built into the docs tree by
-           `make docs`; see the Makefile), not the page that describes it —
-           a reader who clicks "Live demo" wants the demo, not an interstitial. -->
+      {# Each label names its true destination. "Live demo" opens the running
+         in-browser dashboard at /demo/ (built into the docs tree by
+         `make docs`; see the Makefile), not the page that describes it —
+         a reader who clicks "Live demo" wants the demo, not an interstitial.
+
+         The demo is the primary action because it is the only one that costs
+         the reader nothing: no install, no registry, no account. Quickstart is
+         the next step for someone who has decided, not the first step for
+         someone who is still deciding. #}
       <div class="pacto-hero__actions">
-        <a href="{{ 'quickstart/' | url }}" class="md-button md-button--primary">Quickstart</a>
-        <a href="{{ 'demo/' | url }}#/fleet" class="md-button">Live demo</a>
+        <a href="{{ 'demo/' | url }}#/fleet" class="md-button md-button--primary">Try the live demo</a>
+        <a href="{{ 'quickstart/' | url }}" class="md-button">Quickstart</a>
         <a href="{{ 'contract-reference/' | url }}" class="md-button">Contract reference</a>
       </div>
     </div>
