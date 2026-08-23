@@ -16,6 +16,7 @@ ledger for every claim family:
   (j) documented conditions + reasons match the api/v1alpha1 constants
   (k) documented events match the reasons the recorder actually emits
   (l) no bare `<placeholder>` in prose (the browser deletes it as an HTML tag)
+  (m) every fenced target-state fixture actually loads as a fleet source
 
 Exit code is non-zero if any check fails.
 """
@@ -513,6 +514,61 @@ def check_coordinates() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (m) fenced target-state fixtures  <-  the real fleet source
+# ---------------------------------------------------------------------------
+
+TARGET_STATE_SCHEMA = "pacto.dev/fleet-targets/v1"
+
+
+def check_target_state(pacto_bin: str, md_files: list[str]) -> None:
+    """Every documented target-state fixture must actually load.
+
+    The decoder rejects unknown fields and a wrong schemaVersion outright, and
+    reports the failure as the same bare SOURCE_UNAVAILABLE a missing file gets,
+    so a documented fixture with a misspelled field would look plausible on the
+    page and contribute nothing when a reader ran it.
+    """
+    total = ok = 0
+    failures = []
+    empty = tempfile.mkdtemp(prefix="pacto-empty-fleet-")
+    for path in md_files:
+        for block in fenced_yaml_blocks(path):
+            for doc in yaml_docs(block):
+                if doc.get("schemaVersion") != TARGET_STATE_SCHEMA:
+                    continue
+                total += 1
+                tmp = tempfile.mkdtemp(prefix="pacto-targets-")
+                try:
+                    fixture = os.path.join(tmp, "targets.yaml")
+                    with open(fixture, "w", encoding="utf-8") as fh:
+                        fh.write(block)
+                    proc = run([pacto_bin, "fleet", "status", "--local", empty,
+                                "--target-state", fixture, "--output-format", "json"])
+                    try:
+                        meta = json.loads(proc.stdout or "{}")
+                        meta = meta.get("meta", meta)
+                    except json.JSONDecodeError:
+                        meta = {}
+                    bad = [lim for lim in (meta.get("limitations") or [])
+                           if lim.get("code") in ("SOURCE_UNAVAILABLE", "SOURCE_RECORD_INVALID")]
+                    if proc.returncode == 0 and not bad:
+                        ok += 1
+                    else:
+                        why = "; ".join(lim.get("message", "") for lim in bad) or \
+                            " ".join((proc.stderr or proc.stdout).split())[:200]
+                        failures.append(f"{os.path.relpath(path, REPO_ROOT)}: {why}")
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+    shutil.rmtree(empty, ignore_errors=True)
+    detail = f"{ok}/{total} fenced target-state fixtures load"
+    if not total:
+        detail = f"no fenced `{TARGET_STATE_SCHEMA}` block found -- the format is undocumented again"
+    elif failures:
+        detail += " | " + " ; ".join(failures[:3])
+    record(bool(total) and ok == total, "(m) fenced target-state fixtures load", detail)
+
+
+# ---------------------------------------------------------------------------
 # (l) no HTML-swallowed placeholders
 # ---------------------------------------------------------------------------
 
@@ -632,6 +688,7 @@ def main() -> int:
         md = site_markdown()
         check_contracts(pacto_bin, md)          # (d)
         check_cr_examples(md)                    # (e)
+        check_target_state(pacto_bin, md)        # (m)
 
     check_flags()                                # (f)
     check_chart()                                # (g)

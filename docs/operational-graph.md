@@ -138,6 +138,69 @@ still contributes services, and the same service is attributable to several
 sources at once. Both counts are computed over the complete population, never over
 the bounded entity preview beside them.
 
+### What a target-state fixture looks like
+
+`--target-state` is the only source you have to author yourself, so here is the
+whole format. It is a single YAML or JSON document — JSON is a subset of YAML, so
+one parser reads both — and the decoder is strict: a second `---` document, an
+unknown field or a `schemaVersion` other than `pacto.dev/fleet-targets/v1` is
+rejected and the whole file contributes nothing.
+
+```yaml
+schemaVersion: pacto.dev/fleet-targets/v1
+targets:
+  - service: orders-service          # required: the service this target runs
+    name: commerce/orders-service    # required: unique within the scope
+    scope: production-eu             # the environment, e.g. a cluster
+    kind: kubernetes-workload        # what sort of target it is
+    labels: { env: production, region: eu }
+    requestedRef: oci://ghcr.io/acme/orders-service:1.2.0
+    resolvedRef: oci://ghcr.io/acme/orders-service:1.2.0
+    digest: sha256:…
+    compliance: NonCompliant
+    coverage: { evaluated: 5, required: 5 }
+    evidenceAt: 2026-07-29T09:40:00Z     # when the evidence was gathered
+    reconciledAt: 2026-07-29T09:41:00Z   # when the target was last reconciled
+    findings:
+      - code: STATELESS_PERSISTENT_CONFLICT   # required within a finding
+        severity: error
+        category: RuntimeDrift
+        subjectKind: state
+        subjectName: orders-db
+        message: declared stateless but the observed workload mounts a volume
+state:                               # optional: the source's own health
+  status: available
+  message: ""
+```
+
+Only `service` and `name` are required on a target — everything else may be
+omitted, and an omitted `evidenceAt` is exactly how you model a target the
+collector could not observe. The enumerations are closed:
+
+| Field | Accepted values |
+| --- | --- |
+| `compliance` | `Compliant`, `NonCompliant`, `Unknown`, `Warning`, `Invalid`, `Reference`, `NotEvaluated`, or omitted |
+| `findings[].severity` | `error`, `warning`, `info`, `unknown`, or omitted |
+| `state.status` | `available`, `partial`, `stale`, `unavailable` (anything else reads as `available`) |
+
+A file may declare at most 5000 targets. An individual entry that fails
+validation is skipped with a `SOURCE_RECORD_INVALID` limitation and the rest of
+the file is kept; a failure of the *file* — missing, unparseable, wrong schema
+version, unknown field — drops the whole source with a `SOURCE_UNAVAILABLE`
+limitation and marks the snapshot `partial`.
+
+!!! warning "A malformed fixture is reported the same way as a missing one"
+    Both produce exactly `SOURCE_UNAVAILABLE`: *source target-state is
+    unavailable; its records are missing from this snapshot*. The parse error
+    itself is not surfaced, and `-v` does not add it, so a typo in a field name
+    looks identical to a path that does not exist. If the source drops and the
+    path is right, suspect the file: check `schemaVersion` first, then field
+    spelling.
+
+[`examples/demo/fleet-targets.yaml`](https://github.com/TrianaLab/pacto/blob/main/examples/demo/fleet-targets.yaml)
+is a complete worked fixture — compliant, non-compliant, unknown and stale
+targets across two scopes — and it is the file the live demo runs on.
+
 ---
 
 ## Freshness and completeness

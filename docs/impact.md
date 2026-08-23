@@ -140,6 +140,56 @@ every affected consumer with its compatibility verdict and confidence, the activ
 targets and the owners to notify — along with the snapshot's completeness and any
 limitations.
 
+### Exit status: what makes a consumer *active*
+
+`pacto impact` exits **1** only when both halves are true — the change is
+`BREAKING` **and** at least one incompatible consumer is *active*. Anything else
+exits **0**, including a run that prints `Classification: BREAKING` and a list of
+consumers every one of which says `compat=incompatible`.
+
+**Active means the snapshot knows of somewhere that consumer is deployed** — at
+least one operational target. Compatibility is a statement about contracts;
+active is a statement about the world. A consumer that is incompatible on paper
+but is running nowhere the snapshot can see is a review item, not a release
+blocker, so it does not fail the command.
+
+The consequence catches people out, because `--local` defaults to `.` and local
+bundles declare no targets: **a declared-only run can never exit non-zero.**
+
+```console
+$ pacto impact ./api-v1 ./api-v2 --local ./fleet
+Classification: BREAKING
+Affected consumers (1):
+  web    direct   confidence=contractual  compat=incompatible  owner=frontend
+$ echo $?
+0
+```
+
+The `Active targets` line is the tell — it is printed only when there is at least
+one, so no line means no non-zero exit is possible. Give the snapshot a source
+that knows where things run and the same command blocks:
+
+```console
+$ pacto impact ./api-v1 ./api-v2 --local ./fleet --target-state ./targets.yaml
+Classification: BREAKING
+Affected consumers (1):
+  web    direct   confidence=contractual  compat=incompatible  owner=frontend
+Active targets (1): [production/kubernetes-workload/shop%2Fweb]
+breaking changes affect active consumers
+$ echo $?
+1
+```
+
+In CI that means one of two deliberate choices. Gate on the exit code and you are
+gating on *deployed* impact, which is what you want in a promotion pipeline — but
+only if the job actually supplies targets. Gate on the JSON instead
+(`--output-format json`, then `classification == "BREAKING"`) and you are gating
+on the contract alone, which is what you want before anything is deployed at all.
+The file `--target-state` expects is documented under
+[target-state fixtures](operational-graph.md#what-a-target-state-fixture-looks-like);
+`pacto impact` accepts no live sources, so on a laptop that file is the only way
+to make the exit code mean anything.
+
 ---
 
 ## MCP tool: `pacto_impact`

@@ -615,7 +615,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 
 Composes a semantic contract diff (old→new) with the operational graph to answer what a change's real blast radius is: which consumers are affected, how strong the evidence is and whether their declared compatibility still holds.
 
-Exit status is non-zero when the change is BREAKING and at least one active consumer is incompatible with the new version (mirrors `pacto diff`).
+Exit status is non-zero when the change is BREAKING and at least one ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). Active means the snapshot knows of somewhere that consumer is deployed — at least one operational target. A consumer that is incompatible on paper but is running nowhere the snapshot can see does not fail the command, so a declared-only run over `--local` bundles alone exits 0 no matter how incompatible it says the consumers are. The `Active targets` line in the output is the tell: no line, no non-zero exit. Supply targets with --target-state (or query a live fleet with `pacto fleet`) to make the exit code mean something.
 
 ```
 pacto impact <old> <new> [flags]
