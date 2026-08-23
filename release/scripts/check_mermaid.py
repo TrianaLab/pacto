@@ -15,6 +15,10 @@ Runner resolution (first that works):
   * npx --yes -p @mermaid-js/mermaid-cli mmdc   (no local install needed)
   * an `mmdc` already on PATH
 
+Under npx, the headless browser mmdc renders with is installed explicitly first
+(see ensure_browser) rather than left to a postinstall side effect a warm npm
+cache will skip.
+
 If neither is available the gate cannot render, so it degrades to a
 block-extraction self-test and reports that the full mmdc run is deferred to CI
 (which provides Node). Run the self-test directly with `--self-test`.
@@ -61,12 +65,45 @@ def markdown_files() -> list[str]:
     return sorted(set(files))
 
 
+MMDC_PKG = "@mermaid-js/mermaid-cli"
+
+
 def mmdc_command() -> list[str] | None:
     if shutil.which("npx"):
-        return ["npx", "--yes", "-p", "@mermaid-js/mermaid-cli", "mmdc"]
+        return ["npx", "--yes", "-p", MMDC_PKG, "mmdc"]
     if shutil.which("mmdc"):
         return ["mmdc"]
     return None
+
+
+def ensure_browser(cmd: list[str]) -> str | None:
+    """Install mmdc's headless browser up front. None on success, else the error.
+
+    mmdc renders through puppeteer, whose browser is NOT part of the npm package:
+    it arrives as a postinstall side effect, downloaded into ~/.cache/puppeteer.
+    CI caches ~/.npm -- which contains npx's package tree at ~/.npm/_npx -- and
+    does not cache ~/.cache/puppeteer. Restore that cache and npx finds
+    mermaid-cli already installed, skips the install, and skips the download with
+    it: a complete mermaid-cli that cannot launch anything. Every block then
+    "fails to render" and the gate blames nineteen diagrams for one missing
+    binary.
+
+    So do what every Playwright gate in this repo already does and install the
+    browser explicitly instead of hoping a side effect ran. Resolving `puppeteer`
+    from mermaid-cli's own tree pins nothing and guesses nothing -- it installs
+    the exact browser build that tree's puppeteer-core will look for. Warm, it
+    costs under a second.
+    """
+    if cmd[0] != "npx":
+        return None  # a system mmdc brought its own browser; not ours to manage
+    proc = subprocess.run(
+        ["npx", "--yes", "-p", MMDC_PKG,
+         "puppeteer", "browsers", "install", "chrome-headless-shell"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode == 0:
+        return None
+    return proc.stderr.strip() or proc.stdout.strip() or f"exit {proc.returncode}"
 
 
 def validate_block(cmd: list[str], puppeteer_cfg: str, body: str) -> tuple[bool, str]:
@@ -115,6 +152,14 @@ def main(argv: list[str]) -> int:
         print("mmdc/npx unavailable in this environment: running block-extraction "
               "self-test only; full mermaid render is deferred to CI (Node present).")
         return self_test()
+
+    # A renderer that cannot start is an infrastructure failure, not nineteen
+    # broken diagrams. Say so, and exit 2 so the two are never confused.
+    browser_err = ensure_browser(cmd)
+    if browser_err:
+        print("mermaid renderer unavailable: could not install the headless "
+              f"browser mmdc renders with.\n{browser_err}")
+        return 2
 
     # Chromium refuses to run as root without --no-sandbox (the default on CI
     # runners), so hand mmdc a puppeteer config that passes it. Harmless locally.
