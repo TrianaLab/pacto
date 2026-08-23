@@ -44,11 +44,34 @@ from [Upgrade with Helm](#upgrade-with-helm) above:
 
 --8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
-The API version stays `v1alpha1` across the major bump and schema changes are
-additive, so the stored version is unchanged: every existing `Pacto` resource
-remains stored and readable under the new CRD (no conversion webhook, no decode
-error) and the upgraded operator reconciles it in place. Confirm the migration
-before and after:
+The API version stays `v1alpha1` across the major bump and the stored version is
+unchanged, so every existing `Pacto` resource remains stored and readable under
+the new CRD — no conversion webhook, no decode error — and the upgraded operator
+reconciles it in place. That holds because **`spec` is additive**: v5 adds
+`spec.target.configBindings` and `spec.target.interfaceBindings` and removes
+nothing, so a contract resource written for v4 still validates unchanged.
+
+`status` is a different story, and it is the one that surprises people.
+
+!!! warning "The upgrade drops v4 status observations on sight"
+    `status` was redesigned, not extended: v5 removes 51 status paths and adds 35.
+    `status.runtime`, `status.endpoints`, `status.ports`, `status.scaling`,
+    `status.readiness.checks`, `status.contract.imageRef` and
+    `status.summary.{passed,failed,total}` are gone, replaced by
+    `status.findings`, `status.evaluationCoverage` and
+    `status.summary.{errorCount,warningCount,infoCount,unknownCount}` — which is
+    why the printer columns change from `PASSED`/`FAILED` to
+    `ERRORS`/`WARNINGS`.
+
+    The apiserver stops serving the removed fields the moment the new CRD lands,
+    before the new operator has reconciled anything, so a `kubectl get pacto -o
+    yaml` taken between step 1 and step 2 shows a resource whose `spec` is intact
+    and whose `status` looks half-empty. That is the CRD, not data loss: the old
+    values are still in etcd and reappear if you put the old CRD back. They are
+    lost for good only once something writes `status` again. Nothing you need to
+    do — just do not read that window as a failed migration.
+
+Confirm the migration before and after:
 
 ```bash
 kubectl get crd pactos.pacto.trianalab.io \
@@ -66,6 +89,39 @@ This exact flow is exercised end to end against a real cluster by
 job): it installs the real previous-major (v4) chart with its v4 CRDs,
 server-side applies the new CRDs, then `helm upgrade`s to the current chart and
 asserts the pre-existing resource survives and reconciles.
+
+## Rolling back
+
+`helm rollback pacto-operator` reverts what the chart owns — the Deployment, the
+ServiceAccount, the RBAC, the Services — and that is the whole story **within** a
+major. Your `Pacto` resources are untouched: the operator holds no state of its
+own, and the `PactoRevision` objects it created are owned by the `Pacto` they
+belong to, so nothing is orphaned and nothing is re-derived from scratch. Re-apply
+any [hand-patched controller flags](#upgrade-with-helm) afterwards; a rollback
+re-renders `args` from the template exactly as an upgrade does.
+
+Rolling back **across** a major is not that clean, and the reason is the same
+`crds/` rule that made the upgrade a two-step: Helm does not manage those CRDs in
+either direction, so `helm rollback` leaves the **new** CRD in place and gives you
+the old controller running against the new schema. The write path fails silently
+there — the apiserver accepts a status update carrying v4-only fields, prunes
+every one of them and returns success, so the old operator reports healthy writes
+that never land, and `kubectl get pacto` stays blank in the columns you are
+watching.
+
+So decide which half you actually need:
+
+- **The old controller image, current schema** — `helm rollback` alone gets you
+  there, and it is the wrong place to stay. Treat it as a way to stop a bad
+  rollout, not as a supported configuration.
+- **A real return to the previous major** — roll the chart back *and* server-side
+  apply the previous release's CRDs, the mirror image of step 1. Every field only
+  the newer schema defines stops being served at that moment, and the values the
+  newer operator wrote are lost as soon as the older one writes `status` again.
+  `spec` is unaffected either way, so no contract resource needs re-creating.
+
+Neither direction touches published contracts or evidence: both live in your
+registry, not in the cluster.
 
 ## Turning on the Evidence Server during an upgrade
 

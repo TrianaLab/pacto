@@ -61,8 +61,10 @@ reproduces that exactly (it packages this fixture with the same override and pin
 
 ## The v4 -> v5 delta this fixture exercises (real, not cosmetic)
 
-The v4 CRD and the current-tree (v5) CRD both serve/store `v1alpha1` (additive
-schema evolution across the major), but the schema genuinely differs — e.g. the
+The v4 CRD and the current-tree (v5) CRD both serve/store `v1alpha1`, so no
+conversion webhook is involved, but the schema genuinely differs — additively in
+`spec` (nothing removed, 9 paths added) and not at all additively in `status`
+(51 paths removed, 35 added). E.g. the
 printer columns changed `Passed/Failed` (v4) -> `Errors/Warnings` (v5) and v5 adds
 `spec.target.configBindings` / `spec.target.interfaceBindings` plus
 `status.findings` / `status.evaluationCoverage`. The test uses the printer-column
