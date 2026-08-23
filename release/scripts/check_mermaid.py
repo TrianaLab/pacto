@@ -61,12 +61,29 @@ def markdown_files() -> list[str]:
     return sorted(set(files))
 
 
+NPX_MERMAID = ["npx", "--yes", "-p", "@mermaid-js/mermaid-cli"]
+
+
 def mmdc_command() -> list[str] | None:
     if shutil.which("npx"):
-        return ["npx", "--yes", "-p", "@mermaid-js/mermaid-cli", "mmdc"]
+        return NPX_MERMAID + ["mmdc"]
     if shutil.which("mmdc"):
         return ["mmdc"]
     return None
+
+
+def ensure_chrome() -> None:
+    """Install the headless Chrome mmdc renders with, if it isn't there yet.
+
+    npx puts mermaid-cli (and its peer puppeteer) under ~/.npm/_npx, but
+    puppeteer's postinstall puts the browser under ~/.cache/puppeteer — a
+    different directory. CI caches ~/.npm only, so an npm cache hit skips the
+    install *and* its browser download, and mmdc then dies with "Could not find
+    chrome-headless-shell". Installing from the same -p tree keeps the browser
+    matched to that puppeteer; it's a fast no-op once downloaded.
+    """
+    subprocess.run(NPX_MERMAID + ["puppeteer", "browsers", "install",
+                                  "chrome-headless-shell"], check=False)
 
 
 def validate_block(cmd: list[str], puppeteer_cfg: str, body: str) -> tuple[bool, str]:
@@ -115,6 +132,9 @@ def main(argv: list[str]) -> int:
         print("mmdc/npx unavailable in this environment: running block-extraction "
               "self-test only; full mermaid render is deferred to CI (Node present).")
         return self_test()
+
+    if cmd[0] == "npx":
+        ensure_chrome()
 
     # Chromium refuses to run as root without --no-sandbox (the default on CI
     # runners), so hand mmdc a puppeteer config that passes it. Harmless locally.
