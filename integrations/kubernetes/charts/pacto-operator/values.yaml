@@ -202,7 +202,10 @@ evidence:
     # durable evidence store — every accepted record is published as an OCI 1.1
     # referrer of one of these manifests — so the chart installs nothing durable
     # in the cluster. A mutable tag is rejected: it could be moved onto another
-    # manifest and silently change what the stored evidence reports on.
+    # manifest and silently change what the stored evidence reports on. That
+    # registry must serve the native OCI 1.1 Referrers API — GHCR and CNCF
+    # distribution (registry:2, registry:3) do not, and the Evidence Server
+    # stays permanently not-ready against them.
     subjects: []
     # -- Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with
     # credentials for that registry, mounted read-only. The chart never creates
