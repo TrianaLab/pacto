@@ -451,14 +451,28 @@ def check_chart() -> None:
         for key in re.findall(r"--set\s+([\w.]+)=", text):
             if key not in known:
                 bad_sets.append(f"{os.path.basename(path)}:{key}")
-    ok = ok_helm and not bad_sets
-    detail = "helm lint+template OK, install --set keys valid"
+    # The Helm reference is flattened to leaf keys, so a `# --` comment written on
+    # a parent map is silently dropped and its children publish as blank cells.
+    # Six rows shipped that way. A blank cell is a value the reader has to guess.
+    ref = os.path.join(K8S, "docs", "generated", "helm-reference.md")
+    undocumented = [
+        m.group(1)
+        for m in re.finditer(r"^\| `([\w.\[\]-]+)` \| .* \|\s*\|$", open(ref, encoding="utf-8").read(), re.M)
+    ]
+
+    ok = ok_helm and not bad_sets and not undocumented
+    detail = f"helm lint+template OK, install --set keys valid, {len(known)} values all documented"
     if not ok:
         parts = []
         if not ok_helm:
             parts.append("helm lint/template failed: " + (lint.stderr or tmpl.stderr).strip()[:200])
         if bad_sets:
             parts.append("unknown --set keys: " + ", ".join(bad_sets))
+        if undocumented:
+            parts.append(
+                f"{len(undocumented)} values.yaml keys have no `# --` description on the LEAF key: "
+                + ", ".join(undocumented[:6])
+            )
         detail = " | ".join(parts)
     record(ok, "(g) chart values + install snippets valid", detail)
 
