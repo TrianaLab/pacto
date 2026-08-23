@@ -148,6 +148,26 @@ arbitrary UTF-8. Encoding that into a path segment would mean re-parsing it at
 the other end, and two different identities could arrive as one. The identity
 stays structured from the query to the answer.
 
+Those four fields are the tool's arguments, and they are named `name`, `domain`,
+`scheme` and `digest` — not `service`, and not `ref`. `name`, `scheme` and
+`digest` are required; `domain` is omitted for a local revision, which has none.
+Take them from a revision's own `service` and `content` objects in
+`pacto://catalog/closure` rather than composing them by hand:
+
+```json
+{ "name": "payments", "domain": "ghcr.io/acme", "scheme": "oci",
+  "digest": "sha256:…" }
+```
+
+!!! warning "A wrong argument name reads as a proven absence"
+    The identity is matched, not validated as a whole. A call that misnames or
+    omits `name` is answered `{"found": false, "completeness": "complete"}` —
+    the same answer as a revision that genuinely is not in the catalog. An agent
+    that trusts `completeness` will conclude the revision does not exist. Echo
+    `requested` back and check it says what you meant before you act on
+    `found: false`. (`scheme` and `digest` *are* rejected when malformed, so the
+    leniency is specific to `name`.)
+
 ### What it is not
 
 - **A catalog is not the fleet.** The catalog describes *contracts* reachable
