@@ -54,6 +54,8 @@ type pactoStatus struct {
 	ContractStatus     string                   `json:"contractStatus"`
 	ContractVersion    string                   `json:"contractVersion"`
 	Contract           *k8sContractInfo         `json:"contract,omitempty"`
+	ResolutionPolicy   string                   `json:"resolutionPolicy,omitempty"` // "Latest", "PinnedTag", "PinnedDigest"
+	CurrentRevision    string                   `json:"currentRevision,omitempty"`
 	Validation         *k8sValidation           `json:"validation,omitempty"`
 	Interfaces         flexSlice[k8sInterface]  `json:"interfaces,omitempty"`
 	Configurations     flexSlice[k8sConfig]     `json:"configurations,omitempty"`
@@ -97,13 +99,13 @@ func (f *flexSlice[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// k8sContractInfo maps status.contract. resolutionPolicy and currentRevision are
+// NOT here: the operator writes them at the top level of status (see pactoStatus).
 type k8sContractInfo struct {
-	ServiceName      string         `json:"serviceName"`
-	Version          string         `json:"version"`
-	Owner            contract.Owner `json:"owner"`
-	ResolvedRef      string         `json:"resolvedRef"`
-	CurrentRevision  string         `json:"currentRevision,omitempty"`
-	ResolutionPolicy string         `json:"resolutionPolicy,omitempty"` // "Latest", "PinnedTag", "PinnedDigest"
+	ServiceName string         `json:"serviceName"`
+	Version     string         `json:"version"`
+	Owner       contract.Owner `json:"owner"`
+	ResolvedRef string         `json:"resolvedRef"`
 }
 
 type k8sValidation struct {
@@ -190,7 +192,7 @@ type k8sReadiness struct {
 	NotDoneCount  int32                           `json:"notDoneCount,omitempty"`
 	DeferredCount int32                           `json:"deferredCount,omitempty"`
 	Revisions     flexSlice[k8sReadinessRevision] `json:"revisions,omitempty"`
-	Checks        flexSlice[k8sReadinessCheck]    `json:"checks,omitempty"`
+	Checks        flexSlice[k8sReadinessCheck]    `json:"claims,omitempty"` // operator field name is "claims"
 }
 
 type k8sReadinessCheck struct {
@@ -602,10 +604,11 @@ func serviceDetailsFromK8sStatus(r *pactoResource) *ServiceDetails {
 
 	if r.Status.Contract != nil {
 		svc.ResolvedRef = r.Status.Contract.ResolvedRef
-		svc.CurrentRevision = r.Status.Contract.CurrentRevision
-		if r.Status.Contract.ResolutionPolicy != "" {
-			svc.VersionPolicy = normalizeResolutionPolicy(r.Status.Contract.ResolutionPolicy)
-		}
+	}
+
+	svc.CurrentRevision = r.Status.CurrentRevision
+	if r.Status.ResolutionPolicy != "" {
+		svc.VersionPolicy = normalizeResolutionPolicy(r.Status.ResolutionPolicy)
 	}
 
 	svc.Metadata = r.Status.Metadata

@@ -425,10 +425,10 @@ func TestServiceDetailsFromK8sStatus_EmptyResolutionPolicy(t *testing.T) {
 	r.Metadata.Name = "svc"
 	r.Status.ContractStatus = "Compliant"
 	r.Status.Contract = &k8sContractInfo{
-		ServiceName:      "svc",
-		Version:          "1.0.0",
-		ResolutionPolicy: "", // empty
+		ServiceName: "svc",
+		Version:     "1.0.0",
 	}
+	r.Status.ResolutionPolicy = "" // empty
 
 	svc := serviceDetailsFromK8sStatus(r)
 	if svc.VersionPolicy != "" {
