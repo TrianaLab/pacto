@@ -64,6 +64,45 @@ Underneath those products is one model — **author → publish → observe → 
 
 ---
 
+## What you keep if you stop using Pacto
+
+A contract system is only worth adopting if you can leave it, so the exit is
+worth stating before the pitch. Pacto is designed to have no lock-in, and that
+is a checkable claim rather than a promise:
+
+- **The contract source is yours already.** `pacto.yaml` and the files beside it
+  are plain YAML and JSON living in your repository, and the interfaces inside
+  are the OpenAPI, AsyncAPI, gRPC and JSON Schema documents you maintained
+  before Pacto existed. Delete the tooling and those files are unchanged.
+- **The registry is yours already.** Pacto is [not a registry](#what-pacto-is-not);
+  a published bundle is an ordinary OCI artifact in your own GHCR, ECR, ACR or
+  Artifactory. Nothing is stored on infrastructure operated by the project.
+- **A published bundle opens without Pacto** — it is a gzipped tar layer, so
+  standard OCI tooling is enough to get the files back out (below).
+- **Removing the runtime side changes nothing that is running.** The operator
+  observes and never modifies your workloads, so uninstalling it stops the
+  checking and leaves the workloads exactly as they were. Both removal paths and
+  the objects that outlive them are written down: [uninstall the CLI](installation.md#uninstall)
+  and [uninstall the operator](integrations/kubernetes/installation.md#uninstall).
+
+Unpacking a published bundle with no Pacto binary anywhere in reach:
+
+```bash
+REF=ghcr.io/your-org/your-service:1.0.0
+DIGEST=$(oras manifest fetch "$REF" | jq -r '.layers[0].digest')
+oras blob fetch --output bundle.tar.gz "${REF%%:*}@$DIGEST"
+tar -xzf bundle.tar.gz    # pacto.yaml, interfaces/, configuration/, sbom/
+```
+
+[`pacto pull`](cli-reference.md#pacto-pull) writes the same files and is the
+easier route while you still have the CLI.
+
+What you lose by leaving is the checking — the validation, the change
+classification, the operational graph and the compliance verdicts. What you
+lose is never the data.
+
+---
+
 ## The problem
 
 Today, a cloud service is described across **six different places** — none of which talk to each other:
