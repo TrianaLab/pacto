@@ -113,7 +113,46 @@ evidence, not a claim that a dependency vanished.
 
 The dashboard is the only managed component a default install deploys.
 `evidence.enabled` is `false`, and turning it on has three requirements the
-chart will not guess for you:
+chart will not guess for you. Two of them are things you create first.
+
+**Create the trust store.** `pacto evidence keygen` mints an Ed25519 pair and
+names the public key after the trust binding the server reads —
+`<producerId>__<keyId>.pub`, or a bare `<keyId>.pub` when there is a single
+producer:
+
+```bash
+pacto evidence keygen --out ./keys --producer acme-ci --key-id release-2026
+```
+
+```text
+key id:      release-2026
+private key: keys/release-2026.key
+public key:  keys/acme-ci__release-2026.pub
+```
+
+The Secret is mounted whole and read-only at `/etc/pacto/trust`, so **each
+Secret key has to be the public-key filename** — which is exactly what
+`--from-file` gives you. One `--from-file` per trusted producer:
+
+```bash
+kubectl create secret generic pacto-evidence-trust \
+  --namespace pacto-operator-system \
+  --from-file=keys/acme-ci__release-2026.pub
+```
+
+The private `.key` stays with the producer that signs; the cluster never needs
+it. [Evidence security](../../evidence-security.md) covers rotation and
+multi-producer trust.
+
+**Get the subject digest.** A subject is one immutable contract revision, and
+`pacto push` prints the digest of the revision it just published:
+
+```text
+Pushed payments-api@2.1.0 -> registry.example.com/your-org/your-service-pacto:2.1.0
+Digest: sha256:<64 hex characters>
+```
+
+Then install:
 
 ```bash
 helm install pacto-operator \
@@ -128,12 +167,14 @@ helm install pacto-operator \
   immutable contract revisions evidence may be reported against, each an
   `oci://<repo>@sha256:<digest>` reference. The chart's schema rejects an empty
   list, so `helm install` fails before anything reaches the cluster:
-  `at '/evidence/registry/subjects': minItems: got 0, want 1`.
-- **A trust store.** `evidence.trust.existingSecret` names the Secret holding
-  the public keys that evidence signatures are checked against. The chart does
-  **not** enforce this one, so an install without it succeeds and the operator
-  then exits at startup with `evidence enabled but no trust secret set:
-  signature verification is mandatory`. Verification is never optional.
+  `at '/evidence/registry/subjects': minItems: got 0, want 1`. It rejects a
+  short or tag-shaped reference the same way — the digest has to be all 64 hex
+  characters.
+- **A trust store.** `evidence.trust.existingSecret` names the Secret you
+  created above. The chart does **not** enforce this one, so an install without
+  it succeeds and the operator then exits at startup with `evidence enabled but
+  no trust secret set: signature verification is mandatory`. Verification is
+  never optional.
 - **A registry that serves the native Referrers API.** Evidence is stored as an
   OCI 1.1 referrer of the subject digest, and Pacto does not fall back to the
   tag-based scheme. **GHCR does not qualify**, and neither does CNCF
@@ -161,7 +202,12 @@ pacto-operator    1/1     1            1           21s
 
 Two Deployments, because the default install manages the dashboard for you:
 `pacto-operator` is the controller Helm created, `pacto-dashboard` is the one
-the controller created in turn. Both CRDs should be registered:
+the controller created in turn. **If you installed with
+`--set dashboard.enabled=false`, you get `pacto-operator` alone** — the healthy
+log below has no dashboard reconciler lines, and the port-forward and
+[Bind your first contract](#bind-your-first-contract) steps, which use the
+dashboard's own published contract as the example, need a contract of your own
+instead. Both CRDs should be registered either way:
 
 ```bash
 kubectl get crds | grep pacto.trianalab.io
@@ -198,7 +244,7 @@ kubectl port-forward -n pacto-operator-system svc/pacto-dashboard 3000:3000
 
 A `Pacto` resource points at a contract and at the Service to observe. The
 dashboard the operator just deployed publishes its own contract, so you can bind
-a real one without pushing anything first:
+a real one without pushing anything first. Save this as `pacto-dashboard.yaml`:
 
 ```yaml
 apiVersion: pacto.trianalab.io/v1alpha1
@@ -263,10 +309,10 @@ observations](runtime-observations.md) for how each finding maps to a status.
 helm uninstall pacto-operator --namespace pacto-operator-system
 ```
 
-That removes the controller and, with it, the dashboard: the operator-managed
-Deployment and Service are owned by the controller Deployment, so Kubernetes
-garbage-collects them. Three things survive, in every case, by design or by
-scope:
+That removes the controller and, with it, every component it manages: the
+dashboard's and the Evidence Server's Deployments and Services are all owner-
+referenced to the controller Deployment, so Kubernetes garbage-collects them.
+Four things survive, by design or by scope:
 
 **The CRDs and your `Pacto` resources.** Helm never deletes CRDs. Removing them
 deletes every `Pacto` and `PactoRevision` with them. The operator sets no
@@ -284,6 +330,19 @@ once the operator is gone, but nothing removes them either:
 ```bash
 kubectl delete clusterrole pacto-dashboard
 kubectl delete clusterrolebinding pacto-dashboard
+```
+
+**Anything you created by hand.** Helm only owns what Helm rendered, so the
+objects the optional features asked you to create stay behind:
+
+```bash
+# Only if you enabled the Evidence Server
+kubectl delete secret pacto-evidence-trust -n pacto-operator-system
+kubectl delete secret <evidence.registry.credentialsSecret> -n pacto-operator-system
+
+# Only if you granted metrics observation (see Limitations)
+kubectl delete clusterrole metrics-observation-role
+kubectl delete clusterrolebinding metrics-observation-rolebinding
 ```
 
 **The namespace**, if `--create-namespace` created it: `kubectl delete namespace

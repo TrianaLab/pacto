@@ -5,7 +5,8 @@ conditions and typed findings.
 
 ```bash
 kubectl describe pacto <name>
-kubectl get pacto <name> -o yaml | yq '.status'
+kubectl get pacto <name> -o yaml                   # the whole object
+kubectl get pacto <name> -o yaml | yq '.status'    # just the status, if you have yq
 ```
 
 The finding codes referenced below are defined on the

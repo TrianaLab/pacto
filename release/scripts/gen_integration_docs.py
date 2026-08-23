@@ -510,6 +510,14 @@ def gen_operator_configuration(repo_root: str, k8s: str) -> str:
         "`--help` output.\n"
     )
     out.append(
+        "**One dash or two makes no difference.** The table shows the single-dash spelling "
+        "because that is how Go's `flag` package prints and reports flags, and other pages "
+        "write `--enable-metrics-observation`. The parser accepts both forms identically: "
+        "`--enable-metrics-observation=x` and `-enable-metrics-observation=x` produce the "
+        "same `invalid boolean value \"x\" for -enable-metrics-observation` error. Neither "
+        "spelling is more correct.\n"
+    )
+    out.append(
         "**Two different defaults can apply to the same flag.** The Default column below is "
         "the *binary's* default -- what you get running the controller with no arguments. The "
         "Helm chart renders its own fixed argument list, so where a chart value exists it "
