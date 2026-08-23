@@ -49,6 +49,17 @@ Each reconciliation follows a fixed pipeline:
    and updates the `Pacto` CR status with structured conditions, a contract
    compliance status and Prometheus metrics.
 
+The revisions in step 1 accumulate, and they are keyed by content rather than by
+time: the name is `<pacto>-<version>-<7 hex of the sha256 of the contract YAML>`,
+and the controller looks it up before creating it. Reconciling the same bytes a
+thousand times therefore produces one `PactoRevision`, and republishing a
+different contract under the same tag produces a second one alongside it — which
+is how a mutated tag becomes visible after the fact. `status.currentRevision`
+names the one in force. Each revision is set as a child of its `Pacto`, so
+deleting the `Pacto` garbage-collects its whole history with it, and nothing else
+prunes them: a long-lived resource whose contract changes often keeps every
+distinct version it has ever seen.
+
 ```mermaid
 flowchart LR
     CR[Pacto CR] --> Loader
@@ -69,6 +80,18 @@ It is a measure of contract
 fidelity, not runtime health. The full status ladder, finding codes and the
 observation dimensions are documented in
 [Runtime observations](runtime-observations.md).
+
+`Unknown` here means *evaluated, and one required assertion could not be decided*
+— a verdict about this contract. It is not the `unknown` of the wider Pacto
+vocabulary, which is a statement about an **answer** rather than a service: see
+[Core concepts — Knowledge](../../concepts.md#knowledge) for the six words Pacto
+uses for how much of the world an answer saw, and
+[A contract status is not a knowledge state](../../concepts.md#boundaries) for why
+these two never mix.
+
+Alongside the status the operator exports five Prometheus gauges. The names,
+labels and the scrape permission you have to grant yourself are in
+[Scraping the metrics](installation.md#scraping-the-metrics).
 
 ## Where to go next
 

@@ -214,6 +214,16 @@ action. Pacto's read surfaces stay read surfaces.
 · [Why Pacto does not act or authorize](operational-graph.md#why-pacto-does-not-act-or-authorize)
 · [It recommends review, it does not act](impact.md#it-recommends-review-it-does-not-act)
 
+**A contract status is not a knowledge state.** The Kubernetes operator writes
+`Unknown` on a `Pacto` resource to mean *this contract was evaluated and a
+required assertion could not be decided* — a verdict about one service, reached
+with full knowledge that it could not be reached. The `unknown` above is about
+the answer itself: no completeness arrived at all. Same word, opposite subject.
+The operator's ladder (`Compliant`, `Warning`, `NonCompliant`, `Reference`,
+`Unknown`, `Invalid`) is a per-contract verdict set and never a `meta.completeness`.
+→ [What the operator reports](integrations/kubernetes/overview.md#what-it-reports)
+· [Status is `Unknown`](integrations/kubernetes/troubleshooting.md#status-is-unknown)
+
 **Presentation may simplify presentation, never meaning.** The dashboard may show
 fewer rows, shorter labels and collapsed sections. It may not decide what
 something means: canonical identity, completeness and every verdict arrive from
@@ -232,3 +242,5 @@ heuristic.
   produced and where the boundary sits
 - [Impact analysis](impact.md) — the confidence model over a change
 - [MCP integration](mcp-integration.md) — how an agent reads all of this
+- [Kubernetes operator](integrations/kubernetes/overview.md) — where these words
+  become a per-contract verdict in a live cluster

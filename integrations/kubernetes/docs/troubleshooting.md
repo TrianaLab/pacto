@@ -87,6 +87,38 @@ Three things about them are easy to misread:
   it never fired. Conditions and `status` are the durable record; events are the
   narration.
 
+## Chasing the evidence behind a finding
+
+Every finding carries `evidenceRefs`, and it is worth knowing what they are
+before you go looking for something that is not there:
+
+```yaml
+evidenceRefs:
+  - source: k8s
+    observedAt: "2026-08-22T21:31:04Z"
+```
+
+That is the whole record — which collector saw it and when. There is no body, no
+identifier and nothing to fetch: the operator's observations are **recomputed
+every reconcile and never stored**, so the reference dates the reading rather
+than retrieving it. What it is good for is age. An `observedAt` that stopped
+advancing while `metadata.generation` moved on tells you the finding is a
+leftover from a reconcile that no longer runs.
+
+To re-observe, nudge the resource and read the status again. The controller
+filters nothing, so any update enqueues a reconcile — the annotation key is
+arbitrary and the operator never reads it:
+
+```bash
+kubectl annotate pacto <name> reconcile-requested-at="$(date -u +%FT%TZ)" --overwrite
+```
+
+If you need observations that outlive the reconcile that made them — an audit
+trail, a signed record, something to query weeks later — that is the
+[Evidence Server](../../evidence-protocol.md), which writes to your registry
+rather than to the cluster, and the [collectors](../../collectors.md) that feed
+it. Cluster status is a live reading, not a log.
+
 ## Status is `Unknown`
 
 `Unknown` means a required assertion could not be evaluated -- it is not a

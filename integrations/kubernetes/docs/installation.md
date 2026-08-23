@@ -129,7 +129,19 @@ evidence, not a claim that a dependency vanished.
 
 The dashboard is the only managed component a default install deploys.
 `evidence.enabled` is `false`, and turning it on has three requirements the
-chart will not guess for you. Two of them are things you create first.
+chart will not guess for you. Settle the first one before you publish anything,
+because it decides where the contract itself has to live.
+
+**Check the registry serves the native Referrers API.** Evidence is stored as an
+OCI 1.1 referrer of the contract revision it reports on, in that contract's own
+repository, and Pacto does not fall back to the tag-based scheme. So the registry
+holding the contract must implement Referrers discovery. **GHCR does not
+qualify** — which matters here more than anywhere else on this site, because every
+other page publishes to `ghcr.io` — and neither does CNCF distribution
+(`registry:2`, `registry:3`). See [Evidence in
+OCI](../../evidence-oci-storage.md) for the registries this was checked against.
+Publishing the contract to a conformant registry is a decision to make before
+`pacto push`, not after `helm install`.
 
 **Create the trust store.** `pacto evidence keygen` mints an Ed25519 pair and
 names the public key after the trust binding the server reads —
@@ -191,14 +203,9 @@ helm install pacto-operator \
   it succeeds and the operator then exits at startup with `evidence enabled but
   no trust secret set: signature verification is mandatory`. Verification is
   never optional.
-- **A registry that serves the native Referrers API.** Evidence is stored as an
-  OCI 1.1 referrer of the subject digest, and Pacto does not fall back to the
-  tag-based scheme. **GHCR does not qualify**, and neither does CNCF
-  distribution (`registry:2`, `registry:3`) — a contract you want to carry
-  evidence has to live in a conformant registry, because evidence attaches in
-  the contract's own repository. See [Evidence in
-  OCI](../../evidence-oci-storage.md) for the registries this was checked
-  against.
+- **A registry that serves the native Referrers API**, as above. Nothing checks
+  it at install time: the chart installs, the operator starts, and the failure
+  surfaces later as an Evidence Server that never becomes ready.
 
 If that registry is private, there is a fourth thing you create yourself: a
 `kubernetes.io/dockerconfigjson` Secret named by
@@ -263,6 +270,43 @@ Open the dashboard by forwarding its Service (there is no Ingress by default):
 ```bash
 kubectl port-forward -n pacto-operator-system svc/pacto-dashboard 3000:3000
 ```
+
+### Scraping the metrics
+
+`metrics.enabled` is `true` by default, so the install already publishes a
+`pacto-operator-metrics` Service on port 8443. Five gauges are exported, all
+labelled `name` and `namespace` after the `Pacto` resource:
+
+| Metric | What it is |
+|---|---|
+| `pacto_contract_status` | Info-style: `1` for the resource's current status, `0` for every other. The `status` label takes all seven CRD values, so `NotEvaluated` is always `0` — the operator [never writes it](limitations.md#notevaluated-is-reserved). |
+| `pacto_readiness_score` | The derived readiness score, 0-100. |
+| `pacto_readiness_gate` | `1` when the gate passes, `0` when it does not. |
+| `pacto_readiness_status` | Info-style over the gate state: `Satisfied`, `BelowMinScore` or `Expired`. |
+| `pacto_readiness_checks` | How many claims sit at each declared `status`: `done`, `partial`, `not-done`, `deferred`. |
+
+The four readiness gauges are emitted only for contracts that declare a
+`readiness:` block. For a contract without one they are **absent**, not zero —
+write alerting rules that tolerate a missing series rather than reading `0` as a
+failing gate.
+
+Two things the chart does not do for you. `metrics.serviceMonitor.enabled` is
+`false`, so nothing is scraped until you turn it on (or point your own scrape
+config at the Service). And because `metrics.secure` is `true`, the endpoint sits
+behind the controller-runtime authn/authz filter: **an unauthorised scrape gets
+`403`, not an empty page.** The chart packages no reader role, so grant one to
+whichever ServiceAccount does the scraping:
+
+```bash
+kubectl create clusterrole pacto-metrics-reader \
+  --non-resource-url=/metrics --verb=get
+kubectl create clusterrolebinding pacto-metrics-reader \
+  --clusterrole=pacto-metrics-reader \
+  --serviceaccount=monitoring:prometheus-k8s
+```
+
+Setting `metrics.secure=false` also works and is the wrong trade for a shared
+cluster: the gauges name every contract and namespace you have bound.
 
 ### If you enabled the Evidence Server
 
