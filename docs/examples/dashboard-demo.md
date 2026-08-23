@@ -1,7 +1,15 @@
+---
+# The two "Try it" pages are the fastest answer to "what is this?", so they
+# outrank pages that merely mention a demo in passing.
+search:
+  boost: 3
+---
+
 # Live dashboard demo
 
-The Pacto dashboard runs entirely in your browser: the engine and a curated set
-of demo contracts are compiled to WebAssembly, with no backend or live registry.
+**Nothing to install.** The Pacto dashboard runs entirely in your browser: the
+engine and a curated set of demo contracts are compiled to WebAssembly, with no
+backend or live registry.
 
 Two things about the fixture, before you open it — both are deliberate, and both
 look like bugs if nobody tells you:

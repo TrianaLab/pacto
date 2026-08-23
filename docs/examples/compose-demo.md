@@ -1,3 +1,9 @@
+---
+# See the note on the sibling "Try it" page.
+search:
+  boost: 3
+---
+
 # Runnable demo (Docker Compose)
 
 A complete Pacto fleet running on your machine: an OCI registry holding real

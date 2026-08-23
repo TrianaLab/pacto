@@ -99,7 +99,7 @@ change them only with a reason:
 `tests/acceptance/local/` has no cluster to manage and keeps its own small
 helpers; `integrations/kubernetes/test/utils` serves the operator module.
 
-### Getting an image into the kind node
+### Loading an image into the kind node
 
 `load_images` is the only way an image reaches a node, and it is deliberately
 **not** `kind load docker-image`. That command pipes `docker save` into `ctr
@@ -175,7 +175,7 @@ browser journeys. Its projections:
 | `Digests` | the demo's evidence pins, computed before any registry exists |
 | `FactCount` | the denominator the Product gate reports progress against |
 
-### Two surfaces, and the difference between them
+### Kubernetes and Compose: two projections of one scenario
 
 The scenario is projected onto **Kubernetes** and onto **Compose**. They are the
 same fixture — same services, revisions, dependency edge, observation source and
