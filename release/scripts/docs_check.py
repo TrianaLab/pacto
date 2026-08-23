@@ -54,6 +54,24 @@ def run(cmd: list[str], cwd: str = REPO_ROOT, check: bool = False) -> subprocess
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=check)
 
 
+def read(path: str) -> str:
+    """Read a whole file as UTF-8 and close the handle.
+
+    Every check here reads a file once, end to end, and the shorter
+    open-dot-read does that just as well -- except that it hands the handle to
+    the garbage collector, which is a promise CPython keeps and the language
+    does not. One helper is a smaller diff than a `with` block at each of the
+    eighteen call sites, and it cannot be forgotten at the nineteenth.
+    """
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def read_bytes(path: str) -> bytes:
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
 # ---------------------------------------------------------------------------
 # Discovery of site Markdown + generated paths
 # ---------------------------------------------------------------------------
@@ -94,7 +112,7 @@ FENCE_RE = re.compile(r"^([ \t]*)(?:```|~~~)ya?ml[^\n]*\n(.*?)^\1(?:```|~~~)", r
 
 
 def fenced_yaml_blocks(path: str) -> list[str]:
-    text = open(path, encoding="utf-8").read()
+    text = read(path)
     blocks = []
     for m in FENCE_RE.finditer(text):
         indent, body = m.group(1), m.group(2)
@@ -246,7 +264,7 @@ def check_flags() -> None:
     help_text = proc.stdout + proc.stderr
     real = set(re.findall(r"^  -(\S+)", help_text, re.M))
     gen = os.path.join(K8S, "docs", "generated", "operator-configuration.md")
-    doc = open(gen, encoding="utf-8").read()
+    doc = read(gen)
     documented = set(re.findall(r"\| `-(\S+)` \|", doc))
     missing = real - documented
     extra = documented - real
@@ -269,13 +287,12 @@ def check_conditions() -> None:
     against the constants rather than restating them here: nothing in this check
     hard-codes a reason, so it stays correct when a real one is added.
     """
-    src = open(os.path.join(K8S, "api", "v1alpha1", "conditions.go"),
-               encoding="utf-8").read()
+    src = read(os.path.join(K8S, "api", "v1alpha1", "conditions.go"))
     types = set(re.findall(r"^\tCondition\w+\s*=\s*\"(\w+)\"", src, re.M))
     reasons = set(re.findall(r"^\tReason\w+\s*=\s*\"(\w+)\"", src, re.M))
 
     doc_path = os.path.join(K8S, "docs", "troubleshooting.md")
-    doc = open(doc_path, encoding="utf-8").read()
+    doc = read(doc_path)
     rows = re.findall(r"^\| `(\w+)` \| `(?:True|False|Unknown)` \| `(\w+)` \|",
                       doc, re.M)
 
@@ -374,8 +391,7 @@ def check_events() -> None:
     none of those is reported, so a new emission pattern fails this gate instead
     of slipping past it.
     """
-    api_src = open(os.path.join(K8S, "api", "v1alpha1", "conditions.go"),
-                   encoding="utf-8").read()
+    api_src = read(os.path.join(K8S, "api", "v1alpha1", "conditions.go"))
     api_consts = dict(re.findall(r"^\t(\w+)\s*=\s*\"(\w+)\"", api_src, re.M))
 
     problems, emitted = [], {}
@@ -383,7 +399,7 @@ def check_events() -> None:
     for path in sorted(glob.glob(os.path.join(controller, "*.go"))):
         if path.endswith("_test.go"):
             continue
-        src = open(path, encoding="utf-8").read()
+        src = read(path)
         where = os.path.basename(path)
         for m in re.finditer(r"Recorder\.Eventf?\(", src):
             line_end = src.find("\n", m.end())
@@ -401,7 +417,7 @@ def check_events() -> None:
                 emitted.setdefault(reason, set()).update(types)
 
     doc_path = os.path.join(K8S, "docs", "troubleshooting.md")
-    doc = open(doc_path, encoding="utf-8").read()
+    doc = read(doc_path)
     rows = re.findall(r"^\| `(\w+)` \| `(Normal|Warning)` \|", doc, re.M)
 
     for reason, etype in rows:
@@ -451,7 +467,7 @@ def check_chart() -> None:
                  os.path.join(K8S, "docs", "upgrade.md")]:
         if not os.path.exists(path):
             continue
-        text = open(path, encoding="utf-8").read()
+        text = read(path)
         for key in re.findall(r"--set\s+([\w.]+)=", text):
             if key not in known:
                 bad_sets.append(f"{os.path.basename(path)}:{key}")
@@ -461,7 +477,7 @@ def check_chart() -> None:
     ref = os.path.join(K8S, "docs", "generated", "helm-reference.md")
     undocumented = [
         m.group(1)
-        for m in re.finditer(r"^\| `([\w.\[\]-]+)` \| .* \|\s*\|$", open(ref, encoding="utf-8").read(), re.M)
+        for m in re.finditer(r"^\| `([\w.\[\]-]+)` \| .* \|\s*\|$", read(ref), re.M)
     ]
 
     ok = ok_helm and not bad_sets and not undocumented
@@ -486,9 +502,9 @@ def check_chart() -> None:
 # ---------------------------------------------------------------------------
 
 def check_coordinates() -> None:
-    manifest = json.loads(open(os.path.join(REPO_ROOT, "release/release-manifest.json")).read())
+    manifest = json.loads(read(os.path.join(REPO_ROOT, "release/release-manifest.json")))
     units = manifest["units"]
-    ah = open(os.path.join(K8S, "docs", "generated", "artifact-hub.md"), encoding="utf-8").read()
+    ah = read(os.path.join(K8S, "docs", "generated", "artifact-hub.md"))
     problems = []
     for uid in ("operator-image", "operator-chart", "k8s-module"):
         u = units[uid]
@@ -499,7 +515,7 @@ def check_coordinates() -> None:
     # Authored install snippets must use the manifest chart coordinate, not a stale one.
     chart_coord = units["operator-chart"]["coordinate"]
     for name in ("installation.md", "upgrade.md"):
-        text = open(os.path.join(K8S, "docs", name), encoding="utf-8").read()
+        text = read(os.path.join(K8S, "docs", name))
         for coord in re.findall(r"oci://(ghcr\.io/\S*charts/\S+)", text):
             if coord.rstrip("\\").strip() != chart_coord:
                 problems.append(f"{name}: chart coordinate {coord} != manifest {chart_coord}")
@@ -598,7 +614,7 @@ def unescaped_placeholders(path: str) -> list[tuple[int, str]]:
     """Every bare <placeholder> outside a fenced block and outside a code span."""
     hits = []
     in_fence = False
-    for n, line in enumerate(open(path, encoding="utf-8").read().split("\n"), 1):
+    for n, line in enumerate(read(path).split("\n"), 1):
         stripped = line.lstrip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
             in_fence = not in_fence
@@ -652,7 +668,7 @@ def signed_coordinates() -> set[str]:
     found = set()
     # A signing command is routinely wrapped, and the coordinate is on the
     # continuation line. Collapse `\`-continuations before scanning.
-    text = re.sub(r"\\\n\s*", " ", open(RELEASE_YML, encoding="utf-8").read())
+    text = re.sub(r"\\\n\s*", " ", read(RELEASE_YML))
     for line in text.splitlines():
         m = re.match(r"\s*REF:\s*(\S+)", line)
         if m:
@@ -671,7 +687,7 @@ def check_supply_chain() -> None:
     and this table is the only place the distinction is written down. If a
     signing step is added, removed or retargeted, the table has to move with it.
     """
-    text = open(SUPPLY_CHAIN_DOC, encoding="utf-8").read()
+    text = read(SUPPLY_CHAIN_DOC)
     rows = re.findall(r"^\|\s*[`(]?(ghcr\.io/[^`\s|]+)[`)]?\s*\|([^|]*)\|\s*$", text, re.M)
     if not rows:
         record(False, "(n) supply-chain table matches the signing pipeline",
@@ -716,8 +732,7 @@ def check_unreleased_versions() -> None:
                f"cannot import the changelog assembler: {exc}")
         return
 
-    post_mortem = open(os.path.join(REPO_ROOT, "docs", "maintainers", "releases.md"),
-                       encoding="utf-8").read()
+    post_mortem = read(os.path.join(REPO_ROOT, "docs", "maintainers", "releases.md"))
     problems = []
     for v in _UNRELEASED_VERSIONS:
         if v not in _CHANGELOG_INTRO:
@@ -766,7 +781,7 @@ def accidental_ordered_lists(path: str) -> list[tuple[int, str]]:
     hits = []
     in_fence = False
     prev = ""
-    for n, line in enumerate(open(path, encoding="utf-8").read().split("\n"), 1):
+    for n, line in enumerate(read(path).split("\n"), 1):
         stripped = line.lstrip()
         if stripped.startswith("```") or stripped.startswith("~~~"):
             in_fence, prev = not in_fence, ""
@@ -807,7 +822,7 @@ def snapshot(paths: list[str]) -> dict[str, str]:
         full = os.path.join(REPO_ROOT, rel)
         for f in ([full] if os.path.isfile(full) else glob.glob(os.path.join(full, "**", "*"), recursive=True)):
             if os.path.isfile(f):
-                out[os.path.relpath(f, REPO_ROOT)] = hashlib.sha256(open(f, "rb").read()).hexdigest()
+                out[os.path.relpath(f, REPO_ROOT)] = hashlib.sha256(read_bytes(f)).hexdigest()
     return out
 
 
