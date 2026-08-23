@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { devices, expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 // The accessibility gate for the DOCUMENTATION SITE, the counterpart to
@@ -23,6 +23,10 @@ const PAGES = [
   '/contract-reference/validation/',
   // Assembled into the site by the integration hook, not authored under docs/.
   '/integrations/kubernetes/installation/',
+  // Generated from the CRD schema, and the only page wide enough to overflow its
+  // table wrapper at a desktop width — which is how a scrollable region with no
+  // keyboard stop stayed invisible to a five-page audit.
+  '/integrations/kubernetes/crd-reference/',
 ];
 
 // Material renders its instant-navigation progress bar as a bare div at the top
@@ -99,3 +103,27 @@ for (const path of PAGES) {
     await audit(page, `axe (dark) ${path}`);
   });
 }
+
+// A phone is a different document, not a narrower one: the drawer renders every
+// navigation level at once, and a code block that fits at 1440px overflows at
+// 390px. Both of those produced real defects a desktop-only audit could not see
+// — three navigation landmarks with an empty accessible name, and 112 scrollable
+// regions with no way to reach them from the keyboard. Light scheme only: the
+// palette is what the two scheme runs above are for, and repeating it here would
+// double the audit to re-check contrast that does not depend on the viewport.
+// The device descriptor names a browser as well as a screen, and `use()` inside
+// a describe cannot switch browsers. The screen is the whole point here; the
+// engine stays the project's.
+const IPHONE = { ...devices['iPhone 13'] } as Record<string, unknown>;
+delete IPHONE.defaultBrowserType;
+
+test.describe('mobile', () => {
+  test.use(IPHONE);
+
+  for (const path of PAGES) {
+    test(`the phone layout is accessible (${path})`, async ({ page }) => {
+      await page.goto(path);
+      await audit(page, `axe (mobile) ${path}`);
+    });
+  }
+});
