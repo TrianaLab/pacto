@@ -50,7 +50,7 @@ The contract states stable operational *intent*. It is deliberately not a deploy
 
 No sidecars. No new distribution plane. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification.
 
-Underneath those products is one model — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits evidence, a pure engine evaluates the contract against that evidence, and consumers surface or act on the result. The Kubernetes operator hosts the first shipped collector; anything that produces valid evidence can be one. See [Collectors and the evidence boundary](collectors.md).
+Underneath those products is one model — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits evidence, a pure engine evaluates the contract against that evidence, and consumers surface or act on the result. The Kubernetes operator hosts the first shipped collector; anything that produces valid evidence can be one. An environment Pacto cannot watch — an edge site, an air-gapped estate, a CI runner — signs and reports its own evidence inbound instead, over the [external evidence protocol](evidence-protocol.md). See [Collectors and the evidence boundary](collectors.md).
 
 ---
 
@@ -97,7 +97,8 @@ See the [contract reference](contract-reference/index.md) for every field, inclu
 ## From one contract to an operational graph
 
 A single contract describes one service. Composed across a whole platform, those
-contracts, their revisions and the targets they run in become a **versioned,
+contracts, their revisions and their *targets* — a target being one concrete
+place a revision runs, such as a workload in one cluster — become a **versioned,
 verifiable operational graph that humans, automation and agents can reason over**.
 Pacto is to service operations what OpenAPI is to HTTP APIs — and where an OpenAPI
 document describes one interface, the operational graph describes the relationships
