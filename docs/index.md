@@ -246,10 +246,9 @@ These primitives compose into reusable platform patterns — root + component co
 ## What you keep if you stop using Pacto
 
 A contract system is only worth adopting if you can leave it, so the exit is
-worth stating before you commit to anything. What you would be giving up is
-`pacto.yaml` itself — the wrapper is Pacto's own format and nothing else reads
-it. Everything it wraps stays yours, and that is checkable rather than a
-promise:
+worth stating before you commit to anything. The lock-in here is exactly one
+file: `pacto.yaml` is Pacto's own format and nothing else reads it. Everything
+it wraps stays yours, and that is checkable rather than a promise:
 
 - **The contract source is yours already.** `pacto.yaml` and the files beside it
   are plain YAML and JSON living in your repository, and the interfaces inside
@@ -301,10 +300,10 @@ Pacto is MIT licensed and developed in the open at
 commercial support offering and no paid support channel; the routes that exist
 are these:
 
-- **Something is broken, or a document is wrong** — open a
-  [GitHub issue](https://github.com/TrianaLab/pacto/issues/new/choose). Every
-  documentation page also has an *edit* pencil that opens a pull request against
-  its source.
+- **Something is broken, or a document is wrong** — report a bug on the
+  [issue tracker](https://github.com/TrianaLab/pacto/issues/new/choose), which
+  has a bug-report template. Every documentation page also has an *edit* pencil
+  that opens a pull request against its source.
 - **A security vulnerability** — use a
   [private advisory](https://github.com/TrianaLab/pacto/security/advisories/new),
   never a public issue.

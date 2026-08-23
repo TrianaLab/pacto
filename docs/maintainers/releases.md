@@ -1,3 +1,10 @@
+---
+# Contributor-internal. It is thorough, so it keeps outranking the reader
+# pages on general queries; halve it rather than thin the page.
+search:
+  boost: 0.5
+---
+
 # Release architecture (maintainers)
 
 How the Pacto monorepo releases its artifacts. This describes the system as it is —

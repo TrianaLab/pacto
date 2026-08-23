@@ -1,3 +1,10 @@
+---
+# Contributor-internal. It is thorough, so it keeps outranking the reader
+# pages on general queries; halve it rather than thin the page.
+search:
+  boost: 0.5
+---
+
 # Testing architecture
 
 Pacto has eight test levels. **A test belongs to exactly one**, chosen by what it

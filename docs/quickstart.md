@@ -1,3 +1,10 @@
+---
+# This is the getting-started page; it should win that query against any
+# section that merely contains the words.
+search:
+  boost: 2
+---
+
 # Quickstart
 
 Getting started with Pacto: from zero to a published contract in about five
