@@ -69,21 +69,37 @@ wasmexec:
 	@cp "$(GOROOT)/lib/wasm/wasm_exec.js" $(DIST)/wasm_exec.js
 	@echo "==> Copied wasm_exec.js"
 
-## Inject the wasm loader before the app's module script, add the SPA 404
-## fallback, and stamp the build. The engine assets (app.wasm, boot.js,
-## wasm_exec.js) have stable names, so without a cache-bust query a browser would
-## serve a stale cached engine against a freshly-hashed UI after a redeploy (new
-## UI calling an old wasm). A content token derived from the built wasm busts all
-## three together, so a new engine is picked up immediately. Idempotent.
+## Inject the wasm loader before the app's module script, add the no-JavaScript
+## fallback and the SPA 404 fallback, and stamp the build. The engine assets
+## (app.wasm, boot.js, wasm_exec.js) have stable names, so without a cache-bust
+## query a browser would serve a stale cached engine against a freshly-hashed UI
+## after a redeploy (new UI calling an old wasm). A content token derived from the
+## built wasm busts all three together, so a new engine is picked up immediately.
+##
+## The <noscript> block goes in at build time rather than in the frontend's
+## index.html, because it is specific to this demo: the real dashboard is served
+## by a Go backend, this one IS the engine. Its link matches boot.js's DOCS_HREF —
+## the demo deploys at /<version>/demo/ inside every mike version, so ../ reaches
+## the docs for the same version. Idempotent.
 inject:
 	@bust=$$(git hash-object $(DIST)/app.wasm | cut -c1-12); \
 	  sed "s|\"app.wasm\"|\"app.wasm?v=$$bust\"|" boot.js > $(DIST)/boot.js; \
-	  grep -q 'boot.js' $(DIST)/index.html || awk -v base="$(BASE)" -v bust="$$bust" '\
+	  grep -q 'boot.js' $(DIST)/index.html || { awk -v base="$(BASE)" -v bust="$$bust" '\
 	    /<script type="module"/ && !done { \
 	      print "  <script src=\"" base "wasm_exec.js?v=" bust "\"></script>"; \
 	      print "  <script src=\"" base "boot.js?v=" bust "\"></script>"; \
 	      done=1 \
-	    } { print }' $(DIST)/index.html > $(DIST)/index.html.tmp && mv -f $(DIST)/index.html.tmp $(DIST)/index.html; \
+	    } \
+	    /<\/body>/ && !ns { \
+	      print "  <noscript>"; \
+	      print "    <div style=\"max-width:40rem;margin:0 auto;padding:4rem 1.5rem;color:var(--c-text,#f1f5f9);font-family:system-ui,sans-serif;line-height:1.6\">"; \
+	      print "      <h1 style=\"font-size:1.5rem;margin:0 0 1rem\">Pacto dashboard demo</h1>"; \
+	      print "      <p>This demo has no backend. The Pacto engine is compiled to WebAssembly and runs inside this tab, so it needs JavaScript enabled. Nothing you do in it leaves your browser.</p>"; \
+	      print "      <p><a href=\"../examples/dashboard-demo/\" style=\"color:var(--c-accent,#818cf8)\">Read what the demo shows</a> — the same tour in prose, no JavaScript required.</p>"; \
+	      print "    </div>"; \
+	      print "  </noscript>"; \
+	      ns=1 \
+	    } { print }' $(DIST)/index.html > $(DIST)/index.html.tmp && mv -f $(DIST)/index.html.tmp $(DIST)/index.html; }; \
 	  cp $(DIST)/index.html $(DIST)/404.html; \
 	  printf '{"base":"%s","version":"%s","build":"%s"}\n' "$(BASE)" "$(VERSION)" "$$bust" > $(DIST)/version.json
 	@echo "==> Injected loader (version $(VERSION)), 404.html, cache-busted engine, version.json"
