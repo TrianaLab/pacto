@@ -711,6 +711,8 @@ pacto init <name> [flags]
 
 Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml`, and a configuration JSON Schema at `configuration/schema.json`.
 
+`<name>` is the service name, not a path: it becomes the directory *and* `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. `pacto init fleet/checkout-web` therefore scaffolds a bundle that does not validate — `service.name` gets the whole path and fails `SCHEMA_VIOLATION`. To scaffold inside a directory, `cd` there first and pass the bare name.
+
 All three are required **by the scaffolded contract**, because its `interfaces:` and `configurations:` sections point at the other two files. Deleting a directory without also deleting the section that references it fails validation with `FILE_NOT_FOUND`. A contract that declares neither section needs only `pacto.yaml`, so drop the section and the directory together.
 
 !!! note "The scaffold does not pass `validate --readiness`, by design"

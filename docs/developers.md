@@ -44,6 +44,18 @@ configurations:
     schema: config.schema.json
 ```
 
+!!! warning "Two things the plugin's closing message gets wrong for you"
+    It says *"add `configuration.schema: config.schema.json` to your pacto.yaml"*.
+    There is no `configuration` section — the field is `configurations[].schema`,
+    as in the block above. The message comes from the plugin, not from Pacto.
+
+    It also leaves your `config.yaml` sitting in the bundle, and **a bundle
+    directory is published whole**: `pacto pack` and `pacto push` upload every file
+    under it, so `pacto pull` hands your config values, secrets included, to anyone
+    who can read the artifact. The input is not part of the contract — the schema
+    inferred from it is. Delete it once the schema exists, or list it in
+    [`.pactoignore`](pactoignore.md) if you want to keep it beside the contract.
+
 When you define your own configuration schema, you are declaring **what your service requires** to run. This is the most common model for services that need to be portable across environments. If your platform team provides a shared schema instead, you can either vendor it into your bundle or reference it via OCI:
 
 ```yaml

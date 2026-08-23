@@ -43,6 +43,10 @@ Created my-service/
   my-service/configuration/
 ```
 
+The argument is the service name, not a path — it becomes the directory *and*
+`service.name`, so `pacto init fleet/checkout-web` scaffolds a bundle that fails
+validation. `cd` into the directory you want and pass the bare name.
+
 Three files, all valid as they stand:
 
 | File | What it is |
@@ -256,6 +260,14 @@ breaking changes detected
 ```
 
 The exit code is 1 when the classification is `BREAKING` — that is the CI gate.
+
+Then it is your move, and Pacto does not make it for you. A `BREAKING` verdict
+means this change cannot ship under a compatible version: release it as a new
+**major** (`1.4.2` → `2.0.0`), because that is what every consumer's
+`compatibility: "^1.0.0"` range is reading. Nothing enforces that — bumping
+`service.version` is itself classified `NON_BREAKING`, so `pacto diff` will not
+notice whether you did it. What the version buys you is the consumers' side:
+pinned to a major, they keep resolving the old contract until they choose to move.
 
 Both sides of a diff can be local, so this check needs no registry at all:
 `pacto diff ./v1 ./v2` compares two directories and prints the same

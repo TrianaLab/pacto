@@ -30,7 +30,7 @@ Validates semantic references and consistency:
 
 | Rule | Code |
 |---|---|
-| `service.version` is valid semver | `INVALID_SEMVER` |
+| `service.version` [parses as semver](sections.md#service) — leniently: `1`, `0.1` and `v0.1` all pass | `INVALID_SEMVER` |
 | Interface names are unique | `DUPLICATE_INTERFACE_NAME` |
 | Configuration names are unique | `DUPLICATE_CONFIGURATION_NAME` |
 | Policy names are unique | `DUPLICATE_POLICY_NAME` |

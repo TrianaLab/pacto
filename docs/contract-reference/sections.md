@@ -23,12 +23,25 @@ Identifies the service.
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
-| `version` | string | Yes | Valid semver (e.g., `2.1.0`) |
+| `version` | string | Yes | Parses as semver (e.g., `2.1.0`) — see the note below |
 | `owner` | [OwnerInfo](#ownerinfo) | No | Object only (string form removed) |
 
 `service` carries identity only — there is no `image` or `chart` field. How a
 service is built and deployed is a delivery concern that lives outside the
 contract.
+
+!!! note "`version` is parsed leniently, so write it strictly"
+    The check is "does [Masterminds/semver](https://github.com/Masterminds/semver)
+    parse this", not "is this three dot-separated numbers". That parser fills in
+    the parts you leave out and tolerates a leading `v`, so `1`, `0.1` and `v0.1`
+    all validate and all mean `0.1.0`-style coerced versions. `1.2.3.4`, `abc`, a
+    capital `V1.0.0` and anything with surrounding whitespace are rejected with
+    `INVALID_SEMVER`.
+
+    Nothing downstream re-checks the shape, so a coerced version is what gets
+    published: `pacto push` tags the artifact with the literal string, and two
+    contracts written `1` and `1.0.0` become two different tags of the same
+    version. Write the full `MAJOR.MINOR.PATCH` and skip the `v`.
 
 ### OwnerInfo
 
