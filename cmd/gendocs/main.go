@@ -219,7 +219,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 	"dashboard": "It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached), and `--diagnostics` to expose the `/api/debug/*` endpoints.\n\n" +
 		"For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Architecture](architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
 
-	"mcp": "The server exposes the following tools:\n\n" +
+	"mcp": "The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:\n\n" +
 		"| Tool | Description |\n" +
 		"|------|-------------|\n" +
 		"| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |\n" +

@@ -4,7 +4,7 @@ You manage the infrastructure that runs services. Pull a validated, machine-read
 ---
 ## What a contract tells you
 
-Every question you'd normally have to ask the dev team — or discover in production — is answered in the contract. The fields are top-level in v2 (there is no `runtime` wrapper, and no port, scaling, image or lifecycle field — those are delivery concerns you own):
+The questions you'd normally ask the dev team — *is it stateful, what does it expose, what does it depend on, what config does it need* — are answered in the contract. The ones you answer yourself are not in it at all: there is no port, scaling, image or lifecycle field, because those are delivery decisions and the contract deliberately leaves them to you. The fields are top-level in v2, with no `runtime` wrapper:
 
 | Contract Field | Platform Decision |
 |---|---|
@@ -279,7 +279,7 @@ Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for th
 
 Sources (local, Kubernetes, OCI) are auto-detected at startup and merged per service. The platform-relevant behavior: when running alongside the Kubernetes operator, the dashboard auto-discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses, so a K8s deployment gives the full contract experience — version history, interface details, configuration schemas and diffs — without explicit OCI arguments.
 
-See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for flags (`--host`, `--port`, `--namespace`, `--no-cache`, `--diagnostics`, `--cors-origin`) and environment variables. Pass OCI repositories as positional `oci://` arguments or via the `PACTO_DASHBOARD_REPO` env var.
+See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for its flags (`--host`, `--port`, `--namespace`, `--diagnostics`, `--cors-origin`, `--traces`, `--trace-source`) and environment variables. `--no-cache` works here too but is a global flag, not one of the command's own. Pass OCI repositories as positional `oci://` arguments or via the `PACTO_DASHBOARD_REPO` env var.
 
 ### Feeding the Operational Graph observed dependencies
 

@@ -68,14 +68,14 @@ The consequences:
 
 - **Platforms guess service behavior.** *Is it stateful? Does it need persistent storage? What does it depend on?*
 - **Dev ↔ Platform friction.** Developers ship code; platform engineers reverse-engineer how to run it.
-- **Breaking changes detected too late.** A port change or removed dependency breaks production, not CI.
+- **Breaking changes detected too late.** A removed endpoint or a dropped dependency breaks production, not CI.
 - **No dependency visibility.** No one knows what depends on what until something breaks.
 
 ---
 
 ## The solution: one operational contract
 
-Pacto replaces those six fragmented sources with the single file shown at the top of this page — interfaces, dependencies, runtime behavior, configuration and capabilities — validated by tooling and versioned in a registry. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs.
+Pacto answers those six fragmented sources from one file — the one shown at the top of this page — covering interfaces, dependencies, runtime behavior, configuration and capabilities, validated by tooling and versioned in a registry. It does not delete your Helm chart or your OpenAPI spec: it points at the artifacts you already have and states the operational facts none of them carry. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs.
 
 See the [contract reference](contract-reference/index.md) for every field, including the [`readiness`](contract-reference/sections.md#readiness) section (a `pactoVersion: "2.0"` feature).
 
@@ -237,9 +237,14 @@ These primitives compose into reusable platform patterns — root + component co
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
 - **Not an IDP, portal or authorization system** — it is the machine-readable operational layer *over* a platform, not the portal humans click or the system that decides who may act
 
-Ready to try it? Install the CLI and write your first contract in the
-[Quickstart](quickstart.md). For the full positioning and rationale, see the
+Ready to try it? The [live dashboard demo](examples/dashboard-demo.md) runs a
+real fleet in your browser with nothing to install. When you want your own
+contract, the [Quickstart](quickstart.md) takes about five minutes from an empty
+directory to a published bundle. For the full positioning and rationale, see the
 [Manifesto](manifesto.md). Pacto is MIT licensed and developed in the open at
-[github.com/TrianaLab/pacto](https://github.com/TrianaLab/pacto).
+[github.com/TrianaLab/pacto](https://github.com/TrianaLab/pacto); security
+reports go through a
+[private advisory](https://github.com/TrianaLab/pacto/security/advisories/new),
+never a public issue.
 
 Pacto is an **operational contract system** that tells platforms, pipelines and agents what a service *is* — and whether observed reality still matches what was declared.

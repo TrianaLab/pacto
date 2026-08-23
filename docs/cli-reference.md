@@ -837,7 +837,7 @@ pacto mcp [bundle-ref] [flags]
   -t, --transport string           transport type: stdio or http (default "stdio")
 ```
 
-The server exposes the following tools:
+The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:
 
 | Tool | Description |
 |------|-------------|

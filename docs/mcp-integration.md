@@ -65,8 +65,19 @@ Fleet query tools deserve explicit safety framing:
   evidence lives in an [Evidence Server](evidence-protocol.md) someone else runs —
   `--evidence-url` reads one, it never becomes one. Nothing survives the process.
 
-See [The Pacto Operational Graph](operational-graph.md) for the read model these
-tools query and the query semantics they expose.
+`--fleet` names its sources the same way `pacto fleet` does, and the flags mean
+the same things:
+
+```bash
+pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
+```
+
+`--local`, `--oci`, `--k8s`, `--cache`, `--evidence-url`, `--target-state`,
+`--namespace` and `--freshness` are all accepted — every `pacto fleet` source
+except `--traces`, which the MCP server does not take; the
+[`pacto mcp` reference](cli-reference.md#pacto-mcp) lists them with their
+defaults. See [The Pacto Operational Graph](operational-graph.md) for the read
+model these tools query and the query semantics they expose.
 
 A fourth server mode — [contract catalog discovery](#contract-catalog-discovery) —
 is not a tool family: it is mostly MCP *resources*, with a single lookup tool. It
@@ -192,11 +203,16 @@ flowchart LR
     MCP -->|"JSON responses"| AI
 ```
 
-The assistant works entirely through the tool interface — Pacto runs each operation against local contract directories and returns JSON.
+The assistant works entirely through the tool interface, and Pacto returns JSON. What it reaches for depends on the mode: the authoring tools above touch local contract directories and nothing else, while a bundle server calls the live service, `--fleet` reads clusters, registries and Evidence Servers, and `--root` resolves contracts from a registry. Only the default server is purely local.
 
 ---
 
-## Available tools
+## The authoring tools
+
+These four are the default server, and every mode except `--root` carries them
+as well. The other families — a bundle's generated service tools, the
+`pacto_fleet_*` tools, `pacto_impact` and the catalog surface — are covered
+above in [three tool families](#three-tool-families-and-their-boundaries).
 
 | Tool | Description |
 |------|-------------|
