@@ -405,7 +405,11 @@ objects the optional features asked you to create stay behind:
 ```bash
 # Only if you enabled the Evidence Server
 kubectl delete secret pacto-evidence-trust -n pacto-operator-system
-kubectl delete secret <evidence.registry.credentialsSecret> -n pacto-operator-system
+
+# Only if you set evidence.registry.credentialsSecret. The chart never creates
+# that Secret -- it points at one you already had -- so delete it by its own
+# name, not by the value name below.
+kubectl delete secret YOUR_REGISTRY_CREDENTIALS_SECRET -n pacto-operator-system
 
 # Only if you granted metrics observation (see Limitations)
 kubectl delete clusterrole metrics-observation-role
