@@ -8,9 +8,12 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
     - **`json` describes a *successful* result.** When a command cannot produce
       its result at all — an unreachable reference, a missing `pacto.lock` — the
       error goes to **stderr as plain text and stdout stays empty**, whatever
-      `--output-format` said. Branch on the exit code, never on whether stdout
-      parsed. `pacto validate` is the one exception: "invalid" is a result, not a
-      failure, so it still prints its JSON document to stdout and exits 1.
+      `--output-format` said. But a *verdict* of "no" is a result, not a
+      failure: `pacto validate` on an invalid contract and `pacto diff` on a
+      breaking change both print their whole JSON document to stdout **and** exit
+      1. So the exit code does not tell you whether there is anything to parse —
+      an empty stdout does. Read stdout when it is non-empty; read the exit code
+      for the verdict.
     - **`markdown` is implemented by `pacto diff` only**, for posting a diff as a
       CI comment. Every other command silently renders text instead.
     - **Key casing is not uniform.** `pacto validate` emits capitalised keys
@@ -272,7 +275,7 @@ pacto evidence [flags]
 
 ### `pacto evidence keygen`
 
-Writes the private seed to <keyId>.key (base64, 0600) and the public key into --out. With --producer, the public key is written as <producer>__<keyId>.pub, which binds the key to that producer in the trust store — hand that file to the platform. Sign with the SAME --producer and --key-id. With no --producer, a bare <keyId>.pub binds the key to a producer named after the key id (the single-producer default).
+Writes the private seed to &lt;keyId&gt;.key (base64, 0600) and the public key into --out. With --producer, the public key is written as &lt;producer&gt;__&lt;keyId&gt;.pub, which binds the key to that producer in the trust store — hand that file to the platform. Sign with the SAME --producer and --key-id. With no --producer, a bare &lt;keyId&gt;.pub binds the key to a producer named after the key id (the single-producer default).
 
 ```
 pacto evidence keygen [flags]
@@ -305,7 +308,7 @@ pacto evidence send <envelope.json> [flags]
 
 ### `pacto evidence serve`
 
-Starts an HTTP host that accepts signed evidence envelopes at POST /api/evidence/v1/envelopes, verifies them against --trust, evaluates the carried evidence against its resolved contract and publishes accepted records to the contract registry as OCI 1.1 referrers of the exact contract revision each report is about. Every --subject is an immutable oci://<repo>@sha256:<digest> reference; the registry is the only durable store, so the host keeps no local state and survives restarts. GET .../health is an always-200 liveness probe; .../ready reports 503 while a subject cannot be resolved or its referrers enumerated; .../producers advertises trusted producer ids; .../targets exposes the latest accepted targets. Registry credentials come from the same sources as `pacto pull`. Exactly one server may write to a subject set. Serves until interrupted.
+Starts an HTTP host that accepts signed evidence envelopes at POST /api/evidence/v1/envelopes, verifies them against --trust, evaluates the carried evidence against its resolved contract and publishes accepted records to the contract registry as OCI 1.1 referrers of the exact contract revision each report is about. Every --subject is an immutable oci://&lt;repo&gt;@sha256:&lt;digest&gt; reference; the registry is the only durable store, so the host keeps no local state and survives restarts. GET .../health is an always-200 liveness probe; .../ready reports 503 while a subject cannot be resolved or its referrers enumerated; .../producers advertises trusted producer ids; .../targets exposes the latest accepted targets. Registry credentials come from the same sources as `pacto pull`. Exactly one server may write to a subject set. Serves until interrupted.
 
 ```
 pacto evidence serve [flags]
@@ -346,7 +349,7 @@ pacto evidence sign <evidence.json> [flags]
 
 ### `pacto evidence verify`
 
-Decodes an envelope and verifies its signature, freshness and trust against a --trust public-key file or directory of <keyId>.pub files. Exits non-zero when verification fails.
+Decodes an envelope and verifies its signature, freshness and trust against a --trust public-key file or directory of &lt;keyId&gt;.pub files. Exits non-zero when verification fails.
 
 ```
 pacto evidence verify <envelope.json> [flags]
@@ -548,7 +551,7 @@ pacto fleet status [flags]
 
 ## `pacto generate`
 
-Invokes a pacto-plugin-<name> binary to generate deployment manifests, documentation, or other artifacts from a contract directory or oci:// reference.
+Invokes a pacto-plugin-&lt;name&gt; binary to generate deployment manifests, documentation, or other artifacts from a contract directory or oci:// reference.
 
 ```
 pacto generate <plugin> [dir | oci://ref] [flags]

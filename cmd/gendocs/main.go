@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -25,9 +26,12 @@ Every command accepts ` + "`-v`" + ` / ` + "`--verbose`" + ` for debug-level log
     - **` + "`json`" + ` describes a *successful* result.** When a command cannot produce
       its result at all — an unreachable reference, a missing ` + "`pacto.lock`" + ` — the
       error goes to **stderr as plain text and stdout stays empty**, whatever
-      ` + "`--output-format`" + ` said. Branch on the exit code, never on whether stdout
-      parsed. ` + "`pacto validate`" + ` is the one exception: "invalid" is a result, not a
-      failure, so it still prints its JSON document to stdout and exits 1.
+      ` + "`--output-format`" + ` said. But a *verdict* of "no" is a result, not a
+      failure: ` + "`pacto validate`" + ` on an invalid contract and ` + "`pacto diff`" + ` on a
+      breaking change both print their whole JSON document to stdout **and** exit
+      1. So the exit code does not tell you whether there is anything to parse —
+      an empty stdout does. Read stdout when it is non-empty; read the exit code
+      for the verdict.
     - **` + "`markdown`" + ` is implemented by ` + "`pacto diff`" + ` only**, for posting a diff as a
       CI comment. Every other command silently renders text instead.
     - **Key casing is not uniform.** ` + "`pacto validate`" + ` emits capitalised keys
@@ -296,6 +300,13 @@ func main() {
 	buf.WriteString(output)
 	buf.WriteString(footer)
 
+	// Escape the placeholders last, over the finished document, so every source
+	// of prose on this page -- cobra help text, commandNotes, frontMatter and
+	// footer -- goes through it.
+	final := escapePlaceholders(buf.String())
+	buf.Reset()
+	buf.WriteString(final)
+
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "error creating directory: %v\n", err)
 		os.Exit(1)
@@ -310,6 +321,43 @@ func main() {
 }
 
 func noLink(s string) string { return "" }
+
+// placeholderTag matches a bare `<name>`, which a browser reads as an unknown
+// HTML element and renders as nothing at all. Help text is full of them --
+// `<keyId>.pub`, `oci://<repo>@sha256:<digest>` -- and inside a fenced block or a
+// code span Markdown escapes them for us. In prose it does not, so the reference
+// page silently published `oci://@sha256:` as the required format and told the
+// reader to write the private seed to `.key`.
+//
+// The escaping happens here, on the generated page, and not in the help strings
+// themselves: the same text is printed to a terminal by `--help`, where
+// `&lt;keyId&gt;` would be the wrong thing to show.
+var placeholderTag = regexp.MustCompile(`<([A-Za-z][A-Za-z0-9._-]*)>`)
+
+// escapePlaceholders escapes every placeholderTag that is outside a fenced code
+// block and outside an inline code span, leaving the rest byte-identical.
+func escapePlaceholders(md string) string {
+	lines := strings.Split(md, "\n")
+	inFence := false
+	for i, line := range lines {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || !strings.Contains(line, "<") {
+			continue
+		}
+		// Split on backticks: even segments are prose, odd ones are code spans.
+		// An unbalanced backtick leaves the tail treated as code, which errs
+		// towards changing nothing.
+		parts := strings.Split(line, "`")
+		for j := 0; j < len(parts); j += 2 {
+			parts[j] = placeholderTag.ReplaceAllString(parts[j], "&lt;$1&gt;")
+		}
+		lines[i] = strings.Join(parts, "`")
+	}
+	return strings.Join(lines, "\n")
+}
 
 // walk applies fn to cmd and every command beneath it.
 func walk(cmd *cobra.Command, fn func(*cobra.Command)) {

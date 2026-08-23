@@ -958,6 +958,44 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
+# Placeholder escaping
+# ---------------------------------------------------------------------------
+
+# A bare `<name>` is read by the browser as an unknown HTML element and rendered
+# as nothing at all. The sources these pages are generated from are full of them
+# -- `oci://<repo>@sha256:<digest>` in a chart annotation, `<namespace>` in a
+# flag's help text -- and inside a fenced block or a code span Markdown escapes
+# them for us. In prose it does not, so `/helm-reference/` published the required
+# signature subject as the meaningless string `oci://@sha256:`.
+#
+# Escaping happens here, on the generated page, and never in the upstream source:
+# the same strings are printed to a terminal by `--help` and read by Helm, where
+# `&lt;repo&gt;` would be the wrong thing to show.
+_PLACEHOLDER_TAG = re.compile(r"<([A-Za-z][A-Za-z0-9._-]*)>")
+
+
+def escape_placeholders(md: str) -> str:
+    """Escape every bare `<placeholder>` outside fenced blocks and code spans."""
+    lines = md.split("\n")
+    in_fence = False
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence or "<" not in line:
+            continue
+        # Split on backticks: even segments are prose, odd ones are code spans.
+        # An unbalanced backtick leaves the tail treated as code, which errs
+        # towards changing nothing.
+        parts = line.split("`")
+        for j in range(0, len(parts), 2):
+            parts[j] = _PLACEHOLDER_TAG.sub(r"&lt;\1&gt;", parts[j])
+        lines[i] = "`".join(parts)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -993,8 +1031,9 @@ def main() -> int:
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)
+        # Last step, over every finished page, so no generator has to remember.
         with open(path, "w", encoding="utf-8") as fh:
-            fh.write(content)
+            fh.write(escape_placeholders(content))
         print(f"wrote {os.path.relpath(path, repo_root)}")
     return 0
 

@@ -47,7 +47,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `evidence.ingress.hosts` | `null` | Ingress hosts. |
 | `evidence.ingress.tls` | `[]` | Ingress TLS configuration. |
 | `evidence.registry.credentialsSecret` | `""` | Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with credentials for that registry, mounted read-only. The chart never creates it and never renders its contents. Empty means anonymous or in-cluster access. |
-| `evidence.registry.subjects` | `[]` | Required when evidence is enabled: the exact, immutable contract revisions evidence may be reported against, each an oci://<repo>@sha256:<digest> reference. The registry holding them IS the durable evidence store — every accepted record is published as an OCI 1.1 referrer of one of these manifests — so the chart installs nothing durable in the cluster. A mutable tag is rejected: it could be moved onto another manifest and silently change what the stored evidence reports on. |
+| `evidence.registry.subjects` | `[]` | Required when evidence is enabled: the exact, immutable contract revisions evidence may be reported against, each an oci://&lt;repo&gt;@sha256:&lt;digest&gt; reference. The registry holding them IS the durable evidence store — every accepted record is published as an OCI 1.1 referrer of one of these manifests — so the chart installs nothing durable in the cluster. A mutable tag is rejected: it could be moved onto another manifest and silently change what the stored evidence reports on. |
 | `evidence.resources.limits.memory` | `256Mi` |  |
 | `evidence.resources.requests.cpu` | `25m` |  |
 | `evidence.resources.requests.memory` | `64Mi` |  |

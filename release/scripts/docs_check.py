@@ -15,6 +15,7 @@ ledger for every claim family:
   (i) twice = no diff: a second `docs-generate` produces byte-identical output
   (j) documented conditions + reasons match the api/v1alpha1 constants
   (k) documented events match the reasons the recorder actually emits
+  (l) no bare `<placeholder>` in prose (the browser deletes it as an HTML tag)
 
 Exit code is non-zero if any check fails.
 """
@@ -498,6 +499,66 @@ def check_coordinates() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (l) no HTML-swallowed placeholders
+# ---------------------------------------------------------------------------
+
+# A bare `<name>` in prose is not text: the browser parses it as an unknown HTML
+# element and renders it as nothing at all. `/helm-reference/` published the
+# required signature subject as `oci://@sha256:` and `/cli-reference/` told the
+# reader to write the private seed to `.key` -- both silently, both on a
+# reference page a reader copies from. Inside a fence or a code span Markdown
+# escapes it; in prose it does not.
+PLACEHOLDER_TAG = re.compile(r"<([A-Za-z][A-Za-z0-9._-]*)>")
+
+# Real HTML the site is allowed to use in Markdown prose. Everything else that
+# looks like a tag is a placeholder the reader was supposed to see.
+HTML_IN_PROSE = {
+    "a", "abbr", "b", "br", "code", "details", "div", "em", "figcaption",
+    "figure", "hr", "i", "img", "kbd", "li", "ol", "p", "picture", "pre", "s",
+    "small", "source", "span", "strong", "sub", "summary", "sup", "svg",
+    "table", "tbody", "td", "th", "thead", "tr", "u", "ul",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+}
+
+
+def unescaped_placeholders(path: str) -> list[tuple[int, str]]:
+    """Every bare <placeholder> outside a fenced block and outside a code span."""
+    hits = []
+    in_fence = False
+    for n, line in enumerate(open(path, encoding="utf-8").read().split("\n"), 1):
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence or "<" not in line:
+            continue
+        # Even segments are prose, odd ones are code spans.
+        parts = line.split("`")
+        for j in range(0, len(parts), 2):
+            for m in PLACEHOLDER_TAG.finditer(parts[j]):
+                if m.group(1).lower() not in HTML_IN_PROSE:
+                    hits.append((n, m.group(0)))
+    return hits
+
+
+def check_placeholders() -> None:
+    # Partials too: their bytes are spliced into a page by --8<-- and rendered
+    # exactly the same way, so an unescaped placeholder there disappears just as
+    # thoroughly. site_markdown() skips them because the other checks parse whole
+    # documents.
+    files = list(site_markdown())
+    for d in integration_docs_dirs():
+        files += glob.glob(os.path.join(d, "generated", "_*.md"))
+    problems = []
+    for p in sorted(set(files)):
+        for n, tag in unescaped_placeholders(p):
+            problems.append(f"{os.path.relpath(p, REPO_ROOT)}:{n}: {tag}")
+    ok = not problems
+    record(ok, "(l) no HTML-swallowed <placeholders> in prose",
+           "" if ok else f"{len(problems)} found -- " + " ; ".join(problems[:5]))
+
+
+# ---------------------------------------------------------------------------
 # Drift helpers
 # ---------------------------------------------------------------------------
 
@@ -563,6 +624,7 @@ def main() -> int:
     check_coordinates()                          # (h)
     check_conditions()                           # (j)
     check_events()                               # (k)
+    check_placeholders()                         # (l)
 
     # (i) twice = no diff
     proc = run(["make", "docs-generate"])
