@@ -211,19 +211,31 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
 Classification: BREAKING
-Changes (4):
+Changes (7):
+  [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
   [BREAKING] state.type (modified): state.type modified [stateless -> stateful]
-  [BREAKING] state.persistence.durability (modified): ... [ephemeral -> persistent]
+  [POTENTIAL_BREAKING] state.persistence.durability (added): state.persistence.durability added [+ persistent]
+  [POTENTIAL_BREAKING] dependencies.ref (modified): dependencies.ref modified [auth-service: oci://ghcr.io/acme/auth-service-pacto:1.5.0 -> auth-service: oci://ghcr.io/acme/auth-service-pacto:2.3.0]
+  [BREAKING] dependencies (removed): dependencies removed [- postgres]
+  [NON_BREAKING] dependencies (added): dependencies added [+ cache]
   [BREAKING] interfaces (removed): interfaces removed [- metrics]
-  [BREAKING] dependencies (removed): dependencies removed [- redis]
 
 Dependency graph changes:
 payments-api
 ├─ auth-service  1.5.0 → 2.3.0
+├─ cache         +1.0.0
 └─ postgres      -16.0.0
+breaking changes detected
 ```
 
-Version upgrades, added services, removed dependencies — all visible in one command, with the exit code gating deployments in CI. `pacto graph` renders the full resolved dependency tree the same way.
+Every change carries its own classification, and the run's overall
+classification is the worst one in the list — one `BREAKING` row is what makes
+the command exit non-zero and gate the deployment. Note that the version bump
+itself is only `NON_BREAKING`, and that adding persistence is
+`POTENTIAL_BREAKING` rather than breaking: the [diff rules](contract-reference/diff.md)
+say which change lands where. The tree underneath is the resolved dependency
+graph, added (`+`), removed (`-`) and upgraded (`→`); [`pacto graph`](cli-reference.md#pacto-graph)
+renders it in full.
 
 ---
 
