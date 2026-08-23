@@ -1,7 +1,8 @@
 # Quickstart
 
-From zero to a published contract in about five minutes. Everything here runs
-on your machine — no account, no registry of your own, nothing to sign up for.
+Getting started with Pacto: from zero to a published contract in about five
+minutes. Everything here runs on your machine — no account, no registry of your
+own, nothing to sign up for.
 
 You need the Pacto CLI (step 1) and, from step 6 onwards,
 [Docker](https://docs.docker.com/get-started/get-docker/) to run a throwaway

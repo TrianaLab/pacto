@@ -22,6 +22,15 @@ fleet query tools *understand the system as it is*. An agent should never confus
 them — invoking `createRefund` moves money; `pacto_fleet_get` never leaves the
 read model.
 
+Those three families are the whole MCP surface. Much of the CLI is deliberately
+not in it: inspecting a registry contract, resolving a dependency graph,
+diffing revisions and generating docs stay
+[CLI-only](developers.md#ai-assisted-workflow), and no tool pushes, pulls or
+deploys anything. Which tools each invocation actually registers is listed under
+[Server modes](cli-reference.md#server-modes). For how the MCP surface differs
+from the catalog, the fleet, operator reconciliation and durable evidence, see
+[Boundaries](concepts.md#boundaries).
+
 !!! warning "The boundary is documented, not machine-advertised"
     Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
     `annotations` member on any tool — not `readOnlyHint`, not `destructiveHint`,
@@ -32,11 +41,13 @@ read model.
     read tool from a write tool automatically and **will not** warn you before a
     write. The boundary described on this page is enforced by you, not by your
     client: build allow-lists by hand. The only machine-usable signal is the tool
-    name. `pacto_check`, `pacto_schema`, `pacto_fleet_*`, `pacto_impact` and
-    `pacto_catalog_revision` are read-only; `pacto_create` and `pacto_edit` write
-    contract files; generated service tools carry no `pacto_` prefix at all and
-    reach a live service, so treat every unprefixed tool as unsafe unless you
-    started the server without `--allow-writes`.
+    name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
+    `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
+    `pacto_edit` write contract files; generated service tools carry no `pacto_`
+    prefix at all and reach a live service, so treat every unprefixed tool as
+    unsafe unless you started the server without `--allow-writes`. That last rule
+    holds because [the `pacto_` names are reserved](#the-pacto_-names-are-reserved)
+    — a bundle cannot claim one.
 
 Fleet query tools deserve explicit safety framing:
 
@@ -116,6 +127,10 @@ whole input, and the closure of those roots is the whole output.
 That is the whole surface. Catalog mode registers no authoring tools:
 `pacto_create` and `pacto_edit` write contract files, and a server started for
 read-only discovery must not be a way to modify one.
+
+The two resources are named `pacto_catalog` and `pacto_catalog_closure` — the
+URIs above are what you read, the names are what a client-side allow-list keys
+on.
 
 `pacto://catalog` is the cheaper read, so reading it first is the recommended
 order — but it is not a precondition. Both resources carry the same catalog
@@ -332,6 +347,25 @@ For every operation in each `openapi` interface's contract, Pacto registers one 
 
 The tool's name is the operation's `operationId`. When an operation declares none, Pacto derives `<method>_<path>` with every non-alphanumeric character collapsed to a single `_` — `GET /health` becomes `get_health` — and disambiguates a collision with a numeric suffix (`get_health_2`). An agent allow-list keyed on tool names therefore depends on the OpenAPI document declaring `operationId` for every operation.
 
+#### The `pacto_` names are reserved
+
+`operationId` is bundle content, and MCP tool registration *replaces* a tool of
+the same name. A contract declaring `operationId: pacto_check` would otherwise
+take over the authoring tool: an agent asking Pacto to validate a contract would
+issue a bundle-chosen HTTP request to a bundle-chosen host, while the tool list
+still showed the trusted description. Pacto skips such an operation and says so
+on stderr:
+
+```text
+pacto mcp: skipped operation "pacto_check" in interface "http" (that name belongs to a Pacto tool)
+```
+
+It is skipped rather than renamed, because a silently renamed tool is a
+capability nobody asked for — and the bundle can pick a name of its own. This is
+what makes "every `pacto_`-prefixed tool is a Pacto tool" a boundary rather than
+a convention, and it is what the
+[safety enumeration above](#three-tool-families-and-their-boundaries) rests on.
+
 The server also sets its MCP *instructions* to tell the assistant that these tools invoke the live service, whether writes are enabled, and how to use `pacto_skill`. That generic "how to use these capabilities" guidance lives in Pacto itself — bundles only ship *domain-specific* skills (below), never a boilerplate usage guide.
 
 ```mermaid
@@ -409,6 +443,38 @@ Point any MCP client at a bundle by adding the reference (and flags) to the serv
   }
 }
 ```
+
+### What a session freezes, and what it does not
+
+Every mode resolves its input **once, at startup**, and the tool list is fixed
+from that moment. Add an operation to a bundle's OpenAPI while the server runs
+and no new tool appears: `tools/list` keeps returning exactly what startup
+registered. The same rule governs the [catalog](#requested-resolved-identity)
+(a tag that moves does not change an answer) and the
+[fleet snapshot](#three-tool-families-and-their-boundaries). To pick up a
+changed interface, a moved tag or a newly deployed service, restart the server.
+
+Two things in that same process are *not* frozen, and the difference matters:
+
+- **`pacto_skill` reads from disk on every call.** On a local bundle an edited
+  `skills/*.md` returns its new content immediately, and a skill file added after
+  startup appears in the listing without a restart. An `oci://` bundle has no
+  disk to change, so this only shows up locally.
+- **The authoring tools act on whatever is on disk when you call them.**
+  `pacto_check` and `pacto_edit` take a path and read it at call time; they are
+  not bound to the bundle or the snapshot the server started with.
+
+So `pacto mcp --fleet` serves fleet answers from a snapshot taken at startup and
+authoring answers from the current working tree — one process, two different
+moments. Neither is wrong; they answer different questions. `pacto_impact` is
+the one fleet tool that rebuilds, so its `asOf` advances while the others' does
+not.
+
+!!! warning "`--fleet` reads the current directory by default"
+    `--local` defaults to `[.]`, so `pacto mcp --fleet` folds any bundles under
+    the working directory into the snapshot. An MCP server launched by an editor
+    or a CI runner inherits that runner's working directory, which may not be the
+    one you had in mind. Pass `--local` explicitly to say what you meant.
 
 ### End-to-end example: a demo bundle with Claude Code
 

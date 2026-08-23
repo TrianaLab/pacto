@@ -153,6 +153,12 @@ nothing, changes nothing and authorizes nothing. An agent uses `pacto_impact` to
 to act on it. Every answer carries `asOf`, `completeness` and `limitations`, so an
 agent can tell how much of the system the answer actually covers.
 
+It is the one fleet tool that does not serve a frozen snapshot: it resolves its
+two refs and rebuilds the graph on every call, so its `asOf` advances while the
+`pacto_fleet_*` tools' stays at the value they were started with. When the two
+disagree they are describing two moments, not two systems — see
+[what a session freezes](mcp-integration.md#what-a-session-freezes-and-what-it-does-not).
+
 ---
 
 ## Dashboard: Change analysis
