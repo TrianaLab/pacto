@@ -61,9 +61,11 @@ flowchart LR
 
 ## What it reports
 
-The operator sets `status.contractStatus` on each `Pacto` resource to one of seven
-values (`Compliant`, `Warning`, `NonCompliant`, `Reference`, `Unknown`, `Invalid`,
-`NotEvaluated`) derived from the typed findings. It is a measure of contract
+The operator sets `status.contractStatus` on each `Pacto` resource to one of six
+values (`Compliant`, `Warning`, `NonCompliant`, `Reference`, `Unknown`, `Invalid`)
+derived from the typed findings. The CRD enum accepts a seventh,
+[`NotEvaluated`, which the operator never writes](limitations.md#notevaluated-is-reserved).
+It is a measure of contract
 fidelity, not runtime health. The full status ladder, finding codes and the
 observation dimensions are documented in
 [Runtime observations](runtime-observations.md).

@@ -454,7 +454,9 @@ flowchart LR
   Scriptable, deterministic output.
 - **MCP fleet tools** — `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status` and `pacto_fleet_explain` give an
-  agent read-only understanding of the operational system. They are one of three
+  agent read-only understanding of the operational system, and
+  [`pacto_impact`](impact.md#mcp-tool-pacto_impact) is the sixth tool of the same
+  family — the one that re-reads its sources on every call. They are one of three
   MCP tool families — see [MCP integration](mcp-integration.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.
 

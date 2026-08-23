@@ -1,12 +1,13 @@
 # Collectors and the evidence boundary
 
 The CLI, dashboard and Kubernetes operator are three *products*. Underneath them
-the architecture is four roles, and each product is built around some of them:
+the architecture is five roles, and each product is built around some of them:
 
 - **Contract** — declares stable service intent (`pacto.yaml`).
 - **Collectors / evidence producers** — observe one environment and emit `Evidence`.
 - **Evaluation engine** — the pure `Evaluate(contract, evidence)` function.
-- **Findings consumers / integration hosts** — surface or act on the results.
+- **Integration host** — schedules collection, handles credentials, owns temporal state.
+- **Findings consumers** — surface or act on the results.
 
 A collector is *not* what the dashboard calls a **data source**. A data source is an
 ingestion seam that contributes revisions and targets to the
@@ -69,9 +70,9 @@ extension point only.
 | Integration host | Schedules collection, handles credentials, owns temporal state |
 | Engine | Evaluates `Contract × Evidence` (pure) |
 | Reporter / consumer | Displays or acts on `Findings` |
-| Plugin | Generates artifacts *from* a contract — a different subsystem from collectors |
 
-**Collector vs plugin — not interchangeable.** A *plugin* consumes a contract to
+**Collector vs plugin — not interchangeable.** A *plugin* is not a sixth role;
+it belongs to a different subsystem. A *plugin* consumes a contract to
 generate an artifact (e.g. an OpenAPI schema or SBOM). A *collector* observes a real
 system to produce `Evidence`. They are complementary extension mechanisms in
 different directions and must not be conflated.
