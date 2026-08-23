@@ -63,14 +63,20 @@ The operator emits exactly seven, and no others:
 | --- | --- | --- | --- |
 | `ContractInvalid` | `Warning` | The contract was obtained and judged invalid | Carries the same message as the `ContractValid` / `Invalid` condition. Fix the contract. |
 | `ContractUnavailable` | `Warning` | The contract could not be obtained at all | Registry unreachable, auth rejected, tag missing. See [Contract not resolving](#contract-not-resolving). |
-| `ValidationFailed` | `Warning` | A contract resolved to a status that is neither `Compliant` nor `Reference` | Carries the counts -- `ContractStatus: NonCompliant, 2 errors, 1 warnings`. `status.findings` names each one. |
+| `ValidationFailed` | `Warning` | A contract that *did* load ends the reconcile as anything but `Compliant` or `Reference` | Carries the counts -- `ContractStatus: NonCompliant, 2 errors, 1 warnings`. `status.findings` names each one. |
 | `RevisionCreated` | `Normal` | A `PactoRevision` was created for a newly resolved contract | `Created revision <name> for contract v<version>`. Expected on the first resolve and on every version change; not a problem. |
 | `TagOverwritten` | `Warning` | A tag that already resolved now points at a different digest | Someone force-pushed the tag. See [Choosing a reference form](contract-bindings.md#choosing-a-reference-form). |
 | `ReadinessGateUnmet` | `Warning` | The readiness gate went from met to unmet | The message breaks the score down by claim status. |
 | `ReadinessRecovered` | `Normal` | The readiness gate went from unmet to met | The other half of the pair above. |
 
-Two things about them are easy to misread:
+Three things about them are easy to misread:
 
+- **`ValidationFailed` overstates the `Unknown` case.** Nothing failed
+  validation when the status is `Unknown` -- an assertion could not be
+  *evaluated* -- and the event's own counts say so:
+  `ValidationFailed ... ContractStatus: Unknown, 0 errors, 0 warnings`. Read
+  the counts, not the reason. A contract that could not be obtained at all
+  never reaches this event; it gets `ContractUnavailable` instead.
 - **Only the two readiness events are transition-gated.** The rest are emitted by
   the reconcile that produces them, so a contract that stays broken keeps
   producing one. Kubernetes folds repeats of the same reason and message into a
