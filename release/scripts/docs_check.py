@@ -19,6 +19,7 @@ ledger for every claim family:
   (m) every fenced target-state fixture actually loads as a fleet source
   (n) the signed/unsigned supply-chain table matches the real `cosign sign` sites
   (o) versions with release notes but no GitHub Release are disclosed as such
+  (p) no wrapped prose line begins with a number (Markdown eats it as a list)
 
 Exit code is non-zero if any check fails.
 """
@@ -737,6 +738,66 @@ def check_unreleased_versions() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (p) a wrapped prose line must not begin with a number
+# ---------------------------------------------------------------------------
+
+ORDERED_MARKER = re.compile(r"^(\s*)\d{1,9}[.)]\s")
+# Lines that legitimately precede a list, or that are not running prose at all.
+NOT_PROSE = re.compile(r"^ *(?:[-*+>|#]|\d{1,9}[.)]\s|<|:{3}|={3}|!{3}|\?{3}|---|\[.*\]:|\{)")
+
+
+def accidental_ordered_lists(path: str) -> list[tuple[int, str]]:
+    """Wrapped sentences that Markdown silently turns into an ordered list.
+
+    A list is allowed to interrupt a paragraph, so a sentence that happens to
+    wrap onto a line starting `1. ` is parsed as a list item: the number is
+    *deleted* from the rendered page and the sentence is torn in two. Nothing
+    warns -- not `mkdocs build --strict`, not a link check -- and the page still
+    reads plausibly, which is what makes it worth a gate.
+
+    The trigger is a number sitting at the *same* indent as the prose line above
+    it (up to the three spaces Markdown still counts as the same block), with no
+    blank line, no colon lead-in and no list marker to announce a deliberate
+    list. Item 2 of a real list is safe on all three counts: it follows either
+    its own more-indented continuation line or another marker. Indentation is
+    compared line-to-line rather than to the left margin because the paragraph
+    may itself be nested -- inside an admonition, inside a list item.
+    """
+    hits = []
+    in_fence = False
+    prev = ""
+    for n, line in enumerate(open(path, encoding="utf-8").read().split("\n"), 1):
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence, prev = not in_fence, ""
+            continue
+        if in_fence:
+            continue
+        m = ORDERED_MARKER.match(line)
+        prev_indent = len(prev) - len(prev.lstrip())
+        if (m and prev.strip()
+                and prev_indent <= len(m.group(1)) <= prev_indent + 3
+                and not prev.rstrip().endswith(":")
+                and not NOT_PROSE.match(prev)):
+            hits.append((n, line.strip()[:72]))
+        prev = line
+    return hits
+
+
+def check_accidental_lists() -> None:
+    files = list(site_markdown()) + [os.path.join(REPO_ROOT, "README.md")]
+    for d in integration_docs_dirs():
+        files += glob.glob(os.path.join(d, "generated", "_*.md"))
+    problems = []
+    for p in sorted(set(files)):
+        for n, text in accidental_ordered_lists(p):
+            problems.append(f"{os.path.relpath(p, REPO_ROOT)}:{n}: {text}")
+    ok = not problems
+    record(ok, "(p) no wrapped prose line starts with a swallowed number",
+           "" if ok else f"{len(problems)} found -- " + " ; ".join(problems[:5]))
+
+
+# ---------------------------------------------------------------------------
 # Drift helpers
 # ---------------------------------------------------------------------------
 
@@ -806,6 +867,7 @@ def main() -> int:
     check_placeholders()                         # (l)
     check_supply_chain()                         # (n)
     check_unreleased_versions()                  # (o)
+    check_accidental_lists()                     # (p)
 
     # (i) twice = no diff
     proc = run(["make", "docs-generate"])
