@@ -12,6 +12,10 @@ on the [Helm reference](helm-reference.md) page.
   The chart declares no `kubeVersion` floor, so older clusters are untested
   rather than blocked.
 - Helm 3.8 or newer (OCI registry support).
+- The [`pacto` CLI](../../installation.md) for the steps after the install --
+  publishing the contract the operator will bind to, minting the evidence trust
+  store, and querying the fleet from outside the cluster. The Helm install
+  itself does not need it.
 - Cluster-admin permissions to install the CRDs and the operator's `ClusterRole`
   (see [RBAC](rbac.md)).
 - Network access from the cluster to the registry holding your contracts. For a

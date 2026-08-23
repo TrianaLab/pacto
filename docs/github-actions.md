@@ -53,6 +53,16 @@ Compare the PR contract against the published version and block breaking changes
 
 `fail-on-breaking` defaults to `true`, so the step blocks the merge on a breaking change and `comment-on-pr` posts the diff. To gate in a plain `run:` step instead, `pacto diff oci://ghcr.io/acme/my-service-pacto .` exits non-zero on the same result.
 
+`comment-on-pr` posts as the workflow's `GITHUB_TOKEN`, which is read-only by default, so the job has to be granted the permission or the comment fails with a `403` while the diff itself passes:
+
+```yaml
+jobs:
+  validate:
+    permissions:
+      contents: read
+      pull-requests: write
+```
+
 ### Publish on release
 
 Push the contract bundle to an OCI registry when a release is created:
@@ -106,7 +116,7 @@ The tables below cover `TrianaLab/pacto-actions@v1` (currently `v1.8.2`).
 | Input | Applies to | Default | What it does |
 |---|---|---|---|
 | `command` | every command | *(required)* | `setup`, `validate`, `diff`, `push` or `doc` |
-| `version` | `setup` | `latest` | Pacto version to install (e.g. `v0.2.1`) |
+| `version` | `setup` | `latest` | Pacto version to install (e.g. `v3.2.1`) |
 | `github-token` | every command | `${{ github.token }}` | Passed to the command as `GH_TOKEN` |
 | `cache` | every command | `true` | Reuse the OCI bundle cache (`~/.cache/pacto/oci/`) across runs |
 | `path` | `validate`, `push`, `doc` | `.` | Contract directory or `oci://` reference |

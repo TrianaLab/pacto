@@ -313,7 +313,8 @@ a published bundle. For the full positioning and rationale, see the
 
 ## Getting help
 
-Pacto is MIT licensed and developed in the open at
+Pacto is [MIT licensed](https://github.com/TrianaLab/pacto/blob/main/LICENSE) and
+developed in the open at
 [github.com/TrianaLab/pacto](https://github.com/TrianaLab/pacto). There is no
 commercial support offering and no paid support channel; the routes that exist
 are these:

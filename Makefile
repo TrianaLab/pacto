@@ -290,7 +290,9 @@ docker-build:
 	docker build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) -t $(IMAGE):$(VERSION) .
 
 docker-run: docker-build
-	docker run --rm -p 3000:3000 \
+	# 127.0.0.1 deliberately: the image sets --host 0.0.0.0 and the dashboard has
+	# no authentication, so publishing wide would put every contract on the LAN.
+	docker run --rm -p 127.0.0.1:3000:3000 \
 		-v "$(HOME)/.kube/config:/home/pacto/.kube/config:ro" \
 		-v "$(HOME)/.cache/pacto:/home/pacto/.cache/pacto" \
 		$(IMAGE):$(VERSION)

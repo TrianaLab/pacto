@@ -15,14 +15,16 @@ The image is signed keylessly by the release workflow — verify it before you d
 
 ## Quick Start
 
+Every `docker run` on this page publishes to `127.0.0.1` on purpose: the image sets `--host 0.0.0.0` inside the container, the dashboard has [no authentication at all](#security), and how you publish the port is the only thing keeping it off your network. Widen it only behind an authenticating proxy.
+
 ```bash
 # Run with OCI registry sources
-docker run -p 3000:3000 \
+docker run -p 127.0.0.1:3000:3000 \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a,ghcr.io/org/svc-b \
   ghcr.io/trianalab/pacto/dashboard:3.2.1
 
 # Run with registry authentication
-docker run -p 3000:3000 \
+docker run -p 127.0.0.1:3000:3000 \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a \
   -e PACTO_REGISTRY_TOKEN=ghp_xxx \
   ghcr.io/trianalab/pacto/dashboard:3.2.1
@@ -96,7 +98,7 @@ If any prerequisite is missing — no `resolvedRef`, an unreachable registry, or
 To enable the Kubernetes data source, mount a kubeconfig:
 
 ```bash
-docker run -p 3000:3000 \
+docker run -p 127.0.0.1:3000:3000 \
   -v ~/.kube/config:/home/pacto/.kube/config:ro \
   -e PACTO_DASHBOARD_NAMESPACE=production \
   ghcr.io/trianalab/pacto/dashboard:3.2.1
@@ -109,7 +111,7 @@ When running inside a Kubernetes cluster, the in-cluster config is used automati
 To scan a local contract directory:
 
 ```bash
-docker run -p 3000:3000 \
+docker run -p 127.0.0.1:3000:3000 \
   -v /path/to/contracts:/data:ro \
   ghcr.io/trianalab/pacto/dashboard:3.2.1 \
   dashboard /data
