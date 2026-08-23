@@ -36,7 +36,7 @@ Validates semantic references and consistency:
 | Policy names are unique | `DUPLICATE_POLICY_NAME` |
 | Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |
 | Interface spec file exists in the bundle | `FILE_NOT_FOUND` |
-| Interface spec file parses as JSON/YAML | `INVALID_INTERFACE_SPEC` |
+| Interface spec file parses, if the ref ends `.json`, `.yaml` or `.yml` (any other extension is existence-checked only) | `INVALID_INTERFACE_SPEC` |
 | `extension` capability `ref` is well-formed | `CAPABILITY_REF_INVALID` |
 | Standard capability type is not declared twice | `DUPLICATE_CAPABILITY` |
 | `capabilities[].binding.interface` matches a declared interface | `CAPABILITY_INTERFACE_UNKNOWN` |

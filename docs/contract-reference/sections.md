@@ -129,7 +129,7 @@ Declares the service's communication boundaries. Optional — a service with no 
 | `grpc` | gRPC service descriptor |
 
 !!! note
-    Interface names must be unique within a contract. Every interface requires a non-empty `ref` (`SCHEMA_VIOLATION` otherwise), and the referenced file must exist in the bundle and parse as JSON or YAML (`FILE_NOT_FOUND` / `INVALID_INTERFACE_SPEC` otherwise). There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.
+    Interface names must be unique within a contract. Every interface requires a non-empty `ref` (`SCHEMA_VIOLATION` otherwise), and the referenced file must exist in the bundle (`FILE_NOT_FOUND` otherwise). A `.json`, `.yaml` or `.yml` ref must also parse (`INVALID_INTERFACE_SPEC` otherwise); any other extension — a gRPC `.proto`, say — carries no format this layer can check, so it is only checked for existence. There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.
 
 ---
 

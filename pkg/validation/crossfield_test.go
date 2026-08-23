@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"io/fs"
 	"testing"
 	"testing/fstest"
 
@@ -128,7 +129,7 @@ func TestValidateInterfaces_ValidTypes(t *testing.T) {
 		c := validV20Contract()
 		c.Interfaces = []contract.Interface{{Name: "api", Type: typ, Ref: "spec.yaml"}}
 		var result ValidationResult
-		validateInterfaces(c, nil, &result)
+		validateInterfaces(c, &result)
 		if !result.IsValid() {
 			t.Errorf("type %q should be valid, got errors: %v", typ, result.Errors)
 		}
@@ -139,7 +140,7 @@ func TestValidateInterfaces_InvalidType(t *testing.T) {
 	c := validV20Contract()
 	c.Interfaces = []contract.Interface{{Name: "api", Type: "http", Ref: "spec.yaml"}}
 	var result ValidationResult
-	validateInterfaces(c, nil, &result)
+	validateInterfaces(c, &result)
 	if result.IsValid() {
 		t.Error("expected error for invalid interface type")
 	}
@@ -152,81 +153,12 @@ func TestValidateInterfaces_MissingRef(t *testing.T) {
 	c := validV20Contract()
 	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: ""}}
 	var result ValidationResult
-	validateInterfaces(c, nil, &result)
+	validateInterfaces(c, &result)
 	if result.IsValid() {
 		t.Error("expected error for missing ref")
 	}
 	if !hasErrorCode(result, "INTERFACE_REF_REQUIRED") {
 		t.Errorf("expected INTERFACE_REF_REQUIRED, got %+v", result.Errors)
-	}
-}
-
-func TestValidateInterfaces_FileNotFound(t *testing.T) {
-	c := validV20Contract()
-	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "missing.yaml"}}
-	bundleFS := fstest.MapFS{}
-	var result ValidationResult
-	validateInterfaces(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error for missing spec file")
-	}
-	if !hasErrorCode(result, "FILE_NOT_FOUND") {
-		t.Errorf("expected FILE_NOT_FOUND, got %+v", result.Errors)
-	}
-}
-
-func TestValidateInterfaces_InvalidYAMLSpec(t *testing.T) {
-	c := validV20Contract()
-	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "bad.yaml"}}
-	bundleFS := fstest.MapFS{
-		"bad.yaml": &fstest.MapFile{Data: []byte("\t\tinvalid:\n\t-broken")},
-	}
-	var result ValidationResult
-	validateInterfaces(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid YAML")
-	}
-	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
-		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
-	}
-}
-
-func TestValidateInterfaces_InvalidJSONSpec(t *testing.T) {
-	c := validV20Contract()
-	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "bad.json"}}
-	bundleFS := fstest.MapFS{
-		"bad.json": &fstest.MapFile{Data: []byte("{not valid")},
-	}
-	var result ValidationResult
-	validateInterfaces(c, bundleFS, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid JSON")
-	}
-	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
-		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
-	}
-}
-
-func TestValidateInterfaces_ValidSpecFile(t *testing.T) {
-	c := validV20Contract()
-	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "spec.yaml"}}
-	bundleFS := fstest.MapFS{
-		"spec.yaml": &fstest.MapFile{Data: []byte("openapi: '3.0.0'\n")},
-	}
-	var result ValidationResult
-	validateInterfaces(c, bundleFS, &result)
-	if !result.IsValid() {
-		t.Errorf("expected valid spec file, got errors: %v", result.Errors)
-	}
-}
-
-func TestValidateInterfaces_NilBundleFS(t *testing.T) {
-	c := validV20Contract()
-	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: "spec.yaml"}}
-	var result ValidationResult
-	validateInterfaces(c, nil, &result)
-	if !result.IsValid() {
-		t.Errorf("expected no error when bundleFS is nil, got errors: %v", result.Errors)
 	}
 }
 
@@ -442,6 +374,120 @@ func TestValidateInterfaceFileContent_InvalidYAML(t *testing.T) {
 	}
 	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
 		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaceFileContent_InvalidJSON(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0].Ref = "interfaces/openapi.json"
+	bundleFS := fstest.MapFS{
+		"interfaces/openapi.json": &fstest.MapFile{Data: []byte("{not valid")},
+	}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if result.IsValid() {
+		t.Error("expected error for invalid JSON")
+	}
+	if !hasErrorCode(result, "INVALID_INTERFACE_SPEC") {
+		t.Errorf("expected INVALID_INTERFACE_SPEC, got %+v", result.Errors)
+	}
+}
+
+func TestValidateInterfaceFileContent_ValidJSON(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0].Ref = "interfaces/openapi.json"
+	bundleFS := fstest.MapFS{
+		"interfaces/openapi.json": &fstest.MapFile{Data: []byte(`{"openapi":"3.0.0"}`)},
+	}
+	var result ValidationResult
+	validateInterfaceFileContent(c, bundleFS, &result)
+	if !result.IsValid() {
+		t.Errorf("expected no error for valid JSON, got %v", result.Errors)
+	}
+}
+
+// One missing interface spec must produce exactly one finding: validateInterfaces
+// used to repeat the existence check owned by validateInterfaceFiles.
+func TestValidateCrossField_MissingInterfaceFileReportedOnce(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0].Ref = "interfaces/missing.json"
+	result := ValidateCrossField(c, fstest.MapFS{})
+	if got := countErrorCode(result, "FILE_NOT_FOUND"); got != 1 {
+		t.Errorf("expected 1 FILE_NOT_FOUND, got %d: %+v", got, result.Errors)
+	}
+}
+
+// The de-duplication must not collapse findings about genuinely different files.
+func TestValidateCrossField_TwoMissingInterfaceFilesReportedTwice(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces = []contract.Interface{
+		{Name: "api", Type: "openapi", Ref: "interfaces/one.json"},
+		{Name: "events", Type: "asyncapi", Ref: "interfaces/two.yaml"},
+	}
+	result := ValidateCrossField(c, fstest.MapFS{})
+	if got := countErrorCode(result, "FILE_NOT_FOUND"); got != 2 {
+		t.Errorf("expected 2 FILE_NOT_FOUND, got %d: %+v", got, result.Errors)
+	}
+}
+
+// Same root cause as the duplicate FILE_NOT_FOUND: the spec-content check ran twice.
+func TestValidateCrossField_InvalidInterfaceSpecReportedOnce(t *testing.T) {
+	c := validV20Contract()
+	bundleFS := fstest.MapFS{
+		"interfaces/openapi.yaml": &fstest.MapFile{Data: []byte("paths: [ this is: broken")},
+	}
+	result := ValidateCrossField(c, bundleFS)
+	if got := countErrorCode(result, "INVALID_INTERFACE_SPEC"); got != 1 {
+		t.Errorf("expected 1 INVALID_INTERFACE_SPEC, got %d: %+v", got, result.Errors)
+	}
+}
+
+// A grpc .proto ref has no format this layer can parse; JSON-parsing it reported
+// every valid proto file as an invalid spec.
+func TestValidateCrossField_ProtoRefNotParsed(t *testing.T) {
+	c := validV20Contract()
+	c.Interfaces[0] = contract.Interface{Name: "rpc", Type: "grpc", Ref: "interfaces/service.proto"}
+	bundleFS := fstest.MapFS{
+		"interfaces/service.proto": &fstest.MapFile{Data: []byte("syntax = \"proto3\";\n")},
+	}
+	result := ValidateCrossField(c, bundleFS)
+	if !result.IsValid() {
+		t.Errorf("expected valid proto ref, got %+v", result.Errors)
+	}
+}
+
+// A ref pointing at a directory satisfies fs.Stat but nothing downstream can
+// read it, so pack would ship a bundle whose declared file does not exist.
+func TestCrossField_DirectoryRefIsNotAFile(t *testing.T) {
+	// fstest.MapFS synthesises the parent directory of any file it holds.
+	bundleFS := fstest.MapFS{
+		"interfaces/openapi.yaml/inner.txt": &fstest.MapFile{Data: []byte("x")},
+		"config/app.json/inner.txt":         &fstest.MapFile{Data: []byte("x")},
+		"policy/sec.json/inner.txt":         &fstest.MapFile{Data: []byte("x")},
+	}
+	tests := []struct {
+		name  string
+		check func(*contract.Contract, fs.FS, *ValidationResult)
+		setup func(*contract.Contract)
+	}{
+		{"interface spec", validateInterfaceFiles, func(c *contract.Contract) {}},
+		{"configuration schema", validateConfigFiles, func(c *contract.Contract) {
+			c.Configurations = []contract.Configuration{{Name: "app", Schema: "config/app.json"}}
+		}},
+		{"policy schema", validatePolicyFields, func(c *contract.Contract) {
+			c.Policies = []contract.Policy{{Name: "sec", Schema: "policy/sec.json"}}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := validV20Contract()
+			tt.setup(c)
+			var result ValidationResult
+			tt.check(c, bundleFS, &result)
+			if got := countErrorCode(result, "FILE_NOT_FOUND"); got != 1 {
+				t.Errorf("expected 1 FILE_NOT_FOUND for a directory ref, got %d: %+v", got, result.Errors)
+			}
+		})
 	}
 }
 
@@ -869,6 +915,16 @@ func hasErrorCode(r ValidationResult, code string) bool {
 		}
 	}
 	return false
+}
+
+func countErrorCode(r ValidationResult, code string) int {
+	n := 0
+	for _, e := range r.Errors {
+		if e.Code == code {
+			n++
+		}
+	}
+	return n
 }
 
 func hasWarningCode(r ValidationResult, code string) bool {
