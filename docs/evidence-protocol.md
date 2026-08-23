@@ -102,7 +102,7 @@ A full envelope on the wire:
       }
     ]
   },
-  "signature": { "algorithm": "Ed25519", "value": "MEUCIQ…" }
+  "signature": { "algorithm": "Ed25519", "value": "2Q6dU2WIsvalLVyjpMZMaZp7NM5UK4nbj0koDwU9TkfY9vjdkkoircs10BxcWwRFvkR+YIibqnzaSJGYgyZhDw==" }
 }
 ```
 

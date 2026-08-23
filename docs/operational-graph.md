@@ -410,7 +410,7 @@ flowchart LR
         OCI["Contracts in OCI<br/>published revisions"]
         LOCAL["Local bundles<br/>revision being edited"]
         K8S["Live Kubernetes<br/>Pacto CRs: which revision runs where"]
-        EVI["Evidence Server<br/>durable signed EvidenceSet reports"]
+        EVI["Evidence Server<br/>durable EvidenceSet records<br/>signature checked at ingestion, not stored"]
     end
     OTEL["OTel trace file<br/>offline analysis"]
     OCI --> OG
@@ -586,8 +586,16 @@ $ pacto otel observe traces.json --evidence --output-format json > sets.json
 ```
 
 Each set comes out with an empty `ContractRef` — a trace cannot know which
-revision was running. Split the array, set each `ContractRef` to the revision the
-service was serving, then sign one set at a time:
+revision was running. Split the array into one file per set:
+
+```bash
+$ for i in $(seq 0 $(( $(jq length sets.json) - 1 ))); do
+    jq ".[$i]" sets.json > "set-$i.json"
+  done
+```
+
+Then edit each file's `ContractRef` to the revision that service was serving —
+this is the step only you can do — and sign one set at a time:
 
 ```bash
 $ pacto evidence sign set-0.json \

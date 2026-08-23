@@ -117,9 +117,9 @@ versioned YAML trust config instead (a file ending in `.yaml`/`.yml`):
 ```yaml
 apiVersion: pacto.dev/evidence-trust/v1
 keys:
-  - keyId: edge-eu-2026
-    producerId: edge-eu
-    publicKeyFile: edge-eu-2026.pub   # a bare filename in this config's directory
+  - keyId: edge-eu-west-2026
+    producerId: edge-eu-west
+    publicKeyFile: edge-eu-west__edge-eu-west-2026.pub   # a bare filename in this config's directory
     allowedSubjects:                  # path.Match globs; empty = any subject
       - payments-*
     allowedContractRepos:             # bare registry/repo prefixes; empty = any repo

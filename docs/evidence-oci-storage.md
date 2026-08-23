@@ -131,7 +131,7 @@ world.
 pacto evidence serve \
   --subject oci://registry.example.com/acme/checkout@sha256:<64 hex> \
   --subject oci://registry.example.com/acme/payments@sha256:<64 hex> \
-  --trust ./keys
+  --trust ./trust
 ```
 
 Rejected, deliberately:
