@@ -17,6 +17,7 @@ ledger for every claim family:
   (k) documented events match the reasons the recorder actually emits
   (l) no bare `<placeholder>` in prose (the browser deletes it as an HTML tag)
   (m) every fenced target-state fixture actually loads as a fleet source
+  (n) the signed/unsigned supply-chain table matches the real `cosign sign` sites
 
 Exit code is non-zero if any check fails.
 """
@@ -629,6 +630,73 @@ def check_placeholders() -> None:
 
 
 # ---------------------------------------------------------------------------
+# (n) supply-chain table  <-  the cosign sign call sites in release.yml
+# ---------------------------------------------------------------------------
+
+RELEASE_YML = os.path.join(REPO_ROOT, ".github", "workflows", "release.yml")
+SUPPLY_CHAIN_DOC = os.path.join(REPO_ROOT, "docs", "installation.md")
+COORD = re.compile(r"ghcr\.io/[a-z0-9._/-]+")
+
+
+def signed_coordinates() -> set[str]:
+    """Coordinates the release workflow actually runs `cosign sign` against.
+
+    Signing targets are written as `${REF}` inside a job whose env sets `REF:`,
+    or as a bare literal. Track the last `REF:` seen and resolve on the way past
+    -- crude, but it is the same reading a human does, and it is grounded in the
+    workflow rather than in a second document repeating the claim.
+    """
+    ref = ""
+    found = set()
+    # A signing command is routinely wrapped, and the coordinate is on the
+    # continuation line. Collapse `\`-continuations before scanning.
+    text = re.sub(r"\\\n\s*", " ", open(RELEASE_YML, encoding="utf-8").read())
+    for line in text.splitlines():
+        m = re.match(r"\s*REF:\s*(\S+)", line)
+        if m:
+            ref = m.group(1)
+        if "cosign sign" in line and not line.lstrip().startswith("#"):
+            target = line.replace("${REF}", ref).replace("$REF", ref)
+            found.update(COORD.findall(target))
+    # Drop the digest/tag suffix: the table names repositories, not releases.
+    return {c.split(":")[0].split("@")[0] for c in found}
+
+
+def check_supply_chain() -> None:
+    """The signed/unsigned table must match what the pipeline signs.
+
+    A signature a reader assumes exists is worse than one they know is missing,
+    and this table is the only place the distinction is written down. If a
+    signing step is added, removed or retargeted, the table has to move with it.
+    """
+    text = open(SUPPLY_CHAIN_DOC, encoding="utf-8").read()
+    rows = re.findall(r"^\|\s*[`(]?(ghcr\.io/[^`\s|]+)[`)]?\s*\|([^|]*)\|\s*$", text, re.M)
+    if not rows:
+        record(False, "(n) supply-chain table matches the signing pipeline",
+               "no ghcr.io rows found in docs/installation.md -- table moved or renamed")
+        return
+
+    real = signed_coordinates()
+    claimed_signed, claimed_unsigned = set(), set()
+    for coord, ships in rows:
+        # A row may name a repository family (`.../<service>`); compare the stem.
+        stem = coord.split("<")[0].rstrip("/")
+        (claimed_signed if "cosign" in ships.lower() else claimed_unsigned).add(stem)
+
+    problems = []
+    for c in sorted(claimed_signed - real):
+        problems.append(f"{c} is documented as signed but release.yml never signs it")
+    for c in sorted(real - claimed_signed):
+        problems.append(f"release.yml signs {c} but the table does not list it as signed")
+    for c in sorted(claimed_unsigned & real):
+        problems.append(f"{c} is documented as unsigned but release.yml signs it")
+
+    ok = not problems
+    record(ok, "(n) supply-chain table matches the signing pipeline",
+           f"{len(real)} signed coordinates, table agrees" if ok else " ; ".join(problems[:5]))
+
+
+# ---------------------------------------------------------------------------
 # Drift helpers
 # ---------------------------------------------------------------------------
 
@@ -696,6 +764,7 @@ def main() -> int:
     check_conditions()                           # (j)
     check_events()                               # (k)
     check_placeholders()                         # (l)
+    check_supply_chain()                         # (n)
 
     # (i) twice = no diff
     proc = run(["make", "docs-generate"])

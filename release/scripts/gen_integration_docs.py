@@ -846,6 +846,33 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
             f"| {labels[uid]} | {u['artifactKind']} | `{u['coordinate']}` | `{u['version']}` |"
         )
     out.append("")
+    # The image and the chart are the two artifacts the release workflow signs,
+    # so the coordinates table is the one place a reader is guaranteed to be
+    # looking at them. Emit the verify command from the manifest rather than a
+    # literal, for the same reason `--version` is generated.
+    signed = [units[u] for u in ("operator-image", "operator-chart") if u in units]
+    if signed:
+        out.append("## Verify a published artifact\n")
+        out.append(
+            "The controller image and the Helm chart are signed keylessly by the release "
+            "workflow through GitHub's OIDC issuer. Verify either before installing it:\n"
+        )
+        out.append("```bash")
+        out.append("cosign verify \\")
+        out.append(
+            "  --certificate-identity-regexp "
+            "'^https://github\\.com/TrianaLab/pacto/\\.github/workflows/release\\.yml@' \\"
+        )
+        out.append("  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\")
+        out.append(f"  {signed[0]['coordinate']}:{signed[0]['version']}")
+        out.append("```")
+        out.append("")
+        out.append(
+            "Anything other than a successful verification -- including `no signatures "
+            "found` -- means do not deploy it. Not every Pacto artifact is signed; see "
+            "[what is signed and what is not]"
+            "(../../installation.md#supply-chain-what-is-signed-and-what-is-not).\n"
+        )
     out.append("## Artifact Hub repository\n")
     out.append(f"- **Repository ID**: `{ah['repositoryID']}`")
     imgs = chart.get("annotations", {}).get("artifacthub.io/images", "")

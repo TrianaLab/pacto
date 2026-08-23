@@ -149,6 +149,55 @@ to read: it should match the release you just installed — or say `dev` if you
 used `go install`. If it names an older release, an earlier copy is still ahead
 on your `PATH`; `which pacto` (`where pacto` on Windows) shows which one won.
 
+## Supply chain: what is signed and what is not
+
+Pacto's release pipeline signs some artifacts and not others. The honest summary
+is below — it matters because a signature you assume exists is worse than one you
+know does not.
+
+| Artifact | What ships with it |
+| --- | --- |
+| `ghcr.io/trianalab/pacto/operator` | Cosign signature (keyless) |
+| `ghcr.io/trianalab/pacto/charts/pacto-operator` | Cosign signature (keyless) |
+| `ghcr.io/trianalab/pacto/dashboard` | Cosign signature (keyless) |
+| CLI binaries on the GitHub release | `checksums.txt` (SHA-256) and an SPDX SBOM. **No signature, no provenance attestation.** |
+| `ghcr.io/trianalab/pacto/dashboard-contract` | Nothing. **Unsigned.** |
+| The demo contract bundles (`ghcr.io/trianalab/pacto/<service>`) | Nothing. **Unsigned.** |
+
+The three signed images are signed keylessly by the release workflow through
+GitHub's OIDC issuer, so verification pins *who built it* rather than a key you
+have to trust separately:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/TrianaLab/pacto/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/trianalab/pacto/operator:<version>
+```
+
+A successful run prints the certificate subject and the workflow ref it was
+issued to. Anything else — including `no signatures found` — means do not deploy
+it.
+
+For the CLI binaries the check available to you is the checksum:
+
+```bash
+# Download the binary and checksums.txt from the release, then:
+shasum -a 256 -c checksums.txt --ignore-missing
+```
+
+`pacto update` performs exactly this check for you before it replaces the
+binary. `checksums.txt` proves the download matches what the release published;
+it does not prove who published it. If your policy requires signed CLI binaries,
+build from source at the tag instead.
+
+!!! warning "Do not expect a byte-identical rebuild"
+    Rebuilding a released binary from its tag will **not** reproduce the
+    published SHA-256, even with the same Go version and build flags. The
+    release binaries embed a `+dirty` VCS stamp that a clean checkout cannot
+    produce. Treat the published checksums as integrity for the download, not as
+    a reproducible-build guarantee.
+
 ## Update or roll back the CLI { #updating }
 
 `pacto update` works on a version-stamped binary — one from the installer
