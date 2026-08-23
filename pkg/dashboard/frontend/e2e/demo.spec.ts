@@ -364,9 +364,19 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(strip).toBeVisible({ timeout: 20_000 });
     await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
     await expect(strip).toContainText('Nothing here is a real system');
+    // The fast path from the home page's primary call to action never passes the
+    // explainer, so the two deliberate oddities (degraded-source banner, duplicated
+    // config name) have to be flagged here or the visitor reads them as defects.
+    await expect(strip).toContainText('two things that look like bugs are deliberate');
     // Announced, not silently swapped, when the engine finishes loading.
     await expect(strip).toHaveAttribute('role', 'status');
     await expect(strip).toHaveAttribute('aria-live', 'polite');
+    // The download counter ticks once a second inside a live region, so it must be
+    // hidden from assistive technology or it announces every second; and it must be
+    // empty once the engine has landed rather than counting on forever.
+    const meter = strip.locator('#pacto-demo-meter');
+    await expect(meter).toHaveAttribute('aria-hidden', 'true');
+    await expect(meter).toHaveText('');
     // The explainer page, not the docs root: two properties of this fixture are
     // deliberate and read as bugs (the degraded-source banner, the duplicated config
     // name), and that page is where they are explained. The site's primary call to
@@ -375,6 +385,39 @@ test.describe('WASM dashboard demo — workflows', () => {
     // /<version>/demo/.
     await expect(strip.getByRole('link', { name: 'About this demo' }))
       .toHaveAttribute('href', '../examples/dashboard-demo/');
+  });
+
+  // "Empty once ready" above would also pass for a counter that never ran at all, so
+  // prove the thing actually reports progress. Recording every value it takes, rather
+  // than sampling the DOM at a moment, keeps the assertion off the race between the
+  // download finishing and the poll: the log holds the whole history either way. The
+  // route delay stands in for a slow link — served from localhost the engine lands
+  // too fast for a visitor-scale wait to exist at all.
+  test('demo strip: the download reports its size and elapsed time while loading', async ({ page }) => {
+    await page.addInitScript(() => {
+      const log: string[] = [];
+      (window as unknown as { __meterLog: string[] }).__meterLog = log;
+      new MutationObserver(() => {
+        const m = document.getElementById('pacto-demo-meter');
+        if (m) log.push(m.textContent ?? '');
+        // `document`, not `document.documentElement`: an init script runs before the
+        // first byte of the page is parsed, and at that point there is no root element
+        // to observe yet.
+      }).observe(document, { subtree: true, childList: true, characterData: true });
+    });
+    await page.route('**/app.wasm*', async (route) => {
+      await new Promise((r) => setTimeout(r, 3000));
+      await route.continue();
+    });
+    await waitReady(page);
+    await expect(page.getByTestId('demo-strip')).toContainText('fixture fleet', { timeout: 30_000 });
+    const log = await page.evaluate(() => (window as unknown as { __meterLog: string[] }).__meterLog);
+    // Elapsed seconds while the engine is in flight, and the real transfer size read
+    // off the response rather than a number hard-coded in the loader.
+    expect(log.some((v) => /^\d+s$/.test(v))).toBe(true);
+    expect(log.some((v) => /^\d+ MB · \d+s$/.test(v))).toBe(true);
+    // And it stops: the last thing it does is clear itself, not count forever.
+    expect(log[log.length - 1]).toBe('');
   });
 
   test('accessibility: keyboard reaches the primary nav with real, named links', async ({ page }) => {
