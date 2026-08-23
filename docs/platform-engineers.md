@@ -44,6 +44,8 @@ pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 
 `explain`, `diff`, `graph` and `generate` accept `oci://` refs directly (resolving through the local cache), so this explicit `pull` is optional — use it only when you want the extracted bundle on disk.
 
+A private repository needs credentials first: `pacto login <registry>`, or an already-authenticated `gh` for GHCR. [Authentication](cli-reference.md#authentication) gives the full resolution order.
+
 ### 2. Inspect it
 
 ```bash

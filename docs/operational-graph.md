@@ -132,8 +132,9 @@ completeness value:
 | **empty** | snapshot | Every source was available and produced no record. A genuine empty, not a hidden failure. |
 
 The dashboard uses a matching per-section vocabulary — `present`, `empty`,
-`not_applicable`, `unavailable` — for the same reason: a blank must always explain
-*why* it is blank. When a source fails, its error is sanitized to a category code
+`not_applicable`, `unavailable`, defined term by term under [Section
+provenance](architecture.md#section-provenance-sectionmeta) — for the same
+reason: a blank must always explain *why* it is blank. When a source fails, its error is sanitized to a category code
 (`AUTH_FAILED`, `NOT_FOUND`, `UNAVAILABLE`, `CANCELLED`) and a generic message, so
 credentials, tokens and host names never leak to a consumer.
 
@@ -153,8 +154,9 @@ being wrong.
 
 ## Query semantics
 
-The read model is queried through five pure operations. None performs I/O; a
-single snapshot serves concurrent queries. **Every answer carries a `meta`
+The read model answers five kinds of question, each a pure operation. None
+performs I/O; a single snapshot serves concurrent queries. **Every answer
+carries a `meta`
 envelope with `schemaVersion`, `snapshotId`, `asOf`, `completeness`,
 `limitations` and `sources`** — a consumer can always tell how much of the system
 the answer actually covers. `schemaVersion` (`pacto.dev/fleet/v1`) is the
@@ -171,6 +173,11 @@ proves two answers came from the same system view.
 
 A `not found` under `partial` completeness is not proof the thing does not exist —
 the answer's `meta.completeness` tells the caller whether absence is trustworthy.
+Two more operations sit beside the five and are not queries: `snapshot` emits
+the whole read model as one document, and `reconcile` reports declared
+dependencies against observed ones ([Observed dependencies and
+reconciliation](#observed-dependencies-and-reconciliation)).
+
 Errors are typed: a missing identity is a not-found, an ambiguous one lists its
 matches.
 
@@ -346,7 +353,8 @@ flowchart LR
 - **CLI (`pacto fleet …`)** — the five queries on the command line:
   `pacto fleet search`, `pacto fleet get`, `pacto fleet graph`, `pacto fleet
   status`, `pacto fleet explain`, plus `pacto fleet reconcile` (declared vs
-  observed). Scriptable, deterministic output.
+  observed) and `pacto fleet snapshot` (the whole read model as one document).
+  Scriptable, deterministic output.
 - **MCP fleet tools** — `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status` and `pacto_fleet_explain` give an
   agent read-only understanding of the operational system. They are one of three
