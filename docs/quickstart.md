@@ -137,16 +137,17 @@ Desktop) is down, `docker run` fails with a connection error naming the Docker
 socket rather than anything about Pacto.
 
 ```bash
-$ docker run -d --rm -p 5001:5000 --name pacto-registry registry:3
+$ docker run -d --rm -p 127.0.0.1:5001:5000 --name pacto-registry registry:3
 6202c6df98fc5f50cf3b3375ea112d0928b274cb3bd6aa7b7d25d1e8e6b56aa2
 ```
 
 `registry:3` is the official `registry` image — CNCF Distribution
 (`github.com/distribution/distribution/v3`), the reference OCI registry. Docker
 pulls it the first time and prints download progress, then prints the container
-ID as above; yours will differ. It listens on `localhost:5001`, holds nothing on
-disk and disappears in step 9. Port 5001 rather than 5000 because macOS binds
-5000 for AirPlay.
+ID as above; yours will differ. It holds nothing on disk and disappears in
+step 9. Port 5001 rather than 5000 because macOS binds 5000 for AirPlay, and
+`127.0.0.1:` rather than a bare `5001:` because the registry accepts anonymous
+writes — published wide, anything on your network could push to it.
 
 ```bash
 # Auto-tags with service.version; skips if that tag already exists (--force overwrites)

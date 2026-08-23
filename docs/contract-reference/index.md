@@ -22,7 +22,7 @@ A Pacto bundle is a self-contained directory (or OCI artifact) with the followin
 ├── pacto.yaml
 ├── interfaces/              ← optional
 │   ├── openapi.yaml
-│   ├── service.grpc.yaml
+│   ├── service.yaml
 │   └── events.yaml
 ├── configuration/           ← optional
 │   └── schema.json
