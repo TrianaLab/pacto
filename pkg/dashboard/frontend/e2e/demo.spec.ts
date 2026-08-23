@@ -351,6 +351,27 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByText('audit-log').first()).toBeVisible({ timeout: 20_000 });
   });
 
+  // The demo strip is DEMO-ONLY chrome (examples/demo/boot.js), never dashboard UI,
+  // because none of what it says is true of a real deployment. A visitor arriving
+  // from the site's primary call to action gets an unlabelled dashboard full of
+  // fabricated data with no way back unless this exists — and app.wasm is tens of
+  // megabytes, so for several seconds the content area is an empty heading with no
+  // explanation. Assert what the visitor is owed: the fixture is named, and the
+  // documentation is one click away.
+  test('demo strip: the fixture is labelled and the docs are one click away', async ({ page }) => {
+    await waitReady(page);
+    const strip = page.getByTestId('demo-strip');
+    await expect(strip).toBeVisible({ timeout: 20_000 });
+    await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
+    await expect(strip).toContainText('Nothing here is a real system');
+    // Announced, not silently swapped, when the engine finishes loading.
+    await expect(strip).toHaveAttribute('role', 'status');
+    await expect(strip).toHaveAttribute('aria-live', 'polite');
+    // Relative, so it resolves to the docs root whether the demo is mounted at
+    // /demo/ or /<version>/demo/.
+    await expect(strip.getByRole('link', { name: 'Back to the docs' })).toHaveAttribute('href', '../');
+  });
+
   test('accessibility: keyboard reaches the primary nav with real, named links', async ({ page }) => {
     await waitReady(page);
     await page.keyboard.press('Tab');

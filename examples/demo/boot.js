@@ -54,6 +54,71 @@
   window.__pactoReady = new Promise(function (resolve) { resolveReady = resolve; });
   window.__pactoOnReady = function () { resolveReady(); };
 
+  // Status strip. The Svelte shell paints in about a second, but app.wasm is tens
+  // of megabytes and every API call queues behind it, so on an ordinary connection
+  // a visitor sees a dashboard whose content area is an empty heading for roughly
+  // nine seconds. Nothing on the page said why, said the fleet is fabricated, or
+  // offered a way back to the documentation this demo is linked from. One strip
+  // answers all three, and it lives HERE rather than in the dashboard app because
+  // none of it is true of a real deployment.
+  (function demoStatusStrip() {
+    var DOCS_HREF = "../"; // the docs root, relative: works at /demo/ and /<version>/demo/ alike
+    var el, label;
+    // The strip mounts on DOMContentLoaded, but the engine can resolve or fail
+    // before that. Hold the latest message so the outcome is never dropped.
+    var pending = "Loading the Pacto engine — the panels fill in when it lands.";
+
+    function mount() {
+      var style = document.createElement("style");
+      style.textContent =
+        // pointer-events:none on the container, auto on the link. The strip floats over
+        // the dashboard, and at phone widths it wraps tall enough to sit on top of the
+        // app's own controls -- a notice must never swallow a tap meant for the thing
+        // underneath it. Only the link is clickable.
+        "#pacto-demo-strip{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);" +
+        "z-index:9999;max-width:min(92vw,46rem);display:flex;gap:.6rem;align-items:center;" +
+        "padding:.5rem .9rem;border-radius:999px;background:#1e293b;color:#e2e8f0;" +
+        "font:400 .8125rem/1.4 system-ui,-apple-system,'Segoe UI',sans-serif;" +
+        "box-shadow:0 2px 12px rgba(15,23,42,.35);pointer-events:none}" +
+        "#pacto-demo-strip a{color:#a5b4fc;text-decoration:underline;white-space:nowrap;" +
+        "pointer-events:auto}" +
+        "#pacto-demo-strip a:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
+        "@media (max-width:480px){#pacto-demo-strip{bottom:8px;max-width:96vw;" +
+        "font-size:.75rem;padding:.4rem .7rem}}";
+      document.head.appendChild(style);
+
+      el = document.createElement("div");
+      el.id = "pacto-demo-strip";
+      el.setAttribute("data-testid", "demo-strip");
+      // role=status + aria-live so the loading -> ready transition is announced
+      // rather than silently swapped under a screen reader.
+      el.setAttribute("role", "status");
+      el.setAttribute("aria-live", "polite");
+      label = document.createElement("span");
+      var link = document.createElement("a");
+      link.href = DOCS_HREF;
+      link.textContent = "Back to the docs";
+      el.appendChild(label);
+      el.appendChild(link);
+      document.body.appendChild(el);
+      label.textContent = pending;
+    }
+
+    function say(text) { pending = text; if (label) { label.textContent = text; } }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", mount);
+    } else {
+      mount();
+    }
+    window.__pactoReady.then(function () {
+      say("Demo — a fixture fleet running entirely in your browser. Nothing here is a real system.");
+    });
+    window.__pactoDemoFailed = function () {
+      say("The Pacto engine did not load, so every panel will stay empty. Try reloading.");
+    };
+  })();
+
   function instantiate(url, importObject) {
     if (typeof WebAssembly.instantiateStreaming === "function") {
       return WebAssembly.instantiateStreaming(realFetch(url), importObject).catch(function () {
@@ -71,7 +136,13 @@
   var go = new Go();
   instantiate(new URL("app.wasm", scriptURL), go.importObject)
     .then(function (result) { go.run(result.instance); })
-    .catch(function (err) { console.error("Pacto engine failed to load:", err); });
+    .catch(function (err) {
+      console.error("Pacto engine failed to load:", err);
+      // Say so on the page. Without this the dashboard shell renders and every
+      // panel stays empty forever, which reads as a broken product rather than a
+      // failed download.
+      if (window.__pactoDemoFailed) { window.__pactoDemoFailed(); }
+    });
 
   // Only the dashboard's own endpoints are served by wasm; all other requests
   // (assets, lazy chunks) go to the network as usual.
