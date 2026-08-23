@@ -62,7 +62,13 @@
   // answers all three, and it lives HERE rather than in the dashboard app because
   // none of it is true of a real deployment.
   (function demoStatusStrip() {
-    var DOCS_HREF = "../"; // the docs root, relative: works at /demo/ and /<version>/demo/ alike
+    // The explainer, not the docs root. Two things about this fixture are deliberate
+    // and read as bugs -- it opens on a degraded-source banner, and one config name
+    // appears twice -- and that page's first paragraphs say so. The home page's
+    // primary call to action jumps straight here, so this strip is the only place a
+    // visitor who arrived that way is ever told. Relative, so it resolves under both
+    // /demo/ and /<version>/demo/; the page it lands on carries the full docs nav.
+    var DOCS_HREF = "../examples/dashboard-demo/";
     var el, label;
     // The strip mounts on DOMContentLoaded, but the engine can resolve or fail
     // before that. Hold the latest message so the outcome is never dropped.
@@ -97,7 +103,7 @@
       label = document.createElement("span");
       var link = document.createElement("a");
       link.href = DOCS_HREF;
-      link.textContent = "Back to the docs";
+      link.textContent = "About this demo";
       el.appendChild(label);
       el.appendChild(link);
       document.body.appendChild(el);

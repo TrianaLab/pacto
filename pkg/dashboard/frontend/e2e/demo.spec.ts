@@ -367,9 +367,14 @@ test.describe('WASM dashboard demo — workflows', () => {
     // Announced, not silently swapped, when the engine finishes loading.
     await expect(strip).toHaveAttribute('role', 'status');
     await expect(strip).toHaveAttribute('aria-live', 'polite');
-    // Relative, so it resolves to the docs root whether the demo is mounted at
-    // /demo/ or /<version>/demo/.
-    await expect(strip.getByRole('link', { name: 'Back to the docs' })).toHaveAttribute('href', '../');
+    // The explainer page, not the docs root: two properties of this fixture are
+    // deliberate and read as bugs (the degraded-source banner, the duplicated config
+    // name), and that page is where they are explained. The site's primary call to
+    // action jumps straight into the demo, so this link is the only route to it.
+    // Relative, so it resolves whether the demo is mounted at /demo/ or
+    // /<version>/demo/.
+    await expect(strip.getByRole('link', { name: 'About this demo' }))
+      .toHaveAttribute('href', '../examples/dashboard-demo/');
   });
 
   test('accessibility: keyboard reaches the primary nav with real, named links', async ({ page }) => {
