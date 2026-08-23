@@ -271,18 +271,24 @@ it wraps stays yours, and that is checkable rather than a promise:
   Artifactory. Nothing is stored on infrastructure operated by the project.
 - **A published bundle opens without Pacto** — it is a gzipped tar layer, so
   standard OCI tooling is enough to get the files back out (below).
-- **Removing the runtime side changes nothing that is running.** The operator
-  observes and never modifies your workloads, so uninstalling it stops the
-  checking and leaves the workloads exactly as they were. Both removal paths and
-  the objects that outlive them are written down: [uninstall the CLI](installation.md#uninstall)
+- **Removing the runtime side leaves your workloads untouched.** The operator
+  observes and never modifies them, so uninstalling it stops the checking and
+  leaves every workload exactly as it was. It does take Pacto's own components
+  with it — the managed dashboard and Evidence Server are garbage-collected
+  along with the controller — and a few cluster-scoped objects outlive the
+  release and need deleting by hand. Both removal paths, and every object that
+  survives them, are written down: [uninstall the CLI](installation.md#uninstall)
   and [uninstall the operator](integrations/kubernetes/installation.md#uninstall).
 
-Unpacking a published bundle with no Pacto binary anywhere in reach:
+Unpacking a published bundle with no Pacto binary anywhere in reach — this needs
+[`oras`](https://oras.land/docs/installation) and [`jq`](https://jqlang.org/download/),
+neither of which is a Pacto tool:
 
 ```bash
-REF=ghcr.io/your-org/your-service:1.0.0
-DIGEST=$(oras manifest fetch "$REF" | jq -r '.layers[0].digest')
-oras blob fetch --output bundle.tar.gz "${REF%%:*}@$DIGEST"
+REPO=ghcr.io/your-org/your-service
+TAG=1.0.0
+DIGEST=$(oras manifest fetch "$REPO:$TAG" | jq -r '.layers[0].digest')
+oras blob fetch --output bundle.tar.gz "$REPO@$DIGEST"
 tar -xzf bundle.tar.gz    # pacto.yaml, interfaces/, configuration/, sbom/
 ```
 
