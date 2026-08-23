@@ -13,6 +13,14 @@ they add up to.
 
 There is no repository to clone, nothing to build and no file to download. The
 demo is published as an OCI artifact that Docker Compose owns and runs directly.
+
+You need [Docker Compose](https://docs.docker.com/compose/) 2.34 or newer —
+nothing else, not even the Pacto CLI. 2.34 is the release that added
+`docker compose publish` and `-f oci://…`; older versions cannot run this
+artifact at all, and the application says so itself in
+`x-pacto-demo.minimum-compose-version`. The demo's registry is public, so no
+login is needed; against a private registry, `docker login <registry>` first.
+
 Resolve the release you want to the digest it published, then run that digest:
 
 ```sh
@@ -29,15 +37,6 @@ Then open <http://localhost:8080/#/fleet>.
 from a registry: it lists the variables the artifact declares — the three ports
 below — and waits for a yes. Leave the flag off to read that list first; keep it
 on anywhere without a terminal, where the unanswered prompt cancels the run.
-
-You need [Docker Compose](https://docs.docker.com/compose/) 2.34 or newer —
-nothing else, not even the Pacto CLI. 2.34 is the release that added
-`docker compose publish` and `-f oci://…`; older versions cannot run this
-artifact at all, and the application says so itself in
-`x-pacto-demo.minimum-compose-version`.
-
-The demo's registry is public, so no login is needed. Against a private
-registry, `docker login <registry>` first.
 
 ## The digest
 

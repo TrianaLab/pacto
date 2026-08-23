@@ -4,6 +4,10 @@ Three ways in. The installer script is the shortest and the only one that also
 brings the plugins; Go and from-source builds are for contributors and for
 machines that already have a Go toolchain.
 
+Not installing yet? The [live dashboard demo](examples/dashboard-demo.md) runs
+Pacto in your browser with nothing to download, and the
+[Compose demo](examples/compose-demo.md) runs a whole fleet without the CLI.
+
 ## Via installer script
 
 You need a POSIX shell, `curl` or `wget`, and either the ability to `sudo` into
