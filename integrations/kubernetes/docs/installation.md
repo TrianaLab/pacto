@@ -64,6 +64,18 @@ helm install pacto-operator \
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
 - `dashboard.enabled` toggles the operator-managed dashboard.
 
+!!! note "Three observation features are not reachable from the chart"
+
+    Metrics observation, active health probing and name-match discovery are
+    controller command-line flags, and the chart renders a fixed argument list
+    with no `extraArgs`. There is no `--set` for them on this install path, and a
+    flag patched onto the Deployment by hand disappears the next time you run
+    `helm upgrade`. Read
+    [Opt-in features](limitations.md#opt-in-features) **before** you plan around
+    any of the three — particularly if you are evaluating active health probing,
+    because without it a declared health endpoint can be confirmed but never
+    contradicted.
+
 !!! warning "The dashboard has no authentication — do not expose it"
 
     The dashboard ships no login, no API key and no authorization: anyone who
