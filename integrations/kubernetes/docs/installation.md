@@ -184,6 +184,14 @@ helm install pacto-operator \
   OCI](../../evidence-oci-storage.md) for the registries this was checked
   against.
 
+If that registry is private, there is a fourth thing you create yourself: a
+`kubernetes.io/dockerconfigjson` Secret named by
+`evidence.registry.credentialsSecret`. It is mounted read-only as a
+`DOCKER_CONFIG` directory, so the server authenticates exactly the way
+`pacto pull` does — there is no second credential model. Leave the value empty
+for an anonymous or in-cluster registry. Whatever name you pick is the one
+[Uninstall](#uninstall) asks you to delete.
+
 See the [Helm reference](helm-reference.md) for the full value list and the
 [Operator configuration](operator-configuration.md) page for the underlying
 controller flags each value maps to.
@@ -239,6 +247,52 @@ Open the dashboard by forwarding its Service (there is no Ingress by default):
 ```bash
 kubectl port-forward -n pacto-operator-system svc/pacto-dashboard 3000:3000
 ```
+
+### If you enabled the Evidence Server
+
+`evidence.enabled=true` adds a third Deployment, `pacto-evidence`, created by
+the controller the same way the dashboard is:
+
+```text
+NAME              READY   UP-TO-DATE   AVAILABLE   AGE
+pacto-dashboard   1/1     1            1           16s
+pacto-evidence    1/1     1            1           14s
+pacto-operator    1/1     1            1           21s
+```
+
+`1/1` here means more than "the process started". Readiness is
+`GET /api/evidence/v1/ready`, which answers `503` until **every** subject in
+`evidence.registry.subjects` resolves in the registry *and* answers native
+Referrers discovery. So a `pacto-evidence` stuck at `0/1` is nearly always a
+subject the cluster cannot pull or a registry without the Referrers API — read
+its own log, not the controller's:
+
+```bash
+kubectl -n pacto-operator-system logs deploy/pacto-evidence
+```
+
+The Service is `pacto-evidence` on port `8686`. Producers inside the cluster
+POST signed envelopes to its ingestion endpoint:
+
+```text
+http://pacto-evidence.pacto-operator-system.svc:8686/api/evidence/v1/envelopes
+```
+
+A `pacto fleet` outside the cluster consumes the same server's read-only
+contribution by **base** URL — `--evidence-url` appends
+`/api/evidence/v1/targets` itself, so do not include it:
+
+```bash
+kubectl port-forward -n pacto-operator-system svc/pacto-evidence 8686:8686 &
+pacto fleet search --evidence-url http://127.0.0.1:8686
+```
+
+Nothing durable lives in the cluster: there is no PersistentVolumeClaim and no
+data volume, because the registry is the store. Delete and recreate the
+Deployment and the accepted evidence is still there.
+[Evidence in OCI](../../evidence-oci-storage.md) covers what is written and
+where; [the evidence protocol](../../evidence-protocol.md#ingestion-api) lists all five
+endpoints.
 
 ## Bind your first contract
 

@@ -11,6 +11,17 @@ enough. The version below is the currently published chart:
 
 --8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
+!!! warning "An upgrade reverts hand-patched controller flags"
+    If you turned on an opt-in feature by patching the Deployment's `args` —
+    `--enable-probing`, `--enable-metrics-observation` or
+    `--interface-name-match-discovery`, none of which the chart can render —
+    `helm upgrade` re-renders `args` from the template and your addition
+    disappears, silently. Nothing fails; the dimension simply goes back to
+    `Unsupported` or to passive observation. Re-apply the patch after every
+    upgrade, and see
+    [Limitations — opt-in features](limitations.md#opt-in-features) for why it
+    is not managed state.
+
 ## Upgrading across a major version (CRD migration)
 
 Helm never upgrades the CustomResourceDefinitions bundled under a chart's `crds/`
