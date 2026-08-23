@@ -53,3 +53,38 @@ func Parse(r io.Reader) (*Contract, error) {
 
 	return &c, nil
 }
+
+// DecodeYAML unmarshals YAML into out the way Parse sees it: a scalar that
+// yaml.v3 resolves to !!timestamp keeps the verbatim text written in the
+// document instead of becoming a time.Time.
+//
+// Parse decodes dates into string fields, so it always sees what the author
+// wrote. A generic decode does not: `expires: 2099-12-31` resolves to a
+// time.Time, so a read-modify-write re-emits it as 2099-12-31T00:00:00Z and the
+// JSON Schema layer checks a value that is not in the file. Retagging the node
+// before decoding preserves the scalar exactly — nothing is reformatted, so a
+// non-canonical `2099-1-1` stays rejectable and an explicit
+// `2024-01-15T00:00:00Z` keeps its time — and it is independent of the map kind
+// yaml.v3 picks for the enclosing mapping.
+func DecodeYAML(data []byte, out any) error {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return err
+	}
+	if root.Kind == 0 {
+		return nil // empty document: leave out at its zero value, as yaml.Unmarshal does
+	}
+	untagTimestamps(&root)
+	return root.Decode(out)
+}
+
+// untagTimestamps rewrites every !!timestamp scalar in the tree to !!str so it
+// decodes as its literal text.
+func untagTimestamps(n *yaml.Node) {
+	if n.Kind == yaml.ScalarNode && n.Tag == "!!timestamp" {
+		n.Tag = "!!str"
+	}
+	for _, child := range n.Content {
+		untagTimestamps(child)
+	}
+}

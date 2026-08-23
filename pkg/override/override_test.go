@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -470,96 +469,14 @@ func TestApply_PreserveTimestamps(t *testing.T) {
 	if !strings.Contains(outStr, "2099-12-31T14:30:00Z") {
 		t.Errorf("expected non-midnight timestamp to preserve RFC3339, got:\n%s", outStr)
 	}
-	// Midnight UTC timestamps may be formatted as bare dates (desired behavior).
-	// This test ensures we don't break real timestamps.
+	// An explicit midnight-UTC timestamp is preserved verbatim too: it is not the
+	// same scalar as a bare date and must not be truncated to one.
+	if !strings.Contains(outStr, "2099-01-01T00:00:00Z") {
+		t.Errorf("expected midnight timestamp to survive intact, got:\n%s", outStr)
+	}
 	m := mustParseYAML(t, out)
 	event := m["event"].(map[string]any)
-	// Just verify the key exists and is not corrupted.
-	if event["created"] == nil {
-		t.Errorf("created field missing after override")
-	}
-}
-
-func TestNormalizeTimestamps(t *testing.T) {
-	// Test all branches of normalizeTimestamps.
-	mustParseTime := func(s string) time.Time {
-		t.Helper()
-		ts, err := time.Parse(time.RFC3339, s)
-		if err != nil {
-			t.Fatalf("failed to parse time %q: %v", s, err)
-		}
-		return ts
-	}
-
-	// Bare date (midnight UTC, no nanoseconds) → YYYY-MM-DD string.
-	bareDate := mustParseTime("2099-12-31T00:00:00Z")
-	result := normalizeTimestamps(bareDate)
-	if result != "2099-12-31" {
-		t.Errorf("bare date: expected '2099-12-31', got %v", result)
-	}
-
-	// Non-midnight timestamp → RFC3339 string.
-	timestamp := mustParseTime("2099-12-31T14:30:00Z")
-	result = normalizeTimestamps(timestamp)
-	if result != "2099-12-31T14:30:00Z" {
-		t.Errorf("non-midnight timestamp: expected RFC3339, got %v", result)
-	}
-
-	// Timestamp with nanoseconds → RFC3339 string.
-	tsWithNanos := mustParseTime("2099-12-31T00:00:00.123Z")
-	result = normalizeTimestamps(tsWithNanos)
-	if !strings.HasPrefix(result.(string), "2099-12-31T00:00:00") {
-		t.Errorf("timestamp with nanoseconds: expected RFC3339, got %v", result)
-	}
-
-	// Map recursion.
-	m := map[string]any{
-		"date":      bareDate,
-		"timestamp": timestamp,
-		"nested": map[string]any{
-			"expires": bareDate,
-		},
-	}
-	result = normalizeTimestamps(m)
-	rm := result.(map[string]any)
-	if rm["date"] != "2099-12-31" {
-		t.Errorf("map recursion: expected date=2099-12-31, got %v", rm["date"])
-	}
-	if rm["timestamp"] != "2099-12-31T14:30:00Z" {
-		t.Errorf("map recursion: expected timestamp=RFC3339, got %v", rm["timestamp"])
-	}
-	nested := rm["nested"].(map[string]any)
-	if nested["expires"] != "2099-12-31" {
-		t.Errorf("map recursion: expected nested expires=2099-12-31, got %v", nested["expires"])
-	}
-
-	// Slice recursion.
-	slice := []any{
-		bareDate,
-		timestamp,
-		map[string]any{"d": bareDate},
-	}
-	result = normalizeTimestamps(slice)
-	rs := result.([]any)
-	if rs[0] != "2099-12-31" {
-		t.Errorf("slice recursion: expected rs[0]=2099-12-31, got %v", rs[0])
-	}
-	if rs[1] != "2099-12-31T14:30:00Z" {
-		t.Errorf("slice recursion: expected rs[1]=RFC3339, got %v", rs[1])
-	}
-	sliceMap := rs[2].(map[string]any)
-	if sliceMap["d"] != "2099-12-31" {
-		t.Errorf("slice recursion: expected sliceMap[d]=2099-12-31, got %v", sliceMap["d"])
-	}
-
-	// Other types pass through unchanged.
-	if normalizeTimestamps("string") != "string" {
-		t.Error("string should pass through unchanged")
-	}
-	if normalizeTimestamps(42) != 42 {
-		t.Error("int should pass through unchanged")
-	}
-	if normalizeTimestamps(nil) != nil {
-		t.Error("nil should pass through unchanged")
+	if event["created"] != "2099-01-01T00:00:00Z" {
+		t.Errorf("created: got %v, want 2099-01-01T00:00:00Z", event["created"])
 	}
 }

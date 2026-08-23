@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -363,5 +364,64 @@ service:
 	}
 	if c.Workload != "" {
 		t.Errorf("expected empty workload, got %s", c.Workload)
+	}
+}
+
+// TestDecodeYAML_TimestampScalarsStayVerbatim pins the whole point of DecodeYAML:
+// a scalar yaml.v3 resolves to !!timestamp keeps the exact text from the
+// document. Nothing is reformatted, so a bare date stays a bare date, a
+// non-canonical date stays rejectable and an explicit time keeps its time —
+// including under a non-string mapping key, where yaml.v3 hands back map[any]any.
+func TestDecodeYAML_TimestampScalarsStayVerbatim(t *testing.T) {
+	src := `bare: 2099-12-31
+noncanonical: 2099-1-1
+rfc3339: 2024-01-15T00:00:00Z
+spaced: 2024-01-15 10:00:00
+quoted: "2024-01-15"
+seq:
+  - 2099-06-15
+1: 2099-12-31
+`
+	var got map[any]any
+	if err := contract.DecodeYAML([]byte(src), &got); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := map[any]any{
+		"bare":         "2099-12-31",
+		"noncanonical": "2099-1-1",
+		"rfc3339":      "2024-01-15T00:00:00Z",
+		"spaced":       "2024-01-15 10:00:00",
+		"quoted":       "2024-01-15",
+		"seq":          []any{"2099-06-15"},
+		1:              "2099-12-31",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %#v\nwant %#v", got, want)
+	}
+}
+
+func TestDecodeYAML_EmptyDocument(t *testing.T) {
+	// Matches yaml.Unmarshal: an empty document leaves the target untouched.
+	var m map[string]any
+	if err := contract.DecodeYAML(nil, &m); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m != nil {
+		t.Errorf("expected nil map, got %#v", m)
+	}
+}
+
+func TestDecodeYAML_InvalidYAML(t *testing.T) {
+	var m map[string]any
+	if err := contract.DecodeYAML([]byte("{invalid"), &m); err == nil {
+		t.Error("expected error for invalid YAML")
+	}
+}
+
+func TestDecodeYAML_TypeMismatch(t *testing.T) {
+	var m map[string]any
+	if err := contract.DecodeYAML([]byte("- a\n"), &m); err == nil {
+		t.Error("expected error decoding a sequence into a map")
 	}
 }
