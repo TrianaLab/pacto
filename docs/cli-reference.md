@@ -601,7 +601,7 @@ pacto generate <plugin> [dir | oci://ref] [flags]
 **Examples:**
 
 ```
-  pacto generate helm my-service -o manifests/
+  pacto generate schema-infer my-service --option file=config.yaml -o out/
 ```
 
 **Flags:**

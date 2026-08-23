@@ -15,6 +15,8 @@ Pacto has two official plugins:
 
 Both `*-infer` plugins are the composition on-ramp: they derive the interfaces you already have — a service's HTTP API from its source, its config shape from real config files — instead of asking you to hand-author a schema. Compose what already exists rather than reinvent it.
 
+Those two are the whole official set, and both run *inward*. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides — without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found`. The rest of this page is how to build that plugin.
+
 ### Installing them
 
 They are separate binaries maintained in the
@@ -60,15 +62,15 @@ The plugin design is:
 sequenceDiagram
     participant User
     participant Pacto as pacto CLI
-    participant Plugin as pacto-plugin-helm
+    participant Plugin as pacto-plugin-schema-infer
 
-    User->>Pacto: pacto generate helm ./my-service
+    User->>Pacto: pacto generate schema-infer ./my-service
     Pacto->>Pacto: Load and parse contract
     Pacto->>Plugin: Spawn process, write JSON to stdin
     Plugin->>Plugin: Read contract, generate files
     Plugin->>Pacto: Write JSON response to stdout
     Pacto->>Pacto: Write files to output directory
-    Pacto->>User: Generated 3 file(s) using helm
+    Pacto->>User: Generated 1 file(s) using schema-infer
 ```
 
 1. The user runs [`pacto generate <plugin-name> [dir | oci://ref]`](cli-reference.md#pacto-generate) — see the command reference for flags like `--option key=value` (populates `options`) and `-o/--output`
@@ -87,10 +89,17 @@ Pacto searches for plugin binaries in this order:
 1. **`$PATH`** — any binary named `pacto-plugin-<name>`
 2. **`~/.config/pacto/plugins/`** — user plugin directory
 
-For example, `pacto generate helm` looks for:
+For example, `pacto generate schema-infer` looks for:
 
-- `pacto-plugin-helm` in `$PATH`
-- `~/.config/pacto/plugins/pacto-plugin-helm`
+- `pacto-plugin-schema-infer` in `$PATH`
+- `~/.config/pacto/plugins/pacto-plugin-schema-infer`
+
+Neither found is an error, not a no-op — `pacto generate helm` on a machine with
+no `pacto-plugin-helm` exits 1 and says so:
+
+```
+plugin "helm" not found (looked for pacto-plugin-helm in $PATH and ~/.config/pacto/plugins/)
+```
 
 ---
 

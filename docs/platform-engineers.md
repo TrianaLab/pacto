@@ -111,11 +111,20 @@ References differ from dependencies: a **dependency** declares a runtime relatio
 
 ### 5. Generate deployment artifacts
 
+`pacto generate <name>` spawns a `pacto-plugin-<name>` binary and writes whatever
+it returns. **Pacto ships no deployment-artifact plugin** — the two official ones
+(`schema-infer`, `openapi-infer`) run inward, deriving contract inputs from files
+you already have:
+
 ```bash
-pacto generate helm oci://ghcr.io/acme/payments-api-pacto:2.1.0
+pacto generate schema-infer ./payments-api --option file=config.yaml -o out/
 ```
 
-This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes manifests or whatever your plugin generates. See the [Plugin Development](plugins.md) guide.
+Generating Helm charts or Kubernetes manifests means writing the plugin, which is
+deliberately small — a binary that reads a contract as JSON on stdin and writes
+file descriptions on stdout, in any language. Until one is on your `PATH`,
+`pacto generate helm` exits 1 with `plugin "helm" not found`. See the
+[Plugin Development](plugins.md) guide.
 
 ---
 

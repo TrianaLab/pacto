@@ -358,10 +358,7 @@ lifecycle.
   [evidence security and tooling](evidence-security.md#running-the-ingestion-endpoint).
 
 Disabling the component removes its whole footprint and loses no evidence: the
-records stay where they were written, in the contract registry. Installations
-upgraded from a release that used an evidence PVC keep that PVC until an operator
-deletes it — see
-[retiring a legacy bucket or PVC](evidence-oci-storage.md#retiring-a-legacy-bucket-or-pvc).
+records stay where they were written, in the contract registry.
 
 ---
 

@@ -9,7 +9,10 @@ Impact is framework-independent (`pkg/impact`). It consumes the pure diff engine
 ([change classification](contract-reference/diff.md)) and the immutable
 [operational-graph](operational-graph.md) read model, and imports no Kubernetes,
 OCI, dashboard, MCP or HTTP code. The same analysis therefore backs the CLI, an
-MCP tool and the dashboard, and every one of them returns the identical answer.
+MCP tool and the dashboard, and given the same snapshot every one of them returns
+the identical answer. What differs between the three is where the snapshot may
+come from: the CLI takes offline sources only ([below](#cli)), while the MCP
+server and the dashboard can also be pointed at a registry or a cluster.
 `impact` is the name of the CLI command, the MCP tool and the Go package; in the
 dashboard the same analysis is presented as the **Change analysis** workspace,
 alongside the semantic diff it composes with.

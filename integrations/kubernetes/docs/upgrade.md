@@ -67,20 +67,22 @@ job): it installs the real previous-major (v4) chart with its v4 CRDs,
 server-side applies the new CRDs, then `helm upgrade`s to the current chart and
 asserts the pre-existing resource survives and reconciles.
 
-## Upgrading an installation with the Evidence Server enabled
+## Turning on the Evidence Server during an upgrade
 
-Evidence is no longer stored in the cluster. The Evidence Server publishes every
-accepted record to your **contract registry** as an OCI 1.1 referrer, so the
-component now installs nothing durable — no PVC, no data volume — and a fresh
-install creates no storage resource at all.
+The Evidence Server arrived in chart 5.2.0 and is off by default, so upgrading
+from an earlier release changes nothing until you set `evidence.enabled`. No
+published chart before 5.2.0 had an `evidence` section at all — there is no
+bucket value, PVC or storage class to migrate from. Enabling it installs nothing
+durable either: every accepted record is published to your **contract registry**
+as an OCI 1.1 referrer, and the registry is the store.
 
-Two things change on upgrade:
+Two things are required the first time you enable it:
 
 1. **Name your subjects.** `evidence.registry.subjects` is required whenever
    `evidence.enabled` is true: at least one exact
    `oci://<repo>@sha256:<digest>` contract revision. Upgrading without it fails
    at template time rather than starting a server that reports an authoritative
-   empty world. The bucket values (`evidence.storage.*`) are gone.
+   empty world.
 2. **Your registry must serve the native Referrers API.** Pacto refuses the
    legacy referrers-tag fallback, so a registry without the endpoint leaves the
    Evidence Server permanently not-ready. Neither GHCR nor CNCF distribution
@@ -96,10 +98,7 @@ helm upgrade pacto-operator \
   --set 'evidence.registry.subjects[0]=oci://registry.example.com/acme/checkout@sha256:<64 hex>'
 ```
 
-An existing `pacto-evidence-data` PVC from an earlier release is **not** deleted
-by the upgrade — Pacto will not destroy data it no longer manages. Records in it
-are not visible to this release; producers re-report current state. Back it up if
-you want the history, then retire it manually:
-[retiring a legacy bucket or PVC](../../evidence-oci-storage.md#retiring-a-legacy-bucket-or-pvc).
+Turning it back off later removes the whole footprint and loses nothing: the
+records stay in the registry where they were written.
 
 --8<-- "integrations/kubernetes/docs/generated/_compatibility.md"

@@ -225,26 +225,6 @@ These are **registry responsibilities**, and Pacto does not duplicate them:
   evidence stops being discoverable. Pacto reports the resulting state honestly
   (partial or unavailable) and does not reconstruct it.
 
-## Retiring a legacy bucket or PVC
-
-Earlier releases persisted evidence in a bucket, by default a `file://` bucket on
-a PVC named `pacto-evidence-data`. That store is gone: there is no migrator, no
-dual write and no fallback, and a fresh install creates no PVC or bucket resource
-at all.
-
-An existing PVC is **not** deleted automatically — Pacto will not destroy data it
-no longer manages. To retire it:
-
-1. back up its contents if you want the historical records
-   (`kubectl cp` from a pod that mounts it, or a volume snapshot);
-2. confirm nothing mounts it: with evidence enabled on this release, the Evidence
-   Server pod has no volumes other than its read-only trust and credential
-   mounts;
-3. delete it: `kubectl delete pvc pacto-evidence-data -n pacto-operator-system`.
-
-Records in the old bucket are not visible to this release. Producers re-report
-current state, which is what an operational graph reports anyway.
-
 ## Interoperability
 
 The store is a plain OCI registry, so it is legible without Pacto. Any client
