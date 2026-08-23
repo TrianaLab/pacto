@@ -14,7 +14,7 @@ you exactly what invoking it can and cannot do.
 |--------|-------|--------------|-----------------|
 | **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation — with a [known gap](#pacto_edit). |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a timeout and does not follow cross-origin redirects. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#mcp-tool-pacto_impact) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report a change's blast radius. | Read-only always; they observe nothing and change nothing. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#mcp-tool-pacto_impact) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report a change's blast radius. | Read-only always: they write nothing, anywhere. Read-only is not offline, though — `pacto_impact` reaches your registry and cluster on [every call](#fleet-query-safety). |
 
 The three families answer three different questions: authoring tools shape *what a
 contract says*, generated service tools *do something to a running service*, and
@@ -22,7 +22,11 @@ fleet query tools *understand the system as it is*. An agent should never confus
 them — invoking `createRefund` moves money; `pacto_fleet_get` never leaves the
 read model.
 
-Those three families are the whole MCP surface. Much of the CLI is deliberately
+Those three families are the whole *tool* surface bar two: `pacto_skill`, which
+serves a bundle's own [domain guides](#agent-capabilities), and
+`pacto_catalog_revision`, the single lookup tool of the fourth server mode
+[below](#contract-catalog-discovery) — which also publishes two MCP *resources*,
+the only part of the surface that is not a tool at all. Much of the CLI is deliberately
 not in it: inspecting a registry contract, resolving a dependency graph,
 diffing revisions and generating docs stay
 [CLI-only](developers.md#ai-assisted-workflow), and no tool pushes, pulls or
@@ -49,10 +53,18 @@ from the catalog, the fleet, operator reconciliation and durable evidence, see
     holds because [the `pacto_` names are reserved](#the-pacto_-names-are-reserved)
     — a bundle cannot claim one.
 
+### Fleet query safety
+
 Fleet query tools deserve explicit safety framing:
 
 - **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md)
-  — an immutable read model — and perform no I/O against live systems.
+  — an immutable read model — and write nothing, to a contract, a registry or a
+  running service. Read-only is not the same as offline. The `pacto_fleet_*` tools
+  answer from the snapshot built at startup and touch nothing afterwards, but
+  `pacto_impact` re-resolves both of its refs and rebuilds the snapshot on **every**
+  call — so each invocation reaches your registry, and your cluster if `--k8s` is
+  on, using the server's own credentials. Allow-list it on that basis, not on the
+  family's.
 - **Pacto does not determine authorization.** These tools expose knowledge; they
   never grant, scope or revoke a permission. Whether an agent *may* act stays with
   policy and IAM systems.
