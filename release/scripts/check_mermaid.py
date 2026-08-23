@@ -65,12 +65,12 @@ def markdown_files() -> list[str]:
     return sorted(set(files))
 
 
-MMDC_PKG = "@mermaid-js/mermaid-cli"
+NPX_MERMAID = ["npx", "--yes", "-p", "@mermaid-js/mermaid-cli"]
 
 
 def mmdc_command() -> list[str] | None:
     if shutil.which("npx"):
-        return ["npx", "--yes", "-p", MMDC_PKG, "mmdc"]
+        return NPX_MERMAID + ["mmdc"]
     if shutil.which("mmdc"):
         return ["mmdc"]
     return None
@@ -97,8 +97,7 @@ def ensure_browser(cmd: list[str]) -> str | None:
     if cmd[0] != "npx":
         return None  # a system mmdc brought its own browser; not ours to manage
     proc = subprocess.run(
-        ["npx", "--yes", "-p", MMDC_PKG,
-         "puppeteer", "browsers", "install", "chrome-headless-shell"],
+        NPX_MERMAID + ["puppeteer", "browsers", "install", "chrome-headless-shell"],
         capture_output=True, text=True,
     )
     if proc.returncode == 0:
