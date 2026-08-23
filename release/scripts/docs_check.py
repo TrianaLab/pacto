@@ -18,6 +18,7 @@ ledger for every claim family:
   (l) no bare `<placeholder>` in prose (the browser deletes it as an HTML tag)
   (m) every fenced target-state fixture actually loads as a fleet source
   (n) the signed/unsigned supply-chain table matches the real `cosign sign` sites
+  (o) versions with release notes but no GitHub Release are disclosed as such
 
 Exit code is non-zero if any check fails.
 """
@@ -696,6 +697,45 @@ def check_supply_chain() -> None:
            f"{len(real)} signed coordinates, table agrees" if ok else " ; ".join(problems[:5]))
 
 
+def check_unreleased_versions() -> None:
+    """A version with release notes but no GitHub Release must say so.
+
+    Changesets writes a CHANGELOG entry when the version is bumped, not when it
+    is published, so an abandoned publishing transaction leaves a version that
+    reads as shipped and cannot be installed. The Changesets files are the
+    historical record and must not be rewritten, so the assembled Changelog page
+    carries the warning instead -- and every version it names has to be the same
+    set the release post-mortem documents.
+    """
+    sys.path.insert(0, os.path.join(REPO_ROOT, "release", "scripts"))
+    try:
+        from mkdocs_integration_hook import _UNRELEASED_VERSIONS, _CHANGELOG_INTRO
+    except Exception as exc:                                    # pragma: no cover
+        record(False, "(o) unreleased versions are disclosed on the Changelog",
+               f"cannot import the changelog assembler: {exc}")
+        return
+
+    post_mortem = open(os.path.join(REPO_ROOT, "docs", "maintainers", "releases.md"),
+                       encoding="utf-8").read()
+    problems = []
+    for v in _UNRELEASED_VERSIONS:
+        if v not in _CHANGELOG_INTRO:
+            problems.append(f"{v} is listed as unreleased but the Changelog intro never names it")
+        if v not in post_mortem:
+            problems.append(f"{v} is listed as unreleased but docs/maintainers/releases.md never explains it")
+
+    # The converse: a version the post-mortem calls abandoned must be disclosed.
+    for v in re.findall(r"Abandoned transaction[^\n]*?\(([0-9./ ]+)\)", post_mortem):
+        for ver in re.findall(r"\d+\.\d+\.\d+", v):
+            if ver not in _UNRELEASED_VERSIONS:
+                problems.append(f"releases.md documents {ver} as abandoned but the Changelog does not warn about it")
+
+    ok = not problems
+    record(ok, "(o) unreleased versions are disclosed on the Changelog",
+           f"{len(_UNRELEASED_VERSIONS)} tagged-but-unreleased versions disclosed"
+           if ok else " ; ".join(problems[:5]))
+
+
 # ---------------------------------------------------------------------------
 # Drift helpers
 # ---------------------------------------------------------------------------
@@ -765,6 +805,7 @@ def main() -> int:
     check_events()                               # (k)
     check_placeholders()                         # (l)
     check_supply_chain()                         # (n)
+    check_unreleased_versions()                  # (o)
 
     # (i) twice = no diff
     proc = run(["make", "docs-generate"])

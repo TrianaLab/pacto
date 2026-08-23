@@ -11,7 +11,7 @@ pactoVersion: "2.0"
 service:
   name: payments-api
   version: 2.1.0
-  owner: { team: payments, dri: alice }
+  owner: { team: payments, dri: alice }   # dri: directly responsible individual
 
 interfaces:
   - name: rest-api
@@ -61,45 +61,6 @@ Underneath those products is one model — **author → publish → observe → 
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
 - **Not an IDP, portal or authorization system** — it is the machine-readable operational layer *over* an Internal Developer Platform (IDP), not the portal humans click or the system that decides who may act
-
----
-
-## What you keep if you stop using Pacto
-
-A contract system is only worth adopting if you can leave it, so the exit is
-worth stating before the pitch. Pacto is designed to have no lock-in, and that
-is a checkable claim rather than a promise:
-
-- **The contract source is yours already.** `pacto.yaml` and the files beside it
-  are plain YAML and JSON living in your repository, and the interfaces inside
-  are the OpenAPI, AsyncAPI, gRPC and JSON Schema documents you maintained
-  before Pacto existed. Delete the tooling and those files are unchanged.
-- **The registry is yours already.** Pacto is [not a registry](#what-pacto-is-not);
-  a published bundle is an ordinary OCI artifact in your own GHCR, ECR, ACR or
-  Artifactory. Nothing is stored on infrastructure operated by the project.
-- **A published bundle opens without Pacto** — it is a gzipped tar layer, so
-  standard OCI tooling is enough to get the files back out (below).
-- **Removing the runtime side changes nothing that is running.** The operator
-  observes and never modifies your workloads, so uninstalling it stops the
-  checking and leaves the workloads exactly as they were. Both removal paths and
-  the objects that outlive them are written down: [uninstall the CLI](installation.md#uninstall)
-  and [uninstall the operator](integrations/kubernetes/installation.md#uninstall).
-
-Unpacking a published bundle with no Pacto binary anywhere in reach:
-
-```bash
-REF=ghcr.io/your-org/your-service:1.0.0
-DIGEST=$(oras manifest fetch "$REF" | jq -r '.layers[0].digest')
-oras blob fetch --output bundle.tar.gz "${REF%%:*}@$DIGEST"
-tar -xzf bundle.tar.gz    # pacto.yaml, interfaces/, configuration/, sbom/
-```
-
-[`pacto pull`](cli-reference.md#pacto-pull) writes the same files and is the
-easier route while you still have the CLI.
-
-What you lose by leaving is the checking — the validation, the change
-classification, the operational graph and the compliance verdicts. What you
-lose is never the data.
 
 ---
 
@@ -189,7 +150,7 @@ Pacto earns its keep when operational knowledge is scattered, implicit or outdat
 5. The Kubernetes operator verifies runtime stays faithful to the contract
 ```
 
-The real value of Pacto appears across the full loop: **author → validate → publish → explore → verify at runtime**.
+Those five steps are the tools you run. The model underneath them — [author → publish → observe → evaluate → consume](#what-is-pacto) — is the same loop described in terms of what produces and consumes evidence, rather than which command you type.
 
 ---
 
@@ -282,16 +243,75 @@ These primitives compose into reusable platform patterns — root + component co
 
 ---
 
+## What you keep if you stop using Pacto
+
+A contract system is only worth adopting if you can leave it, so the exit is
+worth stating before you commit to anything. What you would be giving up is
+`pacto.yaml` itself — the wrapper is Pacto's own format and nothing else reads
+it. Everything it wraps stays yours, and that is checkable rather than a
+promise:
+
+- **The contract source is yours already.** `pacto.yaml` and the files beside it
+  are plain YAML and JSON living in your repository, and the interfaces inside
+  are the OpenAPI, AsyncAPI, gRPC and JSON Schema documents you maintained
+  before Pacto existed. Delete the tooling and those files are unchanged.
+- **The registry is yours already.** Pacto is [not a registry](#what-pacto-is-not);
+  a published bundle is an ordinary OCI artifact in your own GHCR, ECR, ACR or
+  Artifactory. Nothing is stored on infrastructure operated by the project.
+- **A published bundle opens without Pacto** — it is a gzipped tar layer, so
+  standard OCI tooling is enough to get the files back out (below).
+- **Removing the runtime side changes nothing that is running.** The operator
+  observes and never modifies your workloads, so uninstalling it stops the
+  checking and leaves the workloads exactly as they were. Both removal paths and
+  the objects that outlive them are written down: [uninstall the CLI](installation.md#uninstall)
+  and [uninstall the operator](integrations/kubernetes/installation.md#uninstall).
+
+Unpacking a published bundle with no Pacto binary anywhere in reach:
+
+```bash
+REF=ghcr.io/your-org/your-service:1.0.0
+DIGEST=$(oras manifest fetch "$REF" | jq -r '.layers[0].digest')
+oras blob fetch --output bundle.tar.gz "${REF%%:*}@$DIGEST"
+tar -xzf bundle.tar.gz    # pacto.yaml, interfaces/, configuration/, sbom/
+```
+
+[`pacto pull`](cli-reference.md#pacto-pull) writes the same files and is the
+easier route while you still have the CLI.
+
+What you lose by leaving is the checking — the validation, the change
+classification, the operational graph and the compliance verdicts. What you
+lose is never the data.
+
+---
+
 ## Where to go next
 
-Ready to try it? The [live dashboard demo](examples/dashboard-demo.md) runs a
-real fleet in your browser with nothing to install. When you want your own
-contract, the [Quickstart](quickstart.md) takes about five minutes from an empty
-directory to a published bundle. For the full positioning and rationale, see the
-[Manifesto](manifesto.md). Pacto is MIT licensed and developed in the open at
-[github.com/TrianaLab/pacto](https://github.com/TrianaLab/pacto); security
-reports go through a
-[private advisory](https://github.com/TrianaLab/pacto/security/advisories/new),
-never a public issue.
+Ready to try it? The [live dashboard demo](examples/dashboard-demo.md) puts the
+whole dashboard in your browser, against a fixture fleet, with nothing to
+install — and the [Docker Compose demo](examples/compose-demo.md) runs a real
+one on your own machine. When you want your own contract, the
+[Quickstart](quickstart.md) takes about five minutes from an empty directory to
+a published bundle. For the full positioning and rationale, see the
+[Manifesto](manifesto.md).
+
+## Getting help
+
+Pacto is MIT licensed and developed in the open at
+[github.com/TrianaLab/pacto](https://github.com/TrianaLab/pacto). There is no
+commercial support offering and no paid support channel; the routes that exist
+are these:
+
+- **Something is broken, or a document is wrong** — open a
+  [GitHub issue](https://github.com/TrianaLab/pacto/issues/new/choose). Every
+  documentation page also has an *edit* pencil that opens a pull request against
+  its source.
+- **A security vulnerability** — use a
+  [private advisory](https://github.com/TrianaLab/pacto/security/advisories/new),
+  never a public issue.
+- **Something is behaving oddly rather than failing** — the
+  [Kubernetes troubleshooting guide](integrations/kubernetes/troubleshooting.md)
+  and the [MCP troubleshooting section](mcp-integration.md#troubleshooting) cover
+  the diagnosable cases, including the ones where Pacto reports `Unknown`
+  because it genuinely cannot observe something.
 
 Pacto is an **operational contract system** that tells platforms, pipelines and agents what a service *is* — and whether observed reality still matches what was declared.

@@ -69,11 +69,36 @@ def _pages(docs_dir: str):
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _HEADING = re.compile(r"^#{1,6}\s")
 
+# Versions whose Changesets entry exists -- the version bump succeeded -- but
+# whose publishing transaction was abandoned, so no GitHub Release was ever cut.
+# The Changesets files below are the historical record and must not be rewritten
+# to hide them, so the assembled page says it instead. Keep in step with the
+# post-mortem on docs/maintainers/releases.md, which docs-check (o) enforces.
+_UNRELEASED_VERSIONS = ("3.2.0", "5.2.0")
+_SUPERSEDED_BY = ("3.2.1", "5.2.1")
+
+_UNRELEASED_NOTE = (
+    '!!! warning "{ghosts} have release notes below, but were never released"\n\n'
+    "    Their version bump succeeded and their tags resolve through the Go "
+    "module proxy, but the transaction that would have published them was "
+    "abandoned part-way through. Neither has a GitHub Release, and both "
+    "`pacto update` and the installer script's `--version` resolve releases "
+    "through the GitHub API — so neither version is installable by either "
+    "route. Use **{fixed}** instead: they supersede {ghosts} and contain "
+    "everything listed under them. The "
+    "[release ledger](maintainers/releases.md"
+    "#abandoned-transaction-522e9507410f16fc-320-520) has the post-mortem."
+).format(
+    ghosts=" and ".join(_UNRELEASED_VERSIONS),
+    fixed=" and ".join(_SUPERSEDED_BY),
+)
+
 _CHANGELOG_INTRO = (
     "Version history for every Pacto release unit, generated from "
     "[Changesets](https://github.com/changesets/changesets). The core group "
     "(engine, CLI and dashboard) and the Kubernetes integration are versioned "
     "independently, so each release unit has its own section below."
+    "\n\n" + _UNRELEASED_NOTE
 )
 
 

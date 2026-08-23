@@ -130,9 +130,18 @@ The image includes a Docker `HEALTHCHECK` that polls `/health` every 10 seconds.
 
 ## Security
 
-The dashboard is a read-mostly observability UI, but a few endpoints mutate
-local state (`POST /api/resolve`, `POST /api/versions`, `POST /api/refresh`
-pull and cache OCI artifacts). The server applies these protections:
+!!! warning "The dashboard has no authentication — do not expose it"
+
+    It ships no login, no API key and no authorization. Anyone who can reach
+    the port reads every contract, dependency and compliance result, and can
+    make the container pull from your registries. Publish it to `127.0.0.1`
+    (`-p 127.0.0.1:3000:3000`) or put an authenticating proxy in front of it.
+    The protections below are CSRF and resource-exhaustion defences, not access
+    control, and none of them stop a client that can simply reach the port.
+
+A few endpoints mutate local state (`POST /api/resolve`, `POST /api/versions`,
+`POST /api/refresh` pull and cache OCI artifacts). The server applies these
+protections:
 
 - **Same-origin only by default.** No `Access-Control-Allow-Origin` header is
   emitted, and cross-origin *mutating* requests are rejected with `403`. This
@@ -143,10 +152,9 @@ pull and cache OCI artifacts). The server applies these protections:
 - **HTTP timeouts** (`ReadHeaderTimeout`, `ReadTimeout`, `IdleTimeout`) guard
   against slow-client (Slowloris) exhaustion, and shutdown is graceful.
 
-The server binds to `127.0.0.1` by default. Setting `--host 0.0.0.0` (as the
-container image does) exposes the dashboard — including the unauthenticated
-mutating endpoints — to the network, so run it only on a trusted network or
-behind an authenticating proxy.
+Note which default applies to you: the server binds to `127.0.0.1`, but the
+container image sets `--host 0.0.0.0`, so in Docker the only thing keeping the
+dashboard off your network is how you publish the port.
 
 ## Kubernetes Deployment
 
