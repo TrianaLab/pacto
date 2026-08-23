@@ -9,7 +9,7 @@ search:
 
 **Try Pacto without installing anything.** The dashboard runs entirely in your
 browser: the engine and a curated set of demo contracts are compiled to
-WebAssembly (Wasm), with no backend and no live registry.
+WebAssembly, with no backend and no live registry.
 
 Two things about the fixture, before you open it — both are deliberate, and both
 look like bugs if nobody tells you:
@@ -23,9 +23,10 @@ look like bugs if nobody tells you:
   so the graph keeps them apart instead of merging them into one row.
 
 The whole engine ships to your browser, so the first visit downloads about
-11 MB of compiled WebAssembly (57 MB unpacked). Give it a moment on a slow
-connection; the browser caches it afterwards. Nothing you do in it leaves the
-tab — there is no backend to leave for.
+11 MB of compiled Wasm (57 MB unpacked). Give it a moment on a slow connection —
+the loading strip counts the seconds and names the size, and the browser caches
+it afterwards. Nothing you do in it leaves the tab: there is no backend to leave
+for.
 
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
