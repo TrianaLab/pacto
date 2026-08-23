@@ -1,12 +1,14 @@
 ---
+# Why the <h1 hidden> below: see the note beside the visible heading in
+# overrides/home.html. Keep this note here, in the YAML front matter — an HTML
+# comment in the body is served to every visitor.
 template: home.html
 ---
 
-<!-- Why hidden: see the note beside the visible heading in overrides/home.html. -->
 <h1 hidden>One contract for every cloud-native service</h1>
 
 ```yaml title="pacto.yaml"
-pactoVersion: "2.0"
+pactoVersion: "2.0"                       # the contract format, not the CLI version
 
 service:
   name: payments-api
@@ -46,11 +48,11 @@ The contract states stable operational *intent*. It is deliberately not a deploy
 
 - **CLI** (command-line interface) — author, validate, diff, explain and publish contracts
 - **Dashboard** — see operational state, the service inventory, the operational graph and change analysis visually
-- **Kubernetes Operator** — one runtime evidence source that verifies live workloads still match the contract
+- **Kubernetes Operator** (optional) — one runtime evidence source that verifies live workloads still match the contract
 
 No sidecars. No new distribution plane. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification.
 
-Underneath those products is one model — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits evidence, a pure engine evaluates the contract against that evidence, and consumers surface or act on the result. The Kubernetes operator hosts the first shipped collector; anything that produces valid evidence can be one. An environment Pacto cannot watch — an edge site, an air-gapped estate, a CI runner — signs and reports its own evidence inbound instead, over the [external evidence protocol](evidence-protocol.md). See [Collectors and the evidence boundary](collectors.md).
+Underneath those products is one model — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits **evidence** — observed facts about a running system, gathered outside the contract and never written into it — a pure engine evaluates the contract against that evidence, and consumers surface or act on the result. The Kubernetes operator hosts the first shipped collector; anything that produces valid evidence can be one. An environment Pacto cannot watch — an edge site, an air-gapped estate, a CI runner — signs and reports its own evidence inbound instead, over the [external evidence protocol](evidence-protocol.md). See [Collectors and the evidence boundary](collectors.md).
 
 ---
 
@@ -94,12 +96,29 @@ See the [contract reference](contract-reference/index.md) for every field, inclu
 
 ---
 
+## Who is Pacto for?
+
+### Developers
+
+Define your service's operational interface alongside your code. Declare interfaces, configuration schema, health checks and dependencies. Validate locally before pushing. [Learn more](developers.md)
+
+### Platform engineers
+
+Consume contracts to generate deployment manifests, enforce policies, detect breaking changes and build dependency graphs — deterministically and automatically. [Learn more](platform-engineers.md)
+
+### Building a platform on Pacto?
+
+These primitives compose into reusable platform patterns — root + component contracts for monorepos, infrastructure contracts with provisioner metadata, configurations as composable claims, platform-published policy + schema bundles, progressive policy versioning and per-environment override files. See [Composition Patterns](patterns/index.md).
+
+---
+
 ## From one contract to an operational graph
 
 A single contract describes one service. Composed across a whole platform, those
-contracts, their revisions and their *targets* — a target being one concrete
-place a revision runs, such as a workload in one cluster — become a **versioned,
-verifiable operational graph that humans, automation and agents can reason over**.
+contracts, their *revisions* and their *targets* — a revision being one immutable
+published version of a contract, a target one concrete place a revision runs, such
+as a workload in one cluster — become a **versioned, verifiable operational graph
+that humans, automation and agents can reason over**.
 Pacto is to service operations what OpenAPI is to HTTP APIs — and where an OpenAPI
 document describes one interface, the operational graph describes the relationships
 *between* many services and how far a change reaches.
@@ -118,7 +137,7 @@ collapse.
 ## What consumes a contract?
 
 A contract is written once and read by every *system* that needs to understand the
-service. (For the people, see [Who is Pacto for?](#who-is-pacto-for) further down.)
+service. (For the people, see [Who is Pacto for?](#who-is-pacto-for) above.)
 
 - **Platform engineering** — controllers and generators consume the contract to provision infrastructure, wire networking and gate promotion, instead of reverse-engineering a service from its Helm chart.
 - **CI pipelines** — `pacto diff` classifies breaking changes and `pacto validate` enforces policy before a merge or a publish.
@@ -237,22 +256,6 @@ itself is only `NON_BREAKING`, and that adding persistence is
 say which change lands where. The tree underneath is the resolved dependency
 graph, added (`+`), removed (`-`) and upgraded (`→`); [`pacto graph`](cli-reference.md#pacto-graph)
 renders it in full.
-
----
-
-## Who is Pacto for?
-
-### Developers
-
-Define your service's operational interface alongside your code. Declare interfaces, configuration schema, health checks and dependencies. Validate locally before pushing. [Learn more](developers.md)
-
-### Platform engineers
-
-Consume contracts to generate deployment manifests, enforce policies, detect breaking changes and build dependency graphs — deterministically and automatically. [Learn more](platform-engineers.md)
-
-### Building a platform on Pacto?
-
-These primitives compose into reusable platform patterns — root + component contracts for monorepos, infrastructure contracts with provisioner metadata, configurations as composable claims, platform-published policy + schema bundles, progressive policy versioning and per-environment override files. See [Composition Patterns](patterns/index.md).
 
 ---
 
