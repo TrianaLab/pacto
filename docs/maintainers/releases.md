@@ -1,3 +1,10 @@
+---
+# Contributor-internal. It is thorough, so it keeps outranking the reader
+# pages on general queries; halve it rather than thin the page.
+search:
+  boost: 0.5
+---
+
 # Release architecture (maintainers)
 
 How the Pacto monorepo releases its artifacts. This describes the system as it is —
@@ -71,8 +78,9 @@ state from a durable store:
 
 - `<repo>:<txn>` — transaction metadata (`transactionId`, `sourceSha`, `manifestSha`).
 - `<repo>:<txn>-<unit>` — a unit's result (`coordinate`, `version`, `digest`, `status`).
-- `<repo>:<txn>-<unit>.plan` — a unit's precomputed expected digest, written before
-  its push.
+- `<repo>:<txn>-<unit>.plan` — a unit's precomputed expected digest. `publish-oci-unit.sh`
+  writes it only when the caller supplies `PACTO_EXPECT_DIGEST`. Neither `release.yml`
+  nor `dry-run.sh` does, so no `.plan` entry exists in the production ledger today.
 
 Every tag is write-once: a second write must be byte-identical (idempotent resume)
 else it fails closed. `ledger-init` validates existing metadata (`ledger.sh verify`)
@@ -107,9 +115,11 @@ path (both production `release.yml` and the staging dry-run call them). For each
   the ledger records the unit complete, rather than keeping a second copy.
 - **conflict** — anything else: fail closed, never overwrite an immutable tag.
 
-**Crash recovery** is two-phase: record the plan (expected digest) before touching
-the registry, publish, verify the remote matches, record `complete`. A crash in the
-push→record window is recovered by `adopt`.
+**Crash recovery** rests on `adopt`: publish, verify the remote matches the unit's
+expected identity, record `complete`. A crash in the push→record window is recovered
+by proving the remote artifact is this transaction's. Pre-recording the expected
+digest as a `.plan` entry would make that a two-phase commit, but it needs a caller
+that computes the digest up front and none does yet.
 
 ## Staging / production parity
 

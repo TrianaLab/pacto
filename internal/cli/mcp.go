@@ -26,7 +26,7 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 		Long: "Starts a Model Context Protocol (MCP) server exposing Pacto tools for AI agents. " +
 			"Supports stdio (default) and HTTP transports.\n\n" +
 			"When a bundle reference (local directory or oci:// ref) is given, the server also " +
-			"exposes one executable tool per OpenAPI operation in the bundle's http interfaces, " +
+			"exposes one executable tool per OpenAPI operation in the bundle's openapi interfaces, " +
 			"plus a pacto_skill tool for any skills/*.md domain knowledge. Read-only (GET/HEAD) " +
 			"operations are exposed by default; pass --allow-writes to expose mutating operations.\n\n" +
 			"With --root, the server instead exposes a read-only contract catalog: the given roots " +
@@ -52,6 +52,9 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			transport, _ := cmd.Flags().GetString("transport")
+			if err := checkMCPTransport(transport); err != nil {
+				return err
+			}
 			port, _ := cmd.Flags().GetInt("port")
 			server, err := buildMCPServer(cmd, svc, version, args)
 			if err != nil {
@@ -132,6 +135,17 @@ func checkMCPMode(hasBundle, hasRoots, fleetMode bool) error {
 			strings.Join(selected, ", "))
 	}
 	return nil
+}
+
+// checkMCPTransport rejects an unknown -t value. Falling back to stdio would
+// hand the client a transport it never asked for and report success doing it,
+// so a typo has to fail before anything is resolved or served.
+func checkMCPTransport(transport string) error {
+	switch transport {
+	case "stdio", "http":
+		return nil
+	}
+	return fmt.Errorf("unsupported transport %q: only \"stdio\" and \"http\" are supported", transport)
 }
 
 // errRootNeedsRef is returned when catalog mode was selected without a usable
@@ -220,7 +234,8 @@ func parseAuthFlags(pairs []string) (capability.Credentials, error) {
 }
 
 func runMCPServer(ctx context.Context, server *mcpsdk.Server, transport string, port int, stderr io.Writer) error {
-	if transport == "http" {
+	switch transport {
+	case "http":
 		addr := fmt.Sprintf("127.0.0.1:%d", port)
 		listener, err := net.Listen("tcp", addr)
 		if err != nil {
@@ -228,9 +243,11 @@ func runMCPServer(ctx context.Context, server *mcpsdk.Server, transport string, 
 		}
 		_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp\n", addr)
 		return serveHTTP(ctx, server, listener)
+	case "stdio":
+		_, _ = fmt.Fprintln(stderr, "MCP server running on stdio")
+		return server.Run(ctx, &mcpsdk.StdioTransport{})
 	}
-	_, _ = fmt.Fprintln(stderr, "MCP server running on stdio")
-	return server.Run(ctx, &mcpsdk.StdioTransport{})
+	return checkMCPTransport(transport)
 }
 
 func serveHTTP(ctx context.Context, server *mcpsdk.Server, listener net.Listener) error {

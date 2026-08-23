@@ -12,7 +12,7 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate [dir | oci://ref]",
 		Short: "Validate a pacto contract",
-		Long:  "Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, checking structural, cross-field, and semantic rules.",
+		Long:  "Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field, and policy.",
 		Example: `  # Validate a local contract
   pacto validate my-service
 

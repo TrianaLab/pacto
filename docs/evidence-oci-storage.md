@@ -49,9 +49,32 @@ oras discover --distribution-spec v1.1-referrers-api <repo>@sha256:<digest>
 
 Without `--distribution-spec` the ORAS CLI falls back to the tag scheme on its
 own, so an unpinned `oras discover` that "works" proves nothing about the
-endpoint Pacto uses. Known-conformant registries include zot, Harbor, ECR, ACR,
-Artifactory and GHCR. CNCF distribution (`registry:2`, `registry:3`) implements
-no referrers endpoint at all and cannot host evidence.
+endpoint Pacto uses. A conformant registry answers
+`GET /v2/<name>/referrers/<digest>` with **HTTP 200** and an OCI image index,
+empty if nothing refers to that digest. The spec is explicit that it must not
+answer 404, because a client reads 404 as "not implemented" and falls back to the
+tag scheme.
+
+| Registry | Referrers API | How this was checked |
+|---|---|---|
+| zot | Yes | `200` + empty index |
+| Docker Hub | Yes | `200` + empty index |
+| Harbor, ECR, ACR, Artifactory | Documented by the vendor | vendor documentation, not probed here |
+| **GHCR** | **No** | `404 MANIFEST_UNKNOWN` |
+| CNCF distribution (`registry:2`, `registry:3`) | No | route absent; `oras discover` reports `unsupported` |
+
+!!! warning "GHCR cannot host Pacto evidence"
+    GitHub Container Registry returns `404 MANIFEST_UNKNOWN` from the referrers
+    endpoint, so the Evidence Server stays permanently not-ready against it.
+    This is worth calling out because GHCR is where the rest of this
+    documentation publishes *contracts*, and it works fine for that — contracts
+    are ordinary OCI artifacts and need no referrers support. Only evidence does.
+
+    Note what that implies. A record is attached to its contract revision **in
+    the same repository**, so this is not a matter of pointing evidence somewhere
+    else: a contract you want to carry evidence has to be published to a
+    conformant registry in the first place. Contracts you only validate, diff and
+    resolve can stay in GHCR.
 
 ### Permissions
 
@@ -91,7 +114,7 @@ evidence:
   registry:
     credentialsSecret: my-registry-creds   # optional; must already exist
     subjects:
-      - oci://ghcr.io/acme/checkout@sha256:<64 hex>
+      - oci://registry.example.com/acme/checkout@sha256:<64 hex>
 ```
 
 The chart never creates that Secret and never renders its contents; it is mounted
@@ -106,9 +129,9 @@ world.
 
 ```bash
 pacto evidence serve \
-  --subject oci://ghcr.io/acme/checkout@sha256:<64 hex> \
-  --subject oci://ghcr.io/acme/payments@sha256:<64 hex> \
-  --trust ./keys
+  --subject oci://registry.example.com/acme/checkout@sha256:<64 hex> \
+  --subject oci://registry.example.com/acme/payments@sha256:<64 hex> \
+  --trust ./trust
 ```
 
 Rejected, deliberately:
@@ -133,8 +156,17 @@ store as an empty one.
 | State | Meaning | `/ready` | `/targets` |
 |-------|---------|----------|------------|
 | **ready** | every subject resolved and every referrer was a valid Pacto record | `200` | `200`, authoritative |
-| **partial** | some subject failed, or some referrer was not a readable Pacto record | `200` | `200` with `health.status: partial`, the readable records still served |
+| **partial**, from a bad artifact | every subject resolved, but some referrer was not a readable Pacto record | `200` | `200` with `health.status: partial`, the readable records still served |
+| **partial**, from a bad subject | some subject failed, others were read | `503` | `200` with `health.status: partial`, the readable records still served |
 | **unavailable** | no subject could be read at all | `503` | `503` `registry_unavailable` |
+
+The two `partial` rows differ because the two probes ask different questions.
+`/targets` reports what it managed to read. `/ready` is stricter: it re-resolves
+**every** configured subject and fails on the first one that does not answer, so
+a single unreachable subject takes the host out of rotation even though the
+others are being served. That is deliberate — a host that cannot read its whole
+history cannot prove an incoming report is not a replay, so it must stop
+accepting writes.
 
 `health` carries the counts behind the state — `subjects`, `failedSubjects`,
 `invalidArtifacts` — so a consumer can distinguish "nothing was reported" from
@@ -193,26 +225,6 @@ These are **registry responsibilities**, and Pacto does not duplicate them:
   evidence stops being discoverable. Pacto reports the resulting state honestly
   (partial or unavailable) and does not reconstruct it.
 
-## Retiring a legacy bucket or PVC
-
-Earlier releases persisted evidence in a bucket, by default a `file://` bucket on
-a PVC named `pacto-evidence-data`. That store is gone: there is no migrator, no
-dual write and no fallback, and a fresh install creates no PVC or bucket resource
-at all.
-
-An existing PVC is **not** deleted automatically — Pacto will not destroy data it
-no longer manages. To retire it:
-
-1. back up its contents if you want the historical records
-   (`kubectl cp` from a pod that mounts it, or a volume snapshot);
-2. confirm nothing mounts it: with evidence enabled on this release, the Evidence
-   Server pod has no volumes other than its read-only trust and credential
-   mounts;
-3. delete it: `kubectl delete pvc pacto-evidence-data -n pacto-system`.
-
-Records in the old bucket are not visible to this release. Producers re-report
-current state, which is what an operational graph reports anyway.
-
 ## Interoperability
 
 The store is a plain OCI registry, so it is legible without Pacto. Any client
@@ -223,7 +235,7 @@ by any OCI 1.1 client:
 ```bash
 # what Pacto published, seen by a third party
 oras discover --distribution-spec v1.1-referrers-api --format json \
-  ghcr.io/acme/checkout@sha256:<64 hex>
+  registry.example.com/acme/checkout@sha256:<64 hex>
 ```
 
 Malformed input is malformed for everyone: the payload is decoded strictly, so an

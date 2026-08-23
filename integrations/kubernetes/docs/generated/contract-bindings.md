@@ -58,7 +58,6 @@ metadata:
   name: orders-api
   namespace: shop
 spec:
-  checkIntervalSeconds: 300
   contractRef:
     oci: ghcr.io/acme/orders-api-pacto:1.2.0
   target:
@@ -73,3 +72,15 @@ spec:
         key: app.yaml
         format: yaml
 ```
+
+## Choosing a reference form
+
+The three `contractRef.oci` forms are not three styles. They decide what the binding *means* over time, and the operator records which one it inferred in `status.resolutionPolicy` -- `PinnedDigest`, `PinnedTag` or `Latest`.
+
+- **Digest** (`...@sha256:<digest>`) is the only form whose meaning cannot change. Every reconcile re-reads the same bytes, so a compliance verdict is reproducible: what the operator asserted last Tuesday is what it asserts today. The cost is real -- publishing a contract revision becomes a change to the `Pacto` resource too.
+- **Tag** (`...:1.2.3`) is a name you control, not an immutable one. If someone force-pushes that tag the operator notices rather than drifting silently: it records a new `PactoRevision` and emits a `TagOverwritten` Warning Event naming the old and new digests. It does not refuse the new content. Choose a tag when you want a promotable pointer and will treat that Event as a signal.
+- **Unversioned** (`ghcr.io/org/service-pacto`) re-resolves the highest semver tag on every reconcile -- every `spec.checkIntervalSeconds`, 300 by default. It fits an environment whose job is to run whatever is newest, such as a staging namespace or a preview cluster. It fits production badly, because what is being asserted changes without anyone deciding to change it.
+
+With no other constraint: digest in production, unversioned in staging. The middle form is for teams that already run a tag-promotion discipline.
+
+This page covers the binding fields only. The rest of `spec` -- including `checkIntervalSeconds`, which sets how often the operator re-checks compliance (default `300`) -- is in the [CRD reference](crd-reference.md).

@@ -13,8 +13,7 @@ flowchart LR
     A[Write code] --> B[Infer schemas]
     B --> C[Define pacto.yaml]
     C --> D[pacto validate]
-    D --> E[pacto pack]
-    E --> F[pacto push]
+    D --> F[pacto push]
     F --> G[CI / Platform picks it up]
 ```
 
@@ -28,13 +27,15 @@ This scaffolds a bundle with a valid contract. Edit `pacto.yaml` to match your s
 
 ### 2. Infer schemas from your code (optional)
 
-A configuration interface in Pacto is a JSON Schema, and Pacto composes the schema you already have rather than making you redefine it. If your config already ships a JSON Schema — for example your Helm chart's `values.schema.json` — vendor that file into your bundle and point `configurations[].schema` at it. If it doesn't, the `schema-infer` plugin generates one from a config file. Use `-o` to write the output into your bundle:
+A configuration interface in Pacto is a JSON Schema, and Pacto composes the schema you already have rather than making you redefine it. If your config already ships a JSON Schema — for example your Helm chart's `values.schema.json` — vendor that file into your bundle and point `configurations[].schema` at it. If it doesn't, the `schema-infer` plugin generates one from a config file. Use `-o` to write the output into your bundle.
+
+The `--option file=` path is resolved relative to the **bundle directory**, not your shell's working directory, so keep the config file inside the bundle. With `config.yaml` in `my-service/`:
 
 ```bash
 pacto generate schema-infer my-service --option file=config.yaml -o my-service
 ```
 
-This generates `config.schema.json`. Reference it in your contract:
+This generates `my-service/config.schema.json`. Reference it in your contract:
 
 ```yaml
 configurations:
@@ -42,6 +43,18 @@ configurations:
     required: true
     schema: config.schema.json
 ```
+
+!!! warning "Two things the plugin's closing message gets wrong for you"
+    It says *"add `configuration.schema: config.schema.json` to your pacto.yaml"*.
+    There is no `configuration` section — the field is `configurations[].schema`,
+    as in the block above. The message comes from the plugin, not from Pacto.
+
+    It also leaves your `config.yaml` sitting in the bundle, and **a bundle
+    directory is published whole**: `pacto pack` and `pacto push` upload every file
+    under it, so `pacto pull` hands your config values, secrets included, to anyone
+    who can read the artifact. The input is not part of the contract — the schema
+    inferred from it is. Delete it once the schema exists, or list it in
+    [`.pactoignore`](pactoignore.md) if you want to keep it beside the contract.
 
 When you define your own configuration schema, you are declaring **what your service requires** to run. This is the most common model for services that need to be portable across environments. If your platform team provides a shared schema instead, you can either vendor it into your bundle or reference it via OCI:
 
@@ -57,7 +70,7 @@ See [Configuration Schema Ownership Models](patterns/configuration-schema-owners
 If your service exposes an HTTP API using FastAPI or Huma, use the `openapi-infer` plugin to extract an OpenAPI 3.1 spec from your source code:
 
 ```bash
-# Auto-detect framework (generates interfaces/openapi.yaml)
+# Auto-detect framework — FastAPI or Huma only (generates interfaces/openapi.yaml)
 pacto generate openapi-infer my-service -o my-service
 
 # Override framework detection
@@ -77,7 +90,7 @@ interfaces:
     visibility: public
 ```
 
-Both plugins are installed automatically with Pacto. See the [Official plugins](plugins.md#official-plugins) section for details.
+Both plugins live in a separate repository and are **not** part of the `pacto` binary. The installer script fetches them alongside the CLI; `go install` and `make build` do not. See [Official plugins](plugins.md#official-plugins) for how to get them.
 
 ### 3. Declare your interfaces (optional)
 
@@ -190,20 +203,27 @@ See [Validation layers](contract-reference/validation.md#validation-layers) for 
 
 To also enforce the readiness gate — the `readiness:` block `pacto init` scaffolds into your contract — run `pacto validate --readiness`. It fails if the derived readiness score is below `minScore`. Plain `pacto validate` does not enforce it because the gate is time-dependent (the assessment's expiry is compared against the run time). See [Contract Reference — readiness](contract-reference/sections.md#readiness).
 
-### 8. Pack and push
+### 8. Push
 
 ```bash
-pacto pack my-service
 pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
-Use a [`.pactoignore`](pactoignore.md) file to keep build artifacts and other cruft out of the packed bundle.
+`push` reads the bundle directory and uploads it. There is no packing step in
+front of it: hand it a `.tar.gz` and it answers `my-service-0.1.0.tar.gz is not
+a directory`. Use a [`.pactoignore`](pactoignore.md) file to keep build
+artifacts and other cruft out of what gets uploaded.
 
 If the artifact already exists in the registry, `pacto push` prints a warning and exits without pushing. Use `--force` to overwrite:
 
 ```bash
 pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service --force
 ```
+
+`pacto pack my-service` is a separate path, not a step on this one: it writes
+`my-service-0.1.0.tar.gz` for handing to someone with no registry access. No
+Pacto command reads that archive back — the recipient extracts it and points
+`validate`, `explain` or `diff` at the resulting directory.
 
 ---
 
@@ -256,15 +276,18 @@ Classification: BREAKING
 Changes (2):
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 1.1.0]
   [BREAKING] interfaces (removed): interfaces removed [- metrics]
+breaking changes detected
+$ echo $?
+1
 ```
 
-Wire `pacto diff` into CI to block merges that introduce breaking changes — see the official [Pacto CLI action](github-actions.md).
+`pacto diff` exits non-zero exactly when the classification is `BREAKING` — that exit code is what makes it usable as a CI gate. Wire it in to block merges that introduce breaking changes — see the official [Pacto CLI action](github-actions.md).
 
 ---
 
 ## AI-assisted workflow
 
-If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor and GitHub Copilot), connect it to Pacto so it can scaffold, edit and validate contracts inside your conversation. The server always exposes four authoring tools:
+If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) (Claude Code, Cursor and GitHub Copilot), connect it to Pacto so it can scaffold, edit and validate contracts inside your conversation. Plain `pacto mcp` exposes four authoring tools, and they stay registered when you also point the server at a bundle or pass `--fleet`:
 
 - **`pacto_create`** — scaffold a new contract from a description
 - **`pacto_edit`** — modify an existing contract
@@ -274,6 +297,8 @@ If you use an AI assistant that supports [MCP](https://modelcontextprotocol.io) 
 Point the server at a bundle (`pacto mcp <bundle-ref>`) and it also exposes that bundle's OpenAPI operations as executable tools plus a `pacto_skill` tool for any bundled `skills/*.md` — see [Agent capabilities](mcp-integration.md#agent-capabilities).
 
 Inspecting a registry contract, resolving dependency graphs and generating Markdown docs are CLI-only (`pacto explain oci://...`, `pacto graph`, `pacto doc`) — they are not MCP tools.
+
+`pacto_create` and `pacto_edit` write contract files, and Pacto advertises no MCP annotations that would let your client tell them apart from the read-only tools — so no confirmation prompt precedes a write. See [The boundary is documented, not machine-advertised](mcp-integration.md#three-tool-families-and-their-boundaries).
 
 See the [MCP Integration](mcp-integration.md) guide for the `.mcp.json` setup across all clients.
 
@@ -337,8 +362,8 @@ Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no co
 
 - **Version your contract alongside your code.** The `pacto.yaml` lives in your repository.
 - **Pin dependency digests in production.** Tags are mutable; digests are not. Run [`pacto lock`](lockfile.md) to pin the full transitive closure to digests in a committed `pacto.lock`.
-- **Keep interface contracts up to date.** OpenAPI specs and protobuf definitions in the bundle should match what your service actually serves.
-- **Use `pacto explain` to review.** It produces a human-readable summary of your contract.
+- **Keep interface specs up to date.** The OpenAPI, AsyncAPI and gRPC descriptors in the bundle should match what your service actually serves.
+- **Use `pacto explain` to review.** A human-readable summary of identity, workload, state, capabilities, interfaces, dependencies and readiness — but not `configurations` or `policies`, which `pacto doc` renders.
 - **Use `pacto doc` for rich documentation.** It generates Markdown with architecture diagrams and interface tables. Use `--serve` to view it in the browser.
 - **Leverage caching.** OCI bundles are cached locally in `~/.cache/pacto/oci/` and tag listings are cached in memory per command, so repeated `graph`, `doc`, and `diff` commands resolve instantly. Use `--no-cache` to force a fresh pull.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.

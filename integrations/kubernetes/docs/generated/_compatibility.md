@@ -19,4 +19,4 @@ This documentation set corresponds to Pacto core `3.2.1`. The integration's own 
 
 ### Version selector
 
-The site version selector (top of the page) tracks Pacto core releases. Because the Kubernetes integration ships on its own cadence, a Kubernetes-only release does NOT add a new core version entry to the selector: it republishes the current core version in place with regenerated integration docs, and this compatibility table shows the integration version those docs describe.
+The site version selector (top of the page) tracks Pacto core releases. Because the Kubernetes integration ships on its own cadence, a Kubernetes-only release does NOT add a new core version entry to the selector: it republishes the current core version in place with regenerated integration docs, and this compatibility table shows the integration version those docs describe. Pick a core version from the selector to read the integration docs that shipped with it.

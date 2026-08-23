@@ -636,15 +636,67 @@ func TestK8s_serviceDetailsFromK8sStatus_ResolutionPolicy(t *testing.T) {
 			r := &pactoResource{}
 			r.Status.ContractStatus = "Compliant"
 			r.Status.Contract = &k8sContractInfo{
-				ServiceName:      "svc",
-				Version:          "1.0.0",
-				ResolutionPolicy: tt.resolutionPolicy,
+				ServiceName: "svc",
+				Version:     "1.0.0",
 			}
+			r.Status.ResolutionPolicy = tt.resolutionPolicy
 			d := serviceDetailsFromK8sStatus(r)
 			if d.VersionPolicy != tt.wantPolicy {
 				t.Errorf("resolutionPolicy=%q → versionPolicy=%q, want %q", tt.resolutionPolicy, d.VersionPolicy, tt.wantPolicy)
 			}
 		})
+	}
+}
+
+// operatorStatusJSON is the status JSON the operator actually emits:
+// resolutionPolicy and currentRevision live at the top level of status (not
+// under status.contract), and readiness claims are named "claims". Captured
+// from marshalling a populated v1alpha1.PactoStatus.
+const operatorStatusJSON = `{
+  "contractStatus": "Compliant",
+  "resolutionPolicy": "Latest",
+  "contractVersion": "1.4.0",
+  "contract": {
+    "serviceName": "checkout",
+    "version": "1.4.0",
+    "resolvedRef": "ghcr.io/acme/checkout:1.4.0"
+  },
+  "readiness": {
+    "score": 80,
+    "claims": [{"id": "runbook", "type": "doc", "status": "done", "weight": 5, "earnedWeight": 5}]
+  },
+  "currentRevision": "checkout-1-4-0"
+}`
+
+// TestK8s_serviceDetailsFromK8sStatus_OperatorJSONPaths pins the parse to the
+// paths the operator writes. The struct-literal tests above cannot catch a
+// wrong json tag, so this one goes through the wire format.
+func TestK8s_serviceDetailsFromK8sStatus_OperatorJSONPaths(t *testing.T) {
+	r := &pactoResource{}
+	if err := json.Unmarshal([]byte(operatorStatusJSON), &r.Status); err != nil {
+		t.Fatalf("unmarshal operator status: %v", err)
+	}
+
+	d := serviceDetailsFromK8sStatus(r)
+	if d.VersionPolicy != VersionPolicyTracking {
+		t.Errorf("versionPolicy = %q, want %q", d.VersionPolicy, VersionPolicyTracking)
+	}
+	if d.CurrentRevision != "checkout-1-4-0" {
+		t.Errorf("currentRevision = %q, want %q", d.CurrentRevision, "checkout-1-4-0")
+	}
+	if d.Readiness == nil || len(d.Readiness.Checks) != 1 || d.Readiness.Checks[0].ID != "runbook" {
+		t.Errorf("readiness claims not parsed: %+v", d.Readiness)
+	}
+
+	// The value must survive the runtime overlay onto a contract-sourced service,
+	// which is how the resolver hands it to the API.
+	base := &ServiceDetails{Service: Service{Name: "checkout"}}
+	enrichWithRuntime(base, d)
+	if base.VersionPolicy != VersionPolicyTracking {
+		t.Errorf("after enrichWithRuntime: versionPolicy = %q, want %q", base.VersionPolicy, VersionPolicyTracking)
+	}
+	if base.CurrentRevision != "checkout-1-4-0" {
+		t.Errorf("after enrichWithRuntime: currentRevision = %q, want %q", base.CurrentRevision, "checkout-1-4-0")
 	}
 }
 

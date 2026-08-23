@@ -363,8 +363,22 @@ dump_diag() {
 #
 # The failure goes to STDERR on purpose — stdout is the pid, and every call site
 # captures it in `$(...)`, so a message written to stdout would be swallowed too.
+#
+# The port is claimed BEFORE the first spawn, because "something answers on this
+# port" and "my port-forward works" are not the same statement and this function
+# used to conflate them. A process that already holds lport stops kubectl from
+# binding; kubectl exits at once, the curl below is answered by the squatter, and
+# pf reports success. Every later assertion then interrogates a stranger — a
+# positive one fails against a product that is fine, and a negative one
+# (`! grep -q ...`) passes against a product that is not. Observed for real: a
+# `python3 -m http.server` on 8080 turned a healthy Evidence Server run red.
+# Refuse the port instead of testing someone else's server.
 pf() {
   local lport="$1" target="$2" rport="$3" pid=""
+  if curl -sS -o /dev/null --max-time 2 "http://127.0.0.1:${lport}/" 2>/dev/null; then
+    echo "  FAIL: 127.0.0.1:${lport} already answers before the port-forward to ${target} started — something else holds that port" >&2
+    return 1
+  fi
   for _ in $(seq 1 60); do
     if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
       kubectl -n "$NS" port-forward "$target" "${lport}:${rport}" >/dev/null 2>&1 &

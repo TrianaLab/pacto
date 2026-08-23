@@ -32,7 +32,7 @@ These patterns are always applied, even when no `.pactoignore` file exists:
 - `.pactoignore`
 - `.DS_Store`
 
-**Note:** `pacto.lock` is **not** in the default ignore list. When a lockfile is present it ships inside the bundle by default (see [lockfile.md](lockfile.md)). To keep it out of a pushed bundle, add an explicit `pacto.lock` line to `.pactoignore`.
+**Note:** `pacto.lock` is **not** in the default ignore list. When a lockfile is present it ships inside the bundle by default (see [the lockfile](lockfile.md)). To keep it out of a pushed bundle, add an explicit `pacto.lock` line to `.pactoignore`.
 
 ---
 
@@ -108,4 +108,4 @@ Every command that loads a local bundle reads through the ignore filter, so igno
 
 ## Validation and troubleshooting
 
-`pacto pack -v` enables debug logging of the high-level pack steps (load/validate, archive, write); there is no per-file include/exclude log. If a referenced file is excluded, `pacto pack` and `pacto push` fail with `contract validation failed with N error(s)` — the specific `FILE_NOT_FOUND` message is not surfaced, even with `-v`. To see the error naming the missing file, run `pacto validate`, which prints `FILE_NOT_FOUND` (e.g. `interface contract file "interfaces/openapi.yaml" not found in bundle`). Neither reports which ignore pattern excluded it.
+`pacto pack -v` enables debug logging of the high-level pack steps (load/validate, archive, write); there is no per-file include/exclude log. If a referenced file is excluded, `pacto pack` and `pacto push` fail with `contract validation failed with N error(s)` — the specific `FILE_NOT_FOUND` message is not surfaced, even with `-v`. To see the error naming the missing file, run `pacto validate`, which prints `FILE_NOT_FOUND` (e.g. `interface spec file "interfaces/openapi.yaml" not found in bundle`). Neither reports which ignore pattern excluded it.

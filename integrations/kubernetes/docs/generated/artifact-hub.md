@@ -17,6 +17,19 @@ Published artifact coordinates for the Kubernetes integration. All coordinates a
 | Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v5` | `5.2.1` |
 | Documentation | docs | `mkdocs:integrations/kubernetes` | `5.2.1` |
 
+## Verify a published artifact
+
+The controller image and the Helm chart are signed keylessly by the release workflow through GitHub's OIDC issuer. Verify either before installing it:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/TrianaLab/pacto/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/trianalab/pacto/operator:5.2.1
+```
+
+Anything other than a successful verification -- including `no signatures found` -- means do not deploy it. Not every Pacto artifact is signed; see [what is signed and what is not](../../installation.md#supply-chain-what-is-signed-and-what-is-not).
+
 ## Artifact Hub repository
 
 - **Repository ID**: `4d7aef48-84d5-447f-bd73-8590a6801d0e`

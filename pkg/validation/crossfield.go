@@ -30,7 +30,7 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateConfigurationNamesUnique(c, &result)
 	validatePolicyNamesUnique(c, &result)
 	validateDependencyNamesUnique(c, &result)
-	validateInterfaces(c, bundleFS, &result)
+	validateInterfaces(c, &result)
 	validateCapabilities(c, &result)
 	validateInterfaceFiles(c, bundleFS, &result)
 	validateInterfaceFileContent(c, bundleFS, &result)
@@ -195,8 +195,11 @@ func validateDependencyNamesUnique(c *contract.Contract, result *ValidationResul
 	}
 }
 
-// validateInterfaces validates v2 interfaces: type in enum, ref required, ref file exists and parses.
-func validateInterfaces(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+// validateInterfaces validates v2 interfaces: type in enum, ref required.
+// Ref file existence is owned by validateInterfaceFiles and ref file content by
+// validateInterfaceFileContent — checking them here too emitted every interface
+// finding twice.
+func validateInterfaces(c *contract.Contract, result *ValidationResult) {
 	validTypes := map[string]bool{
 		"openapi":  true,
 		"asyncapi": true,
@@ -216,29 +219,6 @@ func validateInterfaces(c *contract.Contract, bundleFS fs.FS, result *Validation
 				"INTERFACE_REF_REQUIRED",
 				fmt.Sprintf("interface %q requires a ref to the spec file", iface.Name),
 			)
-			continue
-		}
-
-		// Validate ref file existence and content (only when a bundle FS is available).
-		if bundleFS != nil && iface.Ref != "" {
-			fieldPath := fmt.Sprintf("interfaces[%d].ref", i)
-			data, err := fs.ReadFile(bundleFS, iface.Ref)
-			if err != nil {
-				result.AddError(fieldPath, "FILE_NOT_FOUND",
-					fmt.Sprintf("interface spec file %q not found in bundle", iface.Ref))
-				continue
-			}
-			var parsed any
-			var perr error
-			if isYAMLFile(iface.Ref) {
-				perr = yaml.Unmarshal(data, &parsed)
-			} else {
-				perr = json.Unmarshal(data, &parsed)
-			}
-			if perr != nil {
-				result.AddError(fieldPath, "INVALID_INTERFACE_SPEC",
-					fmt.Sprintf("interface spec file %q is not valid: %v", iface.Ref, perr))
-			}
 		}
 	}
 }
@@ -330,6 +310,15 @@ func validCapabilityPath(path string) bool {
 	return u.Scheme == "" && u.Host == "" && u.User == nil && u.Fragment == "" && u.Opaque == ""
 }
 
+// missingFile reports whether a bundle-relative ref fails to resolve to a
+// readable file. A directory satisfies fs.Stat but is not a spec or a schema,
+// and nothing downstream can read one — pack would ship a bundle whose declared
+// file does not exist.
+func missingFile(bundleFS fs.FS, path string) bool {
+	info, err := fs.Stat(bundleFS, path)
+	return err != nil || info.IsDir()
+}
+
 func validateInterfaceFiles(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
 	if bundleFS == nil {
 		return
@@ -338,7 +327,7 @@ func validateInterfaceFiles(c *contract.Contract, bundleFS fs.FS, result *Valida
 		if iface.Ref == "" {
 			continue
 		}
-		if _, err := fs.Stat(bundleFS, iface.Ref); err != nil {
+		if missingFile(bundleFS, iface.Ref) {
 			result.AddError(
 				fmt.Sprintf("interfaces[%d].ref", i),
 				"FILE_NOT_FOUND",
@@ -358,7 +347,7 @@ func validateConfigFiles(c *contract.Contract, bundleFS fs.FS, result *Validatio
 			continue
 		}
 		fieldPath := fmt.Sprintf("configurations[%d].schema", i)
-		if _, err := fs.Stat(bundleFS, cfg.Schema); err != nil {
+		if missingFile(bundleFS, cfg.Schema) {
 			result.AddError(
 				fieldPath,
 				"FILE_NOT_FOUND",
@@ -384,7 +373,7 @@ func validateConfigRef(c *contract.Contract, result *ValidationResult) {
 func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
 	for i, pol := range c.Policies {
 		if pol.Schema != "" && bundleFS != nil {
-			if _, err := fs.Stat(bundleFS, pol.Schema); err != nil {
+			if missingFile(bundleFS, pol.Schema) {
 				result.AddError(
 					fmt.Sprintf("policies[%d].schema", i),
 					"FILE_NOT_FOUND",
@@ -531,15 +520,25 @@ func validateInterfaceFileContent(c *contract.Contract, bundleFS fs.FS, result *
 			// File-not-found is already caught by validateInterfaceFiles.
 			continue
 		}
-		if !isYAMLFile(iface.Ref) {
+		// Only structured specs are parseable here; a grpc .proto ref carries no
+		// format this layer can check, so it is skipped rather than failed.
+		var parsed any
+		var perr error
+		format := "YAML"
+		switch {
+		case isYAMLFile(iface.Ref):
+			perr = yaml.Unmarshal(data, &parsed)
+		case strings.EqualFold(filepath.Ext(iface.Ref), ".json"):
+			format = "JSON"
+			perr = json.Unmarshal(data, &parsed)
+		default:
 			continue
 		}
-		var parsed any
-		if err := yaml.Unmarshal(data, &parsed); err != nil {
+		if perr != nil {
 			result.AddError(
 				fmt.Sprintf("interfaces[%d].ref", i),
 				"INVALID_INTERFACE_SPEC",
-				fmt.Sprintf("interface spec file %q is not valid YAML: %v", iface.Ref, err),
+				fmt.Sprintf("interface spec file %q is not valid %s: %v", iface.Ref, format, perr),
 			)
 		}
 	}

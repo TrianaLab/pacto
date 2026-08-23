@@ -449,8 +449,12 @@ func Edit(input EditInput) (*EditResult, error) {
 		return nil, fmt.Errorf("failed to read %s: %w", pactoPath, err)
 	}
 
+	// contract.DecodeYAML, not yaml.Unmarshal: an unquoted date scalar
+	// (readiness.expires, readiness.history[].date — what `pacto init` scaffolds)
+	// would otherwise decode to time.Time and be written back as RFC3339, which
+	// readiness validation then rejects.
 	var m map[string]any
-	if err := yaml.Unmarshal(rawYAML, &m); err != nil {
+	if err := contract.DecodeYAML(rawYAML, &m); err != nil {
 		return nil, fmt.Errorf("failed to parse %s: %w", pactoPath, err)
 	}
 

@@ -30,7 +30,7 @@ UI_BUILD    := $(abspath .ui-build)
 # short SHA, then "dev", when no tags are present.
 VERSION     ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: build preflight ui wasm wasmexec inject serve test validate smoke clean diff breaking-change evolution explain demo-locks
+.PHONY: build preflight ui wasm wasmexec inject serve test validate smoke clean diff breaking-change evolution graph explain demo-locks
 
 build: preflight ui wasm wasmexec inject
 	@echo "==> Built '$(DIST)' (base $(BASE))"
@@ -69,21 +69,37 @@ wasmexec:
 	@cp "$(GOROOT)/lib/wasm/wasm_exec.js" $(DIST)/wasm_exec.js
 	@echo "==> Copied wasm_exec.js"
 
-## Inject the wasm loader before the app's module script, add the SPA 404
-## fallback, and stamp the build. The engine assets (app.wasm, boot.js,
-## wasm_exec.js) have stable names, so without a cache-bust query a browser would
-## serve a stale cached engine against a freshly-hashed UI after a redeploy (new
-## UI calling an old wasm). A content token derived from the built wasm busts all
-## three together, so a new engine is picked up immediately. Idempotent.
+## Inject the wasm loader before the app's module script, add the no-JavaScript
+## fallback and the SPA 404 fallback, and stamp the build. The engine assets
+## (app.wasm, boot.js, wasm_exec.js) have stable names, so without a cache-bust
+## query a browser would serve a stale cached engine against a freshly-hashed UI
+## after a redeploy (new UI calling an old wasm). A content token derived from the
+## built wasm busts all three together, so a new engine is picked up immediately.
+##
+## The <noscript> block goes in at build time rather than in the frontend's
+## index.html, because it is specific to this demo: the real dashboard is served
+## by a Go backend, this one IS the engine. Its link matches boot.js's DOCS_HREF —
+## the demo deploys at /<version>/demo/ inside every mike version, so ../ reaches
+## the docs for the same version. Idempotent.
 inject:
 	@bust=$$(git hash-object $(DIST)/app.wasm | cut -c1-12); \
 	  sed "s|\"app.wasm\"|\"app.wasm?v=$$bust\"|" boot.js > $(DIST)/boot.js; \
-	  grep -q 'boot.js' $(DIST)/index.html || awk -v base="$(BASE)" -v bust="$$bust" '\
+	  grep -q 'boot.js' $(DIST)/index.html || { awk -v base="$(BASE)" -v bust="$$bust" '\
 	    /<script type="module"/ && !done { \
 	      print "  <script src=\"" base "wasm_exec.js?v=" bust "\"></script>"; \
 	      print "  <script src=\"" base "boot.js?v=" bust "\"></script>"; \
 	      done=1 \
-	    } { print }' $(DIST)/index.html > $(DIST)/index.html.tmp && mv -f $(DIST)/index.html.tmp $(DIST)/index.html; \
+	    } \
+	    /<\/body>/ && !ns { \
+	      print "  <noscript>"; \
+	      print "    <div style=\"max-width:40rem;margin:0 auto;padding:4rem 1.5rem;color:var(--c-text,#f1f5f9);font-family:system-ui,sans-serif;line-height:1.6\">"; \
+	      print "      <h1 style=\"font-size:1.5rem;margin:0 0 1rem\">Pacto dashboard demo</h1>"; \
+	      print "      <p>This demo has no backend. The Pacto engine is compiled to WebAssembly and runs inside this tab, so it needs JavaScript enabled. Nothing you do in it leaves your browser.</p>"; \
+	      print "      <p><a href=\"../examples/dashboard-demo/\" style=\"color:var(--c-accent,#818cf8)\">Read what the demo shows</a> — the same tour in prose, no JavaScript required.</p>"; \
+	      print "    </div>"; \
+	      print "  </noscript>"; \
+	      ns=1 \
+	    } { print }' $(DIST)/index.html > $(DIST)/index.html.tmp && mv -f $(DIST)/index.html.tmp $(DIST)/index.html; }; \
 	  cp $(DIST)/index.html $(DIST)/404.html; \
 	  printf '{"base":"%s","version":"%s","build":"%s"}\n' "$(BASE)" "$(VERSION)" "$$bust" > $(DIST)/version.json
 	@echo "==> Injected loader (version $(VERSION)), 404.html, cache-busted engine, version.json"
@@ -119,25 +135,48 @@ serve:
 	@echo "==> Open http://localhost:$(SERVE_PORT)$(BASE)"
 	@cd .serve && python3 -m http.server $(SERVE_PORT)
 
-## -- Offline CLI demo narrative (local bundles, no live OCI) ---------------
-## These use the locally built `pacto` (run `make build` at the repo root first).
-## `pacto validate` and `pacto graph` are intentionally omitted: they resolve
-## refs over the network and the demo publishes nothing. See the live dashboard
-## for the graph view.
+## -- CLI demo narrative (published demo contracts) -------------------------
+## These use the locally built `pacto` (run `make build` at the repo root first)
+## against the demo contracts published at $(DEMO_REPO), so they need network.
+##
+## They deliberately do NOT point at ./bundles. Those bundles carry the locks
+## genlocks writes, whose pins are content hashes of pacto.yaml (see the header
+## of ./genlocks) rather than OCI manifest digests. Any command that verifies a
+## committed lock -- diff, validate, graph, push -- re-resolves the closure over
+## the network and hard-fails on the mismatch, so a local-path diff can only ever
+## print LOCK_DIGEST_MISMATCH. Lock verification is skipped for an oci:// ref,
+## which is why the published coordinates work and the paths do not.
+DEMO_REPO ?= ghcr.io/trianalab/pacto
+PAYMENTS  := oci://$(DEMO_REPO)/payments-service
 
-## Compare two contract versions: make diff OLD=<path> NEW=<path>
+## Compare two contracts: make diff OLD=<ref> NEW=<ref>
 diff:
 	@pacto diff $(OLD) $(NEW)
 
-## Show the payments-service breaking change (v1.2.0 -> v2.0.0).
+## Show the payments-service breaking change (1.2.0 -> 2.0.0).
+## `pacto diff` exits 1 on BREAKING *and* on any resolution failure, so the exit
+## code cannot tell the two apart -- assert on the classification instead, or a
+## broken demo goes green while printing an error.
 breaking-change:
-	@pacto diff bundles/payments-service/v1.2.0 bundles/payments-service/v2.0.0 --output-format markdown || true
+	@out=$$(pacto diff $(PAYMENTS):1.2.0 $(PAYMENTS):2.0.0 --output-format markdown 2>&1); \
+	 echo "$$out"; \
+	 echo "$$out" | grep -q '^\*\*Classification:\*\* `BREAKING`' \
+	   || { echo "==> expected a BREAKING classification" >&2; exit 1; }
 
-## Show a non-breaking evolution (v1.0.0 -> v1.1.0).
+## Show a smaller evolution (1.0.0 -> 1.1.0): additive paths and a new config
+## key, but a tightened description, so Pacto classifies it POTENTIAL_BREAKING.
 evolution:
-	@pacto diff bundles/payments-service/v1.0.0 bundles/payments-service/v1.1.0 --output-format markdown || true
+	@out=$$(pacto diff $(PAYMENTS):1.0.0 $(PAYMENTS):1.1.0 --output-format markdown 2>&1); \
+	 echo "$$out"; \
+	 echo "$$out" | grep -q '^\*\*Classification:\*\* `POTENTIAL_BREAKING`' \
+	   || { echo "==> expected a POTENTIAL_BREAKING classification" >&2; exit 1; }
 
-## Print a human-readable summary of a contract: make explain REF=<path>
+## Resolve the dependency closure of a published contract: make graph REF=<ref>
+graph:
+	@pacto graph $(or $(REF),$(PAYMENTS):2.1.1)
+
+## Print a human-readable summary of a contract: make explain REF=<path or ref>
+## `explain` does not verify locks, so a local bundle path works here.
 explain:
 	@pacto explain $(REF)
 

@@ -11,7 +11,6 @@ import (
 	"io/fs"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
-	"gopkg.in/yaml.v3"
 )
 
 // Validate runs all three validation layers in order on the given contract.
@@ -79,8 +78,11 @@ var jsonUnmarshalFn = json.Unmarshal
 // JSON Schema validation. It goes through JSON to ensure type compatibility
 // with the JSON Schema library.
 func yamlToGeneric(data []byte) (any, error) {
+	// contract.DecodeYAML, not yaml.Unmarshal: an unquoted date scalar resolves to
+	// time.Time and JSON-marshals to RFC3339, so the schema would be checking a
+	// value that is not in the document.
 	var yamlObj any
-	if err := yaml.Unmarshal(data, &yamlObj); err != nil {
+	if err := contract.DecodeYAML(data, &yamlObj); err != nil {
 		return nil, err
 	}
 

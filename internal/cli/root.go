@@ -73,6 +73,11 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 		// Read config silently — it's optional
 		_ = v.ReadInConfig()
 
+		// After the config read, so a bad value in pacto.yaml is caught too.
+		if err := checkOutputFormat(v.GetString(outputFormatKey)); err != nil {
+			return err
+		}
+
 		if v.GetBool("no-cache") {
 			if toggler, ok := svc.BundleStore.(interface{ DisableCache() }); ok {
 				toggler.DisableCache()

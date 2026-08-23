@@ -16,7 +16,7 @@ func newGenerateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:     "generate <plugin> [dir | oci://ref]",
 		Short:   "Generate artifacts from a contract using a plugin",
 		Long:    "Invokes a pacto-plugin-<name> binary to generate deployment manifests, documentation, or other artifacts from a contract directory or oci:// reference.",
-		Example: "  pacto generate helm my-service -o manifests/",
+		Example: "  pacto generate schema-infer my-service --option file=config.yaml -o out/",
 		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pluginName := args[0]

@@ -12,6 +12,17 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/sbom"
 )
 
+// checkOutputFormat rejects an unknown --output-format before the command runs.
+// formatResult's default arm serves text, so without this guard a typo produced
+// text output and a zero exit — a CI step asking for JSON got prose and passed.
+func checkOutputFormat(format string) error {
+	switch format {
+	case "text", "json", "markdown":
+		return nil
+	}
+	return fmt.Errorf("unsupported output format %q: only \"text\", \"json\" and \"markdown\" are supported", format)
+}
+
 // formatResult dispatches between JSON, markdown and text output.
 // When markdownFn is nil and format is "markdown", it falls back to textFn.
 func formatResult(cmd *cobra.Command, format string, result any, textFn, markdownFn func() error) error {

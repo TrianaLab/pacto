@@ -9,7 +9,10 @@ Impact is framework-independent (`pkg/impact`). It consumes the pure diff engine
 ([change classification](contract-reference/diff.md)) and the immutable
 [operational-graph](operational-graph.md) read model, and imports no Kubernetes,
 OCI, dashboard, MCP or HTTP code. The same analysis therefore backs the CLI, an
-MCP tool and the dashboard, and every one of them returns the identical answer.
+MCP tool and the dashboard, and given the same snapshot every one of them returns
+the identical answer. What differs between the three is where the snapshot may
+come from: the CLI takes offline sources only ([below](#cli)), while the MCP
+server and the dashboard can also be pointed at a registry or a cluster.
 `impact` is the name of the CLI command, the MCP tool and the Go package; in the
 dashboard the same analysis is presented as the **Change analysis** workspace,
 alongside the semantic diff it composes with.
@@ -113,9 +116,16 @@ release check is not blind to undeclared traffic.
 pacto impact <old> <new> --local .
 ```
 
-`<old>` and `<new>` are the two revisions to compare — bundle paths or refs. The
-fleet source flags are shared with [`pacto fleet`](operational-graph.md): repeat
-`--local` for each bundle root to scan when building the snapshot.
+`<old>` and `<new>` are the two revisions to compare — bundle paths or refs.
+
+`pacto impact` builds its snapshot from **offline sources only** — `--local`
+(repeatable, defaults to `.`), `--target-state` and `--traces`. It takes a subset
+of the source flags [`pacto fleet`](operational-graph.md) accepts: there is no
+`--k8s`, `--oci`, `--cache` or `--evidence-url` here, and passing one fails with
+`unknown flag`. To analyse a fleet you do not have on disk, pull those bundles
+first with [`pacto pull`](cli-reference.md#pacto-pull) and point `--local` at the
+directory. The two revisions being compared are separate from the fleet snapshot
+and *may* be `oci://` references.
 
 Turn on runtime corroboration with `--include-observed`, or supply an OTLP/JSON
 trace export with `--traces` (which implies it) so observed traffic raises
@@ -133,6 +143,56 @@ every affected consumer with its compatibility verdict and confidence, the activ
 targets and the owners to notify — along with the snapshot's completeness and any
 limitations.
 
+### Exit status: what makes a consumer *active*
+
+`pacto impact` exits **1** only when both halves are true — the change is
+`BREAKING` **and** at least one incompatible consumer is *active*. Anything else
+exits **0**, including a run that prints `Classification: BREAKING` and a list of
+consumers every one of which says `compat=incompatible`.
+
+**Active means the snapshot knows of somewhere that consumer is deployed** — at
+least one operational target. Compatibility is a statement about contracts;
+active is a statement about the world. A consumer that is incompatible on paper
+but is running nowhere the snapshot can see is a review item, not a release
+blocker, so it does not fail the command.
+
+The consequence catches people out, because `--local` defaults to `.` and local
+bundles declare no targets: **a declared-only run can never exit non-zero.**
+
+```console
+$ pacto impact ./api-v1 ./api-v2 --local ./fleet
+Classification: BREAKING
+Affected consumers (1):
+  web    direct   confidence=contractual  compat=incompatible  owner=frontend
+$ echo $?
+0
+```
+
+The `Active targets` line is the tell — it is printed only when there is at least
+one, so no line means no non-zero exit is possible. Give the snapshot a source
+that knows where things run and the same command blocks:
+
+```console
+$ pacto impact ./api-v1 ./api-v2 --local ./fleet --target-state ./targets.yaml
+Classification: BREAKING
+Affected consumers (1):
+  web    direct   confidence=contractual  compat=incompatible  owner=frontend
+Active targets (1): [production/kubernetes-workload/shop%2Fweb]
+breaking changes affect active consumers
+$ echo $?
+1
+```
+
+In CI that means one of two deliberate choices. Gate on the exit code and you are
+gating on *deployed* impact, which is what you want in a promotion pipeline — but
+only if the job actually supplies targets. Gate on the JSON instead
+(`--output-format json`, then `classification == "BREAKING"`) and you are gating
+on the contract alone, which is what you want before anything is deployed at all.
+The file `--target-state` expects is documented under
+[target-state fixtures](operational-graph.md#what-a-target-state-fixture-looks-like);
+`pacto impact` accepts no live sources, so on a laptop that file is the only way
+to make the exit code mean anything.
+
 ---
 
 ## MCP tool: `pacto_impact`
@@ -145,6 +205,12 @@ nothing, changes nothing and authorizes nothing. An agent uses `pacto_impact` to
 *understand* a proposed change's blast radius before recommending a review, never
 to act on it. Every answer carries `asOf`, `completeness` and `limitations`, so an
 agent can tell how much of the system the answer actually covers.
+
+It is the one fleet tool that does not serve a frozen snapshot: it resolves its
+two refs and rebuilds the graph on every call, so its `asOf` advances while the
+`pacto_fleet_*` tools' stays at the value they were started with. When the two
+disagree they are describing two moments, not two systems — see
+[what a session freezes](mcp-integration.md#what-a-session-freezes-and-what-it-does-not).
 
 ---
 

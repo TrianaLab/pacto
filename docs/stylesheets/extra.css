@@ -17,16 +17,21 @@
   letter-spacing: -0.015em;
 }
 
-/* Indigo accent — matched to the Pacto dashboard (#6366F1 family). */
+/* Indigo accent — matched to the Pacto dashboard (#6366F1 family).
+   On white, #6366f1 measures 4.46:1 — under the 4.5:1 WCAG AA floor for body
+   text. So the light scheme uses the deeper #4f46e5 (6.29:1) wherever indigo
+   carries text or sits behind white text, and keeps #6366f1 for decoration. The
+   dark scheme has the opposite problem and steps up to the lighter tint. */
 :root {
   --pacto-indigo: #6366f1;
   --pacto-indigo-light: #818cf8;
   --pacto-indigo-deep: #4f46e5;
+  --pacto-indigo-darker: #4338ca;
 }
 
 [data-md-color-scheme="default"] {
   --md-accent-fg-color: var(--pacto-indigo-deep);
-  --md-typeset-a-color: var(--pacto-indigo);
+  --md-typeset-a-color: var(--pacto-indigo-deep);
 }
 
 /* Dark: the header is black and the surfaces near-black, so links and accents
@@ -55,11 +60,11 @@
    with the now-neutral primary). */
 .md-nav__link--active,
 .md-nav__link:hover {
-  color: var(--pacto-indigo);
+  color: var(--pacto-indigo-deep);
 }
 .md-tabs__link--active,
 .md-tabs__link:hover {
-  color: var(--pacto-indigo);
+  color: var(--pacto-indigo-deep);
   opacity: 1;
 }
 [data-md-color-scheme="slate"] .md-nav__link--active,
@@ -72,14 +77,14 @@
 /* Primary buttons: the neutral primary would make these white/black, so pin them
    to indigo everywhere (hero and body). */
 .md-typeset .md-button--primary {
-  background-color: var(--pacto-indigo);
-  border-color: var(--pacto-indigo);
+  background-color: var(--pacto-indigo-deep);
+  border-color: var(--pacto-indigo-deep);
   color: #fff;
 }
 .md-typeset .md-button--primary:hover,
 .md-typeset .md-button--primary:focus {
-  background-color: var(--pacto-indigo-deep);
-  border-color: var(--pacto-indigo-deep);
+  background-color: var(--pacto-indigo-darker);
+  border-color: var(--pacto-indigo-darker);
   color: #fff;
 }
 
@@ -185,6 +190,14 @@
   flex-wrap: wrap;
   animation: pacto-fade-up 0.6s ease 0.32s both;
 }
+.pacto-hero .pacto-hero__note {
+  margin: 1rem auto 0;
+  max-width: 34rem;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+  animation: pacto-fade-up 0.6s ease 0.4s both;
+}
 .pacto-hero .md-button {
   border-color: var(--md-default-fg-color--lighter);
   color: var(--md-default-fg-color);
@@ -192,8 +205,8 @@
 }
 .pacto-hero .md-button:hover,
 .pacto-hero .md-button:focus {
-  background-color: var(--pacto-indigo);
-  border-color: var(--pacto-indigo);
+  background-color: var(--pacto-indigo-deep);
+  border-color: var(--pacto-indigo-deep);
   color: #fff;
 }
 .pacto-hero .md-button--primary,
@@ -218,6 +231,7 @@
   .pacto-hero .pacto-hero__eyebrow,
   .pacto-hero .pacto-hero__title,
   .pacto-hero .pacto-hero__tagline,
+  .pacto-hero .pacto-hero__note,
   .pacto-hero__actions {
     animation: none;
   }
@@ -418,4 +432,86 @@
   opacity: 1;
   pointer-events: auto;
   animation: none;
+}
+/* max-height:0 and opacity:0 hide the collapsed list from the eye but not from
+   the tab order: every published version stayed focusable, so a keyboard reader
+   crossed one invisible stop per release between the header and the first nav
+   tab. visibility takes them out of the sequence and the open rule puts them
+   back — it is the one hiding property that is both animatable and focus-aware. */
+.md-version .md-version__list {
+  visibility: hidden;
+}
+.md-version.md-version--open .md-version__list {
+  visibility: visible;
+}
+
+/* Material draws a focus ring on the search field and little else, so most of
+   the header, the version selector, the tabs and the sidebar showed no sign of
+   where the keyboard was. One accent outline for everything, on :focus-visible
+   only, so pointer users never see it. */
+:focus-visible {
+  outline: 2px solid var(--pacto-indigo-deep);
+  outline-offset: 2px;
+}
+[data-md-color-scheme="slate"] :focus-visible {
+  outline-color: var(--pacto-indigo-light);
+}
+/* Material gives the search result list an explicit `tabindex="0"` so it can be
+   scrolled from the keyboard, and leaves it there while the search is closed and
+   the panel is zero-height — an invisible stop between the search field and the
+   repository link, on every page. Take the closed panel out of the sequence;
+   opening the search restores it. The selector mirrors Material's own
+   `[data-md-toggle=search]:checked ~ .md-header` form, so it tracks the same
+   toggle the theme does. */
+[data-md-toggle="search"]:not(:checked) ~ .md-header .md-search__output {
+  visibility: hidden;
+}
+
+/* The palette switch is a 0×0 radio standing behind the icon label the reader
+   actually sees, so an outline on the input paints nothing. Put the ring on the
+   label instead — the one that is not `hidden` belongs to the checked radio,
+   which is the only one in the tab order. */
+.md-option:focus-visible + label:not([hidden]) {
+  outline: 2px solid var(--pacto-indigo-deep);
+  outline-offset: 2px;
+}
+[data-md-color-scheme="slate"] .md-option:focus-visible + label:not([hidden]) {
+  outline-color: var(--pacto-indigo-light);
+}
+
+/* Inline links are told apart from the text around them by colour alone, and no
+   indigo can carry that on its own: to clear 3:1 against #212121 body text a
+   link needs a relative luminance of at least 0.143, and to clear 4.5:1 against
+   a white page it needs at most 0.183 -- a window too thin to sit in safely,
+   and the dark scheme measures worse (1.83:1). Underline links that sit inside
+   a block of text, which is the only place the rule is about; buttons, nav,
+   tabs, heading anchors and the hero are untouched because nothing surrounds
+   them to be confused with. Image links keep their clean edge. */
+.md-typeset p > a:not(.md-button),
+.md-typeset li > a:not(.md-button),
+.md-typeset td > a:not(.md-button),
+.md-typeset dd > a:not(.md-button) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+.md-typeset p > a:has(> img),
+.md-typeset li > a:has(> img),
+.md-typeset td > a:has(> img) {
+  text-decoration: none;
+}
+
+/* Five of Material's syntax-highlight tokens resolve to --md-default-fg-color
+   --light (#717171). That is 4.8:1 on the white page and passes, but code sits
+   on #f5f5f5, where the same grey measures 4.47:1 and fails AA by three
+   hundredths -- on comments and shell variables, in nearly every code block on
+   the site. Darkening the five code tokens to #5c5c5c (6.1:1 on the code
+   surface) fixes it without moving the secondary text colour everywhere else.
+   The slate scheme measures clean and is left alone. */
+[data-md-color-scheme="default"] {
+  --md-code-hl-comment-color: #5c5c5c;
+  --md-code-hl-generic-color: #5c5c5c;
+  --md-code-hl-operator-color: #5c5c5c;
+  --md-code-hl-punctuation-color: #5c5c5c;
+  --md-code-hl-variable-color: #5c5c5c;
 }

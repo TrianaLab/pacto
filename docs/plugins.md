@@ -6,7 +6,7 @@ A plugin can turn a contract into any artifact — Helm charts, Terraform, Kuber
 ---
 ## Official plugins
 
-Pacto ships with two official plugins that are automatically installed alongside the CLI via the install script:
+Pacto has two official plugins:
 
 | Plugin | Description |
 |--------|-------------|
@@ -15,7 +15,27 @@ Pacto ships with two official plugins that are automatically installed alongside
 
 Both `*-infer` plugins are the composition on-ramp: they derive the interfaces you already have — a service's HTTP API from its source, its config shape from real config files — instead of asking you to hand-author a schema. Compose what already exists rather than reinvent it.
 
-These plugins are maintained in the [pacto-plugins](https://github.com/TrianaLab/pacto-plugins) repository. Refer to each plugin's README for detailed usage and options:
+Those two are the whole official set, and both run *inward*. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides — without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found`. The rest of this page is how to build that plugin.
+
+### Installing them
+
+They are separate binaries maintained in the
+[pacto-plugins](https://github.com/TrianaLab/pacto-plugins) repository, not part
+of the `pacto` binary, so how you installed Pacto decides whether you have them:
+
+| Install method | Plugins |
+|----------------|---------|
+| [Installer script](installation.md#via-installer-script) (`get-pacto.sh`) | Installed alongside the CLI — best-effort. If the plugin release cannot be fetched the script prints `Warning: failed to fetch latest plugins version, skipping plugin installation` and continues, so a successful Pacto install does not guarantee them. |
+| [`go install`](installation.md#via-go) | Not installed |
+| [From source](installation.md#from-source-manual-build) (`make build`) | Not installed |
+
+Without them, `pacto generate schema-infer` and `pacto generate openapi-infer`
+fail with `plugin "<name>" not found`. To install them by hand, download the
+binaries for your platform from the [pacto-plugins releases](https://github.com/TrianaLab/pacto-plugins/releases),
+make them executable and put them on your `PATH` or in
+`~/.config/pacto/plugins/` (see [Plugin discovery](#plugin-discovery)).
+
+Refer to each plugin's README for detailed usage and options:
 
 - [pacto-plugin-schema-infer](https://github.com/TrianaLab/pacto-plugins/tree/main/plugins/pacto-plugin-schema-infer)
 - [pacto-plugin-openapi-infer](https://github.com/TrianaLab/pacto-plugins/tree/main/plugins/pacto-plugin-openapi-infer)
@@ -42,15 +62,15 @@ The plugin design is:
 sequenceDiagram
     participant User
     participant Pacto as pacto CLI
-    participant Plugin as pacto-plugin-helm
+    participant Plugin as pacto-plugin-schema-infer
 
-    User->>Pacto: pacto generate helm ./my-service
+    User->>Pacto: pacto generate schema-infer ./my-service
     Pacto->>Pacto: Load and parse contract
     Pacto->>Plugin: Spawn process, write JSON to stdin
     Plugin->>Plugin: Read contract, generate files
     Plugin->>Pacto: Write JSON response to stdout
     Pacto->>Pacto: Write files to output directory
-    Pacto->>User: Generated 3 file(s) using helm
+    Pacto->>User: Generated 1 file(s) using schema-infer
 ```
 
 1. The user runs [`pacto generate <plugin-name> [dir | oci://ref]`](cli-reference.md#pacto-generate) — see the command reference for flags like `--option key=value` (populates `options`) and `-o/--output`
@@ -69,9 +89,17 @@ Pacto searches for plugin binaries in this order:
 1. **`$PATH`** — any binary named `pacto-plugin-<name>`
 2. **`~/.config/pacto/plugins/`** — user plugin directory
 
-For example, `pacto generate helm` looks for:
-- `pacto-plugin-helm` in `$PATH`
-- `~/.config/pacto/plugins/pacto-plugin-helm`
+For example, `pacto generate schema-infer` looks for:
+
+- `pacto-plugin-schema-infer` in `$PATH`
+- `~/.config/pacto/plugins/pacto-plugin-schema-infer`
+
+Neither found is an error, not a no-op — `pacto generate helm` on a machine with
+no `pacto-plugin-helm` exits 1 and says so:
+
+```
+plugin "helm" not found (looked for pacto-plugin-helm in $PATH and ~/.config/pacto/plugins/)
+```
 
 ---
 
@@ -95,8 +123,8 @@ Pacto writes a JSON object to the plugin's stdin:
     "state": {...},
     ...
   },
-  "bundleDir": "/path/to/bundle",
-  "outputDir": "/path/to/output",
+  "bundleDir": "my-service",
+  "outputDir": "helm-output",
   "options": {
     "namespace": "production"
   }
@@ -107,9 +135,13 @@ Pacto writes a JSON object to the plugin's stdin:
 |-------|------|-------------|
 | `protocolVersion` | string | Always `"1"` for the current protocol |
 | `contract` | object | The full parsed contract (same structure as `pacto.yaml`) |
-| `bundleDir` | string | Absolute path to the bundle directory. Treat as read-only (for local contracts this is the real bundle directory; Pacto does not enforce read-only). |
-| `outputDir` | string | Absolute path where output files should go |
-| `options` | object | User-provided key-value options (from CLI flags) |
+| `bundleDir` | string | Path to the bundle directory, **as resolved by the CLI** — for a local contract this is the reference the user typed, so it may be relative; for an `oci://` reference it is an absolute temp directory that Pacto deletes when the plugin exits. Treat as read-only (Pacto does not enforce that). |
+| `outputDir` | string | Path where output files should go — `-o/--output` verbatim, or `<plugin-name>-output` when the flag is omitted. **May be relative**, and Pacto creates the directory before spawning the plugin. |
+| `options` | object | *Optional.* User-provided key-value options (from `--option key=value`). **Omitted entirely** when no `--option` is passed, so read it defensively: `request.get("options", {})`. |
+
+A relative `bundleDir` or `outputDir` is relative to Pacto's working directory,
+which the plugin process inherits. A plugin must therefore not `chdir` before it
+resolves either path, and must not assume either one is absolute.
 
 The contract object mirrors [`pacto.yaml`](contract-reference/index.md) exactly.
 
@@ -147,6 +179,7 @@ The plugin writes a JSON object to stdout:
 ### Errors
 
 If the plugin encounters an error, it should:
+
 1. Write a message to **stderr**
 2. Exit with a non-zero exit code
 

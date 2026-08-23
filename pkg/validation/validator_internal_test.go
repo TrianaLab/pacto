@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
@@ -21,6 +22,50 @@ func TestYamlToGeneric_ValidScalar(t *testing.T) {
 	// After JSON round-trip, int becomes float64
 	if result != float64(42) {
 		t.Errorf("expected 42, got %v", result)
+	}
+}
+
+// TestYamlToGeneric_TimestampScalarsStayVerbatim: the schema layer must see the
+// literal text in the document. Resolving these to time.Time would show the
+// schema an RFC3339 string for a bare date; reformatting them would show it a
+// bare date for an explicit timestamp. Both are values that are not in the file.
+func TestYamlToGeneric_TimestampScalarsStayVerbatim(t *testing.T) {
+	result, err := yamlToGeneric([]byte("expires: 2099-12-31\nname: 2024-01-15T00:00:00Z\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := result.(map[string]any)
+	if m["expires"] != "2099-12-31" {
+		t.Errorf("expires: got %v, want 2099-12-31", m["expires"])
+	}
+	if m["name"] != "2024-01-15T00:00:00Z" {
+		t.Errorf("name: got %v, want 2024-01-15T00:00:00Z", m["name"])
+	}
+}
+
+// TestValidateStructuralRaw_UnquotedTimestampFailsPattern is the fail-open guard:
+// an unquoted timestamp in a pattern-constrained field must still be rejected.
+// Truncating it to a bare date would make it match ^[a-z0-9-]+$ and turn a
+// rejected contract into an accepted one.
+func TestValidateStructuralRaw_UnquotedTimestampFailsPattern(t *testing.T) {
+	raw := []byte(`pactoVersion: "2.0"
+service:
+  name: 2024-01-15T00:00:00Z
+  version: "1.0.0"
+workload: service
+`)
+	result := ValidateStructuralRaw(raw)
+	if result.IsValid() {
+		t.Fatal("expected service.name to be rejected, got a valid result")
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Code == "SCHEMA_VIOLATION" && e.Path == "service.name" && strings.Contains(e.Message, "2024-01-15T00:00:00Z") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a SCHEMA_VIOLATION on service.name naming the literal scalar, got %+v", result.Errors)
 	}
 }
 

@@ -1,3 +1,10 @@
+---
+# Contributor-internal. It is thorough, so it keeps outranking the reader
+# pages on general queries; halve it rather than thin the page.
+search:
+  boost: 0.5
+---
+
 # Testing architecture
 
 Pacto has eight test levels. **A test belongs to exactly one**, chosen by what it
@@ -19,7 +26,7 @@ how you pick a home for a test you are about to write.
 | 5 | Kind / system acceptance | The product against a real Kubernetes cluster | `tests/acceptance/kind/` | Shell + Go | `make test-acceptance-kind` |
 | 6 | Browser acceptance, deterministic | A real shipped artifact over fixed data | `pkg/dashboard/frontend/e2e/` (dashboard), `pkg/dashboard/frontend/e2e-docs-site/` (documentation site) | TypeScript | `make test-browser`, `make test-browser-docs-site` |
 | 7 | Live-browser acceptance | The real frontend against a real running deployment | `pkg/dashboard/frontend/e2e-live/` | TypeScript | `make test-browser-live`, `make test-browser-compose` |
-| 8 | Release verification | The release system produces what it claims | `tests/release/`, `release/orchestrator/` | Go, Node | `make ci-gates`, `make release-dry-run` |
+| 8 | Release verification | The release system produces what it claims | `tests/release/`, `release/orchestrator/` | Go, Node | `make ci-gates` (Go), `make ci-oci` (the Node orchestrator tests), `make release-dry-run` |
 
 Two names in the tree predate the taxonomy and are kept for the convention of
 the module that owns them. Both are **level 2, integration**, and are labelled as
@@ -99,7 +106,7 @@ change them only with a reason:
 `tests/acceptance/local/` has no cluster to manage and keeps its own small
 helpers; `integrations/kubernetes/test/utils` serves the operator module.
 
-### Getting an image into the kind node
+### Loading an image into the kind node
 
 `load_images` is the only way an image reaches a node, and it is deliberately
 **not** `kind load docker-image`. That command pipes `docker save` into `ctr
@@ -175,7 +182,7 @@ browser journeys. Its projections:
 | `Digests` | the demo's evidence pins, computed before any registry exists |
 | `FactCount` | the denominator the Product gate reports progress against |
 
-### Two surfaces, and the difference between them
+### Kubernetes and Compose: two projections of one scenario
 
 The scenario is projected onto **Kubernetes** and onto **Compose**. They are the
 same fixture — same services, revisions, dependency edge, observation source and
@@ -488,7 +495,9 @@ Four things about the docs-site suite are load-bearing:
   HTML. Adding a diagram to a covered page fails the gate until it is declared.
 
 The site's diagrams as a whole are still covered by `make mermaid-check`, which
-parses every fence in the repository. That is the syntax gate; this is the
+parses every fence in the site Markdown — `docs/` plus `integrations/`. The
+repository root `README.md` and the demo bundle docs sit outside that scope.
+That is the syntax gate; this is the
 behaviour gate, on the pages worth driving a browser through: a core page, a page
 the integration hook injects, and an instant navigation between two of them.
 

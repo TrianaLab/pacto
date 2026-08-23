@@ -1,6 +1,6 @@
 # Contract overrides
 
-Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `diff`, `doc`, `generate`, `graph`, `pack`, `push`, `lock`). See the [CLI reference](../cli-reference.md) for the complete command and flag listing.
+Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `doc`, `generate`, `graph`, `pack`, `push`, `lock`), plus the two that take a pair of them (`diff`, `impact`) via the prefixed flags in [Diff overrides](#diff-overrides). See the [CLI reference](../cli-reference.md) for the complete command and flag listing.
 
 ## Override flags
 
@@ -57,7 +57,7 @@ pacto validate my-service --set interfaces[0].visibility=internal
 
 ## Diff overrides
 
-The `diff` command takes two contract references. To override each independently, use prefixed flags:
+`diff` and `impact` each take two contract references — an old one and a new one — so they carry no plain `--values`/`--set`. To override each side independently, use prefixed flags:
 
 | Flag | Description |
 |------|-------------|
@@ -75,6 +75,9 @@ pacto diff old-service new-service \
   --old-values old-env.yaml \
   --new-values new-env.yaml \
   --new-set service.version=3.0.0
+
+# The same four flags work on impact
+pacto impact old-service new-service --new-set service.version=2.0.0
 ```
 
 ## Schema validation

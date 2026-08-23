@@ -74,6 +74,54 @@ func TestMCPCommand_BundleResolveError(t *testing.T) {
 	}
 }
 
+func TestMCPCommand_UnknownTransport(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
+	root.SetArgs([]string{"mcp", "-t", "bogus"})
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error for an unknown transport")
+	}
+	for _, want := range []string{`"bogus"`, "stdio", "http"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("expected error naming %s, got: %v", want, err)
+		}
+	}
+	if stderr.String() != "" {
+		t.Errorf("expected no server to start, got stderr: %s", stderr.String())
+	}
+}
+
+// The transport is checked before the bundle is resolved, so a typo reports the
+// typo instead of whatever the server build would have failed on afterwards.
+func TestMCPCommand_UnknownTransportBeforeBuild(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
+	root.SetArgs([]string{"mcp", "/nonexistent/bundle/xyz", "-t", "bogus"})
+	root.SetErr(&bytes.Buffer{})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unsupported transport") {
+		t.Fatalf("expected transport error, got: %v", err)
+	}
+}
+
+func TestRunMCPServer_UnknownTransport(t *testing.T) {
+	server := pactomcp.NewServer(app.NewService(nil, nil), "test")
+	var stderr bytes.Buffer
+
+	err := runMCPServer(context.Background(), server, "bogus", 0, &stderr)
+	if err == nil {
+		t.Fatal("expected error for an unknown transport")
+	}
+	if stderr.String() != "" {
+		t.Errorf("expected no server to start, got stderr: %s", stderr.String())
+	}
+}
+
 func TestParseAuthFlags(t *testing.T) {
 	if creds, err := parseAuthFlags(nil); err != nil || creds != nil {
 		t.Fatalf("empty = %v,%v", creds, err)

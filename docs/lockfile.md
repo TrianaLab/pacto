@@ -49,7 +49,7 @@ The `--update-name` flag re-resolves only the named dependency (repeatable) to t
 
 ### `pacto lock --check`
 
-Verifies that the lockfile is up-to-date without modifying it. Exits non-zero if the lock is stale or has conflicts. Useful as a CI gate to enforce that contributors have run `pacto lock` after editing dependencies or references. Re-lock whenever a floating (unpinned) upstream ref is republished — it changes the resolved digest, so `lock --check` fails until you re-run `pacto lock` and commit.
+Verifies that the lockfile is up-to-date without modifying it. Exits non-zero if the lock is stale or has conflicts. Useful as a CI gate to enforce that contributors have run `pacto lock` after editing dependencies or references. Re-lock whenever a floating (unpinned) upstream ref is republished — it changes the resolved digest, so `lock --check` fails until you re-pin and commit. Use `pacto lock --update` (or `--update-name <dep>`): plain `pacto lock` keeps a dependency pin whose constraint is unchanged, so it rewrites the file without clearing the drift.
 
 ```bash
 pacto lock --check
@@ -75,7 +75,7 @@ If any resolved dependency or reference produces a digest that does not match th
 | `LOCK_STALE` | The lockfile is missing a newly added dependency or reference |
 | `LOCK_CONFLICT` | The dependency closure requires the same service at two incompatible versions |
 | `LOCK_UNRESOLVED` | A ref in the lockfile could not be resolved (network error, registry unreachable, bundle deleted) |
-| `LOCK_MISSING` | `pacto lock --check` was run but no `pacto.lock` file exists (the verification commands treat a missing lock as a no-op) |
+| `LOCK_MISSING` | `pacto lock --check` was run but no `pacto.lock` file exists. It is the only command that treats a missing lock as an error; the commands listed above skip verification entirely when there is no lock to verify |
 | `LOCK_AMBIGUOUS_REFERENCE` | One declared reference would have to be pinned to two different destinations, so the lock cannot record it (see [Reference identity](#reference-identity)) |
 | `LOCK_DUPLICATE_DECLARATION` | A contract in the closure declares the same configuration or policy name twice, so it holds two declarations the lock cannot tell apart (see [Reference identity](#reference-identity)) |
 
@@ -88,7 +88,7 @@ Because push enforces the lock, a stale lock blocks publishing — an automatic 
 ```yaml
 lockVersion: 3
 pacto:
-  version: 1.4.0
+  version: v3.2.1
 root:
   name: payments-api
   version: 2.1.0
@@ -110,6 +110,8 @@ dependencies:
   - name: shared-lib
     source: local
     path: ../shared-lib
+    constraint: ^1.0.0
+    version: 1.5.0
     contentHash: sha256:789abc...
 references:
   - kind: policy
@@ -137,13 +139,13 @@ The lockfile starts with `lockVersion` (schema version), `pacto.version` (the CL
 
 Each `dependencies[]` entry records the `source` (oci or local), the full ref or path as written in the contract, the constraint and resolved version and the digest (for OCI) or contentHash (for local). The lockfile's `constraint` is the dependency's `compatibility` range copied from `pacto.yaml`. The `dependsOn` field captures the dependency chain so Pacto can rebuild the full graph structure from the lock without re-resolving upstream refs.
 
-The `references[]` section records config and policy refs with their `kind`, `source` and digest — references carry no `constraint` (only dependencies do). Local file-based refs appear here with a contentHash instead of an OCI digest.
+The `references[]` section records config and policy refs with their `kind`, `source` and digest — references carry no `constraint` (only dependencies do). Local file-based refs appear here with a contentHash instead of an OCI digest. A contract that declares no config or policy refs produces a lock with no `references` key at all, rather than an empty list.
 
 ### Reference identity
 
 Because the closure is transitive, `kind` and `name` alone do not identify an entry: two bundles in the same closure can each declare a `config` named `settings`, and a relative ref like `./config` resolves to a different directory depending on which bundle declared it. Three separate things have to stay distinct, and the lock keeps them so:
 
-- **The declaring contract.** `from` is that contract's *content* identity — `oci:<digest>` for a registry bundle, `local:sha256:<hash>` for a directory, and empty for the root contract. It is the same string the entry that reached that bundle recorded as its own destination, which is what lets a reader join entries into the closure.
+- **The declaring contract.** `from` is that contract's *content* identity — `oci:<digest>` for a registry bundle, `local:sha256:<hash>` for a directory and empty for the root contract. It is the same string the entry that reached that bundle recorded as its own destination, which is what lets a reader join entries into the closure.
 - **The declaration.** `from`, `kind` and `name` together name exactly one declared reference — one scope, written once, inside one immutable contract. This is what tools match on when they associate a contract's own reference with its pinned destination.
 - **How the walk got there.** Not a field. A bundle reachable by several paths is still one bundle holding one set of declarations, so each is pinned once, and the route is not part of what a pin means. The entries form a graph rooted at the empty `from`, so every path through the closure is recoverable by following `from` back through the destinations — without any one path being written down as *the* path.
 

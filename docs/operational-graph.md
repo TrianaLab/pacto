@@ -32,6 +32,40 @@ in a cluster. A target is not the service. Keeping them separate is what lets th
 graph answer "which *revision* runs *where*, and is *that instance* compliant"
 without guessing.
 
+### How certainly a target is matched to a revision
+
+Knowing a target exists is not the same as knowing which revision it runs, so
+every target records **how** the link was made. Four outcomes:
+
+| Match | What Pacto knows |
+|-------|------------------|
+| `exact` | The target's content digest matches a revision's. Authoritative: this is the revision running there. |
+| `inferred` | A *unique* correlation by mutable tag or version suffix. Probably right, not proof. |
+| `ambiguous` | Several revisions match that mutable reference. **No link is made** — a guess is never presented as fact — and the target carries a `REVISION_LINK_AMBIGUOUS` limitation. |
+| `unresolved` | Nothing matched, or the target's identity contradicts itself (a recorded digest that disagrees with its digest-pinned reference). No link, and a limitation on the target saying so. |
+
+The bottom two are not a failure to report. They *are* the report, and they sit
+on the target itself so a consumer can classify a link without parsing
+snapshot-level messages.
+
+The two read surfaces spell this differently, and the CLI's spelling has a trap:
+
+- **Snapshot and `pacto fleet get --target` JSON** carry `revisionMatch`, which
+  is `omitempty` and only ever `exact` or `inferred`. **An absent
+  `revisionMatch` is the finding** — it means ambiguous or unresolved. Read the
+  target's `limitations` to learn which.
+- **The entity-detail API** (`GET /api/fleet/entities/target?key=…`, what the
+  dashboard reads) carries `linkState`, always present, with all four values
+  spelled out.
+
+Two things this axis is *not*. It is not whether Pacto can fetch that revision's
+content: an `exact` match can name content sitting in a registry Pacto cannot
+read, and that is an honest outcome rather than a contradiction ([match
+certainty is not content retrievability](concepts.md#identity)). And its
+`inferred` is a different word from the `inferred` relationship provenance
+below — one is how a *target* was matched to a revision, the other is how an
+*edge* was derived.
+
 ---
 
 ## Relationships: declared, observed, inferred
@@ -104,6 +138,69 @@ still contributes services, and the same service is attributable to several
 sources at once. Both counts are computed over the complete population, never over
 the bounded entity preview beside them.
 
+### What a target-state fixture looks like
+
+`--target-state` is the only source you have to author yourself, so here is the
+whole format. It is a single YAML or JSON document — JSON is a subset of YAML, so
+one parser reads both — and the decoder is strict: a second `---` document, an
+unknown field or a `schemaVersion` other than `pacto.dev/fleet-targets/v1` is
+rejected and the whole file contributes nothing.
+
+```yaml
+schemaVersion: pacto.dev/fleet-targets/v1
+targets:
+  - service: orders-service          # required: the service this target runs
+    name: commerce/orders-service    # required: unique within the scope
+    scope: production-eu             # the environment, e.g. a cluster
+    kind: kubernetes-workload        # what sort of target it is
+    labels: { env: production, region: eu }
+    requestedRef: oci://ghcr.io/acme/orders-service:1.2.0
+    resolvedRef: oci://ghcr.io/acme/orders-service:1.2.0
+    digest: sha256:…
+    compliance: NonCompliant
+    coverage: { evaluated: 5, required: 5 }
+    evidenceAt: 2026-07-29T09:40:00Z     # when the evidence was gathered
+    reconciledAt: 2026-07-29T09:41:00Z   # when the target was last reconciled
+    findings:
+      - code: STATELESS_PERSISTENT_CONFLICT   # required within a finding
+        severity: error
+        category: RuntimeDrift
+        subjectKind: state
+        subjectName: orders-db
+        message: declared stateless but the observed workload mounts a volume
+state:                               # optional: the source's own health
+  status: available
+  message: ""
+```
+
+Only `service` and `name` are required on a target — everything else may be
+omitted, and an omitted `evidenceAt` is exactly how you model a target the
+collector could not observe. The enumerations are closed:
+
+| Field | Accepted values |
+| --- | --- |
+| `compliance` | `Compliant`, `NonCompliant`, `Unknown`, `Warning`, `Invalid`, `Reference`, `NotEvaluated`, or omitted |
+| `findings[].severity` | `error`, `warning`, `info`, `unknown`, or omitted |
+| `state.status` | `available`, `partial`, `stale`, `unavailable` (anything else reads as `available`) |
+
+A file may declare at most 5000 targets. An individual entry that fails
+validation is skipped with a `SOURCE_RECORD_INVALID` limitation and the rest of
+the file is kept; a failure of the *file* — missing, unparseable, wrong schema
+version, unknown field — drops the whole source with a `SOURCE_UNAVAILABLE`
+limitation and marks the snapshot `partial`.
+
+!!! warning "A malformed fixture is reported the same way as a missing one"
+    Both produce exactly `SOURCE_UNAVAILABLE`: *source target-state is
+    unavailable; its records are missing from this snapshot*. The parse error
+    itself is not surfaced, and `-v` does not add it, so a typo in a field name
+    looks identical to a path that does not exist. If the source drops and the
+    path is right, suspect the file: check `schemaVersion` first, then field
+    spelling.
+
+[`examples/demo/fleet-targets.yaml`](https://github.com/TrianaLab/pacto/blob/main/examples/demo/fleet-targets.yaml)
+is a complete worked fixture — compliant, non-compliant, unknown and stale
+targets across two scopes — and it is the file the live demo runs on.
+
 ---
 
 ## Freshness and completeness
@@ -119,6 +216,16 @@ every query answer carry an **as-of** time, a **completeness** and a list of
 > **Absence of telemetry is not evidence of absence.** A missing observation under
 > partial coverage is uncertainty, not a confirmed "no".
 
+One case does not carry the envelope, and it is the case where you most want it.
+`get`, `graph` and `explain` name a single subject, and a subject that is not in
+the snapshot is a *failure*, not an answer: `pacto fleet get ghost` exits 1 with
+`service "ghost" not found in the fleet snapshot` on stderr and nothing on stdout
+whatever `--output-format` said, and the
+[MCP equivalents](mcp-integration.md#fleet-query-safety) return the same string as
+a tool error. There is no `meta` on it, so there is no `completeness` telling you
+whether the snapshot that missed was whole. Get that reading from `search` or
+`status` on the same snapshot before you read a subject miss as an absence.
+
 Every source reports one status, and the snapshot rolls those up into one
 completeness value:
 
@@ -132,27 +239,36 @@ completeness value:
 | **empty** | snapshot | Every source was available and produced no record. A genuine empty, not a hidden failure. |
 
 The dashboard uses a matching per-section vocabulary — `present`, `empty`,
-`not_applicable`, `unavailable` — for the same reason: a blank must always explain
-*why* it is blank. When a source fails, its error is sanitized to a category code
+`not_applicable`, `unavailable`, defined term by term under [Section
+provenance](architecture.md#section-provenance-sectionmeta) — for the same
+reason: a blank must always explain *why* it is blank. When a source fails, its error is sanitized to a category code
 (`AUTH_FAILED`, `NOT_FOUND`, `UNAVAILABLE`, `CANCELLED`) and a generic message, so
 credentials, tokens and host names never leak to a consumer.
 
-The list of sources on a query answer's `meta` is bounded, so the answer also
-carries `sourceCounts`: every source in the snapshot tallied by health state, over
-the complete population that list was cut from. Counting the sources a consumer
-received would understate the fleet precisely when it matters, because the capped
-list is deliberately biased toward the least healthy. A status the read model does
-not recognize is never folded into a bucket — `total` simply stays above the sum
-of the buckets, rather than the tally adding up perfectly and being wrong.
+A query answer's `meta` lists every source in the snapshot. The **product
+answers** the dashboard reads — the `/api/fleet/*` envelope, schema version
+`pacto.dev/fleet-product/v1` — cap that list at 50 sources, least healthy first,
+and flag the cut with `sourcesTruncated`. Because the list is capped there, a
+product answer also carries `sourceCounts`: every source in the snapshot tallied
+by health state, over the complete population the list was cut from. Counting the
+sources a consumer received would understate the fleet precisely when it matters,
+because the capped list is deliberately biased toward the least healthy. A status
+the read model does not recognize is never folded into a bucket — `total` simply
+stays above the sum of the buckets, rather than the tally adding up perfectly and
+being wrong.
 
 ---
 
 ## Query semantics
 
-The read model is queried through five pure operations. None performs I/O; a
-single snapshot serves concurrent queries. **Every answer carries a `meta`
-envelope with `asOf`, `completeness` and `limitations`** — a consumer can always
-tell how much of the system the answer actually covers.
+The read model answers five kinds of question, each a pure operation. None
+performs I/O; a single snapshot serves concurrent queries. **Every answer
+carries a `meta`
+envelope with `schemaVersion`, `snapshotId`, `asOf`, `completeness`,
+`limitations` and `sources`** — a consumer can always tell how much of the system
+the answer actually covers. `schemaVersion` (`pacto.dev/fleet/v1`) is the
+compatibility contract to branch on; `snapshotId` is the content digest that
+proves two answers came from the same system view.
 
 | Query | Answers |
 |-------|---------|
@@ -164,25 +280,52 @@ tell how much of the system the answer actually covers.
 
 A `not found` under `partial` completeness is not proof the thing does not exist —
 the answer's `meta.completeness` tells the caller whether absence is trustworthy.
+Two more operations sit beside the five and are not queries: `snapshot` emits
+the whole read model as one document, and `reconcile` reports declared
+dependencies against observed ones ([Observed dependencies and
+reconciliation](#observed-dependencies-and-reconciliation)).
+
 Errors are typed: a missing identity is a not-found, an ambiguous one lists its
 matches.
+
+A `pacto fleet search --output-format json` answer over a local bundle root with
+an unreachable OCI source:
 
 ```json
 {
   "meta": {
+    "schemaVersion": "pacto.dev/fleet/v1",
+    "snapshotId": "sha256:c81df8fd572ecaa7c884968e728daff5b47c40b8e8c5cbcf1926c19740db95a9",
     "asOf": "2026-07-29T10:00:00Z",
     "completeness": "partial",
     "limitations": [
       { "code": "SOURCE_UNAVAILABLE", "source": "oci",
         "message": "source oci is unavailable; its records are missing from this snapshot" }
+    ],
+    "sources": [
+      { "id": "local", "kind": "local", "status": "available",
+        "lastSuccessfulSync": "2026-07-29T10:00:00Z",
+        "observedAt": "2026-07-29T10:00:00Z",
+        "revisionCount": 25, "targetCount": 0 },
+      { "id": "oci", "kind": "oci", "status": "unavailable",
+        "error": { "code": "UNAVAILABLE", "message": "the source is unavailable" },
+        "revisionCount": 0, "targetCount": 0 }
     ]
   },
   "total": 1,
+  "count": 1,
   "services": [
-    { "name": "payments-api", "owner": "payments", "status": "Compliant" }
+    { "key": "payments-service", "name": "payments-service",
+      "owner": "team/payments", "status": "NotEvaluated",
+      "revisionCount": 6, "targetCount": 0, "sources": ["local"] }
   ]
 }
 ```
+
+`total` is the whole matched population; `count` is how many rows this page
+carries. `key` is the service's canonical identity — match on it, not on `name`,
+which is not unique across domains. `owner` here is the authored owner label, not
+the canonical owner key (see [ownership](#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole)).
 
 ---
 
@@ -277,7 +420,7 @@ flowchart LR
         OCI["Contracts in OCI<br/>published revisions"]
         LOCAL["Local bundles<br/>revision being edited"]
         K8S["Live Kubernetes<br/>Pacto CRs: which revision runs where"]
-        EVI["Evidence Server<br/>durable signed EvidenceSet reports"]
+        EVI["Evidence Server<br/>durable EvidenceSet records<br/>signature checked at ingestion, not stored"]
     end
     OTEL["OTel trace file<br/>offline analysis"]
     OCI --> OG
@@ -317,10 +460,13 @@ flowchart LR
 - **CLI (`pacto fleet …`)** — the five queries on the command line:
   `pacto fleet search`, `pacto fleet get`, `pacto fleet graph`, `pacto fleet
   status`, `pacto fleet explain`, plus `pacto fleet reconcile` (declared vs
-  observed). Scriptable, deterministic output.
+  observed) and `pacto fleet snapshot` (the whole read model as one document).
+  Scriptable, deterministic output.
 - **MCP fleet tools** — `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status` and `pacto_fleet_explain` give an
-  agent read-only understanding of the operational system. They are one of three
+  agent read-only understanding of the operational system, and
+  [`pacto_impact`](impact.md#mcp-tool-pacto_impact) is the sixth tool of the same
+  family — the one that re-reads its sources on every call. They are one of three
   MCP tool families — see [MCP integration](mcp-integration.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.
 
@@ -440,7 +586,40 @@ Those observed edges meet the declared graph in three places:
 
 The OTel observer can also emit signable EvidenceSets
 (`pacto otel observe --evidence`), so observed dependencies can travel the same
-[external evidence protocol](evidence-protocol.md) as any other report.
+[external evidence protocol](evidence-protocol.md) as any other report. That is
+two steps rather than a pipe, because traces name services and not contract
+revisions:
+
+```bash
+# One EvidenceSet per calling service, as a JSON array
+$ pacto otel observe traces.json --evidence --output-format json > sets.json
+```
+
+Each set comes out with an empty `ContractRef` — a trace cannot know which
+revision was running. Split the array into one file per set:
+
+```bash
+$ for i in $(seq 0 $(( $(jq length sets.json) - 1 ))); do
+    jq ".[$i]" sets.json > "set-$i.json"
+  done
+```
+
+Then edit each file's `ContractRef` to the revision that service was serving —
+this is the step only you can do — and sign one set at a time:
+
+```bash
+$ pacto evidence sign set-0.json \
+    --key k.key --key-id k --producer prod > envelope-0.json
+$ pacto evidence send envelope-0.json \
+    --url https://evidence.example.com/api/evidence/v1/envelopes
+```
+
+`pacto evidence sign` reads a file and one `EvidenceSet` at a time: hand it the
+array and it answers
+`decode evidence set: json: cannot unmarshal array into Go value of type evidence.EvidenceSet`,
+and hand it a set with no `ContractRef` and it answers
+`invalid evidence set: contract ref is empty`. Both are the tool asking for the
+one thing the traces could not supply.
 
 Observed edges live in a **separate** adjacency index from declared edges, so the
 declared graph stays declared and consumers layer observed evidence on top rather
@@ -528,7 +707,7 @@ files you declared and no others, never recursively, and never writes to them.
 Changing a source changes the pod template, so Kubernetes rolls the dashboard;
 reordering the list does not, because order is not identity.
 
-`file` is a plain file name, not a path: no `/`, no whitespace, and no comma
+`file` is a plain file name, not a path: no `/`, no whitespace and no comma
 (the character that separates fields on the controller's flag). Give a source
 its own backing and mount its export at the top of it, rather than reaching into
 a subdirectory — which also makes the mount the read root, with nothing above it

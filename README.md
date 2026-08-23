@@ -74,7 +74,7 @@ pacto diff oci://ghcr.io/acme/svc:1.0 oci://ghcr.io/acme/svc:2.0
 pacto dashboard                              # auto-detects local, OCI and K8s sources
 ```
 
-The [Quickstart](https://pacto.run/latest/quickstart) goes from zero to a published contract in two minutes.
+The [Quickstart](https://pacto.run/latest/quickstart) goes from zero to a published contract in about five minutes, using a throwaway local registry so you need no account.
 
 ## What a contract captures
 
@@ -124,10 +124,10 @@ Everything a contract enables, from one artifact:
 - **Dependency graph** — transitive service relationships and blast radius (the downstream services a change can affect), recursively resolved
 - **Ownership registry** — every service by team and DRI (directly responsible individual), with per-owner compliance and readiness
 - **SBOM inventory** — SPDX / CycloneDX package inventory and package-level diffs across versions
-- **Operational docs** — `pacto doc` renders Markdown, an offline dashboard-grade HTML site or an interactive Swagger/Scalar API explorer
+- **Operational docs** — `pacto doc` renders Markdown, an offline dashboard-grade HTML site or an interactive API explorer (`--ui swagger`, rendered with Scalar)
 - **Readiness scoring** — operational-readiness assessment per service, surfaced in the fleet view
 - **Runtime verification** — with the [operator](https://pacto.run/latest/integrations/kubernetes/overview/), whether deployed workloads still match their contract
-- **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub and Harbor with local caching; signable with cosign or Notary
+- **OCI distribution** — push/pull to GHCR, ECR, ACR, Docker Hub and Harbor with local caching; a digest reference is immutable. Pacto does not sign bundles or check signatures on them, so add cosign or Notary if your supply chain needs it — what Pacto *does* sign is [evidence envelopes](https://pacto.run/latest/evidence-security/) (Ed25519, verification always on) and its [own published chart and image](https://pacto.run/latest/integrations/kubernetes/artifact-hub/)
 - **Reproducibility and supply chain** — `pacto.lock` for pinned resolution, gitignore-style `.pactoignore` for packaging
 - **Extensibility** — out-of-process plugins generate deployment artifacts; `pacto mcp` exposes contract operations to Claude, Cursor and Copilot
 
@@ -141,16 +141,26 @@ Pacto composes the interface tools it sits between (OpenAPI, config schemas) and
 
 | | Versioned artifact | Semantic diff | Dependency graph | Transitive policy | Runtime verify | Orchestrator-agnostic | Deploys? |
 |---|---|---|---|---|---|---|---|
-| **Score** | — | — | — | — | — | ✅ | No |
-| **Crossplane Configuration** | ✅ | — | — | — | — | — | Yes |
-| **KubeVela** / OAM | — | — | Partial | — | — | Partial | Yes |
+| **Score** ([score.dev](https://score.dev)) | — | — | — | — | — | ✅ | No |
+| **Crossplane Configuration** | ✅ | — | Partial | — | Partial | — | Yes |
+| **KubeVela** / OAM | — | Partial | Partial | — | Partial | Partial | Yes |
 | **Radius** | — | — | ✅ | — | — | Partial | Yes |
-| **Kratix** | — | — | — | — | — | Partial | Yes |
+| **Kratix** | Partial | — | Partial | — | — | Partial | Yes |
 | **Backstage** / Port | — | — | Partial | — | — | ✅ | No |
-| **Kargo** | ✅ | — | — | — | — | ✅ | Yes |
+| **Kargo** | ✅ | — | — | — | Partial | — | No |
 | **Pacto** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **No** |
 
-✅ first-class · Partial adjacent or limited · — not in scope. A 2026 snapshot, and several of these are complementary rather than competing: a contract can gate a Kargo promotion, feed a Backstage card or front a Crossplane provisioner. The point is the combination — Pacto is the only row that is a versioned, diffable, graph-resolved, policy-enforced and runtime-verified contract that stays orchestrator-agnostic and never deploys.
+✅ first-class · Partial adjacent or limited · — not in scope. Verified against each project's own documentation, August 2026; these projects move fast, so re-check the cells before relying on them. How to read the columns:
+
+- **Versioned artifact** — the unit is immutably versioned and pinnable by digest
+- **Semantic diff** — changes are classified by compatibility impact rather than rendered as text; a line-based diff is Partial
+- **Dependency graph** — a service-to-service graph traversed transitively, with downstream blast radius; package-level resolution or ordering inside one application is Partial
+- **Transitive policy** — governance rules evaluated across the dependency closure, fail-closed
+- **Runtime verify** — running workloads checked against an independently declared contract; reconciling toward the tool's own desired state is Partial
+- **Orchestrator-agnostic** — ✅ means the tool needs no Kubernetes control plane of its own. This is the softest column: between ✅ and —, Partial is a judgement of degree
+- **Deploys?** — whether getting workloads running is part of the product's own job, even when a GitOps agent performs the apply. Kargo scores No on its own documentation: "Promotions are different from _deployments_ … The job of _deploying_ … is left to a GitOps agent like Argo CD"
+
+Several of these are complementary rather than competing: a contract can gate a Kargo promotion, feed a Backstage card or front a Crossplane provisioner. The point is the combination. Other rows do one or two of these well — Radius computes a transitive application graph, Crossplane resolves package dependencies through a `Lock` CRD, KubeVela re-checks applied resources for configuration drift, Kargo verifies Freight before promoting it — but Pacto is the only row where one versioned artifact is diffed for breaking changes, resolved into a service graph with blast radius, gated by recursive fail-closed policy and verified against what is actually running, with no control plane of its own and no deployment decisions.
 
 **What Pacto is NOT:**
 
@@ -176,13 +186,20 @@ go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 git clone https://github.com/TrianaLab/pacto.git && cd pacto && make build
 ```
 
+The installer script also installs the two official plugins and leaves a
+version-stamped binary that `pacto update` can upgrade in place. `go install`
+and `make build` install `pacto` alone into `$GOBIN`, and a `go install` build
+reports its version as `dev` because the stamp is applied at release time. The
+[Installation guide](https://pacto.run/latest/installation) covers pinning a
+version, installing without `sudo` and uninstalling.
+
 ## Documentation
 
 Full documentation at **[pacto.run](https://pacto.run)**.
 
 | Guide | Description |
 |-------|-------------|
-| [Quickstart](https://pacto.run/latest/quickstart) | From zero to a published contract in 2 minutes |
+| [Quickstart](https://pacto.run/latest/quickstart) | From zero to a published contract in about 5 minutes |
 | [Contract Reference](https://pacto.run/latest/contract-reference) | Every field, validation rule and change classification |
 | [For Developers](https://pacto.run/latest/developers) | Write and maintain contracts alongside your code |
 | [For Platform Engineers](https://pacto.run/latest/platform-engineers) | Consume contracts for deployment, policies and graphs |

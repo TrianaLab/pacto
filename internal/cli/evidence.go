@@ -143,8 +143,9 @@ func newEvidenceSignCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "sign <evidence.json>",
 		Short: "Sign an EvidenceSet into a signed envelope",
 		Long: "Reads an EvidenceSet JSON file, wraps it in an Ed25519-signed envelope and " +
-			"prints the envelope JSON. The id defaults to a content hash of the evidence; " +
-			"pass --id and --issued-at for a fully deterministic envelope.",
+			"prints the envelope JSON. Only --issued-at is non-deterministic (it defaults " +
+			"to now), so pinning it is enough to make re-signing the same evidence produce " +
+			"a byte-identical envelope.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := app.SignOptions{EvidencePath: args[0]}
@@ -176,7 +177,7 @@ func newEvidenceSignCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().String("key-id", "", "producer key id (must match the trust-store entry)")
 	cmd.Flags().String("producer", "", "producer id")
 	cmd.Flags().String("producer-version", "", "producer version (optional)")
-	cmd.Flags().String("id", "", "envelope id (defaults to a content hash of the evidence)")
+	cmd.Flags().String("id", "", "envelope id (defaults to a hash over the API version, producer id, sequence and evidence, so two producers reporting identical evidence never collide)")
 	cmd.Flags().Uint64("sequence", 0, "producer-scoped monotonic sequence; each report must be strictly greater than the producer's last")
 	cmd.Flags().String("issued-at", "", "issued-at timestamp (RFC3339; defaults to now)")
 	cmd.Flags().Duration("ttl", 24*time.Hour, "validity window; 0 disables expiry")

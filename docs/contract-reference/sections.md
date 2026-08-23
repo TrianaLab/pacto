@@ -10,7 +10,9 @@ pactoVersion: "2.0"
 
 Every contract is validated against the single tracked JSON Schema,
 [`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json).
-Any other value is a hard error (`UNSUPPORTED_PACTO_VERSION`).
+Any other value is a hard error: the contract fails to load before validation
+runs and reports `PARSE_ERROR` (`unsupported pactoVersion "2.1"; only "2.0" is
+supported`). See [Validation layers](validation.md).
 
 ---
 
@@ -21,12 +23,25 @@ Identifies the service.
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Pattern: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` |
-| `version` | string | Yes | Valid semver (e.g., `2.1.0`) |
+| `version` | string | Yes | Parses as semver (e.g., `2.1.0`) — see the note below |
 | `owner` | [OwnerInfo](#ownerinfo) | No | Object only (string form removed) |
 
 `service` carries identity only — there is no `image` or `chart` field. How a
 service is built and deployed is a delivery concern that lives outside the
 contract.
+
+!!! note "`version` is parsed leniently, so write it strictly"
+    The check is "does [Masterminds/semver](https://github.com/Masterminds/semver)
+    parse this", not "is this three dot-separated numbers". That parser fills in
+    the parts you leave out and tolerates a leading `v`, so `1`, `0.1` and `v0.1`
+    all validate and all mean `0.1.0`-style coerced versions. `1.2.3.4`, `abc`, a
+    capital `V1.0.0` and anything with surrounding whitespace are rejected with
+    `INVALID_SEMVER`.
+
+    Nothing downstream re-checks the shape, so a coerced version is what gets
+    published: `pacto push` tags the artifact with the literal string, and two
+    contracts written `1` and `1.0.0` become two different tags of the same
+    version. Write the full `MAJOR.MINOR.PATCH` and skip the `v`.
 
 ### OwnerInfo
 
@@ -114,7 +129,7 @@ Declares the service's communication boundaries. Optional — a service with no 
 | `grpc` | gRPC service descriptor |
 
 !!! note
-    Interface names must be unique within a contract. Every interface requires a `ref` (`INTERFACE_REF_REQUIRED` otherwise), and the referenced file must exist in the bundle and parse as JSON or YAML (`FILE_NOT_FOUND` / `INVALID_INTERFACE_SPEC` otherwise). There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.
+    Interface names must be unique within a contract. Every interface requires a non-empty `ref` (`SCHEMA_VIOLATION` otherwise), and the referenced file must exist in the bundle (`FILE_NOT_FOUND` otherwise). A `.json`, `.yaml` or `.yml` ref must also parse (`INVALID_INTERFACE_SPEC` otherwise); any other extension — a gRPC `.proto`, say — carries no format this layer can check, so it is only checked for existence. There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.
 
 ---
 
@@ -214,6 +229,7 @@ When present, each entry must have a `name` and either `schema` or `ref` specifi
 | `name` | string | Yes | Non-empty identifier for the policy entry |
 | `schema` | string | Conditional | Non-empty. Path to a JSON Schema file in the bundle (convention: `policy/schema.json`). Required if `ref` is not set |
 | `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. If the referenced contract declares `policies[]`, those schemas are used directly; otherwise falls back to the fixed path `policy/schema.json`. Required if `schema` is not set |
+| `target` | string | No | What the policy is evaluated against. `contract` is the only accepted value and the default, so there is no reason to set it today; it exists so a later release can add a second target without a breaking change. Any other value fails Layer 1 with `SCHEMA_VIOLATION` |
 
 **`schema` and `ref` are mutually exclusive** — a contract either defines its own policy inline or references an external one, not both.
 
@@ -320,6 +336,24 @@ Declares dependencies on other services via their Pacto contracts.
 | *(bare path)* | `../shared-db` | Local filesystem path (shorthand for `file://`) |
 
 When an `oci://` reference omits the tag, pacto queries the registry for available tags and selects the highest semver version that satisfies the `compatibility` constraint. For example, with `compatibility: "^2.0.0"` and available tags `1.0.0`, `2.0.0`, `2.3.0`, `3.0.0`, pacto resolves to `2.3.0`. Tag listings are cached in memory for the duration of the command, so multiple dependencies pointing to the same repository only trigger a single registry query.
+
+!!! warning "`compatibility` selects a version; it does not police one"
+    The constraint is consulted **only** when the reference omits its tag. A `ref`
+    that already names a tag or a digest is taken as-is, and the resolved version
+    is never checked back against `compatibility`. So this validates clean, with
+    no warning:
+
+    ```yaml
+    dependencies:
+      - name: auth
+        ref: oci://ghcr.io/acme/auth-pacto:1.0.0   # resolves to 1.0.0 …
+        required: true
+        compatibility: "^2.0.0"                    # … which this does not satisfy
+    ```
+
+    Pinning and constraining are two separate decisions here. If you pin, the pin
+    wins; keep `compatibility` truthful anyway, because consumers and the
+    [lockfile](../lockfile.md) read it as your declared range.
 
 !!! note
     Validation rejects OCI references whose tag or digest is malformed. Tags must follow the OCI tag grammar (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`), and digests must be well-formed (`sha256:<64 hex>` or `sha512:<128 hex>`). The same check applies to config and policy refs.
@@ -555,7 +589,7 @@ is present. `readiness.minScore`, `readiness.partialCredit` and `readiness.histo
 | `status` | string | Yes | Enum: `done`, `partial`, `not-done`, `deferred`. Completion state for the claim. |
 | `category` | string | No | Enum: `architecture`, `testing`, `code-quality`, `observability`, `security`, `documentation`, `infrastructure`, `ci-cd`, `deployment`, `resilience`, `backup-recovery`, `incident-response`, `compliance`, `other`. Categorizes the requirement type. |
 | `weight` | integer | Yes | Contribution to the readiness score. Range `0`–`100`. |
-| `evidence` | string | Yes | Evidence location (URL, file path, ticket ID, etc.). Non-empty. |
+| `evidence` | string | Yes | Where the evidence lives — a URL, a bundle-relative file path, a ticket ID, anything. Checked for non-emptiness only: Pacto never fetches it, never resolves a path and never verifies the target exists. This is a claim you are making, not one Pacto audits. (Unlike `interfaces[].ref` and `configurations[].schema`, which must exist in the bundle.) |
 | `description` | string | No | Optional human-readable explanation (non-blank when present). |
 
 ### History entry
@@ -592,6 +626,7 @@ passing = score >= minScore          # minScore defaults to 100
 ```
 
 **Worked example.** Using the four claims from the example above (weights `20`, `15`, `25`, `10`):
+
 - `legacy-cleanup` has `status: deferred` → excluded from both numerator and denominator
 - In-scope weights: `20 + 15 + 25 = 60` (total)
 - `dashboard` (`done`, weight `20`) → earns `20`

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
@@ -1618,6 +1619,110 @@ interfaces:
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+// TestEdit_PreservesDateScalars: Edit reads pacto.yaml into a generic map, where
+// yaml.v3 resolves an unquoted date to a time.Time. Every date scalar must come
+// back out of that round-trip exactly as written — a bare date stays a bare date
+// (a `pacto init` scaffold is otherwise unedittable) and an explicit timestamp
+// keeps its time instead of being truncated to a date.
+func TestEdit_PreservesDateScalars(t *testing.T) {
+	cases := []struct {
+		name           string
+		setup          func(*testing.T) string
+		wantDeployedAt any // nil for the scaffold, which carries no metadata timestamp
+	}{
+		{"pacto init scaffold", func(t *testing.T) string {
+			t.Chdir(t.TempDir())
+			res, err := app.NewService(nil, nil).Init(t.Context(), app.InitOptions{Name: "scaffolded"})
+			if err != nil {
+				t.Fatalf("init: %v", err)
+			}
+			return res.Dir
+		}, nil},
+		{"hand-written unquoted", func(t *testing.T) string {
+			return writeDatedBundle(t, "2099-12-31", "2099-01-01")
+		}, "2024-01-15T00:00:00Z"},
+		{"hand-written quoted", func(t *testing.T) string {
+			return writeDatedBundle(t, `"2099-12-31"`, `"2099-01-01"`)
+		}, "2024-01-15T00:00:00Z"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := tc.setup(t)
+			if _, err := Edit(EditInput{
+				Path:          dir,
+				AddInterfaces: []InterfaceInput{{Name: "events", Type: "asyncapi"}},
+			}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, err := contract.Parse(bytes.NewReader(data))
+			if err != nil {
+				t.Fatalf("re-parsing the edited contract: %v", err)
+			}
+			if c.Readiness.Expires != "2099-12-31" {
+				t.Errorf("expires: got %q, want 2099-12-31, in:\n%s", c.Readiness.Expires, data)
+			}
+			if c.Readiness.History[0].Date != "2099-01-01" {
+				t.Errorf("history[0].date: got %q, want 2099-01-01, in:\n%s", c.Readiness.History[0].Date, data)
+			}
+			// An explicit timestamp must not be truncated to its date.
+			if got := c.Metadata["deployedAt"]; got != tc.wantDeployedAt {
+				t.Errorf("metadata.deployedAt: got %v, want %v, in:\n%s", got, tc.wantDeployedAt, data)
+			}
+		})
+	}
+}
+
+// TestEdit_KeepsRejectingNonCanonicalDate: an unrelated edit must not launder a
+// date the validator rejects into one it accepts.
+func TestEdit_KeepsRejectingNonCanonicalDate(t *testing.T) {
+	dir := writeDatedBundle(t, "2099-1-1", "2099-01-01")
+	_, err := Edit(EditInput{
+		Path:          dir,
+		AddInterfaces: []InterfaceInput{{Name: "events", Type: "asyncapi"}},
+	})
+	if err == nil {
+		t.Fatal("expected the non-canonical expires to fail validation")
+	}
+	if !strings.Contains(err.Error(), `"2099-1-1"`) {
+		t.Errorf("expected the error to name the literal scalar, got: %v", err)
+	}
+}
+
+// writeDatedBundle writes a bundle whose readiness dates are rendered exactly as
+// given (bare or quoted) plus an unquoted metadata timestamp, and returns its dir.
+func writeDatedBundle(t *testing.T, expires, historyDate string) string {
+	t.Helper()
+	dir := testutil.WriteTestBundle(t)
+	doc := string(testutil.ValidPactoYAML()) + fmt.Sprintf(`metadata:
+  deployedAt: 2024-01-15T00:00:00Z
+readiness:
+  minScore: 80
+  expires: %s
+  history:
+    - date: %s
+      version: "1.0.0"
+      author: me
+      description: Initial assessment
+  claims:
+    - id: runbook
+      type: document
+      category: documentation
+      status: done
+      evidence: docs/runbook.md
+      weight: 100
+`, expires, historyDate)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(doc), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func TestCheck_WithErrors(t *testing.T) {

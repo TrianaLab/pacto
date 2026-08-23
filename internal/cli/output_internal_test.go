@@ -1261,3 +1261,40 @@ func TestDiffColors(t *testing.T) {
 		t.Fatal("off-TTY diffColors must be zero")
 	}
 }
+
+// An unknown --output-format used to fall through to text with a zero exit, so
+// a CI step asking for JSON silently got prose and passed.
+func TestCheckOutputFormat(t *testing.T) {
+	for _, ok := range []string{"text", "json", "markdown"} {
+		if err := checkOutputFormat(ok); err != nil {
+			t.Errorf("checkOutputFormat(%q) = %v, want nil", ok, err)
+		}
+	}
+	err := checkOutputFormat("bogus")
+	if err == nil {
+		t.Fatal("expected an error for an unknown output format")
+	}
+	for _, want := range []string{`"bogus"`, "text", "json", "markdown"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("expected error naming %s, got: %v", want, err)
+		}
+	}
+}
+
+// The guard lives in the root PersistentPreRunE, so it covers every command and
+// runs before the command does any work.
+func TestRootRejectsUnknownOutputFormat(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	root := NewRootCommand(svc, VersionInfo{Version: "test"})
+	root.SetArgs([]string{"validate", "/nonexistent/bundle/xyz", "--output-format", "bogus"})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error for an unknown output format")
+	}
+	if !strings.Contains(err.Error(), "unsupported output format") {
+		t.Errorf("expected the format error, got: %v", err)
+	}
+}

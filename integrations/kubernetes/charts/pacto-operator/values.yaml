@@ -117,14 +117,19 @@ dashboard:
   # When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry.
   # Takes precedence over ociSecret.
   ociSecrets: []
-  # -- Resource requests and limits for the dashboard container.
-  # The previous default of 128Mi memory limit caused OOMKill when monitoring
-  # multiple OCI repositories and CRs simultaneously.
+  # A `# --` comment only reaches the generated Helm reference when it sits on a
+  # LEAF key: the table is flattened, so a comment on `resources:` is never
+  # rendered and its children publish as blank cells. One per leaf.
   resources:
     limits:
+      # -- Memory limit for the dashboard container. The earlier default of
+      # 128Mi was OOMKilled while monitoring several OCI repositories and CRs
+      # at once; raise it further if the dashboard tracks a large fleet.
       memory: 512Mi
     requests:
+      # -- CPU request for the dashboard container
       cpu: 50m
+      # -- Memory request for the dashboard container
       memory: 128Mi
   observation:
     # -- Offline OTLP/JSON trace exports to mount read-only into the dashboard, so
@@ -197,7 +202,10 @@ evidence:
     # durable evidence store — every accepted record is published as an OCI 1.1
     # referrer of one of these manifests — so the chart installs nothing durable
     # in the cluster. A mutable tag is rejected: it could be moved onto another
-    # manifest and silently change what the stored evidence reports on.
+    # manifest and silently change what the stored evidence reports on. That
+    # registry must serve the native OCI 1.1 Referrers API — GHCR and CNCF
+    # distribution (registry:2, registry:3) do not, and the Evidence Server
+    # stays permanently not-ready against them.
     subjects: []
     # -- Optional name of an EXISTING kubernetes.io/dockerconfigjson Secret with
     # credentials for that registry, mounted read-only. The chart never creates
@@ -248,12 +256,16 @@ evidence:
     # -- HTTPRoute rules. When empty, a single catch-all rule routes to the
     # chart-managed evidence Service on evidence.service.port.
     rules: []
-  # -- Resource requests and limits for the Evidence Server container.
   resources:
     requests:
+      # -- CPU request for the Evidence Server container
       cpu: 25m
+      # -- Memory request for the Evidence Server container
       memory: 64Mi
     limits:
+      # -- Memory limit for the Evidence Server container. It verifies and
+      # forwards one envelope at a time and stores nothing locally, so this is
+      # sized for a single writer.
       memory: 256Mi
 
 # -- Node selector for the controller pod

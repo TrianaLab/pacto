@@ -15,6 +15,7 @@
 # are mutually exclusive, so a schema you supply values for must live in the bundle.
 configurations:
   - name: deployment
+    required: true
     schema: configuration/deployment/schema.json
     values:
       replicas: 3
@@ -24,6 +25,7 @@ configurations:
           memory: 1Gi
 
   - name: postgres
+    required: true
     schema: configuration/postgres/schema.json
     values:
       instances: 2
@@ -33,6 +35,7 @@ configurations:
         schedule: "0 */6 * * *"
 
   - name: secrets
+    required: true
     schema: configuration/secrets/schema.json
     values:
       secrets:
@@ -40,7 +43,7 @@ configurations:
         - key: openai-token
 ```
 
-`pacto validate -f overrides/values.stg.yaml` validates each entry's `values` against its local `schema`. (Values for `ref`-based configs are resolved and validated at deploy/runtime, not at validate time.) Your deployment tooling reads the same file and produces:
+`pacto validate -f overrides/values.stg.yaml` validates each entry's `values` against its local `schema`. Your deployment tooling reads the same file and produces:
 
 - Helm values (`deployment` entry → values nested under the component's chart alias)
 - A Postgres claim (`postgres` entry → fields land in the claim's `spec`)
@@ -49,7 +52,7 @@ configurations:
 **Each value is written once** — no drift between a chart's `values.yaml` and a separate `claims/postgres.yaml`.
 
 !!! info
-    Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `schema` (and `values`) or a `ref` (schema-only). Inline `values` require a local `schema`; a `ref`-based entry carries neither.
+    Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` (with `values`) or a `ref` (schema-only) — omitting `required` is rejected with a `PARSE_ERROR` naming the missing property. Inline `values` require a local `schema`; a `ref`-based entry carries neither.
 
 **Cross-links:** [`configurations`](../contract-reference/sections.md#configurations) · [Contract overrides](../contract-reference/overrides.md#contract-overrides) · [Environment-specific values files](../contract-reference/overrides.md#environment-specific-values-files)
 

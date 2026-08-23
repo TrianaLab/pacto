@@ -1,4 +1,8 @@
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+# `--match 'v[0-9]*'` restricts to core "vX.Y.Z" tags. Without it git describe
+# picks the most recent tag of any kind, which is usually the k8s submodule's
+# (integrations/kubernetes/vX.Y.Z) -- so a from-source `pacto version` reported
+# the integration's version as the CLI's. Same guard as examples/demo/Makefile.
+VERSION ?= $(shell git describe --tags --always --dirty --match 'v[0-9]*' 2>/dev/null || echo "dev")
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)"
@@ -286,7 +290,9 @@ docker-build:
 	docker build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE) -t $(IMAGE):$(VERSION) .
 
 docker-run: docker-build
-	docker run --rm -p 3000:3000 \
+	# 127.0.0.1 deliberately: the image sets --host 0.0.0.0 and the dashboard has
+	# no authentication, so publishing wide would put every contract on the LAN.
+	docker run --rm -p 127.0.0.1:3000:3000 \
 		-v "$(HOME)/.kube/config:/home/pacto/.kube/config:ro" \
 		-v "$(HOME)/.cache/pacto:/home/pacto/.cache/pacto" \
 		$(IMAGE):$(VERSION)

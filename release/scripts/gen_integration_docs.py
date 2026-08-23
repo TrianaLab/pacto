@@ -15,6 +15,9 @@ Source-of-truth map (page -> inputs):
   runtime-observations.md  <- internal/observer/runtime.go + pkg/evidence + pkg/finding + api enums
   artifact-hub.md          <- release/release-manifest.json + artifacthub-repo.yml + Chart.yaml
   _compatibility.md        <- integration.yaml (compatibility) + release/release-manifest.json
+  _install-command.md      <- release/release-manifest.json (operator-chart version)
+  _upgrade-command.md      <- release/release-manifest.json (operator-chart version)
+  _crd-apply.md            <- release/release-manifest.json (k8s-module release tag)
 
 Usage:
   python3 release/scripts/gen_integration_docs.py [--repo-root DIR] [--integration-dir DIR]
@@ -257,41 +260,180 @@ def gen_helm_reference(k8s: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _rbac_rules_table(rules: list[dict]) -> list[str]:
-    out = ["| API groups | Resources | Verbs |", "| --- | --- | --- |"]
+    out = ["| API groups | Resources | Verbs | Limited to |", "| --- | --- | --- | --- |"]
     def sortkey(rule):
         return (",".join(rule.get("apiGroups", [])), ",".join(rule.get("resources", [])))
     for rule in sorted(rules, key=sortkey):
         groups = ", ".join(f"`{g or '\"\" (core)'}`" for g in rule.get("apiGroups", []))
         res = ", ".join(f"`{r}`" for r in rule.get("resources", []))
         verbs = ", ".join(f"`{v}`" for v in sorted(rule.get("verbs", [])))
-        out.append(f"| {groups} | {res} | {verbs} |")
+        names = rule.get("resourceNames") or []
+        scope = ", ".join(f"`{n}`" for n in names) if names else "*not name-restricted*"
+        out.append(f"| {groups} | {res} | {verbs} | {scope} |")
+    return out
+
+
+def _rule_key(rule: dict) -> tuple:
+    return (
+        tuple(rule.get("apiGroups", [])),
+        tuple(rule.get("resources", [])),
+        tuple(sorted(rule.get("verbs", []))),
+        tuple(rule.get("resourceNames", []) or []),
+    )
+
+
+def helm_rbac(k8s: str, *set_args: str) -> dict[tuple[str, str], dict]:
+    """Render the chart and return its RBAC objects keyed by (kind, name).
+
+    Generated from `helm template`, not from config/rbac/role.yaml: the chart is
+    the only documented install path, and its ClusterRole is a different object
+    from the kubebuilder-generated `manager-role` under config/. Documenting the
+    latter described permissions no chart user has.
+    """
+    chart = os.path.join(k8s, "charts", "pacto-operator")
+    cmd = ["helm", "template", "pacto-operator", chart]
+    for s in set_args:
+        cmd += ["--set", s]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit(f"helm template failed: {proc.stderr.strip()[:400]}")
+    out = {}
+    for doc in yaml.safe_load_all(proc.stdout):
+        if doc and doc.get("kind") in ("ClusterRole", "Role"):
+            out[(doc["kind"], doc["metadata"]["name"])] = doc
     return out
 
 
 def gen_rbac(k8s: str) -> str:
-    role = load_yaml_docs(os.path.join(k8s, "config/rbac/role.yaml"))[0]
+    full = helm_rbac(k8s)
+    minimal = helm_rbac(k8s, "dashboard.enabled=false", "evidence.enabled=false")
     metrics_docs = load_yaml_docs(
         os.path.join(k8s, "config/rbac/metrics-observation/servicemonitor_rbac.yaml")
     )
-    out = [banner("config/rbac/role.yaml + config/rbac/metrics-observation/servicemonitor_rbac.yaml")]
+
+    cr_name = next(n for (k, n) in full if k == "ClusterRole")
+    role_name = next((n for (k, n) in full if k == "Role"), None)
+    full_rules = full[("ClusterRole", cr_name)]["rules"]
+    min_keys = {_rule_key(r) for r in minimal[("ClusterRole", cr_name)]["rules"]}
+    always = [r for r in full_rules if _rule_key(r) in min_keys]
+    component_only = [r for r in full_rules if _rule_key(r) not in min_keys]
+
+    out = [banner("helm template of charts/pacto-operator (+ config/rbac/metrics-observation)")]
     out.append("# RBAC\n")
     out.append(
-        "The operator's base `ClusterRole` (`manager-role`) is generated from "
-        "kubebuilder markers into `config/rbac/role.yaml`. It is the exact permission "
-        "set the controller needs to reconcile Pacto resources and observe runtime state.\n"
+        "Every table below is rendered from the Helm chart itself, so it is the permission "
+        "set an install actually creates. The chart creates one cluster-scoped "
+        f"`ClusterRole` (`{cr_name}`) bound to the controller's ServiceAccount, and one "
+        f"namespaced `Role` (`{role_name}`) for leader election.\n"
     )
-    out.append("## Base ClusterRole (`manager-role`)\n")
-    out.extend(_rbac_rules_table(role["rules"]))
+    out.append("!!! note\n")
+    out.append(
+        "    The repository also contains `config/rbac/role.yaml`, a kubebuilder-generated "
+        "`manager-role`. It is a different object with a different name and is **not** what "
+        "`helm install` creates. It belongs to the `config/` kustomize scaffolding, which is "
+        "not published with a release and is deployed by no test or CI job -- Helm is the "
+        "only supported install path.\n"
+    )
+
+    out.append(f"## Always granted (`{cr_name}`)\n")
+    out.append(
+        "Present in every install, including one with every managed component disabled. "
+        "Workloads and their wiring are read-only; the writes are on Pacto's own resources, "
+        "on events, and on the specific named objects a previous install may have created "
+        "(so the operator can clean them up after you disable a component).\n"
+    )
+    out.extend(_rbac_rules_table(always))
     out.append("")
+    # The unrestricted `secrets get,list,watch` row is the single grant reviewers
+    # stop on, and the table alone gives them no reason for it and no way to tell
+    # whether watchNamespace narrows it (it does not -- that flag changes what the
+    # controller watches, not what the ClusterRole permits).
+    out.append(
+        "!!! warning \"Why the operator can read Secrets in every namespace\"\n\n"
+        "    `spec.contractRef.pullSecretRef` names a Secret **in the Pacto's own "
+        "namespace**, and a `Pacto` can be created in any namespace, so the read "
+        "cannot be scoped to one. `get` resolves those registry credentials when a "
+        "contract is pulled; `list` and `watch` back the Secret informer that "
+        "re-reconciles a Pacto when its pull Secret changes.\n\n"
+        "    **`controller.watchNamespace` does not narrow this.** It restricts what "
+        "the controller reconciles; the ClusterRole is created unconditionally and "
+        "grants the same cluster-wide read either way.\n\n"
+        "    What does limit the blast radius is binding each credential to its host: "
+        "give an Opaque pull Secret a `registry` key and the operator refuses to send "
+        "it anywhere else, so a contract cannot redirect pull traffic to an "
+        "attacker-controlled registry to exfiltrate the token. Beyond that, treat "
+        "cluster-wide Secret read as the cost of the operator and install it on a "
+        "cluster where that is acceptable.\n"
+    )
+
+    if component_only:
+        values = load_yaml_docs(os.path.join(k8s, "charts/pacto-operator/values.yaml"))[0]
+        state = {
+            c: bool((values.get(c) or {}).get("enabled")) for c in ("dashboard", "evidence")
+        }
+        defaults_sentence = " and ".join(
+            f"`{c}.enabled` is **{'on' if on else 'off'}**" for c, on in state.items()
+        )
+        enabled_now = [c for c, on in state.items() if on]
+        out.append("## Additionally granted when a managed component is enabled\n")
+        out.append(
+            "When a managed component is on, the operator creates and reconciles that "
+            "component's Deployment, Service, ServiceAccount and RBAC for you, and the chart "
+            f"widens the ClusterRole accordingly. At chart defaults {defaults_sentence}, so "
+            "every rule below is what a default install adds"
+            + (f" for the {' and '.join(enabled_now)}" if enabled_now else "")
+            + ". Rendering the chart with `"
+            + " ".join(f"--set {c}.enabled=false" for c in state)
+            + "` removes every rule in this table.\n"
+        )
+        out.extend(_rbac_rules_table(component_only))
+        out.append("")
+        escalating = [
+            r for r in component_only
+            # Set intersection, not `in`: apiGroups is a list of exact group names,
+            # and a membership test against a URL-shaped string reads to a scanner
+            # as a substring check on a host. Same shape as the verbs test below.
+            if {"rbac.authorization.k8s.io"} & set(r.get("apiGroups") or [])
+            and not r.get("resourceNames")
+            and {"create", "update", "patch"} & set(r.get("verbs", []))
+        ]
+        if escalating:
+            out.append('!!! warning "This grant allows privilege escalation"\n')
+            out.append(
+                "    The rules above include unrestricted `create` on `clusterroles` and "
+                "`clusterrolebindings`. A subject that can create a ClusterRoleBinding can "
+                "grant itself any permission in the cluster, so at chart defaults the operator "
+                "is effectively cluster-admin-capable, not read-only. This is what lets it "
+                "create the managed components' RBAC.\n"
+            )
+            out.append(
+                "    If your threat model does not allow that, install with "
+                "`--set dashboard.enabled=false --set evidence.enabled=false` and deploy those "
+                "components yourself. The operator then keeps only the *Always granted* table "
+                "plus narrow `get`/`delete` on the specific objects a previous install may have "
+                "left behind.\n"
+            )
+
+    if role_name:
+        out.append(f"## Namespaced Role (`{role_name}`)\n")
+        out.append(
+            "Created in the release namespace and bound to the same ServiceAccount. Used only "
+            "for the controller-runtime leader election lease.\n"
+        )
+        out.extend(_rbac_rules_table(minimal[("Role", role_name)]["rules"]))
+        out.append("")
+
     metrics_role = next(
         (d for d in metrics_docs if d.get("kind") == "ClusterRole"), None
     )
     if metrics_role:
         out.append("## Optional: metrics-observation ClusterRole\n")
         out.append(
-            "Applied ALONGSIDE the base role only when `--enable-metrics-observation` is "
-            "set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch "
-            "of `manager-role`, so the base grants are untouched.\n"
+            "Needed alongside the base role when `--enable-metrics-observation` is set. It is a "
+            "separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, "
+            "so the base grants are untouched. **The Helm chart does not package it, and the "
+            "chart cannot set the flag that needs it** -- apply the two objects yourself. "
+            "[Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.\n"
         )
         out.extend(_rbac_rules_table(metrics_role["rules"]))
         out.append("")
@@ -342,25 +484,90 @@ def parse_flags(help_text: str) -> list[dict]:
     return flags
 
 
+def chart_arg_flags(helper: str) -> dict[str, str]:
+    """Map flag name -> how the chart renders it, for every controller arg the
+    chart can emit.
+
+    The Deployment's args come from one helper template and there is no
+    `extraArgs` value, so a flag the helper never emits is unreachable on the
+    documented install path -- saying "set them via chart values" of every flag
+    was simply false. Read from the template rather than hardcoded, so a new
+    chart value updates the page. Three outcomes:
+
+      "chart value" -- the arg line interpolates a value, or an enclosing
+                       if/with/range guard tests one, so values.yaml decides.
+      "always on"   -- the chart emits it unconditionally with a literal, so it
+                       is fixed at the chart's value and no value changes it.
+      (absent)      -- the helper never emits it.
+    """
+    body = helper[helper.index('define "pacto-operator.controllerArgs"'):]
+    nxt = body.find("\n{{- define ")
+    out: dict[str, str] = {}
+    guards: list[str] = []
+    for line in (body if nxt < 0 else body[:nxt]).splitlines():
+        m = re.match(r"^\s*-\s+--([a-z0-9-]+)", line)
+        if m:
+            controlled = ".Values" in line or any(".Values" in g for g in guards)
+            out[m.group(1)] = "chart value" if controlled else "always on"
+        opens = len(re.findall(r"\{\{-?\s*(?:if|with|range)\b", line))
+        closes = len(re.findall(r"\{\{-?\s*end\b", line))
+        guards.extend([line] * opens)
+        for _ in range(closes):
+            if guards:
+                guards.pop()
+    return out
+
+
 def gen_operator_configuration(repo_root: str, k8s: str) -> str:
     help_text = controller_help(repo_root)
     flags = parse_flags(help_text)
     main_src = read(os.path.join(k8s, "cmd/main.go"))
     env_vars = sorted(set(re.findall(r'os\.Getenv\("([^"]+)"\)', main_src)))
 
+    helper = read(os.path.join(k8s, "charts/pacto-operator/templates/_helpers.tpl"))
+    chart_flags = chart_arg_flags(helper)
+
     out = [banner("`go run ./integrations/kubernetes/cmd --help` (real output) + cmd/main.go")]
     out.append("# Operator configuration\n")
     out.append(
         "Controller flags and their exact defaults are captured from the operator's real "
-        "`--help` output. Set them via chart values or by editing the Deployment args.\n"
+        "`--help` output.\n"
+    )
+    out.append(
+        "**One dash or two makes no difference.** The table shows the single-dash spelling "
+        "because that is how Go's `flag` package prints and reports flags, and other pages "
+        "write `--enable-metrics-observation`. The parser accepts both forms identically: "
+        "`--enable-metrics-observation=x` and `-enable-metrics-observation=x` produce the "
+        "same `invalid boolean value \"x\" for -enable-metrics-observation` error. Neither "
+        "spelling is more correct.\n"
+    )
+    out.append(
+        "**Two different defaults can apply to the same flag.** The Default column below is "
+        "the *binary's* default -- what you get running the controller with no arguments. The "
+        "Helm chart renders its own fixed argument list, so where a chart value exists it "
+        "decides, and its default may differ. `-enable-dashboard` is the one that catches "
+        "people out: the binary defaults it off, the chart's `dashboard.enabled` defaults it "
+        "on, and a chart install therefore runs the managed dashboard. See the "
+        "[Helm reference](helm-reference.md) for the values and their defaults.\n"
+    )
+    out.append(
+        "**A flag the chart never renders cannot be set on the documented install path.** The "
+        "chart has no `extraArgs`, so the *Via chart* column is the whole story: `chart value` "
+        "means some value in `values.yaml` renders this flag; `always on` means the chart "
+        "hardcodes it and no value changes it; `no` means the chart never passes it, and "
+        "reaching it requires patching the Deployment after install -- which `helm upgrade` "
+        "then reverts. See [Limitations](limitations.md#opt-in-features).\n"
     )
     out.append("## Command-line flags\n")
-    out.append("| Flag | Type | Default | Description |")
-    out.append("| --- | --- | --- | --- |")
+    out.append("| Flag | Type | Default | Via chart | Description |")
+    out.append("| --- | --- | --- | --- | --- |")
     for f in flags:
         default = f"`{f['default']}`" if f["default"] != "" else ""
         typ = f"`{f['type']}`" if f["type"] else "`bool`"
-        out.append(f"| `-{f['name']}` | {typ} | {default} | {oneline(f['desc'])} |")
+        settable = chart_flags.get(f["name"], "no")
+        out.append(
+            f"| `-{f['name']}` | {typ} | {default} | {settable} | {oneline(f['desc'])} |"
+        )
     out.append("")
     if env_vars:
         out.append("## Environment variables\n")
@@ -440,7 +647,6 @@ def gen_contract_bindings(k8s: str) -> str:
         "  name: orders-api\n"
         "  namespace: shop\n"
         "spec:\n"
-        "  checkIntervalSeconds: 300\n"
         "  contractRef:\n"
         "    oci: ghcr.io/acme/orders-api-pacto:1.2.0\n"
         "  target:\n"
@@ -455,6 +661,32 @@ def gen_contract_bindings(k8s: str) -> str:
         "        key: app.yaml\n"
         "        format: yaml\n"
         "```\n"
+    )
+    out.append(
+        "## Choosing a reference form\n\n"
+        "The three `contractRef.oci` forms are not three styles. They decide what the "
+        "binding *means* over time, and the operator records which one it inferred in "
+        "`status.resolutionPolicy` -- `PinnedDigest`, `PinnedTag` or `Latest`.\n\n"
+        "- **Digest** (`...@sha256:<digest>`) is the only form whose meaning cannot "
+        "change. Every reconcile re-reads the same bytes, so a compliance verdict is "
+        "reproducible: what the operator asserted last Tuesday is what it asserts "
+        "today. The cost is real -- publishing a contract revision becomes a change to "
+        "the `Pacto` resource too.\n"
+        "- **Tag** (`...:1.2.3`) is a name you control, not an immutable one. If someone "
+        "force-pushes that tag the operator notices rather than drifting silently: it "
+        "records a new `PactoRevision` and emits a `TagOverwritten` Warning Event naming "
+        "the old and new digests. It does not refuse the new content. Choose a tag when "
+        "you want a promotable pointer and will treat that Event as a signal.\n"
+        "- **Unversioned** (`ghcr.io/org/service-pacto`) re-resolves the highest semver "
+        "tag on every reconcile -- every `spec.checkIntervalSeconds`, 300 by default. It "
+        "fits an environment whose job is to run whatever is newest, such as a staging "
+        "namespace or a preview cluster. It fits production badly, because what is being "
+        "asserted changes without anyone deciding to change it.\n\n"
+        "With no other constraint: digest in production, unversioned in staging. The "
+        "middle form is for teams that already run a tag-promotion discipline.\n\n"
+        "This page covers the binding fields only. The rest of `spec` -- including "
+        "`checkIntervalSeconds`, which sets how often the operator re-checks compliance "
+        "(default `300`) -- is in the [CRD reference](crd-reference.md).\n"
     )
     return "\n".join(out).rstrip() + "\n"
 
@@ -635,6 +867,33 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
             f"| {labels[uid]} | {u['artifactKind']} | `{u['coordinate']}` | `{u['version']}` |"
         )
     out.append("")
+    # The image and the chart are the two artifacts the release workflow signs,
+    # so the coordinates table is the one place a reader is guaranteed to be
+    # looking at them. Emit the verify command from the manifest rather than a
+    # literal, for the same reason `--version` is generated.
+    signed = [units[u] for u in ("operator-image", "operator-chart") if u in units]
+    if signed:
+        out.append("## Verify a published artifact\n")
+        out.append(
+            "The controller image and the Helm chart are signed keylessly by the release "
+            "workflow through GitHub's OIDC issuer. Verify either before installing it:\n"
+        )
+        out.append("```bash")
+        out.append("cosign verify \\")
+        out.append(
+            "  --certificate-identity-regexp "
+            "'^https://github\\.com/TrianaLab/pacto/\\.github/workflows/release\\.yml@' \\"
+        )
+        out.append("  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\")
+        out.append(f"  {signed[0]['coordinate']}:{signed[0]['version']}")
+        out.append("```")
+        out.append("")
+        out.append(
+            "Anything other than a successful verification -- including `no signatures "
+            "found` -- means do not deploy it. Not every Pacto artifact is signed; see "
+            "[what is signed and what is not]"
+            "(../../installation.md#supply-chain-what-is-signed-and-what-is-not).\n"
+        )
     out.append("## Artifact Hub repository\n")
     out.append(f"- **Repository ID**: `{ah['repositoryID']}`")
     imgs = chart.get("annotations", {}).get("artifacthub.io/images", "")
@@ -647,16 +906,60 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
         out.append("```")
     out.append("")
     out.append("## Install from the published chart\n")
-    chart_unit = units["operator-chart"]
-    out.append(
+    out.append(chart_command(units["operator-chart"], "install"))
+    return "\n".join(out).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Pinned install/upgrade snippets  <-  release-manifest.json
+# ---------------------------------------------------------------------------
+# Hand-written pages used to carry `--version <literal>` inline, which went stale
+# every chart release and shipped copy-pasteable commands that 404. These two
+# partials are generated from the release manifest and `--8<--`'d into
+# installation.md and upgrade.md, so the literal can only ever be the published
+# one and `make docs-check` catches any drift.
+
+def chart_command(chart_unit: dict, verb: str) -> str:
+    """Fenced `helm install|upgrade` block pinned to the published chart version."""
+    extra = " --create-namespace" if verb == "install" else ""
+    return (
         "```bash\n"
-        f"helm install pacto-operator \\\n"
+        f"helm {verb} pacto-operator \\\n"
         f"  oci://{chart_unit['coordinate']} \\\n"
         f"  --version {chart_unit['version']} \\\n"
-        "  --namespace pacto-operator-system --create-namespace\n"
+        f"  --namespace pacto-operator-system{extra}\n"
         "```\n"
     )
-    return "\n".join(out).rstrip() + "\n"
+
+
+def gen_chart_command(repo_root: str, verb: str) -> str:
+    manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
+    return banner("release/release-manifest.json") + chart_command(
+        manifest["units"]["operator-chart"], verb
+    )
+
+
+# The CRD apply in upgrade.md used to fetch from `main`, one command above a
+# `helm upgrade` pinned to an exact chart version: the reader was told to install
+# chart X and to apply whatever CRDs happened to be on the default branch that
+# day. Same drift class as the `--version` literal above, so same fix -- pin the
+# ref to the integration release tag the docs describe.
+CRD_FILES = ("pactos", "pactorevisions")
+RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
+
+
+def gen_crd_apply(repo_root: str) -> str:
+    manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
+    tag = manifest["units"]["k8s-module"]["tag"]
+    out = [banner("release/release-manifest.json"), "```bash"]
+    for name in CRD_FILES:
+        out.append("kubectl apply --server-side --force-conflicts \\")
+        out.append(
+            f"  -f {RAW_BASE}/{tag}/integrations/kubernetes/config/crd/bases/"
+            f"pacto.trianalab.io_{name}.yaml"
+        )
+    out.append("```")
+    return "\n".join(out) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -694,13 +997,52 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
         "Kubernetes integration ships on its own cadence, a Kubernetes-only release does NOT "
         "add a new core version entry to the selector: it republishes the current core "
         "version in place with regenerated integration docs, and this compatibility table "
-        "shows the integration version those docs describe.\n"
+        "shows the integration version those docs describe. Pick a core version from the "
+        "selector to read the integration docs that shipped with it.\n"
     )
     return "\n".join(out).rstrip() + "\n"
 
 
 # ---------------------------------------------------------------------------
 # Driver
+# ---------------------------------------------------------------------------
+# Placeholder escaping
+# ---------------------------------------------------------------------------
+
+# A bare `<name>` is read by the browser as an unknown HTML element and rendered
+# as nothing at all. The sources these pages are generated from are full of them
+# -- `oci://<repo>@sha256:<digest>` in a chart annotation, `<namespace>` in a
+# flag's help text -- and inside a fenced block or a code span Markdown escapes
+# them for us. In prose it does not, so `/helm-reference/` published the required
+# signature subject as the meaningless string `oci://@sha256:`.
+#
+# Escaping happens here, on the generated page, and never in the upstream source:
+# the same strings are printed to a terminal by `--help` and read by Helm, where
+# `&lt;repo&gt;` would be the wrong thing to show.
+_PLACEHOLDER_TAG = re.compile(r"<([A-Za-z][A-Za-z0-9._-]*)>")
+
+
+def escape_placeholders(md: str) -> str:
+    """Escape every bare `<placeholder>` outside fenced blocks and code spans."""
+    lines = md.split("\n")
+    in_fence = False
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence or "<" not in line:
+            continue
+        # Split on backticks: even segments are prose, odd ones are code spans.
+        # An unbalanced backtick leaves the tail treated as code, which errs
+        # towards changing nothing.
+        parts = line.split("`")
+        for j in range(0, len(parts), 2):
+            parts[j] = _PLACEHOLDER_TAG.sub(r"&lt;\1&gt;", parts[j])
+        lines[i] = "`".join(parts)
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 
 def main() -> int:
@@ -731,11 +1073,15 @@ def main() -> int:
         "runtime-observations.md": gen_runtime_observations(repo_root, k8s),
         "artifact-hub.md": gen_artifact_hub(repo_root, k8s),
         "_compatibility.md": gen_compatibility(repo_root, k8s),
+        "_install-command.md": gen_chart_command(repo_root, "install"),
+        "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
+        "_crd-apply.md": gen_crd_apply(repo_root),
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)
+        # Last step, over every finished page, so no generator has to remember.
         with open(path, "w", encoding="utf-8") as fh:
-            fh.write(content)
+            fh.write(escape_placeholders(content))
         print(f"wrote {os.path.relpath(path, repo_root)}")
     return 0
 

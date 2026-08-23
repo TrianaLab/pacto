@@ -4,7 +4,7 @@ You manage the infrastructure that runs services. Pull a validated, machine-read
 ---
 ## What a contract tells you
 
-Every question you'd normally have to ask the dev team — or discover in production — is answered in the contract. The fields are top-level in v2 (there is no `runtime` wrapper, and no port, scaling, image or lifecycle field — those are delivery concerns you own):
+The questions you'd normally ask the dev team — *is it stateful, what does it expose, what does it depend on, what config does it need* — are answered in the contract. The ones you answer yourself are not in it at all: there is no port, scaling, image or lifecycle field, because those are delivery decisions and the contract deliberately leaves them to you. The fields are top-level in v2, with no `runtime` wrapper:
 
 | Contract Field | Platform Decision |
 |---|---|
@@ -43,6 +43,8 @@ pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 `explain`, `diff`, `graph` and `generate` accept `oci://` refs directly (resolving through the local cache), so this explicit `pull` is optional — use it only when you want the extracted bundle on disk.
+
+A private repository needs credentials first: `pacto login <registry>`, or an already-authenticated `gh` for GHCR. [Authentication](cli-reference.md#authentication) gives the full resolution order.
 
 ### 2. Inspect it
 
@@ -109,11 +111,20 @@ References differ from dependencies: a **dependency** declares a runtime relatio
 
 ### 5. Generate deployment artifacts
 
+`pacto generate <name>` spawns a `pacto-plugin-<name>` binary and writes whatever
+it returns. **Pacto ships no deployment-artifact plugin** — the two official ones
+(`schema-infer`, `openapi-infer`) run inward, deriving contract inputs from files
+you already have:
+
 ```bash
-pacto generate helm oci://ghcr.io/acme/payments-api-pacto:2.1.0
+pacto generate schema-infer ./payments-api --option file=config.yaml -o out/
 ```
 
-This invokes the `pacto-plugin-helm` plugin to produce Helm charts, Kubernetes manifests, or whatever your plugin generates. See the [Plugin Development](plugins.md) guide.
+Generating Helm charts or Kubernetes manifests means writing the plugin, which is
+deliberately small — a binary that reads a contract as JSON on stdin and writes
+file descriptions on stdout, in any language. Until one is on your `PATH`,
+`pacto generate helm` exits 1 with `plugin "helm" not found`. See the
+[Plugin Development](plugins.md) guide.
 
 ---
 
@@ -205,25 +216,34 @@ See [Layer 3: Policy enforcement](contract-reference/validation.md#layer-3-polic
 
 ## Breaking change detection
 
-`pacto diff` compares contract fields, deep-diffs referenced interface specs (e.g. OpenAPI) and resolves both dependency trees to show the full blast radius — every downstream service a change can affect. Gate CI on its exit code — it exits non-zero when the classification is `BREAKING`.
+`pacto diff` compares contract fields, deep-diffs referenced interface specs (e.g. OpenAPI) and resolves both dependency trees, so a change inside a dependency is classified alongside the service's own. That is the *downward* view. The blast radius — every consumer a change can reach — runs the other way and needs a fleet snapshot: that is [`pacto impact`](impact.md). Gate CI on the diff's exit code, but read [what a non-zero exit does and does not mean](cli-reference.md#exit-codes) first.
 
 ```bash
 $ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
              oci://ghcr.io/acme/payments-api-pacto:2.0.0
 Classification: BREAKING
-Changes (4):
+Changes (7):
+  [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
   [BREAKING] state.type (modified): state.type modified [stateless -> stateful]
-  [BREAKING] state.persistence.durability (modified): ... [ephemeral -> persistent]
-  [BREAKING] interfaces (removed): interfaces removed [- metrics]
+  [BREAKING] state.persistence.durability (modified): state.persistence.durability modified [ephemeral -> persistent]
+  [POTENTIAL_BREAKING] dependencies.ref (modified): dependencies.ref modified [auth-service: oci://ghcr.io/acme/auth-service-pacto:1.5.0 -> auth-service: oci://ghcr.io/acme/auth-service-pacto:2.3.0]
+  [POTENTIAL_BREAKING] dependencies.compatibility (modified): dependencies.compatibility modified [auth-service: ^1.5.0 -> auth-service: ^2.0.0]
   [BREAKING] dependencies (removed): dependencies removed [- redis]
+  [BREAKING] interfaces (removed): interfaces removed [- grpc-api]
+
+Dependency auth-service [NON_BREAKING] (1):
+  [NON_BREAKING] service.version (modified): service.version modified [1.5.0 -> 2.3.0]
 
 Dependency graph changes:
 payments-api
 ├─ auth-service  1.5.0 → 2.3.0
-└─ postgres      -16.0.0
+└─ redis         -7.2.0
+breaking changes detected
 ```
 
-Every change is classified as `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING`; when both bundles include an `sbom/` directory, package-level SBOM changes are reported but stay informational (they don't affect the classification or exit code). See [Change Classification Rules](contract-reference/diff.md#change-classification-rules) for the full table plus the OpenAPI, JSON-Schema and SBOM diff mechanics.
+Read it in three parts. **Changes** is this contract's own diff, each row classified `NON_BREAKING`, `POTENTIAL_BREAKING` or `BREAKING`. A **Dependency** block appears for each dependency whose own contract changed, classified separately — `auth-service` only bumped its version, so nothing there is breaking. **Dependency graph changes** is the resolved closure: `→` for a version change, `-` for a removal, `+` for an addition.
+
+The headline `Classification:` is the worst classification anywhere in that output, dependency blocks included — so a diff whose own **Changes** rows are all non-breaking can still print `BREAKING` and exit 1 because a dependency's contract broke underneath it. A dependency is only diffed when it resolves in both trees: one that was added, removed or unreachable gets no block, and only shows up in the graph section. When both bundles include an `sbom/` directory, package-level SBOM changes are reported but stay informational. See [Change Classification Rules](contract-reference/diff.md#change-classification-rules) for the full table plus the OpenAPI, JSON-Schema and SBOM diff mechanics.
 
 ---
 
@@ -270,7 +290,7 @@ Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for th
 
 Sources (local, Kubernetes, OCI) are auto-detected at startup and merged per service. The platform-relevant behavior: when running alongside the Kubernetes operator, the dashboard auto-discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses, so a K8s deployment gives the full contract experience — version history, interface details, configuration schemas and diffs — without explicit OCI arguments.
 
-See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for flags (`--host`, `--port`, `--namespace`, `--no-cache`, `--diagnostics`, `--cors-origin`) and environment variables. Pass OCI repositories as positional `oci://` arguments or via the `PACTO_DASHBOARD_REPO` env var.
+See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for its flags (`--host`, `--port`, `--namespace`, `--diagnostics`, `--cors-origin`, `--traces`, `--trace-source`) and environment variables. `--no-cache` works here too but is a global flag, not one of the command's own. Pass OCI repositories as positional `oci://` arguments or via the `PACTO_DASHBOARD_REPO` env var.
 
 ### Feeding the Operational Graph observed dependencies
 
@@ -293,14 +313,43 @@ Storage lifecycle stays yours: Pacto reads, never writes, and never rotates. A s
 
 ---
 
+## Fleet queries without a browser
+
+`pacto fleet` answers the same questions the dashboard's Operational Graph view answers, from a terminal or a CI job. It builds one snapshot from the sources you name — `--local`, `--oci`, `--k8s`, `--evidence-url`, `--traces`, `--cache` — then queries it with `search`, `get`, `graph`, `status` and `explain`:
+
+```bash
+$ pacto fleet search --local ./contracts
+1 of 1 service(s):
+  payments-api                 NotEvaluated owner=acme/payments  revs=1 targets=0
+```
+
+`NotEvaluated` is not a failure here: nothing has told the fleet where this service runs, so there is no operational target to evaluate it against. Add `--k8s` or an Evidence Server and the same service gets a compliance state per target.
+
+**Read the completeness before you read the rows.** A degraded source is reported, never quietly dropped:
+
+```bash
+$ pacto fleet search --local ./contracts --oci ghcr.io/acme/unreachable-pacto:1.0.0
+1 of 1 service(s):
+  payments-api                 NotEvaluated owner=acme/payments  revs=1 targets=0
+warning: answer is partial (as of 2026-08-23T01:30:40+02:00)
+  - [SOURCE_PARTIAL] source oci returned a partial result
+  - [SOURCE_RECORD_INVALID] ref ghcr.io/acme/unreachable-pacto:1.0.0 could not be resolved: artifact not found: ghcr.io/acme/unreachable-pacto:1.0.0
+```
+
+An unreachable registry never becomes an empty result, so a service missing from a `partial` answer may be one the missing source knew about. The header is equally deliberate: `1 of 1` is *this page* of `total` matches — `search` returns 100 rows unless you raise `--limit` (500 is the cap), so a bounded page can never be mistaken for the whole fleet. `--output-format json` carries the same facts in a `meta` envelope — `completeness`, `limitations`, per-source status — for a CI job to branch on.
+
+[Freshness and completeness](operational-graph.md#freshness-and-completeness) has the full vocabulary, [query semantics](operational-graph.md#query-semantics) the five operations, and the [`pacto fleet` reference](cli-reference.md#pacto-fleet) every flag.
+
+---
+
 ## Tips
 
-- **Build a plugin for your platform.** A Helm plugin, Terraform plugin, or custom manifest generator can consume Pacto contracts deterministically.
+- **Build a plugin for your platform.** A Helm plugin, Terraform plugin or custom manifest generator can consume Pacto contracts deterministically.
 - **Use `pacto graph` to understand impact.** Before upgrading a shared service, check what depends on it.
 - **Disable cache in CI.** Use `--no-cache` or `PACTO_NO_CACHE=1` to ensure fresh OCI pulls in pipelines where the cache might be stale. `--no-cache` is a cold-start flag: it skips disk *reads* of pre-existing cached bundles, but bundles fetched during the run are still *written* to disk and reused within the same session.
 - **Trust the state semantics.** If a contract says `stateless` + `ephemeral`, you can safely use a Deployment with no PVC. The validation engine enforces consistency.
 - **Use JSON output.** Every inspection command (explain, diff, graph, validate, generate, doc) supports `--output-format json` for programmatic consumption.
 - **Use markdown output for PR comments.** `pacto diff --output-format markdown` renders changes as tables with old/new values — pipe it into `gh pr comment` for rich CI feedback.
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
-- **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis, and contract generation.
-- **Close the loop with the operator.** The [Kubernetes Operator](integrations/kubernetes/overview.md) is one runtime evidence source: it observes deployed workloads and reports whether they still match their contracts — workload alignment, state model, capability reachability, interface availability and more — as typed findings, never modifying your workloads. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.
+- **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis and contract generation.
+- **Close the loop with the operator.** The [Kubernetes Operator](integrations/kubernetes/overview.md) is one runtime evidence source: it observes deployed workloads and reports whether they still match their contracts — workload alignment, state model, capability reachability, interface availability and more — as typed findings, never modifying your workloads. What it can evaluate depends on what you bind: an interface with no `interfaceBindings` entry has no port to check, so it reports `Unknown` rather than a violation. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.
