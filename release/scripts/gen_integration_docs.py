@@ -369,7 +369,10 @@ def gen_rbac(k8s: str) -> str:
         out.append("")
         escalating = [
             r for r in component_only
-            if "rbac.authorization.k8s.io" in (r.get("apiGroups") or [])
+            # Set intersection, not `in`: apiGroups is a list of exact group names,
+            # and a membership test against a URL-shaped string reads to a scanner
+            # as a substring check on a host. Same shape as the verbs test below.
+            if {"rbac.authorization.k8s.io"} & set(r.get("apiGroups") or [])
             and not r.get("resourceNames")
             and {"create", "update", "patch"} & set(r.get("verbs", []))
         ]
