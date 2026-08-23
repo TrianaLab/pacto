@@ -48,27 +48,27 @@
         {
           "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v5",
           "kind": "go-module",
-          "tag": "integrations/kubernetes/v5.2.1",
+          "tag": "integrations/kubernetes/v5.2.2",
           "unit": "k8s-module"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/operator",
           "kind": "oci-image",
-          "tag": "5.2.1",
+          "tag": "5.2.2",
           "unit": "operator-image"
         },
         {
-          "appVersion": "5.2.1",
-          "chartVersion": "5.2.1",
+          "appVersion": "5.2.2",
+          "chartVersion": "5.2.2",
           "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator",
-          "defaultImageTag": "5.2.1",
+          "defaultImageTag": "5.2.2",
           "kind": "helm-chart",
           "unit": "operator-chart"
         },
         {
           "kind": "docs",
           "unit": "k8s-docs",
-          "version": "5.2.1"
+          "version": "5.2.2"
         }
       ],
       "assertNoReplace": true,
@@ -80,9 +80,9 @@
         "version": "v3.2.2"
       },
       "tags": [
-        "integrations/kubernetes/v5.2.1"
+        "integrations/kubernetes/v5.2.2"
       ],
-      "version": "5.2.1"
+      "version": "5.2.2"
     }
   },
   "publishOrder": [
