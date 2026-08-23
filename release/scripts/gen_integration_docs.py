@@ -344,6 +344,27 @@ def gen_rbac(k8s: str) -> str:
     )
     out.extend(_rbac_rules_table(always))
     out.append("")
+    # The unrestricted `secrets get,list,watch` row is the single grant reviewers
+    # stop on, and the table alone gives them no reason for it and no way to tell
+    # whether watchNamespace narrows it (it does not -- that flag changes what the
+    # controller watches, not what the ClusterRole permits).
+    out.append(
+        "!!! warning \"Why the operator can read Secrets in every namespace\"\n\n"
+        "    `spec.contractRef.pullSecretRef` names a Secret **in the Pacto's own "
+        "namespace**, and a `Pacto` can be created in any namespace, so the read "
+        "cannot be scoped to one. `get` resolves those registry credentials when a "
+        "contract is pulled; `list` and `watch` back the Secret informer that "
+        "re-reconciles a Pacto when its pull Secret changes.\n\n"
+        "    **`controller.watchNamespace` does not narrow this.** It restricts what "
+        "the controller reconciles; the ClusterRole is created unconditionally and "
+        "grants the same cluster-wide read either way.\n\n"
+        "    What does limit the blast radius is binding each credential to its host: "
+        "give an Opaque pull Secret a `registry` key and the operator refuses to send "
+        "it anywhere else, so a contract cannot redirect pull traffic to an "
+        "attacker-controlled registry to exfiltrate the token. Beyond that, treat "
+        "cluster-wide Secret read as the cost of the operator and install it on a "
+        "cluster where that is acceptable.\n"
+    )
 
     if component_only:
         values = load_yaml_docs(os.path.join(k8s, "charts/pacto-operator/values.yaml"))[0]

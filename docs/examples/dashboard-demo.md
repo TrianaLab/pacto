@@ -7,9 +7,9 @@ search:
 
 # Live dashboard demo
 
-**Try Pacto without installing anything.** The dashboard runs entirely in your
-browser: the engine and a curated set of demo contracts are compiled to
-WebAssembly, with no backend and no live registry.
+**Try Pacto without installing anything.** This is an online playground: the
+dashboard runs entirely in your browser, with the engine and a curated set of
+demo contracts compiled to WebAssembly, no backend and no live registry.
 
 Two things about the fixture, before you open it — both are deliberate, and both
 look like bugs if nobody tells you:

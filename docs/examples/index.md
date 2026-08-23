@@ -121,7 +121,7 @@ Anything that consumes the service reads the contract instead of re-inferring it
 
 ### 3. Constrain (conceptual / external)
 
-External controls decide which actions are allowed. At **authoring time** this is implemented: `pacto validate` and `pacto push` resolve `policies[].ref` and fail closed if the contract does not satisfy the referenced schema, so a non-compliant contract never reaches the registry. At **runtime**, whether a specific action is permitted stays with the systems built for that job — OPA, Kyverno, admission control, IAM. Pacto supplies the structured contract those systems can reason about; it does not grant runtime permissions itself.
+External controls decide which actions are allowed. At **authoring time** this is implemented: `pacto validate` and `pacto push` resolve `policies[].ref` and fail closed if the contract does not satisfy the referenced schema, so `pacto push` refuses to publish a non-compliant contract — it validates before it opens a connection, and `--force` overwrites an existing tag rather than skipping that check. The gate is Pacto's, not the registry's: a published bundle is an ordinary OCI artifact, so anything with push access to the repository can put one there without going through Pacto at all. At **runtime**, whether a specific action is permitted stays with the systems built for that job — OPA, Kyverno, admission control, IAM. Pacto supplies the structured contract those systems can reason about; it does not grant runtime permissions itself.
 
 ### 4. Act (conceptual / external)
 

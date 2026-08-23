@@ -61,6 +61,19 @@
         <a href="{{ 'quickstart/' | url }}" class="md-button">Quickstart</a>
         <a href="{{ 'contract-reference/' | url }}" class="md-button">Contract reference</a>
       </div>
+      {# The primary CTA fires an ~11 MB download (57 MB unpacked) and used to be
+         the one route to the demo that never said so: the page that warns you,
+         examples/dashboard-demo, sits behind the smaller "Try it" nav link. Name
+         the cost next to the button that spends it.
+
+         The second sentence exists because the fold answered "what is it" and
+         nothing else — who it is for was five screens down and the non-goals
+         three and a half. Both keep their full sections; this is the pointer. #}
+      <p class="pacto-hero__note">
+        The demo runs entirely in your browser — about 11&nbsp;MB, nothing to install.
+        Pacto is for the teams who operate many services; it is also worth knowing
+        <a href="#what-pacto-is-not">what Pacto is not</a>.
+      </p>
     </div>
   </section>
 {% endblock %}

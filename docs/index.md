@@ -90,7 +90,7 @@ The consequences:
 
 ## The solution: one operational contract
 
-Pacto answers those six fragmented sources from one file — the one shown at the top of this page — covering interfaces, dependencies, runtime behavior, configuration and capabilities, validated by tooling and versioned in a registry. It does not delete your Helm chart or your OpenAPI spec: it points at the artifacts you already have and states the operational facts none of them carry. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs.
+Pacto answers those six fragmented sources from one file — the one shown at the top of this page — covering identity and ownership, interfaces, dependencies and runtime behavior, validated by tooling and versioned in a registry. It does not delete your Helm chart or your OpenAPI spec: it points at the artifacts you already have and states the operational facts none of them carry. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs — the example above declares no `configuration`, `capabilities`, `policies` or `readiness` because that service does not need them.
 
 See the [contract reference](contract-reference/index.md) for every field, including the [`readiness`](contract-reference/sections.md#readiness) section (a `pactoVersion: "2.0"` feature).
 
@@ -262,9 +262,11 @@ renders it in full.
 ## What you keep if you stop using Pacto
 
 A contract system is only worth adopting if you can leave it, so the exit is
-worth stating before you commit to anything. The lock-in here is exactly one
-file: `pacto.yaml` is Pacto's own format and nothing else reads it. Everything
-it wraps stays yours, and that is checkable rather than a promise:
+worth stating before you commit to anything. Pacto invents three files —
+`pacto.yaml`, the `pacto.lock` that [`pacto lock`](lockfile.md) writes, and an
+optional [`.pactoignore`](pactoignore.md) — and nothing outside Pacto reads any
+of them. That is the whole of the lock-in. Everything those files wrap stays
+yours, and that is checkable rather than a promise:
 
 - **The contract source is yours already.** `pacto.yaml` and the files beside it
   are plain YAML and JSON living in your repository, and the interfaces inside

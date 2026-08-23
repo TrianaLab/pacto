@@ -37,6 +37,14 @@ Present in every install, including one with every managed component disabled. W
 | `pacto.trianalab.io` | `pactos/status` | `get`, `patch`, `update` | *not name-restricted* |
 | `rbac.authorization.k8s.io` | `clusterroles`, `clusterrolebindings` | `delete`, `get` | `pacto-dashboard` |
 
+!!! warning "Why the operator can read Secrets in every namespace"
+
+    `spec.contractRef.pullSecretRef` names a Secret **in the Pacto's own namespace**, and a `Pacto` can be created in any namespace, so the read cannot be scoped to one. `get` resolves those registry credentials when a contract is pulled; `list` and `watch` back the Secret informer that re-reconciles a Pacto when its pull Secret changes.
+
+    **`controller.watchNamespace` does not narrow this.** It restricts what the controller reconciles; the ClusterRole is created unconditionally and grants the same cluster-wide read either way.
+
+    What does limit the blast radius is binding each credential to its host: give an Opaque pull Secret a `registry` key and the operator refuses to send it anywhere else, so a contract cannot redirect pull traffic to an attacker-controlled registry to exfiltrate the token. Beyond that, treat cluster-wide Secret read as the cost of the operator and install it on a cluster where that is acceptable.
+
 ## Additionally granted when a managed component is enabled
 
 When a managed component is on, the operator creates and reconciles that component's Deployment, Service, ServiceAccount and RBAC for you, and the chart widens the ClusterRole accordingly. At chart defaults `dashboard.enabled` is **on** and `evidence.enabled` is **off**, so every rule below is what a default install adds for the dashboard. Rendering the chart with `--set dashboard.enabled=false --set evidence.enabled=false` removes every rule in this table.
