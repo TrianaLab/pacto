@@ -216,6 +216,16 @@ every query answer carry an **as-of** time, a **completeness** and a list of
 > **Absence of telemetry is not evidence of absence.** A missing observation under
 > partial coverage is uncertainty, not a confirmed "no".
 
+One case does not carry the envelope, and it is the case where you most want it.
+`get`, `graph` and `explain` name a single subject, and a subject that is not in
+the snapshot is a *failure*, not an answer: `pacto fleet get ghost` exits 1 with
+`service "ghost" not found in the fleet snapshot` on stderr and nothing on stdout
+whatever `--output-format` said, and the
+[MCP equivalents](mcp-integration.md#fleet-query-safety) return the same string as
+a tool error. There is no `meta` on it, so there is no `completeness` telling you
+whether the snapshot that missed was whole. Get that reading from `search` or
+`status` on the same snapshot before you read a subject miss as an absence.
+
 Every source reports one status, and the snapshot rolls those up into one
 completeness value:
 

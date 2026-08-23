@@ -13,8 +13,8 @@ you exactly what invoking it can and cannot do.
 | Family | Tools | What they do | Safety boundary |
 |--------|-------|--------------|-----------------|
 | **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation — with a [known gap](#pacto_edit). |
-| **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a timeout and does not follow cross-origin redirects. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#mcp-tool-pacto_impact) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report a change's blast radius. | Read-only always: they write nothing, anywhere. Read-only is not offline, though — `pacto_impact` reaches your registry on [every call](#fleet-query-safety), and your cluster too if the server was started with `--k8s`. |
+| **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a 30-second timeout and follows no redirect at all — a 3xx comes back to the agent as the result. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#mcp-tool-pacto_impact) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report a change's blast radius. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover: read-only is not offline (`pacto_impact` reaches your registry on [every call](#fleet-query-safety), and your cluster too under `--k8s`), and a read-only *family* is not a read-only *server* — `pacto mcp --fleet` registers the authoring tools alongside these. The only server with no write tool is [`--root`](#contract-catalog-discovery). |
 
 The three families answer three different questions: authoring tools shape *what a
 contract says*, generated service tools *do something to a running service*, and
@@ -29,11 +29,15 @@ serves a bundle's own [domain guides](#agent-capabilities), and
 the only part of the surface that is not a tool at all. Much of the CLI is deliberately
 not in it: inspecting a registry contract, resolving a dependency graph,
 diffing revisions and generating docs stay
-[CLI-only](developers.md#ai-assisted-workflow), and no tool pushes, pulls or
-deploys anything. Which tools each invocation actually registers is listed under
+[CLI-only](developers.md#ai-assisted-workflow), as do the two `pacto fleet`
+operations that are not queries — `reconcile`, which compares declared
+dependencies against observed traffic, and `snapshot`, which emits the whole read
+model as one document. No tool pushes, pulls or deploys anything. Which tools each
+invocation actually registers is listed under
 [Server modes](cli-reference.md#server-modes). For how the MCP surface differs
-from the catalog, the fleet, operator reconciliation and durable evidence, see
-[Boundaries](concepts.md#boundaries).
+from the catalog and the fleet, see [Boundaries](concepts.md#boundaries); for how
+it differs from operator reconciliation and durable evidence, see the last bullet
+of [Fleet query safety](#fleet-query-safety) below.
 
 !!! warning "The boundary is documented, not machine-advertised"
     Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
@@ -68,12 +72,20 @@ Fleet query tools deserve explicit safety framing:
 - **Pacto does not determine authorization.** These tools expose knowledge; they
   never grant, scope or revoke a permission. Whether an agent *may* act stays with
   policy and IAM systems.
-- **Partial or stale results are incomplete knowledge.** Every answer carries an
-  `asOf` time, a `completeness` value and structured `limitations`. Branch on
-  those before trusting an answer.
+- **Partial or stale results are incomplete knowledge.** Every answer that comes
+  back as a *result* carries an `asOf` time, a `completeness` value and structured
+  `limitations`. Branch on those before trusting an answer.
 - **A missing result under partial coverage does not prove absence.** If a source
   was unavailable, a "not found" means "not known here", not "does not exist". An
   unavailable source is never rendered as an empty result.
+- **A subject miss is an error, and it carries no envelope.** `pacto_fleet_get`,
+  `pacto_fleet_graph` and `pacto_fleet_explain` answer an unknown service or target
+  with an MCP tool error — the bare string `service "x" not found in the fleet
+  snapshot`, with no `meta`, so no `completeness` to branch on even when the
+  snapshot is partial. The two list-shaped tools do carry it. To find out whether
+  such an absence is trustworthy, call `pacto_fleet_search` or `pacto_fleet_status`
+  on the same server and read the `completeness` from there; both are served from
+  the same frozen snapshot, so the reading applies.
 - **The snapshot is frozen for the session.** `pacto mcp --fleet` builds one
   snapshot at startup, and every `pacto_fleet_*` answer is served from it: the same
   `asOf` and the same `snapshotId` for the life of the process, however far the
@@ -97,10 +109,27 @@ pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
 
 `--local`, `--oci`, `--k8s`, `--cache`, `--evidence-url`, `--target-state`,
 `--namespace` and `--freshness` are all accepted — every `pacto fleet` source
-except `--traces`, which the MCP server does not take; the
+except `--traces` as a *server* flag; the
 [`pacto mcp` reference](cli-reference.md#pacto-mcp) lists them with their
-defaults. See [The Pacto Operational Graph](operational-graph.md) for the read
-model these tools query and the query semantics they expose.
+defaults. `pacto_impact` still accepts a per-call `traces` argument, and that one
+reads a path off the local filesystem — see the table below. See
+[The Pacto Operational Graph](operational-graph.md) for the read model these tools
+query and the query semantics they expose.
+
+The arguments each tool takes, since none of them is required except where marked:
+
+| Tool | Arguments |
+|------|-----------|
+| `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |
+| `pacto_fleet_get` | `service` **or** `target` — one names a logical service, the other an operational target by key or name |
+| `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
+| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |
+| `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |
+| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
+
+Argument names are not flag names: the substring filter is `text`, not `query`,
+and an unrecognised key is ignored rather than rejected, so a wrong guess reads as
+an unfiltered answer rather than an error.
 
 A fourth server mode — [contract catalog discovery](#contract-catalog-discovery) —
 is not a tool family: it is mostly MCP *resources*, with a single lookup tool. It
@@ -350,9 +379,19 @@ Validates a contract and returns structured results including errors, warnings, 
 - `summary` — parsed contract overview (name, version, interfaces, runtime state)
 - `suggestions` — improvements for a contract that is already valid. There are
   four, each fired by an absent section: no interfaces, no `state`, no
-  configuration, no dependencies. Only the first carries a `toolCall` (the exact
-  `pacto_edit` arguments to add an `openapi` interface); the other three are
+  configuration, no dependencies. Only the first carries a `toolCall` — a sketch
+  of the `pacto_edit` call that adds an `openapi` interface; the other three are
   prose. An invalid contract returns no suggestions at all — fix the errors first.
+
+!!! warning "Re-encode the `toolCall` before you pass it on"
+    The suggestion's `add_interfaces` value is a real JSON array:
+    `{"tool": "pacto_edit", "params": {"add_interfaces": [{"name": "http-api", "type": "openapi"}]}}`.
+    `pacto_edit` expects that argument as a **JSON-encoded string**, so forwarding
+    the suggestion verbatim is the
+    [silent no-op](#structured-inputs-are-json-encoded-strings) documented above:
+    the call succeeds, `changes` comes back `null` and nothing is written. Serialise
+    the array first — `"[{\"name\":\"http-api\",\"type\":\"openapi\"}]"` — and the
+    same call adds the interface and scaffolds its spec file.
 
 ### pacto_schema
 
@@ -430,8 +469,10 @@ The individual operations are not named, at any verbosity — to see exactly whi
 
 The live host comes from `--base-url`, falling back to the spec's `servers[0]` URL when the flag is omitted. If neither is available the server refuses to start. When you supply credentials (below), `--base-url` is **required** — Pacto will not send credentials to a host chosen by bundle content.
 
-### Authentication
+### Service authentication (`--auth`) { #service-authentication-auth }
 
+These are the *service's* credentials, not the registry's — for pulling the bundle
+itself see [Connecting to a bundle](#connecting-to-a-bundle) above.
 Credentials are supplied per OpenAPI security scheme with the repeatable `--auth name=value` flag and applied to each request according to the scheme's declaration. The `http` in the table below is an OpenAPI *security-scheme* type, unrelated to Pacto's interface types (`openapi`, `asyncapi`, `grpc`):
 
 | Scheme type | How the credential is applied |
@@ -446,7 +487,7 @@ pacto mcp oci://ghcr.io/acme/svc:1.0.0 \
   --auth bearerAuth=$TOKEN --allow-writes
 ```
 
-Server-issued redirects are **not** followed, so credentials cannot leak to another origin, and every call is bounded by a timeout.
+Server-issued redirects are **not** followed — none of them, same-origin included — so credentials cannot leak to another origin and a 3xx is returned to the agent as the result. Every call is bounded by a fixed 30-second timeout; no flag changes it.
 
 ### pacto_skill
 
@@ -475,6 +516,15 @@ Point any MCP client at a bundle by adding the reference (and flags) to the serv
   }
 }
 ```
+
+An `oci://` reference resolves with the same registry credentials as the rest of
+the CLI, so run [`pacto login <registry>`](cli-reference.md#pacto-login) first if
+the repository is private. That is separate from the
+[service credentials](#service-authentication-auth) `--auth` carries: one gets the
+contract out of the registry, the other talks to the running service. The server
+is launched by your editor and inherits its environment, so a login that works in
+your shell may not be visible to it — a private repository failing with
+`artifact not found` is the usual symptom.
 
 ### What a session freezes, and what it does not
 
@@ -663,6 +713,21 @@ Every client points the same way — it runs the `pacto` binary over stdio. Pick
     ```
 
 To serve a bundle's operations as executable tools, append the bundle reference and flags to `args` — see [Agent capabilities](#agent-capabilities).
+
+Every snippet above is the **authoring** server, and `pacto_create` and
+`pacto_edit` write files. If the agent must change nothing, use catalog mode
+instead — it is the one invocation that registers no write tool:
+
+```json
+{
+  "mcpServers": {
+    "pacto": { "command": "pacto", "args": ["mcp", "--root", "oci://ghcr.io/acme/platform:1.4.0"] }
+  }
+}
+```
+
+`--fleet` is not the read-only choice, despite its tools being read-only: it adds
+the fleet family *beside* the authoring tools rather than instead of them.
 
 ### Example prompts
 
