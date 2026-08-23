@@ -71,6 +71,9 @@ observation dimensions are documented in
 ## Where to go next
 
 - [Install the Kubernetes operator](installation.md) -- install it with Helm.
+- [Upgrade the operator](upgrade.md) -- including across a major version, where
+  Helm leaves the CRDs untouched and you apply them yourself.
+- [Uninstall](installation.md#uninstall) -- and the five things that survive it.
 - [Contract bindings](contract-bindings.md) -- bind a contract to a workload.
 - [Runtime observations](runtime-observations.md) -- what the operator observes and how it reasons.
 - [Operator configuration](operator-configuration.md) -- flags and environment variables.

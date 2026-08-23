@@ -376,9 +376,10 @@ helm uninstall pacto-operator --namespace pacto-operator-system
 ```
 
 That removes the controller and, with it, every component it manages: the
-dashboard's and the Evidence Server's Deployments and Services are all owner-
-referenced to the controller Deployment, so Kubernetes garbage-collects them.
-Four things survive, by design or by scope:
+dashboard's and the Evidence Server's Deployments, Services, ServiceAccount and
+generated credentials Secret are all owner-referenced to the controller
+Deployment, so Kubernetes garbage-collects them. Five things survive, by design
+or by scope:
 
 **The CRDs and your `Pacto` resources.** Helm never deletes CRDs. Removing them
 deletes every `Pacto` and `PactoRevision` with them. The operator sets no
@@ -411,7 +412,26 @@ kubectl delete clusterrole metrics-observation-role
 kubectl delete clusterrolebinding metrics-observation-rolebinding
 ```
 
-**The namespace**, if `--create-namespace` created it: `kubectl delete namespace
-pacto-operator-system`.
+**The leader-election Lease.** Helm did not render it — controller-runtime
+created it at startup, with no owner to garbage-collect it. It is inert once the
+controller is gone, and a reinstall reuses it, so it only matters if you are
+leaving the namespace in place:
 
-Order does not matter — none of these block on each other.
+```bash
+kubectl delete lease a4917283.pacto.io -n pacto-operator-system
+```
+
+**The namespace**, if `--create-namespace` created it: `kubectl delete namespace
+pacto-operator-system`. Deleting it takes the Lease with it.
+
+Order does not matter — none of these block on each other. To see for yourself
+what is left, ask before deleting the namespace:
+
+```bash
+kubectl get all,sa,secret,lease,role,rolebinding -n pacto-operator-system
+kubectl get clusterrole,clusterrolebinding | grep pacto
+```
+
+Everything that answers is on the list above — plus Kubernetes' own
+`default` ServiceAccount and `kube-root-ca.crt` ConfigMap, which belong to the
+namespace rather than to Pacto.
