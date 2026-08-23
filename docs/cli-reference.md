@@ -881,7 +881,7 @@ pacto otel [flags]
 
 ### `pacto otel observe`
 
-Reads an OTLP/JSON trace export and derives the service dependency edges its outbound spans prove. By default it prints the observed edges; with --evidence it emits one EvidenceSet per calling service, ready to sign (pacto evidence sign) and report (pacto evidence send).
+Reads an OTLP/JSON trace export and derives the service dependency edges its outbound spans prove. By default it prints the observed edges as text; add --output-format json for machine-readable output. With --evidence it emits one EvidenceSet per calling service -- a JSON array, and each set's ContractRef is empty because traces do not name a contract revision. Signing is therefore not a pipe: pacto evidence sign reads one EvidenceSet from a file, so write the array out, split it, and set each ContractRef to the revision it describes before signing (pacto evidence sign) and reporting (pacto evidence send).
 
 ```
 pacto otel observe <traces.json> [flags]
@@ -891,7 +891,7 @@ pacto otel observe <traces.json> [flags]
 
 ```
   pacto otel observe traces.json
-  pacto otel observe traces.json --evidence | pacto evidence sign --key k.key --key-id k --producer prod -
+  pacto otel observe traces.json --evidence --output-format json > sets.json
 ```
 
 **Flags:**

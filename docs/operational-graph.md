@@ -477,7 +477,32 @@ Those observed edges meet the declared graph in three places:
 
 The OTel observer can also emit signable EvidenceSets
 (`pacto otel observe --evidence`), so observed dependencies can travel the same
-[external evidence protocol](evidence-protocol.md) as any other report.
+[external evidence protocol](evidence-protocol.md) as any other report. That is
+two steps rather than a pipe, because traces name services and not contract
+revisions:
+
+```bash
+# One EvidenceSet per calling service, as a JSON array
+$ pacto otel observe traces.json --evidence --output-format json > sets.json
+```
+
+Each set comes out with an empty `ContractRef` — a trace cannot know which
+revision was running. Split the array, set each `ContractRef` to the revision the
+service was serving, then sign one set at a time:
+
+```bash
+$ pacto evidence sign set-0.json \
+    --key k.key --key-id k --producer prod > envelope-0.json
+$ pacto evidence send envelope-0.json \
+    --url https://evidence.example.com/api/evidence/v1/envelopes
+```
+
+`pacto evidence sign` reads a file and one `EvidenceSet` at a time: hand it the
+array and it answers
+`decode evidence set: json: cannot unmarshal array into Go value of type evidence.EvidenceSet`,
+and hand it a set with no `ContractRef` and it answers
+`invalid evidence set: contract ref is empty`. Both are the tool asking for the
+one thing the traces could not supply.
 
 Observed edges live in a **separate** adjacency index from declared edges, so the
 declared graph stays declared and consumers layer observed evidence on top rather
