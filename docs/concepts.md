@@ -146,7 +146,7 @@ reports what is actually there. Every relationship in the graph carries a
 provenance discriminator so the two never merge, and they live in separate
 adjacency indexes so neither can leak into the other's answers.
 → [Relationships: declared, observed, inferred](operational-graph.md#relationships-declared-observed-inferred)
-· [Declaration versus observation](architecture.md#declaration-versus-observation)
+· [Declaration versus observation](model.md#declaration-versus-observation)
 
 **Declared-but-not-observed is not confirmed absence.** A declared dependency we
 did not see in traffic may be absent, or may simply be idle, or unobservable by
@@ -168,7 +168,7 @@ verdict reached by comparing a contract against evidence, and the only thing tha
 turns one into the other is the engine's `Evaluate` function. A finding cites the
 evidence behind it by source and timestamp, never by carrying the observation
 itself, so there is exactly one place a verdict can come from.
-→ [The engine](architecture.md#the-engine-evaluatecontract-evidence)
+→ [The engine](model.md#the-engine)
 · [Declaration vs observation](collectors.md#declaration-vs-observation)
 
 **Readiness is not compliance.** Readiness is a team's own scored self-assessment
@@ -181,7 +181,7 @@ statements are true at once.
 **Contract intent is not runtime truth.** The whole point of the control loop is
 that the two can disagree. Pacto's job is to say so precisely, not to reconcile
 them by assumption.
-→ [The operational control loop](architecture.md#the-operational-control-loop)
+→ [The operational control loop](model.md#the-operational-control-loop)
 
 ---
 
@@ -193,7 +193,7 @@ local directory, a registry, a cluster, a cache. Their health is also different:
 a data source being reachable says nothing about whether the evidence it carries
 is fresh.
 → [The roles](collectors.md#the-roles)
-· [Source health is not evidence freshness](operational-graph.md#source-health-is-not-evidence-freshness)
+· [Source health is not evidence freshness](observation-sources.md#source-health-is-not-evidence-freshness)
 
 **Data source health is not fleet knowledge completeness.** One healthy source in
 a fleet of ten tells you that source answered. It tells you nothing about the
@@ -236,11 +236,15 @@ heuristic.
 
 - [The Pacto Operational Graph](operational-graph.md) — the read model these
   distinctions are enforced in
-- [Architecture](architecture.md) — the engine, the layers and the package that
-  owns each concept
+- [The Pacto model](model.md) — the engine, the compliance states and the
+  control loop these distinctions feed
+- [Architecture](architecture.md) — the layers and the package that owns each
+  concept
 - [Collectors and the evidence boundary](collectors.md) — how evidence is
   produced and where the boundary sits
 - [Impact analysis](impact.md) — the confidence model over a change
+- [Composition patterns](patterns/index.md) — how the primitives are combined
+  in practice
 - [MCP integration](mcp-integration.md) — how an agent reads all of this
 - [Kubernetes operator](integrations/kubernetes/overview.md) — where these words
   become a per-contract verdict in a live cluster

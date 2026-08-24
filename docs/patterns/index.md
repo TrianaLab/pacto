@@ -9,12 +9,19 @@ Across every pattern, two things are happening. Pacto composes interfaces you al
 
 ## The patterns
 
-- **[Root + component contracts](root-component.md)**
-- **[Infrastructure contracts](infrastructure-contracts.md)**
-- **[Configurations as composable claims](composable-configs.md)**
-- **[Platform-published policy + schema contract](policy-schema.md)**
-- **[Progressive policy versioning](progressive-policy.md)**
-- **[Override files as the deployment surface](override-files.md)**
+Numbered so the stacking diagram below can refer to them.
+
+1. **[Root + component contracts](root-component.md)**
+2. **[Infrastructure contracts](infrastructure-contracts.md)**
+3. **[Configurations as composable claims](composable-configs.md)**
+4. **[Platform-published policy + schema contract](policy-schema.md)**
+5. **[Progressive policy versioning](progressive-policy.md)**
+6. **[Override files as the deployment surface](override-files.md)**
+
+Alongside them, **[Configuration schema ownership](configuration-schema-ownership.md)**
+covers who owns a `configurations[]` schema and when an existing schema can be
+reused. It is organizational guidance rather than a composition, so it does not
+appear in the stack below.
 
 ## How patterns stack
 

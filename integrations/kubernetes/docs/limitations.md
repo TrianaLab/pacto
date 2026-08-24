@@ -1,7 +1,8 @@
 # Limitations
 
-The operator is deliberately read-only and conservative: it never fabricates a
-violation from evidence it cannot trust. The boundaries below follow directly from
+The operator is deliberately conservative: it never fabricates a violation from
+evidence it cannot trust, and it never writes to the workloads it observes. It is
+not a read-only component overall — see below. The boundaries here follow from
 that stance.
 
 ## Read-only towards your workloads
@@ -120,7 +121,8 @@ runtime-evaluated.
 ## Stabilization delay
 
 Confirmed runtime-drift violations only surface after the stabilization window
-(`--stabilization-window`, default two minutes). This trades immediacy for
+([`--stabilization-window`](operator-configuration.md), default two minutes).
+This trades immediacy for
 resistance to transient blips: a single negative observation reads `Unknown` until
 the negative streak spans the whole window.
 

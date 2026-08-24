@@ -1,4 +1,4 @@
-# Upgrade
+# Upgrade the Kubernetes operator
 
 The Kubernetes integration is versioned independently from Pacto core. The
 operator image, Helm chart, Go module and this documentation set bump together as
@@ -126,11 +126,9 @@ registry, not in the cluster.
 ## Turning on the Evidence Server during an upgrade
 
 The Evidence Server arrived in chart 5.2.0 and is off by default, so upgrading
-from an earlier release changes nothing until you set `evidence.enabled`. No
-published chart before 5.2.0 had an `evidence` section at all — there is no
-bucket value, PVC or storage class to migrate from. Enabling it installs nothing
-durable either: every accepted record is published to your **contract registry**
-as an OCI 1.1 referrer, and the registry is the store.
+from an earlier release changes nothing until you set `evidence.enabled`.
+Enabling it installs nothing durable: every accepted record is published to your
+**contract registry** as an OCI 1.1 referrer, and the registry is the store.
 
 Two things are required the first time you enable it:
 

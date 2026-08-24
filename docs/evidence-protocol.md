@@ -300,40 +300,17 @@ layer carrying a `pacto.dev/evidence-record/v1` payload. It is built
 deterministically, so republishing an identical record yields an identical digest
 rather than a second copy.
 
-**Configured subjects only.** The server is given an explicit, non-empty,
-deduplicated allow-list of exact `oci://<repo>@sha256:<digest>` revisions. Mutable
-tags, local paths, inferred repositories and catalog-wide discovery are all
-rejected: a tag can be moved onto another manifest, silently changing what the
-stored evidence reports on.
+The rest is operational, and [evidence in the registry](evidence-oci-storage.md)
+is where each rule is stated in full:
 
-**Native Referrers, no tag fallback.** Discovery is the registry's
-`/v2/<repo>/referrers/<digest>` endpoint, fully paginated. Pacto refuses the
-legacy referrers-tag emulation, so a registry without the native endpoint makes
-the server not-ready instead of quietly storing evidence where another client
-would not look for it.
-
-**State is re-derived, never kept.** Every commit re-enumerates every page of
-every configured subject, rebuilds the duplicate-id set and the per-producer
-maximum sequence from what it read, refuses a replay globally across subjects,
-publishes, and confirms the record is discoverable through that same API before
-returning `202`. Replay protection therefore survives a restart because there was
-never any local state to lose.
-
-**Reads fail honest, writes fail closed.** `GET /api/evidence/v1/ready` reports
-`503` while *any* configured subject cannot be read; `/targets` reports `partial`
-when some subject or artifact could not be read, and still serves what it could
-read. Ingestion refuses (`store_not_ready`, or `registry_unavailable` /
-`registry_incomplete` once the commit itself cannot reconstruct the history) — a
-replay check over a partial history is not a replay check. An unreadable store is
-never rendered as an empty one.
-
-**Single active writer, no distributed lock.** One replica, with the `Recreate`
-rollout strategy so an upgrade never briefly runs two. The registry offers no
-compare-and-set that would let two writers agree, and Pacto does not fake one.
-
-**Retention is the registry's.** Pacto never deletes an evidence artifact — see
-[retention, backup and garbage collection](evidence-oci-storage.md#retention-backup-and-garbage-collection)
-for what that means for a registry GC policy.
+| Rule | Where |
+|---|---|
+| **Configured subjects only** — an explicit allow-list of exact `oci://<repo>@sha256:<digest>` revisions; mutable tags, local paths, inferred repositories and catalog-wide discovery are all rejected. | [Configuring subjects](evidence-oci-storage.md#configuring-subjects) |
+| **Native Referrers, no tag fallback** — a registry without the native endpoint makes the server not-ready rather than storing evidence where another client would not look. | [Registry requirements](evidence-oci-storage.md#registry-requirements) |
+| **State is re-derived, never kept** — every commit re-enumerates the history from the registry, so replay protection survives a restart because there was never local state to lose. | [The commit protocol](evidence-oci-storage.md#the-commit-protocol) |
+| **Reads fail honest, writes fail closed** — an unreadable store is reported as `partial` or refused, never rendered as an empty one; a replay check over a partial history is not a replay check. | [Readiness, partial and unavailable](evidence-oci-storage.md#readiness-partial-and-unavailable) |
+| **Single active writer, no distributed lock** — one replica with the `Recreate` rollout strategy, because the registry offers no compare-and-set two writers could agree on. | [The commit protocol](evidence-oci-storage.md#the-commit-protocol) |
+| **Retention is the registry's** — Pacto never deletes an evidence artifact. | [Retention, backup and garbage collection](evidence-oci-storage.md#retention-backup-and-garbage-collection) |
 
 ---
 

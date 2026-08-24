@@ -186,3 +186,6 @@ the artifact pretends to expose a file you cannot get out of it.
   no Docker at all: the engine and a curated fleet compiled to WebAssembly.
 - [Dashboard container](../dashboard-docker.md) — the dashboard against your own
   services rather than a fixture.
+
+Next: the [Quickstart](../quickstart.md) takes an empty directory to a published
+contract in about five minutes.

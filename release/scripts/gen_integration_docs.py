@@ -833,7 +833,7 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Artifact Hub  <-  release-manifest.json + artifacthub-repo.yml + Chart.yaml
+# Published artifacts  <-  release-manifest.json + artifacthub-repo.yml + Chart.yaml
 # ---------------------------------------------------------------------------
 
 def gen_artifact_hub(repo_root: str, k8s: str) -> str:
@@ -843,7 +843,7 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     chart = load_yaml_docs(os.path.join(k8s, "charts/pacto-operator/Chart.yaml"))[0]
 
     out = [banner("release/release-manifest.json + artifacthub-repo.yml + Chart.yaml")]
-    out.append("# Artifact Hub\n")
+    out.append("# Published artifacts\n")
     out.append(
         "Published artifact coordinates for the Kubernetes integration. All coordinates and "
         "versions are generated from `release/release-manifest.json` -- the single source of "

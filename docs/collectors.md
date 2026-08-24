@@ -1,13 +1,8 @@
 # Collectors and the evidence boundary
 
 The CLI, dashboard and Kubernetes operator are three *products*. Underneath them
-the architecture is five roles, and each product is built around some of them:
-
-- **Contract** — declares stable service intent (`pacto.yaml`).
-- **Collectors / evidence producers** — observe one environment and emit `Evidence`.
-- **Evaluation engine** — the pure `Evaluate(contract, evidence)` function.
-- **Integration host** — schedules collection, handles credentials, owns temporal state.
-- **Findings consumers** — surface or act on the results.
+the architecture is [five roles](#the-roles), and each product is built around
+some of them.
 
 A collector is *not* what the dashboard calls a **data source**. A data source is an
 ingestion seam that contributes revisions and targets to the
@@ -21,8 +16,9 @@ schema — **not** a dynamically pluggable collector runtime.
 
 ## Declaration vs observation
 
-The central V2 split: the author declares intent; a collector observes reality; the
-engine evaluates one against the other.
+The central V2 split, stated in full in
+[the Pacto model](model.md#declaration-versus-observation): the author declares
+intent; a collector observes reality; the engine evaluates one against the other.
 
 ```mermaid
 flowchart TB
@@ -172,3 +168,14 @@ verification can return when there is a real observation kind and evaluator that
 produce Observed conformance Evidence — at which point it will have a collector path,
 not just a schema field.
 
+---
+
+## See also
+
+- [The Pacto model](model.md) — the engine, the compliance states and the ten
+  roles this pipeline sits inside
+- [Evidence protocol](evidence-protocol.md) — reporting a signed `EvidenceSet`
+  across a trust boundary
+- [Runtime observations](integrations/kubernetes/runtime-observations.md) — what
+  the first-party collector observes and the findings it produces
+- [Core concepts](concepts.md) — the distinctions the evidence boundary rests on

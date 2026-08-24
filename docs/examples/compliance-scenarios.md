@@ -15,7 +15,7 @@ not actually exercised.
 | Surface | What runs | Fidelity | Where |
 |---|---|---|---|
 | Offline WebAssembly demo | Engine + static contracts in the browser | Contract structure, graph, diff, readiness — **no runtime states** | [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo) |
-| kind acceptance | Packaged chart + real operator image on a real cluster | One live reconcile transition, real RBAC, chart lifecycle | [`tests/acceptance/kind/reconcile.sh`](https://github.com/TrianaLab/pacto/tree/main/tests/acceptance/kind/reconcile.sh) |
+| kind acceptance | Packaged chart + real operator image on a real cluster | One live reconcile transition, real RBAC, chart lifecycle | [`tests/acceptance/kind/reconcile.sh`](https://github.com/TrianaLab/pacto/blob/main/tests/acceptance/kind/reconcile.sh) |
 | Operator envtest | Controller against a real API server (no kubelet) | **Full per-dimension state matrix** | `make -C integrations/kubernetes test-e2e` |
 
 ## Scenario-to-proof map
@@ -50,6 +50,6 @@ not actually exercised.
   discovery needs the `monitoring.coreos.com` CustomResourceDefinition, which
   envtest does not load and which cannot be fetched offline, so that path is
   unit-covered by
-  [`internal/observer/metrics_discovery_test.go`](https://github.com/TrianaLab/pacto/tree/main/integrations/kubernetes/internal/observer/metrics_discovery_test.go).
+  [`internal/observer/metrics_discovery_test.go`](https://github.com/TrianaLab/pacto/blob/main/integrations/kubernetes/internal/observer/metrics_discovery_test.go).
   The e2e case guards on the CRD's absence and fails if it ever appears, rather
   than skipping silently.

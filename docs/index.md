@@ -42,7 +42,7 @@ state:
 
 Pacto (/ˈpak.to/ — Spanish for *pact*) is the machine-readable operational contract for a service. It captures what a platform, a pipeline or an agent needs to know about a service — its identity and ownership, the interfaces and capabilities it exposes, its state model, its dependencies, its configuration and the policies that apply to it — in one versioned YAML file that machines can validate and tooling can consume, instead of reassembling it from Helm values, OpenAPI, Kubernetes manifests and READMEs.
 
-Pacto doesn't invent a new configuration language. An interface is an OpenAPI document, an AsyncAPI document or a gRPC service descriptor you already maintain, and a configuration is the JSON Schema you already publish — Pacto composes the interfaces you already have instead of redefining them. On top of that it adds what no single schema can express: how interfaces relate, what they depend on and how they change over time. *JSON Schema describes an interface; Pacto describes the relationships between interfaces and how they change over time.*
+Pacto doesn't invent a new configuration language. An interface is an OpenAPI document, an AsyncAPI document or a gRPC service descriptor you already maintain, and a configuration is the JSON Schema you already publish — Pacto composes the interfaces you already have instead of redefining them. On top of that it adds what no single schema can express: how interfaces relate, what they depend on and how they change over time.
 
 The contract states stable operational *intent*. It is deliberately not a deployment manifest and not a snapshot of every runtime detail — how a service is scheduled, scaled and wired stays with the platform, and what reality currently looks like is an *observation* gathered separately and evaluated against the contract. Pacto is an **operational contract system** made of three products:
 
@@ -50,16 +50,16 @@ The contract states stable operational *intent*. It is deliberately not a deploy
 - **Dashboard** — see operational state, the service inventory, the operational graph and change analysis visually
 - **Kubernetes Operator** (optional) — one runtime evidence source that verifies live workloads still match the contract
 
-No sidecars. No new distribution plane. The CLI runs at build time and CI time. The dashboard and operator extend the same contracts into exploration and runtime verification.
+No sidecars. No new distribution plane. The CLI runs at build time and CI time.
 
-Underneath those products is one model — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits **evidence** — observed facts about a running system, gathered outside the contract and never written into it — a pure engine evaluates the contract against that evidence, and consumers surface or act on the result. The Kubernetes operator hosts the first shipped collector; anything that produces valid evidence can be one. An environment Pacto cannot watch — an edge site, an air-gapped estate, a CI runner — signs and reports its own evidence inbound instead, over the [external evidence protocol](evidence-protocol.md). See [Collectors and the evidence boundary](collectors.md).
+Underneath those products is [one model](model.md) — **author → publish → observe → evaluate → consume**: the contract declares intent, a **collector** observes an environment and emits **evidence** — observed facts about a running system, gathered outside the contract and never written into it — a pure engine evaluates the contract against that evidence, and consumers surface or act on the result. The Kubernetes operator hosts the first shipped collector; anything that produces valid evidence can be one. An environment Pacto cannot watch — an edge site, an air-gapped estate, a CI runner — signs and reports its own evidence inbound instead, over the [external evidence protocol](evidence-protocol.md). See [Collectors and the evidence boundary](collectors.md).
 
 ---
 
 ## What Pacto is not
 
 - **Not a deployment tool** — it describes *what* to deploy, not *how*
-- **Not another configuration language** — an interface is an OpenAPI, AsyncAPI or gRPC descriptor you already own, and a configuration is your own JSON Schema; Pacto composes those rather than replacing them
+- **Not another configuration language** — see above: it points at the schemas you already maintain
 - **Not a registry** — it uses existing OCI registries (GHCR, ECR, ACR, Docker Hub)
 - **Not a service catalog** — it produces the structured data that a catalog (Backstage, Port, Cortex) could consume
 - **Not an IDP, portal or authorization system** — it is the machine-readable operational layer *over* an Internal Developer Platform (IDP), not the portal humans click or the system that decides who may act
@@ -79,20 +79,15 @@ Dependencies    → tribal knowledge in Slack threads
 README.md       → outdated the day it was written
 ```
 
-The consequences:
+If any of these are familiar, Pacto is aimed at you:
 
 - **Platforms guess service behavior.** *Is it stateful? Does it need persistent storage? What does it depend on?*
 - **Dev ↔ Platform friction.** Developers ship code; platform engineers reverse-engineer how to run it.
-- **Breaking changes detected too late.** A removed endpoint or a dropped dependency breaks production, not CI.
+- **Breaking changes are detected too late.** A removed endpoint or a dropped dependency breaks production, not CI.
 - **No dependency visibility.** No one knows what depends on what until something breaks.
+- **Onboarding is slow.** Every new service starts another round of reverse-engineering.
 
----
-
-## The solution: one operational contract
-
-Pacto answers those six fragmented sources from one file — the one shown at the top of this page — covering identity and ownership, interfaces, dependencies and runtime behavior, validated by tooling and versioned in a registry. It does not delete your Helm chart or your OpenAPI spec: it points at the artifacts you already have and states the operational facts none of them carry. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs — the example above declares no `configuration`, `capabilities`, `policies` or `readiness` because that service does not need them.
-
-See the [contract reference](contract-reference/index.md) for every field, including the [`readiness`](contract-reference/sections.md#readiness) section (a `pactoVersion: "2.0"` feature).
+The contract at the top of this page answers all six sources at once. Only `pactoVersion` and `service` are required; every other section is opt-in, so a contract stays as small as the service needs — that example declares no `configurations`, `capabilities`, `policies` or `readiness` because that service does not need them. See the [contract reference](contract-reference/index.md) for every field.
 
 ---
 
@@ -100,11 +95,11 @@ See the [contract reference](contract-reference/index.md) for every field, inclu
 
 ### Developers
 
-Define your service's operational interface alongside your code. Declare interfaces, configuration schema, health checks and dependencies. Validate locally before pushing. [Learn more](developers.md)
+Define your service's operational interface alongside your code. Declare interfaces, configuration schema, health checks and dependencies. Validate locally before pushing. [The developer guide](developers.md)
 
 ### Platform engineers
 
-Consume contracts to generate deployment manifests, enforce policies, detect breaking changes and build dependency graphs — deterministically and automatically. [Learn more](platform-engineers.md)
+Consume contracts to generate deployment manifests, enforce policies, detect breaking changes and build dependency graphs — deterministically and automatically. [The platform engineer guide](platform-engineers.md)
 
 ### Building a platform on Pacto?
 
@@ -119,18 +114,13 @@ contracts, their *revisions* and their *targets* — a revision being one immuta
 published version of a contract, a target one concrete place a revision runs, such
 as a workload in one cluster — become a **versioned, verifiable operational graph
 that humans, automation and agents can reason over**.
-Pacto is to service operations what OpenAPI is to HTTP APIs — and where an OpenAPI
-document describes one interface, the operational graph describes the relationships
-*between* many services and how far a change reaches.
 
 Think of it against an Internal Developer Platform (IDP). An IDP makes platform
 *capabilities* consumable by humans through portals, golden paths, catalogues and
 workflows. Pacto makes platform *knowledge* consumable by machines through
-contracts, relationships, constraints, tools and evidence — the machine-readable
-operational layer *over* a platform, which a human portal and an agent can consume
-alike. See [The Pacto Operational Graph](operational-graph.md) and
-[Concepts](concepts.md) for the distinctions that graph is careful never to
-collapse.
+contracts, relationships, constraints, tools and evidence. See
+[The Pacto Operational Graph](operational-graph.md) and [Concepts](concepts.md)
+for the distinctions that graph is careful never to collapse.
 
 ---
 
@@ -144,19 +134,7 @@ service. (For the people, see [Who is Pacto for?](#who-is-pacto-for) above.)
 - **Runtime controllers** — the Kubernetes operator observes live workloads and reports whether reality still matches the declared contract.
 - **Autonomous agents** — because the contract is machine-readable, an agent can discover what a service is and what it can do rather than infer it. `pacto mcp` projects a bundle's operations into callable tools over the [Model Context Protocol](https://modelcontextprotocol.io); MCP is one integration surface, not the definition of Pacto.
 
-Pacto is useful without any agents at all — the diff, graph, policy and verification loops stand on their own. Agents do not justify the contract; they raise the cost of not having one, because safe autonomy needs explicit, versioned, verifiable knowledge and external guardrails rather than fragmented docs. See the [MCP Integration](mcp-integration.md) guide.
-
----
-
-## When should I use Pacto?
-
-Pacto earns its keep when operational knowledge is scattered, implicit or outdated:
-
-- **You manage many services** and discover their runtime needs in production — Pacto makes every service self-describing up front, not reverse-engineered from Helm charts.
-- **Runtime assumptions live in deployment configs** — Pacto separates *what a service is* from *how it's deployed*.
-- **Dependencies are undocumented** — declare them once; `pacto diff` then shows what changed across the whole dependency tree, and [`pacto impact`](impact.md) names the consumers a change would break before it ships.
-- **CI can't catch operational breaking changes** — a removed interface, an incompatible dependency bump or a dropped capability is caught when contracts are validated and diffed in the pipeline.
-- **Onboarding is slow** — a developer runs `pacto init`, fills in the contract and pushes; the platform has everything it needs to provision the service.
+Pacto is useful without any agents at all — the diff, graph, policy and verification loops stand on their own. Agents do not justify the contract; they raise the cost of not having one. See the [MCP Integration](mcp-integration.md) guide.
 
 ---
 
@@ -169,8 +147,6 @@ Pacto earns its keep when operational knowledge is scattered, implicit or outdat
 4. pacto dashboard shows operational state, the graph and change analysis
 5. The Kubernetes operator verifies runtime stays faithful to the contract
 ```
-
-Those five steps are the tools you run. The model underneath them — [author → publish → observe → evaluate → consume](#what-is-pacto) — is the same loop described in terms of what produces and consumes evidence, rather than which command you type.
 
 ---
 
@@ -204,14 +180,14 @@ graph LR
     Bundle -- "pacto push" --> Registry["OCI Registry<br/>GHCR · ECR · ACR<br/>Docker Hub"]
 ```
 
-A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required) plus optional `interfaces/`, `configuration/`, `policy/`, `docs/`, `sbom/` and `skills/` directories. These are schemas you already maintain — an OpenAPI spec, a JSON Schema for your config — composed into the bundle rather than rewritten in a Pacto-specific format; `pacto.yaml` adds the relational layer around them (dependencies, compatibility, runtime semantics). Validation enforces that every *schema* a contract points at exists in the bundle and parses — `interfaces[].ref`, `configurations[].schema` and `policies[].schema`. Free-form pointers are not resolved: a `readiness` claim may cite a runbook, a ticket or a URL, and Pacto checks that the citation is non-empty, never that its target exists. See the [contract reference](contract-reference/index.md#bundle-structure) for the full bundle layout and [validation layers](contract-reference/validation.md) for every rule.
+A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required) plus optional `interfaces/`, `configuration/`, `policy/`, `docs/`, `sbom/` and `skills/` directories, holding the schemas you already maintain. Validation enforces that every *schema* a contract points at exists in the bundle and parses — `interfaces[].ref`, `configurations[].schema` and `policies[].schema`. Free-form pointers are not resolved: a `readiness` claim may cite a runbook, a ticket or a URL, and Pacto checks that the citation is non-empty, never that its target exists. See the [contract reference](contract-reference/index.md#bundle-structure) for the full bundle layout and [validation layers](contract-reference/validation.md) for every rule.
 
 ---
 
 ## Key capabilities
 
 - **3-layer validation** — structural (JSON Schema), cross-field (reference and consistency checks including state vs. persistence) and policy enforcement
-- **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees, so a change inside a dependency is classified too. It looks *down* the tree; [`pacto impact`](impact.md) is the one that looks up it, naming the consumers a breaking change would reach
+- **Breaking change detection** — `pacto diff` compares two contract versions field-by-field *and* resolves both dependency trees, so a change inside a dependency is classified too. It looks *down* the tree; [`pacto impact`](impact.md) is the one that looks up it, naming the consumers a breaking change would reach. [Worked output, read line by line](platform-engineers.md#breaking-change-detection)
 - **Dependency graph resolution** — recursively resolve transitive dependencies from OCI registries; sibling deps are fetched in parallel
 - **OCI distribution** — push/pull contracts to any OCI registry: GitHub Container Registry (GHCR), Amazon Elastic Container Registry (ECR), Azure Container Registry (ACR), Docker Hub, Harbor; bundles are cached locally for fast repeated operations. A contract is an ordinary OCI artifact and needs nothing special; storing *evidence* beside it does — see [registry requirements](evidence-oci-storage.md#registry-requirements), which GHCR does not currently meet
 - **Plugin-based generation** — `pacto generate` invokes out-of-process plugins to produce deployment artifacts from a contract
@@ -223,46 +199,9 @@ A bundle is a self-contained directory (or OCI artifact): `pacto.yaml` (required
 
 ---
 
-## See it in action
-
-### Detect breaking changes — with full dependency graph diff
-
-```bash
-$ pacto diff oci://ghcr.io/acme/payments-api-pacto:1.0.0 \
-             oci://ghcr.io/acme/payments-api-pacto:2.0.0
-Classification: BREAKING
-Changes (7):
-  [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
-  [BREAKING] state.type (modified): state.type modified [stateless -> stateful]
-  [POTENTIAL_BREAKING] state.persistence.durability (added): state.persistence.durability added [+ persistent]
-  [POTENTIAL_BREAKING] dependencies.ref (modified): dependencies.ref modified [auth-service: oci://ghcr.io/acme/auth-service-pacto:1.5.0 -> auth-service: oci://ghcr.io/acme/auth-service-pacto:2.3.0]
-  [BREAKING] dependencies (removed): dependencies removed [- postgres]
-  [NON_BREAKING] dependencies (added): dependencies added [+ cache]
-  [BREAKING] interfaces (removed): interfaces removed [- metrics]
-
-Dependency graph changes:
-payments-api
-├─ auth-service  1.5.0 → 2.3.0
-├─ cache         +1.0.0
-└─ postgres      -16.0.0
-breaking changes detected
-```
-
-Every change carries its own classification, and the run's overall
-classification is the worst one in the list — one `BREAKING` row is what makes
-the command exit non-zero and gate the deployment. Note that the version bump
-itself is only `NON_BREAKING`, and that adding persistence is
-`POTENTIAL_BREAKING` rather than breaking: the [diff rules](contract-reference/diff.md)
-say which change lands where. The tree underneath is the resolved dependency
-graph, added (`+`), removed (`-`) and upgraded (`→`); [`pacto graph`](cli-reference.md#pacto-graph)
-renders it in full.
-
----
-
 ## What you keep if you stop using Pacto
 
-A contract system is only worth adopting if you can leave it, so the exit is
-worth stating before you commit to anything. Pacto invents three files —
+Pacto invents three files —
 `pacto.yaml`, the `pacto.lock` that [`pacto lock`](lockfile.md) writes, and an
 optional [`.pactoignore`](pactoignore.md) — and nothing outside Pacto reads any
 of them. That is the whole of the lock-in. Everything those files wrap stays
@@ -314,7 +253,8 @@ whole dashboard in your browser, against a fixture fleet, with nothing to
 install — and the [Docker Compose demo](examples/compose-demo.md) runs a real
 one on your own machine. When you want your own contract, the
 [Quickstart](quickstart.md) takes about five minutes from an empty directory to
-a published bundle. For the full positioning and rationale, see the
+a published bundle. To understand the system rather than drive it, read
+[the Pacto model](model.md); for the positioning and rationale behind it, the
 [Manifesto](manifesto.md).
 
 ## Getting help
@@ -337,5 +277,3 @@ are these:
   and the [MCP troubleshooting section](mcp-integration.md#troubleshooting) cover
   the diagnosable cases, including the ones where Pacto reports `Unknown`
   because it genuinely cannot observe something.
-
-Pacto is an **operational contract system** that tells platforms, pipelines and agents what a service *is* — and whether observed reality still matches what was declared.

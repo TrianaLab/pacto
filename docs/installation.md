@@ -1,8 +1,13 @@
 # Installation
 
-Three ways in. The installer script is the shortest and the only one that also
-brings the plugins; Go and from-source builds are for contributors and for
-machines that already have a Go toolchain.
+Three ways in. The installer script is the shortest; the Go and from-source
+builds are for contributors and for machines that already have a Go toolchain.
+
+| Method | Installs | `pacto version` reports |
+|---|---|---|
+| [Installer script](#via-installer-script) | `pacto` plus both official plugins | the release you installed |
+| [`go install`](#via-go) | `pacto` only | `dev`, with commit and date `unknown` |
+| [From source](#from-source-manual-build) | `pacto` only | version, commit and date from your checkout |
 
 Not installing yet? The [live dashboard demo](examples/dashboard-demo.md) runs
 Pacto in your browser with nothing to download, and the
@@ -31,11 +36,10 @@ Install with one command:
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 ```
 
-This installs three binaries into `/usr/local/bin`: `pacto` itself and the two
-official plugins, `pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`
-(see [Plugins](plugins.md)). Plugin installation is best-effort — if it fails,
-the script prints a warning, installs `pacto` anyway and still exits 0. Re-run
-the script to retry the plugins.
+This installs into `/usr/local/bin`: `pacto`, `pacto-plugin-schema-infer` and
+`pacto-plugin-openapi-infer` (see [Plugins](plugins.md)). Plugin installation is
+best-effort — if it fails, the script prints a warning, installs `pacto` anyway
+and still exits 0. Re-run the script to retry the plugins.
 
 Pass `--version` to install a specific release instead of the latest:
 
@@ -127,10 +131,9 @@ it does not leave a binary in `./bin` inside the clone. It stamps the version,
 commit and build date from your checkout, so `pacto version` reports something
 meaningful.
 
-!!! note "The Go and from-source paths install `pacto` only"
-    Neither `go install` nor `make build` installs the official plugins — only
-    the installer script does. If you need `pacto generate`, install the plugins
-    separately from [`TrianaLab/pacto-plugins`](https://github.com/TrianaLab/pacto-plugins)
+!!! note "Installing the plugins separately"
+    If you need `pacto generate` after a Go or from-source install, take the
+    plugins from [`TrianaLab/pacto-plugins`](https://github.com/TrianaLab/pacto-plugins)
     and put them on your `PATH`. See [Plugins](plugins.md).
 
 ## Verify the installation
@@ -155,9 +158,8 @@ on your `PATH`; `which pacto` (`where pacto` on Windows) shows which one won.
 
 ## Supply chain: what is signed and what is not
 
-Pacto's release pipeline signs some artifacts and not others. The honest summary
-is below — it matters because a signature you assume exists is worse than one you
-know does not.
+Pacto's release pipeline signs some artifacts and not others. A signature you
+assume exists is worse than one you know does not:
 
 | Artifact | What ships with it |
 | --- | --- |
@@ -254,7 +256,8 @@ make clean    # Delete $GOBIN/pacto and the coverage files
 ```
 
 !!! note
-    Package manager support (Homebrew, apt, etc.) is planned for future releases. Pre-built binaries are already published on GitHub Releases and are what the installer script and `pacto update` download.
+    Package manager support (Homebrew, apt, etc.) is planned for future releases.
 
-Next: [Quickstart](quickstart.md).
+Next: [Quickstart](quickstart.md). For what changed in the version you just
+installed, see the [changelog](changelog.md).
 

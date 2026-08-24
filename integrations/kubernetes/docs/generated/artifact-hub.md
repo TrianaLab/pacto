@@ -4,7 +4,7 @@
   Regenerate with `make docs-generate`; drift is a CI failure (`make docs-check`).
 -->
 
-# Artifact Hub
+# Published artifacts
 
 Published artifact coordinates for the Kubernetes integration. All coordinates and versions are generated from `release/release-manifest.json` -- the single source of truth for what has been published.
 

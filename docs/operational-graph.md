@@ -17,9 +17,8 @@ Query**; the sections below use those terms wherever precision matters.
 
 ## Three identities, never flattened
 
-The graph models three distinct things and never collapses them into one. This is
-the single most important idea on this page: a name, a revision and a running
-instance are different questions with different answers.
+The graph models three distinct things and never collapses them into one: a name,
+a revision and a running instance are different questions with different answers.
 
 | Identity | What it is | Example |
 |----------|-----------|---------|
@@ -27,10 +26,8 @@ instance are different questions with different answers.
 | **Contract revision** | An immutable resolved revision — what it declares and how it differs from another revision. Identity is the service plus a content digest: the source's immutable digest, or one derived from the whole bundle when the source has none. Never a ref, never a version; a revision that can be neither pinned nor hashed is omitted rather than given a weaker identity. | `payments-api@sha256:…` |
 | **Operational target** | A concrete place a revision runs, generic as `scope/kind/name`. | `production-eu/customer-a → kubernetes-workload payments/payments-api` |
 
-A logical service is not its latest revision. A revision is not the thing running
-in a cluster. A target is not the service. Keeping them separate is what lets the
-graph answer "which *revision* runs *where*, and is *that instance* compliant"
-without guessing.
+Keeping them separate is what lets the graph answer "which *revision* runs
+*where*, and is *that instance* compliant" without guessing.
 
 ### How certainly a target is matched to a revision
 
@@ -82,10 +79,10 @@ never ambiguous:
   the declared graph). Reconciliation and impact consume them; because every edge
   keeps its provenance, an observed edge is never mistaken for a declared one.
 - **inferred** — a relationship deduced heuristically. Reserved, not yet produced.
-
-The discriminator keeps "what a team declared" and "what a tracer saw" separable
-wherever they meet, so an observed or inferred edge can never be mistaken for a
-declared one.
+- **declared+observed** — one edge backed by *both* a declaration and an
+  observation. The neighborhood projection merges the two adjacency indexes for
+  display and emits this combined value, so a consumer branching on provenance
+  must handle all four.
 
 ---
 
@@ -116,6 +113,10 @@ source to carry.)
   business holding a credential for.
 - **Offline target-state fixtures** (`--target-state`) — an unsigned demo and
   test adapter for supplying targets without a cluster.
+
+Offline trace exports are Data Sources too, claiming names in the same namespace,
+but they supply observed dependency edges rather than revisions and targets — see
+[Observation sources](observation-sources.md).
 
 Every source flag above is shared by `pacto fleet` and the MCP fleet server, so
 the same graph is reachable from either. `pacto impact` reads a narrower set —
@@ -161,6 +162,7 @@ targets:
     coverage: { evaluated: 5, required: 5 }
     evidenceAt: 2026-07-29T09:40:00Z     # when the evidence was gathered
     reconciledAt: 2026-07-29T09:41:00Z   # when the target was last reconciled
+    observedRuntime: { replicas: 3 }     # free-form; surfaced as a bounded preview
     findings:
       - code: STATELESS_PERSISTENT_CONFLICT   # required within a finding
         severity: error
@@ -240,7 +242,7 @@ completeness value:
 
 The dashboard uses a matching per-section vocabulary — `present`, `empty`,
 `not_applicable`, `unavailable`, defined term by term under [Section
-provenance](architecture.md#section-provenance-sectionmeta) — for the same
+provenance](dashboard-architecture.md#section-provenance-sectionmeta) — for the same
 reason: a blank must always explain *why* it is blank. When a source fails, its error is sanitized to a category code
 (`AUTH_FAILED`, `NOT_FOUND`, `UNAVAILABLE`, `CANCELLED`) and a generic message, so
 credentials, tokens and host names never leak to a consumer.
@@ -333,9 +335,9 @@ the canonical owner key (see [ownership](#aggregates-what-a-bounded-list-can-sti
 
 Every list answer is bounded, so the rows a consumer receives are one slice of the
 population its filter matched. Alongside them the read model returns an
-**aggregate computed over the complete matched population, before paging**. A
-distribution drawn from the rows would present the first page as the fleet; this
-is the reason the aggregate is computed in the backend and not in a client.
+**aggregate computed over the complete matched population, before paging** —
+computed in the backend, because a distribution drawn from the rows would present
+the first page as the fleet.
 
 The matched population is heterogeneous by design — one query can match services,
 revisions and targets at once — so **every tally names the population it
@@ -405,14 +407,13 @@ The overview carries the same two tallies over the whole snapshot rather than ov
 a filtered population. They sit there, and not in the attention backlog, because
 neither is an operational failure: "is ownership declared at all" and "is anyone
 assessing readiness" are systemic questions about how the fleet is organized and
-authored, and no per-entity page can answer them.
+authored.
 
 ---
 
 ## Who consumes it
 
-The read model is one thing with several front doors. A human portal and an agent
-consume the *same* graph.
+A human portal and an agent consume the *same* graph.
 
 ```mermaid
 flowchart LR
@@ -493,10 +494,6 @@ flowchart TB
     OG --> ANS["Query answers<br/>with asOf · completeness · limitations"]
 ```
 
-Read the two diagrams together: the first shows *where* the data comes from, the
-second shows *what the graph is made of*. The graph indexes and navigates the
-outputs of many evaluations; it never becomes a second, parallel evaluator.
-
 ---
 
 ## Impact analysis, built on this substrate
@@ -507,9 +504,8 @@ directly on that index. `pacto impact <old> <new>` composes a semantic contract
 diff with this graph to answer "if this revision ships, what is the transitive
 blast radius" — direct and transitive affected consumers, active targets, owners,
 a compatibility verdict and a per-consumer confidence grade. No new data, a new
-question over the same graph the dashboard and CLI already query. It is shipped
-today and exposed on the CLI, as the `pacto_impact` MCP tool and — under the
-name **Change analysis**, paired with the semantic diff it composes with — in the
+question over the same graph the dashboard and CLI already query — shipped today
+on the CLI, as an MCP tool and, under the name **Change analysis**, in the
 dashboard. See [Impact analysis](impact.md) for the full model.
 
 ---
@@ -561,11 +557,14 @@ confirmed "no".
 Those observed edges meet the declared graph in three places:
 
 - **The snapshot itself** — `pacto fleet --traces <file>` adds an *observation
-  source*: [Build](#sources) resolves each raw observed endpoint name to a
+  source*, and [building the snapshot](#sources) resolves each raw observed
+  endpoint name to a
   **unique domain-qualified service** and folds resolved edges into the snapshot
-  as `observed` relationships. So `pacto fleet graph`, the dashboard and the MCP
-  tools all see runtime evidence — it is no longer confined to a one-off report.
-  An endpoint name that matches zero or more than one service (the same name in
+  as `observed` relationships. `pacto dashboard --traces` folds the same edges
+  into the dashboard's snapshot, so runtime evidence is no longer confined to a
+  one-off report. `pacto mcp --fleet` has no `--traces` flag: its snapshot is
+  declared-only, and `pacto_impact` is the one MCP tool that reads a trace file,
+  per call. An endpoint name that matches zero or more than one service (the same name in
   two domains) is **never** coerced to a domain; it is preserved as an
   `OBSERVED_IDENTITY_UNRESOLVED` limitation, so observed traffic can never be
   misattributed across domains.
@@ -621,9 +620,7 @@ and hand it a set with no `ContractRef` and it answers
 `invalid evidence set: contract ref is empty`. Both are the tool asking for the
 one thing the traces could not supply.
 
-Observed edges live in a **separate** adjacency index from declared edges, so the
-declared graph stays declared and consumers layer observed evidence on top rather
-than conflating the two. In the dashboard's Operational Graph this is the
+In the dashboard's Operational Graph the declared/observed split is the
 **Knowledge** control: **Expected** (contract-declared intent), **Observed**
 (backed by runtime observation) and **Differences** (where the two diverge). When
 a snapshot carries no observation data the graph says so — the edges come back
@@ -637,130 +634,12 @@ it), **declared-not-observed** (observation data exists but did not witness this
 edge) or **insufficient** (no observation data at all — so it cannot be
 reconciled). The dashboard's *reconciled* layer shows only `matched` edges and
 never infers reconciliation from name resolution or from whether a provider is
-deployed. To feed observation data to the normal dashboard (so its Operational
-Graph, reconciliation and Change analysis see observed edges), pass offline OTLP/JSON
-trace files with `pacto dashboard --traces <file>` (repeatable) or the
-`PACTO_DASHBOARD_TRACES` environment variable; the observed capability the UI
-advertises is derived from the published snapshot, never a hardcoded flag.
-
-### Named observation sources
-
-`--traces <file>` is the ad-hoc form: it names its sources by position
-(`observation`, `observation-1`, ...), which is honest for a one-off command line
-and wrong for anything written down. A configuration that is written down uses
-`pacto dashboard --trace-source NAME=PATH` (repeatable, or
-`PACTO_DASHBOARD_TRACE_SOURCES`), where `NAME` is the source's **identity**: it is
-what the fleet, the API and the Product's Data Source list call it.
-
-Identity and location are deliberately separate. Reordering the configuration
-never renames a source; moving the file never renames it either; and two sources
-whose files happen to share a basename stay two sources.
-
-A name must be unique across **every** Data Source the dashboard assembles, not
-just among the trace sources. The live Kubernetes source, the OCI and local-cache
-sources, local bundle roots, target-state fixtures, evidence stores and Evidence
-Servers all claim names in the same namespace — so a trace source called `k8s`,
-`local` or `oci` collides with one of them, and inside a pod (where there is no
-kubeconfig context to name the cluster) the live Kubernetes source is called
-exactly `k8s`. A collision is refused **before a snapshot is built**, with an
-error naming both claimants. Neither source is renamed: an identity two sources
-share is not an identity, and picking a winner would make the Product's answer
-depend on assembly order.
-
-What that refusal costs depends on who asked for the snapshot. A command that
-builds one and exits fails with that error. The long-running dashboard is not
-killed by it — the HTTP host keeps serving, and the refused build is an ordinary
-refresh failure: a snapshot that was already published stays published and served
-while the failure is recorded as degraded, and if no build has ever succeeded
-there is no snapshot to serve, so the operational-graph endpoints answer with the
-collision error until the names are distinct and a refresh succeeds. The one
-outcome that never happens is the ambiguous snapshot: no Product ever publishes a
-Data Source key owned by two sources.
-
-A named source may read **only inside the directory its file sits in**. That
-directory is the source's root, and the read is resolved through it, so a symlink
-placed in the storage — by whoever produces the export, or by anyone who can
-write to it — cannot walk out to the container's own filesystem. Symlinks
-themselves are fine: the internal indirection a projected Kubernetes ConfigMap
-volume is built from resolves normally. Only leaving the root is refused, and it
-is refused as a source failure, so the Data Source becomes explicitly
-unavailable rather than quietly reading something else.
-
-### Operator-managed observation sources
-
-The operator-managed dashboard declares its sources in Helm values:
-
-```yaml
-dashboard:
-  enabled: true
-  observation:
-    sources:
-      - name: orders            # the stable Data Source identity
-        file: traces.json       # a file name, directly inside this source's mount
-        existingClaim: orders-trace-export
-```
-
-The operator mounts each declared backing **read-only** at
-`/var/lib/pacto/observation/<name>/` and configures the dashboard to read exactly
-`<mount>/<file>` under the name `<name>`. Nothing is scanned: Pacto opens the
-files you declared and no others, never recursively, and never writes to them.
-Changing a source changes the pod template, so Kubernetes rolls the dashboard;
-reordering the list does not, because order is not identity.
-
-`file` is a plain file name, not a path: no `/`, no whitespace and no comma
-(the character that separates fields on the controller's flag). Give a source
-its own backing and mount its export at the top of it, rather than reaching into
-a subdirectory — which also makes the mount the read root, with nothing above it
-in reach. `existingClaim` and `configMap` must be valid Kubernetes object names,
-checked when the values are read rather than left to fail at admission after the
-Deployment is already being applied. Every value the chart accepts survives the
-trip through the controller's flag unchanged; a
-[Helm-rendering test](https://github.com/TrianaLab/pacto/blob/main/integrations/kubernetes/internal/dashboard/observation_wire_test.go)
-parses the actual rendered argument rather than a second copy of the grammar.
-
-Exactly one backing supplies each source:
-
-| Backing | Use for | Limits |
-|---|---|---|
-| `existingClaim` | Real exports. Some other workload writes the file into a PVC; the dashboard only reads it. | The claim must exist; a missing PVC blocks pod scheduling, as it would for any workload. |
-| `configMap` | Small, static exports — fixtures and deterministic tests. | A ConfigMap caps near 1 MiB. Mounted optional, so a missing ConfigMap degrades that Data Source instead of wedging the pod. |
-
-Storage ownership stays outside Pacto. Whoever owns the claim or the ConfigMap
-owns producing, sizing, rotating and deleting the trace export; Pacto is a reader
-with no retention policy and no opinion about how the file got there.
-
-This is configuration of **offline** input. Pacto still ships **no live OTLP
-receiver**: nothing listens on 4317 or 4318, there is no `/v1/traces` endpoint,
-and no collector is deployed as part of the dashboard. If you need live
-collection, run a Collector you own and point one of these sources at whatever
-file it exports. Two architecture gates hold the line —
-`TestOTelObserverStaysOffline` on the analyzer and
-`TestOperatorObservationPackagingStaysOffline` on the packaging.
-
-### Source health is not evidence freshness
-
-A configured trace source is a Data Source like any other, and it answers two
-independent questions:
-
-- **Source health** — could Pacto read and parse the file? A missing file, an
-  unreadable mount, a read that would leave the mount or malformed OTLP/JSON
-  makes that source explicitly
-  `unavailable`, with a `SOURCE_UNAVAILABLE` limitation naming it. It is never
-  silently absent, and a failing source never takes the dashboard down: the k8s,
-  OCI, local and evidence sources keep answering, and any other healthy trace
-  source keeps contributing.
-- **Evidence freshness** — how recent is what the file witnessed? A perfectly
-  readable export of last month's traffic is an **available** source carrying
-  **stale** evidence; the observed edges carry the window they were seen in.
-
-Keeping the two apart is what stops the two most tempting wrong readings: that a
-source Pacto cannot read means "no dependencies were observed", and that an old
-export proves a dependency has gone away. Neither is knowledge Pacto has.
-
-The Evidence Server is a **different** concept and stays separate: it is the
-verification boundary for signed evidence envelopes, which the dashboard consumes
-read-only over HTTP. Trace exports do not travel through it, and the registry it
-publishes to is never reachable from the dashboard.
+deployed. Feeding observation data to the normal dashboard — so its Operational
+Graph, reconciliation and Change analysis see observed edges — means configuring
+[observation sources](observation-sources.md): the offline OTLP/JSON trace files
+it reads, how they are named, and how they are wired under Kubernetes. The
+observed capability the UI advertises is derived from the published snapshot,
+never a hardcoded flag.
 
 ---
 
@@ -805,5 +684,9 @@ systems reason about — it is not either of them.
   the read-only fleet query tools
 - [Collectors and the evidence boundary](collectors.md) — how per-target evidence
   and evaluation work
-- [Architecture](architecture.md) — the engine, the layers and the declaration
-  vs observation split
+- [Observation sources](observation-sources.md) — configuring the offline trace
+  exports the observed layer reads
+- [The Pacto model](model.md) — the engine and the declaration vs observation
+  split
+- [Dashboard architecture](dashboard-architecture.md) — the source model behind
+  the contract-exploration substrate
