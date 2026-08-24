@@ -57,3 +57,7 @@ It showcases the full UI against a realistic set of services:
 
 The source and build harness live in
 [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo).
+
+Next: the [Docker Compose demo](compose-demo.md) runs the same UI against a real
+registry and Evidence Server on your machine, or go straight to the
+[Quickstart](../quickstart.md) and publish a contract of your own.

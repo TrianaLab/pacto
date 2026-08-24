@@ -105,5 +105,5 @@ labels and the scrape permission you have to grant yourself are in
 - [CRD reference](crd-reference.md) -- the `Pacto` and `PactoRevision` schemas.
 - [Helm reference](helm-reference.md) -- chart values.
 - [RBAC](rbac.md) -- the permissions the operator needs.
-- [Artifact Hub](artifact-hub.md) -- published artifact coordinates.
+- [Published artifacts](artifact-hub.md) -- coordinates, verification and the Artifact Hub listing.
 - [Troubleshooting](troubleshooting.md) and [Limitations](limitations.md).

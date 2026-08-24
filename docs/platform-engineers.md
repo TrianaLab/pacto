@@ -140,7 +140,7 @@ file descriptions on stdout, in any language. Until one is on your `PATH`,
 
 ### State model
 
-The state model tells you exactly what storage and scheduling strategy a service needs. The `scope/durability` values below (e.g. `shared/persistent`) are shorthand for the `state.persistence.scope` + `state.persistence.durability` fields, matching the `pacto explain` display. These are platform-agnostic signals, not Kubernetes prescriptions — the mapping below is one reasonable interpretation for Kubernetes; the equivalent decision exists on Nomad, ECS or a custom platform:
+The `scope/durability` values below (e.g. `shared/persistent`) are shorthand for the `state.persistence.scope` + `state.persistence.durability` fields, matching the `pacto explain` display. These are platform-agnostic signals, not Kubernetes prescriptions — the mapping below is one reasonable interpretation for Kubernetes; the equivalent decision exists on Nomad, ECS or a custom platform:
 
 | `state.type` | `state.persistence` | Infrastructure |
 |---|---|---|
@@ -151,21 +151,19 @@ The state model tells you exactly what storage and scheduling strategy a service
 | `hybrid` | `local/persistent` | StatefulSet + PVC, tolerates cold starts |
 | `hybrid` | `local/ephemeral` | Deployment with emptyDir, warm caches improve performance |
 
-Deployment mechanics the contract deliberately does not carry — upgrade strategy, graceful-shutdown timing, replica counts and autoscaling bounds — stay with your deployment tooling. The contract tells you *what* the service is; you decide *how* to roll it out.
+Deployment mechanics the contract deliberately does not carry — upgrade strategy, graceful-shutdown timing, replica counts and autoscaling bounds — stay with your deployment tooling.
 
 ---
 
 ## Configuration and policy
 
-Two features give platform teams direct control over the boundary between developers and infrastructure: **configuration schemas** and **policies**. Both can be centralized via OCI references.
+Two features give platform teams direct control over the boundary between developers and infrastructure: **configuration schemas** and **policies**.
 
 ### Configurations: the interface between dev and platform
 
 The `configurations` section defines **the interface boundary between a service and its environment**. When a platform team publishes a shared configuration schema, it declares *what the platform provides* — database connections, observability endpoints, feature flags, secret paths. When a service author defines one, it declares *what the service requires*.
 
-An interface is a JSON Schema — and you probably already have one. A service's configuration interface is the `values.schema.json` you author for its Helm chart; an infrastructure interface is a JSON Schema derived from the provisioning claim's OpenAPI schema. Pacto composes the schema you already own instead of inventing a new configuration language: vendor that file as a local `schema:` (required whenever you supply values), or resolve a schema-only contract via `ref:`.
-
-There are two approaches:
+You probably already have the schema. A service's configuration interface is the `values.schema.json` you author for its Helm chart; an infrastructure interface is a JSON Schema derived from the provisioning claim's OpenAPI schema. Either way you have two ways to attach it: vendor the file as a local `schema:` (required whenever you supply values), or resolve a schema-only contract via `ref:`.
 
 **Vendored:** The platform publishes a schema externally, and services copy it into their bundle at build time:
 
@@ -209,8 +207,6 @@ See [Layer 3: Policy enforcement](contract-reference/validation.md#layer-3-polic
 
     - **Configuration** defines what a service needs (or what the platform provides) — the *data interface*
     - **Policy** enforces how contracts must be structured — the *contract interface*
-
-    A single JSON Schema describes one interface in isolation; it can't express how interfaces relate or change over time. That relational layer — ownership, dependencies, compatibility, readiness — is what the contract adds around them.
 
 ---
 
@@ -275,7 +271,7 @@ steps:
 
 `pacto lock --check` acts as a supply-chain reproducibility gate — it fails when a contributor edited dependencies or references without re-running `pacto lock`. See [Lockfile](lockfile.md#pacto-lock-check).
 
-Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for the equivalent workflow built on [pacto-actions](https://github.com/trianalab/pacto-actions), including multi-service workflows, doc generation and authentication options.
+Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for the equivalent workflow built on [pacto-actions](https://github.com/TrianaLab/pacto-actions), including multi-service workflows, doc generation and authentication options.
 
 ---
 
@@ -290,7 +286,7 @@ Using GitHub Actions? See [GitHub Actions integration](github-actions.md) for th
 
 Sources (local, Kubernetes, OCI) are auto-detected at startup and merged per service. The platform-relevant behavior: when running alongside the Kubernetes operator, the dashboard auto-discovers OCI repositories from the `resolvedRef` fields in Pacto CRD statuses, so a K8s deployment gives the full contract experience — version history, interface details, configuration schemas and diffs — without explicit OCI arguments.
 
-See [Dashboard architecture](architecture.md#dashboard-architecture) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for its flags (`--host`, `--port`, `--namespace`, `--diagnostics`, `--cors-origin`, `--traces`, `--trace-source`) and environment variables. `--no-cache` works here too but is a global flag, not one of the command's own. Pass OCI repositories as positional `oci://` arguments or via the `PACTO_DASHBOARD_REPO` env var.
+See [Dashboard architecture](dashboard-architecture.md) for the source model, merge priority, graph edges and version-tracking rules, and the [`pacto dashboard` command reference](cli-reference.md#pacto-dashboard) for its flags (`--host`, `--port`, `--namespace`, `--diagnostics`, `--cors-origin`, `--traces`, `--trace-source`) and environment variables. `--no-cache` works here too but is a global flag, not one of the command's own. Pass OCI repositories as positional `oci://` arguments or via the `PACTO_DASHBOARD_REPO` env var.
 
 ### Feeding the Operational Graph observed dependencies
 
@@ -307,9 +303,9 @@ dashboard:
         existingClaim: orders-trace-export
 ```
 
-The operator mounts the claim read-only, reads only the file you declared, and exposes the source under the name you gave it. That name is the identity users see, so reordering the list or relocating the file never renames a Data Source. It has to be unique against every *other* Data Source too — `k8s` is the live cluster source's name inside a pod, and `local`, `oci` and `cache` are taken as well — and a collision is refused before a snapshot is built rather than published as one name owned by two sources, with the dashboard staying up and serving the operational graph again once the names are distinct ([lifecycle](operational-graph.md#named-observation-sources)). `file` is a plain file name inside that source's own mount, and the read is rooted there, so a symlink someone leaves in the export storage cannot reach the rest of the container.
+The operator mounts the claim read-only, reads only the file you declared, and exposes the source under the name you gave it. Storage lifecycle stays yours: Pacto reads, never writes, and never rotates.
 
-Storage lifecycle stays yours: Pacto reads, never writes, and never rotates. A source it cannot read or parse becomes an explicitly unavailable Data Source rather than a silent gap — and an old-but-readable export is a healthy source carrying stale evidence, not a claim that a dependency disappeared. See [Observed dependencies and reconciliation](operational-graph.md#observed-dependencies-and-reconciliation) for the full model.
+The naming rules are load-bearing rather than cosmetic — `name` is the identity the API and UI use, it has to be unique against *every* other Data Source including `k8s`, `local` and `oci`, and a collision is refused before a snapshot is built. [Observation sources](observation-sources.md) states those rules, the read root each source is confined to, and why an unreadable source and a stale one are different answers; [Observed dependencies and reconciliation](operational-graph.md#observed-dependencies-and-reconciliation) is the model underneath.
 
 ---
 
@@ -353,3 +349,18 @@ An unreachable registry never becomes an empty result, so a service missing from
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Leverage AI assistants.** Pacto contracts are machine-consumable. In addition to CI pipelines and platform controllers, AI assistants can interact with contracts directly through the [MCP interface](mcp-integration.md) — useful for ad-hoc inspection, dependency analysis and contract generation.
 - **Close the loop with the operator.** The [Kubernetes Operator](integrations/kubernetes/overview.md) is one runtime evidence source: it observes deployed workloads and reports whether they still match their contracts — workload alignment, state model, capability reachability, interface availability and more — as typed findings, never modifying your workloads. What it can evaluate depends on what you bind: an interface with no `interfaceBindings` entry has no port to check, so it reports `Unknown` rather than a violation. Combined with the dashboard, you get a complete view: contract truth from OCI + runtime truth from the operator.
+
+---
+
+## See also
+
+- [Composition patterns](patterns/index.md) — root + component contracts,
+  infrastructure contracts, published policy + schema bundles and the rest
+- [Kubernetes operator](integrations/kubernetes/overview.md) — the runtime
+  evidence source
+- [The operational graph](operational-graph.md) — the fleet-wide read model
+- [Collectors and the evidence boundary](collectors.md) — where runtime facts
+  come from and what stays outside the contract
+- [Evidence protocol](evidence-protocol.md) — reporting evidence inbound from an
+  environment Pacto cannot watch
+- [For developers](developers.md) — the other side of the same contract

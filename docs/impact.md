@@ -11,7 +11,7 @@ Impact is framework-independent (`pkg/impact`). It consumes the pure diff engine
 OCI, dashboard, MCP or HTTP code. The same analysis therefore backs the CLI, an
 MCP tool and the dashboard, and given the same snapshot every one of them returns
 the identical answer. What differs between the three is where the snapshot may
-come from: the CLI takes offline sources only ([below](#cli)), while the MCP
+come from: the CLI takes offline sources only ([which sources, exactly](#cli)), while the MCP
 server and the dashboard can also be pointed at a registry or a cluster.
 `impact` is the name of the CLI command, the MCP tool and the Go package; in the
 dashboard the same analysis is presented as the **Change analysis** workspace,
@@ -78,9 +78,7 @@ compatibility range:
 ### Confidence model
 
 Confidence grades how strongly the available evidence supports each
-affected-consumer claim. This is the heart of impact's honesty: a declared
-dependency is stronger evidence than a transitive guess, and Pacto never dresses a
-guess up as a fact.
+affected-consumer claim.
 
 | Confidence | Exact meaning |
 |------------|---------------|
@@ -188,6 +186,8 @@ gating on *deployed* impact, which is what you want in a promotion pipeline — 
 only if the job actually supplies targets. Gate on the JSON instead
 (`--output-format json`, then `classification == "BREAKING"`) and you are gating
 on the contract alone, which is what you want before anything is deployed at all.
+That JSON carries `schemaVersion: pacto.dev/impact/v1` — the compatibility
+contract to branch on before reading any other field.
 The file `--target-state` expects is documented under
 [target-state fixtures](operational-graph.md#what-a-target-state-fixture-looks-like);
 `pacto impact` accepts no live sources, so on a laptop that file is the only way
@@ -218,10 +218,9 @@ disagree they are describing two moments, not two systems — see
 
 In the dashboard this analysis is one half of the **Change analysis** workspace,
 served by the `/api/fleet/impact` endpoint and returning the same result model the
-CLI and MCP tool produce. The workspace answers both halves of a single question on
-one screen — *what changed* between two revisions of a service, and *what that
-change affects* — so a reviewer never has to reconcile two screens that were asked
-about two different revision pairs.
+CLI and MCP tool produce. The workspace answers both halves of a single question
+on one screen: *what changed* between two revisions of a service, and *what that
+change affects*.
 
 Change analysis is contextual: it is entered from the service or revision you are
 already looking at (the **Compare revisions** action), the revision selectors are
@@ -246,17 +245,12 @@ autonomous action, and it never authorizes one.
 
 - **It does not act.** Rolling back, blocking a deploy, paging an owner or
   gating a pipeline is done by external controllers and delivery systems. Impact
-  tells them what is affected and how sure it is; it performs no action itself.
+  tells them what is affected and how sure it is.
 - **It does not authorize.** Whether a change *may* proceed stays with policy and
-  IAM systems. Impact supplies verifiable evidence for that decision, it is not
-  the decision.
+  IAM systems. Impact supplies evidence for that decision, not the decision.
 - **It never overstates certainty.** A `partial` snapshot is incomplete
   knowledge, an `unknown` verdict is uncertainty and an `inferred` consumer is a
   lead to verify — none of them is a confirmed runtime impact.
-
-This is the same discipline the operational graph holds to: Pacto makes the
-system knowable so controllers can act on it and authorization systems can reason
-about it. It is not either of them.
 
 ---
 

@@ -76,6 +76,7 @@ Resolves and enforces all declared policies against the contract. Policies are a
 | `policies[].ref` cannot be resolved (resolver unavailable, network error, bundle not found) | `POLICY_REF_UNRESOLVED` |
 | Cycle detected in recursive policy resolution chain | `POLICY_REF_CYCLE` |
 | Contract violates a policy constraint | `POLICY_VIOLATION` |
+| `policies[].ref` was skipped because no resolver was configured | `POLICY_REF_NOT_ENFORCED` (warning) |
 
 `POLICY_REF_UNRESOLVED` is a **hard error** — validation fails closed when a referenced policy cannot be resolved. This ensures that missing or unreachable policies are never silently skipped.
 

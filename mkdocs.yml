@@ -176,27 +176,34 @@ nav:
       - For developers: developers.md
       - For platform engineers: platform-engineers.md
   - Concepts:
+      - The Pacto model: model.md
       - Core concepts: concepts.md
       - Manifesto: manifesto.md
   - Operational graph:
       - operational-graph.md
       - Impact analysis: impact.md
-      - Collectors: collectors.md
-      - External evidence protocol: evidence-protocol.md
-      - Evidence in the registry: evidence-oci-storage.md
-      - Evidence security and tooling: evidence-security.md
+      - Collectors and the evidence boundary: collectors.md
+      - Observation sources: observation-sources.md
+      # Grouped rather than promoted to a tab: three pages on one subject that a
+      # reader searches for by name ("evidence"), not by the graph that consumes it.
+      - External evidence:
+          - Evidence protocol: evidence-protocol.md
+          - Evidence in the registry: evidence-oci-storage.md
+          - Evidence security and tooling: evidence-security.md
   - Patterns:
       - patterns/index.md
       - Root + component contracts: patterns/root-component.md
       - Infrastructure contracts: patterns/infrastructure-contracts.md
       - Composable configurations: patterns/composable-configs.md
-      - Configuration schema ownership: patterns/configuration-schema-ownership.md
       - Policy + schema contract: patterns/policy-schema.md
       - Progressive policy versioning: patterns/progressive-policy.md
       - Override files: patterns/override-files.md
+      # Last on purpose: the six above are numbered 1-6 on the index and the
+      # stacking diagram cites those numbers, so the sidebar has to count the
+      # same way. This one is organizational guidance, not a composition.
+      - Configuration schema ownership: patterns/configuration-schema-ownership.md
   - Examples:
       - Example contracts: examples/index.md
-      - Compliance scenarios (where proven): examples/compliance-scenarios.md
       - Cron worker: examples/cron-worker.md
       - Event processor: examples/event-processor.md
       - gRPC service: examples/grpc-service.md
@@ -219,12 +226,12 @@ nav:
           - Contract bindings: integrations/kubernetes/contract-bindings.md
           - Runtime observations: integrations/kubernetes/runtime-observations.md
           - Operator configuration: integrations/kubernetes/operator-configuration.md
+          - Troubleshooting: integrations/kubernetes/troubleshooting.md
+          - Limitations and opt-in features: integrations/kubernetes/limitations.md
           - CRD reference: integrations/kubernetes/crd-reference.md
           - Helm reference: integrations/kubernetes/helm-reference.md
           - RBAC: integrations/kubernetes/rbac.md
-          - Artifact Hub: integrations/kubernetes/artifact-hub.md
-          - Troubleshooting: integrations/kubernetes/troubleshooting.md
-          - Limitations: integrations/kubernetes/limitations.md
+          - Published artifacts: integrations/kubernetes/artifact-hub.md
       - Plugin development: plugins.md
       - Dashboard container: dashboard-docker.md
   - Reference:
@@ -237,12 +244,16 @@ nav:
       - CLI reference: cli-reference.md
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
-      - Architecture: architecture.md
   # Not "Maintainers" — readers clicked that expecting governance or a list of
-  # people and got CI internals. These two pages are contributor-facing
-  # architecture for the test suite and the release pipeline.
+  # people and got CI internals. Everything here is contributor-facing: the code
+  # map, the test suite and the release pipeline.
   - Project internals:
+      - Architecture: architecture.md
+      - Dashboard architecture: dashboard-architecture.md
       - Testing architecture: maintainers/testing.md
+      # Path stays under examples/ on purpose: there is no redirect plugin, so
+      # moving the file would permanently break every existing inbound URL.
+      - Compliance scenarios: examples/compliance-scenarios.md
       - Release architecture: maintainers/releases.md
   # changelog.md is assembled at build time from release/units/*/CHANGELOG.md
   # by release/scripts/mkdocs_integration_hook.py (Changesets-generated history).

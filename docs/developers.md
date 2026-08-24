@@ -1,9 +1,11 @@
 # Pacto for Developers
 You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational contract alongside your code, so platform engineers, CI systems and other teams have an accurate, machine-readable description of what your service needs to run.
 
-Under the hood, Pacto composes the interfaces you already have — your OpenAPI spec, your config's JSON Schema — instead of inventing new formats for them. What it adds is the operational contract no single schema owns: ownership, dependencies, compatibility and readiness.
+It reuses the specs you already have — your OpenAPI document, your config's JSON Schema — and adds the operational layer none of them owns: ownership, dependencies, compatibility, readiness. One validated, versioned YAML file instead of stale wiki pages and tickets.
 
-One validated, versioned YAML file instead of stale wiki pages and tickets.
+Already have a contract and want a single answer? [Quickstart](quickstart.md) is
+the five-minute path, the [CLI reference](cli-reference.md) is every command and
+flag, and [contract sections](contract-reference/sections.md) is every field.
 
 ---
 ## Your workflow
@@ -27,7 +29,7 @@ This scaffolds a bundle with a valid contract. Edit `pacto.yaml` to match your s
 
 ### 2. Infer schemas from your code (optional)
 
-A configuration interface in Pacto is a JSON Schema, and Pacto composes the schema you already have rather than making you redefine it. If your config already ships a JSON Schema — for example your Helm chart's `values.schema.json` — vendor that file into your bundle and point `configurations[].schema` at it. If it doesn't, the `schema-infer` plugin generates one from a config file. Use `-o` to write the output into your bundle.
+A configuration interface in Pacto is a JSON Schema. If your config already ships a JSON Schema — for example your Helm chart's `values.schema.json` — vendor that file into your bundle and point `configurations[].schema` at it. If it doesn't, the `schema-infer` plugin generates one from a config file. Use `-o` to write the output into your bundle.
 
 The `--option file=` path is resolved relative to the **bundle directory**, not your shell's working directory, so keep the config file inside the bundle. With `config.yaml` in `my-service/`:
 
@@ -109,11 +111,11 @@ interfaces:
     visibility: internal
 ```
 
-Include the actual interface files (OpenAPI documents, AsyncAPI documents, gRPC service descriptors) in the bundle. Pacto references these definitions as-is — it composes the interface contracts you already publish rather than asking you to describe them a second time.
+Include the actual interface files (OpenAPI documents, AsyncAPI documents, gRPC service descriptors) in the bundle. Pacto references them as-is.
 
 ### 4. Define your workload and state (optional)
 
-This is where you tell the platform *how* your service behaves — not how to deploy it, but what it *is*:
+Tell the platform what the service *is*:
 
 ```yaml
 workload: service
@@ -220,6 +222,14 @@ If the artifact already exists in the registry, `pacto push` prints a warning an
 pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service --force
 ```
 
+Either way the push is validated first: `push` resolves `policies[].ref` and
+refuses to publish a contract that does not satisfy the referenced schema,
+before it opens a connection to the registry. `--force` overwrites an existing
+tag; it does not skip that check ([policy enforcement on push](contract-reference/sections.md#policies)).
+The gate is Pacto's own — a published bundle
+is an ordinary OCI artifact, so anything with push access to the repository can
+put one there without going through Pacto at all.
+
 `pacto pack my-service` is a separate path, not a step on this one: it writes
 `my-service-0.1.0.tar.gz` for handing to someone with no registry access. No
 Pacto command reads that archive back — the recipient extracts it and points
@@ -322,13 +332,6 @@ my-service/
 
 Documentation ships inside the OCI artifact, versioned and distributed with the contract; it never affects validation or diffing. See the [Contract Reference — `docs/`](contract-reference/index.md#docs-optional-documentation) for the full behavior.
 
-Good candidates for `docs/`:
-
-- **Service overview** — what the service does and its purpose
-- **Architecture notes** — internal design and data flow
-- **Operational runbooks** — incident response and scaling procedures
-- **Integration guides** — how consumers should interact with the service
-
 ---
 
 ## Including an SBOM
@@ -369,3 +372,14 @@ Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no co
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Use metadata for organizational context.** Team ownership, on-call channels, and service tiers go in `metadata`.
 - **Explore contracts visually.** Run `pacto dashboard` to launch the operational dashboard — navigate the operational graph, inspect interfaces, review configuration schemas, and use Change analysis to see what a revision changed and what that change affects. It auto-detects contracts from local directories, OCI registries, and Kubernetes.
+
+---
+
+## See also
+
+- [Contract reference](contract-reference/index.md) — every field, precisely
+- [Composition patterns](patterns/index.md) — the compositions these primitives
+  are usually assembled into
+- [CLI reference](cli-reference.md) — every command and flag
+- [For platform engineers](platform-engineers.md) — the other side of the same
+  contract

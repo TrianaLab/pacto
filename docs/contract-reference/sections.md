@@ -92,20 +92,12 @@ which field named the owner**, written `kind:name`:
 3. If owner has neither (contacts only) → no canonical key. The service is still owned,
    and the dashboard counts it as such, but there is no owner to rank or link to.
 
-The namespace is part of the identity, not decoration: a team called `payments` and a DRI
-called `payments` are two different owners with two different estates, and `team:payments`
-never resolves to `dri:payments`. Only the name is shown on screen — the namespace is
-surfaced as a `Team` / `DRI` badge where two owners would otherwise be indistinguishable.
-
-Conversely, everything *except* team and DRI is metadata: two services declaring the same
-`team` are one owner even when they name different DRIs or different contacts.
-
-This key is used consistently across the owners view (`#/fleet/owners`), owner entity
-pages (`#/fleet/owners/team:payments`), the exact `ownerKey` service filter and dependency
-graph highlighting. The separate free-text `owner` filter is a human search over team, DRI
-and contacts — it is deliberately not an identity, and may match several owners at once.
-See [Platform engineers — dashboard](../platform-engineers.md) for how the dashboard
-renders these views.
+The namespace is part of the identity: `team:payments` never resolves to
+`dri:payments`, and only the name is shown on screen, with a `Team` / `DRI` badge where two
+owners would otherwise be indistinguishable. The separate free-text `owner` filter is a
+human search over team, DRI and contacts — deliberately not an identity, and it may match
+several owners at once. See [ownership aggregates](../operational-graph.md) for how the
+graph counts and ranks these owners.
 
 ---
 
@@ -137,8 +129,6 @@ Declares the service's communication boundaries. Optional — a service with no 
 
 Declares the named configuration **inputs** the service's operational contract requires or accepts. Each `configurations[]` entry describes one configuration input the service consumes at runtime — which is distinct from a platform provisioning API, Helm deployment values, or a raw Kubernetes ConfigMap/Secret: these are related but **not automatically interchangeable** (see [Configuration schema ownership](../patterns/configuration-schema-ownership.md)). Optional — a service with no configuration input may omit this section entirely.
 
-The `configurations` section is an array of named configuration entries:
-
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Non-empty identifier for the configuration entry |
@@ -154,7 +144,7 @@ Required configuration keys are derived from the JSON Schema's `required` array.
 The optional `values` field provides default configuration values that are validated against the local `schema`. A `ref:` entry carries no `values` — the two are mutually exclusive (see above); to attach values, vendor a local `schema:`. Values are useful for documenting expected defaults or providing environment-specific overrides via the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)).
 
 !!! tip
-    All files referenced by the contract — including the configuration schema — are packaged into the bundle when you run `pacto push`. The bundle is a self-contained OCI artifact that includes `pacto.yaml`, interface contracts, the configuration schema, and any other files in the contract directory.
+    All files referenced by the contract — including the configuration schema — are packaged into the bundle when you run `pacto push`. The bundle is a self-contained OCI artifact.
 
 ### External configuration schema reference
 
@@ -209,12 +199,9 @@ Your configuration JSON Schema should declare secret fields as strings:
 }
 ```
 
----
-
-Who owns a configuration schema (service-owned vs platform-provided vs mixed
-scopes), the precise condition for reusing a Helm `values.schema.json`, and exactly
-what the Kubernetes collector validates against a bound ConfigMap/Secret are covered
-in the pattern [Configuration schema ownership](../patterns/configuration-schema-ownership.md).
+Schema ownership, reusing a Helm `values.schema.json` and what the Kubernetes
+collector validates against a bound ConfigMap/Secret are covered in
+[Configuration schema ownership](../patterns/configuration-schema-ownership.md).
 
 ---
 
@@ -296,19 +283,10 @@ When a consumer references a policy contract, Pacto uses conditional resolution:
 !!! tip
     Policy references are pinned in `pacto.lock` alongside dependencies and config references. The full transitive reference closure is resolved and verified. See [Lockfile](../lockfile.md).
 
-### Bundle structure with policy
-
-```
-/
-├── pacto.yaml
-├── interfaces/              ← optional
-├── configuration/           ← optional
-│   └── schema.json
-├── policy/                  ← optional
-│   └── schema.json          ← policy schema (for policy authors)
-├── docs/                    ← optional
-└── sbom/                    ← optional
-```
+A policy author's own bundle carries the schema at `policy/schema.json`, the
+fixed path a `policies[].ref` resolves against; see
+[bundle structure](index.md#bundle-structure) for where that sits among the
+other optional directories.
 
 ---
 
@@ -373,14 +351,11 @@ Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-v
 !!! warning
     Local dependency references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local dependencies — all refs must use `oci://` before publishing.
 
-!!! tip
-    Use digest-pinned references (`oci://...@sha256:...`) for production contracts. Tag-based references produce a validation warning.
+Practices:
 
-!!! tip
-    If your service depends on a cloud-managed resource (e.g. GCP Cloud SQL, AWS SNS, Azure Service Bus), create a lightweight Pacto contract representing that resource and reference it as a dependency. This makes cloud dependencies explicit and version-tracked alongside your service contracts.
-
-!!! tip
-    Use `pacto lock` to pin the full transitive dependency closure to exact digests. When a `pacto.lock` file is present, every resolved dependency must match the pinned digest or the command fails. See [Lockfile](../lockfile.md) for details.
+- **Pin by digest in production.** `oci://...@sha256:...`; a tag-based reference produces a validation warning.
+- **Give cloud-managed resources a contract.** A lightweight Pacto contract for GCP Cloud SQL, AWS SNS or Azure Service Bus, referenced as a dependency, makes that dependency explicit and version-tracked alongside your own.
+- **Pin the whole closure with `pacto lock`.** When a `pacto.lock` file is present, every resolved dependency must match the pinned digest or the command fails. See [Lockfile](../lockfile.md).
 
 ---
 

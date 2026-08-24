@@ -66,8 +66,7 @@ no changes.
 
 These are standard formats — OpenAPI for interfaces, JSON Schema for
 configuration — so you can drop in files you already own (for example your Helm
-chart's `values.schema.json`) instead of authoring new ones. Pacto composes the
-interfaces you already have rather than inventing a config language.
+chart's `values.schema.json`) instead of authoring new ones.
 
 ## 3. Validate
 
@@ -133,7 +132,7 @@ rules, including how `partial` claims earn part of their weight.
 
 ## 6. Publish to a registry
 
-A contract is only useful once other people can resolve it. Start a throwaway
+Start a throwaway
 registry so you can do the whole round trip with no account:
 
 Docker has to be **running**, not just installed: if the daemon (or Docker
@@ -261,7 +260,7 @@ breaking changes detected
 
 The exit code is 1 when the classification is `BREAKING` — that is the CI gate.
 
-Then it is your move, and Pacto does not make it for you. A `BREAKING` verdict
+A `BREAKING` verdict
 means this change cannot ship under a compatible version: release it as a new
 **major** (`1.4.2` → `2.0.0`), because that is what every consumer's
 `compatibility: "^1.0.0"` range is reading. Nothing enforces that — bumping

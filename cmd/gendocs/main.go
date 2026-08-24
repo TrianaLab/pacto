@@ -242,7 +242,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 
 	"doc": "The header line reports the contract's own state, not a runtime measurement: `pacto doc` reads a bundle and never observes a cluster. " +
 		"A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. " +
-		"Both are the expected result for a freshly scaffolded contract — see [Compliance states](architecture.md#compliance-model).\n\n" +
+		"Both are the expected result for a freshly scaffolded contract — see [Compliance states](model.md#compliance-model).\n\n" +
 		"Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.\n\n`--serve` serves that static site locally. `--ui swagger` launches an interactive API explorer.\n\n`--serve`, `--ui` and `-o` are mutually exclusive. Use `--interface` to pick one OpenAPI interface with `--ui`. `--target` and `--target iface=url` point try-it-out at a backend.\n\nSibling dependencies are resolved in parallel. OCI bundles cache under `~/.cache/pacto/oci/`. `--no-cache` bypasses the cache.",
 
 	"login": "Credentials are stored in `~/.config/pacto/config.json` (or `$XDG_CONFIG_HOME/pacto/config.json`), keeping them separate from Docker's configuration.\n\n" +
@@ -266,7 +266,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"- The `PACTO_NO_UPDATE_CHECK=1` environment variable is set",
 
 	"dashboard": "It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached), and `--diagnostics` to expose the `/api/debug/*` endpoints.\n\n" +
-		"For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Architecture](architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
+		"For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Dashboard architecture](dashboard-architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
 
 	"mcp": "The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:\n\n" +
 		"| Tool | Description |\n" +

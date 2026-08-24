@@ -38,7 +38,7 @@ version change is a load error rather than a change entry.
 | `interfaces.ref` | Modified | POTENTIAL_BREAKING |
 | `interfaces.visibility` | Modified | POTENTIAL_BREAKING |
 
-Interfaces are keyed by `name`. The `type` enum is `openapi`/`asyncapi`/`grpc`; there is no `port` field in v2, and the spec pointer is `ref` (not `contract`).
+Interfaces are keyed by `name`. The `type` enum is `openapi`/`asyncapi`/`grpc`, and the spec pointer is `ref`.
 
 ## Configurations
 
@@ -79,8 +79,9 @@ consumer-facing contract surface, so value changes are diffed key by key (e.g.
 | `state.dataCriticality` | Modified | POTENTIAL_BREAKING |
 | `state.dataCriticality` | Added / Removed | NON_BREAKING |
 
-`workload` and `state` are top-level sections in v2. There is no `runtime`,
-`lifecycle` or `scaling` section to diff — those fields were removed.
+`workload` and `state` are top-level sections. There is no `runtime`, `lifecycle`
+or `scaling` section to diff — scheduling and scaling are delivery concerns the
+contract does not declare.
 
 ## Capabilities
 
@@ -89,9 +90,12 @@ consumer-facing contract surface, so value changes are diffed key by key (e.g.
 | `capabilities` | Added | NON_BREAKING |
 | `capabilities` | Removed | POTENTIAL_BREAKING |
 
-Capabilities (`health`, `metrics`, `extension`) are compared as a set. Adding a
-capability is a new signal (`NON_BREAKING`); removing one loses an observability
-guarantee (`POTENTIAL_BREAKING`).
+Capabilities (`health`, `metrics`, `extension`) are compared as a set, keyed by
+`type` — plus `ref` for an `extension`. Adding a capability is a new signal
+(`NON_BREAKING`); removing one loses an observability guarantee
+(`POTENTIAL_BREAKING`). Only membership of that set is diffed: `binding` is not
+part of the key and is not compared, so re-pointing an existing capability's
+`binding.interface` or `binding.path` produces no change entry at all.
 
 ## Dependencies
 
@@ -198,9 +202,11 @@ noise.
 | Section | Status |
 |---------|--------|
 | `metadata` | Not diffed. Free-form `metadata` keys are carried through to documentation and the dashboard but are ignored by the diff engine. |
+| `capabilities[].binding` | Not diffed. Capabilities are keyed by `type` (and `ref`), so a changed `binding.interface` or `binding.path` on an otherwise unchanged capability is invisible to `pacto diff`. |
+| `readiness.history[]` | Not diffed. An append-only changelog that changes on every release; see [Readiness](#readiness). |
 
-If you rely on metadata changes being flagged in CI, gate on them separately
-(for example with a policy or a custom check).
+If you rely on any of these being flagged in CI, gate on them separately (for
+example with a policy or a custom check).
 
 ## SBOM
 

@@ -21,8 +21,6 @@ To see the whole dashboard in your browser with nothing to install, open the [li
 
 ## Using examples as dependencies
 
-A JSON Schema or a gRPC service descriptor describes one interface in isolation; wiring these contracts together as `dependencies` — with compatibility ranges — is Pacto describing the relationships between interfaces and how they change.
-
 You can reference these contracts (once published to a registry) as dependencies in your own `pacto.yaml`:
 
 ```yaml
@@ -54,13 +52,14 @@ pacto graph .
 
 It prints the service and one line per dependency. A ref it cannot resolve — the placeholders above included — becomes an error node in the tree rather than a failure; the command still exits 0.
 
-## End-to-end: a contract in a control loop (conceptual)
+## One contract, many sections
 
-The examples above are static contracts. This section walks one contract through the full [operational control loop](../architecture.md#the-operational-control-loop) to show how the pieces fit. Steps 1, 2, 5 and 6 are implemented in Pacto today; steps 3 and 4 are performed by external systems Pacto integrates with, and are labelled **conceptual** below — the flow is illustrated, not shipped as executable Pacto functionality.
-
-### 1. Declare (implemented)
-
-A single contract carries the service's identity, interfaces, capabilities, configuration, dependencies and the policy it must satisfy:
+The examples above each show a contract shaped by one kind of service. This one
+is shaped by nothing: it declares most of the optional sections at once, so it
+reads as a field checklist rather than a recommendation. Nothing here is required
+beyond `pactoVersion` and `service`, and the three sections it leaves out —
+`readiness`, `metadata` and `extensions` — are in
+[Contract sections](../contract-reference/sections.md), which is the complete list.
 
 ```yaml
 pactoVersion: "2.0"
@@ -115,28 +114,10 @@ state:
   dataCriticality: high
 ```
 
-### 2. Read (implemented)
-
-Anything that consumes the service reads the contract instead of re-inferring it. A platform runs `pacto explain` or the dashboard API; an agent connects over MCP, where each `rest-api` operation is projected into a callable tool and the surrounding contract (dependencies, state, policy) gives the agent the operational context around those tools. See [MCP — Agent capabilities](../mcp-integration.md#agent-capabilities).
-
-### 3. Constrain (conceptual / external)
-
-External controls decide which actions are allowed. At **authoring time** this is implemented: `pacto validate` and `pacto push` resolve `policies[].ref` and fail closed if the contract does not satisfy the referenced schema, so `pacto push` refuses to publish a non-compliant contract — it validates before it opens a connection, and `--force` overwrites an existing tag rather than skipping that check. The gate is Pacto's, not the registry's: a published bundle is an ordinary OCI artifact, so anything with push access to the repository can put one there without going through Pacto at all. At **runtime**, whether a specific action is permitted stays with the systems built for that job — OPA, Kyverno, admission control, IAM. Pacto supplies the structured contract those systems can reason about; it does not grant runtime permissions itself.
-
-### 4. Act (conceptual / external)
-
-A controller, a deploy pipeline, a `pacto generate` plugin or an agent performs the action through existing infrastructure — Helm, kubectl, Terraform, or a generated tool calling the live API. Pacto makes zero deployment decisions and performs no actions of its own; it is the description the actor reads before acting.
-
-### 5. Observe (implemented)
-
-A collector turns the running system into evidence. The Kubernetes operator's observer reads the live workload and emits a typed `EvidenceSet` — for each declared assertion, whether it was `Observed` and what was seen, or why it could not be observed. See [Runtime observations](../integrations/kubernetes/runtime-observations.md).
-
-### 6. Evaluate (implemented)
-
-The pure engine compares declared intent against the collected evidence:
-
-```text
-Evaluate(contract, evidence) -> (findings, coverage)
-```
-
-A confirmed contradiction (for example `auth` unreachable, or the `default` configuration absent) becomes an `error` finding; an assertion the collector could not observe becomes an `unknown` finding, never a silent pass. The operator writes those findings and the resulting compliance state back onto the resource, closing the loop. See [Compliance scenarios](compliance-scenarios.md) for the full set of states and exactly where each is proven.
+That contract is step 1 of the [operational control loop](../model.md#the-operational-control-loop)
+— declare, read, constrain, act, observe, evaluate — which the model page states
+once, including which two steps external systems perform rather than Pacto. The
+rest of this site is that loop in detail: [`pacto explain` and MCP](../mcp-integration.md#agent-capabilities)
+read it, the [Kubernetes collector](../integrations/kubernetes/runtime-observations.md)
+observes against it, and [compliance scenarios](compliance-scenarios.md) show
+what each verdict is proven by.

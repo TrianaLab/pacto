@@ -78,6 +78,7 @@ If any resolved dependency or reference produces a digest that does not match th
 | `LOCK_MISSING` | `pacto lock --check` was run but no `pacto.lock` file exists. It is the only command that treats a missing lock as an error; the commands listed above skip verification entirely when there is no lock to verify |
 | `LOCK_AMBIGUOUS_REFERENCE` | One declared reference would have to be pinned to two different destinations, so the lock cannot record it (see [Reference identity](#reference-identity)) |
 | `LOCK_DUPLICATE_DECLARATION` | A contract in the closure declares the same configuration or policy name twice, so it holds two declarations the lock cannot tell apart (see [Reference identity](#reference-identity)) |
+| `LOCK_ERROR` | Fallback for a lock failure that carries no more specific `LOCK_*` code — for example a `lockVersion` outside the supported range |
 
 Because push enforces the lock, a stale lock blocks publishing — an automatic supply-chain gate.
 

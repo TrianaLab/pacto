@@ -194,7 +194,7 @@ pacto dashboard [sources...] [flags]
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached), and `--diagnostics` to expose the `/api/debug/*` endpoints.
 
-For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Architecture](architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).
+For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Dashboard architecture](dashboard-architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).
 
 ---
 
@@ -288,7 +288,7 @@ pacto doc [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-The header line reports the contract's own state, not a runtime measurement: `pacto doc` reads a bundle and never observes a cluster. A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. Both are the expected result for a freshly scaffolded contract — see [Compliance states](architecture.md#compliance-model).
+The header line reports the contract's own state, not a runtime measurement: `pacto doc` reads a bundle and never observes a cluster. A contract that has never been runtime-evaluated therefore reads `status NotEvaluated`, and one that declares no workload reads `compliance REFERENCE`. Both are the expected result for a freshly scaffolded contract — see [Compliance states](model.md#compliance-model).
 
 Markdown prints to stdout by default. `-o DIR` writes `DIR/<service>.md`. `-o NAME.html` writes a self-contained static documentation site (a directory) that reuses the dashboard UI offline.
 

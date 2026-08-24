@@ -1,7 +1,7 @@
 # Install the Kubernetes operator
 
 The operator is distributed as a Helm chart and a controller image. Coordinates
-and versions are on the [Artifact Hub](artifact-hub.md) page; every value flag is
+and versions are on the [published artifacts](artifact-hub.md) page; every value flag is
 on the [Helm reference](helm-reference.md) page.
 
 ## Prerequisites
@@ -111,19 +111,14 @@ dashboard:
 Each source is mounted **read-only** at `/var/lib/pacto/observation/<name>/`, and
 the dashboard reads exactly `<mount>/<file>` — no directory scanning, no writes.
 Use `existingClaim` for real exports (some other workload writes into the PVC) or
-`configMap` for small static exports; exactly one of the two per source. The
-`name` is the identity the API and UI show, so reordering the list never renames a
-source. Two entries claiming the same name are rejected by the operator when it
-reads its configuration; a name that collides with one of the dashboard's *other*
-data sources — the live cluster, OCI, the disk cache — is refused by the dashboard
-before a snapshot is built, rather than published as one name owned by two sources
-(see [Named observation sources](../../operational-graph.md#named-observation-sources)).
+`configMap` for small static exports; exactly one of the two per source. Whoever
+owns that storage owns producing and rotating the exports: Pacto ships **no OTLP
+receiver** and deploys no collector, so nothing listens on 4317 or 4318.
 
-Whoever owns that storage owns producing and rotating the exports. Pacto ships
-**no OTLP receiver** and deploys no collector: nothing listens on 4317 or 4318. If
-a source is missing or malformed the dashboard stays up and reports that Data
-Source as unavailable; a readable but old export is a healthy source with stale
-evidence, not a claim that a dependency vanished.
+[Observation sources](../../observation-sources.md) is the reference for the
+rest — why `name` is an identity rather than a label, what a name collision does,
+the read root each source is confined to, and why an unreadable source and a
+stale one are different answers.
 
 ### The Evidence Server is off by default
 

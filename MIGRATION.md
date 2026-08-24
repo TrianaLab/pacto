@@ -243,8 +243,8 @@ Contracts have a validity axis and a runtime evaluation axis:
   - `NonCompliant`: confirmed runtime drift from contract
   - `Unknown`: required assertion could not be evaluated (missing/insufficient evidence)
   - `Warning`: only advisory issues (optional assertions or non-blocking findings)
-  - `Reference`: contract declares no target (reference-only bundle)
-  - `NotEvaluated`: target declared but no runtime evidence available
+  - `Reference`: contract declares no workload (reference-only bundle)
+  - `NotEvaluated`: the contract declares a workload but was never runtime-evaluated at all — what an offline OCI, cache or local source looks like. The operator never emits it; a targeted contract it evaluated but could not decide is `Unknown`.
 
 ### Findings and Evidence
 

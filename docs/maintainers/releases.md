@@ -5,7 +5,7 @@ search:
   boost: 0.5
 ---
 
-# Release architecture (maintainers)
+# Release architecture
 
 How the Pacto monorepo releases its artifacts. This describes the system as it is —
 the mechanisms, invariants and manual steps a maintainer needs. The implementation
@@ -78,9 +78,9 @@ state from a durable store:
 
 - `<repo>:<txn>` — transaction metadata (`transactionId`, `sourceSha`, `manifestSha`).
 - `<repo>:<txn>-<unit>` — a unit's result (`coordinate`, `version`, `digest`, `status`).
-- `<repo>:<txn>-<unit>.plan` — a unit's precomputed expected digest. `publish-oci-unit.sh`
-  writes it only when the caller supplies `PACTO_EXPECT_DIGEST`. Neither `release.yml`
-  nor `dry-run.sh` does, so no `.plan` entry exists in the production ledger today.
+- `<repo>:<txn>-<unit>.plan` — a unit's precomputed expected digest, written only
+  when the caller supplies `PACTO_EXPECT_DIGEST`. No caller does, so the tag is
+  unused today.
 
 Every tag is write-once: a second write must be byte-identical (idempotent resume)
 else it fails closed. `ledger-init` validates existing metadata (`ledger.sh verify`)
@@ -117,9 +117,7 @@ path (both production `release.yml` and the staging dry-run call them). For each
 
 **Crash recovery** rests on `adopt`: publish, verify the remote matches the unit's
 expected identity, record `complete`. A crash in the push→record window is recovered
-by proving the remote artifact is this transaction's. Pre-recording the expected
-digest as a `.plan` entry would make that a two-phase commit, but it needs a caller
-that computes the digest up front and none does yet.
+by proving the remote artifact is this transaction's.
 
 ## Staging / production parity
 
@@ -179,24 +177,17 @@ the exit status is discarded, so a failed read reads as an empty one.
 
 ## Abandoned transaction `522e9507410f16fc` (3.2.0 / 5.2.0)
 
-Run [32560058692](https://github.com/TrianaLab/pacto/actions/runs/32560058692) published
-four units and then failed on the two defects above. Its versions were **tagged and
-resolvable through the Go module proxy but never released**: v3.2.0 and v5.2.0 have no
-GitHub Release, and `releases/latest` — which the CLI's update check and
-`scripts/get-pacto.sh` both read — correctly skips them. Do **not** create a back-dated
-Release for either; GitHub picks `latest` by creation time, so it would advertise them
-as newer than whatever has shipped since.
+This transaction published four units and then failed. v3.2.0 and v5.2.0 are
+**tagged and resolvable through the Go module proxy but were never released**:
+neither has a GitHub Release, and `releases/latest` — which the CLI's update
+check and `scripts/get-pacto.sh` both read — correctly skips them. Two rules
+follow, and they are permanent:
 
-The transaction is not resumable: every publisher checks out `ref: source_sha`, which
-is the commit whose demo fixture cannot be published. It was superseded by 3.2.1 / 5.2.1
-rather than recovered. Its ledger entries stay in
-`ghcr.io/trianalab/pacto-release-ledger` permanently, so a recovery dispatch for that
-transaction id remains armed and would still refuse to double-publish the four units
-that did complete.
-
-## Manual maintainer actions (post-merge, not automated)
-
-- First production publish + Artifact Hub listing.
-- Archive the standalone `pacto-operator` repository.
-- Confirm GitHub Pages serves from `gh-pages`.
-- Repository cutover items tracked outside this repo.
+- **Never create a back-dated GitHub Release for either version.** GitHub picks
+  `latest` by creation time, so it would advertise them as newer than whatever
+  has shipped since.
+- **Never expect the transaction to resume.** Every publisher checks out
+  `ref: source_sha`, and that commit cannot publish. It was superseded by
+  3.2.1 / 5.2.1. Its ledger entries are permanent, so a recovery dispatch for
+  that transaction id stays armed and still refuses to double-publish the four
+  units that completed.
