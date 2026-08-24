@@ -28,12 +28,12 @@ import (
 //
 // This gate is the substitute for the run that never happens. It reads the
 // contract off the workflow the way GitHub reads it — a parsed document, not text,
-// because the `uses:` line carries a trailing `# v2.1.0` comment a grep would
+// because the `uses:` line carries a trailing `# v2.1.1` comment a grep would
 // treat as part of the reference — and pairs it with the Changesets CLI major the
 // action drives, since the action and the CLI are two halves of one contract.
 
-// The accepted v2 pin: a full commit, never a tag. changesets/action v2.1.0.
-const changesetsActionPin = "changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a"
+// The accepted v2 pin: a full commit, never a tag. changesets/action v2.1.1.
+const changesetsActionPin = "changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1"
 
 // The canonical version command. It is not `changeset version`: the repository's
 // script chains the transaction builder, the plan applier and the version-derived
@@ -44,7 +44,7 @@ const changesetsVersionScript = "release:version:docs"
 // other half of a half-finished migration.
 const changesetsCLIMinMajor = 3
 
-// Every input changesets/action v2.1.0 declares at the pinned commit. A key
+// Every input changesets/action v2.1.1 declares at the pinned commit. A key
 // outside this set is a v1 leftover or a typo, and both are ignored at runtime.
 var changesetsV2Inputs = map[string]bool{
 	"github-token":           true,
