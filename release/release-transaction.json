@@ -1,7 +1,6 @@
 {
   "changedGroups": [
-    "core",
-    "kubernetes"
+    "core"
   ],
   "changedUnits": [
     "cli",
@@ -9,11 +8,7 @@
     "dashboard-contract-bundle",
     "dashboard-image",
     "demo-bundles",
-    "demo-compose",
-    "k8s-docs",
-    "k8s-module",
-    "operator-chart",
-    "operator-image"
+    "demo-compose"
   ],
   "dependencyOrder": [
     "core:go-module",
@@ -41,19 +36,31 @@
     "operator-image": "ghcr.io/trianalab/pacto/operator"
   },
   "expectedTags": {
-    "cli": "v3.2.3",
-    "core": "v3.2.3",
-    "dashboard-contract-bundle": "3.2.3",
-    "dashboard-image": "3.2.3",
-    "demo-bundles": "3.2.3",
-    "demo-compose": "3.2.3",
+    "cli": "v3.2.4",
+    "core": "v3.2.4",
+    "dashboard-contract-bundle": "3.2.4",
+    "dashboard-image": "3.2.4",
+    "demo-bundles": "3.2.4",
+    "demo-compose": "3.2.4",
     "k8s-docs": "5.2.3",
     "k8s-module": "integrations/kubernetes/v5.2.3",
     "operator-chart": "5.2.3",
     "operator-image": "5.2.3"
   },
-  "manifestSha": "f3f6d422d2cd2144e1e5272072ce1342040a141b9c3ea3a61f5eaa369ca41482",
+  "manifestSha": "47822fc345199577ca35136890b057cf0a6bd6cb32720a3c10b90805bf503c67",
   "newVersions": {
+    "cli": "3.2.4",
+    "core": "3.2.4",
+    "dashboard-contract-bundle": "3.2.4",
+    "dashboard-image": "3.2.4",
+    "demo-bundles": "3.2.4",
+    "demo-compose": "3.2.4",
+    "k8s-docs": "5.2.3",
+    "k8s-module": "5.2.3",
+    "operator-chart": "5.2.3",
+    "operator-image": "5.2.3"
+  },
+  "previousVersions": {
     "cli": "3.2.3",
     "core": "3.2.3",
     "dashboard-contract-bundle": "3.2.3",
@@ -65,22 +72,10 @@
     "operator-chart": "5.2.3",
     "operator-image": "5.2.3"
   },
-  "previousVersions": {
-    "cli": "3.2.2",
-    "core": "3.2.2",
-    "dashboard-contract-bundle": "3.2.2",
-    "dashboard-image": "3.2.2",
-    "demo-bundles": "3.2.2",
-    "demo-compose": "3.2.2",
-    "k8s-docs": "5.2.2",
-    "k8s-module": "5.2.2",
-    "operator-chart": "5.2.2",
-    "operator-image": "5.2.2"
-  },
   "ready": true,
   "schema": "pacto-release-transaction/v1",
   "sourceSha": "",
-  "transactionId": "8417c6a872928ee7",
+  "transactionId": "c8f5f701c56013f2",
   "units": {
     "cli": {
       "status": "pending"
@@ -98,18 +93,6 @@
       "status": "pending"
     },
     "demo-compose": {
-      "status": "pending"
-    },
-    "k8s-docs": {
-      "status": "pending"
-    },
-    "k8s-module": {
-      "status": "pending"
-    },
-    "operator-chart": {
-      "status": "pending"
-    },
-    "operator-image": {
       "status": "pending"
     }
   }
