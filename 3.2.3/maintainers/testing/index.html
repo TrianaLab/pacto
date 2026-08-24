@@ -1,0 +1,3674 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="An open, OCI-distributed contract standard for cloud-native services.">
+      
+      
+      
+        <link rel="canonical" href="https://pacto.run/3.2.3/maintainers/testing/">
+      
+      
+        <link rel="prev" href="../../architecture/">
+      
+      
+        <link rel="next" href="../releases/">
+      
+      
+      <link rel="icon" href="../../favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.21">
+    
+    
+      
+        <title>Testing architecture - Pacto</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.2a3383ac.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#testing-architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Pacto" class="md-header__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Pacto
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Testing architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../examples/dashboard-demo/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Try it
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../installation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../developers/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../concepts/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../operational-graph/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Operational graph
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../patterns/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Patterns
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../examples/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../github-actions/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../contract-reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Project internals
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Pacto" class="md-nav__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.svg" alt="logo">
+
+    </a>
+    Pacto
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Try it
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Try it
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/dashboard-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Live dashboard demo
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/compose-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runnable demo (Docker Compose)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quickstart
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guides
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Guides
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../developers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    For developers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../platform-engineers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    For platform engineers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Core concepts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../manifesto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Manifesto
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Operational graph
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Operational graph
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operational-graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    The Pacto Operational Graph
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../impact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Impact analysis
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../collectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Collectors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../evidence-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    External evidence protocol
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../evidence-oci-storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evidence in the registry
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../evidence-security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evidence security and tooling
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../patterns/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Patterns
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Patterns
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../patterns/root-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Root + component contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../patterns/infrastructure-contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Infrastructure contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../patterns/composable-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Composable configurations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../patterns/configuration-schema-ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration schema ownership
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../patterns/policy-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Policy + schema contract
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../patterns/progressive-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Progressive policy versioning
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../patterns/override-files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Override files
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Examples
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Examples
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/compliance-scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Compliance scenarios (where proven)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/cron-worker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cron worker
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/event-processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Event processor
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/grpc-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    gRPC service
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/hybrid-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Hybrid cache
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/nginx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Nginx
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/postgresql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    PostgreSQL
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/rabbitmq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    RabbitMQ
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/redis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Redis
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Integrations
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            Integrations
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../github-actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GitHub Actions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MCP integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_9_3" id="__nav_9_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Kubernetes
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9_3">
+            <span class="md-nav__icon md-icon"></span>
+            Kubernetes
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Kubernetes overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install the operator
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Upgrade the operator
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/contract-bindings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract bindings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/runtime-observations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runtime observations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/operator-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Operator configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/crd-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CRD reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/helm-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Helm reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    RBAC
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/artifact-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Artifact Hub
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/kubernetes/limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Limitations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Plugin development
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../dashboard-docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard container
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../contract-reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Contract reference
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10_1" id="__nav_10_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_1">
+            <span class="md-nav__icon md-icon"></span>
+            Contract reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contract-reference/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract sections
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contract-reference/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Validation layers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contract-reference/overrides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract overrides
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contract-reference/diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Diff and change classification
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CLI reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../lockfile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Lockfile
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pactoignore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Packaging ignore
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Project internals
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            Project internals
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Testing architecture
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Testing architecture
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-taxonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      The taxonomy
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-language-owns-which-level-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      Which language owns which level, and why
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-harness-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      Shared harness code
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shared harness code">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#loading-an-image-into-the-kind-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      Loading an image into the kind node
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#declarative-scenarios-and-their-projections" class="md-nav__link">
+    <span class="md-ellipsis">
+      Declarative scenarios and their projections
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Declarative scenarios and their projections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#kubernetes-and-compose-two-projections-of-one-scenario" class="md-nav__link">
+    <span class="md-ellipsis">
+      Kubernetes and Compose: two projections of one scenario
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-three-claims-the-compose-demo-makes-about-itself" class="md-nav__link">
+    <span class="md-ellipsis">
+      The three claims the Compose demo makes about itself
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deterministic-browser-tests-versus-live-browser-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      Deterministic browser tests versus live-browser tests
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-products-at-level-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      Two products at level 6
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-a-home-for-a-new-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      Choosing a home for a new test
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Release architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Changelog
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-taxonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      The taxonomy
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-language-owns-which-level-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      Which language owns which level, and why
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-harness-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      Shared harness code
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shared harness code">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#loading-an-image-into-the-kind-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      Loading an image into the kind node
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#declarative-scenarios-and-their-projections" class="md-nav__link">
+    <span class="md-ellipsis">
+      Declarative scenarios and their projections
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Declarative scenarios and their projections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#kubernetes-and-compose-two-projections-of-one-scenario" class="md-nav__link">
+    <span class="md-ellipsis">
+      Kubernetes and Compose: two projections of one scenario
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-three-claims-the-compose-demo-makes-about-itself" class="md-nav__link">
+    <span class="md-ellipsis">
+      The three claims the Compose demo makes about itself
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deterministic-browser-tests-versus-live-browser-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      Deterministic browser tests versus live-browser tests
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-products-at-level-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      Two products at level 6
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-a-home-for-a-new-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      Choosing a home for a new test
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/TrianaLab/pacto/edit/main/docs/maintainers/testing.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="testing-architecture">Testing architecture<a class="headerlink" href="#testing-architecture" title="Anchor link">&para;</a></h1>
+<p>Pacto has eight test levels. <strong>A test belongs to exactly one</strong>, chosen by what it
+proves — never by its filename, its language, or the feature that happened to
+introduce it.</p>
+<p>That rule is the whole architecture. Everything below follows from it: where a
+level lives, which language owns it, what may be shared between harnesses, and
+how you pick a home for a test you are about to write.</p>
+<h2 id="the-taxonomy">The taxonomy<a class="headerlink" href="#the-taxonomy" title="Anchor link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Level</th>
+<th>What it proves</th>
+<th>Lives in</th>
+<th>Language</th>
+<th>Run with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Unit</td>
+<td>One package, in isolation</td>
+<td>beside the code (<code>*_test.go</code>, <code>*.test.ts</code>)</td>
+<td>Go, TypeScript</td>
+<td><code>make test</code>, <code>make ci-ui</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Integration</td>
+<td>Several real components wired together, nothing over a network a user could reach</td>
+<td><code>tests/integration/</code>, <code>integrations/kubernetes/test/</code></td>
+<td>Go</td>
+<td><code>make test-integration</code>, <code>make ci-e2e-envtest</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Architecture / invariant</td>
+<td>Structural rules about the repository itself</td>
+<td><code>tests/architecture/</code></td>
+<td>Go</td>
+<td><code>make ci-gates</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Local acceptance, cluster-free</td>
+<td>A whole user story, with no Kubernetes</td>
+<td><code>tests/acceptance/local/</code></td>
+<td>Shell + Go</td>
+<td><code>make test-acceptance-local</code>, <code>make test-acceptance-compose</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Kind / system acceptance</td>
+<td>The product against a real Kubernetes cluster</td>
+<td><code>tests/acceptance/kind/</code></td>
+<td>Shell + Go</td>
+<td><code>make test-acceptance-kind</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Browser acceptance, deterministic</td>
+<td>A real shipped artifact over fixed data</td>
+<td><code>pkg/dashboard/frontend/e2e/</code> (dashboard), <code>pkg/dashboard/frontend/e2e-docs-site/</code> (documentation site)</td>
+<td>TypeScript</td>
+<td><code>make test-browser</code>, <code>make test-browser-docs-site</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>Live-browser acceptance</td>
+<td>The real frontend against a real running deployment</td>
+<td><code>pkg/dashboard/frontend/e2e-live/</code></td>
+<td>TypeScript</td>
+<td><code>make test-browser-live</code>, <code>make test-browser-compose</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>Release verification</td>
+<td>The release system produces what it claims</td>
+<td><code>tests/release/</code>, <code>release/orchestrator/</code></td>
+<td>Go, Node</td>
+<td><code>make ci-gates</code> (Go), <code>make ci-oci</code> (the Node orchestrator tests), <code>make release-dry-run</code></td>
+</tr>
+</tbody>
+</table>
+<p>Two names in the tree predate the taxonomy and are kept for the convention of
+the module that owns them. Both are <strong>level 2, integration</strong>, and are labelled as
+such where they are invoked:</p>
+<ul>
+<li><code>tests/integration/</code> drives the CLI in process against a real in-process OCI
+  registry and a real plugin binary. It was called <code>e2e</code> for historical reasons
+  only; the build tag is now <code>integration</code>.</li>
+<li><code>integrations/kubernetes/test/e2e</code> runs the operator's acceptance matrix
+  against an <strong>envtest</strong> control plane — a real API server, but no cluster and no
+  kubelet. <code>test-e2e</code> is the kubebuilder convention inside that module.</li>
+</ul>
+<p>Make target names state the level, not the feature history. The pre-existing
+<code>e2e-*</code> names remain as temporary compatibility aliases so muscle memory and any
+out-of-tree caller keep working; they are aliases, not second names.</p>
+<h2 id="which-language-owns-which-level-and-why">Which language owns which level, and why<a class="headerlink" href="#which-language-owns-which-level-and-why" title="Anchor link">&para;</a></h2>
+<p><strong>Go by default.</strong> Anything with substantial non-browser logic — lifecycle,
+retained state, retries, semantic assertions, diagnostics — is Go. It is typed,
+it is testable, and a gate that decides whether a live cluster passed should
+itself have tests. Two acceptance gates are Go programs for exactly that reason:</p>
+<ul>
+<li><code>tests/acceptance/kind/productready</code> waits for the live Product API to prove
+  the operational-graph fixture, and emits the canonical entity keys it
+  discovered.</li>
+<li><code>tests/acceptance/kind/obscheck</code> decodes the operator's Deployment wiring and
+  the resulting Product snapshot for the observation scenario.</li>
+</ul>
+<p>Both have their own unit suites, run by <code>make test-integration</code> (they live under
+<code>/tests/</code>, which the coverage gate excludes, so they are tested explicitly rather
+than implicitly). Neither could exist as <code>curl | grep</code>: the claims are about
+typed structures, and a shell pipeline that "found the string" proves much less
+than it appears to.</p>
+<p><strong>TypeScript owns browser-visible workflows.</strong> Playwright drives Chromium; a
+journey through the real bundle cannot be expressed anywhere else.</p>
+<p><strong>Shell is limited to genuinely thin process orchestration.</strong> Bringing a cluster
+up, building an image, installing a chart, forwarding a port, applying a
+manifest. A short readable sequence of real commands is the clearest possible
+description of "install this and see what happens", and rewriting it in Go would
+buy nothing. The moment a harness starts <em>deciding</em> things — parsing JSON,
+comparing structures, accumulating verdicts — that part moves to Go.</p>
+<p>Go is also free to execute real <code>kind</code>, <code>helm</code>, <code>kubectl</code> and <code>docker</code> when those
+boundaries are what the test proves. Language uniformity is not a goal: a large
+shell file that owns real lifecycle responsibilities is fine, and a small one
+that quietly makes semantic judgements is not.</p>
+<h2 id="shared-harness-code">Shared harness code<a class="headerlink" href="#shared-harness-code" title="Anchor link">&para;</a></h2>
+<p>Every stable shared concern has <strong>one</strong> implementation.</p>
+<p><code>tests/acceptance/kind/lib.sh</code> is that implementation for the cluster scenarios.
+It owns process execution and pass/fail reporting, eventually-conditions and
+timeouts, cluster lifecycle and teardown, image loading, chart packaging and
+Helm invocation, port-forwarding, readiness waits, the in-cluster registry and
+trust keypair, bundle publishing, and failure diagnostics. Every <code>*.sh</code> under
+<code>tests/acceptance/kind/</code> sources it.</p>
+<p>What stays in the scenarios is <strong>scenario-specific orchestration</strong>: their EXIT
+traps, their fixtures, their own assertions, and anything a single scenario needs
+in a form no other scenario shares. Sharing something two harnesses merely
+resemble each other in is how a helper acquires five boolean parameters.</p>
+<p>Two behaviours in <code>lib.sh</code> are load-bearing and documented at their definition —
+change them only with a reason:</p>
+<ul>
+<li><code>pf</code> waits for the forward to be <em>ready</em>, not merely started, and reports on
+  stderr. A port-forward that has not bound yet fails the next command with a
+  connection error that reads like a product bug.</li>
+<li><code>fail</code> writes to stderr for the same reason: call sites routinely silence a
+  helper's chatty stdout, and a reason written to stdout would be silenced with
+  it, leaving a run that exits 1 saying nothing.</li>
+</ul>
+<p><code>tests/acceptance/local/</code> has no cluster to manage and keeps its own small
+helpers; <code>integrations/kubernetes/test/utils</code> serves the operator module.</p>
+<h3 id="loading-an-image-into-the-kind-node">Loading an image into the kind node<a class="headerlink" href="#loading-an-image-into-the-kind-node" title="Anchor link">&para;</a></h3>
+<p><code>load_images</code> is the only way an image reaches a node, and it is deliberately
+<strong>not</strong> <code>kind load docker-image</code>. That command pipes <code>docker save</code> into <code>ctr
+images import --all-platforms</code> inside the node, which cannot work when the host
+holds only part of a multi-platform image — the state Docker Desktop's
+containerd image store leaves a pulled tag such as <code>registry:2</code> in. The node is
+asked for a platform that was never fetched and the run dies at the loading
+boundary:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>ERROR: failed to load image: command "docker exec ... ctr --namespace=k8s.io
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>images import --all-platforms --digests --snapshotter=overlayfs -" failed
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>Command Output: ctr: content digest sha256:46faa9a1...: not found
+</span></code></pre></div>
+<p>That digest is another platform's <strong>manifest</strong>, not the image. Four identities
+are in play and none is interchangeable: the Docker image ID, the multi-platform
+<strong>index</strong> digest, a per-platform <strong>manifest</strong> digest, and the <strong>config</strong> digest.
+Under the containerd image store <code>docker image inspect --format {{.Id}}</code> reports
+the index digest while the node reports the config digest, so kind's "already
+present?" short-circuit can never match — it re-imports every time, and fails
+every time. Flattening the image by hand does not survive either: the scenario
+pulls the tag again on the next run.</p>
+<p><code>tests/acceptance/kind/kindload</code> (Go, unit-tested) owns the decisions:</p>
+<ol>
+<li>the <strong>node</strong> is asked which platform it runs (<code>uname -m</code> in the node
+   container) — not the host, not <code>runtime.GOARCH</code>, not an OS name;</li>
+<li>the export is narrowed with <code>docker save --platform</code> when the docker CLI in
+   front of it accepts that flag, read off <code>docker save --help</code>: a capability
+   check, not a product check;</li>
+<li>the archive is proven <strong>self-contained</strong> before the node sees it — every
+   descriptor it references, recursively, must have its content inside. This is
+   exactly what <code>--all-platforms</code> demands, checked where the diagnostic can name
+   the missing platform instead of inside the node where it is a bare digest;</li>
+<li><code>kind load image-archive</code> imports it, which has no identity short-circuit to
+   get wrong;</li>
+<li><code>crictl</code> is asked, <strong>on every node</strong>, whether the reference now resolves to
+   the config digest that was exported.</li>
+</ol>
+<p>Step 5 is what lets a scenario write <code>imagePullPolicy: Never</code> and mean it: an
+image the node pulled from Docker Hub under the same name carries a different
+config digest and fails the check. Nothing on this path branches on an operating
+system, so CI's classic image store and a Docker Desktop workstation execute the
+same code.</p>
+<p>When it fails: <code>archive is not self-contained</code> means the export still carried a
+platform whose content is not local, and the message names both the digest and
+the platform — on a docker CLI older than 28 there is no <code>docker save
+--platform</code> to narrow with, so upgrade it. <code>resolves to ... not the loaded ...</code>
+means the node already holds a different image under that name; remove it with
+<code>ctr -n k8s.io images rm</code> in the node and re-run.</p>
+<h2 id="declarative-scenarios-and-their-projections">Declarative scenarios and their projections<a class="headerlink" href="#declarative-scenarios-and-their-projections" title="Anchor link">&para;</a></h2>
+<p>When several surfaces describe the <em>same</em> fixture, the fixture is declared once
+as data and each surface becomes a projection of it.</p>
+<p><code>tests/acceptance/scenario</code> is that declaration for the operational-graph
+vertical. It expresses services, revisions, targets (as the deployed revision),
+data sources, relationships, evidence, and which service plays which part in the
+browser journeys. Its projections:</p>
+<table>
+<thead>
+<tr>
+<th>Projection</th>
+<th>Consumer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Materialize</code></td>
+<td>the contract bundle directories both harnesses publish</td>
+</tr>
+<tr>
+<td><code>TraceExport</code></td>
+<td>the OTLP export the operator mounts as an observation source</td>
+</tr>
+<tr>
+<td><code>Plan</code></td>
+<td>the tab-delimited execution plan both harnesses read as data</td>
+</tr>
+<tr>
+<td><code>PactoCRs</code></td>
+<td>the cluster projection of the deployed targets, once digests exist</td>
+</tr>
+<tr>
+<td><code>EvidencePayloads</code></td>
+<td>the EvidenceSet each declared envelope carries</td>
+</tr>
+<tr>
+<td><code>HelmValues</code></td>
+<td>the observation sources the Kubernetes surface configures</td>
+</tr>
+<tr>
+<td><code>Compose</code></td>
+<td>the Docker Compose surface, distributed as an OCI artifact</td>
+</tr>
+<tr>
+<td><code>Digests</code></td>
+<td>the demo's evidence pins, computed before any registry exists</td>
+</tr>
+<tr>
+<td><code>FactCount</code></td>
+<td>the denominator the Product gate reports progress against</td>
+</tr>
+</tbody>
+</table>
+<h3 id="kubernetes-and-compose-two-projections-of-one-scenario">Kubernetes and Compose: two projections of one scenario<a class="headerlink" href="#kubernetes-and-compose-two-projections-of-one-scenario" title="Anchor link">&para;</a></h3>
+<p>The scenario is projected onto <strong>Kubernetes</strong> and onto <strong>Compose</strong>. They are the
+same fixture — same services, revisions, dependency edge, observation source and
+signed evidence — and <code>tests/acceptance/scenario/parity_test.go</code> proves it by
+comparing the <em>rendered</em> projections rather than the fields they came from.</p>
+<p>Where a platform genuinely cannot do something, that is <strong>declared as a missing
+capability</strong>, never expressed as a shorter run. <code>Surface</code> names what each
+provides; Compose does not provide <code>operational-target</code>, because nothing there
+reconciles a Pacto CR. <code>FactCount(surface)</code> subtracts exactly the facts that
+depend on the missing capability, the gate prints which capability it skipped,
+and the browser journey that opens a target skips with the same reason. A parity
+test asserts the difference is <em>only</em> that, so a Compose leg cannot quietly
+become a weaker run while still reporting "N of N facts".</p>
+<p>Adding a surface therefore means adding a <code>Capability</code>, not adding a branch.</p>
+<p>The <strong>expected Product facts are not a separate document — they are the
+scenario</strong>. <code>productready</code> walks the value: a declared revision must be one
+canonical retrievable revision, a deployed one must have exactly one operational
+target linking to it, a relationship with an <code>ObservedBy</code> must be declared,
+observed and reconciled.</p>
+<p>Three rules keep this from becoming a framework:</p>
+<ol>
+<li><strong>Bundle content stays literal.</strong> A fixture contract is meant to be read, and
+   a generator for it would be a second, untested implementation of the contract
+   schema. The package's tests materialize the literals and parse them back with
+   the real <code>contract.Parse</code>, proving the declared identity and the file agree.</li>
+<li><strong>A projection exists only when it has a consumer.</strong> Each one above earned its
+   place by having a surface that reads it. The Helm values projected are the
+   ones the <em>scenario</em> decides — which observation sources exist, under which
+   identities; the operator image, the insecure registry and the enabled
+   components stay in the harness, because they are properties of the run and
+   have no counterpart on the other surface. Projecting those too would be
+   uniformity for its own sake.</li>
+<li><strong>Journey inputs are discovered, not declared.</strong> A <code>ServiceKey</code> is
+   domain-escaped and a <code>RevisionKey</code> carries a content id. Reconstructing those
+   escapes in a test would be a second implementation of the identity rules that
+   could agree with itself while disagreeing with the product. The gate publishes
+   the keys the Product returned, and the browser suite addresses exactly those.</li>
+</ol>
+<p>Not every fixture belongs here. <code>observation.sh</code> keeps its own literal exports
+because a malformed export and identity-escaping service names are the <em>subject</em>
+of that scenario, not incidental data. <code>tests/acceptance/local/fleet-graph.sh</code>
+describes a different story with different services and is not a projection of
+anything.</p>
+<h3 id="the-three-claims-the-compose-demo-makes-about-itself">The three claims the Compose demo makes about itself<a class="headerlink" href="#the-three-claims-the-compose-demo-makes-about-itself" title="Anchor link">&para;</a></h3>
+<p><code>tests/acceptance/local/compose-demo.sh</code> proves the demo the way a stranger meets
+it. Three of its claims are easy to state loosely and all three are stated here
+as narrowly as they are tested.</p>
+<p><strong>Docker Compose owns this artifact, end to end.</strong> The demo is not a directory
+someone tarred into a registry. <code>docker compose publish</code> writes it and
+<code>docker compose -f oci://…@sha256:… -p &lt;name&gt; up</code> runs it, with no generic OCI
+tool anywhere on either path — the harness does not install ORAS and CI does not
+either. The published application is one layer holding the projected compose file
+verbatim, so <code>sha256</code> of what the projector emitted is the artifact's content
+identity; the acceptance asserts exactly that equality against the manifest it
+reads back. There is no run directory, no local <code>compose.yaml</code> on the execution
+path and no bind mount in the published model: every immutable fixture input —
+the plan, the seed script, the bundle documents, the observation fixture — travels
+inside the application as a Compose <code>config</code> with inline <code>content</code>, and only the
+mutable runtime state (the embedded registry, the Evidence Server's keys) lives in
+a named volume. Project identity is the user's: an explicit <code>-p</code> per copy, never a
+top-level <code>name:</code> that would make two versions collide.</p>
+<p>That ownership reaches the release. <code>demo-compose</code> publishes through the same
+<code>publish-oci-unit.sh</code> adapter as every other OCI unit, with
+<code>docker compose publish</code> as its push command. Compose stamps
+<code>org.opencontainers.image.created</code> into the manifest and writes no
+revision/version annotations, so neither a precomputed digest nor provenance
+adoption can recover its crash window — which is why the adapter learned
+<code>PACTO_EXPECT_CONTENT</code>. What that key matches is the whole native Compose
+identity, never the bytes on their own: <code>artifactType</code>
+<code>application/vnd.docker.compose.project</code>, exactly one layer, layer media type
+<code>application/vnd.docker.compose.file+yaml</code>, layer digest the expected one. The
+same tuple is the adoption rule and the post-push assertion, because it is
+literally the same code — <code>publish-oci-unit.sh</code> asks <code>verify-oci.sh</code> rather than
+keeping its own copy, which is how the assertion had drifted down to a layer
+count and a digest and would adopt an <code>application/vnd.example.not-compose</code>
+artifact carrying the same file. <code>dry-run.sh</code> ITEM 3b exercises all of it for real
+against the staging registry: a genuine <code>docker compose publish</code> is adopted, and
+the same bytes under a foreign artifact type, under a foreign layer media type,
+with an extra layer, with no compose layer, or with different bytes are each
+refused — on the crash-window path and on the absent-tag path, where the
+assertion has to run before the ledger records anything.</p>
+<p><strong>Immutability reaches the images.</strong> The artifact is published once and pulled by
+digest, which is worth nothing while the compose file inside it names its images
+by tag: the tag moves, and the same artifact digest starts executing different
+bytes. <code>scenario.Compose</code> therefore refuses any reference without an <code>@sha256:</code>
+of 64 lower-case hex characters, so a tag fails at projection rather than in
+somebody's demo. In the release, the dashboard pin is the digest the ledger
+recorded for the <code>dashboard-image</code> unit — read back with <code>ledger.sh digest</code>, and
+<code>demo-compose</code> fails closed if the transaction has none, because a narrowed
+recovery must not publish an artifact naming an image nothing verified. The
+registry pin is <code>scenario.ComposeDefaultRegistryImage</code>, a constant this
+repository updates by hand.</p>
+<p>Both are <strong>index</strong> digests, which matters for the same reason it matters to
+<code>kind load</code> above: an index digest still lets Docker resolve the child that
+matches the host, while a per-platform manifest digest is the same string shape
+and would emulate everywhere else. The acceptance re-derives the difference
+rather than trusting the comment — it resolves every pin the pulled artifact
+names and asserts each one came back as the host's own architecture, which a
+child digest could not.</p>
+<p><strong>The network boundary is a boundary, not an absence of pulls.</strong> The claim is:
+<em>after the demo artifact and its digest-pinned images have been pulled, the stack
+requires no external network access; its private Compose service network remains
+available because the dashboard, Evidence Server and embedded registry must
+communicate with each other.</em> <code>docker compose up --pull never</code> on its own proves
+only the first four words of that, on a runner that still has the whole Internet
+and still has the registry the artifact came from. So stage 11 removes both: the
+artifact-distribution registry is stopped, and rules keyed to the project's own
+bridge refuse anything that leaves it.</p>
+<p>Two chains, because a packet leaving the demo can leave by two paths that share
+no netfilter hook: <code>INPUT</code> for what is addressed to the host itself, <code>FORWARD</code> —
+and so <code>DOCKER-USER</code> — for what the host routes onward. A rule in one is
+invisible to the other, so one control cannot stand for both, and a stage that
+installed rules in both while only ever probing a host address would stay green
+with the whole <code>DOCKER-USER</code> arm deleted. The stage therefore builds one
+deliberately different endpoint per hook and probes each:</p>
+<ul>
+<li><strong>host-local</strong> — a <code>registry:2</code> in the <em>host's</em> network namespace, addressed at
+  the demo bridge's own gateway. A packet to a host address is delivered locally
+  and never reaches <code>FORWARD</code>.</li>
+<li><strong>forwarded</strong> — the artifact registry again, reached over a veth pair whose
+  <code>/30</code> is chosen at run time out of <code>198.18.0.0/15</code>. That address is nobody's
+  local address, so getting to it is routing, which is <code>FORWARD</code> and therefore
+  <code>DOCKER-USER</code>. Docker's own MASQUERADE makes the reply path work without a
+  second rule. <code>198.18.0.0/15</code> is RFC 2544's reserved benchmarking space: nothing
+  on the public Internet routes it, which is a statement about the Internet and
+  not about this machine. A lab, a VPN or a second copy of this harness can
+  perfectly well have a route into it here, so the range is only where the
+  harness <em>looks</em> — it derives candidate <code>/30</code>s from its run id and takes the
+  first one no local route and no local address already claims, and fails rather
+  than picking one if all of them are taken.</li>
+</ul>
+<p>Both are proved reachable before any filter — otherwise "could not reach out" and
+"was never able to" are the same observation. Then the <code>DOCKER-USER</code> arm goes in
+alone and the forwarded route must close <strong>while the host-local one stays open</strong>,
+which is simultaneously the independence proof and the proof that the forwarded
+endpoint really is forwarded. Then the <code>INPUT</code> arm closes the other one. An
+<code>ESTABLISHED,RELATED</code> accept leads both chains so the reply leg of a
+host-to-published-port connection survives. Two counterexamples follow, one per
+route: the one startup dependency that talks to a registry is redirected at each
+endpoint in turn and the run must fail, so a filter that silently stopped applying
+cannot leave the assertions above passing. <code>internal: true</code> is not used — it takes
+the published ports away with the egress, which would contradict the second half
+of the claim.</p>
+<p>The stage keeps two operations apart that are easy to conflate. <strong>Fetching the
+application</strong> is a registry read that <code>-f oci://…</code> performs on every invocation;
+Compose has no offline mode for it, and the stage proves that by asserting the
+application becomes unreadable the moment its registry stops. <strong>Pulling the
+service images</strong> is a separate daemon operation that <code>--pull never</code> refuses. So
+the application is fetched once, online, with <code>--pull never</code> proving no image
+moved; the volumes are then emptied, the arms installed, the registry stopped, and
+the project restarted <strong>by project name</strong> — which is why a project created online
+can be operated offline. The Product gate and the live browser journeys then run
+against that isolated stack.</p>
+<p>Everything the stage installs lives in the host's network namespace and outlives
+the script if it dies, so each installer records what it did and the exit trap
+takes the rules, the veth pair, the host-local endpoint, both projects and the
+Compose OCI cache entries back down.</p>
+<p><strong>The harness owns only what it created.</strong> It runs privileged, in the host's
+namespace, on machines it does not know — so every fixed name it once used was a
+name it could have taken from something else, and <code>ip link del</code> or <code>docker rm -f</code>
+before claiming one is destroying a stranger's resource to make room. So each
+invocation derives a random <code>RUN_ID</code> and suffixes its interfaces, its endpoint
+containers, its registry and its image with it (inside <code>IFNAMSIZ</code>'s 15
+characters, which <code>ip link add</code> enforces rather than truncates). If a name is
+somehow already taken, or every candidate <code>/30</code> is routed, the harness refuses
+before it mutates anything. Cleanup is the same rule read backwards: a resource
+is recorded only once <em>this</em> invocation has successfully created it, and only
+recorded resources are removed.</p>
+<p>Three things that rule has to survive, because "created it" is harder to pin
+down than it reads:</p>
+<ul>
+<li><strong>A recorded name is not a recorded resource.</strong> A container name is a lease
+  that ends with the container holding it, so cleanup records the immutable
+  container id instead — otherwise the endpoint the run shuts down early frees a
+  name, and whoever takes it next is a stranger cleanup would delete. Cleanup
+  holds no fixed name and sweeps no prefix.</li>
+<li><strong>Created and started are two events.</strong> The daemon really does create a
+  container and then refuse to start it — a host port somebody else published is
+  enough — so the harness splits <code>docker create</code> from <code>docker start</code> and records
+  the id between them. A container that never ran is still this invocation's to
+  take away.</li>
+<li><strong>Ownership of an interface begins at <code>ip link add</code>, not at the preflight.</strong>
+  The preflight is a diagnostic: a name that reads as free can be taken before
+  the next line runs, and <code>ip link add</code> is the atomic operation that says who
+  won. A failure before it deletes nothing; a failure after it removes that pair
+  and nothing else.</li>
+</ul>
+<p>The two documented Compose project names are ownership too. <code>docker compose -p
+NAME down -v --remove-orphans</code> needs no file — it is purely label-driven — so the
+authority to run it comes from stage 0 having found both names holding nothing,
+and the helper modes below, which exit long before stage 0, have no authority to
+tear down a demo somebody is running.</p>
+<p><strong>"Holding nothing" means every class that teardown removes.</strong> <code>down -v
+--remove-orphans</code> removes three — containers, named volumes and networks — and a
+claim is only as good as the class it forgets. The network is the one that can be
+there alone: <code>up</code> creates it before anything else and a <code>down</code> without <code>-v</code>
+leaves it standing, so a project that is nothing but a network reads as empty to
+anything that looks only for containers and volumes. Stage 0 therefore reads all
+three under each name and refuses on any of them, and it arms the authority in a
+single assignment after both names are through, so a refusal on the second never
+leaves the first one claimed.</p>
+<p><code>bash tests/acceptance/local/compose-demo.sh selftest</code> is the proof, and
+<code>make test-acceptance-compose-selftest</code> runs it ahead of the acceptance in CI. It
+plants sentinels — an interface, a harness-shaped container, an occupied <code>/30</code>,
+an unrelated project under a name the documentation never uses and, under each
+documented project name, a container, a network and a volume wearing the labels
+<code>down -v</code> reads — then drives the harness into every path that could take one. It
+asserts that a name already held is refused rather than deleted; that an
+interface appearing <em>after</em> the preflight survives the create that loses the race
+to it; that a failure later in the wiring removes only the pair this run made;
+that no netfilter rule is touched on any of those ways out; that a claimed <code>/30</code>
+is stepped over rather than hijacked; that a normal run, an induced failure and a
+container the daemon refuses to start all end with the real <code>EXIT</code> trap taking
+that run's resources and nothing else; that a documented name holding nothing but
+a Compose network is refused by a real invocation — under either name, including
+when the <em>second</em> is the occupied one — which keeps that exact network and arms
+nothing; and that the planted projects, and the unrelated one beside them, still
+hold every container, network and volume they did.</p>
+<h2 id="deterministic-browser-tests-versus-live-browser-tests">Deterministic browser tests versus live-browser tests<a class="headerlink" href="#deterministic-browser-tests-versus-live-browser-tests" title="Anchor link">&para;</a></h2>
+<p>These are levels 6 and 7, and they stay apart. Determinism and liveness are
+different properties, and a merged suite proves neither.</p>
+<p><strong>Level 6, <code>pkg/dashboard/frontend/e2e/</code></strong> runs against the WASM demo build
+(<code>examples/demo</code>): the real frontend bundle over an in-browser backend seeded
+with fixed data. It is hermetic, needs no cluster, and is the right home for
+anything about rendering, layout, accessibility, keyboard interaction,
+responsiveness, graph behaviour and visual state. Because the data cannot move,
+it can assert exact content.</p>
+<p><strong>Level 7, <code>pkg/dashboard/frontend/e2e-live/</code></strong> runs against a real running
+deployment, on keys discovered from the live Product API. It proves the real
+bundle, real HTTP API and real data render together. It cannot assert fixed
+content — the fixture's identities are discovered at run time — so it asserts the
+<em>journeys</em>.</p>
+<p>One suite, two deployments: the port-forwarded dashboard of a Kind cluster
+(<code>make test-browser-live</code>) and the pulled Compose demo (<code>make
+test-browser-compose</code>). Both are driven by the same specs over the same
+discovered fixture, and the fixture carries the surface it was discovered on, so
+the journey that opens an operational target <strong>skips with a stated reason</strong> on
+Compose instead of being quietly absent. A second suite would have been a second
+set of journeys to keep in step with the product.</p>
+<p>A test that could pass against fixed data belongs in level 6. Only journeys that
+need real data belong in level 7, and level 7 does not duplicate what level 6
+already covers.</p>
+<h2 id="two-products-at-level-6">Two products at level 6<a class="headerlink" href="#two-products-at-level-6" title="Anchor link">&para;</a></h2>
+<p>Level 6 has two suites because Pacto ships two things a browser opens: the
+dashboard and the documentation site. They are one level and two ownerships, and
+the boundary between them is the artifact under test — never the subject matter.</p>
+<p><strong><code>pkg/dashboard/frontend/e2e/</code></strong> owns the dashboard bundle, run by
+<code>make test-browser</code>, gated by the <code>dashboard-e2e</code> job in CI. <code>e2e/mermaid.spec.ts</code>
+lives here and proves that <em>bundle documentation renders inside the dashboard</em>.</p>
+<p><strong><code>pkg/dashboard/frontend/e2e-docs-site/</code></strong> owns the MkDocs output, run by
+<code>make test-browser-docs-site</code>, gated by the Docs check workflow. It builds the
+real site with <code>mkdocs build --strict</code> through <code>mkdocs.test.yml</code> — an <code>INHERIT</code>
+overlay on the real <code>mkdocs.yml</code> — serves it over HTTP and drives Chromium
+against it.</p>
+<p>Sharing stops at the pinned Playwright and Chromium installation, which is why
+the second suite lives in the frontend package rather than growing a second
+browser toolchain somewhere else. Config, <code>testDir</code>, project name, Make target
+and CI job are all separate: a dashboard regression and a documentation
+regression must not be able to mask each other.</p>
+<p>Four things about the docs-site suite are load-bearing:</p>
+<ul>
+<li><strong>The overlay changes exactly one key that matters.</strong> Material's instant
+  navigation only intercepts a click whose URL appears in <code>sitemap.xml</code>, and the
+  sitemap is written from <code>site_url</code>. Served at <code>127.0.0.1</code> against the
+  production <code>site_url</code>, nothing is ever intercepted and the instant-navigation
+  case would silently measure two ordinary page loads. The overlay points
+  <code>site_url</code> at the test origin, so the port in <code>mkdocs.test.yml</code> and the one in
+  <code>playwright.docs-site.config.ts</code> have to agree.</li>
+<li><strong>Every cross-origin request is aborted.</strong> The site has to be self-sufficient.
+  This is what keeps the diagram runtime pinned: Material's own fallback fetches
+  an unpinned <code>mermaid@11</code> from unpkg, and <code>release/scripts/mkdocs_mermaid_hook.py</code>
+  stages the lockfile-resolved copy into the site instead. Delete the hook or its
+  <code>extra_javascript</code> entry and all three tests fail.</li>
+<li><strong>Rendered output is asserted, not source text.</strong> Material renders each diagram
+  into a <em>closed</em> shadow root, so the suite forces open mode via an init script —
+  the encapsulation flag changes, nothing else does — then asserts a non-empty
+  SVG with a real layout box and the labels a reader would read.</li>
+<li><strong>Coverage is declared, so it cannot rot.</strong> Each covered page lists its
+  diagrams and their expected labels, and the count is checked against the built
+  HTML. Adding a diagram to a covered page fails the gate until it is declared.</li>
+</ul>
+<p>The site's diagrams as a whole are still covered by <code>make mermaid-check</code>, which
+parses every fence in the site Markdown — <code>docs/</code> plus <code>integrations/</code>. The
+repository root <code>README.md</code> and the demo bundle docs sit outside that scope.
+That is the syntax gate; this is the
+behaviour gate, on the pages worth driving a browser through: a core page, a page
+the integration hook injects, and an instant navigation between two of them.</p>
+<h2 id="choosing-a-home-for-a-new-test">Choosing a home for a new test<a class="headerlink" href="#choosing-a-home-for-a-new-test" title="Anchor link">&para;</a></h2>
+<p>Ask, in order:</p>
+<ol>
+<li><strong>Is it a rule about the repository rather than the product?</strong> ("core must
+   stay Kubernetes-free", "generated artifacts are current") → level 3,
+   <code>tests/architecture/</code>.</li>
+<li><strong>Is it about the release system?</strong> → level 8, <code>tests/release/</code>.</li>
+<li><strong>Can one package prove it?</strong> → level 1, beside the code. Prefer this. The
+   100% coverage gate applies here.</li>
+<li><strong>Does it need several real components, but nothing a user could reach over a
+   network?</strong> → level 2, <code>tests/integration/</code> (engine) or
+   <code>integrations/kubernetes/test/</code> (operator, envtest).</li>
+<li><strong>Is it a whole user story that needs no cluster?</strong> → level 4,
+   <code>tests/acceptance/local/</code>.</li>
+<li><strong>Does it need a real Kubernetes cluster?</strong> → level 5,
+   <code>tests/acceptance/kind/</code>, as one of the existing scenarios or a new one.</li>
+<li><strong>Is it browser-visible?</strong> → level 6 if fixed data can prove it, level 7 only
+   if it genuinely needs live cluster data. At level 6, pick the suite by the
+   artifact under test: the dashboard bundle or the built documentation site.</li>
+</ol>
+<p>Two more rules once you have picked:</p>
+<ul>
+<li><strong>Each Kind scenario is one boundary.</strong> They are not merged: a merged cluster
+  run cannot say which boundary broke, and cannot be sharded across CI. If your
+  test is a new boundary, it is a new scenario with a new <code>make</code> target.</li>
+<li><strong>A new semantic assertion goes in Go.</strong> If you find yourself reaching for
+  <code>jq</code>, <code>grep</code> or an embedded interpreter inside a harness, the assertion belongs
+  in that scenario's Go gate — where it can have a test of its own.</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../../architecture/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Architecture">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Architecture
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../releases/" class="md-footer__link md-footer__link--next" aria-label="Next: Release architecture">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Release architecture
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT licensed — <a href="https://github.com/TrianaLab/pacto/blob/main/LICENSE">Copyright &copy; 2026 TrianaLab</a>
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/TrianaLab/pacto" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["announce.dismiss", "content.action.edit", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.path", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="../../javascripts/logo-spin.js"></script>
+      
+        <script src="../../javascripts/version-selector.js"></script>
+      
+        <script src="../../javascripts/skip-link.js"></script>
+      
+        <script src="../../javascripts/aria-labels.js"></script>
+      
+        <script src="../../javascripts/scrollable-focus.js"></script>
+      
+        <script src="../../javascripts/mermaid.min.js" defer></script>
+      
+    
+  </body>
+</html>
