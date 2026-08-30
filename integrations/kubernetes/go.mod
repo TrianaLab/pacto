@@ -8,7 +8,7 @@ require (
 	github.com/onsi/gomega v1.43.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	go.opentelemetry.io/otel/exporters/prometheus v0.67.0
-	go.opentelemetry.io/otel/sdk/metric v1.45.0
+	go.opentelemetry.io/otel/sdk/metric v1.46.0
 	k8s.io/apimachinery v0.36.4
 	k8s.io/client-go v0.36.4
 	sigs.k8s.io/controller-runtime v0.24.1
@@ -24,6 +24,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/stretchr/objx v0.5.3 // indirect
 	k8s.io/streaming v0.36.4 // indirect
 )
 
@@ -75,7 +76,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.40.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.40.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0
-	go.opentelemetry.io/otel/sdk v1.45.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
