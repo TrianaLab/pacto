@@ -394,7 +394,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action/download-syft@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
       - name: Install crane
         run: |
           go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
@@ -950,7 +950,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action/download-syft@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
       - name: Build reproducible binaries + checksums + SBOM
         env:
           TAG: v${{ needs.detect.outputs.core_version }}
