@@ -1,5 +1,7 @@
 # @pacto/dashboard-image
 
+## 3.2.5
+
 ## 3.2.4
 
 ## 3.2.3

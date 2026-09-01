@@ -12,10 +12,10 @@ Published artifact coordinates for the Kubernetes integration. All coordinates a
 
 | Artifact | Kind | Coordinate | Version |
 | --- | --- | --- | --- |
-| Controller image | oci-image | `ghcr.io/trianalab/pacto/operator` | `5.2.3` |
-| Helm chart | helm-chart | `ghcr.io/trianalab/pacto/charts/pacto-operator` | `5.2.3` |
-| Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v5` | `5.2.3` |
-| Documentation | docs | `mkdocs:integrations/kubernetes` | `5.2.3` |
+| Controller image | oci-image | `ghcr.io/trianalab/pacto/operator` | `5.2.4` |
+| Helm chart | helm-chart | `ghcr.io/trianalab/pacto/charts/pacto-operator` | `5.2.4` |
+| Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v5` | `5.2.4` |
+| Documentation | docs | `mkdocs:integrations/kubernetes` | `5.2.4` |
 
 ## Verify a published artifact
 
@@ -25,7 +25,7 @@ The controller image and the Helm chart are signed keylessly by the release work
 cosign verify \
   --certificate-identity-regexp '^https://github\.com/TrianaLab/pacto/\.github/workflows/release\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/trianalab/pacto/operator:5.2.3
+  ghcr.io/trianalab/pacto/operator:5.2.4
 ```
 
 Anything other than a successful verification -- including `no signatures found` -- means do not deploy it. Not every Pacto artifact is signed; see [what is signed and what is not](../../installation.md#supply-chain-what-is-signed-and-what-is-not).
@@ -37,7 +37,7 @@ Anything other than a successful verification -- including `no signatures found`
 
 ```yaml
 - name: pacto-controller
-  image: ghcr.io/trianalab/pacto/operator:5.2.3
+  image: ghcr.io/trianalab/pacto/operator:5.2.4
 ```
 
 ## Install from the published chart
@@ -45,6 +45,6 @@ Anything other than a successful verification -- including `no signatures found`
 ```bash
 helm install pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 5.2.3 \
+  --version 5.2.4 \
   --namespace pacto-operator-system --create-namespace
 ```
