@@ -5,70 +5,70 @@
         {
           "coordinate": "github.com/trianalab/pacto/v3",
           "kind": "go-module",
-          "tag": "v3.2.4",
+          "tag": "v3.2.5",
           "unit": "core"
         },
         {
           "kind": "binaries",
-          "release": "v3.2.4",
+          "release": "v3.2.5",
           "unit": "cli"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/dashboard",
           "kind": "oci-image",
-          "tag": "3.2.4",
+          "tag": "3.2.5",
           "unit": "dashboard-image"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract",
           "kind": "oci-image",
-          "tag": "3.2.4",
+          "tag": "3.2.5",
           "unit": "dashboard-contract-bundle"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto",
           "kind": "oci-image",
-          "tag": "3.2.4",
+          "tag": "3.2.5",
           "unit": "demo-bundles"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/demo",
           "kind": "oci-image",
-          "tag": "3.2.4",
+          "tag": "3.2.5",
           "unit": "demo-compose"
         }
       ],
       "tags": [
-        "v3.2.4"
+        "v3.2.5"
       ],
-      "version": "3.2.4"
+      "version": "3.2.5"
     },
     "kubernetes": {
       "artifacts": [
         {
           "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v5",
           "kind": "go-module",
-          "tag": "integrations/kubernetes/v5.2.3",
+          "tag": "integrations/kubernetes/v5.2.4",
           "unit": "k8s-module"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/operator",
           "kind": "oci-image",
-          "tag": "5.2.3",
+          "tag": "5.2.4",
           "unit": "operator-image"
         },
         {
-          "appVersion": "5.2.3",
-          "chartVersion": "5.2.3",
+          "appVersion": "5.2.4",
+          "chartVersion": "5.2.4",
           "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator",
-          "defaultImageTag": "5.2.3",
+          "defaultImageTag": "5.2.4",
           "kind": "helm-chart",
           "unit": "operator-chart"
         },
         {
           "kind": "docs",
           "unit": "k8s-docs",
-          "version": "5.2.3"
+          "version": "5.2.4"
         }
       ],
       "assertNoReplace": true,
@@ -77,12 +77,12 @@
       },
       "goModPin": {
         "module": "github.com/trianalab/pacto/v3",
-        "version": "v3.2.4"
+        "version": "v3.2.5"
       },
       "tags": [
-        "integrations/kubernetes/v5.2.3"
+        "integrations/kubernetes/v5.2.4"
       ],
-      "version": "5.2.3"
+      "version": "5.2.4"
     }
   },
   "publishOrder": [
