@@ -21,7 +21,12 @@ RUN CGO_ENABLED=0 GOARCH=${TARGETARCH} go build \
 # Runtime stage
 FROM alpine:3.22
 
-RUN apk add --no-cache ca-certificates tzdata \
+# `apk add` never touches packages the base image already ships, so an openssl
+# CVE fixed in the branch repo (libssl3/libcrypto3 3.5.7-r0 -> 3.5.8-r0) stays in
+# the image until the alpine tag is respun. Upgrade first so the Trivy gate sees
+# the patched branch, not the frozen snapshot.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates tzdata \
     && adduser -D -u 65532 -h /home/pacto pacto
 
 COPY --from=build /pacto /usr/local/bin/pacto
