@@ -1,0 +1,4078 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="An open, OCI-distributed contract standard for cloud-native services.">
+      
+      
+      
+        <link rel="canonical" href="https://pacto.run/3.2.5/operational-graph/">
+      
+      
+        <link rel="prev" href="../manifesto/">
+      
+      
+        <link rel="next" href="../impact/">
+      
+      
+      <link rel="icon" href="../favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.21">
+    
+    
+      
+        <title>The Pacto Operational Graph - Pacto</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.2a3383ac.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#the-pacto-operational-graph" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Pacto" class="md-header__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../assets/images/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Pacto
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              The Pacto Operational Graph
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/dashboard-demo/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Try it
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../developers/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../model/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Operational graph
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../patterns/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Patterns
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../github-actions/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../contract-reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Project internals
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Pacto" class="md-nav__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../assets/images/logo.svg" alt="logo">
+
+    </a>
+    Pacto
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Try it
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Try it
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/dashboard-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Live dashboard demo
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/compose-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runnable demo (Docker Compose)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quickstart
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guides
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Guides
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    For developers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform-engineers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    For platform engineers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    The Pacto model
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Core concepts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manifesto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Manifesto
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Operational graph
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Operational graph
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    The Pacto Operational Graph
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    The Pacto Operational Graph
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#three-identities-never-flattened" class="md-nav__link">
+    <span class="md-ellipsis">
+      Three identities, never flattened
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Three identities, never flattened">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-certainly-a-target-is-matched-to-a-revision" class="md-nav__link">
+    <span class="md-ellipsis">
+      How certainly a target is matched to a revision
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationships-declared-observed-inferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      Relationships: declared, observed, inferred
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sources
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sources">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-target-state-fixture-looks-like" class="md-nav__link">
+    <span class="md-ellipsis">
+      What a target-state fixture looks like
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#freshness-and-completeness" class="md-nav__link">
+    <span class="md-ellipsis">
+      Freshness and completeness
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Query semantics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole" class="md-nav__link">
+    <span class="md-ellipsis">
+      Aggregates: what a bounded list can still tell you about the whole
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-consumes-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      Who consumes it
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-read-model-around-many-evaluations-not-a-new-evaluator" class="md-nav__link">
+    <span class="md-ellipsis">
+      A read model around many evaluations, not a new evaluator
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#impact-analysis-built-on-this-substrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      Impact analysis, built on this substrate
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#external-evidence-ingestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      External evidence ingestion
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observed-dependencies-and-reconciliation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Observed dependencies and reconciliation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-the-fleet-is-not-a-new-contract-kind" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why the fleet is not a new contract kind
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-pacto-does-not-act-or-authorize" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why Pacto does not act or authorize
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      See also
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../impact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Impact analysis
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../collectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Collectors and the evidence boundary
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../observation-sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Observation sources
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_5" id="__nav_6_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    External evidence
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
+            <span class="md-nav__icon md-icon"></span>
+            External evidence
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evidence-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evidence protocol
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evidence-oci-storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evidence in the registry
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evidence-security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evidence security and tooling
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../patterns/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Patterns
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Patterns
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/root-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Root + component contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/infrastructure-contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Infrastructure contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/composable-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Composable configurations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/policy-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Policy + schema contract
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/progressive-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Progressive policy versioning
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/override-files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Override files
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/configuration-schema-ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration schema ownership
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Examples
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Examples
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/cron-worker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cron worker
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/event-processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Event processor
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/grpc-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    gRPC service
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hybrid-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Hybrid cache
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/nginx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Nginx
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/postgresql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    PostgreSQL
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/rabbitmq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    RabbitMQ
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/redis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Redis
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Integrations
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            Integrations
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GitHub Actions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    MCP integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_9_3" id="__nav_9_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Kubernetes
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9_3">
+            <span class="md-nav__icon md-icon"></span>
+            Kubernetes
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Kubernetes overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install the operator
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Upgrade the operator
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/contract-bindings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract bindings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/runtime-observations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runtime observations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/operator-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Operator configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Limitations and opt-in features
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/crd-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CRD reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/helm-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Helm reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    RBAC
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/artifact-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Published artifacts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Plugin development
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard container
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../contract-reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Contract reference
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10_1" id="__nav_10_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_1">
+            <span class="md-nav__icon md-icon"></span>
+            Contract reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract sections
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Validation layers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/overrides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract overrides
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Diff and change classification
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CLI reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lockfile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Lockfile
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pactoignore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Packaging ignore
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Project internals
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            Project internals
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainers/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Testing architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/compliance-scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Compliance scenarios
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainers/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Release architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Changelog
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#three-identities-never-flattened" class="md-nav__link">
+    <span class="md-ellipsis">
+      Three identities, never flattened
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Three identities, never flattened">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-certainly-a-target-is-matched-to-a-revision" class="md-nav__link">
+    <span class="md-ellipsis">
+      How certainly a target is matched to a revision
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationships-declared-observed-inferred" class="md-nav__link">
+    <span class="md-ellipsis">
+      Relationships: declared, observed, inferred
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sources
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sources">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-target-state-fixture-looks-like" class="md-nav__link">
+    <span class="md-ellipsis">
+      What a target-state fixture looks like
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#freshness-and-completeness" class="md-nav__link">
+    <span class="md-ellipsis">
+      Freshness and completeness
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#query-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Query semantics
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole" class="md-nav__link">
+    <span class="md-ellipsis">
+      Aggregates: what a bounded list can still tell you about the whole
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-consumes-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      Who consumes it
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-read-model-around-many-evaluations-not-a-new-evaluator" class="md-nav__link">
+    <span class="md-ellipsis">
+      A read model around many evaluations, not a new evaluator
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#impact-analysis-built-on-this-substrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      Impact analysis, built on this substrate
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#external-evidence-ingestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      External evidence ingestion
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observed-dependencies-and-reconciliation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Observed dependencies and reconciliation
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-the-fleet-is-not-a-new-contract-kind" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why the fleet is not a new contract kind
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-pacto-does-not-act-or-authorize" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why Pacto does not act or authorize
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      See also
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/TrianaLab/pacto/edit/main/docs/operational-graph.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="the-pacto-operational-graph">The Pacto Operational Graph<a class="headerlink" href="#the-pacto-operational-graph" title="Anchor link">&para;</a></h1>
+<p>A single contract tells you what one service is. Most questions worth asking span
+many: <em>what depends on payments-api, which revision is running in <code>production-eu</code>,
+is any of it non-compliant, and how sure are we?</em> The <strong>Pacto Operational Graph</strong>
+answers those questions. It composes many independent contracts, contract
+revisions and operational targets into one versioned, navigable, verifiable read
+model that humans, CLIs, platforms and agents can reason over.</p>
+<p>It is framework-independent (<code>pkg/fleet</code>), pure and read-only. It observes no
+environment and evaluates nothing on its own — it is a query model built <em>around</em>
+the sources and evaluations Pacto already produces. Internally the immutable read
+model is a <strong>Fleet Snapshot</strong> and the pure query layer over it is a <strong>Fleet
+Query</strong>; the sections below use those terms wherever precision matters.</p>
+<hr />
+<h2 id="three-identities-never-flattened">Three identities, never flattened<a class="headerlink" href="#three-identities-never-flattened" title="Anchor link">&para;</a></h2>
+<p>The graph models three distinct things and never collapses them into one: a name,
+a revision and a running instance are different questions with different answers.</p>
+<table>
+<thead>
+<tr>
+<th>Identity</th>
+<th>What it is</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Logical service</strong></td>
+<td>A stable name and owner. It has revisions and runs in targets, but it is neither.</td>
+<td><code>payments-api</code> (owner: payments)</td>
+</tr>
+<tr>
+<td><strong>Contract revision</strong></td>
+<td>An immutable resolved revision — what it declares and how it differs from another revision. Identity is the service plus a content digest: the source's immutable digest, or one derived from the whole bundle when the source has none. Never a ref, never a version; a revision that can be neither pinned nor hashed is omitted rather than given a weaker identity.</td>
+<td><code>payments-api@sha256:…</code></td>
+</tr>
+<tr>
+<td><strong>Operational target</strong></td>
+<td>A concrete place a revision runs, generic as <code>scope/kind/name</code>.</td>
+<td><code>production-eu/customer-a → kubernetes-workload payments/payments-api</code></td>
+</tr>
+</tbody>
+</table>
+<p>Keeping them separate is what lets the graph answer "which <em>revision</em> runs
+<em>where</em>, and is <em>that instance</em> compliant" without guessing.</p>
+<h3 id="how-certainly-a-target-is-matched-to-a-revision">How certainly a target is matched to a revision<a class="headerlink" href="#how-certainly-a-target-is-matched-to-a-revision" title="Anchor link">&para;</a></h3>
+<p>Knowing a target exists is not the same as knowing which revision it runs, so
+every target records <strong>how</strong> the link was made. Four outcomes:</p>
+<table>
+<thead>
+<tr>
+<th>Match</th>
+<th>What Pacto knows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exact</code></td>
+<td>The target's content digest matches a revision's. Authoritative: this is the revision running there.</td>
+</tr>
+<tr>
+<td><code>inferred</code></td>
+<td>A <em>unique</em> correlation by mutable tag or version suffix. Probably right, not proof.</td>
+</tr>
+<tr>
+<td><code>ambiguous</code></td>
+<td>Several revisions match that mutable reference. <strong>No link is made</strong> — a guess is never presented as fact — and the target carries a <code>REVISION_LINK_AMBIGUOUS</code> limitation.</td>
+</tr>
+<tr>
+<td><code>unresolved</code></td>
+<td>Nothing matched, or the target's identity contradicts itself (a recorded digest that disagrees with its digest-pinned reference). No link, and a limitation on the target saying so.</td>
+</tr>
+</tbody>
+</table>
+<p>The bottom two are not a failure to report. They <em>are</em> the report, and they sit
+on the target itself so a consumer can classify a link without parsing
+snapshot-level messages.</p>
+<p>The two read surfaces spell this differently, and the CLI's spelling has a trap:</p>
+<ul>
+<li><strong>Snapshot and <code>pacto fleet get --target</code> JSON</strong> carry <code>revisionMatch</code>, which
+  is <code>omitempty</code> and only ever <code>exact</code> or <code>inferred</code>. <strong>An absent
+  <code>revisionMatch</code> is the finding</strong> — it means ambiguous or unresolved. Read the
+  target's <code>limitations</code> to learn which.</li>
+<li><strong>The entity-detail API</strong> (<code>GET /api/fleet/entities/target?key=…</code>, what the
+  dashboard reads) carries <code>linkState</code>, always present, with all four values
+  spelled out.</li>
+</ul>
+<p>Two things this axis is <em>not</em>. It is not whether Pacto can fetch that revision's
+content: an <code>exact</code> match can name content sitting in a registry Pacto cannot
+read, and that is an honest outcome rather than a contradiction (<a href="../concepts/#identity">match
+certainty is not content retrievability</a>). And its
+<code>inferred</code> is a different word from the <code>inferred</code> relationship provenance
+below — one is how a <em>target</em> was matched to a revision, the other is how an
+<em>edge</em> was derived.</p>
+<hr />
+<h2 id="relationships-declared-observed-inferred">Relationships: declared, observed, inferred<a class="headerlink" href="#relationships-declared-observed-inferred" title="Anchor link">&para;</a></h2>
+<p>Edges in the graph carry a <strong>provenance</strong> discriminator so a fact's origin is
+never ambiguous:</p>
+<ul>
+<li><strong>declared</strong> — the relationship comes from a contract (<code>dependencies[]</code>, and
+  config/policy <code>ref</code>s).</li>
+<li><strong>observed</strong> — a relationship seen in running traffic. Observed dependencies
+  are produced by the <a href="#observed-dependencies-and-reconciliation">OTel observer</a>
+  and, when an observation source is configured, folded into the snapshot's edges
+  as <code>observed</code>-provenance relationships (kept in a separate adjacency index from
+  the declared graph). Reconciliation and impact consume them; because every edge
+  keeps its provenance, an observed edge is never mistaken for a declared one.</li>
+<li><strong>inferred</strong> — a relationship deduced heuristically. Reserved, not yet produced.</li>
+<li><strong>declared+observed</strong> — one edge backed by <em>both</em> a declaration and an
+  observation. The neighborhood projection merges the two adjacency indexes for
+  display and emits this combined value, so a consumer branching on provenance
+  must handle all four.</li>
+</ul>
+<hr />
+<h2 id="sources">Sources<a class="headerlink" href="#sources" title="Anchor link">&para;</a></h2>
+<p>The graph is assembled from <strong>sources</strong> — a framework-neutral ingestion seam. Each
+source observes what it can right now and contributes revisions and targets.
+(The dashboard lists these as <strong>Data sources</strong>. They are not the same thing as an
+evidence <a href="../collectors/">collector</a>, which produces compliance evidence <em>for</em> a
+source to carry.)</p>
+<ul>
+<li><strong>Local bundles</strong> (<code>--local</code>) — the revision a developer is editing, before it
+  is pushed.</li>
+<li><strong>Contracts in OCI</strong> (<code>--oci &lt;ref&gt;</code>) — the published revision catalogue,
+  resolved cache-first so a pulled ref works offline.</li>
+<li><strong>Local OCI cache</strong> (<code>--cache</code>) — every bundle already pulled to disk, as an
+  offline baseline.</li>
+<li><strong>Live Kubernetes</strong> (<code>--k8s [--namespace]</code>) — Pacto CRs read straight from a
+  running cluster: which revision runs in which target and its operator-computed
+  compliance, findings, coverage and observed runtime.</li>
+<li><strong>Ingested external evidence</strong> (<code>--evidence-url &lt;url&gt;</code>) — a remote
+  environment's signed, versioned <a href="../evidence-protocol/">EvidenceSet report</a>,
+  verified and evaluated at ingestion by the
+  <a href="../evidence-protocol/#durable-storage-in-the-registry">Evidence Server</a> and
+  published to the contract registry, then exposed as an operational target.
+  <code>--evidence-url</code> consumes a running Evidence Server's read-only contribution
+  over HTTP — the only way in, because the store is a registry the CLI has no
+  business holding a credential for.</li>
+<li><strong>Offline target-state fixtures</strong> (<code>--target-state</code>) — an unsigned demo and
+  test adapter for supplying targets without a cluster.</li>
+</ul>
+<p>Offline trace exports are Data Sources too, claiming names in the same namespace,
+but they supply observed dependency edges rather than revisions and targets — see
+<a href="../observation-sources/">Observation sources</a>.</p>
+<p>Every source flag above is shared by <code>pacto fleet</code> and the MCP fleet server, so
+the same graph is reachable from either. <code>pacto impact</code> reads a narrower set —
+<code>--local</code> and <code>--target-state</code> only, alongside <code>--freshness</code>, a single-file
+<code>--traces</code> and <code>--include-observed</code> — so a blast-radius question is answered from
+an offline graph. No source leaks its transport
+into the graph: a Kubernetes-backed source, an OCI-backed source, a local source
+and the dashboard adapter each implement the same small interface, so the read
+model stays free of Kubernetes, MCP and dashboard code.</p>
+<p><strong>What a source sent is not what it contributed.</strong> A source's record counts
+(<code>revisionCount</code>, <code>targetCount</code>) are the raw records it supplied, counted as
+ingested. The product entities attributable to it (<code>contributed</code>, broken down by
+kind) are a different and usually larger set, so the two are reported side by side
+and never reconciled into one number. A revision that two sources both reported is
+one record in each of their counts and one shared entity contributed by both. A
+<em>service</em> is derived from the revisions and targets a source reported — no source
+ever sends a service record — so a source whose records are entirely revisions
+still contributes services, and the same service is attributable to several
+sources at once. Both counts are computed over the complete population, never over
+the bounded entity preview beside them.</p>
+<h3 id="what-a-target-state-fixture-looks-like">What a target-state fixture looks like<a class="headerlink" href="#what-a-target-state-fixture-looks-like" title="Anchor link">&para;</a></h3>
+<p><code>--target-state</code> is the only source you have to author yourself, so here is the
+whole format. It is a single YAML or JSON document — JSON is a subset of YAML, so
+one parser reads both — and the decoder is strict: a second <code>---</code> document, an
+unknown field or a <code>schemaVersion</code> other than <code>pacto.dev/fleet-targets/v1</code> is
+rejected and the whole file contributes nothing.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">schemaVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pacto.dev/fleet-targets/v1</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">targets</span><span class="p">:</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">service</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orders-service</span><span class="w">          </span><span class="c1"># required: the service this target runs</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">commerce/orders-service</span><span class="w">    </span><span class="c1"># required: unique within the scope</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">scope</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">production-eu</span><span class="w">             </span><span class="c1"># the environment, e.g. a cluster</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kubernetes-workload</span><span class="w">        </span><span class="c1"># what sort of target it is</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">labels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> env</span><span class="p">:</span><span class="w"> </span><span class="nv">production</span><span class="p p-Indicator">,</span><span class="nt"> region</span><span class="p">:</span><span class="w"> </span><span class="nv">eu</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nt">requestedRef</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oci://ghcr.io/acme/orders-service:1.2.0</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">resolvedRef</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oci://ghcr.io/acme/orders-service:1.2.0</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">digest</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sha256:…</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">compliance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NonCompliant</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">coverage</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> evaluated</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="p p-Indicator">,</span><span class="nt"> required</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nt">evidenceAt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2026-07-29T09:40:00Z</span><span class="w">     </span><span class="c1"># when the evidence was gathered</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="nt">reconciledAt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2026-07-29T09:41:00Z</span><span class="w">   </span><span class="c1"># when the target was last reconciled</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">observedRuntime</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> replicas</span><span class="p">:</span><span class="w"> </span><span class="nv">3</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">     </span><span class="c1"># free-form; surfaced as a bounded preview</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="nt">findings</span><span class="p">:</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">code</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">STATELESS_PERSISTENT_CONFLICT</span><span class="w">   </span><span class="c1"># required within a finding</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">        </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">error</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">        </span><span class="nt">category</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RuntimeDrift</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">        </span><span class="nt">subjectKind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">state</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">        </span><span class="nt">subjectName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orders-db</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">        </span><span class="nt">message</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">declared stateless but the observed workload mounts a volume</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="nt">state</span><span class="p">:</span><span class="w">                               </span><span class="c1"># optional: the source's own health</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">  </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">available</span>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">  </span><span class="nt">message</span><span class="p">:</span><span class="w"> </span><span class="s">""</span>
+</span></code></pre></div>
+<p>Only <code>service</code> and <code>name</code> are required on a target — everything else may be
+omitted, and an omitted <code>evidenceAt</code> is exactly how you model a target the
+collector could not observe. The enumerations are closed:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Accepted values</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>compliance</code></td>
+<td><code>Compliant</code>, <code>NonCompliant</code>, <code>Unknown</code>, <code>Warning</code>, <code>Invalid</code>, <code>Reference</code>, <code>NotEvaluated</code>, or omitted</td>
+</tr>
+<tr>
+<td><code>findings[].severity</code></td>
+<td><code>error</code>, <code>warning</code>, <code>info</code>, <code>unknown</code>, or omitted</td>
+</tr>
+<tr>
+<td><code>state.status</code></td>
+<td><code>available</code>, <code>partial</code>, <code>stale</code>, <code>unavailable</code> (anything else reads as <code>available</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>A file may declare at most 5000 targets. An individual entry that fails
+validation is skipped with a <code>SOURCE_RECORD_INVALID</code> limitation and the rest of
+the file is kept; a failure of the <em>file</em> — missing, unparseable, wrong schema
+version, unknown field — drops the whole source with a <code>SOURCE_UNAVAILABLE</code>
+limitation and marks the snapshot <code>partial</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">A malformed fixture is reported the same way as a missing one</p>
+<p>Both produce exactly <code>SOURCE_UNAVAILABLE</code>: <em>source target-state is
+unavailable; its records are missing from this snapshot</em>. The parse error
+itself is not surfaced, and <code>-v</code> does not add it, so a typo in a field name
+looks identical to a path that does not exist. If the source drops and the
+path is right, suspect the file: check <code>schemaVersion</code> first, then field
+spelling.</p>
+</div>
+<p><a href="https://github.com/TrianaLab/pacto/blob/main/examples/demo/fleet-targets.yaml"><code>examples/demo/fleet-targets.yaml</code></a>
+is a complete worked fixture — compliant, non-compliant, unknown and stale
+targets across two scopes — and it is the file the live demo runs on.</p>
+<hr />
+<h2 id="freshness-and-completeness">Freshness and completeness<a class="headerlink" href="#freshness-and-completeness" title="Anchor link">&para;</a></h2>
+<p>Incompleteness is always explicit. A source reports its state; a snapshot and
+every query answer carry an <strong>as-of</strong> time, a <strong>completeness</strong> and a list of
+<strong>limitations</strong>. Two rules are absolute:</p>
+<blockquote>
+<p><strong>An unavailable source is never an empty result.</strong> If a registry is unreachable
+or a cluster is disconnected, its records are <em>missing</em>, and the answer says so —
+it is never rendered as "nothing is there".</p>
+<p><strong>Absence of telemetry is not evidence of absence.</strong> A missing observation under
+partial coverage is uncertainty, not a confirmed "no".</p>
+</blockquote>
+<p>One case does not carry the envelope, and it is the case where you most want it.
+<code>get</code>, <code>graph</code> and <code>explain</code> name a single subject, and a subject that is not in
+the snapshot is a <em>failure</em>, not an answer: <code>pacto fleet get ghost</code> exits 1 with
+<code>service "ghost" not found in the fleet snapshot</code> on stderr and nothing on stdout
+whatever <code>--output-format</code> said, and the
+<a href="../mcp-integration/#fleet-query-safety">MCP equivalents</a> return the same string as
+a tool error. There is no <code>meta</code> on it, so there is no <code>completeness</code> telling you
+whether the snapshot that missed was whole. Get that reading from <code>search</code> or
+<code>status</code> on the same snapshot before you read a subject miss as an absence.</p>
+<p>Every source reports one status, and the snapshot rolls those up into one
+completeness value:</p>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Where it applies</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>available</strong></td>
+<td>source</td>
+<td>Reachable and current.</td>
+</tr>
+<tr>
+<td><strong>partial</strong></td>
+<td>source and snapshot</td>
+<td>The source returned some but not all of its records, or at least one source is degraded. Treat the answer as incomplete knowledge.</td>
+</tr>
+<tr>
+<td><strong>stale</strong></td>
+<td>source</td>
+<td>The most recent data is older than the freshness window.</td>
+</tr>
+<tr>
+<td><strong>unavailable</strong></td>
+<td>source</td>
+<td>The source could not be observed at all; its records are absent, not empty.</td>
+</tr>
+<tr>
+<td><strong>complete</strong></td>
+<td>snapshot</td>
+<td>Every source was available and current.</td>
+</tr>
+<tr>
+<td><strong>empty</strong></td>
+<td>snapshot</td>
+<td>Every source was available and produced no record. A genuine empty, not a hidden failure.</td>
+</tr>
+</tbody>
+</table>
+<p>The dashboard uses a matching per-section vocabulary — <code>present</code>, <code>empty</code>,
+<code>not_applicable</code>, <code>unavailable</code>, defined term by term under <a href="../dashboard-architecture/#section-provenance-sectionmeta">Section
+provenance</a> — for the same
+reason: a blank must always explain <em>why</em> it is blank. When a source fails, its error is sanitized to a category code
+(<code>AUTH_FAILED</code>, <code>NOT_FOUND</code>, <code>UNAVAILABLE</code>, <code>CANCELLED</code>) and a generic message, so
+credentials, tokens and host names never leak to a consumer.</p>
+<p>A query answer's <code>meta</code> lists every source in the snapshot. The <strong>product
+answers</strong> the dashboard reads — the <code>/api/fleet/*</code> envelope, schema version
+<code>pacto.dev/fleet-product/v1</code> — cap that list at 50 sources, least healthy first,
+and flag the cut with <code>sourcesTruncated</code>. Because the list is capped there, a
+product answer also carries <code>sourceCounts</code>: every source in the snapshot tallied
+by health state, over the complete population the list was cut from. Counting the
+sources a consumer received would understate the fleet precisely when it matters,
+because the capped list is deliberately biased toward the least healthy. A status
+the read model does not recognize is never folded into a bucket — <code>total</code> simply
+stays above the sum of the buckets, rather than the tally adding up perfectly and
+being wrong.</p>
+<hr />
+<h2 id="query-semantics">Query semantics<a class="headerlink" href="#query-semantics" title="Anchor link">&para;</a></h2>
+<p>The read model answers five kinds of question, each a pure operation. None
+performs I/O; a single snapshot serves concurrent queries. <strong>Every answer
+carries a <code>meta</code>
+envelope with <code>schemaVersion</code>, <code>snapshotId</code>, <code>asOf</code>, <code>completeness</code>,
+<code>limitations</code> and <code>sources</code></strong> — a consumer can always tell how much of the system
+the answer actually covers. <code>schemaVersion</code> (<code>pacto.dev/fleet/v1</code>) is the
+compatibility contract to branch on; <code>snapshotId</code> is the content digest that
+proves two answers came from the same system view.</p>
+<table>
+<thead>
+<tr>
+<th>Query</th>
+<th>Answers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>search</strong></td>
+<td>Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered.</td>
+</tr>
+<tr>
+<td><strong>get</strong></td>
+<td>Everything about one service (its revisions, targets, declared dependencies, dependents, tools and skills) or one target.</td>
+</tr>
+<tr>
+<td><strong>graph</strong></td>
+<td>Traverse dependencies or dependents from a service — direct or transitive, cycle-safe, with unresolved edges surfaced.</td>
+</tr>
+<tr>
+<td><strong>status</strong></td>
+<td>What needs attention: non-compliant or unknown targets, invalid contracts, stale evidence, missing readiness, unresolved dependencies.</td>
+</tr>
+<tr>
+<td><strong>explain</strong></td>
+<td>Deterministic, structured reasons for a subject's state. Pacto embeds no model — it hands an agent structured reasons to turn into prose.</td>
+</tr>
+</tbody>
+</table>
+<p>A <code>not found</code> under <code>partial</code> completeness is not proof the thing does not exist —
+the answer's <code>meta.completeness</code> tells the caller whether absence is trustworthy.
+Two more operations sit beside the five and are not queries: <code>snapshot</code> emits
+the whole read model as one document, and <code>reconcile</code> reports declared
+dependencies against observed ones (<a href="#observed-dependencies-and-reconciliation">Observed dependencies and
+reconciliation</a>).</p>
+<p>Errors are typed: a missing identity is a not-found, an ambiguous one lists its
+matches.</p>
+<p>A <code>pacto fleet search --output-format json</code> answer over a local bundle root with
+an unreachable OCI source:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"meta"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">"schemaVersion"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pacto.dev/fleet/v1"</span><span class="p">,</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">"snapshotId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sha256:c81df8fd572ecaa7c884968e728daff5b47c40b8e8c5cbcf1926c19740db95a9"</span><span class="p">,</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">"asOf"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-07-29T10:00:00Z"</span><span class="p">,</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">"completeness"</span><span class="p">:</span><span class="w"> </span><span class="s2">"partial"</span><span class="p">,</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">"limitations"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"SOURCE_UNAVAILABLE"</span><span class="p">,</span><span class="w"> </span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="s2">"oci"</span><span class="p">,</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">        </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"source oci is unavailable; its records are missing from this snapshot"</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="p">],</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">"sources"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local"</span><span class="p">,</span><span class="w"> </span><span class="nt">"kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local"</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"available"</span><span class="p">,</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">        </span><span class="nt">"lastSuccessfulSync"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-07-29T10:00:00Z"</span><span class="p">,</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">        </span><span class="nt">"observedAt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-07-29T10:00:00Z"</span><span class="p">,</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">        </span><span class="nt">"revisionCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span><span class="w"> </span><span class="nt">"targetCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"oci"</span><span class="p">,</span><span class="w"> </span><span class="nt">"kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"oci"</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"unavailable"</span><span class="p">,</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">        </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"UNAVAILABLE"</span><span class="p">,</span><span class="w"> </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"the source is unavailable"</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">        </span><span class="nt">"revisionCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"targetCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">    </span><span class="p">]</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">  </span><span class="nt">"total"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">  </span><span class="nt">"count"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="w">  </span><span class="nt">"services"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">"key"</span><span class="p">:</span><span class="w"> </span><span class="s2">"payments-service"</span><span class="p">,</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"payments-service"</span><span class="p">,</span>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="w">      </span><span class="nt">"owner"</span><span class="p">:</span><span class="w"> </span><span class="s2">"team/payments"</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"NotEvaluated"</span><span class="p">,</span>
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="w">      </span><span class="nt">"revisionCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="nt">"targetCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"sources"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"local"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="p">}</span>
+</span></code></pre></div>
+<p><code>total</code> is the whole matched population; <code>count</code> is how many rows this page
+carries. <code>key</code> is the service's canonical identity — match on it, not on <code>name</code>,
+which is not unique across domains. <code>owner</code> here is the authored owner label, not
+the canonical owner key (see <a href="#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole">ownership</a>).</p>
+<hr />
+<h2 id="aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole">Aggregates: what a bounded list can still tell you about the whole<a class="headerlink" href="#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole" title="Anchor link">&para;</a></h2>
+<p>Every list answer is bounded, so the rows a consumer receives are one slice of the
+population its filter matched. Alongside them the read model returns an
+<strong>aggregate computed over the complete matched population, before paging</strong> —
+computed in the backend, because a distribution drawn from the rows would present
+the first page as the fleet.</p>
+<p>The matched population is heterogeneous by design — one query can match services,
+revisions and targets at once — so <strong>every tally names the population it
+partitions</strong> instead of sharing one denominator, and the per-kind counts are
+reported rather than derived by summing buckets, so a disagreement between a
+denominator and its buckets stays visible.</p>
+<table>
+<thead>
+<tr>
+<th>Tally</th>
+<th>Partitions</th>
+<th>Buckets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>serviceCompliance</strong></td>
+<td>matched services</td>
+<td>the compliance states, rolled up from each service's targets</td>
+</tr>
+<tr>
+<td><strong>targetCompliance</strong></td>
+<td>matched operational targets</td>
+<td>the compliance states as observed per target</td>
+</tr>
+<tr>
+<td><strong>ownership</strong></td>
+<td>matched services</td>
+<td><code>consistent</code> · <code>conflicting</code> · <code>unowned</code></td>
+</tr>
+<tr>
+<td><strong>readiness</strong></td>
+<td>matched contract revisions</td>
+<td><code>passing</code> · <code>belowThreshold</code> · <code>expired</code> · <code>notDeclared</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>serviceCompliance</code> and <code>targetCompliance</code> are never summed: a service status is
+already a roll-up of its targets, so adding them counts the same operational
+reality twice.</p>
+<p><strong>Ownership</strong> is a property of revisions agreeing, not of one field somebody set —
+<code>service.owner</code> is authored on each contract revision. A service is <code>consistent</code>
+when every revision that declares an owner declares the <em>same</em> one; a revision
+that declares none is silence, not a contradiction. <code>conflicting</code> is never folded
+into <code>unowned</code>: "two teams claim this" and "nobody claims this" need opposite
+fixes. Neither is folded into <code>consistent</code>, because the owner shown on a service
+is a documented tie-break, and counting a conflicted service as owned would
+present that tie-break as agreement.</p>
+<p>Beside the partition, an aggregate carries a <strong>bounded ranking</strong> of the
+consistently owned services by owner (<code>byOwner</code>), largest first. It is explicitly
+not a partition: conflicted and unowned services have no single owner to rank
+under, <code>beyondRanking</code> holds the services whose owner fell past the bound,
+<code>unidentifiedOwnership</code> holds the consistently owned services whose declared owner
+resolves to no canonical identity and <code>distinctOwners</code> says how many owners exist
+in total — so
+<code>sum(byOwner.services) + beyondRanking + unidentifiedOwnership == ownership.consistent</code>,
+and a consumer can state exactly what the ranking omits.</p>
+<p>An owner identity is <strong>namespaced</strong>: <code>team:payments</code> and <code>dri:payments</code> are two
+owners that happen to print the same word. A ranking row whose human label is
+shared by an owner of the other kind is flagged <code>ambiguous</code>, and a consumer must
+show the namespace for it. Ambiguity is decided over the complete population of
+distinct owner keys, never over the rows that survived the ranking cut — otherwise
+the same owner would read one way when its collider ranked second and another way
+when it ranked two hundredth, and a canonical identity would depend on where the
+bound happened to fall.</p>
+<p>A revision's declared <strong>contact points</strong> — an email address, a chat channel or a
+URL — travel with its ownership as bounded metadata and are never identity: no owner
+key, no link and no ranking row is derivable from one. That is what
+<code>unidentifiedOwnership</code> exists to count. A contract naming a mailing list but no
+Team or DRI <em>has</em> declared an owner, so folding it into <code>unowned</code> would report a
+governance gap the team already closed, and minting an owner key out of the
+address would invent an identity nobody authored. The contacts preview is a
+pointer: its absence means "not carried here", never "none declared".</p>
+<p><strong>Readiness</strong> is bucketed per contract revision and never per service, per target
+or per fleet: readiness is the authored preparedness of one immutable contract,
+assessed against the threshold that contract set for itself. It is orthogonal to
+compliance — a revision whose readiness passes can be running on a target observed
+to violate its contract, and a revision nobody assessed can be running perfectly.
+<code>notDeclared</code> is its own bucket because "nobody wrote an assessment" is not the
+same answer as "the assessment does not pass", and <code>expired</code> is its own bucket
+because an assessment past its <code>expires</code> date earns no weight and cannot be read
+as current.</p>
+<p>The overview carries the same two tallies over the whole snapshot rather than over
+a filtered population. They sit there, and not in the attention backlog, because
+neither is an operational failure: "is ownership declared at all" and "is anyone
+assessing readiness" are systemic questions about how the fleet is organized and
+authored.</p>
+<hr />
+<h2 id="who-consumes-it">Who consumes it<a class="headerlink" href="#who-consumes-it" title="Anchor link">&para;</a></h2>
+<p>A human portal and an agent consume the <em>same</em> graph.</p>
+<pre class="mermaid"><code>flowchart LR
+    subgraph Sources["Sources"]
+        OCI["Contracts in OCI&lt;br/&gt;published revisions"]
+        LOCAL["Local bundles&lt;br/&gt;revision being edited"]
+        K8S["Live Kubernetes&lt;br/&gt;Pacto CRs: which revision runs where"]
+        EVI["Evidence Server&lt;br/&gt;durable EvidenceSet records&lt;br/&gt;signature checked at ingestion, not stored"]
+    end
+    OTEL["OTel trace file&lt;br/&gt;offline analysis"]
+    OCI --&gt; OG
+    LOCAL --&gt; OG
+    K8S --&gt; OG
+    EVI --&gt; OG
+    OTEL --&gt;|--traces| OG
+    OG["Operational Graph&lt;br/&gt;&lt;i&gt;Fleet Snapshot · immutable read model&lt;/i&gt;"]
+    OTEL --&gt; RECON["reconcile · impact&lt;br/&gt;declared vs observed"]
+    OG --&gt; RECON
+    OG --&gt; Q["Fleet Query&lt;br/&gt;search · get · graph · status · explain"]
+    Q --&gt; DASH["Dashboard"]
+    Q --&gt; CLI["CLI&lt;br/&gt;pacto fleet …"]
+    Q --&gt; MCP["MCP fleet tools"]
+    Q --&gt; PLAT["Platforms"]
+    Q --&gt; AGENT["Agents"]</code></pre>
+<ul>
+<li><strong>Dashboard</strong> — the visual front door. It builds one snapshot from every
+  source it detects — local bundles, OCI, the disk cache and the live cluster —
+  and serves the operational graph and change analysis through <code>/api/fleet/*</code>.
+  The Operational Graph view offers three <strong>perspectives</strong> — <strong>Services</strong>
+  (logical), <strong>Revisions</strong> (content-addressed) and <strong>Operational targets</strong> (the
+  places a revision runs) — and a <strong>Knowledge</strong> control (Expected · Observed ·
+  Differences). The Operational targets perspective is honest about what it can
+  know: an operational target links to the dependency <strong>service</strong> it depends on,
+  never to each peer target — a full target-to-target mesh would assert runtime
+  routing the snapshot never observed, so it is never drawn. Its overview and its
+  list pages draw every figure from the aggregate above, so a figure and the rows
+  beneath it always describe the same population: narrowing the filter narrows
+  both, and a bucket of a figure is a link to the rows it counted. The <strong>data
+  sources</strong> everything above was built from are a product surface of their own
+  rather than a diagnostic panel: the overview carries them as a section with the
+  fleet-wide health tally, and each source has a page saying what it is, whether
+  it is healthy, when it last synced, how many records it sent and which product
+  entities are attributable to it.</li>
+<li><strong>CLI (<code>pacto fleet …</code>)</strong> — the five queries on the command line:
+  <code>pacto fleet search</code>, <code>pacto fleet get</code>, <code>pacto fleet graph</code>, <code>pacto fleet
+  status</code>, <code>pacto fleet explain</code>, plus <code>pacto fleet reconcile</code> (declared vs
+  observed) and <code>pacto fleet snapshot</code> (the whole read model as one document).
+  Scriptable, deterministic output.</li>
+<li><strong>MCP fleet tools</strong> — <code>pacto_fleet_search</code>, <code>pacto_fleet_get</code>,
+  <code>pacto_fleet_graph</code>, <code>pacto_fleet_status</code> and <code>pacto_fleet_explain</code> give an
+  agent read-only understanding of the operational system, and
+  <a href="../impact/#mcp-tool-pacto_impact"><code>pacto_impact</code></a> is the sixth tool of the same
+  family — the one that re-reads its sources on every call. They are one of three
+  MCP tool families — see <a href="../mcp-integration/#three-tool-families-and-their-boundaries">MCP integration</a>
+  for how they differ from authoring tools and generated service tools.</li>
+</ul>
+<hr />
+<h2 id="a-read-model-around-many-evaluations-not-a-new-evaluator">A read model around many evaluations, not a new evaluator<a class="headerlink" href="#a-read-model-around-many-evaluations-not-a-new-evaluator" title="Anchor link">&para;</a></h2>
+<p>The operational graph does not replace the engine. Compliance is still the pure
+<code>Evaluate(Contract, EvidenceSet)</code> function producing findings for one service in
+one environment (see <a href="../collectors/">Collectors and the evidence boundary</a>). The
+graph is the read/query model <em>around</em> many such evaluations — it references each
+target's findings and coverage rather than re-computing them.</p>
+<pre class="mermaid"><code>flowchart TB
+    subgraph Eval["Per-target evaluation (the engine — one at a time)"]
+        C["Contract"] --&gt; EV["Evaluate"]
+        E["EvidenceSet"] --&gt; EV
+        EV --&gt; F["Findings + Coverage"]
+    end
+    C -.-&gt; OG
+    F -.-&gt; OG
+    OG["Operational Graph&lt;br/&gt;composes many revisions + many targets"]
+    OG --&gt; ANS["Query answers&lt;br/&gt;with asOf · completeness · limitations"]</code></pre>
+<hr />
+<h2 id="impact-analysis-built-on-this-substrate">Impact analysis, built on this substrate<a class="headerlink" href="#impact-analysis-built-on-this-substrate" title="Anchor link">&para;</a></h2>
+<p>The graph maintains a reverse-dependency index: for any service, which services
+declare a required dependency on it. <strong><a href="../impact/">Impact analysis</a></strong> builds
+directly on that index. <code>pacto impact &lt;old&gt; &lt;new&gt;</code> composes a semantic contract
+diff with this graph to answer "if this revision ships, what is the transitive
+blast radius" — direct and transitive affected consumers, active targets, owners,
+a compatibility verdict and a per-consumer confidence grade. No new data, a new
+question over the same graph the dashboard and CLI already query — shipped today
+on the CLI, as an MCP tool and, under the name <strong>Change analysis</strong>, in the
+dashboard. See <a href="../impact/">Impact analysis</a> for the full model.</p>
+<hr />
+<h2 id="external-evidence-ingestion">External evidence ingestion<a class="headerlink" href="#external-evidence-ingestion" title="Anchor link">&para;</a></h2>
+<p>Runtime evidence no longer has to come only from a cluster the operator watches.
+The source seam is deliberately environment-neutral, so a <strong>remote or
+disconnected environment</strong> can participate without Pacto reaching into it: the
+remote side produces a signed, versioned <code>EvidenceSet</code>, reports it outbound to an
+ingestion endpoint, and the platform verifies the signature, evaluates the
+evidence and exposes the result as an operational target. The freshness rules
+hold across the boundary — a target goes <code>stale</code> when its evidence ages past the
+window and its source becomes <code>unavailable</code> when it stops reporting, never a
+silent empty and never deleted. This is the shipped
+<a href="../evidence-protocol/">external evidence protocol</a>; for keys and CLI usage see
+<a href="../evidence-security/">evidence security and tooling</a>.</p>
+<p>Ingested evidence is backed by the <strong>Evidence Server</strong>, a stateless boundary in
+front of your contract registry. Every accepted envelope is published as an OCI
+1.1 referrer of the exact contract revision it reports on before it becomes a
+target, so replay protection and latest-target state survive a restart with no
+local state at all — see
+<a href="../evidence-oci-storage/">evidence in the registry</a>. The Evidence Server is an
+optional operator-managed component of the <code>pacto-operator</code> Helm chart
+(<code>evidence.enabled=true</code>), and it runs the same way outside Kubernetes via
+<code>pacto evidence serve</code>. There is no standalone evidence chart. When both the
+dashboard and the Evidence Server are enabled, the operator wires the dashboard
+to the server over HTTP; the dashboard consumes its read-only contribution and
+never holds a registry credential. The
+<a href="../evidence-protocol/#deployment">deployment topology</a> keeps the responsibility
+split clean: the Evidence Server owns ingestion, verification, evaluation and
+publication, the dashboard consumes the read-only contribution and the operator
+manages the Kubernetes lifecycle.</p>
+<hr />
+<h2 id="observed-dependencies-and-reconciliation">Observed dependencies and reconciliation<a class="headerlink" href="#observed-dependencies-and-reconciliation" title="Anchor link">&para;</a></h2>
+<p>Declared intent is only half the picture; the other half is what traffic
+actually does. The <strong>OTel observer</strong> (<code>pacto otel observe &lt;traces.json&gt;</code>) is an
+offline analyzer: it reads an exported OTLP/JSON trace file and derives the
+caller-to-callee reachability edges its outbound spans prove. It is not a
+receiver or a live collector — there is no OTLP endpoint and nothing is
+deployed; it processes a file you hand it. It reports only what it saw and never
+asserts a dependency is absent — an unseen dependency is uncertainty, not a
+confirmed "no".</p>
+<p>Those observed edges meet the declared graph in three places:</p>
+<ul>
+<li><strong>The snapshot itself</strong> — <code>pacto fleet --traces &lt;file&gt;</code> adds an <em>observation
+  source</em>, and <a href="#sources">building the snapshot</a> resolves each raw observed
+  endpoint name to a
+  <strong>unique domain-qualified service</strong> and folds resolved edges into the snapshot
+  as <code>observed</code> relationships. <code>pacto dashboard --traces</code> folds the same edges
+  into the dashboard's snapshot, so runtime evidence is no longer confined to a
+  one-off report. <code>pacto mcp --fleet</code> has no <code>--traces</code> flag: its snapshot is
+  declared-only, and <code>pacto_impact</code> is the one MCP tool that reads a trace file,
+  per call. An endpoint name that matches zero or more than one service (the same name in
+  two domains) is <strong>never</strong> coerced to a domain; it is preserved as an
+  <code>OBSERVED_IDENTITY_UNRESOLVED</code> limitation, so observed traffic can never be
+  misattributed across domains.</li>
+<li><strong>Reconciliation</strong> — <code>pacto fleet reconcile --traces &lt;file&gt;</code> compares what the
+  fleet's contracts declare against what traffic proves, labelling each
+  dependency <strong>matched</strong>, <strong>declared-not-observed</strong> (dormant or simply unseen in
+  the window) or <strong>observed-not-declared</strong> (a <em>shadow</em> dependency the contract
+  never mentions). The caller must resolve to a unique service; the callee is
+  resolved within the caller's domain (mirroring declared-dependency resolution),
+  and anything unresolvable is reported in a distinct <strong>unresolved</strong> category
+  rather than force-fit to the default domain.</li>
+<li><strong>Impact</strong> — <code>pacto impact --traces &lt;file&gt;</code> (or any snapshot that already
+  carries observed edges) lets observed traffic raise a declared consumer to
+  <strong>corroborated</strong> confidence and surface <strong>observed-only (shadow) consumers</strong> a
+  declared-only analysis would miss. A shadow consumer must itself be a registered
+  fleet service; an unknown caller name is preserved as an unresolved limitation,
+  never a phantom default-domain consumer.</li>
+</ul>
+<p>The OTel observer can also emit signable EvidenceSets
+(<code>pacto otel observe --evidence</code>), so observed dependencies can travel the same
+<a href="../evidence-protocol/">external evidence protocol</a> as any other report. That is
+two steps rather than a pipe, because traces name services and not contract
+revisions:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># One EvidenceSet per calling service, as a JSON array</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>$<span class="w"> </span>pacto<span class="w"> </span>otel<span class="w"> </span>observe<span class="w"> </span>traces.json<span class="w"> </span>--evidence<span class="w"> </span>--output-format<span class="w"> </span>json<span class="w"> </span>&gt;<span class="w"> </span>sets.json
+</span></code></pre></div>
+<p>Each set comes out with an empty <code>ContractRef</code> — a trace cannot know which
+revision was running. Split the array into one file per set:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span><span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="k">$(</span>seq<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="k">$((</span><span class="w"> </span><span class="k">$(</span>jq<span class="w"> </span>length<span class="w"> </span>sets.json<span class="k">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="k">)))</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span>jq<span class="w"> </span><span class="s2">".[</span><span class="nv">$i</span><span class="s2">]"</span><span class="w"> </span>sets.json<span class="w"> </span>&gt;<span class="w"> </span><span class="s2">"set-</span><span class="nv">$i</span><span class="s2">.json"</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="k">done</span>
+</span></code></pre></div>
+<p>Then edit each file's <code>ContractRef</code> to the revision that service was serving —
+this is the step only you can do — and sign one set at a time:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>pacto<span class="w"> </span>evidence<span class="w"> </span>sign<span class="w"> </span>set-0.json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>--key<span class="w"> </span>k.key<span class="w"> </span>--key-id<span class="w"> </span>k<span class="w"> </span>--producer<span class="w"> </span>prod<span class="w"> </span>&gt;<span class="w"> </span>envelope-0.json
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>$<span class="w"> </span>pacto<span class="w"> </span>evidence<span class="w"> </span>send<span class="w"> </span>envelope-0.json<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span>--url<span class="w"> </span>https://evidence.example.com/api/evidence/v1/envelopes
+</span></code></pre></div>
+<p><code>pacto evidence sign</code> reads a file and one <code>EvidenceSet</code> at a time: hand it the
+array and it answers
+<code>decode evidence set: json: cannot unmarshal array into Go value of type evidence.EvidenceSet</code>,
+and hand it a set with no <code>ContractRef</code> and it answers
+<code>invalid evidence set: contract ref is empty</code>. Both are the tool asking for the
+one thing the traces could not supply.</p>
+<p>In the dashboard's Operational Graph the declared/observed split is the
+<strong>Knowledge</strong> control: <strong>Expected</strong> (contract-declared intent), <strong>Observed</strong>
+(backed by runtime observation) and <strong>Differences</strong> (where the two diverge). When
+a snapshot carries no observation data the graph says so — the edges come back
+<code>insufficient</code> and the knowledge banner states what is missing — rather than
+drawing an empty Observed view that would read as "there is no traffic".</p>
+<p>Reconciliation is an <strong>explicit backend fact</strong>, not a frontend guess. Every
+declared dependency edge in a snapshot carries a <code>reconciliation</code> state computed
+against the snapshot's observed edges: <strong>matched</strong> (an observed edge corroborates
+it), <strong>declared-not-observed</strong> (observation data exists but did not witness this
+edge) or <strong>insufficient</strong> (no observation data at all — so it cannot be
+reconciled). The dashboard's <em>reconciled</em> layer shows only <code>matched</code> edges and
+never infers reconciliation from name resolution or from whether a provider is
+deployed. Feeding observation data to the normal dashboard — so its Operational
+Graph, reconciliation and Change analysis see observed edges — means configuring
+<a href="../observation-sources/">observation sources</a>: the offline OTLP/JSON trace files
+it reads, how they are named, and how they are wired under Kubernetes. The
+observed capability the UI advertises is derived from the published snapshot,
+never a hardcoded flag.</p>
+<hr />
+<h2 id="why-the-fleet-is-not-a-new-contract-kind">Why the fleet is not a new contract kind<a class="headerlink" href="#why-the-fleet-is-not-a-new-contract-kind" title="Anchor link">&para;</a></h2>
+<p>There is <strong>no <code>kind: Fleet</code></strong> and <strong>no <code>fleet:</code> section</strong> in a contract. The graph
+is <em>discovered</em> from the sources you already have — published contracts, local
+bundles and runtime evidence — not declared in a new document a team would have to
+author and keep in sync. Adding a fleet manifest would recreate the exact problem
+Pacto exists to remove: a hand-maintained aggregate that drifts from reality the
+moment a service is added or a revision ships. The fleet is a <em>view</em>, computed on
+demand, versioned by its as-of time — not a thing anyone writes down.</p>
+<hr />
+<h2 id="why-pacto-does-not-act-or-authorize">Why Pacto does not act or authorize<a class="headerlink" href="#why-pacto-does-not-act-or-authorize" title="Anchor link">&para;</a></h2>
+<p>The operational graph makes the system knowable. It does not run it. Pacto's verbs
+are bounded and deliberate: it <strong>declares</strong> intent, <strong>resolves</strong> references,
+<strong>diffs</strong> changes, <strong>graphs</strong> relationships, <strong>evaluates</strong> evidence and
+<strong>explains</strong> state. That is the whole list.</p>
+<ul>
+<li><strong>It does not act.</strong> Deploying, scaling, provisioning and remediating are done by
+  external controllers and delivery systems. The graph tells them what is true; it
+  performs no action itself.</li>
+<li><strong>It does not authorize.</strong> Whether a human or an agent <em>may</em> do something stays
+  with policy and IAM systems (OPA, Kyverno, admission control, your identity
+  provider). The graph never grants, scopes or revokes a permission.</li>
+</ul>
+<p>This is why the fleet query tools are read-only and why a <code>partial</code> answer is
+labelled as incomplete knowledge rather than a decision. Pacto supplies the
+verifiable operational meaning that controllers act on and that authorization
+systems reason about — it is not either of them.</p>
+<hr />
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Anchor link">&para;</a></h2>
+<ul>
+<li><a href="../concepts/">Concepts</a> — the index of distinctions this page's model rests on,
+  each one stated in a sentence</li>
+<li><a href="../mcp-integration/">MCP integration</a> — the three MCP tool families, including
+  the read-only fleet query tools</li>
+<li><a href="../collectors/">Collectors and the evidence boundary</a> — how per-target evidence
+  and evaluation work</li>
+<li><a href="../observation-sources/">Observation sources</a> — configuring the offline trace
+  exports the observed layer reads</li>
+<li><a href="../model/">The Pacto model</a> — the engine and the declaration vs observation
+  split</li>
+<li><a href="../dashboard-architecture/">Dashboard architecture</a> — the source model behind
+  the contract-exploration substrate</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../manifesto/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Manifesto">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Manifesto
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../impact/" class="md-footer__link md-footer__link--next" aria-label="Next: Impact analysis">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Impact analysis
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT licensed — <a href="https://github.com/TrianaLab/pacto/blob/main/LICENSE">Copyright &copy; 2026 TrianaLab</a>
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/TrianaLab/pacto" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": ["announce.dismiss", "content.action.edit", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.path", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="../javascripts/logo-spin.js"></script>
+      
+        <script src="../javascripts/version-selector.js"></script>
+      
+        <script src="../javascripts/skip-link.js"></script>
+      
+        <script src="../javascripts/aria-labels.js"></script>
+      
+        <script src="../javascripts/scrollable-focus.js"></script>
+      
+        <script src="../javascripts/mermaid.min.js" defer></script>
+      
+    
+  </body>
+</html>
