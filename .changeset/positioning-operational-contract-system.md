@@ -13,6 +13,13 @@ governance and a second implementation that do not exist. Both are replaced by
 a definition that states what a contract records, how it is published and what
 it is compared against.
 
+The category noun says what Pacto is; one sentence beside it now says what that
+is for. Pacto gives software a machine-readable operational interface — a
+versioned description of what a service is, what it exposes, what it depends on
+and what it promises — so platforms, CI systems, controllers, automation and
+agents consume the same interface instead of each reconstructing operational
+knowledge from deployment files, documentation and runtime state.
+
 Structural changes:
 
 - `README.md` leads with the category, then the problem (operational facts with

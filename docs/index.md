@@ -40,8 +40,11 @@ state:
 
 ## What is Pacto?
 
-Pacto (/ˈpak.to/ — Spanish for *pact*) is an **operational contract system**. A
-Pacto *contract* is the machine-readable record of a service's operational facts
+Pacto (/ˈpak.to/ — Spanish for *pact*) is an **operational contract system**. It
+gives software a machine-readable operational interface: a versioned description
+of what a service is, what it exposes, what it depends on and what it promises.
+
+A Pacto *contract* is the record of a service's operational facts
 — its identity and ownership, the interfaces and capabilities it exposes, its
 state model, its dependencies and the version ranges it accepts, its
 configuration and the policies that apply to it. It lives in one versioned YAML
@@ -142,7 +145,9 @@ for the distinctions that graph is careful never to collapse.
 ## What consumes a contract?
 
 A contract is written once and read by every *system* that needs to understand the
-service. (For the people, see [Who is Pacto for?](#who-is-pacto-for) above.)
+service — the same interface for each of them, instead of every one of them
+reconstructing operational knowledge from deployment files, documentation and
+runtime state. (For the people, see [Who is Pacto for?](#who-is-pacto-for) above.)
 
 - **Platform engineering** — controllers and generators you write consume the contract to provision infrastructure, wire networking and gate promotion, instead of reverse-engineering a service from its Helm chart.
 - **CI pipelines** — `pacto diff` classifies breaking changes, `pacto validate` checks the contract against its policies and `pacto lock --check` fails on a drifted closure, all keyed on exit codes and stable uppercase codes rather than on parsed prose.

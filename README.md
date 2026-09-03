@@ -2,7 +2,7 @@
 
 # Pacto
 
-**Pacto is an operational contract system for services.** A service declares its operational facts — identity and ownership, the interfaces it exposes, the dependencies it requires and the version ranges it accepts, its configuration, its policies, its state and its readiness — in one file. That file is published to any OCI registry as an immutable, content-addressed revision, and Pacto compares it against the previous revision, against the constraints it has to satisfy and against evidence collected where the service actually runs.
+**Pacto is an operational contract system for services.** It gives software a machine-readable operational interface: a versioned description of what a service is, what it exposes, what it depends on and what it promises. A service declares those facts — identity and ownership, the interfaces it exposes, the dependencies it requires and the version ranges it accepts, its configuration, its policies, its state and its readiness — in one file. That file is published to any OCI registry as an immutable, content-addressed revision, and Pacto compares it against the previous revision, against the constraints it has to satisfy and against evidence collected where the service actually runs.
 
 It doesn't replace OpenAPI, Helm, Terraform, Backstage or Kubernetes — it adds the operational contract layer between them, composing the interfaces you already own and adding what no single one of them does: ownership, version-ranged dependencies, transitive policy, compatibility and readiness over time. Composed across a platform, those contracts become an **operational graph** — a versioned, verifiable record that humans, automation and agents read the same way. Four capabilities over that artifact: **Diff · Graph · Validate · Verify**.
 
@@ -141,6 +141,8 @@ Everything a contract enables, from one artifact:
 The dashboard merges local, OCI and Kubernetes sources into one operational graph; deploy the [container image](https://pacto.run/latest/dashboard-docker) alongside the operator to combine runtime state with contract data.
 
 ## Who reads a contract
+
+Platforms, CI systems, controllers, automation and agents consume the same interface instead of reconstructing operational knowledge from deployment files, documentation and runtime state.
 
 - **CI pipelines** — `pacto validate`, `pacto diff`, `pacto lock --check` and `pacto push`, keyed on exit codes and stable uppercase codes rather than on parsed prose
 - **The Kubernetes operator** — reads a published revision plus collected evidence, writes back a compliance state, a condition, an event and Prometheus metrics
