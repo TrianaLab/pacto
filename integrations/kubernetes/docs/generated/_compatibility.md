@@ -15,7 +15,7 @@ The Kubernetes integration is versioned independently from Pacto core. The table
 | Go module | `5.2.4` | `>=3.0.0` |
 | Integration docs | `5.2.4` | `>=3.0.0` |
 
-This documentation set corresponds to Pacto core `3.2.5`. The integration's own version (currently operator/chart `5.2.4`, docs `5.2.4`) advances on its own release cadence.
+This documentation set corresponds to Pacto core `3.2.6`. The integration's own version (currently operator/chart `5.2.4`, docs `5.2.4`) advances on its own release cadence.
 
 ### Version selector
 
