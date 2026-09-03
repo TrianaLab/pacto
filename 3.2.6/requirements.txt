@@ -1,0 +1,8 @@
+mkdocs==1.6.1
+mkdocs-material==9.6.21
+mike==2.1.3
+# Used by the documentation generator + checker (release/scripts/gen_integration_docs.py,
+# release/scripts/docs_check.py): YAML parsing of CRDs/Helm values/RBAC/manifests and
+# offline validation of CR examples against the generated CRD schema.
+PyYAML==6.0.2
+jsonschema==4.24.0
