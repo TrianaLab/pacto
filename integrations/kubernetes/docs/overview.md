@@ -9,9 +9,9 @@ runtime, so contracts drift from reality silently. The operator closes that gap:
 it watches `Pacto` custom resources, reads the referenced contract, observes the
 live workload and reports whether they align.
 
-**It observes your workloads and never modifies them.** It is not, however, a
-read-only component overall: at chart defaults it also deploys and manages
-Pacto's own dashboard, which means creating a Deployment, Service,
+**On your workloads it holds `get`, `list` and `watch` — it observes them and
+never modifies them.** On its own components it holds considerably more: at chart defaults it deploys and
+manages Pacto's own dashboard, which means creating a Deployment, Service,
 ServiceAccount, Secret and cluster-scoped RBAC of its own. Those grants are broad
 enough to allow privilege escalation, and turning the managed components off
 removes them -- read [RBAC](rbac.md) before installing into a cluster where that
@@ -21,7 +21,7 @@ and a subject list (see [Install the Kubernetes operator](installation.md#the-ev
 
 ## Where it fits
 
-Pacto is a service contract system with three components:
+Pacto is an operational contract system. Three components carry it:
 
 | Component | Role |
 | --- | --- |

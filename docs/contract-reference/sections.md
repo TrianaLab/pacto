@@ -137,7 +137,7 @@ Declares the named configuration **inputs** the service's operational contract r
 | `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. Required if `schema` is not set |
 | `values` | object | No | Must conform to the schema defined in `schema` |
 
-When `schema` is used, the configuration schema is a local file within the bundle. When `ref` is used, the schema is resolved from another Pacto contract's bundle at the fixed path `configuration/schema.json`. **`schema` and `ref` are mutually exclusive** — each entry must use one or the other, not both. When `ref` is set, `schema` and `values` must not be present.
+When `schema` is used, the configuration schema is a local file within the bundle, and validation checks that the file exists in the bundle and parses. When `ref` is used, the entry points at another Pacto contract instead: the reference is checked as a well-formed OCI or local reference, recorded as a reference edge in the graph and pinned by digest in [`pacto.lock`](../lockfile.md). Pacto does not fetch a schema out of the referenced bundle and does not validate anything against it — a `ref` records where the schema is owned, it does not resolve it. **`schema` and `ref` are mutually exclusive** — each entry must use one or the other, not both. When `ref` is set, `schema` and `values` must not be present.
 
 Required configuration keys are derived from the JSON Schema's `required` array.
 
@@ -148,7 +148,7 @@ The optional `values` field provides default configuration values that are valid
 
 ### External configuration schema reference
 
-Instead of vendoring a configuration schema into the bundle, you can reference another Pacto contract that contains it. The referenced contract's bundle must have the schema at the fixed path `configuration/schema.json`:
+Instead of vendoring a configuration schema into the bundle, you can reference another Pacto contract that owns it. By convention the referenced bundle keeps that schema at `configuration/schema.json`, which is where `pacto init` scaffolds it — Pacto records the reference and pins the referenced bundle, and reading the schema out of it is the consumer's job:
 
 ```yaml
 configurations:
@@ -157,10 +157,10 @@ configurations:
     required: true
 ```
 
-This enables centralized configuration management — a platform team publishes a single configuration contract, and all services reference it. The reference supports recursive resolution: if the referenced contract itself has a `configurations[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
+This enables centralized configuration management — a platform team publishes a single configuration contract, and all services reference it. [`pacto lock`](../lockfile.md) follows the chain: if the referenced contract itself has a `configurations[].ref`, the whole transitive closure is resolved and pinned (with cycle detection), using the same OCI resolution and caching infrastructure as dependencies.
 
 !!! tip
-    Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges. Use `pacto graph --with-references` to visualize them, or `pacto graph --only-references` to show only reference edges. In the dashboard graph, reference edges appear as dashed lines.
+    Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges. Use `pacto graph --with-references` to visualize them, or `pacto graph --only-references` to show only reference edges. In the dashboard graph, reference edges appear as dashed lines. The graph records reference edges, it does not walk them — only `dependencies[].ref` is traversed, so a service coupled to another purely through a shared configuration schema shows no dependents. The lockfile is where the reference closure is resolved.
 
 !!! warning
     Local configuration references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local configuration refs — all refs must use `oci://` before publishing.

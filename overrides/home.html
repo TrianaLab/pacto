@@ -26,14 +26,17 @@
         </svg>
         <span class="pacto-hero__wordmark">pacto</span>
       </div>
-      <p class="pacto-hero__eyebrow">Open contract standard</p>
+      {# The categorising noun, and the only place above the fold that carries one.
+         Not "standard": that word promises governance, a conformance suite and a
+         second implementation, and the evidence is one schema file in this repo. #}
+      <p class="pacto-hero__eyebrow">Operational contract system</p>
       {# This is the page's only <h1>. Material's partials/content.html injects one
          when the rendered markdown contains no h1 element, and on this page that
          injection lands as a meaningless "Home" below the hero — a second top-level
          heading a screen reader announces as the document's title. docs/index.md
          therefore opens with a `hidden` h1 whose only job is to suppress it. Change
          the headline here and there together. #}
-      <h1 class="pacto-hero__title">One contract for every cloud-native service</h1>
+      <h1 class="pacto-hero__title">One versioned contract per service</h1>
       {# Plain words here, the precise term one screen down. This line is the
          first thing anyone reads, and "OCI artifact" was landing before
          anything on the page had expanded either word.
@@ -41,11 +44,17 @@
          Both halves of the product, in order: the contract is declared AND it
          is checked against reality. A tagline that stops at "versioned and
          distributed" sells a YAML file. The checking is what the page's own
-         closing sentence leads with, and it belongs here instead. #}
+         closing sentence leads with, and it belongs here instead.
+
+         The list is the answer to "a contract containing what?", and it leads
+         on the two items nothing else versions: ownership and a dependency
+         carrying a compatibility range. Naming them beats "how a service is
+         meant to behave", which a reader can fill in with anything. #}
       <p class="pacto-hero__tagline">
-        A single YAML contract declaring how a service is meant to behave —
-        validated, versioned, distributed through any container registry, and
-        checked against what is actually running.
+        Ownership, interfaces, version-ranged dependencies, policies and
+        readiness — declared in one file, published to any container registry,
+        then compared against the last revision and against what is actually
+        running.
       </p>
       {# Each label names its true destination. "Live demo" opens the running
          in-browser dashboard at /demo/ (built into the docs tree by
@@ -67,12 +76,17 @@
          the cost next to the button that spends it.
 
          The second sentence exists because the fold answered "what is it" and
-         nothing else — who it is for was five screens down and the non-goals
-         three and a half. Both keep their full sections; this is the pointer. #}
+         nothing else — who it is for was five screens down. It keeps its full
+         section; this is the pointer.
+
+         The one invited click goes to the definition, not to the list of
+         exclusions. Non-goals disambiguate a model the reader already holds;
+         they cannot build one, and #what-pacto-is-not sent a first-time visitor
+         straight past both definitions to find out what Pacto isn't. #}
       <p class="pacto-hero__note">
         The demo runs entirely in your browser — about 11&nbsp;MB, nothing to install.
-        Pacto is for the teams who operate many services; it is also worth knowing
-        <a href="#what-pacto-is-not">what Pacto is not</a>.
+        Pacto is for the teams who operate many services; start with
+        <a href="#what-is-pacto">what Pacto is</a>.
       </p>
     </div>
   </section>
