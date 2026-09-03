@@ -1,9 +1,15 @@
 # Concepts
 
-Pacto's model rests on a small number of distinctions it refuses to collapse.
-Each one exists because collapsing it produces an answer that is confidently
-wrong rather than honestly uncertain, and a confidently wrong answer is worse
-than no answer at all — for a person and much worse for an agent.
+Pacto is an operational contract system: a service declares its operational facts
+in one versioned file, publishes it to an OCI registry as an immutable revision,
+and the engine compares that declaration against the previous revision, against
+the constraints it must satisfy and against evidence collected where the service
+runs. [The Pacto model](model.md) is how those comparisons are made.
+
+That comparison rests on a small number of distinctions Pacto refuses to
+collapse. Each one exists because collapsing it produces an answer that is
+confidently wrong rather than honestly uncertain, and a confidently wrong answer
+is worse than no answer at all — for a person and much worse for an agent.
 
 This page is the index of those distinctions. It states each one in a sentence,
 names what breaks if you conflate the two sides, and links to the page that
@@ -224,11 +230,11 @@ The operator's ladder (`Compliant`, `Warning`, `NonCompliant`, `Reference`,
 → [What the operator reports](integrations/kubernetes/overview.md#what-it-reports)
 · [Status is `Unknown`](integrations/kubernetes/troubleshooting.md#status-is-unknown)
 
-**Presentation may simplify presentation, never meaning.** The dashboard may show
-fewer rows, shorter labels and collapsed sections. It may not decide what
-something means: canonical identity, completeness and every verdict arrive from
-the backend already decided, and the browser never reconstructs them by
-heuristic.
+**A rendering may drop detail; it always carries the meaning it was given.** The
+dashboard may show fewer rows, shorter labels and collapsed sections. What it may
+not do is decide what something means: canonical identity, completeness and every
+verdict arrive from the backend already decided, and the browser never
+reconstructs them by heuristic.
 
 ---
 

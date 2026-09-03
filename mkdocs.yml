@@ -1,5 +1,8 @@
 site_name: Pacto
-site_description: An open, OCI-distributed contract standard for cloud-native services.
+# With no social-cards plugin and no og:image, this string is the whole of the
+# shared-link preview. Not "standard": that promises governance, a conformance
+# suite and a second implementation, none of which exist.
+site_description: The operational contract system for services — declare what a service is, publish it to any OCI registry, and compare it against the last revision and against what is running.
 site_url: https://pacto.run/
 repo_url: https://github.com/TrianaLab/pacto
 repo_name: TrianaLab/pacto

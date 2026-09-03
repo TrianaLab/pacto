@@ -247,8 +247,9 @@
    while the page content rises into view. Progressive enhancement — only browsers that
    support scroll-driven animations get it (older browsers keep the static compact hero),
    and it is disabled under prefers-reduced-motion. GPU-friendly: opacity/transform/filter
-   only. Tunable knobs: hero splash height (min-height) and the scroll distance the
-   dissolve spans (animation-range end). */
+   only. Tunable knobs: hero splash height (min-height), where the dissolve starts and
+   ends (animation-range) and the hold keyframe that keeps the hero legible through the
+   first part of that range. */
 @supports (animation-timeline: scroll()) {
   @media (prefers-reduced-motion: no-preference) {
     .pacto-hero {
@@ -261,12 +262,23 @@
       justify-content: center;
       animation: pacto-hero-dissolve linear both;
       animation-timeline: scroll(root);
-      animation-range: 0 72vh;
+      /* Starts at 15vh, not 0: a nudge of the wheel used to blur the headline while it
+         was still the only thing on screen. Paired with the hold keyframe below, the
+         hero stays fully legible for roughly the first 38vh of scroll. */
+      animation-range: 15vh 90vh;
       will-change: opacity, transform;
     }
   }
 }
 @keyframes pacto-hero-dissolve {
+  /* Hold: the first third of the range changes nothing, so the dissolve reads as a
+     deliberate exit rather than as the text going out of focus the moment you scroll. */
+  0%,
+  30% {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
   to {
     opacity: 0;
     transform: translateY(-3rem) scale(0.985);

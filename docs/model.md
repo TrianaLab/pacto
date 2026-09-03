@@ -1,8 +1,11 @@
 # The Pacto model
 
-How Pacto reaches an answer: what a contract declares, what a collector observes,
-what the engine concludes from the two, and which of those roles Pacto does not
-play. [Core concepts](concepts.md) indexes the distinctions this model refuses to
+How Pacto reaches an answer: what a contract declares, what a collector observes
+and what the engine concludes from the two. One rule governs the whole model —
+**a confirmed contradiction is an error; an inability to observe is `Unknown`,
+not a contradiction** — and most of what follows is the machinery that keeps
+those two apart, including the roles Pacto deliberately leaves to other systems.
+[Core concepts](concepts.md) indexes the distinctions this model refuses to
 collapse; [Architecture](architecture.md) shows how the code is arranged to keep
 them apart.
 
