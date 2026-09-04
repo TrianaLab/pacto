@@ -108,7 +108,7 @@
               <td class="evidence-cell">
                 {#if c.docPath && docFor(c.docPath)}
                   <button type="button" class="doc-toggle" class:open={expanded[i]} onclick={() => toggle(i)}>
-                    <span class="doc-chevron" class:open={expanded[i]}>▸</span> view
+                    <span class="doc-chevron" data-motion class:open={expanded[i]}>▸</span> view
                   </button>
                 {:else if c.evidence}
                   <code>{c.evidence}</code>
@@ -211,14 +211,13 @@
     gap: 4px;
   }
   .doc-toggle:hover { text-decoration: underline; }
-  .doc-chevron { display: inline-block; transition: transform 200ms ease; }
+  .doc-chevron { display: inline-block; }
   .doc-chevron.open { transform: rotate(90deg); }
   .doc-expand-row > td { padding: 0 !important; }
   .doc-expand {
     padding: var(--sp-3) var(--sp-4);
     background: var(--c-surface-inset);
     border-top: 1px solid var(--c-border);
-    animation: slideReveal 200ms ease-out both;
   }
   .doc-expand-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-2); }
   .doc-expand-path { display: block; font-size: var(--text-xs); color: var(--c-text-3); }
@@ -233,11 +232,6 @@
   }
   .fullscreen-btn:hover { background: var(--c-surface-hover, var(--c-surface-inset)); color: var(--c-text); }
   .fullscreen-btn svg { width: 14px; height: 14px; }
-
-  @keyframes slideReveal {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
 
   @media (max-width: 768px) {
     .readiness-summary { gap: var(--sp-3); }

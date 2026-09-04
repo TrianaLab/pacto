@@ -3,9 +3,22 @@
  * Each render fn takes a container element, data and options, draws an SVG.
  */
 import * as d3 from 'd3';
-import { readinessBucketLabel, ownerKeyLabel, ownerKeyKind } from './format';
+import { readinessBucketLabel, ownerKeyLabel, ownerKeyKind, statusLabel, statusTone } from './format';
 import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
 import { categoryIconInner } from './categoryIcons';
+import { prefersReducedMotion } from './motion';
+
+/**
+ * How long a chart's hover response lasts. A d3 transition is a JS clock, so it is the one
+ * kind of motion the stylesheet's reduced-motion policy cannot reach: fourteen call sites
+ * had `.duration(150)` written into them and not one asked whether the reader wanted it.
+ *
+ * 90ms mirrors --dur-1, the feedback step -- a hover is under the finger. It is a literal
+ * because JS cannot read a CSS token without a layout read per frame, and the preference
+ * is queried per call rather than once at module load, because it can change while the
+ * page is open.
+ */
+const hoverMs = () => (prefersReducedMotion() ? 0 : 90);
 
 /** Horizontal stacked bar chart for readiness category breakdown. */
 export interface CategoryBarData {
@@ -101,7 +114,7 @@ export function renderCategoryStackedBars(
     .attr('rx', radius)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
       const cat = d.data as CategoryBarData;
       const total = cat.done + cat.partial + cat.notDone + cat.deferred;
       const content = `${cat.category} — done ${cat.done} · partial ${cat.partial} · not-done ${cat.notDone} · deferred ${cat.deferred} · total: ${total} checks`;
@@ -111,7 +124,7 @@ export function renderCategoryStackedBars(
       tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
     })
     .on('mouseleave', function () {
-      d3.select(this).transition().duration(150).attr('opacity', 1);
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
       tooltip.hide();
     })
     .on('click', (_, d) => {
@@ -177,536 +190,12 @@ export function renderCategoryStackedBars(
     .text((d) => d.label);
 }
 
-/** Donut chart for readiness status distribution. */
-export interface ReadinessDonutData {
-  ready: number;
-  partial: number;
-  notReady: number;
-  notConfigured: number;
-}
-
-export interface ReadinessDonutOptions {
-  onSelect?: (bucket: string) => void;
-}
-
-export function renderReadinessDonut(
-  container: HTMLElement,
-  data: ReadinessDonutData,
-  opts: ReadinessDonutOptions = {},
-): void {
-  // Clear
-  d3.select(container).selectAll('*').remove();
-
-  const total = data.ready + data.partial + data.notReady + data.notConfigured;
-  if (total === 0) {
-    emptyState(container, 'No readiness data');
-    return;
-  }
-
-  const pal = resolvePalette(container);
-
-  const donutRadius = 70;
-  const legendWidth = 150;
-  const width = donutRadius * 2 + 40 + legendWidth;
-  const height = 220;
-
-  const svg = d3.select(container)
-    .append('svg')
-    .attr('width', '100%')
-    .attr('viewBox', `0 0 ${width} ${height}`)
-    .attr('preserveAspectRatio', 'xMidYMid meet')
-    .attr('role', 'img')
-    .attr('aria-label', 'Readiness status distribution donut chart')
-    .style('font-family', 'var(--font-sans)');
-
-  defineGradients(svg, pal);
-
-  const g = svg.append('g').attr('transform', `translate(${donutRadius + 20}, ${height / 2})`);
-
-  // Pie layout
-  const pieData = [
-    { label: readinessBucketLabel('ready'), value: data.ready, bucket: 'ready', gradient: 'url(#grad-ok)', color: pal.ok },
-    { label: readinessBucketLabel('partial'), value: data.partial, bucket: 'partial', gradient: 'url(#grad-warn)', color: pal.warn },
-    { label: readinessBucketLabel('not-ready'), value: data.notReady, bucket: 'not-ready', gradient: 'url(#grad-err)', color: pal.err },
-    { label: readinessBucketLabel('unknown'), value: data.notConfigured, bucket: 'unknown', gradient: 'url(#grad-neutral)', color: pal.neutral },
-  ].filter((d) => d.value > 0);
-
-  const pie = d3.pie<{ label: string; value: number; bucket: string; gradient: string }>()
-    .value((d) => d.value)
-    .sort(null);
-
-  const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number; bucket: string; gradient: string }>>()
-    .innerRadius(donutRadius * 0.6)
-    .outerRadius(donutRadius);
-
-  const tooltip = sharedTooltip();
-  tooltip.attach(container);
-
-  const paths = g.selectAll('path')
-    .data(pie(pieData))
-    .join('path')
-    .attr('d', arc)
-    .attr('fill', (d) => d.data.gradient)
-    .attr('stroke', 'var(--c-surface)')
-    .attr('stroke-width', 2)
-    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(150).attr('opacity', 0.8);
-      const pct = Math.round((d.data.value / total) * 100);
-      const content = `${d.data.label} — ${d.data.value} (${pct}%)`;
-      const rect = (this as SVGPathElement).getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      tooltip.show(content, rect.left - containerRect.left + rect.width / 2, rect.top - containerRect.top - 10);
-    })
-    .on('mousemove', function (event, d) {
-      const pct = Math.round((d.data.value / total) * 100);
-      const content = `${d.data.label} — ${d.data.value} (${pct}%)`;
-      const rect = (this as SVGPathElement).getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      tooltip.show(content, rect.left - containerRect.left + rect.width / 2, rect.top - containerRect.top - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(150).attr('opacity', 1);
-      tooltip.hide();
-    })
-    .on('click', (_, d) => {
-      if (opts.onSelect) opts.onSelect(d.data.bucket);
-    });
-
-  // Enter animation: fade in.
-  animateIn(paths, { attr: 'opacity', from: 0, to: () => 1 });
-
-  // Center label: total
-  g.append('text')
-    .attr('text-anchor', 'middle')
-    .attr('dominant-baseline', 'middle')
-    .attr('y', -8)
-    .style('font-size', 'var(--text-xl)')
-    .style('font-weight', '600')
-    .style('fill', 'var(--c-text)')
-    .text(total);
-
-  g.append('text')
-    .attr('text-anchor', 'middle')
-    .attr('dominant-baseline', 'middle')
-    .attr('y', 14)
-    .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text-3)')
-    .text('services');
-
-  // Legend
-  const legend = svg.append('g')
-    .attr('transform', `translate(${donutRadius * 2 + 40}, ${height / 2 - pieData.length * 10})`);
-
-  const legendItems = legend.selectAll('g')
-    .data(pieData)
-    .join('g')
-    .attr('transform', (_, i) => `translate(0, ${i * 20})`);
-
-  legendItems.append('circle')
-    .attr('cx', 6)
-    .attr('cy', 6)
-    .attr('r', 6)
-    .attr('fill', (d) => d.color);
-
-  legendItems.append('text')
-    .attr('x', 18)
-    .attr('y', 6)
-    .attr('dominant-baseline', 'middle')
-    .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text)')
-    .text((d) => `${d.label} (${d.value})`);
-}
-
-/** Horizontal stacked bar chart for per-owner readiness composition. */
-export interface OwnerBarData {
-  key: string;
-  services: number;
-  ready: number;
-  partial: number;
-  notReady: number;
-  notConfigured: number;
-}
-
-export interface OwnerBarOptions {
-  onSelect?: (key: string) => void;
-}
-
-export function renderOwnerBars(
-  container: HTMLElement,
-  data: OwnerBarData[],
-  opts: OwnerBarOptions = {},
-): void {
-  // Clear
-  d3.select(container).selectAll('*').remove();
-
-  if (!data.length) {
-    emptyState(container, 'No owner data');
-    return;
-  }
-
-  // Limit to top 15 owners for readability
-  const topData = data.slice(0, 15);
-
-  const pal = resolvePalette(container);
-  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
-
-  // Legend lives BELOW the bars so it is never clipped at the right edge.
-  const legendHeight = 28;
-
-  // The left margin must fit the WIDEST owner label, else long keys
-  // (e.g. "platform-foundations") clip on the left and lose leading chars.
-  // y-axis labels render at --text-sm (14px); estimate ~7px/char + padding.
-  const labelCharW = 7;
-  const labelPad = 16;
-  const longestLabel = topData.reduce((max, d) => Math.max(max, d.key.length), 0);
-  const marginLeft = Math.max(120, Math.ceil(longestLabel * labelCharW) + labelPad);
-  const margin = { top: 16, right: 48, bottom: 40 + legendHeight, left: marginLeft };
-
-  // Compute minimum width to fit the horizontal legend.
-  const swatch = 12;
-  const swatchGap = 6;
-  const itemGap = 20;
-  const charW = 6.5;
-  const legendLabels = [
-    readinessBucketLabel('ready'),
-    readinessBucketLabel('partial'),
-    readinessBucketLabel('not-ready'),
-    readinessBucketLabel('unknown'),
-  ];
-  const legendWidth = legendLabels.reduce((sum, label) => sum + swatch + swatchGap + label.length * charW + itemGap, 0);
-  const minWidth = Math.max(520, margin.left + legendWidth + margin.right);
-
-  // The intrinsic coordinate width: fill the container, fall back to a sane default, floor at minWidth.
-  const width = Math.max(minWidth, container.clientWidth || 600);
-  const height = Math.max(200, topData.length * 40 + margin.top + margin.bottom);
-
-  // viewBox + 100% width makes the chart responsive and keeps the legend in frame.
-  const svg = d3.select(container)
-    .append('svg')
-    .attr('width', '100%')
-    .attr('viewBox', `0 0 ${width} ${height}`)
-    .attr('preserveAspectRatio', 'xMidYMid meet')
-    .attr('role', 'img')
-    .attr('aria-label', 'Owner readiness breakdown chart')
-    .style('font-family', 'var(--font-sans)');
-
-  defineGradients(svg, pal);
-
-  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-
-  const innerWidth = width - margin.left - margin.right;
-  const innerHeight = height - margin.top - margin.bottom;
-
-  // Stack keys: readiness composition.
-  const keys = ['ready', 'partial', 'notReady', 'notConfigured'];
-
-  const stackData = topData.map((d) => ({
-    key: d.key,
-    services: d.services,
-    ready: d.ready,
-    partial: d.partial,
-    notReady: d.notReady,
-    notConfigured: d.notConfigured,
-  }));
-
-  const stack = d3.stack<typeof stackData[0]>().keys(keys);
-  const series = stack(stackData);
-
-  // X scale: total services
-  const xMax = d3.max(stackData, (d) => d.services) || 10;
-  const x = d3.scaleLinear().domain([0, xMax]).range([0, innerWidth]);
-
-  // Y scale: owner keys
-  const y = d3.scaleBand()
-    .domain(stackData.map((d) => d.key))
-    .range([0, innerHeight])
-    .padding(0.25);
-
-  // Gradient map — readiness palette.
-  const gradientMap: Record<string, string> = {
-    ready: 'url(#grad-ok)',
-    partial: 'url(#grad-warn)',
-    notReady: 'url(#grad-err)',
-    notConfigured: 'url(#grad-neutral)',
-  };
-
-  const tooltip = sharedTooltip();
-  tooltip.attach(container);
-
-  // Bars — gradients, rounded ends, 2px surface gap between segments.
-  const rects = g.selectAll('g.layer')
-    .data(series)
-    .join('g')
-    .attr('class', 'layer')
-    .attr('fill', (d) => gradientMap[d.key])
-    .selectAll('rect')
-    .data((d) => d)
-    .join('rect')
-    .attr('x', (d) => Math.max(0, x(d[0]) + 1)) // 1px inset for surface gap
-    .attr('y', (d) => y((d.data as typeof stackData[0]).key) || 0)
-    .attr('width', (d) => Math.max(0, x(d[1]) - x(d[0]) - 2)) // -2px for gap
-    .attr('height', y.bandwidth())
-    .attr('rx', radius)
-    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(150).attr('opacity', 0.8);
-      const owner = topData.find((o) => o.key === (d.data as typeof stackData[0]).key);
-      if (!owner) return;
-      const content = `${owner.key} — ${owner.services} services · ready ${owner.ready} · partial ${owner.partial} · not ready ${owner.notReady} · not configured ${owner.notConfigured}`;
-      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mousemove', function (event) {
-      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(150).attr('opacity', 1);
-      tooltip.hide();
-    })
-    .on('click', (_, d) => {
-      if (opts.onSelect) opts.onSelect((d.data as typeof stackData[0]).key);
-    });
-
-  // Enter animation: width 0→value.
-  animateIn(rects, { attr: 'width', from: 0, to: (d) => Math.max(0, x(d[1]) - x(d[0]) - 2) });
-
-  // Y axis: owner labels — muted chrome (no domain line, no tick marks).
-  const yAxis = g.append('g').call(d3.axisLeft(y).tickSize(0));
-  yAxis.select('.domain').remove();
-  yAxis.selectAll('.tick line').remove();
-  yAxis.selectAll('text')
-    .style('font-size', 'var(--text-sm)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text)')
-    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('click', (_, key) => {
-      if (opts.onSelect) opts.onSelect(String(key));
-    });
-
-  // X axis: service count (integer ticks) — muted chrome.
-  const xAxis = g.append('g')
-    .attr('transform', `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).ticks(5).tickFormat(d3.format('d')));
-  xAxis.select('.domain').remove();
-  xAxis.selectAll('.tick line').remove();
-  xAxis.selectAll('text')
-    .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text-3)');
-
-  // Total service count labels at the end of each bar
-  g.selectAll('text.bar-label')
-    .data(stackData)
-    .join('text')
-    .attr('class', 'bar-label')
-    .attr('x', (d) => x(d.services) + 6)
-    .attr('y', (d) => (y(d.key) || 0) + y.bandwidth() / 2)
-    .attr('text-anchor', 'start')
-    .attr('dominant-baseline', 'middle')
-    .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text)')
-    .text((d) => d.services);
-
-  // Legend — placed below the bars, horizontally, so it always fits the frame.
-  const legendData = [
-    { label: readinessBucketLabel('ready'), color: pal.ok },
-    { label: readinessBucketLabel('partial'), color: pal.warn },
-    { label: readinessBucketLabel('not-ready'), color: pal.err },
-    { label: readinessBucketLabel('unknown'), color: pal.neutral },
-  ];
-
-  const legend = svg.append('g')
-    .attr('transform', `translate(${margin.left}, ${height - legendHeight + 6})`);
-
-  let legendX = 0;
-
-  legendData.forEach((d) => {
-    const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
-    item.append('rect')
-      .attr('width', swatch)
-      .attr('height', swatch)
-      .attr('y', -swatch / 2)
-      .attr('rx', 2)
-      .attr('fill', d.color);
-    item.append('text')
-      .attr('x', swatch + swatchGap)
-      .attr('dominant-baseline', 'middle')
-      .style('font-size', 'var(--text-xs)')
-      .style('font-weight', '500')
-      .style('fill', 'var(--c-text-3)')
-      .text(d.label);
-    legendX += swatch + swatchGap + d.label.length * charW + itemGap;
-  });
-}
-
-/** Status→gradient fill map for treemap tiles. */
-const STATUS_TO_PAL: Record<string, string> = {
-  Compliant: 'url(#grad-ok)',
-  Warning: 'url(#grad-warn)',
-  NonCompliant: 'url(#grad-err)',
-  Reference: 'url(#grad-info)',
-  Unknown: 'url(#grad-neutral)',
-};
-
-/** Treemap fleet risk map: tile size = blast radius, color = status. */
-export interface TreemapDatum {
-  name: string;
-  value: number;
-  status: string;
-  blast: number;
-}
-
-export interface TreemapOptions {
-  onSelect?: (name: string) => void;
-}
-
-export function renderTreemap(
-  container: HTMLElement,
-  data: TreemapDatum[],
-  opts: TreemapOptions = {},
-): void {
-  // Clear
-  d3.select(container).selectAll('*').remove();
-
-  if (!data.length) {
-    emptyState(container, 'No services to map');
-    return;
-  }
-
-  const pal = resolvePalette(container);
-  const radius = parseFloat(getComputedStyle(container).getPropertyValue('--chart-radius')) || 6;
-
-  const width = container.clientWidth || 600;
-  // Reserve a dedicated band below the tiles for the legend so it never
-  // overlaps a coloured tile (which destroyed its contrast).
-  const statusesPresent = [...new Set(data.map((d) => d.status))].filter(Boolean);
-  const statusLegendData = [
-    { label: 'Compliant', color: pal.ok, status: 'Compliant' },
-    { label: 'Warning', color: pal.warn, status: 'Warning' },
-    { label: 'Non-Compliant', color: pal.err, status: 'NonCompliant' },
-    { label: 'Reference', color: pal.info, status: 'Reference' },
-    { label: 'Unknown', color: pal.neutral, status: 'Unknown' },
-  ].filter((d) => statusesPresent.includes(d.status));
-  const legendH = statusLegendData.length > 0 ? 24 : 0;
-  const height = 260;
-  const treemapHeight = height - legendH;
-
-  const svg = d3.select(container)
-    .append('svg')
-    .attr('width', '100%')
-    .attr('viewBox', `0 0 ${width} ${height}`)
-    .attr('preserveAspectRatio', 'xMidYMid meet')
-    .attr('role', 'img')
-    .attr('aria-label', 'Fleet risk treemap')
-    .style('font-family', 'var(--font-sans)');
-
-  defineGradients(svg, pal);
-
-  // Treemap layout
-  const root = d3.hierarchy<TreemapDatum>({ children: data } as any)
-    .sum((d) => d.value || 0);
-
-  const treemap = d3.treemap<TreemapDatum>()
-    .size([width, treemapHeight])
-    .paddingInner(2);
-
-  treemap(root);
-
-  const tooltip = sharedTooltip();
-  tooltip.attach(container);
-
-  // ponytail: cast to HierarchyRectangularNode for x0/y0/x1/y1 access
-  const leaves = root.leaves() as Array<d3.HierarchyRectangularNode<TreemapDatum>>;
-
-  const tiles = svg.selectAll('g')
-    .data(leaves)
-    .join('g');
-
-  // Tile rectangles
-  tiles.append('rect')
-    .attr('x', (d) => d.x0)
-    .attr('y', (d) => d.y0)
-    .attr('width', (d) => Math.max(0, d.x1 - d.x0))
-    .attr('height', (d) => Math.max(0, d.y1 - d.y0))
-    .attr('fill', (d) => STATUS_TO_PAL[d.data.status] || 'url(#grad-neutral)')
-    .attr('rx', radius)
-    .attr('cursor', opts.onSelect ? 'pointer' : 'default')
-    .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(150).attr('opacity', 0.8);
-      const content = `${d.data.name} · ${d.data.status} · blast ${d.data.blast}`;
-      tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mousemove', function (event) {
-      tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
-    })
-    .on('mouseleave', function () {
-      d3.select(this).transition().duration(150).attr('opacity', 1);
-      tooltip.hide();
-    })
-    .on('click', (_, d) => {
-      if (opts.onSelect) opts.onSelect(d.data.name);
-    });
-
-  // Labels: only show on tiles wide/tall enough
-  tiles.append('text')
-    .attr('x', (d) => (d.x0 + d.x1) / 2)
-    .attr('y', (d) => (d.y0 + d.y1) / 2)
-    .attr('text-anchor', 'middle')
-    .attr('dominant-baseline', 'middle')
-    .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text)')
-    .style('pointer-events', 'none')
-    .text((d) => {
-      const w = d.x1 - d.x0;
-      const h = d.y1 - d.y0;
-      // ponytail: heuristic truncation (6px/char, 8px margin); getComputedTextLength unavailable in jsdom
-      const maxChars = Math.floor((w - 8) / 6);
-      if (w < 60 || h < 30) return '';
-      return d.data.name.length > maxChars && maxChars > 3 ? d.data.name.slice(0, maxChars - 1) + '…' : d.data.name;
-    });
-
-  // Enter animation: fade in
-  animateIn(tiles.selectAll('rect'), { attr: 'opacity', from: 0, to: () => 1 });
-
-  // Status legend — rendered in the reserved band BELOW the tiles (never over
-  // a coloured tile) with full-contrast text so it stays readable in both themes.
-  if (statusLegendData.length > 0) {
-    const legend = svg.append('g').attr('transform', `translate(12, ${treemapHeight + legendH / 2})`);
-    let legendX = 0;
-    const swatch = 8;
-    const swatchGap = 6;
-    const itemGap = 16;
-    const charW = 6;
-    statusLegendData.forEach((d) => {
-      const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
-      item.append('circle')
-        .attr('cx', swatch / 2)
-        .attr('cy', 0)
-        .attr('r', swatch / 2)
-        .attr('fill', d.color);
-      item.append('text')
-        .attr('x', swatch + swatchGap)
-        .attr('dominant-baseline', 'middle')
-        .style('font-size', 'var(--text-xs)')
-        .style('font-weight', '600')
-        .style('fill', 'var(--c-text)')
-        .text(d.label);
-      legendX += swatch + swatchGap + d.label.length * charW + itemGap;
-    });
-  }
-}
-
-/** Priority quadrant: readiness score (x) vs blast radius (y) scatter plot. */
+/** Priority quadrant: distance from a service's own readiness gate (x) vs impact (y). */
 export interface QuadrantDatum {
   name: string;
-  x: number; // readiness score 0–100
+  x: number; // score - minScore: negative is below its own gate. See chartData.quadrantData.
   y: number; // blast/impact
   status: string;
-  blast: number;
 }
 
 export interface QuadrantOptions {
@@ -747,25 +236,43 @@ export function renderPriorityQuadrant(
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
-  // X scale: readiness score 0–100
-  const x = d3.scaleLinear().domain([0, 100]).range([0, innerWidth]);
+  // X scale: points above or below each service's OWN gate. The domain is taken from
+  // the data and then forced to contain 0, so the divider is always on the plot even
+  // when every service is on one side of its gate.
+  const xExtent = d3.extent(data, (d) => d.x) as [number, number];
+  const xPad = 5;
+  const x = d3.scaleLinear()
+    .domain([Math.min(xExtent[0], 0) - xPad, Math.max(xExtent[1], 0) + xPad])
+    .range([0, innerWidth]);
 
   // Y scale: impact/blast 0–max
   const yMax = d3.max(data, (d) => d.y) || 1;
   const y = d3.scaleLinear().domain([0, yMax]).range([innerHeight, 0]);
 
-  // Quadrant guide lines: vertical at x=50, horizontal at y=median
+  // Quadrant guide lines: vertical at the gate, horizontal at y=median
   const blastValues = data.map((d) => d.y).sort((a, b) => a - b);
   const medianBlast = blastValues[Math.floor(blastValues.length / 2)] || yMax / 2;
 
   g.append('line')
-    .attr('x1', x(50))
-    .attr('x2', x(50))
+    .attr('x1', x(0))
+    .attr('x2', x(0))
     .attr('y1', 0)
     .attr('y2', innerHeight)
     .attr('stroke', 'var(--c-border)')
     .attr('stroke-width', 1)
     .attr('stroke-dasharray', '4 4');
+
+  // The divider is the only line on the plot that means something, so it says what.
+  // It sits on whichever side of the line has room, and clear of the corner labels.
+  const gateRight = x(0) > innerWidth * 0.6;
+  g.append('text')
+    .attr('x', gateRight ? x(0) - 4 : x(0) + 4)
+    .attr('y', innerHeight * 0.3)
+    .attr('text-anchor', gateRight ? 'end' : 'start')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .text('meets its own threshold');
 
   g.append('line')
     .attr('x1', 0)
@@ -796,20 +303,16 @@ export function renderPriorityQuadrant(
     .style('fill', 'var(--c-text-3)')
     .text('Healthy');
 
-  // Status color map (flat, no gradients needed)
-  const statusColor: Record<string, string> = {
-    Compliant: pal.ok,
-    Warning: pal.warn,
-    NonCompliant: pal.err,
-    Reference: pal.info,
-  };
+  // Status colour, from format.ts's table — the same one the row badges read.
+  const statusColor = (status: string) => pal[statusTone(status)] || pal.neutral;
 
   const tooltip = sharedTooltip();
   tooltip.attach(container);
 
-  // Radius scale: larger blast = larger dot (min 8px per dataviz markers)
-  const maxBlast = d3.max(data, (d) => d.blast) || 1;
-  const rScale = d3.scaleSqrt().domain([0, maxBlast]).range([8, 16]);
+  // One radius for every dot. It used to be scaled by blast radius, which is the
+  // y position: the same number said twice, once by height and once by area, so the
+  // top-right of the plot grew heavy for no added fact. Impact is on the axis.
+  const DOT_R = 8;
 
   // Dots
   const dots = g.selectAll('circle')
@@ -817,21 +320,22 @@ export function renderPriorityQuadrant(
     .join('circle')
     .attr('cx', (d) => x(d.x))
     .attr('cy', (d) => y(d.y))
-    .attr('r', (d) => rScale(d.blast))
-    .attr('fill', (d) => statusColor[d.status] || pal.neutral)
+    .attr('r', DOT_R)
+    .attr('fill', (d) => statusColor(d.status))
     .attr('stroke', 'var(--c-surface)')
     .attr('stroke-width', 2)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(150).attr('opacity', 0.8);
-      const content = `${d.name} · readiness ${d.x} · impact ${d.y} · ${d.status}`;
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
+      const gap = d.x > 0 ? `${d.x} above its threshold` : d.x < 0 ? `${-d.x} below its threshold` : 'exactly at its threshold';
+      const content = `${d.name} · ${gap} · impact ${d.y} · ${statusLabel(d.status)}`;
       tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
     })
     .on('mousemove', function (event) {
       tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
     })
     .on('mouseleave', function () {
-      d3.select(this).transition().duration(150).attr('opacity', 1);
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
       tooltip.hide();
     })
     .on('click', (_, d) => {
@@ -839,12 +343,13 @@ export function renderPriorityQuadrant(
     });
 
   // Enter animation: r 0→value
-  animateIn(dots, { attr: 'r', from: 0, to: (d) => rScale(d.blast) });
+  animateIn(dots, { attr: 'r', from: 0, to: () => DOT_R });
 
-  // X axis: readiness score
+  // X axis: signed distance from the gate, so the sign is read rather than inferred
+  // from which side of the line a tick fell on.
   const xAxis = g.append('g')
     .attr('transform', `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).ticks(5));
+    .call(d3.axisBottom(x).ticks(5).tickFormat((v) => (+v > 0 ? `+${v}` : `${v}`)));
   xAxis.select('.domain').remove();
   xAxis.selectAll('.tick line').remove();
   xAxis.selectAll('text')
@@ -869,7 +374,7 @@ export function renderPriorityQuadrant(
     .style('font-size', 'var(--text-xs)')
     .style('font-weight', '500')
     .style('fill', 'var(--c-text-3)')
-    .text('readiness →');
+    .text('points from its own readiness threshold →');
 
   svg.append('text')
     .attr('transform', `translate(12, ${height / 2}) rotate(-90)`)
@@ -879,14 +384,11 @@ export function renderPriorityQuadrant(
     .style('fill', 'var(--c-text-3)')
     .text('impact →');
 
-  // Status legend
-  const statusesPresent = [...new Set(data.map((d) => d.status))].filter(Boolean);
-  const statusLegendData = [
-    { label: 'Compliant', color: pal.ok, status: 'Compliant' },
-    { label: 'Warning', color: pal.warn, status: 'Warning' },
-    { label: 'Non-Compliant', color: pal.err, status: 'NonCompliant' },
-    { label: 'Reference', color: pal.info, status: 'Reference' },
-  ].filter((d) => statusesPresent.includes(d.status));
+  // Status legend, built from the statuses actually plotted. The hand-listed version
+  // named four of the seven, so an Invalid or Not-evaluated service was a dot with no
+  // key to read it by.
+  const statusLegendData = [...new Set(data.map((d) => d.status))].filter(Boolean).sort()
+    .map((status) => ({ label: statusLabel(status), color: statusColor(status) }));
 
   if (statusLegendData.length > 0) {
     const legend = svg.append('g').attr('transform', `translate(${margin.left}, ${margin.top - 12})`);
@@ -1010,7 +512,7 @@ export function renderHeatmap(
     .attr('cursor', opts.onSelectCell ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       if (d.score != null) {
-        d3.select(this).transition().duration(150).attr('opacity', 0.8);
+        d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
         const content = `${ownerKeyLabel(d.owner)} · ${d.category} · ${d.score}% · ${d.n} checks`;
         tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
       }
@@ -1021,7 +523,7 @@ export function renderHeatmap(
       }
     })
     .on('mouseleave', function () {
-      d3.select(this).transition().duration(150).attr('opacity', 1);
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
       tooltip.hide();
     })
     .on('click', (_, d) => {
@@ -1157,9 +659,11 @@ export function renderVersionTimeline(
 
   const pal = resolvePalette(container);
 
-  const margin = { top: 20, right: 20, bottom: 30, left: 20 };
+  // The extra bottom margin is the date axis added below the baseline; the legend keeps
+  // its place at the very bottom.
+  const margin = { top: 20, right: 20, bottom: 46, left: 20 };
   const width = container.clientWidth || 600;
-  const height = 100;
+  const height = 130;
 
   const svg = d3.select(container)
     .append('svg')
@@ -1201,6 +705,19 @@ export function renderVersionTimeline(
     .attr('stroke', 'var(--c-border)')
     .attr('stroke-width', 1);
 
+  // Date axis. Every marker's position encodes when it was published, and without an
+  // axis the only way to read that was to hover one — which a touch reader cannot do
+  // at all. Four ticks: enough to read the span and the pace, few enough not to crowd.
+  const xAxis = g.append('g')
+    .attr('transform', `translate(0,${innerHeight})`)
+    .call(d3.axisBottom(x).ticks(4));
+  xAxis.select('.domain').remove();
+  xAxis.selectAll('.tick line').remove();
+  xAxis.selectAll('text')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)');
+
   // Markers
   const markers = g.selectAll('circle')
     .data(data)
@@ -1213,7 +730,7 @@ export function renderVersionTimeline(
     .attr('stroke-width', 2)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
-      d3.select(this).transition().duration(150).attr('opacity', 0.8);
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
       const dateStr = (!d.at || isNaN(d.at)) ? '—' : new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
       const classStr = d.classification ? d.classification.replace(/_/g, ' ').toLowerCase() : '—';
       const content = `${d.version} · ${dateStr} · ${classStr}`;
@@ -1223,7 +740,7 @@ export function renderVersionTimeline(
       tooltip.show(tooltip['el'].textContent || '', event.offsetX + 10, event.offsetY - 10);
     })
     .on('mouseleave', function () {
-      d3.select(this).transition().duration(150).attr('opacity', 1);
+      d3.select(this).transition().duration(hoverMs()).attr('opacity', 1);
       tooltip.hide();
     })
     .on('click', (_, d) => {

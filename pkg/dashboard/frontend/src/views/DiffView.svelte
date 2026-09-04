@@ -239,7 +239,7 @@
     width: var(--touch-min); height: var(--touch-min);
     border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     background: var(--c-surface); cursor: pointer; color: var(--c-text-2);
-    transition: all var(--transition); align-self: flex-end;
+    transition: var(--motion-feedback); transition-property: var(--motion-tint); align-self: flex-end;
     flex-shrink: 0;
   }
   .btn-swap:hover { border-color: var(--c-accent); color: var(--c-accent); }

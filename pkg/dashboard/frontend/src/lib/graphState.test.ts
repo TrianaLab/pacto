@@ -72,6 +72,21 @@ describe('difference vocabulary (backend-authoritative, never color-only)', () =
     expect(differenceLabel('observed-not-expected')).toBe('Observed, not expected');
     expect(differenceTone('observed-not-expected')).toBe('warn');
   });
+  // The two attention states are NOT interchangeable, and a second copy of this
+  // mapping in entityLabels.ts had them swapped: undeclared runtime traffic is the
+  // thing to act on (warn), a declared edge nobody witnessed is only informational
+  // (info) -- silence is not proof it is unused. The cytoscape stylesheet
+  // (lib/graph.ts) paints edges from these same two tones.
+  it('does not swap the two attention tones', () => {
+    expect(differenceTone('expected-not-observed')).toBe('info');
+    expect(differenceTone('observed-not-expected')).toBe('warn');
+  });
+  // IdentityBadge draws its pill border whether or not there is a label, so an
+  // unrecognised wire value must print as itself rather than as an empty box.
+  it('prints an unrecognised difference instead of a blank badge', () => {
+    expect(differenceLabel('teleported')).toBe('teleported');
+    expect(differenceLabel(undefined)).toBe('Unknown');
+  });
 });
 
 describe('relationLabel', () => {

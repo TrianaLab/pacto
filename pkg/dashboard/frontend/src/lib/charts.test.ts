@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { renderCategoryStackedBars, renderReadinessDonut, renderOwnerBars, renderTreemap, renderPriorityQuadrant, renderHeatmap, renderVersionTimeline } from './charts';
+import { describe, it, expect, vi } from 'vitest';
+import { renderCategoryStackedBars, renderPriorityQuadrant, renderHeatmap, renderVersionTimeline } from './charts';
 
 describe('renderCategoryStackedBars', () => {
   it('renders stacked bars for each category', () => {
@@ -71,227 +71,50 @@ describe('renderCategoryStackedBars', () => {
   });
 });
 
-describe('renderReadinessDonut', () => {
-  it('renders donut chart with arcs for non-zero buckets', () => {
-    const container = document.createElement('div');
-    const data = { ready: 10, partial: 5, notReady: 2, notConfigured: 3 };
-
-    renderReadinessDonut(container, data);
-
-    const svg = container.querySelector('svg');
-    expect(svg).not.toBeNull();
-
-    const paths = container.querySelectorAll('path');
-    expect(paths.length).toBe(4); // ready, partial, notReady, notConfigured
-  });
-
-  it('filters out zero-value buckets', () => {
-    const container = document.createElement('div');
-    const data = { ready: 10, partial: 0, notReady: 0, notConfigured: 5 };
-
-    renderReadinessDonut(container, data);
-
-    const paths = container.querySelectorAll('path');
-    expect(paths.length).toBe(2); // only ready and notConfigured
-  });
-
-  it('renders empty state when total is zero', () => {
-    const container = document.createElement('div');
-    const data = { ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
-
-    renderReadinessDonut(container, data);
-    expect(container.textContent).toContain('No readiness data');
-  });
-
-  it('renders center label with total count', () => {
-    const container = document.createElement('div');
-    const data = { ready: 10, partial: 5, notReady: 2, notConfigured: 3 };
-
-    renderReadinessDonut(container, data);
-
-    const texts = Array.from(container.querySelectorAll('text')).map((t) => t.textContent);
-    expect(texts).toContain('20'); // 10+5+2+3
-    expect(texts).toContain('services');
-  });
-
-  it('applies theme typography to all text (no raw d3 defaults)', () => {
-    const container = document.createElement('div');
-    const data = { ready: 10, partial: 5, notReady: 2, notConfigured: 3 };
-
-    renderReadinessDonut(container, data);
-
-    const svg = container.querySelector('svg')!;
-    expect(svg.style.fontFamily).toBe('var(--font-sans)');
-    const texts = Array.from(container.querySelectorAll('text'));
-    for (const t of texts) {
-      expect(t.style.fill.startsWith('var(--c-text')).toBe(true);
-      // No hard-coded px/rem font sizes — use theme tokens.
-      expect(t.style.fontSize.startsWith('var(--text-')).toBe(true);
-    }
-  });
-
-  it('defines gradients for Soft Depth polish', () => {
-    const container = document.createElement('div');
-    const data = { ready: 10, partial: 5, notReady: 2, notConfigured: 3 };
-    renderReadinessDonut(container, data);
-    expect(container.querySelector('defs linearGradient')).not.toBeNull();
-  });
-});
-
-describe('renderOwnerBars', () => {
-  it('renders stacked readiness bars for each owner', () => {
-    const container = document.createElement('div');
-    const data = [
-      { key: 'team-a', services: 5, ready: 3, partial: 1, notReady: 1, notConfigured: 0 },
-      { key: 'team-b', services: 3, ready: 1, partial: 1, notReady: 0, notConfigured: 1 },
-    ];
-
-    renderOwnerBars(container, data);
-
-    const svg = container.querySelector('svg');
-    expect(svg).not.toBeNull();
-
-    const layers = container.querySelectorAll('g.layer');
-    expect(layers.length).toBe(4); // ready, partial, notReady, notConfigured
-  });
-
-  it('uses a responsive viewBox so the legend is never clipped', () => {
-    const container = document.createElement('div');
-    const data = [{ key: 'team-a', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
-
-    renderOwnerBars(container, data);
-
-    const svg = container.querySelector('svg')!;
-    expect(svg.getAttribute('width')).toBe('100%');
-    expect(svg.getAttribute('viewBox')).toBeTruthy();
-    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
-  });
-
-  it('colors segments with the readiness palette via gradients', () => {
-    const container = document.createElement('div');
-    const data = [{ key: 'team-a', services: 4, ready: 1, partial: 1, notReady: 1, notConfigured: 1 }];
-
-    renderOwnerBars(container, data);
-
-    const fills = Array.from(container.querySelectorAll('g.layer')).map((g) => g.getAttribute('fill'));
-    expect(fills).toEqual(['url(#grad-ok)', 'url(#grad-warn)', 'url(#grad-err)', 'url(#grad-neutral)']);
-  });
-
-  it('limits to top 15 owners', () => {
-    const container = document.createElement('div');
-    const data = Array.from({ length: 20 }, (_, i) => ({
-      key: `owner-${i}`,
-      services: i + 1,
-      ready: i,
-      partial: 0,
-      notReady: 1,
-      notConfigured: 0,
-    }));
-
-    renderOwnerBars(container, data);
-
-    const layers = container.querySelectorAll('g.layer');
-    const rects = container.querySelectorAll('g.layer rect');
-    expect(layers.length).toBe(4); // 4 readiness segments
-    // Each of the top 15 owners should have up to 4 segments (some may be zero-width)
-    expect(rects.length).toBeGreaterThan(0);
-  });
-
-  it('renders empty state when no data', () => {
-    const container = document.createElement('div');
-    renderOwnerBars(container, []);
-    expect(container.textContent).toContain('No owner data');
-  });
-
-  it('renders labels with total service count', () => {
-    const container = document.createElement('div');
-    const data = [{ key: 'team-x', services: 7, ready: 5, partial: 1, notReady: 1, notConfigured: 0 }];
-
-    renderOwnerBars(container, data);
-
-    const labels = Array.from(container.querySelectorAll('text.bar-label')).map((t) => t.textContent);
-    expect(labels.some((l) => l === '7')).toBe(true);
-  });
-
-  it('renders legend with readiness labels', () => {
-    const container = document.createElement('div');
-    const data = [{ key: 'team-y', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
-
-    renderOwnerBars(container, data);
-
-    const legendTexts = Array.from(container.querySelectorAll('text')).map((t) => t.textContent);
-    expect(legendTexts).toContain('Ready');
-    expect(legendTexts).toContain('Partial');
-    expect(legendTexts).toContain('Not Ready');
-    expect(legendTexts).toContain('Not configured');
-  });
-
-  it('widens the left margin so a long owner label fits without clipping', () => {
-    const container = document.createElement('div');
-    // "platform-foundations-security" is the longest demo owner key (29 chars).
-    const longKey = 'platform-foundations-security';
-    const data = [{ key: longKey, services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
-
-    renderOwnerBars(container, data);
-
-    // The first <g> (bars group) is translated by margin.left; it must exceed
-    // the estimated label width so the leading char is never cut off.
-    const barsGroup = container.querySelector('svg > g')!;
-    const transform = barsGroup.getAttribute('transform') || '';
-    const m = transform.match(/translate\(([\d.]+),/);
-    expect(m).not.toBeNull();
-    const marginLeft = parseFloat(m![1]);
-    // 29 chars * 7px + 16px padding = 219px, well above the old fixed 120.
-    expect(marginLeft).toBeGreaterThanOrEqual(longKey.length * 7);
-
-    // The viewBox width must include that wider margin.
-    const viewBox = container.querySelector('svg')!.getAttribute('viewBox') || '';
-    const vbWidth = parseFloat(viewBox.split(' ')[2]);
-    expect(vbWidth).toBeGreaterThan(marginLeft);
-
-    // The label itself is present in full.
-    const labels = Array.from(container.querySelectorAll('text')).map((t) => t.textContent);
-    expect(labels).toContain(longKey);
-  });
-
-  it('keeps a 120px floor for short owner labels', () => {
-    const container = document.createElement('div');
-    const data = [{ key: 'a', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
-
-    renderOwnerBars(container, data);
-
-    const barsGroup = container.querySelector('svg > g')!;
-    const m = (barsGroup.getAttribute('transform') || '').match(/translate\(([\d.]+),/);
-    expect(parseFloat(m![1])).toBe(120);
-  });
-
-  it('defines gradients for Soft Depth polish', () => {
-    const container = document.createElement('div');
-    const data = [{ key: 'team-a', services: 4, ready: 2, partial: 1, notReady: 1, notConfigured: 0 }];
-    renderOwnerBars(container, data);
-    expect(container.querySelector('defs linearGradient')).not.toBeNull();
-  });
-});
-
-describe('renderTreemap', () => {
-  it('renders a tile per service and empty state', () => {
-    const container = document.createElement('div');
-    renderTreemap(container, [{ name: 'a', value: 9, status: 'NonCompliant', blast: 9 }, { name: 'b', value: 1, status: 'Compliant', blast: 0 }]);
-    expect(container.querySelectorAll('svg rect').length).toBeGreaterThanOrEqual(2);
-    const c2 = document.createElement('div');
-    renderTreemap(c2, []);
-    expect(c2.textContent).toContain('No services');
-  });
-});
-
 describe('renderPriorityQuadrant', () => {
   it('draws a dot per datum and empty state', () => {
     const container = document.createElement('div');
-    renderPriorityQuadrant(container, [{ name: 'a', x: 20, y: 9, status: 'NonCompliant', blast: 9 }, { name: 'b', x: 90, y: 1, status: 'Compliant', blast: 1 }]);
+    renderPriorityQuadrant(container, [{ name: 'a', x: -20, y: 9, status: 'NonCompliant' }, { name: 'b', x: 40, y: 1, status: 'Compliant' }]);
     expect(container.querySelectorAll('svg circle').length).toBeGreaterThanOrEqual(2);
     const c2 = document.createElement('div');
     renderPriorityQuadrant(c2, []);
     expect(c2.textContent).toContain('No readiness data');
+  });
+
+  // The divider is the gate, and it has to be ON the plot to be read as one -- even
+  // when the whole fleet sits on one side of it.
+  it('keeps the threshold divider on the plot when every service clears its gate', () => {
+    const c = document.createElement('div');
+    renderPriorityQuadrant(c, [{ name: 'a', x: 10, y: 1, status: 'Compliant' }, { name: 'b', x: 40, y: 2, status: 'Compliant' }]);
+    expect(c.textContent).toContain('meets its own threshold');
+    const dashed = [...c.querySelectorAll('line')].filter((l) => l.getAttribute('stroke-dasharray'));
+    const vertical = dashed.find((l) => l.getAttribute('x1') === l.getAttribute('x2'));
+    expect(vertical).toBeDefined();
+    expect(Number(vertical!.getAttribute('x1'))).toBeGreaterThanOrEqual(0);
+  });
+
+  // Dots used to be sized by blast radius, which is already the y position: the same
+  // number said twice, once by height and once by area. Read under reduced motion so
+  // the assertion sees the resting radius rather than the entrance's starting 0.
+  it('draws every dot the same size, because impact is on the axis', () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    try {
+      const c = document.createElement('div');
+      renderPriorityQuadrant(c, [{ name: 'a', x: 0, y: 100, status: 'Compliant' }, { name: 'b', x: 0, y: 1, status: 'Compliant' }]);
+      const plot = c.querySelector('svg > g');
+      const radii = new Set([...plot!.querySelectorAll('circle')].map((el) => el.getAttribute('r')));
+      expect(radii).toEqual(new Set(['8']));
+    } finally {
+      mm.mockRestore();
+    }
+  });
+
+  // Four of the seven statuses had no key to read them by.
+  it('keys every status it plotted, including the ones nobody hand-listed', () => {
+    const c = document.createElement('div');
+    renderPriorityQuadrant(c, [{ name: 'a', x: 0, y: 1, status: 'Invalid' }, { name: 'b', x: 0, y: 2, status: 'NotEvaluated' }]);
+    expect(c.textContent).toContain('Invalid');
+    expect(c.textContent).toContain('Not evaluated');
   });
 });
 
@@ -342,5 +165,18 @@ describe('renderVersionTimeline', () => {
     const c = document.createElement('div');
     renderVersionTimeline(c, [{ version: '1.0.0', at: 1735689600000, classification: 'NON_BREAKING', isCurrent: true }]);
     expect(c.querySelectorAll('svg circle').length).toBeGreaterThanOrEqual(1);
+  });
+
+  // Every marker's position encodes a date. Without an axis the only way to read one
+  // was to hover it, which is no way at all on a touch screen.
+  it('labels the time axis it positions its markers on', () => {
+    const c = document.createElement('div');
+    renderVersionTimeline(c, [
+      { version: '1.0.0', at: Date.UTC(2025, 0, 1), classification: 'NON_BREAKING' },
+      { version: '2.0.0', at: Date.UTC(2025, 11, 1), classification: 'BREAKING' },
+    ]);
+    const ticks = [...c.querySelectorAll('svg g .tick text')].map((t) => t.textContent);
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(ticks.every((t) => t && t.length > 0)).toBe(true);
   });
 });

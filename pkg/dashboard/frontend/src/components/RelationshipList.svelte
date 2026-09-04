@@ -1,8 +1,8 @@
 <script>
   import EntityLink from './EntityLink.svelte';
   import IdentityBadge from './IdentityBadge.svelte';
-  import { differenceLabel, differenceTone, provenanceLabel, provenanceIsImplied } from '../lib/entityLabels.ts';
-  import { corroborationLabel, corroborationTone } from '../lib/graphState.ts';
+  import { provenanceLabel, provenanceIsImplied } from '../lib/entityLabels.ts';
+  import { corroborationLabel, corroborationTone, differenceLabel, differenceTone } from '../lib/graphState.ts';
   import { shortDigest } from '../lib/format.ts';
 
   // Renders the observed/differences relationship summary (NeighborhoodEdge items):

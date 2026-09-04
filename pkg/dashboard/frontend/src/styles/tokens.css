@@ -133,8 +133,93 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
 
-  /* Transitions */
-  --transition: 150ms ease;
+  /* ── Motion: the DURATION RAMP ──
+     One ramp, same rule as the type and radii ramps: no component invents a value.
+     A component picks a ROLE (below) and the role picks the step; the steps are
+     scalar and meaningless alone, exactly as --text-sm is not "the label size".
+
+     Three steps, not four. Nothing above 240ms ships, because the only thing that
+     could spend it is a route-level continuity animation and this product refuses
+     those — a path taken twenty times per incident reads better instantly. If a
+     motion does not fit in 240ms, it is the wrong motion. */
+  --dur-1: 90ms;   /* under the finger: press, hover, caret, key echo */
+  --dur-2: 160ms;  /* a state that flipped: tone, chip, active tab, toc marker */
+  --dur-3: 240ms;  /* a box that changed size, or a surface that arrived */
+
+  /* Easings — three, matched to the three things motion can be doing. Arriving
+     decelerates; leaving accelerates and always gets the SHORTER duration, because an
+     exit as long as its entrance reads as reluctance; moving-while-staying is
+     symmetric. No overshoot and no spring: a bounce claims the software is playful,
+     and the screen this product exists for is the 3am one. */
+  --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-leave: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-place: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Travel. Something appearing in place rises; only a panel with a genuine offscreen
+     edge slides. Nothing here travels further than 12px under its own power. */
+  --motion-rise: 6px;
+  --motion-slide: 12px;
+
+  /* ── Motion: the ROLES ──
+     What the motion IS, and the only thing a component chooses — exactly like a type
+     role. Four, and the list is closed. If an interaction fits none of them, the
+     honest answer is almost always that it should not move. */
+  --motion-feedback: var(--dur-1) var(--ease-in-place);
+  --motion-flip:     var(--dur-2) var(--ease-in-place);
+  --motion-reveal:   var(--dur-3) var(--ease-arrive);
+  --motion-dismiss:  var(--dur-2) var(--ease-leave);
+
+  /* What a control is allowed to transition. Eight of the most-clicked controls in the
+     product said `transition: all`, which animates every property a rule declares now AND
+     every property a rule adds later — including layout properties, so a hover that also
+     nudges padding becomes a reflow per frame. This is the closed list of properties a
+     tint change may cross: paint only, never geometry.
+       transition: var(--motion-feedback);
+       transition-property: var(--motion-tint); */
+  --motion-tint: background-color, border-color, color, box-shadow, opacity;
+
+  /* Compat alias. The ~30 sites that say var(--transition) all mean the flip role and
+     migrate a file at a time. New code names the role. */
+  --transition: var(--motion-flip);
+
+  /* ── Motion: the RATION ──
+     The rule this product's motion turns on is not "how fast" but "what may move at
+     all". Motion is the loudest channel the UI owns, so it is rationed by the
+     severity the backend already assigned:
+
+       err     may enter on its own AND may carry the alarm ring.
+       warn    may enter on its own. Never rings.
+       info / ok / neutral / reference
+               never initiate motion. They respond to the pointer and the keyboard —
+               the feedback and flip roles — which the reader caused.
+
+     On #/fleet/attention most rows are Info reading the identical string. The number
+     of moving things on screen is the number of things wrong, and a reader can check
+     that by looking.
+
+     --stagger-step exists for the ration and for nothing else. Every caller clamps
+     the row index BEFORE multiplying:
+       animation-delay: calc(min(var(--i), var(--stagger-max)) * var(--stagger-step))
+     8 × 28ms + --dur-3 = 464ms, inside the 500ms entrance budget e2e/axe.spec.ts:16
+     races getAnimations() against. Raising either number means moving that gate to
+     reducedMotion emulation first. Never stagger an unrationed list: 23 rows at 28ms
+     is 644ms of theatre and a flaky contrast audit. */
+  --stagger-step: 28ms;
+  --stagger-max: 8;
+
+  /* The alarm ring is a REST STATE that happens to pulse, which is exactly why reduced
+     motion can drop the pulse and lose nothing. It is a box-shadow on an alpha border
+     token, never an opacity fade of text (EmptyState.svelte records axe catching that
+     one mid-fade), and it is FINITE: three periods, then it holds. An infinite ring
+     would mean getAnimations() never settles and every axe run on every page with an
+     error degrades into a blind 500ms wait.
+
+     Cardinality is one. The ring is picked once in a $derived over the top-severity
+     item and passed down as a boolean; it is never a per-row class. If two things are
+     ringing, the design has already failed — raise the aggregate. */
+  --motion-alarm-ring: 0 0 0 3px var(--c-err-border);
+  --motion-alarm-period: 1.2s;
+  --motion-alarm-count: 3;
 
   /* Layout */
   --navbar-h: 56px;
@@ -194,5 +279,25 @@
     --sp-8: 32px;
     --navbar-h: 52px;
     --container-max: 100%;
+  }
+}
+
+/* ─── Reduced motion: collapse the travel, keep the fact ───
+   The single CSS-side answer for the whole product, on the tokens so a value can never
+   be re-invented past it. The stagger goes to zero with the durations: a delay that
+   survives the reset is strictly worse than the animation it replaced — with fill-mode
+   both, row 8 would hold at opacity 0 for 224ms for the reader who asked for less. A
+   component that restates this in its own @media block is duplicating policy and should
+   be deleted; JS clocks read chartkit's prefersReducedMotion() instead. */
+@media (prefers-reduced-motion: reduce) {
+  :root, [data-theme="light"] {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+    --stagger-step: 0ms;
+    --motion-rise: 0px;
+    --motion-slide: 0px;
+    --motion-alarm-period: 0s;
+    --motion-alarm-count: 0;
   }
 }

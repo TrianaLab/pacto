@@ -159,7 +159,7 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     expect(text).not.toMatch(/all clear/i);
     expect(text).not.toMatch(/every operational target is compliant/i);
     expect(target.querySelector('.empty-fleet')).toBeFalsy(); // incomplete: not a confirmed-empty claim either
-    expect(target.querySelector('.knowledge-banner')).toBeTruthy();
+    expect(target.querySelector('.knowledge')).toBeTruthy();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -176,7 +176,7 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     const { target, component } = mountView();
     await vi.waitFor(() => expect(target.querySelector('.op-summary')).toBeTruthy());
     expect(target.querySelector('.all-clear')).toBeFalsy();
-    expect(target.querySelector('.knowledge-banner')).toBeTruthy();
+    expect(target.querySelector('.knowledge')).toBeTruthy();
     unmount(component); document.body.removeChild(target);
   });
 
@@ -193,7 +193,7 @@ describe('FleetOverview — A1: an empty fleet is never "All clear"', () => {
     const text = target.textContent || '';
     // The honest empty-fleet message shows; the degraded-source banner and all-clear do NOT.
     expect(target.querySelector('.empty-fleet')).toBeTruthy();
-    expect(target.querySelector('.knowledge-banner')).toBeFalsy();
+    expect(target.querySelector('.knowledge')).toBeFalsy();
     expect(target.querySelector('.all-clear')).toBeFalsy();
     expect(text).not.toMatch(/sources are degraded/i);
     expect(text).toMatch(/no services tracked yet/i);

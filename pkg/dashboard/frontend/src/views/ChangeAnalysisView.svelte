@@ -16,7 +16,6 @@
   import LimitationsList from '../components/LimitationsList.svelte';
   import DiffChangesTable from '../DiffChangesTable.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
-  import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import { changeSegments, verdictSegments, confidenceSegments } from '../lib/distributions.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
@@ -504,21 +503,19 @@
          backend tallies over EVERY consumer, so they do not change as the table pages. -->
     {#if consumers.total > 0}
       <div class="impact-viz" data-testid="impact-consumer-viz">
-        <HorizontalBars
+        <DistributionBar
           title="Consumers by compatibility verdict"
           level={3}
           description="Whether each affected consumer's declared range still accepts the new revision."
-          items={verdictSegments(consumers.byVerdict)}
-          unit="consumers"
-          unitOne="consumer"
+          segments={verdictSegments(consumers.byVerdict)}
+          total={consumers.total}
         />
-        <HorizontalBars
+        <DistributionBar
           title="Consumers by evidence"
           level={3}
           description="How each affected consumer is known."
-          items={confidenceSegments(consumers.byConfidence)}
-          unit="consumers"
-          unitOne="consumer"
+          segments={confidenceSegments(consumers.byConfidence)}
+          total={consumers.total}
         />
       </div>
     {/if}
@@ -564,7 +561,7 @@
           </div>
         </nav>
         <details class="confidence-legend disclosure">
-          <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>What do the confidence levels mean?</summary>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>What do the confidence levels mean?</summary>
           <dl>{#each Object.entries(CONFIDENCE_EXPLAIN) as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}</dl>
         </details>
       {/if}

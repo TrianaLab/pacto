@@ -3,6 +3,7 @@
  * Foundation for the Soft Depth chart redesign.
  */
 import * as d3 from 'd3';
+import { prefersReducedMotion } from './motion.ts';
 
 /**
  * Theme color palette resolved from CSS custom properties.
@@ -63,10 +64,12 @@ export function defineGradients(svg: any, pal: Palette): void {
 
 /**
  * Checks if the user has requested reduced motion.
+ *
+ * Re-exported from lib/motion.ts so the chart renderers keep their existing import while
+ * the navbar and the table of contents -- neither of which should pull d3 into the entry
+ * chunk -- can ask the same question of the same one implementation.
  */
-export function prefersReducedMotion(): boolean {
-  return typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
+export { prefersReducedMotion };
 
 /**
  * Animates a selection's attribute from→to with easing, or sets it immediately if reduced motion.

@@ -1,4 +1,6 @@
 <script>
+  import { flip } from 'svelte/animate';
+  import { MOTION, dur } from '../lib/motion.ts';
   // Renders the active filters/focus as removable chips so filter state is visible
   // and reversible rather than hidden in component state. `chips` is
   // [{ key, label, value }]; onRemove(key) clears one, onClear() clears all.
@@ -8,7 +10,7 @@
 {#if chips.length}
   <div class="filter-chips" aria-label="Active filters">
     {#each chips as c (c.key)}
-      <span class="chip">
+      <span class="chip" animate:flip={{ duration: dur(MOTION.row) }}>
         <span class="chip-label">{c.label}:</span>
         <span class="chip-value">{c.value}</span>
         {#if onRemove}

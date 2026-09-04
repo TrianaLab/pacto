@@ -2,6 +2,7 @@
   import { kindLabel } from '../lib/entityLabels.ts';
   import { abbreviateDigests } from '../lib/format.ts';
   import { identityContext, primaryLabel } from '../lib/identityContext.ts';
+  import { formatRelative } from '../lib/dateFormat.ts';
   import EntityStatusBadge from './EntityStatusBadge.svelte';
 
   // The ONE page/entity header in the product.
@@ -43,6 +44,14 @@
     count = '',
     countTestid = '',
     actions = [],
+    // Snapshot freshness, from the product meta the page already loaded. Every view is
+    // polled on a timer, so the reader's real question is "am I looking at now?" --
+    // `revalidating` was decided by decideViewState for exactly this and, until this
+    // line existed, was computed on every page and rendered on none. A poll says so in
+    // words rather than by a spinner: a spinner is motion that reports no problem, and
+    // this product spends motion on problems (see the RATION in styles/tokens.css).
+    asOf = '',
+    revalidating = false,
     children,
   } = $props();
 
@@ -50,6 +59,9 @@
   const shownKind = $derived(kind || ref?.kind || '');
   const context = $derived(ref ? identityContext(ref) : []);
   const shownStatus = $derived(status || ref?.status || '');
+  // Reads `revalidating` too, so the age recomputes each poll instead of freezing at
+  // whatever it said when `asOf` last changed.
+  const age = $derived(revalidating ? '' : formatRelative(asOf));
 </script>
 
 <header class="page-hd">
@@ -69,6 +81,14 @@
   </div>
 
   {#if subtitle}<p class="page-hd-sub t-body-2">{subtitle}</p>{/if}
+
+  <!-- No aria-live: a poll every few seconds would announce "Checking for changes" over
+       whatever the reader was actually reading. It is a glanceable fact, not an event. -->
+  {#if revalidating || age}
+    <p class="page-hd-age t-meta" data-testid="snapshot-age">
+      {revalidating ? 'Checking for changes…' : `Data as of ${age}`}
+    </p>
+  {/if}
 
   {#if actions.length}
     <div class="page-hd-actions">
@@ -91,6 +111,9 @@
   .page-hd-title-row :global(h1) { margin: 0; }
   .page-hd-count { font-variant-numeric: tabular-nums; }
   .page-hd-sub { margin: 0; max-width: 72ch; }
+  /* Tint only: the word swaps between "Checking for changes" and an age on every poll,
+     and a line that also slid or faded would be the busiest thing on a quiet page. */
+  .page-hd-age { margin: 0; color: var(--c-text-3); transition: var(--motion-flip); transition-property: color; }
   .page-hd-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-1); }
   .page-hd-action {
     text-decoration: none; font-size: var(--text-sm); color: var(--c-accent);

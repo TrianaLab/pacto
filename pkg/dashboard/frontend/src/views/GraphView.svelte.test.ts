@@ -20,8 +20,9 @@ import { mount, unmount, flushSync } from 'svelte';
 const { neighborhoodFn, entitiesFn, snapshotFn } = vi.hoisted(() => ({
   neighborhoodFn: vi.fn(), entitiesFn: vi.fn(), snapshotFn: vi.fn(),
 }));
-const { renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy } = vi.hoisted(() => ({
+const { renderSpy, fitSpy, zoomInSpy, zoomOutSpy, patchDataSpy, applyTopologySpy, legendFilterSpy, focusNodeSpy } = vi.hoisted(() => ({
   renderSpy: vi.fn(), fitSpy: vi.fn(), zoomInSpy: vi.fn(), zoomOutSpy: vi.fn(), patchDataSpy: vi.fn(),
+  applyTopologySpy: vi.fn(), legendFilterSpy: vi.fn(), focusNodeSpy: vi.fn(),
 }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
@@ -43,7 +44,13 @@ vi.mock('../lib/graph.ts', async (importOriginal) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     renderGraph: (...args: any[]) => {
       renderSpy(...args);
-      return { nodes: [], destroy: vi.fn(), zoomIn: zoomInSpy, zoomOut: zoomOutSpy, resetView: vi.fn(), fit: fitSpy, patchData: patchDataSpy, applyFilter: vi.fn() };
+      return {
+        nodes: [], destroy: vi.fn(), zoomIn: zoomInSpy, zoomOut: zoomOutSpy, resetView: vi.fn(),
+        fit: fitSpy, patchData: patchDataSpy, applyFilter: vi.fn(),
+        applyLegendFilter: legendFilterSpy, focusNode: focusNodeSpy,
+        applyTopology: applyTopologySpy, restyle: vi.fn(), resetLayout: vi.fn(),
+        diagnostics: vi.fn(() => ({})), spatialState: vi.fn(() => ({ positions: {}, pan: { x: 0, y: 0 }, zoom: 1 })),
+      };
     },
   };
 });
@@ -51,6 +58,7 @@ vi.mock('../lib/graph.ts', async (importOriginal) => {
 // @ts-expect-error — Svelte component has no declaration file
 import GraphView from './GraphView.svelte';
 import { ApiError } from '../lib/api.ts';
+import { reactiveProps } from '../testkit.svelte.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
 const ref = (kind: string, key: string, label?: string, extra: any = {}): any => ({ kind, key, label: label ?? key, href: `/fleet/${kind}s/${encodeURIComponent(key)}`, ...extra });
@@ -253,6 +261,28 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('a depth change carries the previous answer instead of blanking the canvas', async () => {
+    // The canvas used to be unmounted the instant the question changed, which destroyed
+    // the Cytoscape instance before it could reconcile -- so Depth+1 threw away the
+    // arrangement and re-ran the layout however well NeighborhoodGraph kept its own key.
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const props: any = reactiveProps({ params: { kind: 'service', sel: 'domain-a/web' }, refreshTick: 0 });
+    const component = mount(GraphView, { target, props });
+    await vi.waitFor(() => expect(q(target, '[data-testid="neighborhood-canvas"]')).toBeTruthy());
+
+    neighborhoodFn.mockReturnValue(new Promise(() => {})); // the deeper request never settles
+    props.params = { kind: 'service', sel: 'domain-a/web', depth: '2' };
+    flushSync();
+
+    // Same subject, different question: what the user arranged is still on screen, and the
+    // page says a request is in flight rather than presenting the old answer as the new one.
+    expect(q(target, '[data-testid="neighborhood-canvas"]')).toBeTruthy();
+    expect(q(target, '[data-testid="graph-refreshing"]')).toBeTruthy();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('exposes only perspectives valid for the focus (a service cannot become a revision/target)', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="perspective-service"]')).toBeTruthy());
@@ -370,6 +400,46 @@ describe('GraphView — product Operational Graph', () => {
     (drawer as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-drawer"]')).toBeNull());
     await vi.waitFor(() => expect(document.activeElement).toBe(nodeBtn)); // focus returned to the opener
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // The legend named every distinction the canvas draws and did nothing with any of
+  // them. A dense neighborhood is read by taking things out of it, and this was already
+  // the correct list of things to take out.
+  it('the legend filters the canvas, and the summary says what it is hiding', async () => {
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-legend-toggle"]')).toBeTruthy());
+    const runs = qa(target, '[data-testid="graph-legend-toggle"]')
+      .find((b) => b.getAttribute('data-legend-key') === 'rel:runs') as HTMLButtonElement;
+    expect(runs.getAttribute('aria-pressed')).toBe('true'); // everything is shown to begin with
+    legendFilterSpy.mockClear();
+    runs.click();
+    flushSync();
+    expect(runs.getAttribute('aria-pressed')).toBe('false');
+    expect(legendFilterSpy).toHaveBeenCalledWith(new Set(['rel:runs']));
+    // ...and a reader who cannot see the canvas is told, rather than left with a text
+    // list that silently disagrees with the picture beside it.
+    expect(q(target, '[data-testid="graph-summary"]')?.textContent).toContain('Dimmed on the canvas: Runs.');
+    runs.click();
+    flushSync();
+    expect(legendFilterSpy).toHaveBeenLastCalledWith(new Set());
+    expect(q(target, '[data-testid="graph-summary"]')?.textContent).not.toContain('Dimmed');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // Two halves of one screen: the text list must move the canvas, or a keyboard reader
+  // can never move it at all and a mouse reader watches the drawer describe one entity
+  // while the topology emphasises another.
+  it('picking from the text list points the canvas at the same node', async () => {
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-node-item"]')).toBeTruthy());
+    focusNodeSpy.mockClear();
+    const btn = qa(target, '[data-testid="graph-node-item"]')[0] as HTMLButtonElement;
+    btn.click();
+    flushSync();
+    expect(focusNodeSpy).toHaveBeenCalledWith('domain-a/web');
+    expect(btn.getAttribute('aria-current')).toBe('true');
+    expect(q(target, '[data-testid="graph-summary"]')?.textContent).toContain('Selected web.');
     unmount(component); document.body.removeChild(target);
   });
 

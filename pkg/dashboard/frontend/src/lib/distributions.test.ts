@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import {
   complianceSegments, linkSegments, severitySegments, evidenceSegments,
   changeSegments, verdictSegments, confidenceSegments, segmentTotal,
-  COMPLIANCE_STATES, statusHrefs, bucketLabel,
+  COMPLIANCE_STATES, statusHrefs, severityHrefs, bucketLabel,
 } from './distributions.ts';
 import { statusLabel } from './format.ts';
 
@@ -71,6 +71,15 @@ describe('severitySegments', () => {
 
   it('treats a missing tally as all zeros', () => {
     expect(segmentTotal(severitySegments(undefined))).toBe(0);
+  });
+
+  // The bar was the one summary on the attention page a reader could not act on.
+  // A finding with no severity has no wire value, so it gets no dead-end link.
+  it('drills down from every filterable severity, and only those', () => {
+    const h = severityHrefs((v) => `#/x?severity=${v}`);
+    expect(Object.keys(h).sort()).toEqual(['errors', 'infos', 'warnings']);
+    expect(severitySegments({ errors: 1, unknown: 2 }, h)[0].href).toBe('#/x?severity=error');
+    expect(severitySegments({ errors: 1, unknown: 2 }, h)[3].href).toBeUndefined();
   });
 });
 

@@ -12,7 +12,7 @@
  * preview's Items as a population: no semantics are invented in the frontend.
  */
 
-import { statusLabel } from './format.ts';
+import { statusLabel, statusTone } from './format.ts';
 
 export interface Segment {
   label: string;
@@ -85,22 +85,25 @@ const n = (v: number | undefined) => v || 0;
 /**
  * Every canonical compliance state, plus the catch-all, in the order always shown.
  *
- * The label is `statusLabel`'s, never a second spelling: a legend reading
- * "Non-Compliant" above rows badged "Not compliant" asks the reader to believe those
- * are two states. "Unknown" is deliberately toned warn, not neutral: a target we cannot
- * evaluate is an open question, and painting it grey beside a green Compliant reads as
- * benign. "Not evaluated" IS neutral -- nothing is running to evaluate.
+ * Both the wording and the tone are `format.ts`'s, never a second opinion: a legend
+ * reading "Non-Compliant" above rows badged "Not compliant" asks the reader to believe
+ * those are two states, and an amber swatch above a blue badge asks the same thing in
+ * colour. The two used to be separate tables and they drifted apart on "Unknown".
  */
 export const COMPLIANCE_STATES: BucketState<keyof ComplianceTally>[] = [
-  { value: 'Compliant', field: 'compliant', label: statusLabel('Compliant'), tone: 'ok' },
-  { value: 'NonCompliant', field: 'nonCompliant', label: statusLabel('NonCompliant'), tone: 'err' },
-  { value: 'Unknown', field: 'unknown', label: statusLabel('Unknown'), tone: 'warn' },
-  { value: 'Warning', field: 'warning', label: statusLabel('Warning'), tone: 'warn' },
-  { value: 'Invalid', field: 'invalid', label: statusLabel('Invalid'), tone: 'err' },
-  { value: 'Reference', field: 'reference', label: statusLabel('Reference'), tone: 'info' },
-  { value: 'NotEvaluated', field: 'notEvaluated', label: statusLabel('NotEvaluated'), tone: 'neutral' },
+  ...(
+    [
+      ['Compliant', 'compliant'],
+      ['NonCompliant', 'nonCompliant'],
+      ['Unknown', 'unknown'],
+      ['Warning', 'warning'],
+      ['Invalid', 'invalid'],
+      ['Reference', 'reference'],
+      ['NotEvaluated', 'notEvaluated'],
+    ] as [string, keyof ComplianceTally][]
+  ).map(([value, field]) => ({ value, field, label: statusLabel(value), tone: statusTone(value) })),
   // No wire value: "Other" is by definition not a status this build can filter for.
-  { value: '', field: 'other', label: 'Other', tone: 'neutral' },
+  { value: '', field: 'other', label: 'Other', tone: 'neutral' } as BucketState<keyof ComplianceTally>,
 ];
 
 export function complianceSegments(t: ComplianceTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
@@ -131,15 +134,26 @@ export function linkSegments(t: LinkTally | undefined): Segment[] {
   ];
 }
 
+/**
+ * Every finding severity, in the order always shown. A finding the backend gave no
+ * severity has no wire value, so it is a bucket with no filter behind it -- the same
+ * shape "Other" takes in COMPLIANCE_STATES, and for the same reason.
+ */
+export const SEVERITY_STATES: BucketState<keyof SeverityTally>[] = [
+  { value: 'error', field: 'errors', label: 'Errors', tone: 'err' },
+  { value: 'warning', field: 'warnings', label: 'Warnings', tone: 'warn' },
+  { value: 'info', field: 'infos', label: 'Info', tone: 'info' },
+  { value: '', field: 'unknown', label: 'Unknown severity', tone: 'neutral' },
+];
+
 /** severitySegments renders a finding-severity distribution. */
-export function severitySegments(t: SeverityTally | undefined): Segment[] {
-  const s = t || {};
-  return [
-    { label: 'Errors', value: n(s.errors), tone: 'err' },
-    { label: 'Warnings', value: n(s.warnings), tone: 'warn' },
-    { label: 'Info', value: n(s.infos), tone: 'info' },
-    { label: 'Unknown severity', value: n(s.unknown), tone: 'neutral' },
-  ];
+export function severitySegments(t: SeverityTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
+  return stateSegments(SEVERITY_STATES, t, hrefs);
+}
+
+/** severityHrefs is statusHrefs for severity: the drill-down for every real filter. */
+export function severityHrefs(url: (severity: string) => string): Record<string, string> {
+  return Object.fromEntries(SEVERITY_STATES.filter((s) => s.value).map((s) => [s.field, url(s.value)]));
 }
 
 /**

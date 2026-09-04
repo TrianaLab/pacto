@@ -16,11 +16,11 @@
     compareScoresUnassessedLast,
   } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
-  import { applyFilters } from '../lib/filters.ts';
+  import { applyFilters, writeFiltersToHash } from '../lib/filters.ts';
   import FilterBar from '../components/FilterBar.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import CategoryBreakdownChart from '../components/CategoryBreakdownChart.svelte';
-  import ReadinessDonut from '../components/ReadinessDonut.svelte';
+  import DistributionBar from '../components/viz/DistributionBar.svelte';
   import PriorityQuadrant from '../components/PriorityQuadrant.svelte';
   import ReadinessHeatmap from '../components/ReadinessHeatmap.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -44,6 +44,24 @@
   const metrics = $derived(summarize(filtered));
   const summary = $derived(metrics.readiness);
   const byCategory = $derived(metrics.byCategory);
+
+  // The four readiness buckets as a partition of the filtered set. Each legend row is a
+  // real link into the same readinessStatus filter the table badges set, so the
+  // drill-down is keyboard-operable and shareable rather than a click handler on a slice.
+  const READINESS_BUCKETS = [
+    { field: 'ready', bucket: 'ready', tone: 'ok' },
+    { field: 'partial', bucket: 'partial', tone: 'warn' },
+    { field: 'notReady', bucket: 'not-ready', tone: 'err' },
+    { field: 'notConfigured', bucket: 'unknown', tone: 'neutral' },
+  ];
+  const readinessBuckets = $derived(
+    READINESS_BUCKETS.map((b) => ({
+      label: readinessBucketLabel(b.bucket),
+      value: summary[b.field] || 0,
+      tone: b.tone,
+      href: writeFiltersToHash(location.hash, { ...filters, readinessStatus: b.bucket }),
+    }))
+  );
 
   // Decorate each visible service with derived readiness fields used by the table.
   const decorated = $derived.by(() =>
@@ -133,8 +151,12 @@
       <!-- Focal pair: Where we stand + What to fix first -->
       <div class="focal-pair">
         <div class="chart-panel">
-          <div class="chart-title">Where we stand</div>
-          <ReadinessDonut data={{ ready: summary.ready, partial: summary.partial, notReady: summary.notReady, notConfigured: summary.notConfigured }} />
+          <DistributionBar
+            title="Where we stand"
+            level={2}
+            segments={readinessBuckets}
+            total={filtered.length}
+          />
         </div>
         <div class="chart-panel">
           <div class="chart-title">What to fix first</div>
@@ -202,7 +224,7 @@
           {#each rows as row, i (row.name)}
             <tr class="clickable" class:row-expanded={expandedService === row.name} onclick={() => toggleExpand(row.name)}>
               <td>
-                <button type="button" class="expand-icon" class:expanded={expandedService === row.name}
+                <button type="button" class="expand-icon" data-motion class:expanded={expandedService === row.name}
                   aria-expanded={expandedService === row.name} aria-controls="readiness-detail-{i}"
                   aria-label="Toggle checks for {row.name}"
                   onclick={(e) => { e.stopPropagation(); toggleExpand(row.name); }}>›</button>
@@ -442,7 +464,7 @@
   /* ── Expandable rows ── */
   .expand-icon {
     display: inline-block; width: 14px; font-weight: 600; color: var(--c-text-3);
-    transition: transform 150ms ease; margin-right: 4px;
+    margin-right: 4px;
     background: none; border: none; padding: 0; cursor: pointer;
     font-size: inherit; line-height: 1;
   }

@@ -34,7 +34,6 @@
   "dependencies": {
     "cytoscape": "^3.34.0",
     "cytoscape-dagre": "^4.0.0",
-    "cytoscape-expand-collapse": "^4.1.1",
     "cytoscape-fcose": "^2.2.0",
     "d3": "^7.9.0",
     "dompurify": "^3.4.14",

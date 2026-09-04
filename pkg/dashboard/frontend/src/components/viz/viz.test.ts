@@ -9,7 +9,7 @@
  * any restyle.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte components have no declaration files
 import DistributionBar from './DistributionBar.svelte';
 
@@ -34,7 +34,18 @@ describe('DistributionBar', () => {
     }
     // The percentage is a companion to the exact count, never a replacement, and it
     // always states the denominator it is a percentage OF.
-    expect(legend).toContain('(57.1% of 7)');
+    expect(legend).toContain('(57% of 7)');
+  });
+
+  // A tenth of a percent on a population of 7 is precision the data does not have:
+  // the smallest step 7 services can take is 14 points. Above a hundred the tenth is
+  // a real distinction and stays.
+  it('drops the decimal below a hundred and keeps it above', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments: [{ label: 'A', value: 1, tone: 'ok' }], total: 3 } });
+    expect(target.querySelector('.dist-pct')?.textContent).toBe('(33% of 3)');
+    unmount(comp);
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments: [{ label: 'A', value: 1, tone: 'ok' }], total: 400 } });
+    expect(target.querySelector('.dist-pct')?.textContent).toBe('(0.3% of 400)');
   });
 
   it('names the figure from its own caption heading at the requested level', () => {
@@ -51,6 +62,36 @@ describe('DistributionBar', () => {
     for (const sw of Array.from(target.querySelectorAll('.dist-swatch'))) {
       expect(sw.getAttribute('aria-hidden')).toBe('true');
     }
+  });
+
+  // A four-way bar of similar tones asks the reader to count slices to find the one a
+  // legend row names. Hovering either half dims the others; it is presentational only,
+  // so the accessible tree is unchanged and every value stays printed as text.
+  it('links a legend row to its slice on hover, and dims the others', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 7 } });
+    const items = Array.from(target.querySelectorAll('.dist-item')) as HTMLElement[];
+    expect(target.querySelectorAll('.dist-seg.dim')).toHaveLength(0);
+    items[1].dispatchEvent(new MouseEvent('mouseenter'));
+    flushSync();
+    expect(Array.from(target.querySelectorAll('.dist-seg')).map((s) => s.classList.contains('dim')))
+      .toEqual([true, false, true]);
+    items[1].dispatchEvent(new MouseEvent('mouseleave'));
+    flushSync();
+    expect(target.querySelectorAll('.dist-seg.dim')).toHaveLength(0);
+  });
+
+  // The page is filtered to one bucket: the bar has to say which, or it is a summary of
+  // a population the reader is no longer looking at. Never colour alone -- the legend
+  // link carries aria-current, which is what a screen reader reads.
+  it('marks the bucket the page is filtered to', () => {
+    comp = mount(DistributionBar, {
+      target,
+      props: { title: 'Compliance', segments, total: 7, selected: 'Not compliant' },
+    });
+    const segs = Array.from(target.querySelectorAll('.dist-seg'));
+    expect(segs.map((s) => s.classList.contains('sel'))).toEqual([false, true, false]);
+    expect(segs.map((s) => s.classList.contains('dim'))).toEqual([true, false, true]);
+    expect(target.querySelector('.dist-legend a')?.getAttribute('aria-current')).toBe('true');
   });
 
   it('makes a bucket with a destination a real link and leaves the rest as text', () => {

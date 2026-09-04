@@ -76,8 +76,8 @@
 </script>
 
 {#if open}
-  <div class="es-backdrop" onclick={onClose} role="presentation">
-    <div class="es-panel" role="dialog" aria-modal="true" aria-label="Search services, revisions and targets" tabindex="-1" bind:this={panelEl} onkeydown={onPanelKeydown} onclick={(e) => e.stopPropagation()}>
+  <div class="es-backdrop" data-motion onclick={onClose} role="presentation">
+    <div class="es-panel" data-motion role="dialog" aria-modal="true" aria-label="Search services, revisions and targets" tabindex="-1" bind:this={panelEl} onkeydown={onPanelKeydown} onclick={(e) => e.stopPropagation()}>
       <div class="es-input-row">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input
@@ -157,5 +157,4 @@
   .es-trunc { padding: var(--sp-2) var(--sp-3); color: var(--c-text-3); font-size: var(--text-xs); }
   @keyframes es-fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes es-rise { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { .es-backdrop, .es-panel { animation: none; } }
 </style>

@@ -386,8 +386,8 @@ describe('FleetOwnersView — the ownership summary has its own state', () => {
     // and no Unclassified slice was invented to pad a bar that is already too full.
     expect(rows).toEqual([
       ['One declared owner', '(75% of 8)'],
-      ['Revisions name different owners', '(37.5% of 8)'],
-      ['No declared owner', '(12.5% of 8)'],
+      ['Revisions name different owners', '(38% of 8)'],
+      ['No declared owner', '(13% of 8)'],
     ]);
     unmount(component); document.body.removeChild(target);
   });

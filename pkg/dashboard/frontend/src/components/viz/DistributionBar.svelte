@@ -9,7 +9,9 @@
   //   * the exact value is always shown, never only a percentage or a tooltip;
   //   * the figure has a real accessible name from its own caption heading;
   //   * a bucket with a href becomes a link, so every drill-down is keyboard-operable;
-  //   * width transitions are dropped under prefers-reduced-motion.
+  //   * the growing segment is marked `data-motion`, so the product-wide reduced-motion
+  //     policy in styles/tokens.css drops its transition and e2e/viz-acceptance.spec.ts
+  //     proves it did. This component states no motion policy of its own.
   //
   // `total` MUST be the backend-authoritative population, not the sum of whatever
   // buckets happened to be passed: a distribution whose denominator is a truncated
@@ -39,6 +41,11 @@
   //
   // The inconsistency notice is TEXT, not a colour: this component's whole contract
   // is that nothing is conveyed by colour or shape alone.
+  //
+  // `selected` is the LABEL of the bucket the page is currently filtered to, so the
+  // bar answers "which slice am I looking at". It is a label rather than a wire value
+  // because a segment carries no wire value; callers holding one read the label off
+  // the bucket table with `bucketLabel(STATES, value)`.
   let {
     title = '',
     level = 3,
@@ -46,8 +53,18 @@
     scopeNote = '',
     segments = [],
     total = null,
+    selected = '',
     emptyLabel = 'Nothing to show yet.',
   } = $props();
+
+  // Which row the pointer or the keyboard is on. A slice and its legend entry are two
+  // halves of one thing, and on a four-way bar of similar tones the reader could not
+  // tell which was which without counting. Hovering either dims the others.
+  //
+  // Purely presentational, so it stays out of the accessible tree: the legend already
+  // names every bucket, and a screen reader gets no dimming to interpret.
+  let active = $state('');
+  const dimmed = (label) => (active !== '' && active !== label) || (active === '' && selected !== '' && selected !== label);
 
   const sum = $derived(segments.reduce((n, s) => n + (s.value || 0), 0));
   const authoritative = $derived(typeof total === 'number' && total >= 0);
@@ -70,9 +87,16 @@
   // Distinct from "nothing to show": there IS something on screen, and it contradicts
   // the denominator.
   const emptyPopulation = $derived(denom === 0 && rows.length > 0);
-  // One decimal, and only as a companion to the exact count -- never as a replacement.
-  // With no population there is no share to be a companion to, so the row says so.
-  const pctLabel = (v) => (denom > 0 ? `(${Math.round((v / denom) * 1000) / 10}% of ${denom})` : '(share unavailable)');
+  // Only ever a companion to the exact count, never a replacement. With no population
+  // there is no share to be a companion to, so the row says so.
+  //
+  // A decimal below a hundred is false precision: with 8 services, "12.5%" states the
+  // share to a tenth of a percent when the smallest step the data can take is 12.5
+  // points. Worse, it invites the reader to compare 12.5 against 12.4 on a population
+  // where no such difference exists. Above a hundred the tenth is a real distinction,
+  // so it stays.
+  const pct = (v) => (denom >= 100 ? Math.round((v / denom) * 1000) / 10 : Math.round((v / denom) * 100));
+  const pctLabel = (v) => (denom > 0 ? `(${pct(v)}% of ${denom})` : '(share unavailable)');
 </script>
 
 <figure class="dist">
@@ -106,14 +130,34 @@
     {/if}
     <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true">
       {#each rows as r (r.label)}
-        <span class="dist-seg tone-{r.tone || 'neutral'}" style="flex-grow: {r.value}"></span>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- No role, deliberately: this span lives inside aria-hidden="true" and is not
+             in the accessible tree at all, so giving it one would put a decorative
+             shape back into it. The pointer gesture it carries is presentational, and
+             its keyboard equivalent is the legend entry below, which IS focusable. -->
+        <span
+          class="dist-seg tone-{r.tone || 'neutral'}"
+          class:dim={dimmed(r.label)}
+          class:sel={selected === r.label}
+          data-motion
+          style="flex-grow: {r.value}"
+          onmouseenter={() => (active = r.label)}
+          onmouseleave={() => (active = '')}
+        ></span>
       {/each}
     </div>
     <ul class="dist-legend">
       {#each rows as r (r.label)}
-        <li class="dist-item tone-{r.tone || 'neutral'}">
+        <li
+          class="dist-item tone-{r.tone || 'neutral'}"
+          class:dim={dimmed(r.label)}
+          onmouseenter={() => (active = r.label)}
+          onmouseleave={() => (active = '')}
+          onfocusin={() => (active = r.label)}
+          onfocusout={() => (active = '')}
+        >
           {#if r.href}
-            <a href={r.href}>
+            <a href={r.href} aria-current={selected === r.label ? 'true' : undefined}>
               <span class="dist-swatch" aria-hidden="true"></span>
               <span class="dist-label">{r.label}</span>
               <span class="dist-value">{r.value}</span>
@@ -147,15 +191,31 @@
     border-radius: var(--radius-xs); padding: var(--sp-2) var(--sp-3);
     background: var(--c-surface-inset);
   }
+  /* The 2px gap is a boundary, not decoration: two adjacent segments of similar tone
+     (Unknown beside Warning, both amber) read as one wide slice without it, and the
+     reader counts three buckets on a four-bucket bar. */
   .dist-bar {
-    display: flex; width: 100%; height: 12px; border-radius: var(--radius-xs);
+    display: flex; gap: 2px; width: 100%; height: 12px; border-radius: var(--radius-xs);
     overflow: hidden; background: var(--c-surface-inset); border: 1px solid var(--c-border);
   }
   /* A bar that fills edge to edge reads as a complete distribution. When the buckets
      over-count it is not one, so it is drawn hatched — the notice above already says
      so in words; this only stops the shape from contradicting it. */
   .dist-bar-warn { border-color: var(--c-warn); border-style: dashed; }
-  .dist-seg { display: block; min-width: 2px; background: var(--tone-c, var(--c-neutral)); transition: flex-grow 200ms ease; }
+  .dist-seg {
+    display: block; min-width: 2px; background: var(--tone-c, var(--c-neutral));
+    transition: flex-grow var(--motion-reveal), opacity var(--motion-feedback);
+  }
+  /* The reader caused this, so it is the feedback role and not an entrance. Dimming the
+     OTHERS rather than brightening the one keeps every slice its own tone: brightening
+     would mean two renderings of the same colour on one bar. */
+  .dist-seg.dim { opacity: 0.3; }
+  /* The filtered slice, marked while the pointer is elsewhere. An inset outline rather
+     than a tone change, so the swatch still reads as its own bucket -- and the legend
+     link carries aria-current, so the mark is never the only statement of it. */
+  .dist-seg.sel { box-shadow: inset 0 0 0 2px var(--c-text); }
+  .dist-item { transition: opacity var(--motion-feedback); }
+  .dist-item.dim { opacity: 0.45; }
   .dist-bar-warn .dist-seg { opacity: 0.55; }
   .dist-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
   .dist-item, .dist-item a {
@@ -175,7 +235,4 @@
   .tone-err { --tone-c: var(--c-err); }
   .tone-info { --tone-c: var(--c-info); }
   .tone-neutral { --tone-c: var(--c-neutral); }
-  @media (prefers-reduced-motion: reduce) {
-    .dist-seg { transition: none; }
-  }
 </style>

@@ -12,7 +12,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if data}
-  <aside class="drawer" aria-label="Service details for {data.name}">
+  <aside class="drawer" data-motion aria-label="Service details for {data.name}">
     <div class="drawer-head">
       <div class="drawer-title">
         <span class="drawer-name">{data.name}</span>
@@ -91,5 +91,4 @@
   .drawer-empty { color: var(--c-text-3); margin: 0; }
   .drawer-actions { display: flex; gap: var(--sp-2); margin-top: auto; }
   @keyframes drawer-in { from { transform: translateX(12px); opacity: 0; } to { transform: none; opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .drawer { animation: none; } }
 </style>

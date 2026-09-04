@@ -14,6 +14,8 @@
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import { flip } from 'svelte/animate';
+  import { MOTION, dur } from '../lib/motion.ts';
 
   // The product Owners list: owner discovery through
   // /api/fleet/entities?kinds=owner via the SDK facade, with a search box and stable
@@ -43,9 +45,16 @@
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.entities?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
+  // `loader.data`, not `list`: `list` is nulled the instant the query changes, which is
+  // exactly when the skeleton renders, and 0 rows is no shape at all.
+  const skeletonRows = $derived(loader.data?.entities?.length || PAGE_SIZE);
   // A poll that failed over rows we can still show. decideViewState keeps the rows;
   // this is the half that keeps it honest, so a frozen list never reads as a live one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
+  // A poll in flight over data already on screen. decideViewState has decided this on
+  // every page since stale-while-revalidate landed; the header is the first thing to
+  // actually say it, in words rather than by spinning something.
+  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
   const total = $derived(list?.total ?? 0);
   const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
   const shownTo = $derived((list?.offset ?? pageOffset) + count);
@@ -106,10 +115,10 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
-  <PageHeader title="Owners" count={list ? `${total} owner${total === 1 ? '' : 's'}` : ''} />
+  <PageHeader title="Owners" count={list ? `${total} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} />
 
   <form class="lv-search" onsubmit={submitSearch} role="search">
-    <input type="search" bind:value={textDraft} placeholder="Search owners..." aria-label="Search owners" />
+    <input class="input" type="search" bind:value={textDraft} placeholder="Search owners..." aria-label="Search owners" />
     <button type="submit" class="btn">Search</button>
   </form>
   <ActiveFilterChips {chips} onRemove={clearAll} onClear={clearAll} />
@@ -145,7 +154,7 @@
       />
       <details class="disclosure ow-sum-more">
         <summary>
-          <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
           <span>Per-owner breakdown</span>
           <!-- The number names the population it counts: every canonical owner these
                services declare, disputed ones included — not the rows below, which
@@ -183,18 +192,18 @@
   </section>
 
   {#if state.kind !== 'ready'}
-    <ProductEmptyState {state} noun="owners" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
+    <ProductEmptyState {state} noun="owners" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <ul class="lv-list" data-testid="owner-list">
+    <ul class="lv-list pl-list" data-testid="owner-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item"><EntityLink {ref} showStatus={false} /></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false} /></li>
       {/each}
     </ul>
-    <nav class="lv-pager" aria-label="Owner pages">
-      <span class="lv-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="lv-pager-btns">
-        {#if hasPrev}<a class="lv-page" href={fleetOwnersUrl({ text: text || undefined, offset: prevOffset })} data-testid="owner-prev" rel="prev">Previous</a>{:else}<span class="lv-page disabled" aria-disabled="true">Previous</span>{/if}
-        {#if hasNext}<a class="lv-page" href={fleetOwnersUrl({ text: text || undefined, offset: list.nextOffset })} data-testid="owner-next" rel="next">Next</a>{:else}<span class="lv-page disabled" aria-disabled="true">Next</span>{/if}
+    <nav class="lv-pager pl-pager" aria-label="Owner pages">
+      <span class="lv-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
+      <div class="lv-pager-btns pl-pager-btns">
+        {#if hasPrev}<a class="lv-page pl-page" href={fleetOwnersUrl({ text: text || undefined, offset: prevOffset })} data-testid="owner-prev" rel="prev">Previous</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Previous</span>{/if}
+        {#if hasNext}<a class="lv-page pl-page" href={fleetOwnersUrl({ text: text || undefined, offset: list.nextOffset })} data-testid="owner-next" rel="next">Next</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Next</span>{/if}
       </div>
     </nav>
   {/if}
@@ -213,16 +222,9 @@
   .ow-unidentified { margin: var(--sp-3) 0 0; color: var(--c-text-2); }
   .ow-sum-more[open] > .ow-sum-grid { margin-top: var(--sp-3); }
   .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; }
-  .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
-  /* The Search control is the shared .btn from styles/components.css. Each list view
+  .lv-search .input { flex: 1; }
+  /* The Search control is the shared .btn, the search box the shared .input and the list,
+     row and pager the shared .pl-* rules -- all from styles/components.css. Each list view
      used to carry its own byte-identical copy, which is how one product ends up with
      four Search buttons in three flavours. */
-  .lv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .lv-item { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
-  .lv-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
-  .lv-range { color: var(--c-text-3); font-size: var(--text-sm); }
-  .lv-pager-btns { display: flex; gap: var(--sp-2); }
-  .lv-page { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--c-text); text-decoration: none; background: var(--c-surface); min-height: var(--touch-min); display: inline-flex; align-items: center; }
-  .lv-page:hover { border-color: var(--c-accent); }
-  .lv-page.disabled { color: var(--c-text-3); opacity: 0.5; pointer-events: none; }
 </style>

@@ -10,30 +10,13 @@
     onSelect = null,
     filterFn = null,
     layout = 'force',
-    groups = null,
     showZoom = true,
     showLegend = true,
-    showDirectionDepth = false,
     initialDirection = 'down',
     tapToOpen = false,
   } = $props();
 
-  // Seed the toolbar direction once from the prop; it is user-controlled state
-  // thereafter, so capturing only the initial value is intended.
-  // svelte-ignore state_referenced_locally
-  let direction = $state(initialDirection);
-  let depth = $state(1);
   let graphRef = $state(null);
-
-  function setDirection(d) {
-    direction = d;
-    graphRef?.reset();
-  }
-
-  function setDepth(d) {
-    depth = Math.max(1, Math.min(6, d));
-    graphRef?.reset();
-  }
 
   // Push filter changes imperatively — GraphCanvas ignores filterFn prop changes
   // for re-render (avoids thrashing the D3 layout), so apply it via the instance.
@@ -43,23 +26,6 @@
 </script>
 
 <div class="graph-panel">
-  {#if showDirectionDepth}
-    <div class="dep-graph-toolbar">
-      <div class="seg" role="group" aria-label="Dependency direction">
-        <button type="button" class="seg-btn" class:active={direction === 'both'} aria-pressed={direction === 'both'} onclick={() => setDirection('both')}>Both</button>
-        <button type="button" class="seg-btn" class:active={direction === 'down'} aria-pressed={direction === 'down'} onclick={() => setDirection('down')}>Depends on</button>
-        <button type="button" class="seg-btn" class:active={direction === 'up'} aria-pressed={direction === 'up'} onclick={() => setDirection('up')}>Depended on by</button>
-      </div>
-      <div class="depth-ctrl">
-        <span class="depth-label">Depth</span>
-        <button type="button" class="btn btn-sm" aria-label="Less depth" disabled={depth <= 1} onclick={() => setDepth(depth - 1)}>−</button>
-        <span class="depth-val" aria-live="polite">{depth}</span>
-        <button type="button" class="btn btn-sm" aria-label="More depth" disabled={depth >= 6} onclick={() => setDepth(depth + 1)}>+</button>
-      </div>
-      <button type="button" class="btn btn-sm btn-ghost" onclick={() => graphRef?.reset()}>Reset</button>
-    </div>
-  {/if}
-
   <div class="graph-canvas-wrapper">
     {#if showZoom}
       <div class="graph-controls">
@@ -75,9 +41,8 @@
       {focusId}
       {focusNodes}
       {layout}
-      {groups}
-      {direction}
-      {depth}
+      direction={initialDirection}
+      depth={1}
       {height}
       {onNavigate}
       {onSelect}
@@ -108,53 +73,6 @@
 <style>
   .graph-panel {
     position: relative;
-  }
-
-  .dep-graph-toolbar {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    flex-wrap: wrap;
-    margin-bottom: var(--sp-2);
-  }
-
-  .seg {
-    display: inline-flex;
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-  }
-
-  .seg-btn {
-    padding: 4px 10px;
-    font-size: var(--text-xs);
-    background: var(--c-surface);
-    color: var(--c-text-3);
-    border: 0;
-    cursor: pointer;
-  }
-
-  .seg-btn.active {
-    background: var(--c-accent);
-    color: var(--c-on-accent);
-  }
-
-  .depth-ctrl {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-2);
-  }
-
-  .depth-label {
-    font-size: var(--text-xs);
-    color: var(--c-text-3);
-  }
-
-  .depth-val {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    min-width: 1ch;
-    text-align: center;
   }
 
   .graph-canvas-wrapper {

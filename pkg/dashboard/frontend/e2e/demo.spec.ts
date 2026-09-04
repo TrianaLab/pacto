@@ -387,6 +387,17 @@ test.describe('WASM dashboard demo — workflows', () => {
       .toHaveAttribute('href', '../examples/dashboard-demo/');
   });
 
+  // The strip floats over the bottom of the dashboard and never leaves. On a short
+  // window that is where the content is, so a reader who has read it needs a way to put
+  // it away — otherwise the notice explaining the demo is also obscuring it.
+  test('demo strip: the reader can dismiss it once they have read it', async ({ page }) => {
+    await waitReady(page);
+    const strip = page.getByTestId('demo-strip');
+    await expect(strip).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('demo-strip-close').click();
+    await expect(strip).toBeHidden();
+  });
+
   // "Empty once ready" above would also pass for a counter that never ran at all, so
   // prove the thing actually reports progress. Recording every value it takes, rather
   // than sampling the DOM at a moment, keeps the assertion off the race between the

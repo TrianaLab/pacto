@@ -62,9 +62,10 @@
 </script>
 
 {#if open}
-  <div class="cp-backdrop" onclick={onClose} role="presentation">
+  <div class="cp-backdrop" data-motion onclick={onClose} role="presentation">
     <div
       class="cp-panel"
+      data-motion
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
@@ -165,7 +166,4 @@
   }
   @keyframes cp-fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes cp-rise { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) {
-    .cp-backdrop, .cp-panel { animation: none; }
-  }
 </style>

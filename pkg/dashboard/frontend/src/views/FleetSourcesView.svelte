@@ -12,6 +12,8 @@
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import { flip } from 'svelte/animate';
+  import { MOTION, dur } from '../lib/motion.ts';
 
   // The product Sources list: source discovery through
   // /api/fleet/entities?kinds=source via the SDK facade, with a search box and a
@@ -43,9 +45,16 @@
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.entities?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
+  // `loader.data`, not `list`: `list` is nulled the instant the query changes, which is
+  // exactly when the skeleton renders, and 0 rows is no shape at all.
+  const skeletonRows = $derived(loader.data?.entities?.length || PAGE_SIZE);
   // A poll that failed over rows we can still show. decideViewState keeps the rows;
   // this is the half that keeps it honest, so a frozen list never reads as a live one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
+  // A poll in flight over data already on screen. decideViewState has decided this on
+  // every page since stale-while-revalidate landed; the header is the first thing to
+  // actually say it, in words rather than by spinning something.
+  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
   const total = $derived(list?.total ?? 0);
   const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
   const shownTo = $derived((list?.offset ?? pageOffset) + count);
@@ -85,6 +94,8 @@
     title="Data sources"
     count={list ? `${total} data source${total === 1 ? '' : 's'}` : ''}
     subtitle="Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete — not zero."
+    asOf={list?.meta?.asOf}
+    {revalidating}
   />
 
   {#if tallyParts.length}
@@ -100,7 +111,7 @@
 
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
-      <input type="search" bind:value={textDraft} placeholder="Search data sources..." aria-label="Search data sources" />
+      <input class="input" type="search" bind:value={textDraft} placeholder="Search data sources..." aria-label="Search data sources" />
       <button type="submit" class="btn">Search</button>
     </form>
     <label class="lv-field">
@@ -122,18 +133,18 @@
   {/if}
 
   {#if state.kind !== 'ready'}
-    <ProductEmptyState {state} noun="data sources" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
+    <ProductEmptyState {state} noun="data sources" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <ul class="lv-list" data-testid="source-list">
+    <ul class="lv-list pl-list" data-testid="source-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item"><EntityLink {ref} showStatus={true} /></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={true} showKind={false} /></li>
       {/each}
     </ul>
-    <nav class="lv-pager" aria-label="Data source pages">
-      <span class="lv-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="lv-pager-btns">
-        {#if hasPrev}<a class="lv-page" href={urlWith({}, prevOffset)} data-testid="source-prev" rel="prev">Previous</a>{:else}<span class="lv-page disabled" aria-disabled="true">Previous</span>{/if}
-        {#if hasNext}<a class="lv-page" href={urlWith({}, list.nextOffset)} data-testid="source-next" rel="next">Next</a>{:else}<span class="lv-page disabled" aria-disabled="true">Next</span>{/if}
+    <nav class="lv-pager pl-pager" aria-label="Data source pages">
+      <span class="lv-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
+      <div class="lv-pager-btns pl-pager-btns">
+        {#if hasPrev}<a class="lv-page pl-page" href={urlWith({}, prevOffset)} data-testid="source-prev" rel="prev">Previous</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Previous</span>{/if}
+        {#if hasNext}<a class="lv-page pl-page" href={urlWith({}, list.nextOffset)} data-testid="source-next" rel="next">Next</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Next</span>{/if}
       </div>
     </nav>
   {/if}
@@ -148,18 +159,10 @@
   .lv-unclassified { color: var(--c-text-3); }
   .lv-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .lv-search { display: flex; gap: var(--sp-2); flex: 1; min-width: 220px; }
-  .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
+  .lv-search .input { flex: 1; }
   .lv-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); }
-  .lv-field select { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
-  /* The Search control is the shared .btn from styles/components.css. Each list view
-     used to carry its own byte-identical copy, which is how one product ends up with
-     four Search buttons in three flavours. */
-  .lv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .lv-item { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
-  .lv-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
-  .lv-range { color: var(--c-text-3); font-size: var(--text-sm); }
-  .lv-pager-btns { display: flex; gap: var(--sp-2); }
-  .lv-page { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--c-text); text-decoration: none; background: var(--c-surface); min-height: var(--touch-min); display: inline-flex; align-items: center; }
-  .lv-page:hover { border-color: var(--c-accent); }
-  .lv-page.disabled { color: var(--c-text-3); opacity: 0.5; pointer-events: none; }
+  /* The Search control is the shared .btn, the search box the shared .input, the select the
+     shared bare-element rule and the list, row and pager the shared .pl-* rules -- all from
+     styles/components.css. Each list view used to carry its own byte-identical copy, which
+     is how one product ends up with four Search buttons in three flavours. */
 </style>

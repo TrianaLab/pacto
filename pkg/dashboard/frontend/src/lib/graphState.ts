@@ -87,6 +87,11 @@ export function toggleView(views: KnowledgeView[], v: KnowledgeView): KnowledgeV
 }
 
 // ── backend-authoritative difference vocabulary (rendered verbatim) ───────────
+// The one home for this mapping. It is the reconciliation of an EXPECTED (declared)
+// dependency against OBSERVED runtime traffic (ADR-3), and every surface that shows a
+// difference -- the graph drawer, the graph's edge list, the entity page's relationship
+// list -- reads it from here. A second copy in entityLabels.ts had drifted into the
+// OPPOSITE tones, so the same edge was amber on the canvas and blue in the list.
 
 export type EdgeDifference = 'matched' | 'expected-not-observed' | 'observed-not-expected' | 'insufficient';
 
@@ -96,7 +101,9 @@ export function differenceLabel(d: string | undefined): string {
     case 'expected-not-observed': return 'Expected, not observed';
     case 'observed-not-expected': return 'Observed, not expected';
     case 'insufficient': return 'Insufficient evidence';
-    default: return '';
+    // An unrecognised wire value prints as itself, never as an empty pill: the
+    // badge draws its border regardless, so '' renders a blank box.
+    default: return d || 'Unknown';
   }
 }
 

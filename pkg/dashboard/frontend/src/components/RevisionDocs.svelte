@@ -64,7 +64,7 @@
           ontoggle={(e) => { if (e.currentTarget.open) read(doc.path); }}
         >
           <summary>
-            <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+            <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
             <span class="rd-title">{doc.title || doc.path}</span>
             {#if doc.title && doc.path}<code class="rd-path">{doc.path}</code>{/if}
           </summary>

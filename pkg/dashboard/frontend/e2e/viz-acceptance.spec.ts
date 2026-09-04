@@ -169,22 +169,49 @@ test.describe('Every product visualization is named, textual and keyboard-operab
     await expect(page.getByTestId('attention-shape')).toBeVisible();
   });
 
-  test('bar transitions are dropped under a reduced-motion preference', async ({ page }) => {
+  // Everything that moves is marked `data-motion` in its markup, so this gate is a SWEEP
+  // rather than a hand-listed pair of selectors: motion added next year is covered the day
+  // it ships, and the only way to escape the gate is to move something without declaring
+  // that it moves.
+  //
+  // The old version of this test asserted `transitionProperty === 'none'`, which was only
+  // ever true because seven components each carried their own `@media
+  // (prefers-reduced-motion)` block setting `transition: none`. Those blocks are gone —
+  // the policy is one place now (styles/tokens.css zeroes the duration tokens, styles/
+  // base.css is the blanket backstop) — so the property survives and the DURATION is what
+  // must collapse.
+  //
+  // Delay is checked as well as duration, and that is not redundant: an animation with
+  // `fill-mode: both` whose duration went to zero but whose delay did not still holds its
+  // element at opacity 0 for the length of the delay, which is strictly worse for the
+  // reader who asked for less motion than the animation it replaced.
+  const MOTION_MARKER = '[data-motion]';
+
+  test('everything marked as moving stops moving under a reduced-motion preference', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await open(page, '#/fleet');
-    const bars = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('.dist-seg, .hb-fill')).map((el) => {
-        const cs = getComputedStyle(el);
-        return { property: cs.transitionProperty, seconds: parseFloat(cs.transitionDuration) };
-      }),
-    );
-    expect(bars.length).toBeGreaterThan(0);
-    // Two independent proofs, because either alone is weak. The blanket reset in base.css
-    // collapses every duration to .001ms, so a duration check would pass even for a
-    // component that forgot its own rule; and a property check alone would not prove the
-    // rule reached the rendered element. Both must hold.
-    expect(bars.every((b) => b.seconds <= 0.001)).toBe(true);
-    expect(bars.every((b) => b.property === 'none')).toBe(true);
+    let total = 0;
+    for (const s of SURFACES) {
+      await open(page, s.hash);
+      const moving = await page.evaluate((sel) => {
+        // A shorthand computes to a comma-separated list, one entry per property, so the
+        // worst entry is what matters -- not whatever parseFloat finds first.
+        const worst = (v: string) => Math.max(...v.split(',').map((p) => parseFloat(p) || 0));
+        return Array.from(document.querySelectorAll(sel)).map((el) => {
+          const cs = getComputedStyle(el);
+          return {
+            tag: `${el.tagName.toLowerCase()}.${el.className}`,
+            transition: worst(cs.transitionDuration) + Math.max(0, worst(cs.transitionDelay)),
+            animation: worst(cs.animationDuration) + Math.max(0, worst(cs.animationDelay)),
+          };
+        });
+      }, MOTION_MARKER);
+      total += moving.length;
+      const offenders = moving.filter((m) => m.transition > 0.001 || m.animation > 0.001);
+      expect(offenders, `${s.name} still animates:\n  ${offenders.map((o) => o.tag).join('\n  ')}`).toEqual([]);
+    }
+    // The sweep is only a gate if it found something to sweep. A selector typo, or a
+    // rename of the marker attribute, would otherwise turn this test permanently green.
+    expect(total).toBeGreaterThan(0);
   });
 });
 

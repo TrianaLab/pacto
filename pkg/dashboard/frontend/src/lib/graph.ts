@@ -9,29 +9,30 @@ import cytoscape from 'cytoscape';
 import type { Core, NodeSingular, EdgeSingular, ElementDefinition, LayoutOptions } from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import fcose from 'cytoscape-fcose';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-import expandCollapse from 'cytoscape-expand-collapse';
-import { reasonTooltip } from './format.ts';
 import { wrapWideRanks } from './layout.ts';
-import { prefersReducedMotion } from './chartkit.ts';
+// motion.ts, not chartkit.ts: chartkit imports d3 at module scope, and the graph chunk
+// has no business pulling a charting library in for one media query.
+import { MOTION, prefersReducedMotion } from './motion.ts';
+import { statusTone } from './format.ts';
 
 cytoscape.use(dagre);
 cytoscape.use(fcose);
-// Registration can throw if already registered (HMR); ignore.
-try { cytoscape.use(expandCollapse); } catch { /* already registered */ }
 
 const NODE_W = 164;
 const NODE_H = 42;
+// fCoSE's own animation (see cyLayout) plus the fit it ends with. Nothing the layout does
+// to the viewport is a choice the reader made.
+const LAYOUT_SETTLE_MS = 900;
 // Resting edge opacity — very faint so the whole fleet reads as a calm map of
 // nodes (global overview) without the edge cloud; focus/hover lights the relevant
 // edges directionally.
 const EDGE_REST = 0.07;
 
-// Status / reason → palette token key, resolved to a concrete color per theme at
-// render time (Cytoscape's canvas can't read CSS custom properties directly).
-const STATUS_TO_PAL: Record<string, string> = {
-  Compliant: 'ok', Warning: 'warn', NonCompliant: 'err', Reference: 'info', Unknown: 'neutral',
-};
+// Reason → palette token key, resolved to a concrete color per theme at render time
+// (Cytoscape's canvas can't read CSS custom properties directly). Status has no table
+// here: it reads format.ts's, so a node cannot be a different colour from the badge on
+// the row that names it. The hand-written one omitted Invalid and NotEvaluated, so both
+// drew grey, and toned Unknown grey where every other surface toned it amber.
 const REASON_TO_PAL: Record<string, string> = {
   non_oci_ref: 'neutral', auth_failed: 'err', no_semver_tags: 'warn', not_found: 'warn', discovering: 'accent',
 };
@@ -164,12 +165,25 @@ export interface GraphControls {
    *  a relayout, for a same-topology refresh. */
   patchData: (graphData: GraphData) => void;
   applyFilter: (fn: ((n: GraphNode) => boolean) | null) => void;
+  /** Fade the categories the legend has switched off, by legend key ('kind:revision',
+   *  'rel:runs', 'state:drift', ...). Additive: it narrows whatever emphasis is already
+   *  applied and never overrides a pinned focus. Pass null or an empty set to clear. */
+  applyLegendFilter: (hidden: Set<string> | null) => void;
+  /** Pin (or, with null, unpin) a node's directional spotlight and center it, exactly as
+   *  a tap on the canvas does. Fires no selection callback: the caller already knows. */
+  focusNode: (id: string | null) => void;
   /** Read-only readiness snapshot of the rendered graph (see GraphDiagnostics). */
   diagnostics: () => GraphDiagnostics;
   /** Reconcile a CHANGED topology in place: surviving node ids keep their exact
    *  positions, vanished elements are removed, and only genuinely new nodes are laid
    *  out (near their neighbors). The viewport is left alone. */
   applyTopology: (graphData: GraphData) => void;
+  /** Re-read the palette from CSS custom properties and re-apply the stylesheet. Every
+   *  colour the canvas draws was resolved by getComputedStyle at init, so a theme toggle
+   *  leaves the canvas painted in the old theme while the page around it changes — the
+   *  one place the dashboard visibly stops being one product. Style only: no relayout,
+   *  no viewport change, no element data touched. */
+  restyle: () => void;
   /** Discard the current arrangement: run a fresh layout from scratch and fit. This is
    *  NOT the same operation as fit(), which only re-frames what is already arranged. */
   resetLayout: () => void;
@@ -195,9 +209,6 @@ interface RenderOptions {
   focusNodes?: Set<string>;
   /** 'layered' uses a top-down dagre hierarchy; 'force' uses fCoSE. Default 'force'. */
   layout?: 'force' | 'layered';
-  /** nodeId → cluster label (e.g. owning team). Renders collapsible compound
-   *  group boxes; groups start collapsed for an at-a-glance view. */
-  groups?: Map<string, string>;
   /** Fired on single-tap pin (serviceName) and unpin / background tap (null). */
   onSelect?: (serviceName: string | null) => void;
   /** Fired on single-tap with the node's stable id (null on unpin/background). The
@@ -229,21 +240,6 @@ interface RenderOptions {
   /** Fired (debounced) whenever the user changes the spatial state: dragging a node,
    *  panning, or zooming. The caller decides whether and where to persist it. */
   onSpatialChange?: (s: SpatialState) => void;
-  // Accepted for API compatibility; the "+N" expand chip is superseded by
-  // click-to-focus, so these are ignored.
-  hidden?: Map<string, number>;
-  onExpand?: (id: string) => void;
-}
-
-/** Stable, DOM-id-safe element id for a cluster/group parent. */
-function groupId(label: string): string {
-  return 'group:' + label.replace(/[^a-zA-Z0-9_-]/g, '_');
-}
-
-// Distinct tints for cluster boxes so teams read as visually separate regions.
-const GROUP_COLORS = ['#818cf8', '#34d399', '#f472b6', '#fbbf24', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#f87171', '#c084fc'];
-function groupColor(index: number): string {
-  return GROUP_COLORS[index % GROUP_COLORS.length];
 }
 
 /**
@@ -251,28 +247,12 @@ function groupColor(index: number): string {
  * node/edge shape is unit-testable. Edge ids include the type because a node can
  * have both a dependency and a config/policy reference to the same target.
  */
-export function buildElements(graphData: GraphData, focusId?: string, groups?: Map<string, string>): ElementDefinition[] {
+export function buildElements(graphData: GraphData, focusId?: string): ElementDefinition[] {
   const nodes = graphData.nodes || [];
   const ids = new Set(nodes.map((n) => n.id));
   const els: ElementDefinition[] = [];
-  // One compound parent per distinct cluster label present in the graph, each
-  // given a stable tint so teams read as separate regions.
-  const labelOf = (id: string) => (groups && groups.get(id)) || '';
-  const colorOfGroup = new Map<string, string>();
-  if (groups && groups.size) {
-    const seen = new Map<string, string>(); // gid -> label
-    for (const n of nodes) {
-      const label = labelOf(n.id);
-      if (label) seen.set(groupId(label), label);
-    }
-    [...seen.keys()].sort().forEach((gid, i) => colorOfGroup.set(gid, groupColor(i)));
-    for (const [gid, label] of seen) {
-      els.push({ data: { id: gid, label, isGroup: 1, groupColor: colorOfGroup.get(gid) } });
-    }
-  }
   for (const n of nodes) {
     const { name, version } = nodeLabel(n);
-    const label = labelOf(n.id);
     els.push({
       data: {
         id: n.id,
@@ -283,7 +263,6 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
         kind: n.kind || 'service',
         external: n.status === 'external' ? 1 : 0,
         isFocus: n.serviceName === focusId || n.id === focusId ? 1 : 0,
-        parent: label ? groupId(label) : undefined,
       },
     });
   }
@@ -310,6 +289,28 @@ export function buildElements(graphData: GraphData, focusId?: string, groups?: M
   }
   return els;
 }
+
+/**
+ * What each legend entry stands for on the canvas.
+ *
+ * The legend already claimed to be a key to real distinctions; this is the same claim
+ * written as a selector, so switching an entry off can only ever dim the thing that entry
+ * describes. Keys are the legend's, values are the element data buildElements emits —
+ * note `etype`, not `type`: the data field is renamed on the way in because `type` is
+ * taken, and a selector written from the wire vocabulary would match nothing at all and
+ * fail silently as "the filter does nothing".
+ */
+export const LEGEND_SELECTORS: Record<string, string> = {
+  'kind:service': 'node[kind = "service"]',
+  'kind:revision': 'node[kind = "revision"]',
+  'kind:target': 'node[kind = "target"]',
+  'rel:dependency': 'edge[etype = "dependency"]',
+  'rel:runs': 'edge[etype = "runs"]',
+  'state:matched': 'edge[state = "matched"]',
+  'state:expected-not-observed': 'edge[state = "expected-not-observed"]',
+  'state:drift': 'edge[state = "drift"]',
+  'state:insufficient': 'edge[state = "insufficient"]',
+};
 
 /**
  * 'layered' → dagre top-down tree (good for a small, clearly-hierarchical
@@ -385,7 +386,7 @@ function resolvePalette(container: HTMLElement): Palette {
 /** Border/status color for a node, theme-aware and reason-aware for externals. */
 function nodeColor(pal: Palette, status: string, reason: string): string {
   if (status === 'external') return (pal as any)[REASON_TO_PAL[reason]] || pal.neutral;
-  return (pal as any)[STATUS_TO_PAL[status]] || pal.neutral;
+  return pal[statusTone(status)] || pal.neutral;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -420,8 +421,10 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         'text-max-width': `${NODE_W - 18}`,
         'line-height': 1.25,
         'overlay-opacity': 0,
-        // Smooth fades/emphasis when focus, hover or filter changes.
-        'transition-property': 'opacity, border-width, background-opacity',
+        // Smooth fades/emphasis when focus, hover or filter changes. The two colours are
+        // here for restyle(): a theme toggle cross-fades the canvas with the page instead
+        // of snapping a frame behind it.
+        'transition-property': 'opacity, border-width, background-opacity, background-color, border-color',
         'transition-duration': '0.12s',
         'transition-timing-function': 'ease-out',
       },
@@ -458,7 +461,7 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         'target-arrow-color': pal.textDim,
         'arrow-scale': 0.85,
         opacity: restOpacity,
-        'transition-property': 'opacity, width, line-color',
+        'transition-property': 'opacity, width, line-color, target-arrow-color',
         'transition-duration': '0.12s',
         'transition-timing-function': 'ease-out',
       },
@@ -501,47 +504,21 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       selector: "edge[etype='runs']",
       style: { 'line-color': pal.info, 'target-arrow-color': pal.info, 'line-style': 'dashed' },
     },
-    // Compound group boxes (owner clusters): a labelled, team-tinted region.
+    // The node the page is ABOUT, marked once and permanently. A 3px border is the same
+    // 3px the hover state uses, so on arrival the subject of the graph was the one thing
+    // the graph did not point at. A standing halo says it without moving: no pulse, so
+    // there is no reduced-motion branch and nothing for getAnimations() to wait on.
     {
-      selector: ':parent',
+      selector: 'node[isFocus = 1]',
       style: {
-        shape: 'round-rectangle',
-        'background-color': 'data(groupColor)',
-        'background-opacity': 0.07,
-        'border-color': 'data(groupColor)',
-        'border-width': 2,
-        'border-opacity': 0.45,
-        label: 'data(label)',
-        color: 'data(groupColor)',
-        'font-size': 14,
-        'font-weight': 700,
-        'text-valign': 'top',
-        'text-halign': 'left',
-        'text-margin-x': 10,
-        'text-margin-y': 6,
-        padding: 22,
-        'transition-property': 'opacity, background-opacity',
-        'transition-duration': '0.12s',
-      },
-    },
-    // Collapsed group node (a whole team folded into one box).
-    {
-      selector: 'node.cy-expand-collapse-collapsed-node',
-      style: {
-        shape: 'round-rectangle',
-        'background-color': 'data(groupColor)',
-        'background-opacity': 0.16,
-        'border-color': 'data(groupColor)',
-        'border-width': 2,
-        color: pal.text,
-        'font-size': 14,
-        'font-weight': 700,
-        padding: 14,
+        'underlay-color': pal.accent,
+        'underlay-opacity': 0.22,
+        'underlay-padding': 9,
+        'underlay-shape': 'round-rectangle',
       },
     },
     { selector: 'node.pacto-faded', style: { opacity: 0.12 } },
     { selector: 'edge.pacto-faded', style: { opacity: 0.02 } },
-    { selector: 'node.pacto-focus', style: { 'border-color': pal.accent, 'border-width': 3 } },
     { selector: 'node.pacto-hot', style: { 'border-width': 3.5 } },
     // Directional highlight: a service's DEPENDENCIES (what it needs) light up in
     // accent with arrows pointing away; its DEPENDENTS (blast radius) light up warm
@@ -554,6 +531,10 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       selector: 'edge.pacto-dependent',
       style: { opacity: 0.9, width: 2.5, 'line-color': pal.warn, 'target-arrow-color': pal.warn, 'target-arrow-shape': 'triangle', 'line-style': 'solid', 'z-index': 10 },
     },
+    // Declared last so it wins over faded AND over the directional highlight: the edge
+    // the pointer is on is the one the reader is asking about, and at rest it can be a
+    // 1px hairline at 0.07 opacity -- not something you can tell you are pointing at.
+    { selector: 'edge.pacto-edge-hot', style: { opacity: 1, width: 3.5, 'z-index': 20 } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ] as any;
 }
@@ -561,10 +542,9 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
 export function renderGraph(
   container: HTMLElement,
   graphData: GraphData,
-  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', groups, onSelect, onSelectNode, onSelectEdge, onReady, tapToOpen, edgeStyle = 'faint', autoSpotlightFocus = true, savedPositions, savedViewport, onSpatialChange }: RenderOptions = {},
+  { onNavigate, focusId, filterFn, focusNodes, layout = 'force', onSelect, onSelectNode, onSelectEdge, onReady, tapToOpen, edgeStyle = 'faint', autoSpotlightFocus = true, savedPositions, savedViewport, onSpatialChange }: RenderOptions = {},
 ): GraphControls {
   const nodes: GraphNode[] = (graphData.nodes || []).map((n) => ({ ...n }));
-  const hasGroups = !!(groups && groups.size);
   container.innerHTML = '';
   // The canvas is a VISUAL representation; the keyboard/screen-reader model is the text
   // alternative (the connections table / relationships list). Describe it as an image
@@ -577,7 +557,7 @@ export function renderGraph(
 
   const pal = resolvePalette(container);
   const baseOpts = {
-    elements: buildElements(graphData, focusId, groups),
+    elements: buildElements(graphData, focusId),
     style: cyStylesheet(pal, layout, edgeStyle),
     minZoom: 0.2,
     maxZoom: 3,
@@ -601,26 +581,14 @@ export function renderGraph(
     }
   }
 
-  // Collapsible owner boxes (native compound nodes + the expand-collapse extension).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let ecApi: any = null;
-  if (hasGroups) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const reduce = prefersReducedMotion();
-      ecApi = (cy as any).expandCollapse({
-        layoutBy: { name: 'fcose', animate: reduce ? false : 'end', animationDuration: 500, fit: true, padding: 40, randomize: false, nodeDimensionsIncludeLabels: true },
-        fisheye: false, animate: !reduce, animationDuration: 400, undoable: false, cueEnabled: true,
-      });
-    } catch { ecApi = null; }
-  }
-
   // ── Dimming state ────────────────────────────────────────────────────────
-  // A node can be dimmed by three independent things; recompute the union so they
-  // compose (click-focus over owner-emphasis over the status/name filter).
+  // A node can be dimmed by four independent things; recompute the union so they
+  // compose (legend filter over click-focus over owner-emphasis over the status/name
+  // filter).
   const ownerSet = focusNodes && focusNodes.size ? focusNodes : null;
   let clickFocusId: string | null = null;
   let filterHidden: Set<string> | null = null;
+  let legendHidden: Set<string> | null = null;
 
   function ownerVisible(): Set<string> {
     // Owner's services + their direct neighbors.
@@ -645,43 +613,74 @@ export function renderGraph(
     const keep = n.union(succ).union(pred);
     // batch → Cytoscape recomputes style once for the whole change, not per class op
     cy.batch(() => {
-      cy.elements().not(keep.union(keep.ancestors())).addClass('pacto-faded');
+      cy.elements().not(keep).addClass('pacto-faded');
       succ.edges().addClass('pacto-dep');
       pred.edges().addClass('pacto-dependent');
       n.addClass('pacto-hot');
     });
   }
 
+  // Additive only, and always last: a legend filter narrows whatever is already on
+  // screen, so it can never resurrect something a pin or an owner view has faded, and
+  // never overrides them. Hiding a node kind hides its edges too — an edge to nowhere is
+  // a line the reader cannot resolve.
+  function fadeLegendHidden(): void {
+    if (!legendHidden?.size) return;
+    for (const key of legendHidden) {
+      const sel = LEGEND_SELECTORS[key];
+      if (!sel) continue;
+      const els = cy.$(sel);
+      els.addClass('pacto-faded');
+      if (key.startsWith('kind:')) els.connectedEdges().addClass('pacto-faded');
+    }
+  }
+
   // Resting emphasis (no hover/pin): owner view dims to the owner's services; the
-  // status/name filter dims non-matches; otherwise the calm full map.
+  // status/name filter dims non-matches; otherwise the calm full map. The legend filter
+  // composes on top of all of them.
   function applyDimming(): void {
     cy.batch(() => {
       cy.elements().removeClass(HL);
-      if (clickFocusId) { return; }
-      if (ownerSet) {
-        const ids = ownerVisible();
-        const kn = cy.nodes().filter((n) => ids.has(n.id()));
-        const keep = kn.union(kn.connectedEdges()).union(kn.ancestors());
-        cy.elements().not(keep).addClass('pacto-faded');
-      } else if (filterHidden) {
-        const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
-        faded.addClass('pacto-faded');
-        faded.connectedEdges().addClass('pacto-faded');
+      if (!clickFocusId) {
+        if (ownerSet) {
+          const ids = ownerVisible();
+          const kn = cy.nodes().filter((n) => ids.has(n.id()));
+          const keep = kn.union(kn.connectedEdges());
+          cy.elements().not(keep).addClass('pacto-faded');
+        } else if (filterHidden) {
+          const faded = cy.nodes().filter((n) => filterHidden!.has(n.id()));
+          faded.addClass('pacto-faded');
+          faded.connectedEdges().addClass('pacto-faded');
+        }
       }
     });
     if (clickFocusId) spotlight(cy.getElementById(clickFocusId));
+    cy.batch(fadeLegendHidden);
   }
 
   // ── Interactions ─────────────────────────────────────────────────────────
+  // Pin (or unpin) a node's directional spotlight and gently center it. SETS the pin
+  // rather than toggling it, and fires no selection callback, so a caller outside the
+  // canvas -- the text list picking the same node the drawer is already showing -- can
+  // ask for the pin without the canvas answering back into the call that made it.
+  function pinFocus(id: string | null): void {
+    clickFocusId = id;
+    applyDimming();
+    if (!id) return;
+    const n = cy.getElementById(id);
+    if (n.empty()) return;
+    // A pin re-frames; it never re-lays-out. Our own centering, not a pan the user
+    // asked for, and on the product's row duration -- 250ms of camera for a click is
+    // the reader waiting on the UI to agree with them.
+    suppressViewport(MOTION.row + 150);
+    if (prefersReducedMotion()) cy.center(n);
+    else cy.animate({ center: { eles: n } }, { duration: MOTION.row, easing: 'ease-in-out' });
+  }
+
   let lastTapId = '';
   let lastTapAt = 0;
   cy.on('tap', 'node', (evt) => {
     const n = evt.target as NodeSingular;
-    // Group boxes: tap a collapsed team to expand it, or an expanded box to fold.
-    if (ecApi) {
-      if (n.hasClass('cy-expand-collapse-collapsed-node')) { ecApi.expand(n); return; }
-      if (n.isParent()) { ecApi.collapse(n); return; }
-    }
     const id = n.id();
     const now = Date.now();
     const isDouble = id === lastTapId && now - lastTapAt < 300;
@@ -694,23 +693,27 @@ export function renderGraph(
     }
     if (tapToOpen && !n.data('external') && onNavigate) { onNavigate(n.data('serviceName')); return; }
     // Single-tap → PIN this service's directional spotlight and gently center it,
-    // keeping the whole map in view (no hard zoom) so the global picture stays.
-    clickFocusId = clickFocusId === id ? null : id;
-    applyDimming();
+    // keeping the whole map in view (no hard zoom) so the global picture stays. A second
+    // tap on the same node unpins.
+    pinFocus(clickFocusId === id ? null : id);
     onSelect?.(clickFocusId ? n.data('serviceName') : null);
     onSelectNode?.(clickFocusId ? id : null);
-    if (clickFocusId) {
-      // Our own centering, not a pan the user asked for.
-      suppressViewport(400);
-      if (prefersReducedMotion()) cy.center(n);
-      else cy.animate({ center: { eles: n } }, { duration: 250, easing: 'ease-in-out' });
-    }
   });
   // Edge tap: open the relationship's quick-inspection drawer (the product graph
   // reads the backend-authoritative edge; it never navigates away automatically).
   cy.on('tap', 'edge', (evt) => {
     const e = evt.target as EdgeSingular;
     onSelectEdge?.(e.id());
+  });
+  // An edge is a click target too (it opens the relationship drawer), so it answers the
+  // pointer like every other one. Class-only: no batch, no dimming recompute.
+  cy.on('mouseover', 'edge', (evt) => {
+    container.style.cursor = 'pointer';
+    (evt.target as EdgeSingular).addClass('pacto-edge-hot');
+  });
+  cy.on('mouseout', 'edge', (evt) => {
+    container.style.cursor = 'default';
+    (evt.target as EdgeSingular).removeClass('pacto-edge-hot');
   });
   cy.on('tap', (evt) => {
     if (evt.target !== cy) return;
@@ -722,9 +725,12 @@ export function renderGraph(
   cy.on('mouseover', 'node', (evt) => {
     container.style.cursor = 'pointer';
     const n = evt.target as NodeSingular;
-    if (clickFocusId || n.isParent() || n.hasClass('cy-expand-collapse-collapsed-node')) return;
+    if (clickFocusId) return;
     cy.batch(() => cy.elements().removeClass(HL));
     spotlight(n);
+    // The wipe above clears every fade, including the legend's. Re-apply it, or a hover
+    // would silently un-hide the categories the reader just turned off.
+    cy.batch(fadeLegendHidden);
   });
   cy.on('mouseout', 'node', () => {
     container.style.cursor = 'default';
@@ -785,10 +791,7 @@ export function renderGraph(
 
   function snapshotSpatial(): SpatialState {
     const positions: Record<string, { x: number; y: number }> = {};
-    cy.nodes().forEach((n) => {
-      if (n.isParent()) return; // a compound box is positioned BY its children
-      positions[n.id()] = { x: n.position('x'), y: n.position('y') };
-    });
+    cy.nodes().forEach((n) => { positions[n.id()] = { x: n.position('x'), y: n.position('y') }; });
     return { positions, pan: { ...cy.pan() }, zoom: cy.zoom() };
   }
 
@@ -825,7 +828,7 @@ export function renderGraph(
   // is the exact regression this exists to prevent.
   function placeNewNodes(fresh: Set<string>): void {
     if (!fresh.size) return;
-    const settled = cy.nodes().filter((n) => !fresh.has(n.id()) && !n.isParent());
+    const settled = cy.nodes().filter((n) => !fresh.has(n.id()));
     const bb = settled.nonempty() ? settled.boundingBox() : null;
     const center = bb ? { x: bb.x1 + bb.w / 2, y: bb.y1 + bb.h / 2 } : { x: 0, y: 0 };
     const radius = bb ? Math.max(200, bb.w / 2 + 140) : 200;
@@ -835,7 +838,7 @@ export function renderGraph(
         const n = cy.getElementById(id);
         if (n.empty()) return;
         const angle = (i * 2 * Math.PI) / ids.length;
-        const anchors = n.neighborhood('node').filter((m) => !fresh.has(m.id()) && !(m as NodeSingular).isParent());
+        const anchors = n.neighborhood('node').filter((m) => !fresh.has(m.id()));
         if (anchors.nonempty()) {
           let sx = 0;
           let sy = 0;
@@ -852,12 +855,23 @@ export function renderGraph(
     });
   }
 
+  // A fit is allowed to zoom OUT until the whole graph is in frame, and on a wide fleet
+  // or a phone that lands somewhere around 0.15 -- node labels stop being text and the
+  // canvas becomes a picture of a graph rather than a graph. Below this the reader is
+  // better served by a legible graph they have to pan than an illegible one they do not.
+  const ZOOM_FLOOR = 0.6;
+
+  function floorZoom(): void {
+    if (cy.zoom() >= ZOOM_FLOOR) return;
+    cy.zoom({ level: ZOOM_FLOOR, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+  }
+
   // fitView fits the whole graph in view, honoring prefers-reduced-motion (an instant
   // fit rather than an animated pan/zoom).
   function fitView(duration: number): void {
     suppressViewport(duration + 150);
-    if (prefersReducedMotion()) cy.fit(cy.elements(), 30);
-    else cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration, easing: 'ease-out' });
+    if (prefersReducedMotion() || duration <= 0) { cy.fit(cy.elements(), 30); floorZoom(); return; }
+    cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration, easing: 'ease-out', complete: floorZoom });
   }
 
   function settle(): void {
@@ -884,6 +898,11 @@ export function renderGraph(
       settle();
       emitSpatial();
     });
+    // fCoSE fits as part of its own run (`fit: true`), and that fit fires `viewport`
+    // like any other. Unsuppressed, the FIRST layout of every graph marked the viewport
+    // user-adjusted before the user had touched anything -- after which the resize
+    // handler politely refused to re-fit for the rest of the session.
+    suppressViewport(LAYOUT_SETTLE_MS);
     l.run();
   }
 
@@ -893,7 +912,7 @@ export function renderGraph(
     // discard that, so only the nodes the saved state did not know about are placed,
     // and the saved viewport (if any) is restored rather than re-fitted.
     const fresh = new Set<string>();
-    cy.nodes().forEach((n) => { if (!n.isParent() && !restored.has(n.id())) fresh.add(n.id()); });
+    cy.nodes().forEach((n) => { if (!restored.has(n.id())) fresh.add(n.id()); });
     placeNewNodes(fresh);
     if (savedViewport && Number.isFinite(savedViewport.zoom) && savedViewport.zoom > 0) {
       suppressViewport(150);
@@ -989,10 +1008,10 @@ export function renderGraph(
   // would relayout the whole graph, which is what made a background refresh feel like a
   // different screen.
   function applyTopology(next: GraphData): void {
-    const els = buildElements(next, focusId, groups);
+    const els = buildElements(next, focusId);
     const keep = new Set(els.map((e) => String(e.data.id)));
     const before = new Set<string>();
-    cy.nodes().forEach((n) => { if (!n.isParent()) before.add(n.id()); });
+    cy.nodes().forEach((n) => { before.add(n.id()); });
     cy.batch(() => {
       cy.elements().filter((e) => !keep.has(e.id())).remove();
       const existing = new Set<string>();
@@ -1005,7 +1024,7 @@ export function renderGraph(
     // status change routinely arrive in the same refresh.
     patchData(next);
     const fresh = new Set<string>();
-    cy.nodes().forEach((n) => { if (!n.isParent() && !before.has(n.id())) fresh.add(n.id()); });
+    cy.nodes().forEach((n) => { if (!before.has(n.id())) fresh.add(n.id()); });
     placeNewNodes(fresh);
     fresh.forEach((id) => restored.add(id)); // now arranged; a later refresh must keep it
     if (filterFn) applyFilter(filterFn);
@@ -1022,7 +1041,7 @@ export function renderGraph(
     restored.clear();
     userAdjusted = false;
     const ids: string[] = [];
-    cy.nodes().forEach((n) => { if (!n.isParent()) ids.push(n.id()); });
+    cy.nodes().forEach((n) => { ids.push(n.id()); });
     ids.sort();
     const cols = Math.max(1, Math.ceil(Math.sqrt(ids.length)));
     cy.batch(() => ids.forEach((id, i) => {
@@ -1040,9 +1059,12 @@ export function renderGraph(
     fit: () => fitView(250),
     patchData,
     applyTopology,
+    restyle: () => { cy.style(cyStylesheet(resolvePalette(container), layout, edgeStyle)); },
     resetLayout,
     spatialState: snapshotSpatial,
     applyFilter,
+    applyLegendFilter: (hidden) => { legendHidden = hidden?.size ? hidden : null; applyDimming(); },
+    focusNode: pinFocus,
     diagnostics: computeDiagnostics,
   };
 }

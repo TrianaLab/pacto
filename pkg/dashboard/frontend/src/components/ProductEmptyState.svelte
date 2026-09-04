@@ -18,11 +18,14 @@
     // workspace body, directly under that page's h1, and a hard-coded 3 was a skipped
     // level. A caller nesting one inside an h2 section passes 3.
     level = 2,
+    // Forwarded to EmptyState: a list page passes how many rows are about to arrive so
+    // the loading state has the shape of the list rather than of a centred table.
+    skeletonRows = 0,
   } = $props();
 </script>
 
 {#if state.kind === 'loading'}
-  <EmptyState loading={true} {level} />
+  <EmptyState loading={true} {level} rows={skeletonRows} />
 {:else if state.kind === 'backend-error'}
   <EmptyState error={true} title="Can’t reach the Pacto backend" message={state.message} {onRetry} {level} />
 {:else if state.kind === 'schema-error'}

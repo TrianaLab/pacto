@@ -64,7 +64,10 @@ describe('statusClass', () => {
   it('maps Warning to warn', () => expect(statusClass('Warning')).toBe('warn'));
   it('maps NonCompliant to err', () => expect(statusClass('NonCompliant')).toBe('err'));
   it('maps Invalid to err', () => expect(statusClass('Invalid')).toBe('err'));
-  it('maps Unknown to info (distinct, not neutral)', () => expect(statusClass('Unknown')).toBe('info'));
+  // One state, one colour. Unknown was blue here, amber in the distribution legend and
+  // grey on the graph canvas -- three renderings on one screen. Amber is the answer:
+  // a target we cannot evaluate is an open question, not a benign one.
+  it('maps Unknown to warn, the same tone the legends and the graph draw it in', () => expect(statusClass('Unknown')).toBe('warn'));
   it('maps Reference to reference', () => expect(statusClass('Reference')).toBe('reference'));
   it('maps NotEvaluated to neutral', () => expect(statusClass('NotEvaluated')).toBe('neutral'));
   it('maps undefined to neutral', () => expect(statusClass(undefined)).toBe('neutral'));
