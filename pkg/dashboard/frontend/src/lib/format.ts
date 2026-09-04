@@ -1,38 +1,57 @@
 /** Shared formatting/classification helpers used across views. */
 
-export function statusClass(status: string | undefined): string {
-  if (status === 'Compliant') return 'ok';
-  if (status === 'Warning') return 'warn';
-  if (status === 'NonCompliant') return 'err';
-  if (status === 'Invalid') return 'err';
-  if (status === 'Unknown') return 'info';
-  if (status === 'Reference') return 'reference';
-  if (status === 'NotEvaluated') return 'neutral';
-  return 'neutral';
-}
+/** The badge class a status is drawn in. `reference` shares the info colours. */
+export type StatusClass = 'ok' | 'warn' | 'err' | 'info' | 'neutral' | 'reference';
 
-const STATUS_LABELS: Record<string, string> = {
-  Compliant: 'Compliant',
-  Warning: 'Warning',
+/**
+ * Every compliance status: the one wording it is shown under and the one tone it is
+ * drawn in, decided together.
+ *
+ * They were three tables — the badge class here, the legend tone in distributions.ts
+ * and the node colour in graph.ts — and they disagreed. "Unknown" was a blue badge on a
+ * row, an amber swatch in the legend above it and a grey node in the graph beside it:
+ * one state, three colours, one screen. Amber is the answer the product settled on — a
+ * target we cannot evaluate is an open question, and blue or grey next to a green
+ * Compliant reads as benign. "Not evaluated" stays neutral: nothing is running to
+ * evaluate.
+ */
+const STATUS_META: Record<string, { label: string; tone: StatusClass }> = {
+  Compliant: { label: 'Compliant', tone: 'ok' },
+  Warning: { label: 'Warning', tone: 'warn' },
   // Sentence case, matching the attention vocabulary these badges sit beside. The
   // Title-Case-With-Hyphens forms were transliterations of the wire enum, so one screen
   // could show "Not compliant" as a triage category and "Non-Compliant" as the badge on
   // the very service it was describing.
-  NonCompliant: 'Not compliant',
-  Invalid: 'Invalid',
-  Unknown: 'Unknown',
-  Reference: 'Reference',
-  NotEvaluated: 'Not evaluated',
+  NonCompliant: { label: 'Not compliant', tone: 'err' },
+  Invalid: { label: 'Invalid', tone: 'err' },
+  Unknown: { label: 'Unknown', tone: 'warn' },
+  Reference: { label: 'Reference', tone: 'reference' },
+  NotEvaluated: { label: 'Not evaluated', tone: 'neutral' },
 };
+
+export function statusClass(status: string | undefined): StatusClass {
+  return STATUS_META[status || '']?.tone || 'neutral';
+}
 
 export function statusLabel(status: string | undefined): string {
   if (!status) return 'Unknown';
-  return STATUS_LABELS[status] || status;
+  return STATUS_META[status]?.label || status;
+}
+
+/**
+ * The tone a status is drawn in on a surface whose palette has no separate reference
+ * swatch — because there is no separate colour: `.badge-reference` IS the info colours
+ * (components.css). The distribution legends, the ranked bars and the graph canvas all
+ * read this, so the mapping is stated once instead of guessed three times.
+ */
+export function statusTone(status: string | undefined): Exclude<StatusClass, 'reference'> {
+  const c = statusClass(status);
+  return c === 'reference' ? 'info' : c;
 }
 
 /**
  * Every compliance status a filter may offer, worst-first so the pickers order the way
- * the triage lists do. Derived from STATUS_LABELS, so a status the product can badge is
+ * the triage lists do. Derived from STATUS_META, so a status the product can badge is
  * never a status the product cannot filter for: two views each hand-listed four of the
  * seven, and both omitted NotEvaluated -- the value most rows in the services list
  * actually carry.
@@ -42,7 +61,7 @@ export function statusLabel(status: string | undefined): string {
  */
 export const STATUS_FILTER_OPTIONS: string[] =
   ['NonCompliant', 'Invalid', 'Warning', 'Unknown', 'NotEvaluated', 'Compliant']
-    .filter((s) => s in STATUS_LABELS);
+    .filter((s) => s in STATUS_META);
 
 export function complianceClass(score: number): string {
   if (score >= 80) return 'score-ok';

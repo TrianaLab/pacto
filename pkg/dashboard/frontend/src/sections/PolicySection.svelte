@@ -24,7 +24,7 @@
         <button type="button" class="detail-card-header" class:expandable={pol.values?.length > 0} onclick={() => pol.values?.length > 0 && toggle(i)}>
           <div class="detail-card-header-left">
             {#if pol.values?.length > 0}
-              <span class="expand-icon" class:open={expanded[i]}>
+              <span class="expand-icon" data-motion class:open={expanded[i]}>
                 <svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </span>
             {/if}
@@ -109,7 +109,6 @@
   .expand-icon {
     display: inline-flex;
     color: var(--c-text-3);
-    transition: transform 200ms ease;
     transform: rotate(-90deg);
     flex-shrink: 0;
   }
@@ -146,13 +145,7 @@
   }
   .detail-card-body {
     padding: 0 var(--sp-3) var(--sp-3);
-    animation: slideReveal 200ms ease-out both;
   }
   .detail-card-table { font-size: var(--text-sm); }
   .detail-card-table th { font-size: var(--text-xs); }
-
-  @keyframes slideReveal {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
 </style>

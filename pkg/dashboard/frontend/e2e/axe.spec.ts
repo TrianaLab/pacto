@@ -9,14 +9,32 @@ import AxeBuilder from '@axe-core/playwright';
 // Every WCAG 2.0/2.1 A and AA rule, contrast included, is asserted here.
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
+// settle waits for the page to STOP MOVING, so axe samples it at rest: a fade's
+// mid-flight opacity transiently dips muted text below the AA ratio and reports a
+// contrast failure against a colour the reader never sees.
+//
+// Two hazards, and a single wait catches only one of them. Waiting once for the
+// animations that exist right now misses every entrance that has not started yet --
+// each test gates on a heading, and the list under it arrives later, so at that instant
+// there is frequently nothing running and the audit proceeds straight into the fade.
+// Hence two consecutive quiet samples rather than one: an entrance that begins between
+// them resets the count.
+//
+// Every product animation is finite by design (see the alarm note in
+// FleetAttentionView -- it is three pulses and not an infinite loop precisely so this
+// can be a real wait), so the deadline is a backstop against a bug, not the normal path.
+async function settle(page: Page) {
+  const deadline = Date.now() + 6_000;
+  const moving = () => page.evaluate(() => (document.getAnimations?.() ?? []).some((a) => a.playState === 'running'));
+  let quiet = 0;
+  while (quiet < 2 && Date.now() < deadline) {
+    quiet = (await moving()) ? 0 : quiet + 1;
+    await page.waitForTimeout(200);
+  }
+}
+
 async function audit(page: Page, testInfo: { title: string }) {
-  // Let in-flight entrance animations settle so axe samples the RESTING page: a fade's
-  // mid-flight opacity can transiently dip muted text below the AA ratio. Guarded by a
-  // timeout so an infinite animation (a loading spinner) never hangs the audit.
-  await Promise.race([
-    page.evaluate(() => Promise.all((document.getAnimations?.() ?? []).map((a) => a.finished.catch(() => {})))),
-    page.waitForTimeout(500),
-  ]);
+  await settle(page);
   const results = await new AxeBuilder({ page })
     .withTags(TAGS)
     .analyze();

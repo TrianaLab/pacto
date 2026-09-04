@@ -2,11 +2,13 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { knowledgeLabel, knowledgeTone, sourceHealthTally, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
+  import { sourceHealthTally, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDate } from '../lib/dateFormat.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
+  import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import OperationalSummary from '../components/OperationalSummary.svelte';
   import SourceHealth from '../components/SourceHealth.svelte';
   import EntityLink from '../components/EntityLink.svelte';
@@ -70,6 +72,11 @@
   // Page-level state: loading/error gate the whole view; once loaded, the overview
   // always has a summary to render (itemCount 1).
   const pageState = $derived(decideViewState({ loading, error, itemCount: overview ? 1 : 0, knowledge }));
+  // A poll in flight over data already on screen, and a poll that failed over it. Both
+  // were decided here and rendered nowhere: the overview was the one product page that
+  // could silently freeze and still read as live.
+  const revalidating = $derived(pageState.kind === 'ready' && !!pageState.revalidating);
+  const refreshError = $derived(pageState.kind === 'ready' ? pageState.refreshError : null);
 
   // A1: distinguish a genuinely empty fleet from a healthy populated one, using the
   // authoritative product summary counts (never the raw snapshot). A fleet with zero
@@ -140,7 +147,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview' }]} />
-  <PageHeader title="Operational overview" />
+  <PageHeader title="Operational overview" asOf={overview?.meta?.asOf} {revalidating} />
 
   {#if pageState.kind !== 'ready'}
     <ProductEmptyState state={pageState} noun="operational data" onRetry={load} />
@@ -148,20 +155,17 @@
   <div class="page-toc-layout">
     <PageToc />
     <div class="page-toc-main">
+      {#if refreshError}
+        <StaleRefreshNotice noun="overview" onRetry={load} />
+      {/if}
     <section class="band" id="sec-now" data-toc="Immediate situation" aria-labelledby="ov-now">
       <h2 id="ov-now" class="t-section-title">Immediate situation</h2>
 
+      <!-- The chain is an if/else on purpose: with the snapshot short of data we can
+           neither call the fleet healthy NOR call it confirmed-empty, so the caveat
+           replaces both claims rather than sitting above one. -->
       {#if knowledge.incomplete}
-        <div class="knowledge-banner tone-{knowledgeTone(knowledge.level)}" role="status">
-          <strong>{knowledgeLabel(knowledge.level)}.</strong>
-          <span>
-            {#if isEmptyFleet}
-              Nothing is being tracked yet, and some sources are degraded — we can neither confirm there is nothing to track nor call it healthy.
-            {:else}
-              Some sources are degraded, so the counts below may be incomplete — this is not a clean bill of health.
-            {/if}
-          </span>
-        </div>
+        <KnowledgeBanner {knowledge} noun="overview" />
       {:else if isEmptyFleet}
         <div class="empty-fleet" role="status">
           <strong>No services tracked yet.</strong>
@@ -186,13 +190,12 @@
     <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
       <h2 id="ov-posture" class="t-section-title">Operational posture</h2>
       <p class="ov-sub t-body-2">
-        Over all {totalTargets} operational {totalTargets === 1 ? 'target' : 'targets'} the snapshot knows about.
-        Compliance, revision-match certainty and evidence freshness are three separate questions and are never rolled into one score.
+        Three separate questions about the {totalTargets} operational {totalTargets === 1 ? 'target' : 'targets'} the snapshot knows about — never rolled into one score.
       </p>
+      <!-- No summary line under the bars. It restated the Exact and Stale evidence
+           buckets in a sentence, so the same two numbers were on the screen twice and a
+           reader had to check they agreed. -->
       <PostureBars summary={posture} {attentionUrl} />
-      {#if totalTargets > 0}
-        <p class="ov-note t-body-2">We know exactly which revision is running on {s.exactTargetLinks || 0} of {totalTargets} operational targets{(s.staleTargets || 0) > 0 ? `, and ${s.staleTargets} of them were last observed too long ago to trust` : ''}.</p>
-      {/if}
     </section>
 
     <section class="band" id="sec-org" data-toc="Organization and contract" aria-labelledby="ov-org">
@@ -204,13 +207,12 @@
         <a class="ov-viewall" href={fleetOwnersUrl()}>Browse owners</a>
       </div>
       <p class="ov-sub t-body-2">
-        Two things nobody can see from a single service page: whether ownership is declared at all, and whether anyone is assessing readiness.
-        Neither is an operational failure — both are systemic, and both are counted over everything the snapshot holds.
+        Systemic gaps rather than operational failures: whether ownership is declared at all, and whether anyone is assessing readiness.
       </p>
       <div class="ov-org-grid">
         <DistributionBar
           title="Declared ownership"
-          description="Ownership is authored on each contract revision, so a service is cleanly owned only when its revisions agree. Revisions naming different owners is its own state, never folded into 'no owner'."
+          description="Authored on each contract revision, so a service is cleanly owned only when its revisions agree."
           scopeNote={`All ${totalServices} ${totalServices === 1 ? 'service' : 'services'} in the snapshot.`}
           segments={ownership}
           total={totalServices}
@@ -218,7 +220,7 @@
         />
         <DistributionBar
           title="Contract revision readiness"
-          description="Declared preparedness of each immutable contract revision, judged against the threshold that revision set for itself. It is not compliance: a passing revision can still be running on a target observed to violate its contract."
+          description="Declared preparedness of each revision, judged against its own threshold. This is not compliance: a passing revision can still be running on a target that violates its contract."
           scopeNote={`All ${totalRevisions} contract ${totalRevisions === 1 ? 'revision' : 'revisions'} in the snapshot.`}
           segments={readiness}
           total={totalRevisions}
@@ -240,7 +242,7 @@
         <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
       </div>
       <p class="ov-sub t-body-2">
-        Where everything above came from. A data source supplies records to the snapshot — when one is degraded the counts on this page are incomplete, not zero.
+        Where everything above came from. A degraded source makes the counts on this page incomplete, not zero.
       </p>
       <!-- The tally is over the COMPLETE source population; the chips below it are the
            bounded, least-healthy-first list from the meta. Stating both is what lets the
@@ -268,9 +270,9 @@
       {#if overview.attention.items.length === 0}
         <ProductEmptyState state={decideViewState({ loading: false, itemCount: 0, knowledge })} noun="attention items" />
       {:else}
-        <ul class="attn-list">
+        <ul class="attn-list pl-list">
           {#each overview.attention.items as it}
-            <li class="attn-item">
+            <li class="attn-item pl-row">
               <SeverityBadge severity={it.severity} />
               <EntityLink ref={it.entity} showStatus={false} />
               <span class="attn-reason">{it.summary || it.reason || it.label}</span>
@@ -286,9 +288,9 @@
     <section class="ov-section" id="sec-evidence" data-toc="Recent evidence" aria-labelledby="ov-evidence">
       <h2 id="ov-evidence" class="t-section-title">Recent evidence</h2>
       {#if overview.recentEvidence.items.length}
-        <ul class="evi-list">
+        <ul class="evi-list pl-list">
           {#each overview.recentEvidence.items as ev}
-            <li class="evi-item">
+            <li class="evi-item pl-row">
               <EntityLink ref={ev.target} showStatus={false} />
               {#if ev.at}<span class="evi-at">{formatDate(ev.at)}</span>{/if}
             </li>
@@ -310,7 +312,7 @@
   .band + .band, .band + .ov-section { padding-top: var(--sp-4); border-top: 1px solid var(--c-border); }
   .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .ov-head h2, .band > h2, .ov-section > h2 { margin: 0; }
-  .ov-sub, .ov-note { margin: 0; max-width: 80ch; }
+  .ov-sub { margin: 0; max-width: 80ch; }
   .ov-tally { margin: 0; color: var(--c-text); }
   /* Two bars side by side where there is room; one on a phone. Same rule as the posture
      grid, so the two bands line up instead of each inventing a breakpoint. */
@@ -327,20 +329,20 @@
     background: var(--c-surface); min-height: var(--touch-min); display: inline-flex; align-items: center;
   }
   .ov-cat:hover { border-color: var(--c-accent); color: var(--c-accent); }
-  .knowledge-banner, .all-clear, .empty-fleet {
+  /* The degraded-knowledge caveat is KnowledgeBanner's, styled once there. */
+  .all-clear, .empty-fleet {
     display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: baseline;
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);
   }
-  .knowledge-banner { background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); color: var(--c-text); }
-  .knowledge-banner.tone-err { background: var(--c-err-bg); border-color: color-mix(in srgb, var(--c-err) 30%, transparent); }
   .all-clear { background: var(--c-ok-bg); border: 1px solid var(--c-ok-border); color: var(--c-text); }
   /* An empty fleet is a neutral fact, never a green all-clear. */
   .empty-fleet { background: var(--c-surface-inset); border: 1px solid var(--c-border); color: var(--c-text-2); }
-  .attn-list, .evi-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  /* Shape only. The frame, the divider and the hover come from the shared .pl-row in
+     styles/components.css; these rows keep their own padding because the entity link is
+     a middle child, so handing it the padding would leave the badge flush to the edge. */
   .attn-item, .evi-item {
-    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
-    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: var(--c-surface);
+    gap: var(--sp-2); flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-3);
   }
   .attn-reason { color: var(--c-text-3); font-size: var(--text-sm); }
   .evi-at { color: var(--c-text-3); font-size: var(--text-xs); margin-left: auto; }

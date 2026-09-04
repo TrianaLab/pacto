@@ -5,6 +5,7 @@ import {
   defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
   perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
   canonicalFocusForPerspective, projectionFocusMismatch,
+  nextMaxNodes, DEFAULT_MAX_NODES, MAX_NODES, MAX_NODES_STEPS,
 } from './graphState.ts';
 import type { CanonNeighborhood } from './graphState.ts';
 
@@ -43,6 +44,34 @@ describe('graphStateFromParams', () => {
   });
 });
 
+describe('maxNodes (the node budget the reader can raise)', () => {
+  it('defaults to the backend default rather than to unbounded', () => {
+    expect(graphStateFromParams({ kind: 'service', sel: 'x' }).maxNodes).toBe(DEFAULT_MAX_NODES);
+  });
+  it('parses a raised budget and clamps one above the backend ceiling', () => {
+    expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes: '150' }).maxNodes).toBe(150);
+    // Offering a rung the backend then silently clamps is a UI that lies about
+    // what it just fetched, so the clamp happens here too.
+    expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes: '99999' }).maxNodes).toBe(MAX_NODES);
+  });
+  it('falls back to the default for junk, zero and negatives', () => {
+    for (const maxNodes of ['abc', '0', '-5', '']) {
+      expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes }).maxNodes).toBe(DEFAULT_MAX_NODES);
+    }
+  });
+  it('climbs the rungs once each and then stops at the ceiling', () => {
+    expect(nextMaxNodes(DEFAULT_MAX_NODES)).toBe(150);
+    expect(nextMaxNodes(150)).toBe(MAX_NODES);
+    expect(nextMaxNodes(MAX_NODES)).toBeNull();
+    // A budget between rungs still climbs to the next one above it.
+    expect(nextMaxNodes(61)).toBe(150);
+  });
+  it('keeps the rungs ascending, so "show more" always shows more', () => {
+    expect([...MAX_NODES_STEPS].sort((a, b) => a - b)).toEqual([...MAX_NODES_STEPS]);
+    expect(MAX_NODES_STEPS[0]).toBe(DEFAULT_MAX_NODES);
+  });
+});
+
 describe('toggleView', () => {
   it('adds a view in canonical order', () => {
     expect(toggleView(['expected'], 'observed')).toEqual(['expected', 'observed']);
@@ -71,6 +100,21 @@ describe('difference vocabulary (backend-authoritative, never color-only)', () =
   it('observed-not-expected is a distinct, warned difference', () => {
     expect(differenceLabel('observed-not-expected')).toBe('Observed, not expected');
     expect(differenceTone('observed-not-expected')).toBe('warn');
+  });
+  // The two attention states are NOT interchangeable, and a second copy of this
+  // mapping in entityLabels.ts had them swapped: undeclared runtime traffic is the
+  // thing to act on (warn), a declared edge nobody witnessed is only informational
+  // (info) -- silence is not proof it is unused. The cytoscape stylesheet
+  // (lib/graph.ts) paints edges from these same two tones.
+  it('does not swap the two attention tones', () => {
+    expect(differenceTone('expected-not-observed')).toBe('info');
+    expect(differenceTone('observed-not-expected')).toBe('warn');
+  });
+  // IdentityBadge draws its pill border whether or not there is a label, so an
+  // unrecognised wire value must print as itself rather than as an empty box.
+  it('prints an unrecognised difference instead of a blank badge', () => {
+    expect(differenceLabel('teleported')).toBe('teleported');
+    expect(differenceLabel(undefined)).toBe('Unknown');
   });
 });
 

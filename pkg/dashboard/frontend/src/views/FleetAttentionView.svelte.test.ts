@@ -244,3 +244,85 @@ describe('FleetAttentionView — owner search vs owner identity', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+/**
+ * The RATION (styles/tokens.css). Motion on this page is spent on severity and nothing
+ * else, so the number of moving rows is the number of rows worth looking at. These tests
+ * hold the two ways that promise breaks: a row that moves when it should not, and a
+ * second thing ringing at the same time as the first.
+ */
+describe('FleetAttentionView — the motion ration', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+  function serve(items: any[], severities?: Record<string, number>) {
+    attentionFn.mockResolvedValue({
+      meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [] },
+      total: items.length, offset: 0, limit: 25, count: items.length, truncated: false,
+      severities, items,
+    });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
+  const item = (severity: string, key: string, over: Record<string, unknown> = {}): any => ({
+    severity, category: 'stale', code: 'STALE_EVIDENCE', label: `l-${key}`, summary: `s-${key}`,
+    entity: { kind: 'target', key, label: key, href: `/fleet/targets/${key}` }, ...over,
+  });
+
+  it('rings exactly one row, and only when the worst thing on the page is an error', async () => {
+    serve([item('error', 'a'), item('error', 'b'), item('warning', 'c')]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBe(3));
+    const rung = target.querySelectorAll('.attn-item.is-alarm');
+    expect(rung).toHaveLength(1);
+    // The head of the page, because the backend sorts errors first -- so the ring is on
+    // the worst thing visible rather than on whichever row happened to render first.
+    expect(target.querySelectorAll('.attn-item')[0].classList.contains('is-alarm')).toBe(true);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('does not ring when nothing on the page is an error', async () => {
+    serve([item('warning', 'a'), item('info', 'b')]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBe(2));
+    expect(target.querySelectorAll('.attn-item.is-alarm')).toHaveLength(0);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('carries the severity on the row, so the rail is not a second source of truth', async () => {
+    serve([item('error', 'a'), item('warning', 'b'), item('info', 'c')]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBe(3));
+    expect(Array.from(target.querySelectorAll('.attn-item')).map((r) => r.className.match(/sev-\w+/)?.[0]))
+      .toEqual(['sev-error', 'sev-warning', 'sev-info']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('renders two items that share a code and an entity, instead of throwing on a duplicate key', async () => {
+    // Real payload shape: one target, one finding code, two revisions of it. Keyed on
+    // code+entity alone this is a duplicate key, which in Svelte is a thrown error and a
+    // blank page -- not a warning.
+    serve([
+      item('error', 'prod/k8s/a', { label: 'revision 1 is not compliant' }),
+      item('error', 'prod/k8s/a', { label: 'revision 2 is not compliant' }),
+    ]);
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBe(2));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says what the order means in the header', async () => {
+    serve([item('error', 'a')], { errors: 1, warnings: 0, infos: 0 });
+    const { target, component } = mountView({});
+    await vi.waitFor(() => expect(target.querySelector('.attn-item')).toBeTruthy());
+    expect(target.querySelector('[data-testid="page-title"]')?.parentElement?.textContent)
+      .toContain('1 item · most urgent first');
+    unmount(component); document.body.removeChild(target);
+
+    serve([item('info', 'a')], { errors: 0, warnings: 0, infos: 1 });
+    const m2 = mountView({});
+    await vi.waitFor(() => expect(m2.target.querySelector('.attn-item')).toBeTruthy());
+    expect(m2.target.querySelector('[data-testid="page-title"]')?.parentElement?.textContent)
+      .toContain('1 item · nothing urgent');
+    unmount(m2.component); document.body.removeChild(m2.target);
+  });
+});

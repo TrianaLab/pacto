@@ -53,6 +53,10 @@
   // A refresh that failed over a page we can still show. The page stays; the failure is
   // stated rather than swallowed, so nobody reads a frozen page as a current one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
+  // A poll in flight over data already on screen. decideViewState has decided this on
+  // every page since stale-while-revalidate landed; the header is the first thing to
+  // actually say it, in words rather than by spinning something.
+  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
 
   // Entity-relationship breadcrumbs from canonical DTO refs; a minimal
   // trail while loading/erroring.
@@ -108,6 +112,8 @@
     {kind}
     status={detail?.status || ''}
     {actions}
+    asOf={detail?.meta?.asOf}
+    {revalidating}
   />
 
   {#if state.kind !== 'ready'}
@@ -137,7 +143,7 @@
            stable handle a test has on this disclosure, exactly as for the software
            inventory and the graph's text alternative. -->
       <details class="ev-ident disclosure" data-testid="entity-identifier">
-        <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Identifier</summary>
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Identifier</summary>
         <div class="ev-key">
           <span class="ev-key-label">Canonical key</span>
           <CopyableIdentifier value={detail.entity.key} />

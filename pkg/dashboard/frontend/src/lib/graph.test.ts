@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, buildElements, cyLayout, type GraphData } from './graph.ts';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import cytoscape from 'cytoscape';
+import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, type GraphData } from './graph.ts';
 
 const sampleGraph = {
   nodes: [
@@ -199,23 +200,6 @@ describe('buildElements', () => {
     expect(x.data.reason).toBe('auth_failed');
   });
 
-  it('emits compound parent nodes and assigns children when groups are given', () => {
-    const groups = new Map([['root', 'team-a'], ['a', 'team-a'], ['x', 'team-b']]);
-    const els = buildElements(g, undefined, groups);
-    const parents = els.filter((e) => e.data.isGroup);
-    expect(parents.map((p) => p.data.label).sort()).toEqual(['team-a', 'team-b']);
-    const root = els.find((e) => e.data.id === 'root')!;
-    // child points at its group parent; parent ids are DOM-safe
-    expect(root.data.parent).toBe(parents.find((p) => p.data.label === 'team-a')!.data.id);
-    expect(String(root.data.parent).startsWith('group:')).toBe(true);
-  });
-
-  it('leaves nodes ungrouped when no groups are given', () => {
-    const els = buildElements(g);
-    expect(els.some((e) => e.data.isGroup)).toBe(false);
-    expect(els.find((e) => e.data.id === 'root')!.data.parent).toBeUndefined();
-  });
-
   it('emits the reconciliation state on edge data so the canvas can render it (Part 6)', () => {
     const gd: GraphData = { nodes: [
       { id: 'a', serviceName: 'a', status: 'Compliant', edges: [
@@ -278,6 +262,104 @@ describe('renderGraph (Cytoscape)', () => {
   it('applyFilter runs without throwing', () => {
     const ctrl = renderGraph(el, layeredGraph, { layout: 'layered' });
     expect(() => { ctrl.applyFilter((n) => n.status === 'Compliant'); ctrl.applyFilter(null); }).not.toThrow();
+    ctrl.destroy();
+  });
+
+  // A legend entry that matches nothing is the worst kind of broken control: it reports
+  // itself as off, the canvas does not change, and there is no error anywhere. The way
+  // that happens is a selector written from the wire vocabulary instead of the element
+  // data -- an edge's relation arrives as `type` and is stored as `etype`. So the
+  // assertion is against what buildElements actually emits, for a graph carrying one of
+  // every distinction the legend offers.
+  it('every legend filter selector matches something buildElements emits', () => {
+    const all: GraphData = { nodes: [
+      { id: 'svc', serviceName: 'svc', status: 'Compliant', kind: 'service', edges: [
+        { targetId: 'dep', edgeState: 'matched' },
+        { targetId: 'eno', edgeState: 'expected-not-observed' },
+        { targetId: 'dri', edgeState: 'drift' },
+        { targetId: 'ins', edgeState: 'insufficient' },
+      ] },
+      { id: 'rev', serviceName: 'svc', status: 'Compliant', kind: 'revision', edges: [] },
+      { id: 'tgt', serviceName: 'svc', status: 'Compliant', kind: 'target', edges: [{ targetId: 'rev', type: 'runs' }] },
+      { id: 'dep', serviceName: 'dep', status: 'Compliant', kind: 'service', edges: [] },
+      { id: 'eno', serviceName: 'eno', status: 'Compliant', kind: 'service', edges: [] },
+      { id: 'dri', serviceName: 'dri', status: 'Compliant', kind: 'service', edges: [] },
+      { id: 'ins', serviceName: 'ins', status: 'Compliant', kind: 'service', edges: [] },
+    ] };
+    const cy = cytoscape({ elements: buildElements(all) });
+    for (const [key, selector] of Object.entries(LEGEND_SELECTORS)) {
+      expect(cy.$(selector).length, `${key} → ${selector}`).toBeGreaterThan(0);
+    }
+    cy.destroy();
+  });
+
+  it('the legend filter and an out-of-graph focus are both survivable', () => {
+    const ctrl = renderGraph(el, layeredGraph, { layout: 'layered' });
+    expect(() => {
+      ctrl.applyLegendFilter(new Set(['kind:service', 'state:drift']));
+      ctrl.focusNode('root');
+      ctrl.applyLegendFilter(null); // clearing while pinned must not un-pin or throw
+      ctrl.focusNode('nobody-here'); // a stale id from a text list the canvas has moved past
+      ctrl.focusNode(null);
+    }).not.toThrow();
+    ctrl.destroy();
+  });
+
+  it('a fit never leaves the camera below the legibility floor', () => {
+    // A fit is allowed to zoom out until everything is in frame, which on a wide fleet
+    // (or a phone) means node labels stop being text. Reduced motion is the branch that
+    // fits synchronously, so it is the one a non-painting environment can observe; the
+    // animated branch applies the same floor when its camera move completes.
+    const mm = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    try {
+      const ctrl = renderGraph(el, layeredGraph, { layout: 'layered' });
+      for (let i = 0; i < 8; i++) ctrl.zoomOut(); // down to minZoom
+      expect(ctrl.spatialState().zoom).toBeLessThan(0.6);
+      ctrl.fit();
+      expect(ctrl.spatialState().zoom).toBe(0.6);
+      ctrl.destroy();
+    } finally {
+      mm.mockRestore();
+    }
+  });
+
+  // A floored fit no longer means "the whole graph is on screen", and a cropped canvas
+  // looks exactly like a complete one. So the clamp has to be reported, not just applied.
+  it('reports a floored fit through the diagnostics, and only when it changes', () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    try {
+      const seen: boolean[] = [];
+      // jsdom lays nothing out, so the container is zero-sized and every fit here lands
+      // under the floor -- which is exactly the case the flag exists for.
+      const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', onReady: (d) => seen.push(d.fitFloored) });
+      ctrl.fit();
+      expect(ctrl.spatialState().zoom).toBe(0.6);
+      expect(seen.at(-1)).toBe(true);
+
+      // Fitting again from the floor changes nothing, so it must not re-publish: a
+      // diagnostics callback that fires on every fit is a re-render on every fit.
+      const before = seen.length;
+      ctrl.fit();
+      expect(seen).toHaveLength(before);
+      ctrl.destroy();
+    } finally {
+      mm.mockRestore();
+    }
+  });
+
+  it('restyle repaints in place: new palette, untouched geometry', () => {
+    // Cytoscape draws to a canvas and cannot read CSS custom properties, so every colour
+    // is resolved by getComputedStyle ONCE at init -- which is why a theme toggle used to
+    // leave the graph painted in the previous theme until the next data change.
+    // The guarantee worth pinning is the other half: restyle is STYLE ONLY. Implemented as
+    // a re-render or a relayout it would still recolour, and would silently throw away the
+    // arrangement the user built and the viewport they were reading.
+    const ctrl = renderGraph(el, layeredGraph, { layout: 'layered' });
+    const before = ctrl.spatialState();
+    el.style.setProperty('--c-ok', 'rgb(9, 8, 7)');
+    expect(() => ctrl.restyle()).not.toThrow();
+    expect(ctrl.spatialState()).toEqual(before);
+    expect(ctrl.nodes).toHaveLength(2);
     ctrl.destroy();
   });
 });

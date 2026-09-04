@@ -83,7 +83,7 @@
          strip above already says whether that content is retrievable, which is the part
          that changes what you do next. -->
     <details class="re-identity disclosure" data-testid="revision-identity">
-      <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Content identity</summary>
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Content identity</summary>
       <div class="re-idrows">
         {#if id.digest}<div class="re-idrow"><span class="re-k">Digest</span><CopyableIdentifier value={id.digest} /></div>{/if}
         {#if id.resolvedRef}<div class="re-idrow"><span class="re-k">Resolved ref</span><CopyableIdentifier value={id.resolvedRef} /></div>{/if}
@@ -101,7 +101,7 @@
          owner identity, so nothing here links to an owner page. -->
     <details class="re-contacts disclosure">
       <summary>
-        <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
         Declared contacts ({o.contacts.total})
       </summary>
       <ul class="re-contactrows">
@@ -199,7 +199,7 @@
                  the flat cross-interface tool list further down still carries them. -->
             <details class="ri-ops disclosure">
               <summary>
-                <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+                <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
                 {i.operations.count}{i.operations.truncated ? ` of ${i.operations.total}` : ''} {i.operations.total === 1 && !i.operations.truncated ? 'operation' : 'operations'}
               </summary>
               <ul class="re-tools">
@@ -251,7 +251,7 @@
                  table is what they open when this is the scope they came for. -->
             <details class="ri-ops disclosure">
               <summary>
-                <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+                <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
                 {c.values.count}{c.values.truncated && typeof c.values.total === 'number' ? ` of ${c.values.total}` : ''} {c.values.count === 1 && !c.values.truncated ? 'value' : 'values'}
               </summary>
               <table class="re-kv">
@@ -373,7 +373,7 @@
          inventory itself lives instead of implying it has been read here. -->
     <details class="re-sbom disclosure" id="sec-software-inventory" data-toc="Software inventory" data-testid="revision-sbom">
       <summary>
-        <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
         <h2 class="t-section-title">Software inventory</h2>
         <span class="re-sbom-gist t-meta">{sbom.packages} {sbom.packages === 1 ? 'package' : 'packages'} · {sbomFormat}</span>
       </summary>
@@ -449,7 +449,7 @@
          detail rather than the first screen. -->
     <details class="re-prov disclosure">
       <summary>
-        <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
         Provenance
         {#if prov.fetchedAt}<span class="t-meta">Fetched {formatDate(prov.fetchedAt)}</span>{/if}
       </summary>

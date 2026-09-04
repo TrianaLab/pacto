@@ -117,7 +117,14 @@
         "#pacto-demo-strip a{color:#a5b4fc;text-decoration:underline;white-space:nowrap;" +
         "pointer-events:auto}" +
         "#pacto-demo-meter{color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}" +
-        "#pacto-demo-strip a:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
+        // display:flex above beats the hidden attribute, so say so explicitly or
+        // dismissing the strip would do nothing at all.
+        "#pacto-demo-strip[hidden]{display:none}" +
+        "#pacto-demo-close{pointer-events:auto;appearance:none;border:0;background:none;" +
+        "color:#94a3b8;font:inherit;line-height:1;cursor:pointer;border-radius:999px;" +
+        "padding:.2rem .4rem;margin:-.2rem -.3rem -.2rem 0}" +
+        "#pacto-demo-close:hover{color:#e2e8f0;background:rgba(148,163,184,.2)}" +
+        "#pacto-demo-strip a:focus-visible,#pacto-demo-close:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
         "@media (max-width:480px){#pacto-demo-strip{bottom:8px;max-width:96vw;" +
         "font-size:.75rem;padding:.4rem .7rem}}";
       document.head.appendChild(style);
@@ -136,9 +143,22 @@
       var link = document.createElement("a");
       link.href = DOCS_HREF;
       link.textContent = "About this demo";
+      // The strip is a notice, and a notice the reader has read is in the way. It sits
+      // over the bottom of the dashboard, which on a short window is where the content
+      // is -- so give it the one control every persistent notice owes the reader.
+      // Dismissed for the tab only: a reload is a fresh visitor as far as this fixture
+      // knows, and the label is the only thing on the page saying the fleet is invented.
+      var close = document.createElement("button");
+      close.id = "pacto-demo-close";
+      close.type = "button";
+      close.setAttribute("data-testid", "demo-strip-close");
+      close.setAttribute("aria-label", "Dismiss this notice");
+      close.textContent = "×";
+      close.addEventListener("click", function () { el.hidden = true; });
       el.appendChild(label);
       el.appendChild(meter);
       el.appendChild(link);
+      el.appendChild(close);
       document.body.appendChild(el);
       label.textContent = pending;
       paint();
@@ -164,6 +184,10 @@
     window.__pactoDemoFailed = function () {
       done();
       say("The Pacto engine did not load, so every panel will stay empty. Try reloading.");
+      // A dismissed notice stays dismissed for anything the reader has already been
+      // told. This is not that: without the strip, a failed load is a dashboard whose
+      // every panel is permanently empty and nothing anywhere saying why.
+      if (el) { el.hidden = false; }
     };
   })();
 

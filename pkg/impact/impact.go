@@ -109,6 +109,18 @@ type Result struct {
 	Owners             []string           `json:"owners,omitempty"`
 	Completeness       fleet.Completeness `json:"completeness"`
 	Limitations        []fleet.Limitation `json:"limitations,omitempty"`
+	// LimitationsTruncated reports that the snapshot and analysis produced more
+	// limitations than the answer carries.
+	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
+}
+
+// boundEnvelope applies the same cap fleet answers apply to the completeness
+// envelope. Several build paths emit one limitation per record -- per ambiguous
+// revision link, per non-canonical compliance value -- so on a fleet where two
+// sources merely disagree about a mutable tag the envelope is one entry per
+// target, and copying it verbatim makes the envelope most of the answer.
+func (r *Result) boundEnvelope() {
+	r.Limitations, r.LimitationsTruncated = fleet.BoundLimitations(r.Limitations)
 }
 
 // Analyze compares old→new and projects the change onto the operational graph.
@@ -128,6 +140,9 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		Limitations:    append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers:      []AffectedConsumer{},
 	}
+	// Both exits pass through here, so the early "not in the fleet" answer cannot
+	// ship an unbounded envelope either.
+	defer res.boundEnvelope()
 	// Breaking and potentially-breaking changes are kept SEPARATE: a
 	// POTENTIAL_BREAKING change is not a confirmed break and must not be presented
 	// as one.

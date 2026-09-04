@@ -45,7 +45,7 @@
         {#each skills as skill, i}
           <div class="detail-card">
             <button type="button" class="detail-card-header" onclick={() => toggleSkill(i)}>
-              <span class="expand-icon" class:open={expanded[i]}>
+              <span class="expand-icon" data-motion class:open={expanded[i]}>
                 <svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </span>
               <span class="pill pill-skill">skill</span>
@@ -95,7 +95,6 @@
   .expand-icon {
     display: inline-flex;
     color: var(--c-text-3);
-    transition: transform 200ms ease;
     transform: rotate(-90deg);
     flex-shrink: 0;
   }

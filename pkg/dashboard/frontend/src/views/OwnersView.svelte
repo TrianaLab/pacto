@@ -2,7 +2,7 @@
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
   import { aggregateByOwner, complianceClass, statusClass, ownerKey, UNOWNED_KEY, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
-  import OwnersBarChart from '../components/OwnersBarChart.svelte';
+  import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
@@ -59,6 +59,19 @@
       return 0;
     });
   });
+
+  // A ranked comparison of how much each owner carries. The readiness composition it
+  // replaced is in the table below, column by column and owner by owner -- the chart's
+  // job is the one thing a table is bad at, which is showing who carries the most at a
+  // glance. Ranked by service count regardless of the table's sort, because a bar chart
+  // sorted by owner name is a list with decoration.
+  const OWNER_ROWS = 15;
+  let ownerRanked = $derived([...owners].sort((a, b) => b.services - a.services));
+  let ownerRows = $derived(
+    ownerRanked.slice(0, OWNER_ROWS).map((o) => ({
+      label: o.label, value: o.services, tone: 'info', href: ownerUrl(o.key),
+    }))
+  );
 
   // Totals for filter pills — filtered by name (but not status) so counts update dynamically
   let allOwners = $derived(aggregateByOwner(services));
@@ -156,8 +169,16 @@
     <!-- Owners readiness composition bar chart -->
     {#if owners.length > 0}
       <div class="chart-panel fade-in-up">
-        <div class="chart-title">Readiness by owner</div>
-        <OwnersBarChart data={owners} />
+        <HorizontalBars
+          title="Services by owner"
+          level={2}
+          scopeNote={ownerRanked.length > OWNER_ROWS
+            ? `Top ${OWNER_ROWS} of ${ownerRanked.length} owners matching the current filters.`
+            : ''}
+          items={ownerRows}
+          unit="services"
+          unitOne="service"
+        />
       </div>
     {/if}
 
@@ -190,7 +211,7 @@
           {#each owners as row, i}
             <tr class="clickable" class:row-expanded={expandedOwner === row.key} onclick={() => toggleExpand(row.key)}>
               <td>
-                <button type="button" class="expand-icon" class:expanded={expandedOwner === row.key}
+                <button type="button" class="expand-icon" data-motion class:expanded={expandedOwner === row.key}
                   aria-expanded={expandedOwner === row.key} aria-controls="owner-detail-{i}"
                   aria-label="Toggle services for {row.label}{row.kind ? ` (${row.kind})` : ''}"
                   onclick={(e) => { e.stopPropagation(); toggleExpand(row.key); }}>›</button>
@@ -293,10 +314,6 @@
 
   /* ── Chart panels ── */
   .chart-panel { margin-bottom: var(--sp-4); }
-  .chart-title {
-    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3); margin-bottom: var(--sp-2);
-  }
 
   /* ── Controls ── */
   .controls-row {
@@ -392,7 +409,6 @@
   .expand-icon {
     display: inline-block; width: 14px;
     font-weight: 600; color: var(--c-text-3);
-    transition: transform 150ms ease;
     margin-right: 4px;
     background: none; border: none; padding: 0; cursor: pointer;
     font-size: inherit; line-height: 1;

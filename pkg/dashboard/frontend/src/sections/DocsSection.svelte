@@ -21,7 +21,7 @@
         <div class="detail-card-header">
           <button type="button" class="detail-card-header-btn" onclick={() => toggle(i)}>
             <span class="detail-card-header-left">
-              <span class="expand-icon" class:open={expanded[i]}>
+              <span class="expand-icon" data-motion class:open={expanded[i]}>
                 <svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </span>
               <span class="detail-card-title">{d.title}</span>
@@ -92,16 +92,11 @@
   .fullscreen-btn:hover { background: var(--c-surface-hover, var(--c-surface-inset)); color: var(--c-text); }
   .fullscreen-btn svg { width: 14px; height: 14px; }
   .detail-card-header-left { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
-  .expand-icon { display: inline-flex; color: var(--c-text-3); transition: transform 200ms ease; transform: rotate(-90deg); flex-shrink: 0; }
+  .expand-icon { display: inline-flex; color: var(--c-text-3); transform: rotate(-90deg); flex-shrink: 0; }
   .expand-icon.open { transform: rotate(0deg); }
   .expand-icon svg { width: 12px; height: 12px; }
   .detail-card-title { font-weight: 600; }
   .detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); }
   .pill-ref { background: var(--c-accent-bg); color: var(--c-accent); font-size: var(--text-xs); flex-shrink: 0; }
-  .detail-card-body { padding: 0 var(--sp-3) var(--sp-3); animation: slideReveal 200ms ease-out both; }
-
-  @keyframes slideReveal {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+  .detail-card-body { padding: 0 var(--sp-3) var(--sp-3); }
 </style>

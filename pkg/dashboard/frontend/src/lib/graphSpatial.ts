@@ -37,6 +37,7 @@ export interface GraphQuery {
   views: readonly string[];
   direction: string;
   depth: number;
+  maxNodes: number;
 }
 
 const PREFIX = 'pacto.graph.spatial.v1:';
@@ -50,8 +51,9 @@ const MAX_ENTRIES = 8;
 
 /** graphQueryKey is the canonical identity of a graph QUERY: same question, same key.
  *  Views are sorted so that selecting them in a different order is still the same
- *  question. The requested depth is part of the identity -- a deeper query is a
- *  different graph, and gets its own arrangement rather than inheriting one. */
+ *  question. The requested depth and node budget are part of the identity -- a deeper
+ *  or larger query is a different graph, and gets its own arrangement rather than
+ *  inheriting one. */
 export function graphQueryKey(q: GraphQuery): string {
   return [
     q.kind || '',
@@ -60,6 +62,7 @@ export function graphQueryKey(q: GraphQuery): string {
     [...(q.views || [])].sort().join('+'),
     q.direction || '',
     String(q.depth ?? ''),
+    String(q.maxNodes ?? ''),
   ].join('|');
 }
 

@@ -93,7 +93,11 @@ func (s *Server) registerFleetOperations(api huma.API) {
 		Path:        "/api/fleet/snapshot",
 		Summary:     "Operational-graph snapshot",
 		Description: "Returns the immutable fleet snapshot: logical services, contract revisions, " +
-			"operational targets, relationships and source states, with an as-of time and completeness.",
+			"operational targets, relationships and source states, with an as-of time and completeness. " +
+			"This is a whole-fleet BULK EXPORT for machine consumers and is deliberately unpaged: " +
+			"its size grows with the fleet. A consumer that wants a page, a filter or a bounded " +
+			"answer should use the product endpoints under /api/fleet/product, every one of which " +
+			"is paged and reports what it left out.",
 		Tags: []string{"Fleet"},
 	}, s.fleetSnapshot)
 
@@ -156,7 +160,10 @@ func (s *Server) fleetSnapshot(ctx context.Context, _ *struct{}) (*fleetSnapshot
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
-	return &fleetSnapshotOutput{Body: q.Snapshot()}, nil
+	// No defensive copy: the response is marshalled straight to the wire and never
+	// retained, so Snapshot()'s marshal-and-unmarshal round trip would double the
+	// work and the garbage of the largest response this server serves.
+	return &fleetSnapshotOutput{Body: q.SnapshotForSerialization()}, nil
 }
 
 type fleetSearchInput struct {
@@ -247,6 +254,10 @@ type fleetGraphInput struct {
 	Direction  string `query:"direction"`
 	Transitive bool   `query:"transitive"`
 	MaxDepth   int    `query:"maxDepth"`
+	// MaxNodes bounds the answer. Zero takes the engine default, and a larger value
+	// is clamped to it -- the traversal is linear but every node carries the path
+	// taken to reach it, so an unbounded deep answer is quadratic on the wire.
+	MaxNodes int `query:"maxNodes"`
 }
 
 type fleetGraphOutput struct {
@@ -261,6 +272,7 @@ func (s *Server) fleetGraph(ctx context.Context, in *fleetGraphInput) (*fleetGra
 	res, err := q.Graph(fleet.GraphQuery{
 		Service: in.Name, Revision: fleet.RevisionKey(in.Revision), Target: in.Target,
 		Direction: fleet.Direction(in.Direction), Transitive: in.Transitive, MaxDepth: in.MaxDepth,
+		MaxNodes: in.MaxNodes,
 	})
 	if err != nil {
 		var nf *fleet.NotFoundError

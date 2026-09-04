@@ -116,6 +116,17 @@ func TestFleetEndpoints_Serve(t *testing.T) {
 	expectStatus(t, base+"/api/fleet/services/nonexistent/graph", http.StatusNotFound)
 	// A bad direction is a malformed query (not a NotFound) → 422.
 	expectStatus(t, base+"/api/fleet/services/payment-service/graph?direction=sideways", http.StatusUnprocessableEntity)
+	// maxNodes reaches the engine: the answer is cut to the budget and says so,
+	// rather than growing with the fleet.
+	var bounded fleet.GraphResult
+	getJSON(t, base+"/api/fleet/services/payment-service/graph?direction=dependents&transitive=true&maxNodes=1", http.StatusOK, &bounded)
+	if len(bounded.Nodes) > 1 {
+		t.Errorf("maxNodes=1 returned %d nodes", len(bounded.Nodes))
+	}
+	if len(graph.Nodes) > 1 && !bounded.Truncated {
+		t.Error("a graph cut short by maxNodes must report truncation")
+	}
+	expectStatus(t, base+"/api/fleet/services/payment-service/graph?maxNodes=-1", http.StatusUnprocessableEntity)
 
 	// An invalid search filter → 422.
 	expectStatus(t, base+"/api/fleet/services?status=Bogus", http.StatusUnprocessableEntity)

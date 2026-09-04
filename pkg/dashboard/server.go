@@ -62,6 +62,11 @@ type Server struct {
 	// Cached service index for scan-heavy endpoints (dependents, cross-refs, graph).
 	indexMu    sync.Mutex
 	indexCache *serviceIndexCache
+	// indexBuildMu admits one rebuild at a time. indexMu is released before the
+	// rebuild so readers of a fresh cache are never blocked by it; this second gate
+	// is what stops every concurrent miss from running its own full serial
+	// resolution of the whole fleet. Lock order is always indexBuildMu -> indexMu.
+	indexBuildMu sync.Mutex
 
 	// Lazy OCI enrichment: retries discovery when OCI was not available at startup.
 	lazyEnrich    func(ctx context.Context) bool
@@ -1306,18 +1311,36 @@ func (s *Server) listRemoteVersions(ctx context.Context, input *listRemoteVersio
 
 // ── Shared helpers ──────────────────────────────────────────────────
 
+// freshIndex reports the cached index if it is still within its TTL, and
+// otherwise returns the expired one (if any) as the stale fallback a failed
+// rebuild can serve.
+func (s *Server) freshIndex() (fresh, stale *serviceIndexCache) {
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	if s.indexCache != nil && time.Since(s.indexCache.builtAt) < indexCacheTTL {
+		return s.indexCache, nil
+	}
+	return nil, s.indexCache
+}
+
 // getCachedIndex returns the cached service index, rebuilding it if stale.
 func (s *Server) getCachedIndex(ctx context.Context) *serviceIndexCache {
 	s.ensureOCIEnriched(ctx)
 	s.redetectK8sIfNeeded(ctx)
-	s.indexMu.Lock()
-	if s.indexCache != nil && time.Since(s.indexCache.builtAt) < indexCacheTTL {
-		cached := s.indexCache
-		s.indexMu.Unlock()
+	if cached, _ := s.freshIndex(); cached != nil {
 		return cached
 	}
-	stale := s.indexCache
-	s.indexMu.Unlock()
+
+	// Queue behind any rebuild already in flight, then look again: the winner of
+	// the race stores a fresh index before releasing this gate, so the loser
+	// returns it and does no work at all. Without this every concurrent miss ran
+	// the same whole-fleet resolution end to end.
+	s.indexBuildMu.Lock()
+	defer s.indexBuildMu.Unlock()
+	cached, stale := s.freshIndex()
+	if cached != nil {
+		return cached
+	}
 
 	// Rebuild outside the lock to avoid blocking concurrent requests. Detach from the
 	// request context: this populates the SHARED index cache, so a client disconnect

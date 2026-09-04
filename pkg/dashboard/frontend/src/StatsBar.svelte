@@ -151,7 +151,7 @@
     padding: 5px 12px; border-radius: 100px;
     border: 1px solid var(--c-border); background: var(--c-surface);
     font: inherit; font-size: var(--text-xs); color: var(--c-text-2);
-    cursor: pointer; transition: all var(--transition);
+    cursor: pointer; transition: var(--motion-feedback); transition-property: var(--motion-tint);
     white-space: nowrap;
     min-height: 32px;
   }

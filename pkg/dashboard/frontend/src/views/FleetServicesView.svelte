@@ -16,6 +16,8 @@
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import { complianceSegments, ownershipSegments, ownershipHrefs, ownerRanking, statusHrefs, bucketLabel, OWNERSHIP_STATES } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
+  import { flip } from 'svelte/animate';
+  import { MOTION, dur } from '../lib/motion.ts';
 
   // The product Services list. It is the canonical destination of
   // the backend EntryPointServices href (/fleet/services) and the primary Navbar
@@ -72,9 +74,17 @@
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.entities?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
+  // Read off `loader.data`, not `list`: `list` is nulled the instant the query changes,
+  // which is exactly when the skeleton renders, and 0 rows is no shape at all. The stale
+  // page's row count is the best guess at the next page's, and a page is the fallback.
+  const skeletonRows = $derived(loader.data?.entities?.length || PAGE_SIZE);
   // A poll that failed over rows we can still show. decideViewState keeps the rows;
   // this is the half that keeps it honest, so a frozen list never reads as a live one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
+  // A poll in flight over data already on screen. decideViewState has decided this on
+  // every page since stale-while-revalidate landed; the header is the first thing to
+  // actually say it, in words rather than by spinning something.
+  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
 
   const total = $derived(list?.total ?? 0);
   const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
@@ -178,7 +188,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
-  <PageHeader title="Services" count={list ? `${total} service${total === 1 ? '' : 's'}` : ''} />
+  <PageHeader title="Services" count={list ? `${total} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} />
 
   <div class="sv-filters">
     <!-- Suggestions come from the backend Entities query, restricted to services, so
@@ -284,7 +294,7 @@
            is native. -->
       <details class="disclosure sv-inv-more">
         <summary>
-          <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+          <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
           <span>Per-owner breakdown</span>
           <span class="sv-more-count t-meta">{distinctOwners} named {distinctOwners === 1 ? 'owner' : 'owners'}</span>
         </summary>
@@ -313,28 +323,28 @@
   {/if}
 
   {#if state.kind !== 'ready'}
-    <ProductEmptyState {state} noun="services" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
+    <ProductEmptyState {state} noun="services" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <ul class="sv-list" data-testid="service-list">
+    <ul class="sv-list pl-list" data-testid="service-list">
       {#each list.entities as ref (ref.kind + '::' + ref.key)}
-        <li class="sv-item">
-          <EntityLink {ref} showStatus={true} />
+        <li class="sv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}>
+          <EntityLink {ref} showStatus={true} showKind={false} />
         </li>
       {/each}
     </ul>
 
-    <nav class="sv-pager" aria-label="Service pages">
-      <span class="sv-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="sv-pager-btns">
+    <nav class="sv-pager pl-pager" aria-label="Service pages">
+      <span class="sv-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
+      <div class="sv-pager-btns pl-pager-btns">
         {#if hasPrev}
-          <a class="sv-page" href={urlWith({}, prevOffset)} data-testid="svc-prev" rel="prev">Previous</a>
+          <a class="sv-page pl-page" href={urlWith({}, prevOffset)} data-testid="svc-prev" rel="prev">Previous</a>
         {:else}
-          <span class="sv-page disabled" aria-disabled="true">Previous</span>
+          <span class="sv-page pl-page disabled" aria-disabled="true">Previous</span>
         {/if}
         {#if hasNext}
-          <a class="sv-page" href={urlWith({}, list.nextOffset)} data-testid="svc-next" rel="next">Next</a>
+          <a class="sv-page pl-page" href={urlWith({}, list.nextOffset)} data-testid="svc-next" rel="next">Next</a>
         {:else}
-          <span class="sv-page disabled" aria-disabled="true">Next</span>
+          <span class="sv-page pl-page disabled" aria-disabled="true">Next</span>
         {/if}
       </div>
     </nav>
@@ -369,23 +379,6 @@
   .sv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--sp-4); align-items: start; }
   .sv-more-count { color: var(--c-text-3); }
   .sv-inv-more[open] > .sv-inv-grid { margin-top: var(--sp-3); }
-  .sv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .sv-item {
-    display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
-    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: var(--c-surface);
-  }
-  .sv-pager {
-    display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
-    flex-wrap: wrap; margin-top: var(--sp-2);
-  }
-  .sv-range { color: var(--c-text-3); font-size: var(--text-sm); }
-  .sv-pager-btns { display: flex; gap: var(--sp-2); }
-  .sv-page {
-    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    font-size: var(--text-sm); color: var(--c-text); text-decoration: none; background: var(--c-surface);
-    min-height: var(--touch-min); display: inline-flex; align-items: center;
-  }
-  .sv-page:hover { border-color: var(--c-accent); text-decoration: none; }
-  .sv-page.disabled { color: var(--c-text-3); opacity: 0.5; pointer-events: none; }
+  /* The list, the row and the pager are the shared .pl-* rules in styles/components.css.
+     The .sv-* names stay on the markup because the tests address rows by them. */
 </style>

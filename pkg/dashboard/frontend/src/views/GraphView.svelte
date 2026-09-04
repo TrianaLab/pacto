@@ -7,9 +7,10 @@
     differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
     defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
-    canonicalFocusForPerspective, projectionFocusMismatch,
+    canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes,
   } from '../lib/graphState.ts';
   import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
+  import { abbreviateDigests } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -41,11 +42,11 @@
   // ── focused neighborhood (product API only) ──────────────────────────────────
   const loader = createProductLoader(() => api.fleetNeighborhood({
     kind: gs.kind, key: gs.key, perspective: gs.perspective,
-    direction: gs.direction, depth: gs.depth, views: gs.views,
+    direction: gs.direction, depth: gs.depth, views: gs.views, maxNodes: gs.maxNodes,
   }));
   $effect(() => {
     if (focused) {
-      loader.sync(`${gs.kind}@@${gs.key}@@${gs.perspective}@@${gs.direction}@@${gs.depth}@@${gs.views.join(',')}@@${refreshTick}`, queryKey);
+      loader.sync(`${gs.kind}@@${gs.key}@@${gs.perspective}@@${gs.direction}@@${gs.depth}@@${gs.maxNodes}@@${gs.views.join(',')}@@${refreshTick}`, queryKey);
     }
   });
   onDestroy(() => loader.destroy());
@@ -64,7 +65,17 @@
   // under a different query would render one graph while the page claims another, and
   // would file its node positions under the new query's key. The loader tags its data
   // with the query it answers, so this is a fact, not a guess.
-  const shown = $derived(nb && loader.dataTag === queryKey ? nb : null);
+  //
+  // ...with ONE exception, and it is the reason a Depth or Direction toggle used to blank
+  // the canvas: while a different question about the SAME SUBJECT is in flight, the
+  // previous answer stays mounted. NeighborhoodGraph reconciles the new one into it, so
+  // the arrangement and the viewport survive what is, to the reader, an adjustment rather
+  // than a navigation. Unmounting here destroyed the instance before it could, whatever
+  // NeighborhoodGraph did with its own keying. A change of SUBJECT is a navigation and
+  // carries nothing.
+  const graphSubject = (k) => (k || '').split('|', 3).join('|');
+  const carrying = $derived(!!nb && loader.dataTag !== queryKey && graphSubject(loader.dataTag) === graphSubject(queryKey));
+  const shown = $derived(nb && (loader.dataTag === queryKey || carrying) ? nb : null);
 
   // Canonicalize an old deep link whose focus the backend REPLACED (a bookmarked target
   // URL under the revision perspective resolves to the linked revision). RequestedFocus
@@ -77,6 +88,7 @@
     if (canon) {
       replaceHash(fleetGraphFocusUrl(canon.kind, canon.key, {
         perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth,
+        maxNodes: gs.maxNodes,
       }));
     }
   });
@@ -93,7 +105,10 @@
     targetRevisionAuthoritative: revisionLinkAuthoritative(focusNode?.revisionState),
   }));
   const depthSupported = $derived(perspectiveSupportsDepth(gs.perspective));
-  const oneHopNote = $derived(shown && shown.effectiveDepth < gs.depth);
+  // Both of these are claims about the answer to the CURRENT question, so neither is made
+  // while a carried answer is on screen -- an old effectiveDepth of 1 against a freshly
+  // requested depth of 3 would otherwise assert a one-hop projection that is not one.
+  const oneHopNote = $derived(!carrying && shown && shown.effectiveDepth < gs.depth);
 
   // ── quick-inspection drawer (node or edge) ───────────────────────────────────
   // The drawer is a NON-modal side panel: it is not focus-trapped;
@@ -107,7 +122,18 @@
     const a = document.activeElement;
     drawerOpener = a && a !== document.body ? a : null;
   }
-  function selectNode(node) { if (node) { rememberOpener(); selected.kind = 'node'; selected.node = node; selected.edge = null; } }
+  // Picking a node from the text list points the CANVAS at it too: same pin, same gentle
+  // centering a tap would give. Without it the two halves of this screen answered
+  // separately -- the drawer described one entity while the topology beside it still
+  // emphasised another, and a keyboard reader could never move the canvas at all.
+  // `pin: false` is for the opposite direction (the canvas reporting its own tap), where
+  // the camera has already run and re-running it re-centres a node already centred.
+  function selectNode(node, { pin = true } = {}) {
+    if (!node) return;
+    rememberOpener();
+    selected.kind = 'node'; selected.node = node; selected.edge = null;
+    if (pin) controls?.focusNode(node.ref.key);
+  }
   function selectEdge(edge) { if (edge) { rememberOpener(); selected.kind = 'edge'; selected.edge = edge; selected.node = null; } }
   function closeDrawer() {
     selected.kind = ''; selected.node = null; selected.edge = null;
@@ -125,7 +151,7 @@
   });
   // Canvas selection reports the Cytoscape element id; map it back to the backend node
   // (by canonical key) or edge (by the reproduced Cytoscape edge id).
-  function selectNodeById(id) { selectNode((shown?.nodes || []).find((n) => n.ref.key === id)); }
+  function selectNodeById(id) { selectNode((shown?.nodes || []).find((n) => n.ref.key === id), { pin: false }); }
   function selectEdgeByCyId(cyId) {
     selectEdge((shown?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
   }
@@ -134,9 +160,72 @@
   let controls = $state(null);
   function onControls(c) { controls = c; }
 
+  // ── legend-as-filter ─────────────────────────────────────────────────────────
+  // Every legend entry names a distinction the canvas actually draws, so every one of
+  // them can switch that distinction off. A dense neighborhood is read by taking things
+  // out of it, and this legend was the one place on the screen that already listed
+  // exactly the right things to take out -- as static text. Nothing leaves the data or
+  // the text list: hidden categories fade on the canvas and the summary line names them.
+  const LEGEND_GROUPS = [
+    { title: 'Nodes', items: [
+      { key: 'kind:service', label: 'Service', cls: 'lg-node lg-service' },
+      { key: 'kind:revision', label: 'Revision', cls: 'lg-node lg-revision' },
+      { key: 'kind:target', label: 'Operational target', cls: 'lg-node lg-target' },
+    ] },
+    { title: 'Relationship', items: [
+      { key: 'rel:dependency', label: 'Depends on', cls: 'lg-edge lg-dep' },
+      { key: 'rel:runs', label: 'Runs', cls: 'lg-edge lg-runs' },
+    ] },
+    { title: 'Reconciliation', items: [
+      { key: 'state:matched', label: 'Matched / corroborated', cls: 'lg-edge lg-matched' },
+      { key: 'state:expected-not-observed', label: 'Expected, not observed', cls: 'lg-edge lg-eno' },
+      { key: 'state:drift', label: 'Observed, not expected', cls: 'lg-edge lg-drift' },
+      { key: 'state:insufficient', label: 'Insufficient evidence', cls: 'lg-edge lg-insufficient' },
+    ] },
+  ];
+  let hiddenKeys = $state([]);
+  const legendShown = (k) => !hiddenKeys.includes(k);
+  function toggleLegend(k) {
+    hiddenKeys = hiddenKeys.includes(k) ? hiddenKeys.filter((x) => x !== k) : [...hiddenKeys, k];
+  }
+  $effect(() => { controls?.applyLegendFilter(new Set(hiddenKeys)); });
+
+  // What the canvas is showing right now, in words. The text alternative listed the
+  // nodes and the edges but never said how many, never said the legend was hiding some
+  // of them and never said which one the drawer was about -- so a reader who cannot see
+  // the canvas was the only reader those three facts were kept from. Polite, because
+  // none of it interrupts anything.
+  const hiddenLabels = $derived(
+    LEGEND_GROUPS.flatMap((g) => g.items).filter((i) => hiddenKeys.includes(i.key)).map((i) => i.label)
+  );
+  const selectedSummary = $derived(
+    selected.kind === 'node' ? `Selected ${selected.node?.ref?.label || selected.node?.ref?.key}.`
+      : selected.kind === 'edge' ? `Selected the relationship from ${selected.edge?.from?.label || selected.edge?.from?.key} to ${selected.edge?.to?.label || selected.edge?.to?.key}.`
+      : ''
+  );
+  // How much of the neighborhood is on screen. totalNodes is the count the traversal
+  // reached before the node budget was applied, so it is the honest denominator -- and
+  // it is reported by the service projection only, which is why anything at or below
+  // the shown count reads as "no denominator" rather than as "you have it all".
+  const totalNodes = $derived(shown?.totalNodes ?? 0);
+  const withheldNodes = $derived(shown ? Math.max(0, totalNodes - shown.nodes.length) : 0);
+  const moreNodes = $derived(nextMaxNodes(gs.maxNodes));
+  const truncationNote = $derived(
+    withheldNodes
+      ? `Showing ${shown.nodes.length} of ${totalNodes} entities within this depth.`
+      : 'This neighborhood is bounded and was truncated.'
+  );
+
+  const graphSummary = $derived(!shown ? '' : [
+    `${shown.nodes.length} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${shown.edges.length} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
+    withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
+    hiddenLabels.length ? `Dimmed on the canvas: ${hiddenLabels.join(', ')}.` : '',
+    selectedSummary,
+  ].filter(Boolean).join(' '));
+
   // ── control -> URL (shareable graph state; never canvas coordinates) ─────────
   function go(patch) {
-    const next = { perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth, ...patch };
+    const next = { perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth, maxNodes: gs.maxNodes, ...patch };
     location.hash = fleetGraphFocusUrl(gs.kind, gs.key, next);
     closeDrawer();
   }
@@ -369,9 +458,16 @@
         <div class="gv-error" role="alert" data-testid="graph-refresh-error">Couldn't refresh the neighborhood, so this is the last answer we got: {error instanceof Error ? error.message : String(error)}</div>
       {/if}
       <KnowledgeBanner {knowledge} noun="neighborhood" testid="graph-knowledge-caveat" />
-      {#if shown.truncated}
+      {#if !carrying && shown.truncated}
         <div class="gv-caveat tone-warn" role="status" data-testid="graph-truncated">
-          This neighborhood is bounded and was truncated. Narrow the direction or depth, or open an entity to continue.
+          {truncationNote}
+          {#if moreNodes}
+            <button type="button" class="gv-more" data-testid="graph-show-more" onclick={() => go({ maxNodes: moreNodes })}>
+              Show up to {moreNodes}
+            </button>
+          {:else}
+            Narrow the direction or depth, or open an entity to continue.
+          {/if}
         </div>
       {/if}
       {#if oneHopNote}
@@ -392,34 +488,46 @@
             <!-- Primary: the visual Cytoscape topology. -->
             <NeighborhoodGraph neighborhood={shown} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
 
-            <!-- Legend: every item is a REAL canvas distinction.
+            <!-- Legend, and the canvas's filter: every item is a REAL canvas distinction.
                  Node kinds are shapes/borders; edge relation and reconciliation state are
                  line-swatches that mirror exactly what the canvas draws (line style +
                  width + tone), never a decorative badge for a state the canvas can't show.
-                 The drawer/text list keeps the precise, scoped wording. -->
-            <div class="gv-legend" data-testid="graph-legend" aria-label="Graph legend">
-              <span class="lg-group">Nodes</span>
-              <span class="lg-item"><span class="lg-node lg-service"></span> Service</span>
-              <span class="lg-item"><span class="lg-node lg-revision"></span> Revision</span>
-              <span class="lg-item"><span class="lg-node lg-target"></span> Operational target</span>
-              <span class="lg-group">Relationship</span>
-              <span class="lg-item"><span class="lg-edge lg-dep"></span> Depends on</span>
-              <span class="lg-item"><span class="lg-edge lg-runs"></span> Runs</span>
-              <span class="lg-group">Reconciliation</span>
-              <span class="lg-item"><span class="lg-edge lg-matched"></span> Matched / corroborated</span>
-              <span class="lg-item"><span class="lg-edge lg-eno"></span> Expected, not observed</span>
-              <span class="lg-item"><span class="lg-edge lg-drift"></span> Observed, not expected</span>
-              <span class="lg-item"><span class="lg-edge lg-insufficient"></span> Insufficient evidence</span>
+                 Because each entry names something the canvas draws, each entry can also
+                 switch it off. The drawer/text list keeps the precise, scoped wording. -->
+            <div class="gv-legend" role="group" data-testid="graph-legend" aria-label="Graph legend and filters">
+              {#each LEGEND_GROUPS as grp (grp.title)}
+                <span class="lg-group">{grp.title}</span>
+                {#each grp.items as it (it.key)}
+                  <button
+                    type="button"
+                    class="lg-item"
+                    class:lg-off={!legendShown(it.key)}
+                    aria-pressed={legendShown(it.key)}
+                    onclick={() => toggleLegend(it.key)}
+                    data-testid="graph-legend-toggle"
+                    data-legend-key={it.key}
+                  ><span class={it.cls} aria-hidden="true"></span> {it.label}</button>
+                {/each}
+              {/each}
             </div>
 
             <!-- Accessible text alternative: the same nodes and edges as
-                 a semantic list, keyboard-focusable, driving the same drawer. -->
+                 a semantic list, keyboard-focusable, driving the same drawer. The summary
+                 states what the canvas states visually -- how much is here, what the
+                 legend is dimming, what is selected -- so the two are not different
+                 screens for different readers. -->
+            <p class="gv-summary" aria-live="polite" data-testid="graph-summary">{graphSummary}</p>
             <details class="gv-textalt disclosure" data-testid="graph-textalt">
-              <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Relationships (text)</summary>
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Relationships (text)</summary>
               <ul class="gv-nodes" aria-label="Graph nodes">
                 {#each shown.nodes as n (n.ref.key)}
                   <li>
-                    <button type="button" class="gv-textbtn" class:is-focus={n.focus} onclick={() => selectNode(n)} data-testid="graph-node-item">
+                    <button
+                      type="button" class="gv-textbtn"
+                      class:is-focus={n.focus} class:is-selected={selected.node === n}
+                      aria-current={selected.node === n ? 'true' : undefined}
+                      onclick={() => selectNode(n)} data-testid="graph-node-item"
+                    >
                       <EntityIdentity ref={n.ref} />
                     </button>
                   </li>
@@ -428,7 +536,11 @@
               <ul class="gv-edges" aria-label="Graph relationships" data-testid="graph-edges">
                 {#each shown.edges as e (e.id)}
                   <li>
-                    <button type="button" class="gv-edge" onclick={() => selectEdge(e)} data-testid="graph-edge">
+                    <button
+                      type="button" class="gv-edge" class:is-selected={selected.edge === e}
+                      aria-current={selected.edge === e ? 'true' : undefined}
+                      onclick={() => selectEdge(e)} data-testid="graph-edge"
+                    >
                       <span class="gv-endpoint">{e.from.label || e.from.key}</span>
                       <span class="gv-rel" data-testid="edge-relation">{relationLabel(e.relation)}</span>
                       <span class="gv-endpoint">{e.to.label || e.to.key}</span>
@@ -503,7 +615,11 @@
                   <span class="gv-k">Declared by</span>
                   <ul>
                     {#each selected.edge.declaredClaims.items as c, i (i)}
-                      <li>{c.sourceRevision || 'a revision'}{#if c.compatibility} &middot; <code>{c.compatibility}</code>{/if}{#if c.reconciliation} &middot; {c.reconciliation}{/if}</li>
+                      <!-- Through the shared abbreviator, like every other surface that
+                           prints a canonical revision key. A 64-hex digest has no break
+                           opportunity, so printed whole it also sets this panel's
+                           minimum width and pushes the panel off the screen. -->
+                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility} &middot; <code>{c.compatibility}</code>{/if}{#if c.reconciliation} &middot; {c.reconciliation}{/if}</li>
                     {/each}
                   </ul>
                 </div>
@@ -542,6 +658,10 @@
   .gv-link { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
   .gv-link:hover { text-decoration: underline; }
   .gv-caveat { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); }
+  /* The way out of a truncated answer sits inside the sentence that reports it, so
+     the reader never has to go looking for the control that fixes what they just read. */
+  .gv-more { border: 1px solid var(--c-warn-border); border-radius: var(--radius-xs); background: none; padding: 1px 8px; margin-left: 4px; font: inherit; color: inherit; cursor: pointer; transition: background var(--motion-feedback); }
+  .gv-more:hover { background: var(--c-surface); }
   .gv-status { color: var(--c-text-3); }
   .gv-error { padding: var(--sp-3); border-radius: var(--radius-sm); background: var(--c-err-bg); border: 1px solid var(--c-err); color: var(--c-text); }
 
@@ -549,7 +669,14 @@
   .gv-main { display: flex; flex-direction: column; gap: var(--sp-4); }
 
   .gv-legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); font-size: var(--text-sm); color: var(--c-text-2); }
-  .lg-item { display: inline-flex; align-items: center; gap: 6px; }
+  /* A legend entry is a toggle, so it is a button -- reset to look like the text it
+     replaced, and given a hit target and a focus ring like every other control. */
+  .lg-item { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; margin: -2px -4px; border: 0; border-radius: var(--radius-xs); background: none; font: inherit; color: inherit; cursor: pointer; transition: color var(--motion-feedback), opacity var(--motion-feedback); }
+  .lg-item:hover { color: var(--c-text); }
+  /* Struck through, not just faded: "off" has to be readable in a screenshot, in a
+     high-contrast theme and to a reader who cannot separate these two greys. */
+  .lg-off { color: var(--c-text-3); text-decoration: line-through; }
+  .lg-off .lg-node, .lg-off .lg-edge { opacity: 0.3; }
   .lg-node { width: 16px; height: 12px; border: 1.5px solid var(--c-text-3); background: var(--c-surface); }
   .lg-service { border-radius: 3px; }
   .lg-revision { border-radius: 3px; border-style: dashed; }
@@ -571,8 +698,13 @@
   /* Look and behaviour come from the shared .disclosure class. */
   .gv-nodes, .gv-edges { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .gv-nodes { flex-flow: row wrap; }
+  .gv-summary { margin: var(--sp-2) 0 0; font-size: var(--text-sm); color: var(--c-text-2); }
   .gv-textbtn { display: inline-flex; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); cursor: pointer; text-align: left; }
-  .gv-textbtn.is-focus { border-color: var(--c-accent); border-width: 2px; }
+  /* Both marks are inset shadows, not a thicker border: a border that grows on selection
+     reflows the row it is in and nudges every row after it, so marking one entry moved
+     the list under the pointer that was picking from it. */
+  .gv-textbtn.is-focus { border-color: var(--c-accent); box-shadow: inset 0 0 0 1px var(--c-accent); }
+  .gv-textbtn.is-selected, .gv-edge.is-selected { border-color: var(--c-accent); box-shadow: inset 0 0 0 2px var(--c-accent); }
   .gv-edge { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); cursor: pointer; }
   .gv-edge:hover, .gv-textbtn:hover { border-color: var(--c-accent); }
   .gv-rel { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em; color: var(--c-text-3); }
@@ -596,6 +728,8 @@
   .gv-drawer-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
 
   @media (min-width: 900px) {
-    .gv-body.gv-body-drawer { grid-template-columns: 1fr minmax(280px, 360px); align-items: start; }
+    /* minmax(0, ...) rather than a bare 1fr: a grid item's automatic minimum is its
+       content, so one wide child is enough to stop the column shrinking for the drawer. */
+    .gv-body.gv-body-drawer { grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); align-items: start; }
   }
 </style>

@@ -11,7 +11,10 @@ html {
   -webkit-font-smoothing: antialiased;
   background: var(--c-bg);
   color: var(--c-text);
-  transition: background var(--transition), color var(--transition);
+  /* No transition on the theme flip. Only <html>'s own two properties could animate;
+     the navbar, every badge, every row and the graph canvas switch instantly, so a
+     crossfade here bought a 150ms window where the page was two themes at once. A
+     theme toggle is a mode switch, not a state change. */
   /* Reserve the vertical scrollbar's gutter at all times so its appearance never
      narrows the content box — that narrowing is what makes fixed-width tables
      briefly overflow and flash a spurious horizontal scrollbar. */
@@ -63,12 +66,21 @@ pre {
   outline-offset: 2px;
 }
 
-/* Reduced motion */
+/* Reduced motion — the backstop under the token-level policy in tokens.css.
+   The tokens zero the durations a component ASKED for; this catches the value a
+   component hardcoded anyway. Both the delays matter as much as the durations: with
+   `fill-mode: both` a staggered row survives the duration reset and just holds at
+   opacity 0 for its delay, which is strictly worse than the animation it replaced.
+   .001ms rather than 0s is deliberate — an animation with a real duration still fires
+   its `animationend`, and e2e/viz-acceptance.spec.ts asserts `seconds <= 0.001`. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important;
+    animation-delay: -1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .001ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
   }
 }
 

@@ -313,8 +313,19 @@ type Neighborhood struct {
 	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
 	Limitations            LimitationsPreview            `json:"limitations"`
 	Truncated              bool                          `json:"truncated"`
-	MaxNodes               int                           `json:"maxNodes"`
-	MaxEdges               int                           `json:"maxEdges"`
+	// TotalNodes is how many nodes the walk reached within EffectiveDepth, before
+	// the node cap -- the denominator for Nodes. It equals len(Nodes) when the
+	// answer is not truncated, and it is what lets a reader tell a hub with
+	// sixty-one neighbors from one with four hundred.
+	//
+	// It is reported by the SERVICE projection only. The revision and target
+	// projections stop expanding at the cap, so they never reach what they did not
+	// draw and cannot count it; they report zero rather than a floor dressed up as
+	// a census, and a consumer reads zero as "no denominator available", never as
+	// "you have all of it".
+	TotalNodes int `json:"totalNodes"`
+	MaxNodes   int `json:"maxNodes"`
+	MaxEdges   int `json:"maxEdges"`
 }
 
 // Neighborhood returns the bounded local SERVICE neighborhood of the focus entity
@@ -448,7 +459,7 @@ func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParam
 	// The requested views decide which knowledge kinds the walk may follow, so a
 	// node reachable only through an excluded knowledge kind is never in scope.
 	wantDeclared, wantObserved := knowledgeFromViews(bp.views)
-	nodeDepth, truncatedNodes := q.walkNeighborhood(root, bp.dir, bp.depth, bp.maxNodes, wantDeclared, wantObserved)
+	nodeDepth, truncatedNodes, totalNodes := q.walkNeighborhood(root, bp.dir, bp.depth, bp.maxNodes, wantDeclared, wantObserved)
 	edges, truncatedEdges := q.neighborhoodEdges(nodeDepth, bp.views, bp.maxEdges)
 	res := &Neighborhood{
 		Meta: q.productMeta(), Perspective: PerspectiveService, RequestedFocus: requested, FocusService: focusService,
@@ -457,6 +468,7 @@ func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParam
 		UnresolvedDependencies: q.unresolvedNeighborhoodDeps(nodeDepth, wantDeclared),
 		Limitations:            limitationsPreview(nil),
 		Truncated:              truncatedNodes || truncatedEdges,
+		TotalNodes:             totalNodes,
 	}
 	return res, nil
 }
@@ -585,30 +597,39 @@ func (q *Query) adjacent(key ServiceKey, dir Direction, wantDeclared, wantObserv
 }
 
 // walkNeighborhood does a bounded breadth-first walk from root over the requested
-// knowledge kinds, returning the depth at which each reached node was first seen
-// and whether the node cap was hit.
-func (q *Query) walkNeighborhood(root ServiceKey, dir Direction, maxDepth, maxNodes int, wantDeclared, wantObserved bool) (map[ServiceKey]int, bool) {
-	depthOf := map[ServiceKey]int{root: 0}
+// knowledge kinds, returning the depth at which each reached node was first seen,
+// whether the node cap was hit, and how many nodes were reachable in total.
+//
+// The walk keeps going after the cap. It costs O(V+E) either way -- the cap exists
+// to bound the ANSWER, not the traversal -- and stopping early is what left a
+// truncated neighborhood unable to name its own denominator: a shared-infra hub
+// showed sixty neighbors and no way to tell sixty-one from four hundred, which is
+// exactly the difference that decides whether narrowing the direction will help.
+// The kept sixty are unchanged: once the cap is met it stays met, so no node
+// reached by the extra walking can enter depthOf.
+func (q *Query) walkNeighborhood(root ServiceKey, dir Direction, maxDepth, maxNodes int, wantDeclared, wantObserved bool) (depthOf map[ServiceKey]int, truncated bool, total int) {
+	depthOf = map[ServiceKey]int{root: 0}
+	reached := map[ServiceKey]bool{root: true}
 	frontier := []ServiceKey{root}
-	truncated := false
 	for d := 0; d < maxDepth && len(frontier) > 0; d++ {
 		var next []ServiceKey
 		for _, node := range frontier {
 			for _, nb := range q.adjacent(node, dir, wantDeclared, wantObserved) {
-				if _, ok := depthOf[nb]; ok {
+				if reached[nb] {
 					continue
 				}
+				reached[nb] = true
+				next = append(next, nb)
 				if len(depthOf) >= maxNodes {
 					truncated = true
 					continue
 				}
 				depthOf[nb] = d + 1
-				next = append(next, nb)
 			}
 		}
 		frontier = next
 	}
-	return depthOf, truncated
+	return depthOf, truncated, len(reached)
 }
 
 // neighborhoodNodes builds the node list, deterministically ordered by depth then

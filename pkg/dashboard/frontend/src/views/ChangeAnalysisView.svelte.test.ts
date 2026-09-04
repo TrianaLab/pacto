@@ -127,6 +127,30 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
+  it('carries the shared page navigator, and only lists sections the analysis actually rendered', async () => {
+    // A finished analysis runs several screens deep, so the workspace joins the long
+    // product pages on the shared rail. Before there is a result there is one section to
+    // name, and offering a contents list for it would promise a page that is not there.
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    expect(document.querySelector('[data-testid="page-toc"]')).toBeNull();
+
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.textContent).toContain('Affected consumers'));
+    flushSync();
+    const toc = document.querySelector('[data-testid="page-toc"]');
+    expect(toc).toBeTruthy();
+    expect(Array.from(toc!.querySelectorAll('.toc-link')).map((b) => b.textContent)).toEqual([
+      'Revisions to compare', 'What changed', 'What it affects', 'Affected consumers',
+    ]);
+    // Every entry has to land somewhere: the navigator scrolls to an id, so an entry
+    // whose section carries no id is a control that does nothing when clicked.
+    for (const id of ['sec-revisions', 'sec-what-changed', 'sec-what-it-affects', 'sec-affected-consumers']) {
+      expect(target.querySelector(`#${id}`), id).toBeTruthy();
+    }
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('does NOT treat a truncated service-detail preview as the complete revision universe', async () => {
     detailFn.mockResolvedValue(serviceDetail(true)); // revisions preview truncated
     entitiesFn.mockResolvedValue({ meta, total: 3, count: 3, limit: 200, offset: 0, truncated: false, entities: [rev2, rev1, ref('revision', 'domain-a/payments@sha256:0', 'payments 0.9.0')] });

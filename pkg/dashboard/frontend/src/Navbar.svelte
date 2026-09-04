@@ -1,6 +1,7 @@
 <script>
   import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
+  import { prefersReducedMotion } from './lib/motion.ts';
   import SourceDot from './components/SourceDot.svelte';
 
   let {
@@ -85,7 +86,7 @@
   // Spin the brand mark on click (also navigates home via the href). Reduced-motion safe.
   function spinLogo(e) {
     const el = e.currentTarget.querySelector('.brand-mark');
-    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!el || prefersReducedMotion()) return;
     el.classList.remove('spin');
     void el.offsetWidth; // reflow so the animation restarts on every click
     el.classList.add('spin');
@@ -146,7 +147,7 @@
 <header class="navbar">
   <div class="navbar-left">
     <a href={homeHref} class="navbar-brand" onclick={spinLogo}>
-      <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M10 6 5 12 10 18"/><path d="M14 6 19 12 14 18"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
+      <svg class="brand-mark" data-motion viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M10 6 5 12 10 18"/><path d="M14 6 19 12 14 18"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
       Pacto
       {#if version}<span class="version-tag">{version}</span>{/if}
     </a>
@@ -197,7 +198,7 @@
     aria-expanded={mobileMenuOpen}
     aria-controls="mobile-drawer"
   >
-    <span></span><span></span><span></span>
+    <span data-motion></span><span data-motion></span><span data-motion></span>
   </button>
 </header>
 
@@ -256,7 +257,6 @@
   .navbar-brand svg { color: var(--c-accent); transform-origin: 50% 50%; }
   .navbar-brand svg.spin { animation: brand-spin 0.6s ease; }
   @keyframes brand-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .navbar-brand svg.spin { animation: none; } }
   .version-tag {
     font-size: var(--text-xs); font-weight: 500; color: var(--c-text-3);
     background: var(--c-bg); border: 1px solid var(--c-border);
@@ -321,7 +321,7 @@
     border: 1px solid transparent;
     color: var(--c-text-3);
     cursor: pointer;
-    transition: all var(--transition);
+    transition: var(--motion-feedback); transition-property: var(--motion-tint);
   }
   .navbar-right :global(.btn-ghost:hover) {
     color: var(--c-text);
@@ -348,7 +348,7 @@
   .hamburger span {
     display: block; width: 100%; height: 2px;
     background: var(--c-text-2); border-radius: 1px;
-    transition: transform 200ms ease, opacity 200ms ease;
+    transition: transform var(--motion-feedback), opacity var(--motion-feedback);
   }
   .hamburger.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
   .hamburger.open span:nth-child(2) { opacity: 0; }

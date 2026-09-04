@@ -9,8 +9,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 
-const { capabilitiesFn, entitiesFn, overviewFn, neighborhoodFn } = vi.hoisted(() => ({
-  capabilitiesFn: vi.fn(), entitiesFn: vi.fn(), overviewFn: vi.fn(), neighborhoodFn: vi.fn(),
+const { capabilitiesFn, entitiesFn, overviewFn, neighborhoodFn, servicesFn } = vi.hoisted(() => ({
+  capabilitiesFn: vi.fn(), entitiesFn: vi.fn(), overviewFn: vi.fn(), neighborhoodFn: vi.fn(), servicesFn: vi.fn(),
 }));
 const PSV = 'pacto.dev/fleet-product/v1';
 const meta = { schemaVersion: PSV, snapshotId: 's', asOf: '', completeness: 'complete', sources: [], sourcesTruncated: false, limitations: { items: [], total: 0, count: 0, truncated: false }, limitationsTruncated: false };
@@ -21,7 +21,7 @@ vi.mock('./lib/api.ts', async (importOriginal) => {
     ...actual,
     api: {
       capabilities: (...a: unknown[]) => capabilitiesFn(...a),
-      services: vi.fn().mockResolvedValue([]),
+      services: (...a: unknown[]) => servicesFn(...a),
       sources: vi.fn().mockResolvedValue({ sources: [], discovering: false }),
       health: vi.fn().mockResolvedValue({ version: 'x' }),
       refresh: vi.fn().mockResolvedValue({}),
@@ -48,6 +48,8 @@ const q = (t: HTMLElement, s: string) => t.querySelector(s);
 
 describe('dual-UI guard — Fleet host canonicalizes legacy routes to the product IA', () => {
   beforeEach(() => {
+    servicesFn.mockReset();
+    servicesFn.mockResolvedValue([]);
     capabilitiesFn.mockResolvedValue({ fleet: true, impact: true, observed: false });
     entitiesFn.mockResolvedValue({ meta, total: 0, count: 0, entities: [] });
     overviewFn.mockResolvedValue({ meta, summary: {}, attention: { items: [], total: 0, count: 0, truncated: false }, recentEvidence: { items: [], total: 0, count: 0, truncated: false }, entryPoints: [] });
@@ -83,6 +85,17 @@ describe('dual-UI guard — Fleet host canonicalizes legacy routes to the produc
     unmount(r.app); document.body.removeChild(r.target);
   });
 
+  // /api/services resolves every service in the fleet and is the most expensive call this
+  // server serves. A Fleet host never reads the result -- but the capability probe used to
+  // run alongside the load rather than before it, so the first pass always read
+  // `capabilities === null`, took the legacy branch and paid for an answer it threw away.
+  it('never asks the legacy whole-fleet services plane, not even on the first pass', async () => {
+    const { target, app } = await mountAt('#/');
+    expect(capabilitiesFn).toHaveBeenCalled();
+    expect(servicesFn).not.toHaveBeenCalled();
+    unmount(app); document.body.removeChild(target);
+  });
+
   it('migrates a legacy service-detail URL through the Product API, not the legacy detail view', async () => {
     // Two same-named services -> explicit disambiguation, not the legacy ServiceDetailView.
     entitiesFn.mockResolvedValue({ meta, total: 2, count: 2, entities: [
@@ -97,7 +110,11 @@ describe('dual-UI guard — Fleet host canonicalizes legacy routes to the produc
 });
 
 describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', () => {
-  beforeEach(() => { capabilitiesFn.mockResolvedValue({ fleet: false, impact: false, observed: false }); });
+  beforeEach(() => {
+    servicesFn.mockReset();
+    servicesFn.mockResolvedValue([]);
+    capabilitiesFn.mockResolvedValue({ fleet: false, impact: false, observed: false });
+  });
   afterEach(() => { location.hash = ''; });
 
   it('renders the legacy Services list at the root and does not redirect', async () => {

@@ -12,6 +12,8 @@
   // there is room for one, and a closed disclosure under the page title where there is
   // not. A <details> is both, which is why there is no second implementation and no
   // ARIA of our own -- the open/closed state is native, and so is keyboard and touch.
+  import { prefersReducedMotion } from '../lib/motion.ts';
+
   let { label = 'On this page', minEntries = 3, wide = '(min-width: 1100px)' } = $props();
 
   let entries = $state([]);
@@ -134,8 +136,7 @@
     // the reader chose it, not because a scroll animation eventually gets there.
     current = id;
     pinned = true;
-    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    el.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    el.scrollIntoView?.({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
     // Send the keyboard caret with the viewport, so the next Tab continues from the
     // section the reader asked for rather than from the next rail entry.
     el.setAttribute('tabindex', '-1');
@@ -150,7 +151,7 @@
            (Enter/Space, which the browser delivers here as a click) counts the same as a
            tap. On <details> it would be a mouse listener on a non-interactive element. -->
       <summary class="toc-summary" onclick={() => { touched = true; }}>
-        <span class="disclosure-caret" aria-hidden="true">&#9656;</span>
+        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
         <span class="toc-title t-label">{label}</span>
         <span class="toc-count t-meta">{entries.length}</span>
       </summary>

@@ -13,6 +13,8 @@
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
+  import { flip } from 'svelte/animate';
+  import { MOTION, dur } from '../lib/motion.ts';
   import { complianceSegments, readinessSegments, statusHrefs, bucketLabel, READINESS_STATES } from '../lib/distributions.ts';
 
   // The scoped inventory list for the two kinds that have no list page of their
@@ -68,9 +70,16 @@
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.entities?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
+  // `loader.data`, not `list`: `list` is nulled the instant the query changes, which is
+  // exactly when the skeleton renders, and 0 rows is no shape at all.
+  const skeletonRows = $derived(loader.data?.entities?.length || PAGE_SIZE);
   // A poll that failed over rows we can still show. decideViewState keeps the rows;
   // this is the half that keeps it honest, so a frozen list never reads as a live one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
+  // A poll in flight over data already on screen. decideViewState has decided this on
+  // every page since stale-while-revalidate landed; the header is the first thing to
+  // actually say it, in words rather than by spinning something.
+  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
   const total = $derived(list?.total ?? 0);
   const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
   const shownTo = $derived((list?.offset ?? pageOffset) + count);
@@ -129,11 +138,13 @@
     subtitle={kind === 'target'
       ? `Every place something has been observed running${service ? ' for this service' : ''}. A target is a runtime observation, not a contract.`
       : `Every known contract revision${service ? ' for this service' : ''}, newest first. A revision is what was declared, whether or not anything runs it.`}
+    asOf={list?.meta?.asOf}
+    {revalidating}
   />
 
   <div class="lv-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
-      <input type="search" bind:value={textDraft} placeholder={`Search ${plural}...`} aria-label={`Search ${plural}`} />
+      <input class="input" type="search" bind:value={textDraft} placeholder={`Search ${plural}...`} aria-label={`Search ${plural}`} />
       <button type="submit" class="btn">Search</button>
     </form>
     {#if isRevisions}
@@ -183,18 +194,18 @@
   {/if}
 
   {#if state.kind !== 'ready'}
-    <ProductEmptyState {state} noun={plural} onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
+    <ProductEmptyState {state} noun={plural} onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <ul class="lv-list" data-testid="entity-list">
+    <ul class="lv-list pl-list" data-testid="entity-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item"><EntityLink {ref} showStatus={true} /></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={true} showKind={false} /></li>
       {/each}
     </ul>
-    <nav class="lv-pager" aria-label={`${pluralTitle} pages`}>
-      <span class="lv-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="lv-pager-btns">
-        {#if hasPrev}<a class="lv-page" href={urlWith({}, prevOffset)} data-testid="entity-list-prev" rel="prev">Previous</a>{:else}<span class="lv-page disabled" aria-disabled="true">Previous</span>{/if}
-        {#if hasNext}<a class="lv-page" href={urlWith({}, list.nextOffset)} data-testid="entity-list-next" rel="next">Next</a>{:else}<span class="lv-page disabled" aria-disabled="true">Next</span>{/if}
+    <nav class="lv-pager pl-pager" aria-label={`${pluralTitle} pages`}>
+      <span class="lv-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
+      <div class="lv-pager-btns pl-pager-btns">
+        {#if hasPrev}<a class="lv-page pl-page" href={urlWith({}, prevOffset)} data-testid="entity-list-prev" rel="prev">Previous</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Previous</span>{/if}
+        {#if hasNext}<a class="lv-page pl-page" href={urlWith({}, list.nextOffset)} data-testid="entity-list-next" rel="next">Next</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Next</span>{/if}
       </div>
     </nav>
   {/if}
@@ -208,13 +219,6 @@
   .lv-inventory h2 { margin: 0; }
   /* Same track rule as every other chart block in the product. */
   .lv-inv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
-  .lv-search input { flex: 1; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min); }
-  .lv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .lv-item { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
-  .lv-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
-  .lv-range { color: var(--c-text-3); font-size: var(--text-sm); }
-  .lv-pager-btns { display: flex; gap: var(--sp-2); }
-  .lv-page { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--c-text); text-decoration: none; background: var(--c-surface); min-height: var(--touch-min); display: inline-flex; align-items: center; }
-  .lv-page:hover { border-color: var(--c-accent); }
-  .lv-page.disabled { color: var(--c-text-3); opacity: 0.5; pointer-events: none; }
+  .lv-search .input { flex: 1; }
+  /* The list, the row and the pager are the shared .pl-* rules in styles/components.css. */
 </style>

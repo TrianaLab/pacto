@@ -120,7 +120,7 @@ td .badge.status-badge {
   font: inherit;
   font-size: var(--text-sm);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: var(--motion-feedback); transition-property: var(--motion-tint);
   text-decoration: none;
 }
 .btn:hover { background: var(--c-surface-hover); text-decoration: none; border-color: var(--c-text-3); }
@@ -138,7 +138,7 @@ td .badge.status-badge {
   padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: var(--motion-feedback); transition-property: var(--motion-tint);
 }
 .btn-ghost:hover {
   color: var(--c-text);
@@ -441,7 +441,7 @@ tr.clickable:active { background: var(--c-surface-inset); }
   font-size: var(--text-xs);
   color: var(--c-text-3);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: var(--motion-feedback); transition-property: var(--motion-tint);
   white-space: nowrap;
   min-height: 30px;
 }
@@ -542,9 +542,18 @@ tr.clickable:active { background: var(--c-surface-inset); }
 }
 .disclosure > summary::-webkit-details-marker { display: none; }
 .disclosure > summary:hover { color: var(--c-text); }
-.disclosure-caret { display: inline-block; transition: transform 0.12s ease; flex-shrink: 0; }
+.disclosure-caret { display: inline-block; flex-shrink: 0; }
 .disclosure[open] > summary .disclosure-caret { transform: rotate(90deg); }
-@media (prefers-reduced-motion: reduce) { .disclosure-caret { transition: none; } }
+
+/* ONE caret speed. Nine components had written this same transition privately at three
+   different speeds (0.12s / 150ms / 200ms), so the identical gesture read differently
+   depending on which section the reader happened to open. A caret is the response to a
+   click the reader just made, which is the feedback role and nothing else — a caret is
+   never an entrance, so the ration never applies to it. Component rules must NOT restate
+   this: a scoped `.expand-icon` beats this selector and the drift starts again. */
+.disclosure-caret, .toggle-icon, .expand-icon, .doc-chevron {
+  transition: transform var(--motion-feedback);
+}
 
 /* ─── Page scaffold ─── */
 /* THE product page shell: breadcrumbs, page header, then sections, separated by one
@@ -597,3 +606,75 @@ tr.clickable:active { background: var(--c-surface-inset); }
 /* Every navigable section clears the sticky app bar when it is scrolled to, rather than
    arriving with its own heading hidden underneath it. */
 [data-toc] { scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
+
+/* ─── Product list rows ────────────────────────────────────────────────────
+   ONE definition of the product's list geometry. Six views carried a private,
+   near-identical copy of it (.sv-item, .lv-item ×3, .attn-item, .evi-item) — the same
+   drift .product-page exists to stop, one level down. The per-page class names stay on
+   the markup, because ~40 unit and browser assertions address rows by them and renaming
+   a row is not a design change; only the DECLARATIONS moved here. */
+.pl-list {
+  list-style: none; margin: 0; padding: 0;
+  position: relative;                     /* anchors the revalidating hairline */
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+}
+/* A list is ONE object with rows, not twenty-five stacked cards. Same divider the
+   product's tables already use (base.css `td`). The row itself carries no padding: a row
+   that is a single link hands the padding to the link (below) so the hit area and the
+   shading are the same rectangle, and a row with several children declares its own. */
+.pl-row {
+  display: flex; align-items: center;
+  min-height: var(--touch-min);
+  border-bottom: 1px solid var(--c-border-subtle);
+  transition: var(--motion-feedback);
+  transition-property: background-color, box-shadow;
+}
+.pl-row:last-child { border-bottom: none; }
+
+/* The affordance the product already uses for a clickable table row (tr.clickable).
+   :focus-within is the keyboard half of it: Tab through the list and the row under the
+   caret lights exactly as hover does — no keydown handler, no roving tabindex, no custom
+   ARIA. A hover is the reader's own pointer, so it is the feedback role, never a ration. */
+.pl-row:hover, .pl-row:focus-within {
+  background: var(--c-surface-hover);
+  box-shadow: inset 3px 0 0 var(--c-accent);
+}
+.pl-row:active { background: var(--c-surface-inset); }
+
+/* When the row IS one link, the LINK carries the padding, so the whole row is the target.
+   `:only-child` is the test for that, and it is load-bearing: a mixed row (a severity
+   badge, then a link, then a summary) must NOT hand its padding to the middle child, or
+   the badge ends up flush against the container edge. Four class selectors on purpose —
+   EntityLink's own scoped `.entity-link` compiles to (0,2,0) and would otherwise tie,
+   leaving the outcome to stylesheet injection order. */
+.pl-list .pl-row > .entity-link:only-child {
+  display: flex; flex: 1; min-width: 0;
+  padding: var(--sp-2) var(--sp-3);
+}
+/* outline-offset: 2px on a full-bleed row paints outside the container's radius. */
+.pl-list .pl-row > .entity-link:only-child:focus-visible { outline-offset: -2px; }
+
+/* ── Pager ── */
+.pl-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
+.pl-range { color: var(--c-text-3); font-size: var(--text-sm); }
+.pl-pager-btns { display: flex; gap: var(--sp-2); }
+.pl-page {
+  padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
+  font-size: var(--text-sm); color: var(--c-text); text-decoration: none; background: var(--c-surface);
+  min-height: var(--touch-min); display: inline-flex; align-items: center;
+  transition: var(--motion-feedback);
+  transition-property: border-color, background-color, transform;
+}
+.pl-page:hover { border-color: var(--c-accent); background: var(--c-surface-hover); text-decoration: none; }
+/* A page turn replaces the whole list; without a press state the only feedback is the
+   content changing under you a beat later. */
+.pl-page:active { background: var(--c-surface-inset); transform: translateY(1px); }
+.pl-page.disabled { color: var(--c-text-3); opacity: 0.5; pointer-events: none; }
+
+/* The reduced-motion policy in tokens.css zeroes DURATIONS. It cannot reach a transform,
+   so the press displacement has to be dropped by name. */
+@media (prefers-reduced-motion: reduce) {
+  .pl-page:active { transform: none; }
+}

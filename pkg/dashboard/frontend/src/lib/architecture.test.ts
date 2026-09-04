@@ -265,6 +265,10 @@ describe('product design system', () => {
   const GLOBAL_TOKEN_FAMILIES = [
     '--text-', '--font-', '--line-', '--sp-', '--radius-', '--c-', '--shadow-',
     '--role-', '--touch-', '--transition-', '--chart-', '--container-', '--navbar-',
+    // Motion is four families, not the two the ramp is named after: without '--dur-'
+    // and '--ease-' a typo'd var(--dur-2s) would be treated as component-owned and
+    // never checked, which is exactly how a motion value gets re-invented.
+    '--dur-', '--ease-', '--motion-', '--stagger-',
   ];
   const isGlobalToken = (t: string) => GLOBAL_TOKEN_FAMILIES.some((p) => t.startsWith(p));
 
@@ -421,6 +425,28 @@ describe('product design system', () => {
       .toMatch(/\.product-page\s*\{[^}]*flex-direction:\s*column[^}]*gap:/);
     expect(PAGES.filter((f) => /\.product-page\s*\{/.test(f.body)).map((f) => f.rel),
       'a product page redeclaring the shared scaffold').toEqual([]);
+  });
+
+  /**
+   * Requirement 18: ONE product list row, in ONE place.
+   *
+   * Six views each rendered "a list of entities" as free-floating cards, and each had
+   * written its own list/row/pager set privately: `.sv-*`, `.lv-*` three times over,
+   * `.attn-*` twice. Same intent, six copies, and they had already drifted -- two of the
+   * pagers had a hover rule the others lacked. One divider list with a full-row target
+   * replaces all six, so a change to how a row feels is one edit rather than six.
+   */
+  it('roots every product list row on the one shared row rule', () => {
+    const ROWS = PRODUCT_SURFACES.filter((f) => /class="[^"]*\bpl-row\b/.test(f.body));
+    expect(ROWS.length, 'no product surface uses the shared row').toBeGreaterThan(4);
+    expect(globalCss, 'the shared row must be declared once, globally').toMatch(/\.pl-row\s*\{[^}]*border-bottom:/);
+
+    // A view may still shape its own row (the attention row is a two-column grid), but
+    // the frame, the divider, the hover and the pager are not its business.
+    const offenders = PRODUCT_SURFACES
+      .filter((f) => /\.(sv|lv|attn|evi)-(list|pager|page|range)\s*[,{]/.test(f.body))
+      .map((f) => f.rel);
+    expect(offenders, `a product view redeclaring the shared list:\n  ${offenders.join('\n  ')}`).toEqual([]);
   });
 
   /**

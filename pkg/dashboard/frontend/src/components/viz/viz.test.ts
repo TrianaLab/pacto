@@ -9,7 +9,7 @@
  * any restyle.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte components have no declaration files
 import DistributionBar from './DistributionBar.svelte';
 
@@ -34,7 +34,25 @@ describe('DistributionBar', () => {
     }
     // The percentage is a companion to the exact count, never a replacement, and it
     // always states the denominator it is a percentage OF.
-    expect(legend).toContain('(57.1% of 7)');
+    expect(legend).toContain('(57% of 7)');
+  });
+
+  // A tenth of a percent on a population of 7 is precision the data does not have:
+  // the smallest step 7 services can take is 14 points. Above a hundred the tenth is
+  // a real distinction and stays.
+  it('drops the decimal below a hundred and keeps it above', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments: [{ label: 'A', value: 1, tone: 'ok' }], total: 3 } });
+    expect(target.querySelector('.dist-pct')?.textContent).toBe('(33% of 3)');
+    unmount(comp);
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments: [{ label: 'A', value: 1, tone: 'ok' }], total: 400 } });
+    expect(target.querySelector('.dist-pct')?.textContent).toBe('(0.3% of 400)');
+  });
+
+  // The other end of the same rounding: one invalid target in a fleet of three thousand
+  // is 0.033%, and a flat "0%" beside a count of 1 is a row contradicting itself.
+  it('never prints a non-zero count as a zero share', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments: [{ label: 'Invalid', value: 1, tone: 'err' }], total: 3000 } });
+    expect(target.querySelector('.dist-pct')?.textContent).toBe('(<0.1% of 3000)');
   });
 
   it('names the figure from its own caption heading at the requested level', () => {
@@ -51,6 +69,38 @@ describe('DistributionBar', () => {
     for (const sw of Array.from(target.querySelectorAll('.dist-swatch'))) {
       expect(sw.getAttribute('aria-hidden')).toBe('true');
     }
+  });
+
+  // A four-way bar of similar tones asks the reader to count slices to find the one a
+  // legend row names. Hovering either half dims the others; it is presentational only,
+  // so the accessible tree is unchanged and every value stays printed as text.
+  it('links a legend row to its marks on hover, and dims the others', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 7 } });
+    const items = Array.from(target.querySelectorAll('.dist-item')) as HTMLElement[];
+    expect(target.querySelectorAll('.dist-unit.dim')).toHaveLength(0);
+    items[1].dispatchEvent(new MouseEvent('mouseenter'));
+    flushSync();
+    // Four Compliant, two Not compliant, one Unknown: hovering the middle row leaves
+    // exactly its own two marks lit.
+    expect(Array.from(target.querySelectorAll('.dist-unit')).map((s) => s.classList.contains('dim')))
+      .toEqual([true, true, true, true, false, false, true]);
+    items[1].dispatchEvent(new MouseEvent('mouseleave'));
+    flushSync();
+    expect(target.querySelectorAll('.dist-unit.dim')).toHaveLength(0);
+  });
+
+  // The page is filtered to one bucket: the bar has to say which, or it is a summary of
+  // a population the reader is no longer looking at. Never colour alone -- the legend
+  // link carries aria-current, which is what a screen reader reads.
+  it('marks the bucket the page is filtered to', () => {
+    comp = mount(DistributionBar, {
+      target,
+      props: { title: 'Compliance', segments, total: 7, selected: 'Not compliant' },
+    });
+    const marks = Array.from(target.querySelectorAll('.dist-unit'));
+    expect(marks.map((s) => s.classList.contains('sel'))).toEqual([false, false, false, false, true, true, false]);
+    expect(marks.map((s) => s.classList.contains('dim'))).toEqual([true, true, true, true, false, false, true]);
+    expect(target.querySelector('.dist-legend a')?.getAttribute('aria-current')).toBe('true');
   });
 
   it('makes a bucket with a destination a real link and leaves the rest as text', () => {
@@ -171,7 +221,33 @@ describe('DistributionBar', () => {
       props: { title: 'Compliance', segments: [...segments, { label: 'Invalid', value: 0, tone: 'err' }], total: 7 },
     });
     expect(target.querySelector('.dist-legend')?.textContent).not.toContain('Invalid');
-    expect(target.querySelectorAll('.dist-seg')).toHaveLength(3);
+    // Three tones across the marks, not four: an empty bucket draws nothing.
+    const tones = new Set(Array.from(target.querySelectorAll('.dist-unit')).map((s) => s.className));
+    expect(tones.size).toBe(3);
+  });
+
+  // A countable population is drawn as individuals, because two red squares out of nine
+  // is a fact the reader can take from the shape itself. Past the ceiling the marks are
+  // no longer countable and the proportion is the honest reading, so the bar comes back.
+  it('draws one mark per member while the population is countable, and a proportional bar once it is not', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 7 } });
+    expect(target.querySelectorAll('.dist-unit')).toHaveLength(7);
+    expect(target.querySelectorAll('.dist-seg')).toHaveLength(0);
+    unmount(comp);
+
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 400 } });
+    expect(target.querySelectorAll('.dist-unit')).toHaveLength(0);
+    // Three buckets plus the Unclassified remainder of the 400.
+    expect(target.querySelectorAll('.dist-seg')).toHaveLength(4);
+  });
+
+  // An over-count has no individuals to draw: the buckets account for more things than
+  // exist, and a mark per counted thing would render that contradiction as a larger,
+  // complete-looking population.
+  it('refuses to draw marks for a population that over-counts itself', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 5 } });
+    expect(target.querySelectorAll('.dist-unit')).toHaveLength(0);
+    expect(target.querySelector('[data-testid="dist-inconsistent"]')).not.toBeNull();
   });
 });
 

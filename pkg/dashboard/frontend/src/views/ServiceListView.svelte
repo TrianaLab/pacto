@@ -2,22 +2,19 @@
   import { serviceUrl } from '../lib/router.ts';
   import { getFilters } from '../lib/filters.svelte.ts';
   import { applyFilters } from '../lib/filters.ts';
-  import { treemapData } from '../lib/chartData.ts';
+  import { statusClass, statusLabel, statusTone } from '../lib/format.ts';
   import FilterBar from '../components/FilterBar.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import ServicesTable from '../components/ServicesTable.svelte';
   import SourceDot from '../components/SourceDot.svelte';
   import EmptyState from '../components/EmptyState.svelte';
-  import TreemapChart from '../components/TreemapChart.svelte';
+  import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import CollapsibleSection from '../CollapsibleSection.svelte';
 
   let { services = [], sourcesInfo = [], discovering = false, initialLoading = false, loadError = null, onRetry = null } = $props();
 
   let enabledSources = $derived(sourcesInfo.filter((s) => s.enabled));
   let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled));
-
-  const STATUS_LABELS = { Compliant: 'Compliant', Warning: 'Warning', NonCompliant: 'Non-Compliant', Unknown: 'Unknown', Reference: 'Reference' };
-  function statusLabel(s) { return STATUS_LABELS[s] || s; }
 
   // The visible set is driven entirely by the shared filter store, so the summary
   // (computed from `filtered`) and the table stay in sync with the URL.
@@ -27,6 +24,21 @@
   // Needs attention: non-compliant/warning services, sorted by blast radius
   // descending. Computed from the filtered set so it agrees with the visible
   // table (and the summary) when a filter is active.
+  // The widest blast radii in the filtered set. A ranking, not a partition: blast
+  // radii overlap, so their sum is not a population and no share of one is offered.
+  const BLAST_ROWS = 10;
+  let blastRanked = $derived(
+    filtered.filter((s) => (s.blastRadius || 0) > 0).sort((a, b) => (b.blastRadius || 0) - (a.blastRadius || 0))
+  );
+  let blastRows = $derived(
+    blastRanked.slice(0, BLAST_ROWS).map((s) => ({
+      label: s.name,
+      value: s.blastRadius || 0,
+      tone: statusTone(s.contractStatus),
+      href: serviceUrl(s.name),
+    }))
+  );
+
   let needsAttention = $derived(
     filtered
       .filter((s) => s.contractStatus === 'NonCompliant' || s.contractStatus === 'Warning')
@@ -74,9 +86,19 @@
   </div>
 {/if}
 
-{#if filtered.length > 0}
-  <CollapsibleSection title="Fleet risk map" open={true}>
-    <TreemapChart data={treemapData(filtered)} onSelect={(name) => location.hash = serviceUrl(name)} />
+{#if blastRows.length > 0}
+  <CollapsibleSection title="Fleet risk" open={true}>
+    <HorizontalBars
+      title="Widest blast radius"
+      level={3}
+      description="How many other services each one would affect if it broke. Bar colour is the service's own compliance status."
+      scopeNote={blastRanked.length > BLAST_ROWS
+        ? `Top ${BLAST_ROWS} of ${blastRanked.length} services that anything depends on.`
+        : ''}
+      items={blastRows}
+      unit="services"
+      unitOne="service"
+    />
   </CollapsibleSection>
 {/if}
 
@@ -88,7 +110,7 @@
       <a href={serviceUrl(svc.name)} class="alert-item" class:alert-err={svc.contractStatus === 'NonCompliant'} class:alert-warn={svc.contractStatus === 'Warning'}>
         <span class="alert-dot" style="background:{svc.contractStatus === 'NonCompliant' ? 'var(--c-err)' : 'var(--c-warn)'}"></span>
         <span class="alert-name">{svc.name}</span>
-        <span class="badge badge-{svc.contractStatus === 'NonCompliant' ? 'err' : 'warn'}" style="font-size:10px">{statusLabel(svc.contractStatus)}</span>
+        <span class="badge badge-{statusClass(svc.contractStatus)}" style="font-size:10px">{statusLabel(svc.contractStatus)}</span>
         {#if svc.topInsight}<span class="alert-reason">{svc.topInsight}</span>{/if}
         {#if (svc.blastRadius || 0) > 0}
           <span class="blast-pill" class:blast-pill-high={svc.blastRadius >= 5} class:blast-pill-med={svc.blastRadius >= 3 && svc.blastRadius < 5}>
@@ -163,7 +185,7 @@
     border: 1px solid var(--c-accent); border-radius: var(--radius-sm);
     background: var(--c-accent-bg); color: var(--c-accent);
     text-decoration: none; margin-bottom: var(--sp-5);
-    transition: all var(--transition);
+    transition: var(--motion-feedback); transition-property: var(--motion-tint);
   }
   .graph-cta:hover {
     background: var(--c-accent); color: var(--c-on-accent);

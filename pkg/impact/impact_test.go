@@ -492,3 +492,27 @@ func TestAnalyze_SnapshotObservedDoesNotCorroborateWithoutOptIn(t *testing.T) {
 		t.Errorf("opted-in analysis graded the consumer %s, want corroborated", on.Confidence)
 	}
 }
+
+func TestAnalyze_BoundsTheLimitationsEnvelope(t *testing.T) {
+	// The impact answer carries the snapshot's own limitation slice, so on a fleet
+	// with a pathological number of them it would otherwise ship an unbounded copy
+	// -- and disagree with every fleet product answer, which caps at the same
+	// number. Both exits are checked: the ordinary one and the early
+	// "not in the fleet" one.
+	snap := buildChain(t)
+	for i := 0; i < fleet.MaxMetaLimitations+25; i++ {
+		snap.Limitations = append(snap.Limitations, fleet.Limitation{Code: "L", Source: "test"})
+	}
+
+	for _, svc := range []string{"auth-service", "orphan"} {
+		old := svcContract(svc, "1.0.0", contract.Owner{})
+		newC := svcContract(svc, "2.0.0", contract.Owner{})
+		res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+		if len(res.Limitations) != fleet.MaxMetaLimitations {
+			t.Errorf("%s: limitations not bounded: %d", svc, len(res.Limitations))
+		}
+		if !res.LimitationsTruncated {
+			t.Errorf("%s: a bounded envelope must report that it was truncated", svc)
+		}
+	}
+}

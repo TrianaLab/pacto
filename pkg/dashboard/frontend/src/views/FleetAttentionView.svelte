@@ -17,8 +17,11 @@
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
-  import { severitySegments } from '../lib/distributions.ts';
+  import { severitySegments, severityHrefs, SEVERITY_STATES, bucketLabel } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
+  import { fly } from 'svelte/transition';
+  import { flip } from 'svelte/animate';
+  import { MOTION, dur, stagger } from '../lib/motion.ts';
 
   // The attention triage workspace. It consumes
   // /api/fleet/attention with the backend-supported product filters, real backend
@@ -76,9 +79,16 @@
   const knowledge = $derived(snapshotKnowledge(list?.meta));
   const count = $derived(list?.items?.length ?? 0);
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
+  // `loader.data`, not `list`: `list` is nulled the instant the query changes, which is
+  // exactly when the skeleton renders, and 0 rows is no shape at all.
+  const skeletonRows = $derived(loader.data?.items?.length || PAGE_SIZE);
   // A poll that failed over rows we can still show. decideViewState keeps the rows;
   // this is the half that keeps it honest, so a frozen list never reads as a live one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
+  // A poll in flight over data already on screen. decideViewState has decided this on
+  // every page since stale-while-revalidate landed; the header is the first thing to
+  // actually say it, in words rather than by spinning something.
+  const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
 
   // A filter change resets the offset to page 1; a patch value of '' clears a filter.
   function urlWith(patch, off = 0) {
@@ -132,12 +142,54 @@
     href: urlWith({ category: b.category }),
   })));
 
+  // Every severity bucket the API can filter for drills into the same list, filtered.
+  // The bar was the one summary on the page a reader could not act on.
+  const severityBars = $derived(severitySegments(list?.severities, severityHrefs((v) => urlWith({ severity: v }))));
+  const severitySelected = $derived(severity ? bucketLabel(SEVERITY_STATES, severity) : '');
+
   function removeChip(key) { apply(key === 'staleOnly' ? { staleOnly: false } : { [key]: '' }); }
+
+  // ── the ration ────────────────────────────────────────────────────────────────────
+  // See the RATION note in styles/tokens.css: err and warn may enter on their own, info
+  // may not. On a filtered-to-info page nothing moves, and that is the point -- the
+  // number of moving rows is the number of rows worth looking at, checkable by eye.
+  const RATIONED = new Set(['error', 'warning']);
+  // Precomputed per page, never counted inside the template: `in:` params are evaluated
+  // once per element created, so a counter mutated from the markup keeps its value across
+  // updates and the second render staggers row 0 by half a second.
+  //
+  // Only rationed rows consume a slot, so one error among twenty info rows arrives at
+  // once instead of waiting out a queue it cannot see.
+  const entrances = $derived.by(() => {
+    let slot = 0;
+    return (list?.items ?? []).map((it) => (
+      RATIONED.has(it.severity) ? { y: 6, duration: dur(MOTION.row), delay: stagger(slot++) } : { duration: 0 }
+    ));
+  });
+
+  // A page can carry the same code for the same entity twice (two revisions of one
+  // service, same finding), so the key is code + identity + label. Keying on less throws
+  // "keyed each duplicate" at runtime, which is a blank page, not a warning.
+  const itemKey = (it) => `${it.code}::${it.entity?.kind}::${it.entity?.key}::${it.label}`;
+
+  // Cardinality one. The backend sorts errors first, so the head of the page IS the worst
+  // thing visible; if it is not an error, nothing rings. Two rings means the design has
+  // already failed and the aggregate should have been raised instead.
+  const alarmItem = $derived(list?.items?.[0]?.severity === 'error' ? list.items[0] : null);
+
+  // The header says what the order means. "23 items" alone leaves a reader scrolling to
+  // find out whether the bad ones are at the top. "Urgent" rather than the severity names
+  // on purpose: the raw wire words are reserved for the badges, and the page is guarded
+  // against printing them in prose (see the severity-vocabulary test).
+  const urgent = $derived((list?.severities?.errors ?? 0) + (list?.severities?.warnings ?? 0));
+  const headerCount = $derived(
+    list ? `${list.total} item${list.total === 1 ? '' : 's'} · ${urgent ? 'most urgent first' : 'nothing urgent'}` : '',
+  );
 </script>
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Needs attention' }]} />
-  <PageHeader title="Needs attention" count={list ? `${list.total} item${list.total === 1 ? '' : 's'}` : ''} />
+  <PageHeader title="Needs attention" count={headerCount} asOf={list?.meta?.asOf} {revalidating} />
 
   <!-- Primary triage filters; secondary ones live behind an advanced disclosure so the
        default surface stays simple. -->
@@ -157,7 +209,7 @@
       </select>
     </label>
     <details class="av-advanced disclosure">
-      <summary><span class="disclosure-caret" aria-hidden="true">&#9656;</span>Advanced filters</summary>
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Advanced filters</summary>
       <div class="av-adv-grid">
         <label class="av-field">
           <span>Status</span>
@@ -174,11 +226,11 @@
           <!-- Arriving here from an owner page carries the canonical `ownerKey`; the
                box shows that owner's NAME, because `team:alice` is a wire form and
                editing it would hand the reader a search for the encoding. -->
-          <input type="text" value={ownerBox} placeholder="team or DRI" aria-label="Filter by owner" onchange={(e) => apply({ owner: e.currentTarget.value.trim(), ownerKey: '' })} />
+          <input class="input" type="text" value={ownerBox} placeholder="team or DRI" aria-label="Filter by owner" onchange={(e) => apply({ owner: e.currentTarget.value.trim(), ownerKey: '' })} />
         </label>
         <label class="av-field">
           <span>Source</span>
-          <input type="text" value={source} placeholder="source id" aria-label="Filter by source" onchange={(e) => apply({ source: e.currentTarget.value.trim() })} />
+          <input class="input" type="text" value={source} placeholder="source id" aria-label="Filter by source" onchange={(e) => apply({ source: e.currentTarget.value.trim() })} />
         </label>
         <label class="av-check">
           <input type="checkbox" checked={isStale} aria-label="Show only stale evidence" onchange={(e) => apply({ staleOnly: e.currentTarget.checked })} />
@@ -199,7 +251,7 @@
   {/if}
 
   {#if state.kind !== 'ready'}
-    <ProductEmptyState {state} noun="attention items" onRetry={load} onClearFilters={anyFilter ? clearAll : null} />
+    <ProductEmptyState {state} noun="attention items" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
     <!-- The shape of the backlog before the backlog itself. Both charts read the
          backend tallies, which cover EVERY item the current filter matched -- not the
@@ -209,7 +261,8 @@
         title="By severity"
         level={2}
         description="How urgent the matched items are."
-        segments={severitySegments(list.severities)}
+        segments={severityBars}
+        selected={severitySelected}
         total={list.total}
       />
       <HorizontalBars
@@ -221,13 +274,21 @@
         unitOne="item"
       />
     </div>
-    <ul class="attn-list" data-testid="attention-list">
-      {#each list.items as it}
+    <ul class="attn-list pl-list" data-testid="attention-list">
+      {#each list.items as it, i (itemKey(it))}
         <!-- Two columns, not one wrapping row. With everything in a single flex line
              the right-aligned next step dropped onto a second line as soon as the
              service name was long, so identical items rendered at two different
-             heights and the list read as two kinds of thing. -->
-        <li class="attn-item">
+             heights and the list read as two kinds of thing.
+             `in:` only, never `out:`: an exiting row is still in the DOM, so an out
+             transition would make every row count in this file read one page behind. -->
+        <li
+          class="attn-item pl-row sev-{it.severity}"
+          class:is-alarm={it === alarmItem}
+          data-motion
+          in:fly|global={entrances[i]}
+          animate:flip={{ duration: dur(MOTION.row) }}
+        >
           <div class="attn-main">
             <SeverityBadge severity={it.severity} />
             <span class="attn-cat">{attentionCategoryLabel(it.category)}</span>
@@ -240,18 +301,18 @@
       {/each}
     </ul>
 
-    <nav class="av-pager" aria-label="Attention pages">
-      <span class="av-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="av-pager-btns">
+    <nav class="av-pager pl-pager" aria-label="Attention pages">
+      <span class="av-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
+      <div class="av-pager-btns pl-pager-btns">
         {#if hasPrev}
-          <a class="av-page" href={urlWith({}, prevOffset)} data-testid="attn-prev" rel="prev">Previous</a>
+          <a class="av-page pl-page" href={urlWith({}, prevOffset)} data-testid="attn-prev" rel="prev">Previous</a>
         {:else}
-          <span class="av-page disabled" aria-disabled="true">Previous</span>
+          <span class="av-page pl-page disabled" aria-disabled="true">Previous</span>
         {/if}
         {#if hasNext}
-          <a class="av-page" href={urlWith({}, list.nextOffset)} data-testid="attn-next" rel="next">Next</a>
+          <a class="av-page pl-page" href={urlWith({}, list.nextOffset)} data-testid="attn-next" rel="next">Next</a>
         {:else}
-          <span class="av-page disabled" aria-disabled="true">Next</span>
+          <span class="av-page pl-page disabled" aria-disabled="true">Next</span>
         {/if}
       </div>
     </nav>
@@ -267,19 +328,33 @@
   .av-shape { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); align-items: start; }
   .av-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
   .av-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); }
-  .av-filters select, .av-filters input[type="text"] {
-    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); min-height: var(--touch-min);
-  }
   /* Look and behaviour come from the shared .disclosure class: an accent-coloured
      summary here and quiet grey ones elsewhere read as two different controls. */
   .av-adv-grid { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; margin-top: var(--sp-2); }
   .av-check { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
-  .attn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+  /* Shape only. The frame, the divider and the hover come from the shared .pl-row.
+     The row keeps its own padding because its main child is not the only child. */
   .attn-item {
     display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2) var(--sp-3);
-    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: var(--c-surface);
+    padding: var(--sp-2) var(--sp-3);
+  }
+  /* The severity rail. Two selectors deep on purpose: .pl-row:hover paints the same 3px
+     slot accent, and one stripe cannot mean both "clickable" and "this one is an error".
+     Hover keeps the background change, which is the affordance that carries. */
+  .attn-list .attn-item { box-shadow: inset 3px 0 0 var(--attn-rail, transparent); }
+  .attn-list .attn-item.sev-error { --attn-rail: var(--c-err); }
+  .attn-list .attn-item.sev-warning { --attn-rail: var(--c-warn); }
+  /* The alarm ring: a rest state that happens to pulse, three times, then holds. One row
+     at most carries it (see alarmItem). Finite because an infinite animation means
+     getAnimations() never settles and every axe run degrades into a blind wait. */
+  .attn-list .attn-item.is-alarm {
+    position: relative;
+    z-index: 1;
+    animation: attn-alarm var(--motion-alarm-period) var(--ease-in-place) var(--motion-alarm-count);
+  }
+  @keyframes attn-alarm {
+    from { box-shadow: inset 3px 0 0 var(--attn-rail), var(--motion-alarm-ring); }
+    to { box-shadow: inset 3px 0 0 var(--attn-rail), 0 0 0 3px transparent; }
   }
   .attn-main { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .attn-cat {
@@ -296,14 +371,5 @@
      .src-k) is plain --c-text-3, and dimming this one further put it at 3.58:1 -- below
      WCAG AA -- while also making it the only micro-label with its own shade. */
   .attn-next-k { text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
-  .av-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
-  .av-range { color: var(--c-text-3); font-size: var(--text-sm); }
-  .av-pager-btns { display: flex; gap: var(--sp-2); }
-  .av-page {
-    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    font-size: var(--text-sm); color: var(--c-text); text-decoration: none; background: var(--c-surface);
-    min-height: var(--touch-min); display: inline-flex; align-items: center;
-  }
-  .av-page:hover { border-color: var(--c-accent); text-decoration: none; }
-  .av-page.disabled { color: var(--c-text-3); opacity: 0.5; pointer-events: none; }
+  /* The list and the pager are the shared .pl-* rules in styles/components.css. */
 </style>

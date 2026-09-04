@@ -206,7 +206,7 @@
     background: var(--c-surface);
     color: var(--c-text-2);
     cursor: pointer;
-    transition: all var(--transition);
+    transition: var(--motion-feedback); transition-property: var(--motion-tint);
     min-height: 30px;
   }
 
