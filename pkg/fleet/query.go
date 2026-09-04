@@ -634,19 +634,9 @@ type GraphResult struct {
 // at every depth, and cycles. Direct-only (Transitive=false) returns immediate
 // neighbors; transitive traversal is cycle-safe and honors MaxDepth.
 func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
-	dir, err := validateDirection(gq.Direction)
+	dir, maxNodes, err := validateGraphQuery(gq)
 	if err != nil {
 		return nil, err
-	}
-	if gq.MaxDepth < 0 {
-		return nil, &InvalidQueryError{Field: "maxDepth", Value: fmt.Sprint(gq.MaxDepth), Reason: "must be >= 0"}
-	}
-	if gq.MaxNodes < 0 {
-		return nil, &InvalidQueryError{Field: "maxNodes", Value: fmt.Sprint(gq.MaxNodes), Reason: "must be >= 0"}
-	}
-	maxNodes := gq.MaxNodes
-	if maxNodes == 0 || maxNodes > MaxGraphNodes {
-		maxNodes = MaxGraphNodes
 	}
 	rootSvc, scopeRev, aggregated, err := q.resolveGraphScope(gq)
 	if err != nil {
@@ -703,6 +693,28 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	res.Cycles = cycles
 	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev)
 	return res, nil
+}
+
+// validateGraphQuery checks the bounds a caller supplies and resolves the node
+// cap actually applied: zero means "no preference", so it takes the ceiling, and
+// a request above the ceiling is clamped rather than refused — a graph query is
+// answerable at the ceiling, and the answer says it was truncated.
+func validateGraphQuery(gq GraphQuery) (Direction, int, error) {
+	dir, err := validateDirection(gq.Direction)
+	if err != nil {
+		return "", 0, err
+	}
+	if gq.MaxDepth < 0 {
+		return "", 0, &InvalidQueryError{Field: "maxDepth", Value: fmt.Sprint(gq.MaxDepth), Reason: "must be >= 0"}
+	}
+	if gq.MaxNodes < 0 {
+		return "", 0, &InvalidQueryError{Field: "maxNodes", Value: fmt.Sprint(gq.MaxNodes), Reason: "must be >= 0"}
+	}
+	maxNodes := gq.MaxNodes
+	if maxNodes == 0 || maxNodes > MaxGraphNodes {
+		maxNodes = MaxGraphNodes
+	}
+	return dir, maxNodes, nil
 }
 
 func validateDirection(d Direction) (Direction, error) {
