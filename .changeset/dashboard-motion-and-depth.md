@@ -64,6 +64,19 @@ prose around them is cut: a sentence under the posture bars restated two bucket
 values that were already on the screen, so there are no longer two copies of the
 same number to check against each other.
 
+Those marks are now sized from the population, so a small one is big: nine
+targets drawn as nine fixed sixteen-pixel squares was a smudge in a
+four-hundred-pixel column — countable in principle and nothing to look at — and
+the size steps down only as fast as it has to for the row to keep fitting. The
+gutter and the corner are fractions of the mark, so a field of nine and a field
+of ninety are the same drawing at two scales rather than two different charts.
+The three posture questions sit in three columns where there is room, instead of
+two and an orphan below an empty half-row. And every distribution now puts its
+picture first: the description used to sit between the heading and the graphic,
+so a band of three charts was read as six lines of caveat with drawings between
+them, and each figure announced itself to a screen reader by reciting the whole
+paragraph. The prose is a footnote to the drawing, so it is printed under it.
+
 The WebAssembly demo's notice can be dismissed. It floats over the bottom of the
 dashboard and never left, which on a short window is where the content is. A
 failed engine load brings it back: that is the one message the reader cannot be

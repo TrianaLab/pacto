@@ -94,8 +94,11 @@
 {/if}
 
 <style>
-  /* Two columns where there is room; one on a phone. auto-fit keeps a lone bar from
-     stretching to an unreadable width. */
-  .pb-dists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-4); }
+  /* Three columns where there is room, so the three questions the copy promises arrive
+     as three things side by side rather than as two and an orphan with an empty half-row
+     beside it. Narrower than the two-up grids elsewhere on purpose: these bars carry the
+     shortest legends on the page. auto-fit keeps a lone bar from stretching to an
+     unreadable width, and one column on a phone. */
+  .pb-dists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--sp-4); }
   .pb-hint { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
 </style>

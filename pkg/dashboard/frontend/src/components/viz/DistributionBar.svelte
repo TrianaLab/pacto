@@ -115,13 +115,25 @@
   // already carried as the Unclassified row -- so the marks partition the population by
   // construction and no cell is invented or dropped.
   const cells = $derived(unit ? rows.flatMap((r) => Array.from({ length: r.value }, () => r)) : []);
+  // The mark is sized from the population so a small one is BIG. Nine targets drawn as
+  // nine 16px squares is a 150px smudge in a 400px column -- technically countable and
+  // visually nothing, which is the state this component was in when the marks first
+  // landed. Nine at 26px is a block the eye lands on from across the room, and the
+  // ladder steps down only as fast as it has to for the row to still fit beside its
+  // siblings. It is a ladder rather than a container query because the sizes are chosen
+  // against the two column widths this product actually uses, and a fluid mark would
+  // make the same population a different size on every page that draws it.
+  const unitPx = $derived(denom <= 12 ? 26 : denom <= 20 ? 18 : denom <= 60 ? 12 : 8);
 </script>
 
 <figure class="dist">
+  <!-- Title only. The description used to live in here too, which put two lines of grey
+       prose between the heading and the picture -- so a page of five distributions was
+       read as ten lines of caveat with graphics between them, and the figure's accessible
+       name was the whole paragraph. The prose is a footnote to the drawing, so it is
+       printed after it. -->
   <figcaption class="dist-cap">
     <svelte:element this={`h${level}`} class="dist-title t-subsection-title">{title}</svelte:element>
-    {#if description}<p class="dist-desc">{description}</p>{/if}
-    {#if scopeNote}<p class="dist-scope">{scopeNote}</p>{/if}
   </figcaption>
 
   {#if rows.length === 0}
@@ -153,7 +165,13 @@
          would put a decorative shape back into it. The pointer gesture they carry is
          presentational, and its keyboard equivalent is the legend entry below, which IS
          focusable. -->
-    <div class="dist-bar" class:dist-bar-warn={over > 0} class:dist-units={unit} class:dist-units-sm={unit && denom > 40} aria-hidden="true">
+    <div
+      class="dist-bar"
+      class:dist-bar-warn={over > 0}
+      class:dist-units={unit}
+      style={unit ? `--unit: ${unitPx}px` : undefined}
+      aria-hidden="true"
+    >
       {#if unit}
         {#each cells as c, i (i)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -208,6 +226,12 @@
       {/each}
     </ul>
   {/if}
+  {#if description || scopeNote}
+    <div class="dist-note">
+      {#if description}<p class="dist-desc">{description}</p>{/if}
+      {#if scopeNote}<p class="dist-scope">{scopeNote}</p>{/if}
+    </div>
+  {/if}
 </figure>
 
 <style>
@@ -215,6 +239,11 @@
   .dist-cap { display: flex; flex-direction: column; gap: 2px; }
   /* Subsection role, not a private size -- see HorizontalBars. */
   .dist-title { margin: 0; }
+  /* Pushed to the bottom of the figure and off the reading path to the numbers: the
+     margin-top: auto matters in the grids that stretch these figures to a common height,
+     where it keeps the footnote on the floor of the cell instead of floating under a
+     short legend. */
+  .dist-note { margin-top: auto; padding-top: var(--sp-1); display: flex; flex-direction: column; gap: 2px; }
   .dist-desc, .dist-scope { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .dist-scope { font-style: italic; }
   .dist-empty { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
@@ -240,17 +269,19 @@
   /* Marks, not a bar: the frame and the fixed height belong to a single continuous shape
      and would read as a container the marks sit inside. They size themselves and wrap. */
   .dist-units {
-    height: auto; gap: 3px; flex-wrap: wrap; overflow: visible;
+    height: auto; flex-wrap: wrap; overflow: visible;
     background: none; border: 0; border-radius: 0;
+    /* One rule instead of a second size ladder: the gutter is a fixed fraction of the
+       mark, so the marks read as a field of individuals at every step and never as a
+       row of bars with a hairline between them. */
+    gap: max(2px, calc(var(--unit) / 6));
   }
   .dist-unit {
-    display: block; width: 16px; height: 16px; border-radius: var(--radius-xs); flex: none;
+    display: block; width: var(--unit); height: var(--unit); flex: none;
+    border-radius: max(2px, calc(var(--unit) / 8));
     background: var(--tone-c, var(--c-neutral));
     transition: opacity var(--motion-feedback);
   }
-  /* Past forty the 16px mark wraps to four rows and stops reading as one population. */
-  .dist-units-sm { gap: 2px; }
-  .dist-units-sm .dist-unit { width: 9px; height: 9px; border-radius: 2px; }
   .dist-unit.dim { opacity: 0.25; }
   .dist-unit.sel { box-shadow: inset 0 0 0 2px var(--c-text); }
   .dist-seg {
