@@ -227,7 +227,9 @@ describe('FleetOverview — every band draws a complete population', () => {
     expect(posture).toContain('Compliant');
     expect(posture).toContain('Exact');
     expect(posture).toContain('5 operational targets');
-    expect(posture).toContain('exactly which revision is running on 3 of 5');
+    // The exact-match count is the "Exact" bucket's own printed value, and it is stated
+    // once: a sentence restating it under the bars put the same number on the page twice.
+    expect(posture).toMatch(/Exact\s*3\b/);
     // A proportion is a way in, not a picture.
     expect(linkIn(target, 'ov-posture', 'Ambiguous')?.getAttribute('href')).toBe('#/fleet/attention?category=unresolved');
     unmount(component); document.body.removeChild(target);

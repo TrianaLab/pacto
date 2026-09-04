@@ -4,7 +4,10 @@ import { test, expect, type Page } from '@playwright/test';
 // BODY-level horizontal scrolling (internal scroller regions may scroll; the page body
 // must not). Runs against the built WASM demo in the desktop project with an explicit
 // narrow viewport.
-const WIDTHS = [320, 375];
+// 1280 is here because narrow widths were the only ones checked, and the layouts that
+// overflow at a desktop width are a different set: the side-by-side rules live behind
+// min-width media queries, so a phone viewport never reaches them.
+const WIDTHS = [320, 375, 1280];
 
 // Product routes reachable by hash. Target detail shares the FleetEntityView layout with
 // service detail (the same component), so service detail exercises the entity-page layout.
@@ -20,8 +23,16 @@ const ROUTES: Array<{ hash: string; ready: (p: Page) => Promise<unknown> }> = [
   { hash: '#/fleet/graph/service/payments-service', ready: (p) => expect(p.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 }) },
 ];
 
+// Both boxes, because the failure mode differs by who clips. When the page can scroll,
+// the overflow shows up on documentElement; when an ancestor clips it, documentElement is
+// clean and the content is simply gone off the right edge with no way to reach it -- that
+// second case is the worse one for a reader and only body's own scrollWidth sees it.
 async function bodyHasNoHorizontalOverflow(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
+  return page.evaluate(() => {
+    const de = document.documentElement;
+    const b = document.body;
+    return de.scrollWidth <= de.clientWidth + 1 && b.scrollWidth <= b.clientWidth + 1;
+  });
 }
 
 for (const w of WIDTHS) {

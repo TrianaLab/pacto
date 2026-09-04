@@ -190,13 +190,12 @@
     <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
       <h2 id="ov-posture" class="t-section-title">Operational posture</h2>
       <p class="ov-sub t-body-2">
-        Over all {totalTargets} operational {totalTargets === 1 ? 'target' : 'targets'} the snapshot knows about.
-        Compliance, revision-match certainty and evidence freshness are three separate questions and are never rolled into one score.
+        Three separate questions about the {totalTargets} operational {totalTargets === 1 ? 'target' : 'targets'} the snapshot knows about — never rolled into one score.
       </p>
+      <!-- No summary line under the bars. It restated the Exact and Stale evidence
+           buckets in a sentence, so the same two numbers were on the screen twice and a
+           reader had to check they agreed. -->
       <PostureBars summary={posture} {attentionUrl} />
-      {#if totalTargets > 0}
-        <p class="ov-note t-body-2">We know exactly which revision is running on {s.exactTargetLinks || 0} of {totalTargets} operational targets{(s.staleTargets || 0) > 0 ? `, and ${s.staleTargets} of them were last observed too long ago to trust` : ''}.</p>
-      {/if}
     </section>
 
     <section class="band" id="sec-org" data-toc="Organization and contract" aria-labelledby="ov-org">
@@ -208,13 +207,12 @@
         <a class="ov-viewall" href={fleetOwnersUrl()}>Browse owners</a>
       </div>
       <p class="ov-sub t-body-2">
-        Two things nobody can see from a single service page: whether ownership is declared at all, and whether anyone is assessing readiness.
-        Neither is an operational failure — both are systemic, and both are counted over everything the snapshot holds.
+        Systemic gaps rather than operational failures: whether ownership is declared at all, and whether anyone is assessing readiness.
       </p>
       <div class="ov-org-grid">
         <DistributionBar
           title="Declared ownership"
-          description="Ownership is authored on each contract revision, so a service is cleanly owned only when its revisions agree. Revisions naming different owners is its own state, never folded into 'no owner'."
+          description="Authored on each contract revision, so a service is cleanly owned only when its revisions agree."
           scopeNote={`All ${totalServices} ${totalServices === 1 ? 'service' : 'services'} in the snapshot.`}
           segments={ownership}
           total={totalServices}
@@ -222,7 +220,7 @@
         />
         <DistributionBar
           title="Contract revision readiness"
-          description="Declared preparedness of each immutable contract revision, judged against the threshold that revision set for itself. It is not compliance: a passing revision can still be running on a target observed to violate its contract."
+          description="Declared preparedness of each revision, judged against its own threshold. This is not compliance: a passing revision can still be running on a target that violates its contract."
           scopeNote={`All ${totalRevisions} contract ${totalRevisions === 1 ? 'revision' : 'revisions'} in the snapshot.`}
           segments={readiness}
           total={totalRevisions}
@@ -244,7 +242,7 @@
         <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
       </div>
       <p class="ov-sub t-body-2">
-        Where everything above came from. A data source supplies records to the snapshot — when one is degraded the counts on this page are incomplete, not zero.
+        Where everything above came from. A degraded source makes the counts on this page incomplete, not zero.
       </p>
       <!-- The tally is over the COMPLETE source population; the chips below it are the
            bounded, least-healthy-first list from the meta. Stating both is what lets the
@@ -314,7 +312,7 @@
   .band + .band, .band + .ov-section { padding-top: var(--sp-4); border-top: 1px solid var(--c-border); }
   .ov-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .ov-head h2, .band > h2, .ov-section > h2 { margin: 0; }
-  .ov-sub, .ov-note { margin: 0; max-width: 80ch; }
+  .ov-sub { margin: 0; max-width: 80ch; }
   .ov-tally { margin: 0; color: var(--c-text); }
   /* Two bars side by side where there is room; one on a phone. Same rule as the posture
      grid, so the two bands line up instead of each inventing a breakpoint. */

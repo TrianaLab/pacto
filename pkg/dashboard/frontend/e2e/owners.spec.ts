@@ -430,7 +430,9 @@ test.describe('WASM demo — the ownership summary is its own question', () => {
     // Every percentage is still a share of 8, and they total more than 100% — the
     // symptom is left visible rather than divided away.
     await expect(legendRow(page, 'One declared owner')).toContainText('(75% of 8)');
-    await expect(legendRow(page, 'Revisions name different owners')).toContainText('(37.5% of 8)');
+    // Whole percent, not 37.5: on a population of eight the smallest step the data can
+    // take is 12.5 points, so the tenth is precision the numbers do not have.
+    await expect(legendRow(page, 'Revisions name different owners')).toContainText('(38% of 8)');
     // And nothing is invented to make the sum land: there is no missing remainder here.
     await expect(legendRow(page, 'Unclassified')).toHaveCount(0);
   });

@@ -10,6 +10,7 @@
     canonicalFocusForPerspective, projectionFocusMismatch,
   } from '../lib/graphState.ts';
   import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
+  import { abbreviateDigests } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -592,7 +593,11 @@
                   <span class="gv-k">Declared by</span>
                   <ul>
                     {#each selected.edge.declaredClaims.items as c, i (i)}
-                      <li>{c.sourceRevision || 'a revision'}{#if c.compatibility} &middot; <code>{c.compatibility}</code>{/if}{#if c.reconciliation} &middot; {c.reconciliation}{/if}</li>
+                      <!-- Through the shared abbreviator, like every other surface that
+                           prints a canonical revision key. A 64-hex digest has no break
+                           opportunity, so printed whole it also sets this panel's
+                           minimum width and pushes the panel off the screen. -->
+                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility} &middot; <code>{c.compatibility}</code>{/if}{#if c.reconciliation} &middot; {c.reconciliation}{/if}</li>
                     {/each}
                   </ul>
                 </div>
@@ -697,6 +702,8 @@
   .gv-drawer-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
 
   @media (min-width: 900px) {
-    .gv-body.gv-body-drawer { grid-template-columns: 1fr minmax(280px, 360px); align-items: start; }
+    /* minmax(0, ...) rather than a bare 1fr: a grid item's automatic minimum is its
+       content, so one wide child is enough to stop the column shrinking for the drawer. */
+    .gv-body.gv-body-drawer { grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); align-items: start; }
   }
 </style>

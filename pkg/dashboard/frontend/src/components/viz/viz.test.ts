@@ -67,17 +67,19 @@ describe('DistributionBar', () => {
   // A four-way bar of similar tones asks the reader to count slices to find the one a
   // legend row names. Hovering either half dims the others; it is presentational only,
   // so the accessible tree is unchanged and every value stays printed as text.
-  it('links a legend row to its slice on hover, and dims the others', () => {
+  it('links a legend row to its marks on hover, and dims the others', () => {
     comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 7 } });
     const items = Array.from(target.querySelectorAll('.dist-item')) as HTMLElement[];
-    expect(target.querySelectorAll('.dist-seg.dim')).toHaveLength(0);
+    expect(target.querySelectorAll('.dist-unit.dim')).toHaveLength(0);
     items[1].dispatchEvent(new MouseEvent('mouseenter'));
     flushSync();
-    expect(Array.from(target.querySelectorAll('.dist-seg')).map((s) => s.classList.contains('dim')))
-      .toEqual([true, false, true]);
+    // Four Compliant, two Not compliant, one Unknown: hovering the middle row leaves
+    // exactly its own two marks lit.
+    expect(Array.from(target.querySelectorAll('.dist-unit')).map((s) => s.classList.contains('dim')))
+      .toEqual([true, true, true, true, false, false, true]);
     items[1].dispatchEvent(new MouseEvent('mouseleave'));
     flushSync();
-    expect(target.querySelectorAll('.dist-seg.dim')).toHaveLength(0);
+    expect(target.querySelectorAll('.dist-unit.dim')).toHaveLength(0);
   });
 
   // The page is filtered to one bucket: the bar has to say which, or it is a summary of
@@ -88,9 +90,9 @@ describe('DistributionBar', () => {
       target,
       props: { title: 'Compliance', segments, total: 7, selected: 'Not compliant' },
     });
-    const segs = Array.from(target.querySelectorAll('.dist-seg'));
-    expect(segs.map((s) => s.classList.contains('sel'))).toEqual([false, true, false]);
-    expect(segs.map((s) => s.classList.contains('dim'))).toEqual([true, false, true]);
+    const marks = Array.from(target.querySelectorAll('.dist-unit'));
+    expect(marks.map((s) => s.classList.contains('sel'))).toEqual([false, false, false, false, true, true, false]);
+    expect(marks.map((s) => s.classList.contains('dim'))).toEqual([true, true, true, true, false, false, true]);
     expect(target.querySelector('.dist-legend a')?.getAttribute('aria-current')).toBe('true');
   });
 
@@ -212,7 +214,33 @@ describe('DistributionBar', () => {
       props: { title: 'Compliance', segments: [...segments, { label: 'Invalid', value: 0, tone: 'err' }], total: 7 },
     });
     expect(target.querySelector('.dist-legend')?.textContent).not.toContain('Invalid');
-    expect(target.querySelectorAll('.dist-seg')).toHaveLength(3);
+    // Three tones across the marks, not four: an empty bucket draws nothing.
+    const tones = new Set(Array.from(target.querySelectorAll('.dist-unit')).map((s) => s.className));
+    expect(tones.size).toBe(3);
+  });
+
+  // A countable population is drawn as individuals, because two red squares out of nine
+  // is a fact the reader can take from the shape itself. Past the ceiling the marks are
+  // no longer countable and the proportion is the honest reading, so the bar comes back.
+  it('draws one mark per member while the population is countable, and a proportional bar once it is not', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 7 } });
+    expect(target.querySelectorAll('.dist-unit')).toHaveLength(7);
+    expect(target.querySelectorAll('.dist-seg')).toHaveLength(0);
+    unmount(comp);
+
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 400 } });
+    expect(target.querySelectorAll('.dist-unit')).toHaveLength(0);
+    // Three buckets plus the Unclassified remainder of the 400.
+    expect(target.querySelectorAll('.dist-seg')).toHaveLength(4);
+  });
+
+  // An over-count has no individuals to draw: the buckets account for more things than
+  // exist, and a mark per counted thing would render that contradiction as a larger,
+  // complete-looking population.
+  it('refuses to draw marks for a population that over-counts itself', () => {
+    comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments, total: 5 } });
+    expect(target.querySelectorAll('.dist-unit')).toHaveLength(0);
+    expect(target.querySelector('[data-testid="dist-inconsistent"]')).not.toBeNull();
   });
 });
 

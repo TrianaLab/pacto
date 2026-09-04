@@ -44,6 +44,26 @@ Chart corrections, each a case of the drawing contradicting the data:
 - Distribution shares printed a decimal below a population of a hundred, stating
   "12.5%" where the smallest step the data can take is 12.5 points.
 
+A drawer opening beside the graph pushed the page off the right of the screen.
+Cytoscape writes its current pixel width onto a wrapper inside the canvas, so the
+graph's minimum width was whatever it was last laid out at, and no track holding
+it could shrink. The graph now contains its own inline axis and sizes from the
+outside in, which fixes every layout that embeds it rather than the one that
+happened to notice. A claim's source revision is abbreviated rather than printed
+as a full digest, and the responsive gate reads the body's scroll width as well
+as the document's — clipped overflow is invisible to the document — at desktop
+widths as well, where the drawer that started this actually opens.
+
+The overview draws populations it can count. Nine operational targets on a
+proportional bar is a shape the reader has to convert back into nine things;
+drawn as nine marks, two of them red, the count is the picture. Past a hundred
+and twenty members the marks stop being countable and the proportion is the
+honest reading again, so the bar comes back — and a population that over-counts
+itself is never drawn as marks at all, because it has no individuals to draw. The
+prose around them is cut: a sentence under the posture bars restated two bucket
+values that were already on the screen, so there are no longer two copies of the
+same number to check against each other.
+
 The WebAssembly demo's notice can be dismissed. It floats over the bottom of the
 dashboard and never left, which on a short window is where the content is. A
 failed engine load brings it back: that is the one message the reader cannot be

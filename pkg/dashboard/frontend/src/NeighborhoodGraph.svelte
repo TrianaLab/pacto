@@ -190,6 +190,14 @@
        the graph proportional to the viewport, with a floor that still fits a focus node
        and its ring and a ceiling that stops it swallowing a 4K screen. */
     height: clamp(360px, 60vh, 720px);
+    /* Cytoscape puts an in-flow wrapper inside this element and writes the current pixel
+       width onto it, so without containment the graph's min-content width is whatever it
+       was last laid out at. A flexible track holding the graph then cannot shrink -- open
+       a drawer beside it and the drawer is pushed off the right of the screen. Containing
+       the inline axis makes the graph size from the outside in, which is the only
+       direction that was ever meant to matter, and it fixes every layout that embeds it
+       rather than the one that happened to notice. */
+    contain: inline-size;
     position: relative;
     background: var(--c-surface-inset);
     border: 1px solid var(--c-border);

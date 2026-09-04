@@ -23,7 +23,11 @@
     {#if skeletonRows > 0}
       <!-- Decorative. The live text below is what a screen reader gets; a stack of empty
            divs announced one by one is noise, not progress. -->
-      <ul class="pl-list sk-list" aria-hidden="true">
+      <!-- Both loading shapes carry the same seam. A test asking "has this question been
+           answered yet" is asking about the STATE, and pinning it to whichever skeleton
+           the caller happens to get makes an improvement to one of them look like a
+           regression in five tests that never mentioned it. -->
+      <ul class="pl-list sk-list" data-testid="loading-skeleton" aria-hidden="true">
         {#each Array(skeletonRows) as _, i}
           <li class="sk-row">
             <div class="skeleton skeleton-line sk-name" style={`width:${[42, 30, 52, 36][i % 4]}%`}></div>
@@ -33,7 +37,7 @@
       </ul>
       <p class="visually-hidden" role="status">{message || 'Loading'}</p>
     {:else}
-      <div class="skeleton-table fade-in">
+      <div class="skeleton-table fade-in" data-testid="loading-skeleton">
         {#each Array(4) as _}
           <div class="skeleton-row">
             <div class="skeleton skeleton-line" style="width:25%"></div>

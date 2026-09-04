@@ -62,7 +62,7 @@
     <DistributionBar
       title="Revision-match certainty"
       {level}
-      description="How confidently each target is matched to the exact revision it runs. Anything short of an exact match still means something is running — only that we are less sure which revision."
+      description="How confidently each target is matched to the exact revision it runs. Short of exact still means something is running."
       segments={links}
       total={targets}
     />

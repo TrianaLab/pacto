@@ -97,6 +97,24 @@
   // so it stays.
   const pct = (v) => (denom >= 100 ? Math.round((v / denom) * 1000) / 10 : Math.round((v / denom) * 100));
   const pctLabel = (v) => (denom > 0 ? `(${pct(v)}% of ${denom})` : '(share unavailable)');
+
+  // A countable population is drawn as individuals rather than as proportions. Nine
+  // targets on a proportional bar is a shape the reader has to convert back into nine
+  // things; drawn as nine marks they can see that two of them are red without reading a
+  // number. Above the ceiling the marks stop being countable and the proportion is the
+  // honest reading again, so the bar comes back.
+  //
+  // Gated on `over === 0` because an over-count has no individuals to draw: the buckets
+  // account for more things than exist, and a mark per counted thing would render that
+  // contradiction as a larger, complete-looking population.
+  const UNIT_MAX = 120;
+  const unit = $derived(
+    denom > 0 && denom <= UNIT_MAX && over === 0 && rows.every((r) => Number.isInteger(r.value)),
+  );
+  // `rows` sums to exactly `denom` whenever there is no over-count -- the shortfall is
+  // already carried as the Unclassified row -- so the marks partition the population by
+  // construction and no cell is invented or dropped.
+  const cells = $derived(unit ? rows.flatMap((r) => Array.from({ length: r.value }, () => r)) : []);
 </script>
 
 <figure class="dist">
@@ -128,23 +146,40 @@
         {/if}
       </p>
     {/if}
-    <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true">
-      {#each rows as r (r.label)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- No role, deliberately: this span lives inside aria-hidden="true" and is not
-             in the accessible tree at all, so giving it one would put a decorative
-             shape back into it. The pointer gesture it carries is presentational, and
-             its keyboard equivalent is the legend entry below, which IS focusable. -->
-        <span
-          class="dist-seg tone-{r.tone || 'neutral'}"
-          class:dim={dimmed(r.label)}
-          class:sel={selected === r.label}
-          data-motion
-          style="flex-grow: {r.value}"
-          onmouseenter={() => (active = r.label)}
-          onmouseleave={() => (active = '')}
-        ></span>
-      {/each}
+    <!-- One element either way, so the graphic is hidden from assistive technology in
+         exactly one place and neither drawing can be added to the accessible tree by
+         forgetting to. No role on the marks, deliberately: they live inside
+         aria-hidden="true" and are not in the accessible tree at all, so giving them one
+         would put a decorative shape back into it. The pointer gesture they carry is
+         presentational, and its keyboard equivalent is the legend entry below, which IS
+         focusable. -->
+    <div class="dist-bar" class:dist-bar-warn={over > 0} class:dist-units={unit} class:dist-units-sm={unit && denom > 40} aria-hidden="true">
+      {#if unit}
+        {#each cells as c, i (i)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span
+            class="dist-unit tone-{c.tone || 'neutral'}"
+            class:dim={dimmed(c.label)}
+            class:sel={selected === c.label}
+            data-motion
+            onmouseenter={() => (active = c.label)}
+            onmouseleave={() => (active = '')}
+          ></span>
+        {/each}
+      {:else}
+        {#each rows as r (r.label)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span
+            class="dist-seg tone-{r.tone || 'neutral'}"
+            class:dim={dimmed(r.label)}
+            class:sel={selected === r.label}
+            data-motion
+            style="flex-grow: {r.value}"
+            onmouseenter={() => (active = r.label)}
+            onmouseleave={() => (active = '')}
+          ></span>
+        {/each}
+      {/if}
     </div>
     <ul class="dist-legend">
       {#each rows as r (r.label)}
@@ -202,6 +237,22 @@
      over-count it is not one, so it is drawn hatched — the notice above already says
      so in words; this only stops the shape from contradicting it. */
   .dist-bar-warn { border-color: var(--c-warn); border-style: dashed; }
+  /* Marks, not a bar: the frame and the fixed height belong to a single continuous shape
+     and would read as a container the marks sit inside. They size themselves and wrap. */
+  .dist-units {
+    height: auto; gap: 3px; flex-wrap: wrap; overflow: visible;
+    background: none; border: 0; border-radius: 0;
+  }
+  .dist-unit {
+    display: block; width: 16px; height: 16px; border-radius: var(--radius-xs); flex: none;
+    background: var(--tone-c, var(--c-neutral));
+    transition: opacity var(--motion-feedback);
+  }
+  /* Past forty the 16px mark wraps to four rows and stops reading as one population. */
+  .dist-units-sm { gap: 2px; }
+  .dist-units-sm .dist-unit { width: 9px; height: 9px; border-radius: 2px; }
+  .dist-unit.dim { opacity: 0.25; }
+  .dist-unit.sel { box-shadow: inset 0 0 0 2px var(--c-text); }
   .dist-seg {
     display: block; min-width: 2px; background: var(--tone-c, var(--c-neutral));
     transition: flex-grow var(--motion-reveal), opacity var(--motion-feedback);

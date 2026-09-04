@@ -69,7 +69,7 @@ function installBigServices(): void {
 }
 
 /** The skeleton the shared EmptyState renders while a question has no answer yet. */
-const skeleton = (page: Page) => page.locator('.skeleton-table');
+const skeleton = (page: Page) => page.getByTestId('loading-skeleton');
 
 test.describe('WASM demo — retained rows answer the question that is on screen', () => {
   test.beforeEach(async ({ page }) => {
