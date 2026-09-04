@@ -1,6 +1,6 @@
 {
   "name": "@pacto/cli",
-  "version": "3.2.6",
+  "version": "3.2.7",
   "private": true,
   "pacto": {
     "releaseUnit": "cli",
