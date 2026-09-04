@@ -42,7 +42,11 @@ Chart corrections, each a case of the drawing contradicting the data:
   swatch and a grey node on one screen. One table now decides both the wording
   and the tone, and every surface reads it.
 - Distribution shares printed a decimal below a population of a hundred, stating
-  "12.5%" where the smallest step the data can take is 12.5 points.
+  "12.5%" where the smallest step the data can take is 12.5 points. The same
+  rounding ran out at the other end: one invalid target in a fleet of three
+  thousand printed as "1 (0% of 3000)", a row contradicting the count beside it,
+  and it is exactly the row a triage page exists to surface. A non-zero share now
+  prints as the bound it is under rather than as nought.
 
 A drawer opening beside the graph pushed the page off the right of the screen.
 Cytoscape writes its current pixel width onto a wrapper inside the canvas, so the

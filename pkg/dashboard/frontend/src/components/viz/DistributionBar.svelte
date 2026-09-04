@@ -95,8 +95,18 @@
   // points. Worse, it invites the reader to compare 12.5 against 12.4 on a population
   // where no such difference exists. Above a hundred the tenth is a real distinction,
   // so it stays.
+  //
+  // The same rounding runs out at the other end. A single invalid target in a fleet of
+  // three thousand is 0.033%, which one decimal rounds to a flat zero -- so the row reads
+  // "Invalid 1 (0% of 3000)" and contradicts the count printed beside it. That row is
+  // exactly the one a triage page exists to surface, so a non-zero share never prints as
+  // nought: it prints as the bound it is under.
   const pct = (v) => (denom >= 100 ? Math.round((v / denom) * 1000) / 10 : Math.round((v / denom) * 100));
-  const pctLabel = (v) => (denom > 0 ? `(${pct(v)}% of ${denom})` : '(share unavailable)');
+  const pctText = (v) => {
+    const p = pct(v);
+    return p === 0 && v > 0 ? `<${denom >= 100 ? '0.1' : '1'}` : `${p}`;
+  };
+  const pctLabel = (v) => (denom > 0 ? `(${pctText(v)}% of ${denom})` : '(share unavailable)');
 
   // A countable population is drawn as individuals rather than as proportions. Nine
   // targets on a proportional bar is a shape the reader has to convert back into nine
