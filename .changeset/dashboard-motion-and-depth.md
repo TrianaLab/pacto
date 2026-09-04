@@ -58,6 +58,13 @@ as a full digest, and the responsive gate reads the body's scroll width as well
 as the document's — clipped overflow is invisible to the document — at desktop
 widths as well, where the drawer that started this actually opens.
 
+Change analysis joins the long pages on the shared "On this page" rail. A finished
+analysis runs several screens deep — the revision pickers, the change table, then
+the consumer table under it — and getting back up to compare a different pair was a
+scroll. It is the navigator the overview and the entity pages already use, so there
+is no second contents list, and it lists only what the page actually rendered: there
+is no "What it affects" entry until there is a result.
+
 The overview draws populations it can count. Nine operational targets on a
 proportional bar is a shape the reader has to convert back into nine things;
 drawn as nine marks, two of them red, the count is the picture. Past a hundred

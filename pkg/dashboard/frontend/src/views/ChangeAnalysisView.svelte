@@ -7,6 +7,7 @@
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import PageToc from '../components/PageToc.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
   import HelpTip from '../components/HelpTip.svelte';
@@ -383,7 +384,14 @@
 {:else if loadError}
   <EmptyState error title="Couldn’t load this service" message={loadError instanceof ApiError ? loadError.message : String(loadError)} onRetry={() => loadRevisions(serviceKey)} />
 {:else}
-  <form class="workspace-controls" onsubmit={(e) => { e.preventDefault(); analyze(0); }}>
+  <!-- A completed analysis is several screens deep: the pickers, the change table, then
+       the consumer table under it. The shared navigator lists the parts actually
+       rendered -- there is no "What it affects" entry until there is a result -- and it
+       is what makes going back up to change a revision one click instead of a scroll. -->
+  <div class="page-toc-layout">
+  <PageToc />
+  <div class="page-toc-main">
+  <form class="workspace-controls" id="sec-revisions" data-toc="Revisions to compare" onsubmit={(e) => { e.preventDefault(); analyze(0); }}>
     <div class="svc-line">
       <!-- No "Service" caption here: EntityLink already carries the kind chip, and the
            breadcrumb above already says which service. Three labels for one fact is how
@@ -455,7 +463,7 @@
     <!-- Stage 1: WHAT CHANGED. The field-level semantic diff of the two contracts,
          breaking first. This is a statement about the contracts themselves and says
          nothing yet about what runs. -->
-    <section class="stage" data-testid="changes-what-changed">
+    <section class="stage" id="sec-what-changed" data-toc="What changed" data-testid="changes-what-changed">
       <div class="stage-head">
         <h2>What changed</h2>
         <p class="stage-lead">Field-level differences between the two contract revisions.</p>
@@ -487,7 +495,7 @@
     <!-- Stage 2: WHAT IT AFFECTS. The same revision pair, projected over the operational
          graph. Separated from stage 1 because "the contract changed" and "something
          running is affected" are different claims with different evidence. -->
-    <section class="stage" data-testid="changes-what-it-affects">
+    <section class="stage" id="sec-what-it-affects" data-toc="What it affects" data-testid="changes-what-it-affects">
       <div class="stage-head">
         <h2>What it affects</h2>
         <p class="stage-lead">Where this change reaches in the current operational graph.</p>
@@ -520,7 +528,10 @@
       </div>
     {/if}
 
-    <div class="section">
+    <!-- Listed in the navigator even though it is a level down: it is the longest block
+         on the page and the one a reader comes back for, and an entry that stops at
+         "What it affects" still leaves two charts to scroll past to reach the table. -->
+    <div class="section" id="sec-affected-consumers" data-toc="Affected consumers">
       <h3 class="ca-subhead t-subsection-title">Affected consumers <span class="t-meta">{consumers.total}</span></h3>
       {#if (consumers.items?.length ?? 0) === 0}
         <EmptyState title="No affected consumers" message="No service in the operational graph consumes this change." />
@@ -587,6 +598,8 @@
       <EmptyState title="Pick two revisions" message="Choose an earlier and a later revision to see what changed and what that change affects." />
     {/if}
   {/if}
+  </div>
+  </div>
 {/if}
 </div>
 
