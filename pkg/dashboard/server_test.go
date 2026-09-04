@@ -3334,10 +3334,14 @@ func TestGetCachedIndex_ConcurrentMissesShareOneRebuild(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	close(src.release)
-	first := <-out
-	for i := 0; i < queued; i++ {
-		if got := <-out; got != first {
-			t.Error("a queued caller must return the winner's index, not build its own")
+	// Every caller gets a built index, nobody the empty fallback -- and the whole
+	// fleet was resolved once. Pointer identity is deliberately not asserted:
+	// background version enrichment legitimately swaps a fresh cache in without a
+	// second resolution, so a queued caller returning a different pointer says
+	// nothing about single-flighting. The call count is the claim.
+	for i := 0; i <= queued; i++ {
+		if got := <-out; got == nil || got.index["svc"] == nil {
+			t.Error("a queued caller must return the rebuilt index, not an empty fallback")
 		}
 	}
 	srv.WaitForVersionEnrich()
