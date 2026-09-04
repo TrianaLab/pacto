@@ -1,0 +1,4353 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The operational contract system for services — declare what a service is, publish it to any OCI registry, and compare it against the last revision and against what is running.">
+      
+      
+      
+        <link rel="canonical" href="https://pacto.run/3.2.7/mcp-integration/">
+      
+      
+        <link rel="prev" href="../github-actions/">
+      
+      
+        <link rel="next" href="../integrations/kubernetes/overview/">
+      
+      
+      <link rel="icon" href="../favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.21">
+    
+    
+      
+        <title>MCP integration - Pacto</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.2a3383ac.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mcp-integration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Pacto" class="md-header__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../assets/images/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Pacto
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              MCP integration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/dashboard-demo/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Try it
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../installation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../developers/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../model/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../operational-graph/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Operational graph
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../patterns/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Patterns
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../github-actions/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../contract-reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Project internals
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Pacto" class="md-nav__button md-logo" aria-label="Pacto" data-md-component="logo">
+      
+  <img src="../assets/images/logo.svg" alt="logo">
+
+    </a>
+    Pacto
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TrianaLab/pacto" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrianaLab/pacto
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Try it
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Try it
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/dashboard-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Live dashboard demo
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/compose-demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runnable demo (Docker Compose)
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Get started
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Get started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Quickstart
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guides
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Guides
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../developers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    For developers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform-engineers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    For platform engineers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Concepts
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Concepts
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    The Pacto model
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Core concepts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manifesto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Manifesto
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Operational graph
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Operational graph
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operational-graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    The Pacto Operational Graph
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../impact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Impact analysis
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../collectors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Collectors and the evidence boundary
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../observation-sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Observation sources
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_5" id="__nav_6_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    External evidence
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
+            <span class="md-nav__icon md-icon"></span>
+            External evidence
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evidence-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evidence protocol
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evidence-oci-storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evidence in the registry
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evidence-security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Evidence security and tooling
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../patterns/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Patterns
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Patterns
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/root-component/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Root + component contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/infrastructure-contracts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Infrastructure contracts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/composable-configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Composable configurations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/policy-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Policy + schema contract
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/progressive-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Progressive policy versioning
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/override-files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Override files
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../patterns/configuration-schema-ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration schema ownership
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Examples
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Examples
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/cron-worker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Cron worker
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/event-processor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Event processor
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/grpc-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    gRPC service
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/hybrid-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Hybrid cache
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/nginx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Nginx
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/postgresql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    PostgreSQL
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/rabbitmq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    RabbitMQ
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/redis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Redis
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Integrations
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            Integrations
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../github-actions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    GitHub Actions
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    MCP integration
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    MCP integration
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      How it works
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#three-tool-families-and-their-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Three tool families and their boundaries
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Three tool families and their boundaries">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fleet-query-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fleet query safety
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-authoring-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      The authoring tools
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The authoring tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#structured-inputs-are-json-encoded-strings" class="md-nav__link">
+    <span class="md-ellipsis">
+      Structured inputs are JSON-encoded strings
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_create" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_create
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_edit
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_check" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_check
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_schema
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent capabilities
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent capabilities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-pacto_-names-are-reserved" class="md-nav__link">
+    <span class="md-ellipsis">
+      The pacto_ names are reserved
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-only-by-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      Read-only by default
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#base-url" class="md-nav__link">
+    <span class="md-ellipsis">
+      Base URL
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#service-authentication-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service authentication (--auth)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_skill
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connecting-to-a-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connecting to a bundle
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-session-freezes-and-what-it-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      What a session freezes, and what it does not
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end-to-end-example-a-demo-bundle-with-claude-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      End-to-end example: a demo bundle with Claude Code
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contract-catalog-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Contract catalog discovery
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contract catalog discovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      The surface
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      What it is not
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#partial-is-not-empty-and-not-complete" class="md-nav__link">
+    <span class="md-ellipsis">
+      Partial is not empty, and not complete
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#requested-resolved-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      Requested, resolved, identity
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transports" class="md-nav__link">
+    <span class="md-ellipsis">
+      Transports
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connect-your-mcp-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connect your MCP client
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connect your MCP client">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example prompts
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_9_3" id="__nav_9_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Kubernetes
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9_3">
+            <span class="md-nav__icon md-icon"></span>
+            Kubernetes
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Kubernetes overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install the operator
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Upgrade the operator
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/contract-bindings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract bindings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/runtime-observations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Runtime observations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/operator-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Operator configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Limitations and opt-in features
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/crd-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CRD reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/helm-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Helm reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/rbac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    RBAC
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/kubernetes/artifact-hub/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Published artifacts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Plugin development
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard container
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Reference
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../contract-reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Contract reference
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10_1" id="__nav_10_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_1">
+            <span class="md-nav__icon md-icon"></span>
+            Contract reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/sections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract sections
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Validation layers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/overrides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Contract overrides
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contract-reference/diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Diff and change classification
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    CLI reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lockfile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Lockfile
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pactoignore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Packaging ignore
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Project internals
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            Project internals
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Dashboard architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainers/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Testing architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/compliance-scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Compliance scenarios
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintainers/releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Release architecture
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Changelog
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      How it works
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#three-tool-families-and-their-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      Three tool families and their boundaries
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Three tool families and their boundaries">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fleet-query-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fleet query safety
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-authoring-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      The authoring tools
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The authoring tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#structured-inputs-are-json-encoded-strings" class="md-nav__link">
+    <span class="md-ellipsis">
+      Structured inputs are JSON-encoded strings
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_create" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_create
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_edit
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_check" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_check
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_schema
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent capabilities
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent capabilities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-pacto_-names-are-reserved" class="md-nav__link">
+    <span class="md-ellipsis">
+      The pacto_ names are reserved
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-only-by-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      Read-only by default
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#base-url" class="md-nav__link">
+    <span class="md-ellipsis">
+      Base URL
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#service-authentication-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      Service authentication (--auth)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pacto_skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      pacto_skill
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#connecting-to-a-bundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connecting to a bundle
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-session-freezes-and-what-it-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      What a session freezes, and what it does not
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#end-to-end-example-a-demo-bundle-with-claude-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      End-to-end example: a demo bundle with Claude Code
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contract-catalog-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Contract catalog discovery
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contract catalog discovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      The surface
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      What it is not
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#partial-is-not-empty-and-not-complete" class="md-nav__link">
+    <span class="md-ellipsis">
+      Partial is not empty, and not complete
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#requested-resolved-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      Requested, resolved, identity
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#transports" class="md-nav__link">
+    <span class="md-ellipsis">
+      Transports
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connect-your-mcp-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connect your MCP client
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connect your MCP client">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Example prompts
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/TrianaLab/pacto/edit/main/docs/mcp-integration.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="mcp-integration">MCP Integration<a class="headerlink" href="#mcp-integration" title="Anchor link">&para;</a></h1>
+<p>Pacto includes a built-in <a href="https://modelcontextprotocol.io">Model Context Protocol</a> (MCP) server that exposes contract operations as tools for AI assistants. This enables AI tools like Claude, Cursor, and GitHub Copilot to create, edit, and validate Pacto contracts directly.</p>
+<p>Point the server at a bundle (<code>pacto mcp &lt;bundle-ref&gt;</code>) and it goes further: every operation in the bundle's OpenAPI interface becomes an executable agent tool, and any <code>skills/*.md</code> domain guides the bundle ships are exposed too — making an existing contract immediately agent-ready without writing per-tool glue. See <a href="#agent-capabilities">Agent capabilities</a> below.</p>
+<p>MCP is an <em>integration surface</em>, not the definition of Pacto. The projection that turns a bundle's interface into callable tools lives in the framework-independent <code>pkg/capability</code> package; MCP is the transport this page uses to expose it.</p>
+<hr />
+<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Anchor link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart LR
+    AI["AI Assistant&lt;br/&gt;(Claude, Cursor, Copilot)"] --&gt;|"MCP tool calls"| MCP["pacto mcp&lt;br/&gt;stdio or HTTP"]
+    MCP --&gt;|"create, edit,&lt;br/&gt;check, schema"| Sources["Local dirs&lt;br/&gt;Contract files"]
+    Sources --&gt;|"structured results"| MCP
+    MCP --&gt;|"JSON responses"| AI</code></pre>
+<p>The assistant works entirely through the tool interface, and Pacto returns JSON. What it reaches for depends on the mode: the <a href="#the-authoring-tools">authoring tools</a> touch local contract directories and nothing else, while a bundle server calls the live service, <code>--fleet</code> reads clusters, registries and Evidence Servers, and <code>--root</code> resolves contracts from a registry. Only the default server is purely local.</p>
+<hr />
+<h2 id="three-tool-families-and-their-boundaries">Three tool families and their boundaries<a class="headerlink" href="#three-tool-families-and-their-boundaries" title="Anchor link">&para;</a></h2>
+<p>Pacto exposes three distinct families of MCP tools, with different safety
+boundaries.</p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>Tools</th>
+<th>What they do</th>
+<th>Safety boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Authoring</strong></td>
+<td><code>pacto_create</code>, <code>pacto_edit</code>, <code>pacto_check</code>, <code>pacto_schema</code></td>
+<td>Create, edit and validate Pacto <em>contracts</em>.</td>
+<td>Operate on contract files, not live systems. <code>pacto_edit</code> writes only after validation — with a <a href="#pacto_edit">known gap</a>.</td>
+</tr>
+<tr>
+<td><strong>Generated service</strong></td>
+<td>Derived per operation from a bundle's OpenAPI interfaces (<code>getUser</code>, <code>createRefund</code>, …)</td>
+<td>Invoke the <em>live service</em> the contract describes.</td>
+<td>Read-only (<code>GET</code>/<code>HEAD</code>) unless you pass <code>--allow-writes</code>; every call is bounded by a 30-second timeout and follows no redirect at all — a 3xx comes back to the agent as the result.</td>
+</tr>
+<tr>
+<td><strong>Fleet query</strong></td>
+<td><code>pacto_fleet_search</code>, <code>pacto_fleet_get</code>, <code>pacto_fleet_graph</code>, <code>pacto_fleet_status</code>, <code>pacto_fleet_explain</code>, <a href="../impact/#mcp-tool-pacto_impact"><code>pacto_impact</code></a></td>
+<td>Read-only understanding of the <em>operational system</em> — services, revisions, targets, relationships and status. <code>pacto_impact</code> projects a contract diff onto that system to report a change's blast radius.</td>
+<td>Read-only always: they write nothing, anywhere. Two things that boundary does <em>not</em> cover — read-only is not offline, and a read-only <em>family</em> is not a read-only <em>server</em>: see <a href="#fleet-query-safety">Fleet query safety</a>. The only server with no write tool is <a href="#contract-catalog-discovery"><code>--root</code></a>.</td>
+</tr>
+</tbody>
+</table>
+<p>Two tools sit outside the three families: <code>pacto_skill</code>, which serves a bundle's
+own <a href="#agent-capabilities">domain guides</a>, and <code>pacto_catalog_revision</code>, the single
+lookup tool of the fourth server mode, <a href="#contract-catalog-discovery">catalog discovery</a>
+— which also publishes two MCP <em>resources</em>, the only part of the surface that is
+not a tool at all.</p>
+<p>Not in the surface at all: inspecting a registry contract, resolving a dependency
+graph, diffing revisions, generating docs, and the two <code>pacto fleet</code> operations
+that are not queries — <code>reconcile</code>, which compares declared dependencies against
+observed traffic, and <code>snapshot</code>, which emits the whole read model as one
+document. These stay <a href="../developers/#ai-assisted-workflow">CLI-only</a>. No tool
+pushes, pulls or deploys anything.
+<a href="../cli-reference/#server-modes">Server modes</a> lists which tools each invocation
+registers, and <a href="../concepts/#boundaries">Boundaries</a> is where the MCP surface,
+the catalog and the fleet are told apart.</p>
+<div class="admonition warning">
+<p class="admonition-title">The boundary is documented, not machine-advertised</p>
+<p>Pacto ships <strong>no MCP tool annotations</strong>. A <code>tools/list</code> response carries no
+<code>annotations</code> member on any tool — not <code>readOnlyHint</code>, not <code>destructiveHint</code>,
+not <code>idempotentHint</code> — including on <code>pacto_create</code> and <code>pacto_edit</code>, which
+write contract files, and on a generated tool such as <code>createRefund</code>, which
+moves money. The <a href="https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations">annotations</a>
+MCP defines for exactly this purpose are absent, so a client cannot tell a
+read tool from a write tool and will not warn you before a write. The boundary
+described on this page is enforced by you, not by your client: build
+allow-lists by hand. The only machine-usable signal is the tool
+name. <code>pacto_check</code>, <code>pacto_schema</code>, <code>pacto_skill</code>, <code>pacto_fleet_*</code>,
+<code>pacto_impact</code> and <code>pacto_catalog_revision</code> are read-only; <code>pacto_create</code> and
+<code>pacto_edit</code> write contract files; generated service tools carry no <code>pacto_</code>
+prefix at all and reach a live service, so treat every unprefixed tool as
+unsafe unless you started the server without <code>--allow-writes</code>. That last rule
+holds because <a href="#the-pacto_-names-are-reserved">the <code>pacto_</code> names are reserved</a>
+— a bundle cannot claim one.</p>
+</div>
+<h3 id="fleet-query-safety">Fleet query safety<a class="headerlink" href="#fleet-query-safety" title="Anchor link">&para;</a></h3>
+<ul>
+<li><strong>They are read-only.</strong> They project the <a href="../operational-graph/">Pacto Operational Graph</a>
+  — an immutable read model — and write nothing, to a contract, a registry or a
+  running service. Read-only is not the same as offline. The <code>pacto_fleet_*</code> tools
+  answer from the snapshot built at startup and touch nothing afterwards, but
+  <code>pacto_impact</code> re-resolves both of its refs and rebuilds the snapshot on <strong>every</strong>
+  call — so each invocation reaches your registry, and your cluster if <code>--k8s</code> is
+  on, using the server's own credentials. Allow-list it on that basis, not on the
+  family's.</li>
+<li><strong>Pacto does not determine authorization.</strong> These tools expose knowledge; they
+  never grant, scope or revoke a permission. Whether an agent <em>may</em> act stays with
+  policy and IAM systems.</li>
+<li><strong>Partial or stale results are incomplete knowledge.</strong> Every answer that comes
+  back as a <em>result</em> carries an <code>asOf</code> time, a <code>completeness</code> value and structured
+  <code>limitations</code>. Branch on those before trusting an answer.</li>
+<li><strong>A missing result under partial coverage does not prove absence.</strong> If a source
+  was unavailable, a "not found" means "not known here", not "does not exist". An
+  unavailable source is never rendered as an empty result.</li>
+<li><strong>A subject miss is an error, and it carries no envelope.</strong> <code>pacto_fleet_get</code>,
+  <code>pacto_fleet_graph</code> and <code>pacto_fleet_explain</code> answer an unknown service or target
+  with an MCP tool error — the bare string <code>service "x" not found in the fleet
+  snapshot</code>, with no <code>meta</code>, so no <code>completeness</code> to branch on even when the
+  snapshot is partial. The two list-shaped tools do carry it. To find out whether
+  such an absence is trustworthy, call <code>pacto_fleet_search</code> or <code>pacto_fleet_status</code>
+  on the same server and read the <code>completeness</code> from there; both are served from
+  the same frozen snapshot, so the reading applies.</li>
+<li><strong>The snapshot is frozen for the session.</strong> <code>pacto mcp --fleet</code> builds one
+  snapshot at startup, and every <code>pacto_fleet_*</code> answer is served from it: the same
+  <code>asOf</code> and the same <code>snapshotId</code> for the life of the process, however far the
+  cluster or the registry moves underneath. A service deployed after the server
+  started will not appear until you restart it. <code>pacto_impact</code> is the one
+  exception — it resolves its two refs and rebuilds the snapshot on every call, so
+  its <code>asOf</code> advances while the fleet tools' does not. When the two disagree, they
+  are describing two different moments, not two different worlds.</li>
+<li><strong>It reads; it does not reconcile and does not store.</strong> Answering is all it
+  does. Acting on a contract in a cluster is the
+  <a href="../integrations/kubernetes/overview/">Kubernetes operator's</a> job, and durable
+  evidence lives in an <a href="../evidence-protocol/">Evidence Server</a> someone else runs —
+  <code>--evidence-url</code> reads one, it never becomes one. Nothing survives the process.</li>
+</ul>
+<p><code>--fleet</code> names its sources the same way <code>pacto fleet</code> does, and the flags mean
+the same things:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pacto<span class="w"> </span>mcp<span class="w"> </span>--fleet<span class="w"> </span>--k8s<span class="w"> </span>--oci<span class="w"> </span>ghcr.io/acme/payments-api-pacto:2.1.0
+</span></code></pre></div>
+<p><code>--local</code>, <code>--oci</code>, <code>--k8s</code>, <code>--cache</code>, <code>--evidence-url</code>, <code>--target-state</code>,
+<code>--namespace</code> and <code>--freshness</code> are all accepted — every <code>pacto fleet</code> source
+except <code>--traces</code> as a <em>server</em> flag; the
+<a href="../cli-reference/#pacto-mcp"><code>pacto mcp</code> reference</a> lists them with their
+defaults. <code>pacto_impact</code> still accepts a per-call <code>traces</code> argument, and that one
+reads a path off the local filesystem — see the table below. See
+<a href="../operational-graph/">The Pacto Operational Graph</a> for the read model these tools
+query and the query semantics they expose.</p>
+<p>The arguments each tool takes, since none of them is required except where marked:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Arguments</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pacto_fleet_search</code></td>
+<td><code>text</code>, <code>owner</code>, <code>status</code>, <code>compliance</code>, <code>workload</code>, <code>scope</code>, <code>source</code>, <code>ready</code>, <code>not_ready</code>, <code>has_capability</code>, <code>has_dependency</code>, <code>limit</code></td>
+</tr>
+<tr>
+<td><code>pacto_fleet_get</code></td>
+<td><code>service</code> <strong>or</strong> <code>target</code> — one names a logical service, the other an operational target by key or name</td>
+</tr>
+<tr>
+<td><code>pacto_fleet_graph</code></td>
+<td><code>service</code>, <code>revision</code> or <code>target</code> to root the traversal, then <code>direction</code>, <code>transitive</code> and <code>max_depth</code> (<code>0</code> = unlimited)</td>
+</tr>
+<tr>
+<td><code>pacto_fleet_status</code></td>
+<td><code>needs_attention</code> for every category, or any of <code>invalid</code>, <code>non_compliant</code>, <code>unknown</code>, <code>stale</code>, <code>unresolved_deps</code>, <code>missing_readiness</code>; plus <code>limit</code></td>
+</tr>
+<tr>
+<td><code>pacto_fleet_explain</code></td>
+<td><code>subject</code> (<strong>required</strong>) — a service name or a target key or name</td>
+</tr>
+<tr>
+<td><code>pacto_impact</code></td>
+<td><code>old_ref</code> and <code>new_ref</code> (<strong>both required</strong>), plus <code>include_observed</code> and <code>traces</code></td>
+</tr>
+</tbody>
+</table>
+<p>Argument names are not flag names: the substring filter is <code>text</code>, not <code>query</code>,
+and an unrecognised key is ignored rather than rejected, so a wrong guess reads as
+an unfiltered answer rather than an error.</p>
+<hr />
+<h2 id="the-authoring-tools">The authoring tools<a class="headerlink" href="#the-authoring-tools" title="Anchor link">&para;</a></h2>
+<p>These four are the default server, and every mode except <code>--root</code> carries them
+as well.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pacto_create</code></td>
+<td>Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run.</td>
+</tr>
+<tr>
+<td><code>pacto_edit</code></td>
+<td>Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run.</td>
+</tr>
+<tr>
+<td><code>pacto_check</code></td>
+<td>Validate a contract and return errors, warnings, and actionable improvement suggestions.</td>
+</tr>
+<tr>
+<td><code>pacto_schema</code></td>
+<td>Return the Pacto format explanation and full JSON Schema reference. Call this first if the assistant needs schema details.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="structured-inputs-are-json-encoded-strings">Structured inputs are JSON-encoded strings<a class="headerlink" href="#structured-inputs-are-json-encoded-strings" title="Anchor link">&para;</a></h3>
+<p>Every authoring-tool input that carries structure has the MCP wire type <code>string</code>,
+and the value is JSON <em>serialised into a string</em> — not a JSON array or object.
+That is true of <code>interfaces</code>, <code>dependencies</code>, <code>config_properties</code> and <code>metadata</code>
+on <code>pacto_create</code>, and of <code>add_interfaces</code>, <code>remove_interfaces</code>,
+<code>add_dependencies</code>, <code>remove_dependencies</code>, <code>add_config_properties</code>,
+<code>set_metadata</code> and <code>remove_metadata</code> on <code>pacto_edit</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"orders"</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"interfaces"</span><span class="p">:</span><span class="w"> </span><span class="s2">"[{\"name\":\"api\",\"type\":\"openapi\"}]"</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
+</span></code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Passing a real JSON array or object where the JSON-encoded string is expected
+is a <strong>silent no-op</strong>. The argument is discarded, the call still succeeds and
+<code>changes</code> comes back <code>null</code> — nothing is written and nothing is reported. An
+absent error is therefore not evidence that the edit happened: check the
+result's <code>changes</code> and <code>summary</code>.</p>
+</div>
+<h3 id="pacto_create">pacto_create<a class="headerlink" href="#pacto_create" title="Anchor link">&para;</a></h3>
+<p>Creates a new Pacto contract from structured input. The tool infers contract details from a natural-language description and explicit parameters.</p>
+<p><strong>Key inputs:</strong></p>
+<ul>
+<li><code>name</code> (required) — service name</li>
+<li><code>description</code> — natural-language description (triggers automatic inference of interfaces and runtime)</li>
+<li><code>interfaces</code> — <a href="#structured-inputs-are-json-encoded-strings">JSON-encoded</a> array of <code>{name, type, visibility?}</code> objects. <code>type</code> is one of <code>openapi</code>, <code>asyncapi</code> or <code>grpc</code> — the only three the <a href="../contract-reference/sections/#interfaces">contract schema</a> allows. There is no <code>ref</code> input: the contract's required <code>interfaces[].ref</code> is derived as <code>interfaces/&lt;name&gt;.yaml</code>.</li>
+<li><code>stores_data</code>, <code>data_survives_restart</code>, <code>data_shared_across_instances</code> — intent-level runtime flags mapped to contract primitives</li>
+<li><code>dry_run</code> — validate and return the result without writing files</li>
+</ul>
+<p><strong>Description inference:</strong> When a description mentions terms like "REST API" or "gRPC", the tool infers the matching interface; a datastore term like <code>postgres</code> or <code>redis</code> flips the runtime to stateful; and a messaging term like <code>kafka</code> adds an <code>asyncapi</code> interface. Matching is case-insensitive but <strong>whole-word</strong>, so <code>Postgres</code> and <code>postgres</code> are recognised while <code>PostgreSQL</code> is not. Dependencies are never inferred — declare them explicitly via the <code>dependencies</code> input. Explicit inputs always override inferred values.</p>
+<p><strong>Runtime mapping:</strong> Intent-level flags are deterministically mapped to contract primitives:</p>
+<table>
+<thead>
+<tr>
+<th>Intent</th>
+<th>Contract field</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>stores_data=true</code> + <code>data_survives_restart=false</code></td>
+<td><code>state.type: stateful</code>, <code>persistence.durability: ephemeral</code>, <code>dataCriticality: medium</code></td>
+</tr>
+<tr>
+<td><code>stores_data=true</code> + <code>data_survives_restart=true</code></td>
+<td><code>state.type: stateful</code>, <code>persistence.durability: persistent</code></td>
+</tr>
+<tr>
+<td><code>data_shared_across_instances=true</code></td>
+<td><code>persistence.scope: shared</code></td>
+</tr>
+<tr>
+<td><code>data_loss_impact=high</code></td>
+<td><code>dataCriticality: high</code></td>
+</tr>
+</tbody>
+</table>
+<p>The persistence rows take effect only when <code>stores_data=true</code> — <code>stores_data</code> is what sets <code>state.type: stateful</code> and the default <code>dataCriticality: medium</code>. With <code>stores_data=false</code> the state stays stateless, local and ephemeral, and <code>data_shared_across_instances</code> is ignored; <code>data_loss_impact</code> still sets <code>dataCriticality</code> independently of <code>stores_data</code>. See <a href="../contract-reference/">Contract reference</a> for the full workload and state field definitions.</p>
+<h3 id="pacto_edit">pacto_edit<a class="headerlink" href="#pacto_edit" title="Anchor link">&para;</a></h3>
+<p>Modifies an existing contract. Reads the current <code>pacto.yaml</code>, applies changes, validates the result, and writes back atomically. The validation step has a real gap — see the warning below.</p>
+<p><strong>Key inputs:</strong></p>
+<ul>
+<li><code>path</code> — directory containing <code>pacto.yaml</code> (defaults to <code>.</code>)</li>
+<li><code>add_interfaces</code> / <code>remove_interfaces</code> — add or remove interfaces. <code>add_interfaces</code> takes the same <a href="#structured-inputs-are-json-encoded-strings">JSON-encoded</a> <code>{name, type, visibility?}</code> objects as <code>pacto_create</code>; <code>remove_interfaces</code> takes a JSON-encoded array of interface names.</li>
+<li><code>add_dependencies</code> / <code>remove_dependencies</code> — add or remove dependencies</li>
+<li>Runtime flags (<code>stores_data</code>, <code>data_survives_restart</code>, etc.)</li>
+<li><code>dry_run</code> — validate without writing</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title"><code>pacto_edit</code> can write a bundle that <code>pacto validate</code> rejects</p>
+<p><code>pacto_edit</code> scaffolds a stub spec file only for <code>openapi</code> and <code>grpc</code>
+interfaces. An <code>asyncapi</code> interface is added to <code>pacto.yaml</code> with a derived
+<code>ref: interfaces/&lt;name&gt;.yaml</code> and <strong>no file is created</strong>, so the tool reports
+success — <code>changes: ["added interface …"]</code> — while the referenced file is
+missing, and <code>pacto validate</code> then exits non-zero with <code>FILE_NOT_FOUND</code>. The
+tool's "validates the result before writing" does not catch this: it validates
+an in-memory bundle in which every missing <code>ref</code> is substituted with a stub, so
+the check passes against a filesystem that is not the one written to disk.
+Create the AsyncAPI document yourself after the edit.</p>
+</div>
+<h3 id="pacto_check">pacto_check<a class="headerlink" href="#pacto_check" title="Anchor link">&para;</a></h3>
+<p>Validates a contract and returns structured results including errors, warnings, a contract summary, and actionable suggestions for improvement.</p>
+<p><strong>Output includes:</strong></p>
+<ul>
+<li><code>valid</code> — whether the contract passes validation</li>
+<li><code>errors</code> / <code>warnings</code> — validation issues with path, code, and message</li>
+<li><code>summary</code> — parsed contract overview (name, version, interfaces, runtime state)</li>
+<li><code>suggestions</code> — improvements for a contract that is already valid. There are
+  four, each fired by an absent section: no interfaces, no <code>state</code>, no
+  configuration, no dependencies. Only the first carries a <code>toolCall</code> — a sketch
+  of the <code>pacto_edit</code> call that adds an <code>openapi</code> interface; the other three are
+  prose. An invalid contract returns no suggestions at all — fix the errors first.</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Re-encode the <code>toolCall</code> before you pass it on</p>
+<p>The suggestion's <code>add_interfaces</code> value is a real JSON array:
+<code>{"tool": "pacto_edit", "params": {"add_interfaces": [{"name": "http-api", "type": "openapi"}]}}</code>.
+<code>pacto_edit</code> expects that argument as a <strong>JSON-encoded string</strong>, so forwarding
+the suggestion verbatim is the
+<a href="#structured-inputs-are-json-encoded-strings">silent no-op</a> documented above:
+the call succeeds, <code>changes</code> comes back <code>null</code> and nothing is written. Serialise
+the array first — <code>"[{\"name\":\"http-api\",\"type\":\"openapi\"}]"</code> — and the
+same call adds the interface and scaffolds its spec file.</p>
+</div>
+<h3 id="pacto_schema">pacto_schema<a class="headerlink" href="#pacto_schema" title="Anchor link">&para;</a></h3>
+<p>Returns the Pacto format description and the full JSON Schema for <code>pacto.yaml</code>. Useful as a first call so the assistant understands the contract structure before creating or editing.</p>
+<hr />
+<h2 id="agent-capabilities">Agent capabilities<a class="headerlink" href="#agent-capabilities" title="Anchor link">&para;</a></h2>
+<p>The mental model is <strong>bundle → capability → generated tools</strong>. A bundle publishes interfaces; each interface represents a capability the service offers; Pacto <em>projects</em> every operation in that interface into a generated tool an agent can call, with no per-tool glue written by the bundle author. Two things this deliberately keeps separate:</p>
+<ul>
+<li><strong>Generated tools are projections, not the contract's <code>capabilities</code> section.</strong> The contract <a href="../contract-reference/sections/#capabilities"><code>capabilities</code></a> section declares observability endpoints (<code>health</code>/<code>metrics</code>/<code>extension</code>). The tools here are derived from a service's <em>interface</em> operations. Pacto invents no new capability on the service's behalf — it renders what the interface already describes.</li>
+<li><strong>The contract gives the agent context around the tools.</strong> The tools say what can be invoked; the surrounding contract (identity, dependencies, policies, state) tells the agent what the service <em>is</em>, so it can reason rather than guess.</li>
+</ul>
+<p>When you additionally pass a <strong>bundle reference</strong> — a local directory or an <code>oci://</code> reference — Pacto turns that bundle's interfaces into executable agent tools:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pacto<span class="w"> </span>mcp<span class="w"> </span>./my-service<span class="w"> </span>--base-url<span class="w"> </span>https://api.example.com
+</span></code></pre></div>
+<p>For every operation in each <code>openapi</code> interface's contract, Pacto registers one MCP tool whose input schema is derived from the operation's parameters and request body, and whose handler invokes the live endpoint. (<code>openapi</code> is the interface <em>type</em>; an interface's <em>name</em> is free-form, so a bundle may well name one <code>http</code>.) The bundle author writes nothing extra — the interface already describes what the tool needs.</p>
+<p>The tool's name is the operation's <code>operationId</code>. When an operation declares none, Pacto derives <code>&lt;method&gt;_&lt;path&gt;</code> with every non-alphanumeric character collapsed to a single <code>_</code> — <code>GET /health</code> becomes <code>get_health</code> — and disambiguates a collision with a numeric suffix (<code>get_health_2</code>). An agent allow-list keyed on tool names therefore depends on the OpenAPI document declaring <code>operationId</code> for every operation.</p>
+<h4 id="the-pacto_-names-are-reserved">The <code>pacto_</code> names are reserved<a class="headerlink" href="#the-pacto_-names-are-reserved" title="Anchor link">&para;</a></h4>
+<p><code>operationId</code> is bundle content, and MCP tool registration <em>replaces</em> a tool of
+the same name. A contract declaring <code>operationId: pacto_check</code> would otherwise
+take over the authoring tool: an agent asking Pacto to validate a contract would
+issue a bundle-chosen HTTP request to a bundle-chosen host, while the tool list
+still showed the trusted description. Pacto skips such an operation and says so
+on stderr:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pacto mcp: skipped operation "pacto_check" in interface "http" (that name belongs to a Pacto tool)
+</span></code></pre></div>
+<p>It is skipped rather than renamed, because a silently renamed tool is a
+capability nobody asked for — and the bundle can pick a name of its own. This is
+what makes "every <code>pacto_</code>-prefixed tool is a Pacto tool" a boundary rather than
+a convention, and it is what the
+<a href="#three-tool-families-and-their-boundaries">safety enumeration above</a> rests on.</p>
+<p>The server also sets its MCP <em>instructions</em> to tell the assistant that these tools invoke the live service, whether writes are enabled, and how to use <code>pacto_skill</code>. That generic "how to use these capabilities" guidance lives in Pacto itself — bundles only ship <em>domain-specific</em> skills (below), never a boilerplate usage guide.</p>
+<pre class="mermaid"><code>flowchart LR
+    AI["AI Assistant"] --&gt;|"tool call&lt;br/&gt;(getUser, createRefund…)"| MCP["pacto mcp &amp;lt;bundle&amp;gt;"]
+    MCP --&gt;|"reads"| Spec["Bundle OpenAPI&lt;br/&gt;+ skills/*.md"]
+    MCP --&gt;|"HTTP request"| Svc["Live service&lt;br/&gt;(--base-url)"]
+    Svc --&gt;|"status + body"| MCP
+    MCP --&gt;|"JSON response"| AI</code></pre>
+<h3 id="read-only-by-default">Read-only by default<a class="headerlink" href="#read-only-by-default" title="Anchor link">&para;</a></h3>
+<p>Only safe read operations (<code>GET</code>/<code>HEAD</code>) are exposed unless you opt in to mutating ones. This prevents an assistant from creating, updating, or deleting live resources by accident.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># expose mutating operations (POST/PUT/PATCH/DELETE) too</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>pacto<span class="w"> </span>mcp<span class="w"> </span>./my-service<span class="w"> </span>--base-url<span class="w"> </span>https://api.example.com<span class="w"> </span>--allow-writes
+</span></code></pre></div>
+<p>A per-interface count of skipped operations is logged to stderr, so nothing is dropped silently:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pacto mcp: skipped 2 mutating operation(s) in interface "api" (use --allow-writes to expose)
+</span></code></pre></div>
+<p>The individual operations are not named, at any verbosity — to see exactly which ones would appear, compare <code>tools/list</code> with and without <code>--allow-writes</code>.</p>
+<h3 id="base-url">Base URL<a class="headerlink" href="#base-url" title="Anchor link">&para;</a></h3>
+<p>The live host comes from <code>--base-url</code>, falling back to the spec's <code>servers[0]</code> URL when the flag is omitted. If neither is available the server refuses to start. When you supply credentials (below), <code>--base-url</code> is <strong>required</strong> — Pacto will not send credentials to a host chosen by bundle content.</p>
+<h3 id="service-authentication-auth">Service authentication (<code>--auth</code>)<a class="headerlink" href="#service-authentication-auth" title="Anchor link">&para;</a></h3>
+<p>These are the <em>service's</em> credentials, not the registry's — for pulling the bundle
+itself see <a href="#connecting-to-a-bundle">Connecting to a bundle</a> above.
+Credentials are supplied per OpenAPI security scheme with the repeatable <code>--auth name=value</code> flag and applied to each request according to the scheme's declaration. The <code>http</code> in the table below is an OpenAPI <em>security-scheme</em> type, unrelated to Pacto's interface types (<code>openapi</code>, <code>asyncapi</code>, <code>grpc</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Scheme type</th>
+<th>How the credential is applied</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>apiKey</code></td>
+<td>Sent as the declared header or query parameter</td>
+</tr>
+<tr>
+<td><code>http</code> <code>bearer</code> (and <code>oauth2</code> / <code>openIdConnect</code>)</td>
+<td><code>Authorization: Bearer &lt;value&gt;</code></td>
+</tr>
+<tr>
+<td><code>http</code> <code>basic</code></td>
+<td><code>Authorization: Basic &lt;value&gt;</code> (supply pre-encoded <code>user:pass</code>)</td>
+</tr>
+</tbody>
+</table>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>pacto<span class="w"> </span>mcp<span class="w"> </span>oci://ghcr.io/acme/svc:1.0.0<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--base-url<span class="w"> </span>https://api.example.com<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--auth<span class="w"> </span><span class="nv">bearerAuth</span><span class="o">=</span><span class="nv">$TOKEN</span><span class="w"> </span>--allow-writes
+</span></code></pre></div>
+<p>Server-issued redirects are <strong>not</strong> followed — none of them, same-origin included — so credentials cannot leak to another origin and a 3xx is returned to the agent as the result. Every call is bounded by a fixed 30-second timeout; no flag changes it.</p>
+<h3 id="pacto_skill">pacto_skill<a class="headerlink" href="#pacto_skill" title="Anchor link">&para;</a></h3>
+<p>Bundles may ship optional domain knowledge as <code>skills/*.md</code> — workflows and business rules that an interface alone can't express (for example <code>skills/refund_customer.md</code>). These are packaged with the bundle automatically. The <code>pacto_skill</code> tool lists them when called with no arguments, and returns a skill's Markdown when given its <code>name</code>.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>bundle/
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    pacto.yaml
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    interfaces/openapi.json
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    skills/
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>        refund_customer.md
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>        onboard_customer.md
+</span></code></pre></div>
+<h3 id="connecting-to-a-bundle">Connecting to a bundle<a class="headerlink" href="#connecting-to-a-bundle" title="Anchor link">&para;</a></h3>
+<p>Point any MCP client at a bundle by adding the reference (and flags) to the server args. For Claude Code (<code>.mcp.json</code>):</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="nt">"acme-svc"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">      </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pacto"</span><span class="p">,</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">      </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mcp"</span><span class="p">,</span><span class="w"> </span><span class="s2">"oci://ghcr.io/acme/svc:1.0.0"</span><span class="p">,</span><span class="w"> </span><span class="s2">"--base-url"</span><span class="p">,</span><span class="w"> </span><span class="s2">"https://api.example.com"</span><span class="p">]</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>An <code>oci://</code> reference resolves with the same registry credentials as the rest of
+the CLI, so run <a href="../cli-reference/#pacto-login"><code>pacto login &lt;registry&gt;</code></a> first if
+the repository is private. That is separate from the
+<a href="#service-authentication-auth">service credentials</a> <code>--auth</code> carries: one gets the
+contract out of the registry, the other talks to the running service. The server
+is launched by your editor and inherits its environment, so a login that works in
+your shell may not be visible to it — a private repository failing with
+<code>artifact not found</code> is the usual symptom.</p>
+<h3 id="what-a-session-freezes-and-what-it-does-not">What a session freezes, and what it does not<a class="headerlink" href="#what-a-session-freezes-and-what-it-does-not" title="Anchor link">&para;</a></h3>
+<p>Every mode resolves its input <strong>once, at startup</strong>, and the tool list is fixed
+from that moment. Add an operation to a bundle's OpenAPI while the server runs
+and no new tool appears: <code>tools/list</code> keeps returning exactly what startup
+registered. The same rule governs the <a href="#requested-resolved-identity">catalog</a>
+(a tag that moves does not change an answer) and the
+<a href="#three-tool-families-and-their-boundaries">fleet snapshot</a>. To pick up a
+changed interface, a moved tag or a newly deployed service, restart the server.</p>
+<p>Two things in that same process are <em>not</em> frozen, and the difference matters:</p>
+<ul>
+<li><strong><code>pacto_skill</code> reads from disk on every call.</strong> On a local bundle an edited
+  <code>skills/*.md</code> returns its new content immediately, and a skill file added after
+  startup appears in the listing without a restart. An <code>oci://</code> bundle has no
+  disk to change, so this only shows up locally.</li>
+<li><strong>The authoring tools act on whatever is on disk when you call them.</strong>
+  <code>pacto_check</code> and <code>pacto_edit</code> take a path and read it at call time; they are
+  not bound to the bundle or the snapshot the server started with.</li>
+</ul>
+<p>So <code>pacto mcp --fleet</code> serves fleet answers from a snapshot taken at startup and
+authoring answers from the current working tree — one process, two different
+moments. Neither is wrong; they answer different questions.</p>
+<div class="admonition warning">
+<p class="admonition-title"><code>--fleet</code> reads the current directory by default</p>
+<p><code>--local</code> defaults to <code>[.]</code>, so <code>pacto mcp --fleet</code> folds any bundles under
+the working directory into the snapshot. An MCP server launched by an editor
+or a CI runner inherits that runner's working directory, which may not be the
+one you had in mind. Pass <code>--local</code> explicitly to say what you meant.</p>
+</div>
+<h3 id="end-to-end-example-a-demo-bundle-with-claude-code">End-to-end example: a demo bundle with Claude Code<a class="headerlink" href="#end-to-end-example-a-demo-bundle-with-claude-code" title="Anchor link">&para;</a></h3>
+<p>This repository ships demo bundles you can point Claude at directly. We'll use
+<code>payments-service</code>, which declares an OpenAPI interface <strong>and</strong> a
+<code>refund_customer.md</code> skill — so it exercises both halves of the feature.</p>
+<p><strong>1. Install Pacto</strong> so the <code>pacto</code> binary is on your <code>PATH</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>make<span class="w"> </span>build<span class="w">   </span><span class="c1"># or: go install ./cmd/pacto</span>
+</span></code></pre></div>
+<p>See <a href="../installation/">Installation</a> for all methods.</p>
+<p><strong>2. Start a throwaway backend.</strong> The demo service isn't actually running, so give
+the generated tools something to call. In a real setup <code>--base-url</code> points at your
+live service instead.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>python3<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt;'EOF'</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="s">from http.server import BaseHTTPRequestHandler, HTTPServer</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="s">class H(BaseHTTPRequestHandler):</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="s">    def r(self):</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="s">        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="s">        self.wfile.write(f'{{"ok":true,"path":"{self.path}"}}'.encode())</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="s">    do_GET = do_POST = r</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="s">    def log_message(self, *a): pass</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="s">HTTPServer(("127.0.0.1", 8080), H).serve_forever()</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="s">EOF</span>
+</span></code></pre></div>
+<p><strong>3. Register the bundle with Claude Code</strong> (from the repo root). A refund is a
+<code>POST</code>, so pass <code>--allow-writes</code> to expose mutating operations:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>claude<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>--scope<span class="w"> </span><span class="nb">local</span><span class="w"> </span>payments-demo<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>--<span class="w"> </span>pacto<span class="w"> </span>mcp<span class="w"> </span>./examples/demo/bundles/payments-service/v2.1.0<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">     </span>--base-url<span class="w"> </span>http://127.0.0.1:8080<span class="w"> </span>--allow-writes
+</span></code></pre></div>
+<p>The server name (<code>payments-demo</code>) goes <em>before</em> the <code>--</code>; everything after it is
+the command Claude runs. (Equivalent <code>.mcp.json</code> form: the <code>command</code>/<code>args</code> shape
+shown above.)</p>
+<p><strong>4. Verify the connection and inspect the tools:</strong></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>claude<span class="w"> </span>mcp<span class="w"> </span>list<span class="w">          </span><span class="c1"># payments-demo → ✔ Connected</span>
+</span></code></pre></div>
+<p>or, inside a Claude Code session:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>/mcp
+</span></code></pre></div>
+<p>You'll see one tool per OpenAPI operation (<code>createRefund</code>, <code>getPaymentIntent</code>,
+<code>listPaymentIntents</code>, …) plus <code>pacto_skill</code> and the four authoring tools
+(<code>pacto_create</code>, <code>pacto_edit</code>, <code>pacto_check</code>, <code>pacto_schema</code>), which are always
+registered. Claude also receives the server's
+instructions telling it these tools invoke the live payments service and how to
+use <code>pacto_skill</code>.</p>
+<p><strong>5. Just ask, in plain language:</strong></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>You:    Refund payment intent pi_123 — it was a duplicate charge.
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>Claude: [calls pacto_skill to read refund_customer.md]
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>        [follows the workflow: confirms the intent is refundable via
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>         getPaymentIntent, sets reason="duplicate"]
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>        [calls createRefund with {payment_intent_id:"pi_123", reason:"duplicate"}]
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>        Done — issued a refund for pi_123 (reason: duplicate).
+</span></code></pre></div>
+<p>Claude discovered the <em>operation</em> from the OpenAPI contract and the <em>procedure</em>
+from the bundled skill — neither was hand-written as an agent tool.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The model calls these tools under a server-namespaced name, e.g.
+<code>mcp__payments-demo__createRefund</code>. Drop <code>--allow-writes</code> and the mutating
+tools (including <code>createRefund</code>) disappear — only the read-only operations
+(<code>getPaymentIntent</code>, <code>listPaymentIntents</code>, <code>healthCheck</code>) and <code>pacto_skill</code>
+remain.</p>
+</div>
+<p>When you're done: <code>claude mcp remove payments-demo</code>.</p>
+<hr />
+<h2 id="contract-catalog-discovery">Contract catalog discovery<a class="headerlink" href="#contract-catalog-discovery" title="Anchor link">&para;</a></h2>
+<p><code>pacto mcp --root &lt;ref&gt;</code> starts a <strong>read-only contract catalog</strong>: the roots you
+name, plus their dependency closure, resolved once at startup and then frozen for
+the life of the process.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># One published platform, one contract you are still working on</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>pacto<span class="w"> </span>mcp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span>--root<span class="w"> </span>oci://ghcr.io/acme/platform:1.4.0<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span>--root<span class="w"> </span>./experimental-platform
+</span></code></pre></div>
+<p><code>--root</code> is repeatable and takes either a local bundle directory or an <code>oci://</code>
+reference. Nothing is discovered that you did not name: Pacto does not crawl a
+registry, guess repository names or read a catalog file. The set of roots is the
+whole input, and the closure of those roots is the whole output.</p>
+<h3 id="the-surface">The surface<a class="headerlink" href="#the-surface" title="Anchor link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>URI / tool</th>
+<th>What it answers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pacto://catalog</code></td>
+<td>What this catalog is: schema version (<code>pacto.dev/catalog/v1</code>), catalog id, generation time, the bounds that applied, the completeness of the whole answer, and every requested root — including roots that did not resolve, and why.</td>
+</tr>
+<tr>
+<td><code>pacto://catalog/closure</code></td>
+<td>What is in it: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and the conflicts and cycles left visible rather than resolved — under the same catalog metadata.</td>
+</tr>
+<tr>
+<td><code>pacto_catalog_revision</code></td>
+<td>One revision by its full identity — service name, domain, content scheme and content digest.</td>
+</tr>
+</tbody>
+</table>
+<p>That is the whole surface. Catalog mode registers no authoring tools:
+<code>pacto_create</code> and <code>pacto_edit</code> write contract files, and a server started for
+read-only discovery must not be a way to modify one.</p>
+<p>The two resources are named <code>pacto_catalog</code> and <code>pacto_catalog_closure</code> — the
+URIs above are what you read, the names are what a client-side allow-list keys
+on.</p>
+<p><code>pacto://catalog</code> is the cheaper read, so reading it first is the recommended
+order — but it is not a precondition. Both resources carry the same catalog
+metadata, so either one is safe to read on its own. The repetition is
+deliberate: a resource can be read alone, in any order, and a payload carrying
+only data would be indistinguishable from an authoritative answer whenever the
+data happened to be empty. Ask for two roots that both fail to resolve and the
+closure is empty in every collection — the metadata travelling with it is what
+says <code>partial</code>, names each <code>ROOT_UNRESOLVED</code>, and keeps the two roots you
+actually requested visible.</p>
+<p>The lookup is a tool rather than a URI template because a revision's identity is
+four structured fields, and a service name or domain may contain <code>/</code>, <code>:</code>, <code>%</code> or
+arbitrary UTF-8. Encoding that into a path segment would mean re-parsing it at
+the other end, and two different identities could arrive as one. The identity
+stays structured from the query to the answer.</p>
+<p>Those four fields are the tool's arguments, and they are named <code>name</code>, <code>domain</code>,
+<code>scheme</code> and <code>digest</code> — not <code>service</code>, and not <code>ref</code>. <code>name</code>, <code>scheme</code> and
+<code>digest</code> are required; <code>domain</code> is omitted for a local revision, which has none.
+Take them from a revision's own <code>service</code> and <code>content</code> objects in
+<code>pacto://catalog/closure</code> rather than composing them by hand:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"payments"</span><span class="p">,</span><span class="w"> </span><span class="nt">"domain"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ghcr.io/acme"</span><span class="p">,</span><span class="w"> </span><span class="nt">"scheme"</span><span class="p">:</span><span class="w"> </span><span class="s2">"oci"</span><span class="p">,</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="nt">"digest"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sha256:…"</span><span class="w"> </span><span class="p">}</span>
+</span></code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">A wrong argument name reads as a proven absence</p>
+<p>The identity is matched, not validated as a whole. A call that misnames or
+omits <code>name</code> is answered <code>{"found": false, "completeness": "complete"}</code> —
+the same answer as a revision that genuinely is not in the catalog. An agent
+that trusts <code>completeness</code> will conclude the revision does not exist. Echo
+<code>requested</code> back and check it says what you meant before you act on
+<code>found: false</code>. (<code>scheme</code> and <code>digest</code> <em>are</em> rejected when malformed, so the
+leniency is specific to <code>name</code>.)</p>
+</div>
+<h3 id="what-it-is-not">What it is not<a class="headerlink" href="#what-it-is-not" title="Anchor link">&para;</a></h3>
+<ul>
+<li><strong>A catalog is not the fleet.</strong> The catalog describes <em>contracts</em> reachable
+  from the roots you named. It says nothing about deployments, environments,
+  runtime targets or observed state — those are <a href="#three-tool-families-and-their-boundaries">Fleet query tools</a>
+  over the <a href="../operational-graph/">Operational Graph</a>. A requested root is an
+  input to discovery, never a runtime target.</li>
+<li><strong>Discovery is not authorization.</strong> Learning that a revision exists says
+  nothing about whether you may read, deploy or call it. Authorization stays with
+  your policy and IAM systems.</li>
+<li><strong>Discovery is not execution.</strong> Nothing in this surface invokes anything. If
+  you want a bundle's operations as callable tools, that is the separate
+  <a href="#agent-capabilities">Agent capabilities</a> mode.</li>
+<li><strong>It is a session, not a store.</strong> There is no database, no daemon state and no
+  background refresh. The catalog lives in the process and disappears with it.</li>
+</ul>
+<h3 id="partial-is-not-empty-and-not-complete">Partial is not empty, and not complete<a class="headerlink" href="#partial-is-not-empty-and-not-complete" title="Anchor link">&para;</a></h3>
+<p>Every catalog reports its <code>completeness</code>. A root or a dependency that could not
+be resolved stays visible — with a category such as <code>NOT_FOUND</code>, <code>AUTH_FAILED</code> or
+<code>UNAVAILABLE</code>, never a raw registry error — and the whole answer is marked
+<code>partial</code>.</p>
+<p>Treat the three states as different facts:</p>
+<ul>
+<li><code>complete</code> — everything reachable from the roots resolved.</li>
+<li><code>partial</code> — some of it did not. A revision you cannot find here is <em>unknown</em>,
+  not proven absent.</li>
+<li>An empty catalog is never started at all: <code>pacto mcp --root ""</code> fails rather
+  than serve an authoritative "there is nothing here".</li>
+</ul>
+<h3 id="requested-resolved-identity">Requested, resolved, identity<a class="headerlink" href="#requested-resolved-identity" title="Anchor link">&para;</a></h3>
+<p>Three things that look alike and are not:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Example</th>
+<th>Stability</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Requested reference</td>
+<td><code>oci://ghcr.io/acme/platform:1.4.0</code></td>
+<td>A tag. It can move.</td>
+</tr>
+<tr>
+<td>Resolved reference</td>
+<td><code>ghcr.io/acme/platform@sha256:…</code></td>
+<td>Immutable, as of startup.</td>
+</tr>
+<tr>
+<td>Content identity</td>
+<td>scheme <code>oci</code> + digest <code>sha256:…</code></td>
+<td>What the bytes <em>are</em>. This is identity.</td>
+</tr>
+</tbody>
+</table>
+<p>A mutable tag is resolved exactly once, at startup. If someone re-points that tag
+while the server is running, the session does not change: the same query returns
+the same digest it returned before. To pick up a moved tag, restart the server.</p>
+<p>Local roots work the same way, with a content hash over the bundle's files in
+place of a registry digest: two byte-identical directories are one revision, and
+a path is never an identity. Local and registry roots go through the same
+reference parsing, credentials and cache the rest of the CLI uses — catalog mode
+adds no second client and no second credential path.</p>
+<hr />
+<h2 id="transports">Transports<a class="headerlink" href="#transports" title="Anchor link">&para;</a></h2>
+<p>Pacto supports two MCP transports:</p>
+<table>
+<thead>
+<tr>
+<th>Transport</th>
+<th>Flag</th>
+<th>Use case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>stdio</strong> (default)</td>
+<td><code>pacto mcp</code></td>
+<td>Direct integration with CLI-based AI tools (Claude Code, Cursor)</td>
+</tr>
+<tr>
+<td><strong>HTTP</strong></td>
+<td><code>pacto mcp -t http</code></td>
+<td>Local HTTP endpoint for tools that speak HTTP rather than stdio</td>
+</tr>
+</tbody>
+</table>
+<p>The HTTP transport serves the <a href="https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http">Streamable HTTP</a> protocol at the <code>/mcp</code> endpoint. The server binds to loopback (<code>127.0.0.1</code>) only; remote access requires an explicit tunnel or reverse proxy.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Default port (8585)</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>pacto<span class="w"> </span>mcp<span class="w"> </span>-t<span class="w"> </span>http
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="c1"># Custom port</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>pacto<span class="w"> </span>mcp<span class="w"> </span>-t<span class="w"> </span>http<span class="w"> </span>--port<span class="w"> </span><span class="m">9090</span>
+</span></code></pre></div>
+<p>Connect your client to <code>http://127.0.0.1:8585/mcp</code> (or your chosen port).</p>
+<hr />
+<h2 id="connect-your-mcp-client">Connect your MCP client<a class="headerlink" href="#connect-your-mcp-client" title="Anchor link">&para;</a></h2>
+<p>Every client points the same way — it runs the <code>pacto</code> binary over stdio. Pick yours:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Claude Code</label><label for="__tabbed_1_2">Claude Desktop</label><label for="__tabbed_1_3">Cursor</label><label for="__tabbed_1_4">GitHub Copilot</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>Add to your project's <code>.mcp.json</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="p">{</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">    </span><span class="nt">"pacto"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pacto"</span><span class="p">,</span><span class="w"> </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mcp"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="p">}</span>
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Add to <code>claude_desktop_config.json</code> (<code>~/Library/Application Support/Claude/</code> on macOS, <code>%APPDATA%\Claude\</code> on Windows):</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="p">{</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">    </span><span class="nt">"pacto"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pacto"</span><span class="p">,</span><span class="w"> </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mcp"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="p">}</span>
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Add to <code>.cursor/mcp.json</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="p">{</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">    </span><span class="nt">"pacto"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pacto"</span><span class="p">,</span><span class="w"> </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mcp"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="p">}</span>
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Add to <code>.vscode/mcp.json</code> (requires VS Code 1.99+ and the Copilot Chat extension):</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="p">{</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span><span class="nt">"servers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">    </span><span class="nt">"pacto"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pacto"</span><span class="p">,</span><span class="w"> </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mcp"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="p">}</span>
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<p>To serve a bundle's operations as executable tools, append the bundle reference and flags to <code>args</code> — see <a href="#agent-capabilities">Agent capabilities</a>.</p>
+<p>Every snippet above is the <strong>authoring</strong> server, and <code>pacto_create</code> and
+<code>pacto_edit</code> write files. If the agent must change nothing, use catalog mode
+instead — it is the one invocation that registers no write tool:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="p">{</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">  </span><span class="nt">"mcpServers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">    </span><span class="nt">"pacto"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"command"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pacto"</span><span class="p">,</span><span class="w"> </span><span class="nt">"args"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mcp"</span><span class="p">,</span><span class="w"> </span><span class="s2">"--root"</span><span class="p">,</span><span class="w"> </span><span class="s2">"oci://ghcr.io/acme/platform:1.4.0"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="p">}</span>
+</span></code></pre></div>
+<p><code>--fleet</code> is not the read-only choice, despite its tools being read-only: it adds
+the fleet family <em>beside</em> the authoring tools rather than instead of them.</p>
+<h3 id="example-prompts">Example prompts<a class="headerlink" href="#example-prompts" title="Anchor link">&para;</a></h3>
+<p>Once connected, you can work with contracts conversationally:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>You:    Create a pacto contract for a stateful Go HTTP API called user-service
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>        that stores data in PostgreSQL
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>Claude: [creates pacto.yaml with an http-api openapi interface, state.type
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>         stateful and persistence.durability persistent -- and no dependency]
+</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>
+</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>You:    Add a dependency on payments-api
+</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a>Claude: [calls pacto_edit with add_dependencies]
+</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>
+</span><span id="__span-23-9"><a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a>You:    Check the contract in ./payments-api
+</span><span id="__span-23-10"><a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a>Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
+</span><span id="__span-23-11"><a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a>        service depends on others, declare them explicitly."
+</span></code></pre></div>
+<p>The first answer is the honest one.
+<a href="#pacto_create">Dependencies are never inferred</a> — a description that names
+PostgreSQL still produces no <code>dependencies</code> section, which is why the second
+prompt exists. <code>PostgreSQL</code> is also not the word that made this contract
+stateful: matching is whole-word, so <code>postgres</code> counts and <code>PostgreSQL</code> does not.
+Here "stateful" and "stores data" did the work. Ask for the same contract without
+those two phrases and you get a stateless one.</p>
+<hr />
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Anchor link">&para;</a></h2>
+<p><strong>Tools not showing up in your AI assistant?</strong></p>
+<ol>
+<li>
+<p>Verify Pacto is installed and in your <code>PATH</code>:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>pacto<span class="w"> </span>version
+</span></code></pre></div></p>
+</li>
+<li>
+<p>Test the MCP server directly:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>pacto<span class="w"> </span>mcp<span class="w"> </span>--help
+</span></code></pre></div></p>
+</li>
+<li>
+<p>Check your MCP configuration file for JSON syntax errors.</p>
+</li>
+<li>
+<p>Use verbose mode to see debug output for the server's <em>startup</em> work — resolving a bundle reference or a <code>--root</code> against a registry:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>pacto<span class="w"> </span>mcp<span class="w"> </span>./my-service<span class="w"> </span>--base-url<span class="w"> </span>https://api.example.com<span class="w"> </span>-v
+</span></code></pre></div>
+   Once the server is running it logs nothing per tool call, and plain <code>pacto mcp</code>
+   resolves nothing at startup, so there <code>-v</code> adds no output beyond the single
+   <code>MCP server running on stdio</code> line. To inspect what the server actually
+   exposes, call <code>tools/list</code> from your client (in Claude Code, <code>/mcp</code>).</p>
+</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../github-actions/" class="md-footer__link md-footer__link--prev" aria-label="Previous: GitHub Actions">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                GitHub Actions
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../integrations/kubernetes/overview/" class="md-footer__link md-footer__link--next" aria-label="Next: Kubernetes overview">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Kubernetes overview
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      MIT licensed — <a href="https://github.com/TrianaLab/pacto/blob/main/LICENSE">Copyright &copy; 2026 TrianaLab</a>
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/TrianaLab/pacto" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": ["announce.dismiss", "content.action.edit", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.instant.progress", "navigation.path", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="../javascripts/logo-spin.js"></script>
+      
+        <script src="../javascripts/version-selector.js"></script>
+      
+        <script src="../javascripts/skip-link.js"></script>
+      
+        <script src="../javascripts/aria-labels.js"></script>
+      
+        <script src="../javascripts/scrollable-focus.js"></script>
+      
+        <script src="../javascripts/mermaid.min.js" defer></script>
+      
+    
+  </body>
+</html>
