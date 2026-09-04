@@ -297,7 +297,7 @@ export interface paths {
         };
         /**
          * Operational-graph snapshot
-         * @description Returns the immutable fleet snapshot: logical services, contract revisions, operational targets, relationships and source states, with an as-of time and completeness.
+         * @description Returns the immutable fleet snapshot: logical services, contract revisions, operational targets, relationships and source states, with an as-of time and completeness. This is a whole-fleet BULK EXPORT for machine consumers and is deliberately unpaged: its size grows with the fleet. A consumer that wants a page, a filter or a bounded answer should use the product endpoints under /api/fleet/product, every one of which is paged and reports what it left out.
          */
         get: operations["fleet-snapshot"];
         put?: never;
@@ -1157,6 +1157,7 @@ export interface components {
             nodes: components["schemas"]["Fleet.GraphNode"][] | null;
             revision?: string;
             root: string;
+            truncated?: boolean;
             unresolved?: components["schemas"]["Fleet.Relationship"][] | null;
         };
         "Fleet.InterfaceSummary": {
@@ -1208,9 +1209,11 @@ export interface components {
             asOf: string;
             completeness: string;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            limitationsTruncated?: boolean;
             schemaVersion: string;
             snapshotId: string;
             sources?: components["schemas"]["Fleet.SourceState"][] | null;
+            sourcesTruncated?: boolean;
         };
         "Fleet.ObservationSourcesPreview": {
             /** Format: int64 */
@@ -1758,6 +1761,7 @@ export interface components {
             completeness: string;
             consumers: components["schemas"]["Impact.AffectedConsumer"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            limitationsTruncated?: boolean;
             newVersion?: string;
             nonBreakingChanges?: components["schemas"]["Diff.Change"][] | null;
             oldVersion?: string;
@@ -2213,6 +2217,8 @@ export interface components {
             perspective: "service" | "revision" | "target";
             projectionFocus?: components["schemas"]["ProductRef"];
             requestedFocus: components["schemas"]["ProductRef"];
+            /** Format: int64 */
+            totalNodes: number;
             truncated: boolean;
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
             views: ("expected" | "observed" | "differences")[] | null;
@@ -3249,6 +3255,7 @@ export interface operations {
                 direction?: string;
                 transitive?: boolean;
                 maxDepth?: number;
+                maxNodes?: number;
             };
             header?: never;
             path: {

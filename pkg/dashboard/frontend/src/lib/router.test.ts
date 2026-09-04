@@ -444,6 +444,14 @@ describe('centralized fleet navigation builders', () => {
     expect(fleetAttentionUrl({ category: 'non-compliant' })).toBe('#/fleet/attention?category=non-compliant');
     expect(fleetChangesUrl('domain-a/payments')).toBe('#/fleet/changes/domain-a%2Fpayments');
   });
+  // A raised node budget is part of what the reader is looking at, so a shared URL
+  // that dropped it would reopen a smaller graph than the one being talked about.
+  it('carries a raised node budget and omits the backend default', () => {
+    expect(fleetGraphFocusUrl('service', 'a/b', { maxNodes: 150 })).toBe('#/fleet/graph/service/a%2Fb?maxNodes=150');
+    expect(fleetGraphFocusUrl('service', 'a/b', { maxNodes: 60 })).toBe('#/fleet/graph/service/a%2Fb');
+    expect(fleetGraphFocusUrl('service', 'a/b', { depth: 2, maxNodes: 500 }))
+      .toBe('#/fleet/graph/service/a%2Fb?depth=2&maxNodes=500');
+  });
   it('fleetServicesUrl carries filters and a non-zero offset, dropping page 1', () => {
     expect(fleetServicesUrl()).toBe('#/fleet/services');
     expect(fleetServicesUrl({ offset: 0 })).toBe('#/fleet/services');

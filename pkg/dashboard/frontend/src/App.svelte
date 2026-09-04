@@ -58,10 +58,27 @@
   }
 
   async function loadGlobal(forceRefresh = false) {
+    // The poll fires on a fixed interval whether or not the previous pass has
+    // returned. On a large fleet one pass outlives the 2s discovery interval, so
+    // without this guard each slow pass stacks another concurrent pass on top of
+    // it and the backend is asked the same questions several times over. A manual
+    // refresh is the user asking, so it is never dropped.
+    if (refreshing && !forceRefresh) return;
     refreshing = true;
     try {
       if (forceRefresh) {
         await api.refresh().catch(() => {});
+      }
+
+      // Capabilities are probed BEFORE the rest, not alongside them. They decide
+      // whether the legacy services plane is fetched at all, so racing them meant
+      // the first pass on a Fleet host always read `capabilities === null`, took the
+      // legacy branch and issued a whole-fleet /api/services -- the most expensive
+      // call this server serves, on the one host that never reads the result. One
+      // extra round trip on first load buys that back.
+      if (capabilities === null) {
+        const caps = await api.capabilities().catch(() => null);
+        if (caps) capabilities = caps;
       }
 
       // The legacy services plane is a NON-Fleet-host concern only. Compare and Readiness
@@ -73,13 +90,11 @@
          route.view === 'owner-detail' || route.view === 'diff' || route.view === 'readiness');
 
       let servicesFailed = false;
-      const [svcList, srcData, health, caps] = await Promise.all([
+      const [svcList, srcData, health] = await Promise.all([
         needsServices ? api.services().catch(() => { servicesFailed = true; return null; }) : Promise.resolve(null),
         api.sources().catch(() => null),
         api.health().catch(() => null),
-        capabilities === null ? api.capabilities().catch(() => null) : Promise.resolve(null),
       ]);
-      if (caps) capabilities = caps;
       // A failed services fetch means the backend is unreachable or erroring — not
       // that the fleet is genuinely empty. Keep any stale data and flag the error
       // so views show "can't reach backend" instead of the "no sources" setup screen.

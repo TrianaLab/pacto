@@ -323,6 +323,30 @@ describe('renderGraph (Cytoscape)', () => {
     }
   });
 
+  // A floored fit no longer means "the whole graph is on screen", and a cropped canvas
+  // looks exactly like a complete one. So the clamp has to be reported, not just applied.
+  it('reports a floored fit through the diagnostics, and only when it changes', () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    try {
+      const seen: boolean[] = [];
+      // jsdom lays nothing out, so the container is zero-sized and every fit here lands
+      // under the floor -- which is exactly the case the flag exists for.
+      const ctrl = renderGraph(el, layeredGraph, { layout: 'layered', onReady: (d) => seen.push(d.fitFloored) });
+      ctrl.fit();
+      expect(ctrl.spatialState().zoom).toBe(0.6);
+      expect(seen.at(-1)).toBe(true);
+
+      // Fitting again from the floor changes nothing, so it must not re-publish: a
+      // diagnostics callback that fires on every fit is a re-render on every fit.
+      const before = seen.length;
+      ctrl.fit();
+      expect(seen).toHaveLength(before);
+      ctrl.destroy();
+    } finally {
+      mm.mockRestore();
+    }
+  });
+
   it('restyle repaints in place: new palette, untouched geometry', () => {
     // Cytoscape draws to a canvas and cannot read CSS custom properties, so every colour
     // is resolved by getComputedStyle ONCE at init -- which is why a theme toggle used to

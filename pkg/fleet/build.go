@@ -991,8 +991,13 @@ const (
 // was made. An ambiguous mutable match links to nothing and surfaces a
 // REVISION_LINK_AMBIGUOUS limitation, so a guess is never presented as fact.
 func linkTargets(snap *FleetSnapshot) {
+	// Grouped once for the whole pass. Every scan the matcher runs filters on
+	// ServiceKey, so re-deriving the order per target made the build quadratic in
+	// (targets x revisions) for no new information: the order depends only on
+	// snap.Revisions, which this loop does not mutate.
+	byService := revisionKeysByService(snap)
 	for _, t := range snap.Targets {
-		key, kind := matchRevision(snap, t)
+		key, kind := matchRevisionIn(snap, byService[t.ServiceKey], t)
 		t.ContractRevision = key
 		switch kind {
 		case revisionMatchExact, revisionMatchInferred:
@@ -1039,7 +1044,14 @@ func linkTargets(snap *FleetSnapshot) {
 // when UNIQUE; two or more candidates are AMBIGUOUS and yield no link. Revisions are
 // visited in sorted key order for a deterministic result.
 func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
-	keys := sortedRevisionKeys(snap)
+	return matchRevisionIn(snap, revisionKeysByService(snap)[t.ServiceKey], t)
+}
+
+// matchRevisionIn is matchRevision against a pre-grouped candidate set: the sorted
+// revision keys of the target's own service. Callers matching a whole fleet group
+// once and reuse the groups; a caller matching a single target lets matchRevision
+// derive them.
+func matchRevisionIn(snap *FleetSnapshot, keys []RevisionKey, t *TargetRecord) (RevisionKey, string) {
 	id := ClassifyContentIdentity(t.ResolvedRef, t.Digest)
 	// A contradictory (digest-mismatch) or malformed OCI identity is never exact, and
 	// correlating a mutable link off a contradictory/unparseable ref would be
@@ -1172,13 +1184,21 @@ func classifyMutableMatch(candidates []RevisionKey) (RevisionKey, string) {
 	}
 }
 
-func sortedRevisionKeys(snap *FleetSnapshot) []RevisionKey {
-	keys := make([]RevisionKey, 0, len(snap.Revisions))
-	for k := range snap.Revisions {
-		keys = append(keys, k)
+// revisionKeysByService groups every revision key under its own service, sorted
+// within each group so a match is deterministic. The matcher never looks at another
+// service's revisions, so this is the whole candidate set for any target of that
+// service -- and grouping is what keeps the cost of a fleet-wide link pass
+// proportional to the revisions each target could actually match, rather than to the
+// whole revision set once per target.
+func revisionKeysByService(snap *FleetSnapshot) map[ServiceKey][]RevisionKey {
+	byService := make(map[ServiceKey][]RevisionKey)
+	for k, rev := range snap.Revisions {
+		byService[rev.ServiceKey] = append(byService[rev.ServiceKey], k)
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-	return keys
+	for _, keys := range byService {
+		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	}
+	return byService
 }
 
 // aggregateServices groups revisions and targets into logical service records,

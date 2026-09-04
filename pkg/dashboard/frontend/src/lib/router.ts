@@ -484,6 +484,7 @@ export interface GraphState {
   views?: string[];
   direction?: string;
   depth?: number;
+  maxNodes?: number;
 }
 
 // fleetGraphFocusUrl builds a focused graph URL from (kind, key) plus optional graph
@@ -503,6 +504,9 @@ export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphS
   if (state.views && state.views.length && !isDefaultGraphViews(state.views)) qs.set('views', state.views.join(','));
   if (state.direction && state.direction !== 'both') qs.set('direction', state.direction);
   if (state.depth && state.depth !== 1) qs.set('depth', String(state.depth));
+  // 60 is the backend default, so it is the URL's default too: only a raised node
+  // budget is worth carrying, and a canonical URL stays short.
+  if (state.maxNodes && state.maxNodes !== 60) qs.set('maxNodes', String(state.maxNodes));
   const base = `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
   const str = qs.toString();
   return str ? `${base}?${str}` : base;

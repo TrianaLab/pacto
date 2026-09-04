@@ -151,6 +151,10 @@ export interface GraphDiagnostics {
   edgeCount: number;
   nodesWithBox: number;
   edgesRendered: number;
+  /** True when the last fit had to be clamped at the legibility floor, so the whole
+   *  graph is NOT in frame. Without it the reader is looking at a cropped graph with
+   *  nothing on screen to suggest there is more of it. */
+  fitFloored: boolean;
 }
 
 export interface GraphControls {
@@ -751,7 +755,7 @@ export function renderGraph(
   // rendered bounding box). It reads only what the canvas already shows, so it is a safe
   // acceptance seam (see GraphDiagnostics), not a leak of internal state.
   function computeDiagnostics(): GraphDiagnostics {
-    const base: GraphDiagnostics = { headless: headlessMode, nodeCount: cy.nodes().size(), edgeCount: cy.edges().size(), nodesWithBox: 0, edgesRendered: 0 };
+    const base: GraphDiagnostics = { headless: headlessMode, nodeCount: cy.nodes().size(), edgeCount: cy.edges().size(), nodesWithBox: 0, edgesRendered: 0, fitFloored };
     // A headless instance has no renderer, so rendered geometry is undefined; report zeros
     // rather than calling renderedBoundingBox (which needs a renderer). The browser
     // acceptance requires headless=false anyway.
@@ -860,10 +864,16 @@ export function renderGraph(
   // canvas becomes a picture of a graph rather than a graph. Below this the reader is
   // better served by a legible graph they have to pan than an illegible one they do not.
   const ZOOM_FLOOR = 0.6;
+  // A clamped fit is a claim the caller is entitled to: "fit" no longer means the whole
+  // graph is on screen. Silently cropping it was the bug -- the canvas looked complete.
+  let fitFloored = false;
 
   function floorZoom(): void {
-    if (cy.zoom() >= ZOOM_FLOOR) return;
-    cy.zoom({ level: ZOOM_FLOOR, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+    const floored = cy.zoom() < ZOOM_FLOOR;
+    if (floored) cy.zoom({ level: ZOOM_FLOOR, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+    if (floored === fitFloored) return;
+    fitFloored = floored;
+    onReady?.(computeDiagnostics());
   }
 
   // fitView fits the whole graph in view, honoring prefers-reduced-motion (an instant

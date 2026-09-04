@@ -7,7 +7,7 @@
     differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
     defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
-    canonicalFocusForPerspective, projectionFocusMismatch,
+    canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes,
   } from '../lib/graphState.ts';
   import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
   import { abbreviateDigests } from '../lib/format.ts';
@@ -42,11 +42,11 @@
   // ── focused neighborhood (product API only) ──────────────────────────────────
   const loader = createProductLoader(() => api.fleetNeighborhood({
     kind: gs.kind, key: gs.key, perspective: gs.perspective,
-    direction: gs.direction, depth: gs.depth, views: gs.views,
+    direction: gs.direction, depth: gs.depth, views: gs.views, maxNodes: gs.maxNodes,
   }));
   $effect(() => {
     if (focused) {
-      loader.sync(`${gs.kind}@@${gs.key}@@${gs.perspective}@@${gs.direction}@@${gs.depth}@@${gs.views.join(',')}@@${refreshTick}`, queryKey);
+      loader.sync(`${gs.kind}@@${gs.key}@@${gs.perspective}@@${gs.direction}@@${gs.depth}@@${gs.maxNodes}@@${gs.views.join(',')}@@${refreshTick}`, queryKey);
     }
   });
   onDestroy(() => loader.destroy());
@@ -88,6 +88,7 @@
     if (canon) {
       replaceHash(fleetGraphFocusUrl(canon.kind, canon.key, {
         perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth,
+        maxNodes: gs.maxNodes,
       }));
     }
   });
@@ -202,15 +203,29 @@
       : selected.kind === 'edge' ? `Selected the relationship from ${selected.edge?.from?.label || selected.edge?.from?.key} to ${selected.edge?.to?.label || selected.edge?.to?.key}.`
       : ''
   );
+  // How much of the neighborhood is on screen. totalNodes is the count the traversal
+  // reached before the node budget was applied, so it is the honest denominator -- and
+  // it is reported by the service projection only, which is why anything at or below
+  // the shown count reads as "no denominator" rather than as "you have it all".
+  const totalNodes = $derived(shown?.totalNodes ?? 0);
+  const withheldNodes = $derived(shown ? Math.max(0, totalNodes - shown.nodes.length) : 0);
+  const moreNodes = $derived(nextMaxNodes(gs.maxNodes));
+  const truncationNote = $derived(
+    withheldNodes
+      ? `Showing ${shown.nodes.length} of ${totalNodes} entities within this depth.`
+      : 'This neighborhood is bounded and was truncated.'
+  );
+
   const graphSummary = $derived(!shown ? '' : [
     `${shown.nodes.length} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${shown.edges.length} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
+    withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
     hiddenLabels.length ? `Dimmed on the canvas: ${hiddenLabels.join(', ')}.` : '',
     selectedSummary,
   ].filter(Boolean).join(' '));
 
   // ── control -> URL (shareable graph state; never canvas coordinates) ─────────
   function go(patch) {
-    const next = { perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth, ...patch };
+    const next = { perspective: gs.perspective, views: gs.views, direction: gs.direction, depth: gs.depth, maxNodes: gs.maxNodes, ...patch };
     location.hash = fleetGraphFocusUrl(gs.kind, gs.key, next);
     closeDrawer();
   }
@@ -445,7 +460,14 @@
       <KnowledgeBanner {knowledge} noun="neighborhood" testid="graph-knowledge-caveat" />
       {#if !carrying && shown.truncated}
         <div class="gv-caveat tone-warn" role="status" data-testid="graph-truncated">
-          This neighborhood is bounded and was truncated. Narrow the direction or depth, or open an entity to continue.
+          {truncationNote}
+          {#if moreNodes}
+            <button type="button" class="gv-more" data-testid="graph-show-more" onclick={() => go({ maxNodes: moreNodes })}>
+              Show up to {moreNodes}
+            </button>
+          {:else}
+            Narrow the direction or depth, or open an entity to continue.
+          {/if}
         </div>
       {/if}
       {#if oneHopNote}
@@ -636,6 +658,10 @@
   .gv-link { color: var(--c-accent); text-decoration: none; font-size: var(--text-sm); }
   .gv-link:hover { text-decoration: underline; }
   .gv-caveat { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--c-warn-bg); border: 1px solid var(--c-warn-border); }
+  /* The way out of a truncated answer sits inside the sentence that reports it, so
+     the reader never has to go looking for the control that fixes what they just read. */
+  .gv-more { border: 1px solid var(--c-warn-border); border-radius: var(--radius-xs); background: none; padding: 1px 8px; margin-left: 4px; font: inherit; color: inherit; cursor: pointer; transition: background var(--motion-feedback); }
+  .gv-more:hover { background: var(--c-surface); }
   .gv-status { color: var(--c-text-3); }
   .gv-error { padding: var(--sp-3); border-radius: var(--radius-sm); background: var(--c-err-bg); border: 1px solid var(--c-err); color: var(--c-text); }
 

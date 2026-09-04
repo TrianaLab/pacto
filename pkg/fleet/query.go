@@ -71,6 +71,15 @@ func (q *Query) resolveService(identifier string) (*ServiceRecord, error) {
 // is for reading/serializing, not for constructing a new Query).
 func (q *Query) Snapshot() *FleetSnapshot { return jsonClone(q.snap) }
 
+// SnapshotForSerialization returns the internal snapshot pointer for a caller that
+// does nothing but serialize it. The snapshot is immutable once built -- the
+// manager builds a candidate off to the side and swaps the pointer, never mutating
+// a live one -- so a marshal needs no defensive copy, and on a fleet-sized snapshot
+// Snapshot()'s copy is a full marshal-plus-unmarshal round trip performed on a
+// value that is about to be marshalled again. Any caller that might RETAIN or
+// mutate the result must use Snapshot() instead.
+func (q *Query) SnapshotForSerialization() *FleetSnapshot { return q.snap }
+
 // SnapshotID returns the snapshot's content identity without copying.
 func (q *Query) SnapshotID() string { return q.snap.SnapshotID }
 
@@ -95,16 +104,31 @@ type Meta struct {
 	Completeness  Completeness  `json:"completeness"`
 	Limitations   []Limitation  `json:"limitations,omitempty"`
 	Sources       []SourceState `json:"sources,omitempty"`
+	// LimitationsTruncated / SourcesTruncated report that the snapshot holds more
+	// than the envelope carries. An envelope that silently drops entries would be
+	// the one dishonest field in a completeness envelope.
+	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
+	SourcesTruncated     bool `json:"sourcesTruncated,omitempty"`
 }
 
+// meta applies the SAME hard caps as productMeta. Limitations are emitted per
+// record in several build paths -- one per ambiguous revision link, one per
+// non-canonical compliance value -- so an ordinary multi-source disagreement puts
+// one limitation per target in the snapshot, and an unbounded envelope would then
+// be most of every answer. These answers also go straight to an MCP tool result,
+// where that is a context bomb rather than merely bytes.
 func (q *Query) meta() Meta {
+	srcs, srcTrunc := boundSources(cloneSources(q.snap.Sources))
+	lims, limTrunc := boundLimitations(cloneLimitations(q.snap.Limitations))
 	return Meta{
-		SchemaVersion: q.snap.SchemaVersion,
-		SnapshotID:    q.snap.SnapshotID,
-		AsOf:          q.snap.GeneratedAt,
-		Completeness:  q.snap.Completeness,
-		Limitations:   q.snap.Limitations,
-		Sources:       q.snap.Sources,
+		SchemaVersion:        q.snap.SchemaVersion,
+		SnapshotID:           q.snap.SnapshotID,
+		AsOf:                 q.snap.GeneratedAt,
+		Completeness:         q.snap.Completeness,
+		Limitations:          lims,
+		Sources:              srcs,
+		LimitationsTruncated: limTrunc,
+		SourcesTruncated:     srcTrunc,
 	}
 }
 
@@ -570,6 +594,9 @@ type GraphQuery struct {
 	Direction  Direction // defaults to dependencies
 	Transitive bool
 	MaxDepth   int // 0 → unlimited (still cycle-safe)
+	// MaxNodes caps the answer. 0 takes MaxGraphNodes and a larger value is clamped
+	// to it, so no caller — HTTP, MCP or CLI — can ask for an unbounded traversal.
+	MaxNodes int
 }
 
 // GraphNode is one reached node with its depth and the path taken to reach it.
@@ -595,6 +622,10 @@ type GraphResult struct {
 	Edges      []Relationship `json:"edges"`
 	Cycles     [][]ServiceKey `json:"cycles,omitempty"`
 	Unresolved []Relationship `json:"unresolved,omitempty"`
+	// Truncated reports that the traversal hit the node cap and stopped. The answer
+	// is then a deterministic prefix of the reachable graph, not the whole of it,
+	// and a consumer that reads it as complete would understate a blast radius.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Graph traverses dependencies or dependents from an explicit root. It returns
@@ -609,6 +640,13 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	}
 	if gq.MaxDepth < 0 {
 		return nil, &InvalidQueryError{Field: "maxDepth", Value: fmt.Sprint(gq.MaxDepth), Reason: "must be >= 0"}
+	}
+	if gq.MaxNodes < 0 {
+		return nil, &InvalidQueryError{Field: "maxNodes", Value: fmt.Sprint(gq.MaxNodes), Reason: "must be >= 0"}
+	}
+	maxNodes := gq.MaxNodes
+	if maxNodes == 0 || maxNodes > MaxGraphNodes {
+		maxNodes = MaxGraphNodes
 	}
 	rootSvc, scopeRev, aggregated, err := q.resolveGraphScope(gq)
 	if err != nil {
@@ -638,6 +676,14 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 			}
 			if visited[next] {
 				continue // already reached and expanded; keeps traversal O(V+E)
+			}
+			// Neighbors are in sorted key order (the dependency indexes are sorted at
+			// build), so the kept prefix is deterministic. Returning rather than
+			// continuing unwinds the whole walk: every outer frame re-checks the same
+			// guard immediately, so nothing further is expanded once the cap is met.
+			if len(res.Nodes) >= maxNodes {
+				res.Truncated = true
+				return
 			}
 			visited[next] = true
 			nodeSet[next] = true

@@ -242,6 +242,52 @@ describe('NeighborhoodGraph — spatial persistence wiring', () => {
   });
 });
 
+describe('NeighborhoodGraph — a floored fit is announced', () => {
+  beforeEach(() => {
+    for (const f of [renderSpy, destroySpy]) f.mockReset();
+    sessionStorage.clear();
+  });
+
+  it('tells the reader the graph is cropped, and takes it back when it is not', () => {
+    // A fit clamped at the legibility floor leaves part of the graph off screen, and a
+    // cropped canvas looks exactly like a complete one -- so the only thing standing
+    // between the reader and a silently partial answer is this line of text.
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const props: any = reactiveProps({ neighborhood: nb('Compliant'), focusKey: 'a' });
+    const component = mount(NeighborhoodGraph, { target, props });
+    flushSync();
+    expect(target.querySelector('[data-testid="graph-zoom-floored"]')).toBeNull();
+
+    const onReady = renderSpy.mock.calls[0][2].onReady;
+    onReady({ headless: false, nodeCount: 2, edgeCount: 1, nodesWithBox: 2, edgesRendered: 1, fitFloored: true });
+    flushSync();
+    const note = target.querySelector('[data-testid="graph-zoom-floored"]');
+    expect(note?.textContent).toMatch(/off screen/i);
+    // The acceptance seam carries the same fact as the visible note.
+    expect(target.querySelector('[data-testid="neighborhood-canvas"]')?.getAttribute('data-graph-fit-floored')).toBe('true');
+
+    onReady({ headless: false, nodeCount: 2, edgeCount: 1, nodesWithBox: 2, edgesRendered: 1, fitFloored: false });
+    flushSync();
+    expect(target.querySelector('[data-testid="graph-zoom-floored"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('does not claim a crop on top of a render error -- there is no graph to crop', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    renderSpy.mockImplementationOnce(() => { throw new GraphRenderError('no 2d context'); });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const props: any = reactiveProps({ neighborhood: nb('Compliant'), focusKey: 'a' });
+    const component = mount(NeighborhoodGraph, { target, props });
+    flushSync();
+    expect(target.querySelector('[data-testid="graph-render-error"]')).toBeTruthy();
+    expect(target.querySelector('[data-testid="graph-zoom-floored"]')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+});
+
 describe('NeighborhoodGraph — theme', () => {
   beforeEach(() => {
     for (const f of [renderSpy, destroySpy, restyleSpy]) f.mockReset();

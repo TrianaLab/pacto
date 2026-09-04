@@ -10,7 +10,7 @@ import { graphQueryKey, loadSpatial, saveSpatial, clearSpatial, SPATIAL_VERSION 
 
 const q = (over: Partial<Parameters<typeof graphQueryKey>[0]> = {}) => ({
   kind: 'service', key: 'domain-a/web', perspective: 'service',
-  views: ['expected', 'differences'], direction: 'both', depth: 1, ...over,
+  views: ['expected', 'differences'], direction: 'both', depth: 1, maxNodes: 60, ...over,
 });
 
 const state = (positions: Record<string, { x: number; y: number }>, zoom = 1.25) => ({
@@ -27,7 +27,7 @@ describe('graphQueryKey — canonical graph-query identity', () => {
     const base = graphQueryKey(q());
     for (const over of [
       { kind: 'revision' }, { key: 'domain-a/api' }, { perspective: 'revision' },
-      { views: ['observed'] }, { direction: 'dependents' }, { depth: 2 },
+      { views: ['observed'] }, { direction: 'dependents' }, { depth: 2 }, { maxNodes: 150 },
     ]) {
       expect(graphQueryKey(q(over))).not.toBe(base);
     }

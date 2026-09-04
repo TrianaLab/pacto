@@ -185,6 +185,54 @@ func TestNeighborhood_Truncation(t *testing.T) {
 	}
 }
 
+func TestNeighborhood_TotalNodesIsTheDenominatorOrNothing(t *testing.T) {
+	q := productFleet(t)
+	full, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.Truncated {
+		t.Fatal("fixture must fit under the default cap for this test to mean anything")
+	}
+	if full.TotalNodes != len(full.Nodes) {
+		t.Errorf("an untruncated answer must count exactly what it drew: total=%d nodes=%d", full.TotalNodes, len(full.Nodes))
+	}
+	if len(full.Nodes) < 2 {
+		t.Fatalf("fixture too small to truncate: %d nodes", len(full.Nodes))
+	}
+
+	// The cap changes how much is DRAWN, never how much was FOUND: the denominator
+	// a reader is shown ("3 of 7") has to survive the truncation it describes.
+	capped, err := q.Neighborhood(NeighborhoodQuery{Kind: KindService, Key: "alpha", MaxNodes: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capped.TotalNodes != full.TotalNodes {
+		t.Errorf("truncation shrank the denominator: capped=%d full=%d", capped.TotalNodes, full.TotalNodes)
+	}
+
+	// The revision and target projections stop expanding at the cap, so they cannot
+	// know what they did not draw. Zero reads as "no denominator available"; a floor
+	// dressed up as a census ("60 of 63" when there are 400) would read as a lie.
+	view, _ := q.GetService("alpha")
+	for _, tc := range []struct {
+		perspective Perspective
+		kind        EntityKind
+		key         string
+	}{
+		{PerspectiveRevision, KindRevision, string(view.Revisions[0].Key)},
+		{PerspectiveTarget, KindTarget, string(NewTargetKey("prod", "k8s", "alpha-app"))},
+	} {
+		nb, err := q.Neighborhood(NeighborhoodQuery{Perspective: tc.perspective, Kind: tc.kind, Key: tc.key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if nb.TotalNodes != 0 {
+			t.Errorf("%s projection must report no denominator, got %d", tc.perspective, nb.TotalNodes)
+		}
+	}
+}
+
 func TestNeighborhood_FocusResolution(t *testing.T) {
 	q := productFleet(t)
 	view, _ := q.GetService("alpha")

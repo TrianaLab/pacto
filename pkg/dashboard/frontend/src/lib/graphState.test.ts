@@ -5,6 +5,7 @@ import {
   defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
   perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
   canonicalFocusForPerspective, projectionFocusMismatch,
+  nextMaxNodes, DEFAULT_MAX_NODES, MAX_NODES, MAX_NODES_STEPS,
 } from './graphState.ts';
 import type { CanonNeighborhood } from './graphState.ts';
 
@@ -40,6 +41,34 @@ describe('graphStateFromParams', () => {
     expect(gs.direction).toBe('both');
     expect(gs.views).toEqual(DEFAULT_VIEWS);
     expect(gs.depth).toBe(1);
+  });
+});
+
+describe('maxNodes (the node budget the reader can raise)', () => {
+  it('defaults to the backend default rather than to unbounded', () => {
+    expect(graphStateFromParams({ kind: 'service', sel: 'x' }).maxNodes).toBe(DEFAULT_MAX_NODES);
+  });
+  it('parses a raised budget and clamps one above the backend ceiling', () => {
+    expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes: '150' }).maxNodes).toBe(150);
+    // Offering a rung the backend then silently clamps is a UI that lies about
+    // what it just fetched, so the clamp happens here too.
+    expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes: '99999' }).maxNodes).toBe(MAX_NODES);
+  });
+  it('falls back to the default for junk, zero and negatives', () => {
+    for (const maxNodes of ['abc', '0', '-5', '']) {
+      expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes }).maxNodes).toBe(DEFAULT_MAX_NODES);
+    }
+  });
+  it('climbs the rungs once each and then stops at the ceiling', () => {
+    expect(nextMaxNodes(DEFAULT_MAX_NODES)).toBe(150);
+    expect(nextMaxNodes(150)).toBe(MAX_NODES);
+    expect(nextMaxNodes(MAX_NODES)).toBeNull();
+    // A budget between rungs still climbs to the next one above it.
+    expect(nextMaxNodes(61)).toBe(150);
+  });
+  it('keeps the rungs ascending, so "show more" always shows more', () => {
+    expect([...MAX_NODES_STEPS].sort((a, b) => a - b)).toEqual([...MAX_NODES_STEPS]);
+    expect(MAX_NODES_STEPS[0]).toBe(DEFAULT_MAX_NODES);
   });
 });
 

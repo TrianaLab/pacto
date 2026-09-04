@@ -26,6 +26,10 @@
   // GraphRenderError). We then show an explicit render-error state instead of a silently
   // empty canvas; the parent (GraphView) keeps the Relationships text list available.
   let renderError = $state(false);
+  // True when the renderer had to clamp a fit at the legibility floor, so the whole
+  // graph is not in frame. The canvas cannot say this for itself: a cropped graph looks
+  // exactly like a complete one.
+  let zoomFloored = $state(false);
   // Two signatures so a refresh does the RIGHT thing: the topology
   // signature (node ids + edge endpoints/type + focus) decides reconcile-vs-restyle; the
   // presentation signature (node status/label/kind + edge state) decides whether an
@@ -130,12 +134,14 @@
   // attributes, the seam the visual-graph browser acceptance reads to prove a non-headless
   // canvas actually painted nodes and edges (never a mounted-but-empty container).
   function publishDiagnostics(d) {
+    zoomFloored = !!d.fitFloored;
     if (!containerEl) return;
     containerEl.setAttribute('data-graph-headless', String(d.headless));
     containerEl.setAttribute('data-graph-nodes', String(d.nodeCount));
     containerEl.setAttribute('data-graph-edges', String(d.edgeCount));
     containerEl.setAttribute('data-graph-node-boxes', String(d.nodesWithBox));
     containerEl.setAttribute('data-graph-edges-rendered', String(d.edgesRendered));
+    containerEl.setAttribute('data-graph-fit-floored', String(!!d.fitFloored));
     containerEl.setAttribute('data-graph-ready', d.headless ? 'headless' : 'painted');
   }
 
@@ -173,6 +179,11 @@
     The visual graph could not be rendered. The relationship list below remains available.
   </div>
 {/if}
+{#if zoomFloored && !renderError}
+  <p class="nb-graph-note" role="status" data-testid="graph-zoom-floored">
+    Zoomed in to keep the labels readable, so part of the graph is off screen. Pan or zoom out to see the rest.
+  </p>
+{/if}
 <div
   bind:this={containerEl}
   class="nb-graph"
@@ -183,6 +194,8 @@
 ></div>
 
 <style>
+  .nb-graph-note { margin: 0 0 var(--sp-2); font-size: var(--text-sm); color: var(--c-text-3); }
+
   .nb-graph {
     width: 100%;
     /* A fixed 460px is 460px on a 900px desktop and 460px on a 640px phone, where it left

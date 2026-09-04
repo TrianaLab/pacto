@@ -85,3 +85,35 @@ The WebAssembly demo's notice can be dismissed. It floats over the bottom of the
 dashboard and never left, which on a short window is where the content is. A
 failed engine load brings it back: that is the one message the reader cannot be
 allowed to have closed.
+
+Ten scale limits are closed. Measured against a fleet of five hundred services,
+two thousand revisions, three thousand targets and eight thousand relationships,
+each of these was a place where the cost of an answer grew with the size of the
+fleet rather than with the size of the question:
+
+- Every concurrent request that missed a cold service index ran its own full
+  serial resolution of the whole fleet. One rebuild is admitted at a time and the
+  callers queued behind it return the index it stored, doing no work at all.
+- A Fleet host issued a whole-fleet `/api/services` it never reads, every two
+  seconds. The capability probe used to race the load it decides the shape of, so
+  the first pass always read "capabilities unknown", took the legacy branch and
+  paid for an answer it threw away. It is probed first now, at the cost of one
+  round trip on first load. The poll also no longer stacks a second pass on top
+  of one still in flight, while a manual refresh is still never dropped.
+- The whole-fleet dependency graph had no node bound. It takes one, defaulting to
+  the engine's ceiling, and every node carries the path taken to reach it — so an
+  unbounded deep answer was quadratic on the wire, not linear.
+- `Meta` applied none of the envelope caps `ProductMeta` applies, so two answers
+  from the same snapshot could disagree about how much they left out.
+- The per-target revision match rebuilt its candidate set from every revision in
+  the fleet; it is grouped once per service and reused.
+- The bulk snapshot export round-tripped through a marshal-and-unmarshal
+  defensive copy on its way to a wire it is then written to and dropped.
+- A truncated graph said only that it had been truncated. It now says how much is
+  missing, and offers the next node budget — sixty, a hundred and fifty, five
+  hundred, the same rungs the backend will honour, because a control that offers a
+  step the server then clamps is a control that lies about what it just fetched.
+  The budget is part of the URL, so a shared link reopens the graph being
+  discussed rather than a smaller one.
+- A fit clamped at the legibility floor left part of the graph off screen and
+  said nothing, and a cropped canvas looks exactly like a complete one. It says so.

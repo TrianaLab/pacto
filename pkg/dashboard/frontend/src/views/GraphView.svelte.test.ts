@@ -236,6 +236,48 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  // A truncated graph used to say only "this was truncated", which tells the reader
+  // neither how much is missing nor what to do about it. TotalNodes is the denominator
+  // the service projection can honestly supply, and raising the node budget is the way out.
+  it('reports how much of the neighborhood is missing and offers the next node budget', async () => {
+    neighborhoodFn.mockResolvedValue(neighborhood({ totalNodes: 210 }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toContain('Showing 3 of 210');
+
+    (q(target, '[data-testid="graph-show-more"]') as HTMLButtonElement).click();
+    expect(location.hash).toContain('maxNodes=150');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('climbs to the ceiling and then tells the reader to narrow instead of offering a dead button', async () => {
+    neighborhoodFn.mockResolvedValue(neighborhood({ totalNodes: 210 }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '500' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-show-more"]')).toBeNull();
+    expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toMatch(/Narrow the direction or depth/i);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // The revision and target projections cannot count what they never expanded, so they
+  // report zero. Zero has to read as "no denominator", never as "you have all of it" --
+  // "Showing 3 of 0" would be worse than saying nothing.
+  it('falls back to the bare truncation notice when the projection supplies no denominator', async () => {
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
+    const note = q(target, '[data-testid="graph-truncated"]')?.textContent ?? '';
+    expect(note).toContain('bounded and was truncated');
+    expect(note).not.toMatch(/Showing \d+ of/);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('asks the backend for the node budget in the URL', async () => {
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '150' });
+    await vi.waitFor(() => expect(neighborhoodFn).toHaveBeenCalled());
+    expect(neighborhoodFn.mock.calls[0][0]).toMatchObject({ maxNodes: 150 });
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('Fit and Zoom in/out manipulate only the visual canvas; direction and depth persist in the URL', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(renderSpy).toHaveBeenCalled()); // canvas mounted + controls wired

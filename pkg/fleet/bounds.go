@@ -17,6 +17,14 @@ const (
 	MaxMetaLimitations = 100
 )
 
+// MaxGraphNodes caps the nodes one graph traversal answer carries. The walk itself
+// is linear, but every node carries the chain of keys taken to reach it, so the
+// PAYLOAD grows as nodes x depth -- a deep chain is quadratic on the wire even
+// though it is cheap to compute. The cap is the ceiling on the whole answer rather
+// than a per-level limit, and it is deliberately generous: a realistic dependency
+// closure is orders of magnitude under it.
+const MaxGraphNodes = 500
+
 // sourceHealthRank orders source statuses most-relevant (least healthy) first,
 // so that when the meta's source list is truncated the sources that matter -
 // unavailable, stale, partial - are the ones kept.
@@ -46,6 +54,13 @@ func boundSources(ss []SourceState) ([]SourceState, bool) {
 	})
 	return sorted[:MaxMetaSources], true
 }
+
+// BoundLimitations caps a (already-cloned) limitation slice at
+// MaxMetaLimitations, preserving order, and reports truncation. Exported because
+// the impact answer carries the same snapshot-owned slice and must apply the same
+// cap; a second, differently-sized bound in another package is how two answers
+// from one snapshot start disagreeing about how much they left out.
+func BoundLimitations(ls []Limitation) ([]Limitation, bool) { return boundLimitations(ls) }
 
 // boundLimitations caps a (already-cloned) limitation slice at
 // MaxMetaLimitations, preserving order, and reports truncation.

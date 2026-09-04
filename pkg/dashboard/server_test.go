@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -3285,5 +3286,62 @@ func TestDeferredVersionEnrich_AppliesToCurrentCacheNotBase(t *testing.T) {
 	}
 	if !got.UpdateAvailable {
 		t.Error("expected UpdateAvailable=true after enrichment landed")
+	}
+}
+
+// gatedSource blocks in ListServices until released, and counts how many times it
+// was entered. It exists to prove the index rebuild is single-flighted.
+type gatedSource struct {
+	*mockSource
+	entered chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (g *gatedSource) ListServices(ctx context.Context) ([]Service, error) {
+	g.calls.Add(1)
+	g.entered <- struct{}{}
+	<-g.release
+	return g.mockSource.ListServices(ctx)
+}
+
+func TestGetCachedIndex_ConcurrentMissesShareOneRebuild(t *testing.T) {
+	// Resolving the whole fleet is the most expensive thing this server does. With
+	// only the TTL guarding it, every request that arrived during a cold rebuild ran
+	// its own -- so N concurrent readers cost N full resolutions of the same fleet.
+	src := &gatedSource{
+		mockSource: &mockSource{
+			services: []Service{{Name: "svc", Version: "1.0.0"}},
+			details:  map[string]*ServiceDetails{"svc": {Service: Service{Name: "svc", Version: "1.0.0"}}},
+		},
+		entered: make(chan struct{}, 8),
+		release: make(chan struct{}),
+	}
+	srv := NewServer(src, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
+
+	const queued = 4
+	out := make(chan *serviceIndexCache, queued+1)
+	go func() { out <- srv.getCachedIndex(context.Background()) }()
+	<-src.entered // the winner is inside the rebuild and holds the build gate
+
+	for i := 0; i < queued; i++ {
+		go func() { out <- srv.getCachedIndex(context.Background()) }()
+	}
+	// Give the queued callers time to reach the gate. Nothing can observe a
+	// goroutine parked on a mutex, so this is a barrier rather than a
+	// synchronisation point -- but each of them does two mutex operations and
+	// nothing else, and the assertion below holds however the race resolves.
+	time.Sleep(50 * time.Millisecond)
+
+	close(src.release)
+	first := <-out
+	for i := 0; i < queued; i++ {
+		if got := <-out; got != first {
+			t.Error("a queued caller must return the winner's index, not build its own")
+		}
+	}
+	srv.WaitForVersionEnrich()
+	if got := src.calls.Load(); got != 1 {
+		t.Errorf("the fleet was resolved %d times for one cold cache; want 1", got)
 	}
 }

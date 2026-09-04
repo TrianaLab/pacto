@@ -32,6 +32,7 @@ describe('App — auto-reload cadence', () => {
   let target: HTMLElement;
 
   beforeEach(() => {
+    for (const f of [servicesFn, sourcesFn, healthFn, capabilitiesFn]) f.mockReset();
     servicesFn.mockResolvedValue([]);
     sourcesFn.mockResolvedValue({ sources: [], discovering: false });
     healthFn.mockResolvedValue({ version: 'x' });
@@ -65,6 +66,47 @@ describe('App — auto-reload cadence', () => {
     await vi.advanceTimersByTimeAsync(8000);
     expect(servicesFn.mock.calls.length).toBe(afterInit + 1);
 
+    unmount(app);
+  });
+});
+
+describe('App — the global load on a large fleet', () => {
+  let target: HTMLElement;
+
+  beforeEach(() => {
+    for (const f of [servicesFn, sourcesFn, healthFn, capabilitiesFn]) f.mockReset();
+    servicesFn.mockResolvedValue([]);
+    sourcesFn.mockResolvedValue({ sources: [], discovering: true });
+    healthFn.mockResolvedValue({ version: 'x' });
+    vi.useFakeTimers();
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    location.hash = '#/';
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.removeChild(target);
+  });
+
+  // The poll fires on a fixed interval whether or not the previous pass has returned.
+  // On a large fleet one pass outlives the 2s discovery interval, so without a guard
+  // each slow pass stacks another concurrent pass on top of it.
+  it('does not stack a second pass on top of one still in flight, but never drops a manual refresh', async () => {
+    capabilitiesFn.mockResolvedValue({ fleet: false, impact: false });
+    // One pass over a large fleet outlives the 2s discovery interval.
+    servicesFn.mockReturnValue(new Promise(() => {}));
+    const app = mount(App, { target });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(servicesFn).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(7000); // three polls the in-flight pass outlives
+    expect(servicesFn).toHaveBeenCalledTimes(1);
+
+    // The user asking is not the poll firing: a manual refresh goes through regardless.
+    (target.querySelector('[aria-label="Refresh"]') as HTMLButtonElement).click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(servicesFn).toHaveBeenCalledTimes(2);
     unmount(app);
   });
 });
