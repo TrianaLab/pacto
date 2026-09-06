@@ -202,6 +202,7 @@ noise.
 | Section | Status |
 |---------|--------|
 | `metadata` | Not diffed. Free-form `metadata` keys are carried through to documentation and the dashboard but are ignored by the diff engine. |
+| AsyncAPI and gRPC spec **content** | Not diffed. Only `openapi` interfaces are compared spec against spec. For an `asyncapi` or `grpc` interface the diff sees the contract's own fields — `type`, `ref` and `visibility` — so a changed `ref` is `POTENTIAL_BREAKING` and a rewritten spec behind an unchanged `ref` produces no change entry at all. |
 | `capabilities[].binding` | Not diffed. Capabilities are keyed by `type` (and `ref`), so a changed `binding.interface` or `binding.path` on an otherwise unchanged capability is invisible to `pacto diff`. |
 | `readiness.history[]` | Not diffed. An append-only changelog that changes on every release; see [Readiness](#readiness). |
 

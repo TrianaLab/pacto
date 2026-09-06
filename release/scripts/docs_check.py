@@ -88,7 +88,12 @@ def integration_docs_dirs() -> list[str]:
 
 
 def generated_paths() -> list[str]:
-    paths = [os.path.join("docs", "cli-reference.md")]
+    # examples/demo/generated holds the guided tour's terminal transcripts. They
+    # are snippet-included into docs/examples/demo-tour.md, so the drift gate is
+    # the only thing standing between "what pacto prints" and what the page
+    # claims it prints -- FENCE_RE executes yaml and nothing else.
+    paths = [os.path.join("docs", "cli-reference.md"),
+             os.path.join("examples", "demo", "generated")]
     for d in integration_docs_dirs():
         rel = os.path.relpath(os.path.join(d, "generated"), REPO_ROOT)
         paths.append(rel)

@@ -410,9 +410,10 @@ moments. Neither is wrong; they answer different questions.
 
 ### End-to-end example: a demo bundle with Claude Code
 
-This repository ships demo bundles you can point Claude at directly. We'll use
-`payments-service`, which declares an OpenAPI interface **and** a
-`refund_customer.md` skill — so it exercises both halves of the feature.
+This repository ships a bundle whose service you can actually start: the Pacto
+dashboard describes itself with a real OpenAPI contract, so pointing Claude at
+`examples/demo/pacto-dashboard` while the dashboard is running gives you tools
+that reach a live server rather than a stub.
 
 **1. Install Pacto** so the `pacto` binary is on your `PATH`:
 
@@ -422,40 +423,29 @@ make build   # or: go install ./cmd/pacto
 
 See [Installation](installation.md) for all methods.
 
-**2. Start a throwaway backend.** The demo service isn't actually running, so give
-the generated tools something to call. In a real setup `--base-url` points at your
-live service instead.
+**2. Start the service the contract describes.** This is the dashboard from the
+[guided tour](examples/demo-tour.md), serving the demo fleet:
 
 ```bash
-python3 - <<'EOF'
-from http.server import BaseHTTPRequestHandler, HTTPServer
-class H(BaseHTTPRequestHandler):
-    def r(self):
-        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
-        self.wfile.write(f'{{"ok":true,"path":"{self.path}"}}'.encode())
-    do_GET = do_POST = r
-    def log_message(self, *a): pass
-HTTPServer(("127.0.0.1", 8080), H).serve_forever()
-EOF
+pacto dashboard examples/demo/bundles --port 8899
 ```
 
-**3. Register the bundle with Claude Code** (from the repo root). A refund is a
-`POST`, so pass `--allow-writes` to expose mutating operations:
+**3. Register the bundle with Claude Code** (from the repo root):
 
 ```bash
-claude mcp add --scope local payments-demo \
-  -- pacto mcp ./examples/demo/bundles/payments-service/v2.1.0 \
-     --base-url http://127.0.0.1:8080 --allow-writes
+claude mcp add --scope local pacto-dashboard \
+  -- pacto mcp ./examples/demo/pacto-dashboard \
+     --base-url http://127.0.0.1:8899
 ```
 
-The server name (`payments-demo`) goes *before* the `--`; everything after it is
+The server name (`pacto-dashboard`) goes *before* the `--`; everything after it is
 the command Claude runs. (Equivalent `.mcp.json` form: the `command`/`args` shape
 shown above.)
 
 **4. Verify the connection and inspect the tools:**
 
 ```bash
-claude mcp list          # payments-demo → ✔ Connected
+claude mcp list          # pacto-dashboard → ✔ Connected
 ```
 
 or, inside a Claude Code session:
@@ -464,36 +454,41 @@ or, inside a Claude Code session:
 /mcp
 ```
 
-You'll see one tool per OpenAPI operation (`createRefund`, `getPaymentIntent`,
-`listPaymentIntents`, …) plus `pacto_skill` and the four authoring tools
+You'll see one tool per read-only OpenAPI operation (`health`, `fleet-search`,
+`fleet-status`, `fleet-graph`, …) plus `pacto_skill` and the four authoring tools
 (`pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema`), which are always
-registered. Claude also receives the server's
-instructions telling it these tools invoke the live payments service and how to
-use `pacto_skill`.
+registered. The four mutating operations are withheld, and the server says so on
+stderr as it starts:
 
-**5. Just ask, in plain language:**
-
-```
-You:    Refund payment intent pi_123 — it was a duplicate charge.
-
-Claude: [calls pacto_skill to read refund_customer.md]
-        [follows the workflow: confirms the intent is refundable via
-         getPaymentIntent, sets reason="duplicate"]
-        [calls createRefund with {payment_intent_id:"pi_123", reason:"duplicate"}]
-        Done — issued a refund for pi_123 (reason: duplicate).
+```console
+pacto mcp: skipped 4 mutating operation(s) in interface "http-api" (use --allow-writes to expose)
 ```
 
-Claude discovered the *operation* from the OpenAPI contract and the *procedure*
-from the bundled skill — neither was hand-written as an agent tool.
+**5. Just ask, in plain language.** Claude calls the generated tool, the tool
+calls the running dashboard and the answer comes back with the real status code
+and body:
+
+```console
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\n  \"StatusCode\": 200,\n  \"Headers\": {\n    \"Content-Length\": \"32\",\n    \"Content-Type\": \"application/json\",\n    \"Date\": \"Sun, 06 Sep 2026 16:59:12 GMT\"\n  },\n  \"Body\": \"{\\\"status\\\":\\\"ok\\\",\\\"version\\\":\\\"dev\\\"}\\n\"\n}"}]}}
+```
+
+Nobody wrote a `health` tool. Claude discovered the operation from the OpenAPI
+contract the dashboard publishes about itself.
 
 !!! note
     The model calls these tools under a server-namespaced name, e.g.
-    `mcp__payments-demo__createRefund`. Drop `--allow-writes` and the mutating
-    tools (including `createRefund`) disappear — only the read-only operations
-    (`getPaymentIntent`, `listPaymentIntents`, `healthCheck`) and `pacto_skill`
-    remain.
+    `mcp__pacto-dashboard__health`. Pass `--allow-writes` and the four mutating
+    operations (`refresh`, `resolve-ref`, `list-remote-versions`,
+    `fleet-impact-post`) appear alongside them.
 
-When you're done: `claude mcp remove payments-demo`.
+The other half of the feature is the *procedure* a contract carries.
+`examples/demo/bundles/payments-service/v2.1.0` bundles a `refund_customer.md`
+skill next to its OpenAPI interface, and `pacto_skill` is how an agent reads it —
+see [pacto_skill](#pacto_skill). Nothing in this repository serves the payments
+API, so register that bundle to see which tools and skills a contract produces,
+not to call one.
+
+When you're done: `claude mcp remove pacto-dashboard`.
 
 ---
 ## Contract catalog discovery

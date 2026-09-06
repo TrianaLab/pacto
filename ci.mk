@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        ci-oci ci-gates docs-generate docs-check docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
-       gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check
+       gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
 # The root aggregate. Every leg delegates to the REAL underlying gate across the
@@ -151,11 +151,17 @@ ci-oci:
 ci-release-version:
 	bash release/orchestrator/test-release-version.sh
 
+# The guided tour's terminal transcripts (docs/examples/demo-tour.md). Generated
+# rather than transcribed, so docs-check's drift gate holds them to what the CLI
+# actually prints. Offline: it reads the committed demo fixture and nothing else.
+gen-demo-transcripts:
+	bash release/scripts/gen_demo_transcripts.sh
+
 # Regenerate every generated doc across the workspace. Core CLI reference first,
-# then every discovered integration's own generator (via its integration.yaml
-# documentation.generateCommand) so a future integration is picked up with no
-# change here.
-docs-generate: gen-cli-docs
+# then the demo transcripts, then every discovered integration's own generator
+# (via its integration.yaml documentation.generateCommand) so a future
+# integration is picked up with no change here.
+docs-generate: gen-cli-docs gen-demo-transcripts
 	@for m in integrations/*/integration.yaml; do \
 		[ -f "$$m" ] || continue; \
 		cmd=$$(python3 -c "import yaml,sys; d=yaml.safe_load(open('$$m')) or {}; print((d.get('documentation') or {}).get('generateCommand',''))"); \

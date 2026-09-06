@@ -24,7 +24,7 @@ login is needed; against a private registry, `docker login <registry>` first.
 Resolve the release you want to the digest it published, then run that digest:
 
 ```sh
-DEMO=$(docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.2.1 \
+DEMO=$(docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.2.7 \
   | sed -n 's/.*"digest": "\(sha256:[a-f0-9]*\)".*/\1/p' | head -1)
 
 docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$DEMO" \
@@ -41,7 +41,7 @@ on anywhere without a terminal, where the unanswered prompt cancels the run.
 ## The digest
 
 Each release publishes the demo under one tag — the Pacto version it shipped
-with — so a tag is all you need to know; swap `3.2.1` above for the release you
+with — so a tag is all you need to know; swap `3.2.7` above for the release you
 want. What actually runs is the digest that tag resolved to, never the tag
 itself: a tag is a publication convenience and can be moved, and the whole point
 of this artifact is that it cannot. That is what makes "the demo you ran" a thing
@@ -52,7 +52,7 @@ same bytes.
 reuses it. In a fresh shell, resolve it again.
 
 To read the descriptor yourself rather than through `sed`, run
-`docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.2.1` — the `sed` above
+`docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.2.7` — the `sed` above
 lifts its first `digest` field, which is `Descriptor.digest`.
 
 The images inside are pinned the same way. Both are named by digest rather than
@@ -87,6 +87,11 @@ never collide.
 
 Follow the graph from `orders` to `checkout`, open a revision to read its
 contract, and compare `checkout` 1.0.0 with 1.1.0 to see a change analysed.
+
+For the same moves at the command line — twelve commands from "what is out there"
+to "an agent reading the same server" — follow the
+[guided tour](demo-tour.md). It runs offline against a clone of the repository
+rather than against this stack.
 
 The fixture is the same canonical scenario Pacto's acceptance suite runs against
 a real Kubernetes cluster: the same services, revisions, dependency edge,
