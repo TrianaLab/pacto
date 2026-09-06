@@ -74,6 +74,7 @@ test-integration:
 # runs — the live-Kubernetes source is covered by the kind acceptance.
 test-acceptance-local:
 	bash tests/acceptance/local/fleet-graph.sh
+	bash tests/acceptance/local/demo-arc.sh
 
 # Level 4 — the distributed Compose demo, proved the way a stranger meets it:
 # the application is published with `docker compose publish` and then executed
