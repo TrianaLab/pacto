@@ -12,7 +12,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 WORK="$(mktemp -d)"
 BIN="$WORK/pacto"
-trap 'rm -rf "$WORK"' EXIT
+DASH=""  # dashboard PID once beat 12 starts one
+cleanup() {
+  if [ -n "$DASH" ]; then kill "$DASH" 2>/dev/null || true; fi
+  rm -rf "$WORK"
+}
+trap cleanup EXIT
 
 pass() { echo "  PASS: $1"; }
 fail() { echo "  FAIL: $1"; exit 1; }
@@ -106,5 +111,56 @@ echo "== beat 10: declared versus observed =="
 OUT="$("$BIN" fleet reconcile --local "$B" --traces "$TR")" || fail "beat 10: fleet reconcile failed"
 assert_contains "$OUT" "[matched] orders-service -> payments-service"              "a declared edge seen in traffic is matched"
 assert_contains "$OUT" "[observed-not-declared] audit-log -> payments-service"     "an undeclared edge seen in traffic is surfaced"
+
+echo "== beat 11: an agent gets read tools until someone says otherwise =="
+# `pacto mcp` exits 1 when stdin reaches EOF, so both captures end in `|| true`:
+# the exit code says nothing about the write gate, only the stderr line does.
+# Do not "fix" these into exit-code checks.
+P="$B/payments-service/v2.1.0"
+REQ='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+RO_ERR="$(echo "$REQ" | "$BIN" mcp "$P" --base-url http://127.0.0.1:1 2>&1 >/dev/null || true)"
+assert_contains "$RO_ERR" 'skipped 5 mutating operation(s) in interface "http"' \
+  "mutating operations are withheld by default, and the CLI says so"
+RW_ERR="$(echo "$REQ" | "$BIN" mcp "$P" --base-url http://127.0.0.1:1 --allow-writes 2>&1 >/dev/null || true)"
+if grep -Fq "skipped" <<<"$RW_ERR"; then
+  echo "$RW_ERR"; fail "--allow-writes should stop withholding the mutating operations"
+else
+  pass "--allow-writes exposes them and drops the warning"
+fi
+
+echo "== beat 12: a human and an agent read the same fleet =="
+# The dashboard is itself a Pacto bundle with a real OpenAPI contract, so the
+# agent's tools come from the same server the human is looking at.
+DB="$ROOT/examples/demo/pacto-dashboard"
+PORT=8899
+"$BIN" dashboard "$B" --port "$PORT" >"$WORK/dashboard.log" 2>&1 &
+DASH=$!
+READY=""
+for _ in $(seq 1 40); do
+  curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && { READY=1; break; }
+  sleep 0.25
+done
+if [ -z "$READY" ]; then
+  cat "$WORK/dashboard.log"
+  fail "beat 12: the dashboard never answered /health on port $PORT (is the port taken?)"
+fi
+pass "the dashboard the human reads is serving"
+
+# The MCP server answers nothing before the initialize handshake, and stdin must
+# stay open past the call or the server sees EOF and closes before flushing —
+# hence the trailing sleep inside the brace group, and the `|| true` on the EOF
+# exit as in beat 11.
+MCP_OUT="$({ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"demo-arc","version":"1"}}}'
+             printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+             printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"health","arguments":{}}}'
+             sleep 2; } | "$BIN" mcp "$DB" --base-url "http://127.0.0.1:$PORT" 2>/dev/null || true)"
+# Single-quoted: the tool result is JSON inside JSON, so the bytes on the wire
+# carry the escaping. The Date header and the version string are not assertable.
+assert_contains "$MCP_OUT" '\"StatusCode\": 200'         "the agent's tool call reaches the same live server"
+assert_contains "$MCP_OUT" '\\\"status\\\":\\\"ok\\\"'   "and gets that server's real health body back"
+
+kill "$DASH" 2>/dev/null || true
+wait "$DASH" 2>/dev/null || true
+DASH=""
 
 echo "== demo-arc acceptance PASSED =="
