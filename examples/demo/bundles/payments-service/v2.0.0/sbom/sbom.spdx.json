@@ -1,0 +1,34 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "payments-service",
+  "documentNamespace": "https://trianalab.com/sbom/payments-service/v2.0.0",
+  "creationInfo": {
+    "created": "2026-09-06T00:00:00Z",
+    "creators": ["Tool: pacto-demo"]
+  },
+  "packages": [
+    {
+      "name": "stripe-go",
+      "SPDXID": "SPDXRef-Package-stripe-go",
+      "versionInfo": "2.0.0",
+      "supplier": "Organization: Stripe",
+      "licenseConcluded": "MIT"
+    },
+    {
+      "name": "go-postgres",
+      "SPDXID": "SPDXRef-Package-go-postgres",
+      "versionInfo": "5.1.0",
+      "supplier": "Organization: PostgreSQL",
+      "licenseConcluded": "BSD-2-Clause"
+    },
+    {
+      "name": "go-yaml",
+      "SPDXID": "SPDXRef-Package-go-yaml",
+      "versionInfo": "3.0.0",
+      "supplier": "Organization: go-yaml",
+      "licenseConcluded": "Apache-2.0"
+    }
+  ]
+}

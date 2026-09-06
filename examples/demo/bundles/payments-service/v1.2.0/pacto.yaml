@@ -13,6 +13,14 @@ interfaces:
   type: asyncapi
   ref: interfaces/events.json
   visibility: internal
+capabilities:
+- type: health
+  binding:
+    type: http
+    interface: http
+    path: /healthz
+- type: extension
+  ref: payments.trianalab.com/refund
 configurations:
 - name: platform
   ref: oci://ghcr.io/trianalab/pacto/platform-app-config

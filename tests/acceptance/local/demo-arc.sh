@@ -62,8 +62,10 @@ else
   pass "diff exits non-zero"
 fi
 assert_contains "$OUT" "Classification: BREAKING" "the change is classified BREAKING"
-assert_contains "$OUT" "Changes (28):"            "every change is counted"
+assert_contains "$OUT" "Changes (30):"            "every change is counted"
 assert_contains "$OUT" "dependencies.required (modified)" "a dependency becoming required is caught"
+assert_contains "$OUT" "capabilities (removed)"   "a removed capability is caught"
+assert_contains "$OUT" "SBOM changes (1):"        "SBOM changes are detected"
 
 echo "== beat 6: the same field, one release earlier, is only potentially breaking =="
 OUT="$("$BIN" diff "$B/payments-service/v1.0.0" "$B/payments-service/v1.1.0")" || fail "beat 6: diff failed"
