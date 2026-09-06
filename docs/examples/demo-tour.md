@@ -154,7 +154,8 @@ against anything. Beat 2 fixes that.
 ## Beat 2 — Read four compliance states at once
 
 `--target-state` folds in what a platform observed about the running deployments.
-The fixture is one file, and it models what an evidence pipeline would ingest:
+The fixture is one file — abridged here — and it models what an evidence pipeline
+would ingest:
 
 ```yaml
 schemaVersion: pacto.dev/fleet-targets/v1
@@ -216,6 +217,9 @@ it.
 
 --8<-- "examples/demo/generated/_beat-03.md"
 
+Targets can be addressed by their unique name or by their canonical key, which
+escapes slashes as `%2F`.
+
 `EVIDENCE_MISSING` is a fact about the observer, not about the service. The
 second command is the same lesson reached from the other side: `api-gateway`
 declares five readiness claims, every one of them marked `done` with evidence
@@ -240,7 +244,7 @@ and classifies every difference.
 
 --8<-- "examples/demo/generated/_beat-05.md"
 
-Thirty changes, one verdict, and the command exits non-zero so CI can gate on it.
+Thirty changes, one verdict and the command exits non-zero so CI can gate on it.
 The interesting part is the spread: two API paths removed, a required request
 field swapped for a differently-named one, two configuration keys becoming
 required, a capability dropped, an optional dependency becoming mandatory and one
@@ -326,8 +330,9 @@ MCP server running on stdio
 server is closing: EOF
 ```
 
-Five `POST`, `PUT`, `PATCH` and `DELETE` operations were withheld, and the server
-said so on stderr rather than leaving you to count tools. Add `--allow-writes`
+Five mutating operations — every `POST` the interface declares — were withheld,
+and the server said so on stderr rather than leaving you to count tools.
+Operations Pacto treats as mutating are `POST`, `PUT`, `PATCH` and `DELETE`. Add `--allow-writes`
 and the warning disappears along with the restriction:
 
 ```bash
@@ -381,7 +386,7 @@ looking at, and both are reading one process.
 
     The tools come from the dashboard's OpenAPI interface, one per read-only
     operation. Calling `health` reaches the live server, and the raw exchange is
-    the proof:
+    the proof (the `version` string reflects the build):
 
     ```console
     {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\n  \"StatusCode\": 200,\n  \"Headers\": {\n    \"Content-Length\": \"32\",\n    \"Content-Type\": \"application/json\",\n    \"Date\": \"Sun, 06 Sep 2026 16:59:12 GMT\"\n  },\n  \"Body\": \"{\\\"status\\\":\\\"ok\\\",\\\"version\\\":\\\"dev\\\"}\\n\"\n}"}]}}
@@ -425,7 +430,9 @@ absence when the sources are incomplete.
 The same read model is available to an agent. `pacto mcp --fleet` serves it as
 six read-only tools — `pacto_fleet_search`, `pacto_fleet_get`,
 `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain` and
-`pacto_impact`, which is beats 7 to 9 as one call:
+`pacto_impact`, which is beats 7 to 9 as one call — alongside the four
+authoring tools, which are not read-only: `pacto_create` and `pacto_edit`
+write contract files to disk.
 
 ```bash
 pacto mcp --fleet \
@@ -436,7 +443,7 @@ pacto mcp --fleet \
 
 Two questions worth asking it, and the calls they resolve to:
 
-> Which services depend on `auth-service`, who owns them, and which of their
+> Which services depend on `auth-service`, who owns them and which of their
 > deployed targets are Unknown or NonCompliant?
 
 1. `pacto_fleet_graph { service: "auth-service", direction: "dependents", transitive: true }`
@@ -452,8 +459,8 @@ Two questions worth asking it, and the calls they resolve to:
 
 Always pass `needs_attention` to `pacto_fleet_status`. Called with no arguments it
 returns an empty item list, which reads as a clean bill of health and is not one.
-These tools observe: they never modify a contract, deploy anything, call a live
-service or grant an authorization.
+These fleet tools observe: they never modify a contract, deploy anything, call a
+live service or grant an authorization.
 
 The dashboard serves the same read model over HTTP at `/api/fleet/snapshot`,
 `/api/fleet/services`, `/api/fleet/services/{name}/graph` and
@@ -469,7 +476,7 @@ The dashboard serves the same read model over HTTP at `/api/fleet/snapshot`,
 | 4 | A violation is reported with its coverage and the specific contradiction behind it |
 | 5 | A breaking change is classified from two contracts, with no running service, and exits non-zero |
 | 6 | Additive change is a distinct verdict, not a rounding of the other two |
-| 7 | Blast radius is graded by how the consumer is known: declared, or reached transitively |
+| 7 | Blast radius is graded by how the consumer is known: declared or reached transitively |
 | 8 | Observed traffic finds consumers no contract declares, without overwriting what was declared |
 | 9 | A change is refused for where it lands, not only for what it is |
 | 10 | Declared and observed dependency edges are reconciled into three explicit verdicts |

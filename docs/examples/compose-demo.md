@@ -1,5 +1,5 @@
 ---
-# See the note on the sibling "Try it" page.
+# See the note on the sibling "Try it" pages.
 search:
   boost: 3
 ---

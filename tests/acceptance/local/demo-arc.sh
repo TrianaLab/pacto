@@ -7,6 +7,10 @@
 # Assertions are on output SUBSTRINGS, not exit codes: a typo'd `pacto fleet`
 # subcommand prints help and exits 0, so an exit-code check proves nothing about
 # a renamed subcommand.
+#
+# beat_args returns an ARGUMENT LIST, not one argument, so every call site is
+# deliberately word-split. No path in beats.sh contains a space, and it says so.
+# shellcheck disable=SC2046
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -36,10 +40,6 @@ assert_contains() {
 
 echo "== build pacto =="
 go build -o "$BIN" "$ROOT/cmd/pacto"
-
-# beat_args is deliberately word-split: it returns an argument list, not one
-# argument. No path in it contains a space, and beats.sh says so.
-# shellcheck disable=SC2086
 
 echo "== beat 1: the fleet exists =="
 OUT="$("$BIN" $(beat_args 1))" || fail "beat 1: fleet search failed"

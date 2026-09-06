@@ -32,6 +32,6 @@ beat_args() {
     11) echo "mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1" ;;
     11-writes)
         echo "mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1 --allow-writes" ;;
-    *)  echo "beats.sh: no such beat: $1" >&2; return 1 ;;
+    *)  echo "beats.sh: no such beat: $1" >&2; exit 1 ;;
   esac
 }

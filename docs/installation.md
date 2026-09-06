@@ -145,7 +145,7 @@ pacto version
 ```
 
 ```text
-Pacto:                v3.2.1
+Pacto:                v3.2.7
 Git Commit:           497a8a79e229a61179184ec338edc4677b1d6ebb
 Build Date:           2026-08-22T18:03:35+02:00
 Go OS/Arch:           darwin/arm64
