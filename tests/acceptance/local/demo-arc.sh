@@ -133,10 +133,21 @@ echo "== beat 12: a human and an agent read the same fleet =="
 # agent's tools come from the same server the human is looking at.
 DB="$ROOT/examples/demo/pacto-dashboard"
 PORT=8899
+# Refuse to run against a stranger. Our dashboard prints "running at" and probes
+# its sources before it binds, so a squatter on this port answers /health long
+# before our own process dies on the failed bind — the liveness check below
+# cannot win that race, and every assertion would pass against the wrong server.
+if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+  fail "beat 12: something is already serving on port $PORT — beat 12 needs it free"
+fi
 "$BIN" dashboard "$B" --port "$PORT" >"$WORK/dashboard.log" 2>&1 &
 DASH=$!
 READY=""
 for _ in $(seq 1 40); do
+  # Liveness before readiness: if the port is already taken our server exits on a
+  # failed bind and something else answers /health, so polling alone would assert
+  # against a stranger's process and pass.
+  kill -0 "$DASH" 2>/dev/null || { cat "$WORK/dashboard.log"; fail "beat 12: the dashboard exited before serving (is port $PORT taken?)"; }
   curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && { READY=1; break; }
   sleep 0.25
 done
