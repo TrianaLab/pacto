@@ -324,35 +324,41 @@ func (f *fakeProduct) detail(id, kind, key string) (fleet.EntityDetail, bool) {
 	return d, true
 }
 
+// neighborhood derives its edges from the scenario's declared relationships, so
+// a scenario change is picked up here without hand-editing three literals.
 func (f *fakeProduct) neighborhood(id string) fleet.Neighborhood {
+	edges := make([]fleet.NeighborhoodEdge, len(scenario.OperationalGraph.Relationships))
+	for i, rel := range scenario.OperationalGraph.Relationships {
+		observed := rel.ObservedBy != ""
+		var provenance string
+		if rel.Declared && observed {
+			provenance = "declared+observed"
+		} else if observed {
+			provenance = "observed"
+		} else {
+			provenance = "declared"
+		}
+		e := fleet.NeighborhoodEdge{
+			ID:         fmt.Sprintf("e%d", i+1),
+			From:       svcRef(fxServiceKey(rel.From), rel.From, fxDomain),
+			To:         svcRef(fxServiceKey(rel.To), rel.To, fxDomain),
+			Relation:   "dependency",
+			Expected:   rel.Declared,
+			Observed:   observed,
+			Difference: rel.Reconciliation,
+			Provenance: provenance,
+		}
+		if observed {
+			e.ObservationSources = fleet.ObservationSourcesPreview{
+				Total: 1, Count: 1, Items: []fleet.ObservedSourceStat{{Source: rel.ObservedBy}},
+			}
+		}
+		edges[i] = e
+	}
 	return fleet.Neighborhood{
 		Meta:        meta(id),
 		Perspective: "service",
-		Edges: []fleet.NeighborhoodEdge{{
-			ID:       "e1",
-			From:     svcRef(fxServiceKey(fxDependencyConsumer), fxDependencyConsumer, fxDomain),
-			To:       svcRef(fxServiceKey(fxMultiRevisionService), fxMultiRevisionService, fxDomain),
-			Relation: "dependency", Expected: true, Observed: true,
-			Provenance: "declared+observed", Difference: "matched",
-			ObservationSources: fleet.ObservationSourcesPreview{
-				Total: 1, Count: 1, Items: []fleet.ObservedSourceStat{{Source: fxObs}},
-			},
-		}, {
-			ID:       "e2",
-			From:     svcRef(fxServiceKey(fxMultiRevisionService), fxMultiRevisionService, fxDomain),
-			To:       svcRef(fxServiceKey(fxEvidenceOnlyService), fxEvidenceOnlyService, fxDomain),
-			Relation: "dependency", Expected: false, Observed: true,
-			Provenance: "observed", Difference: "observed-not-declared",
-			ObservationSources: fleet.ObservationSourcesPreview{
-				Total: 1, Count: 1, Items: []fleet.ObservedSourceStat{{Source: fxObs}},
-			},
-		}, {
-			ID:       "e3",
-			From:     svcRef(fxServiceKey(fxMultiRevisionService), fxMultiRevisionService, fxDomain),
-			To:       svcRef(fxServiceKey(fxDependencyConsumer), fxDependencyConsumer, fxDomain),
-			Relation: "dependency", Expected: true, Observed: false,
-			Provenance: "declared", Difference: "declared-not-observed",
-		}},
+		Edges:       edges,
 	}
 }
 
