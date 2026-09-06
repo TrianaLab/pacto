@@ -300,6 +300,10 @@ func TestAnalyzeServiceNotInFleet(t *testing.T) {
 	if !found {
 		t.Errorf("expected SERVICE_NOT_IN_FLEET limitation, got %+v", res.Limitations)
 	}
+	if res.Completeness != fleet.CompletenessPartial {
+		t.Errorf("Completeness = %q, want %q — an answer that could not find the "+
+			"changed service is not complete", res.Completeness, fleet.CompletenessPartial)
+	}
 }
 
 func TestConsumerImpactServiceAbsent(t *testing.T) {

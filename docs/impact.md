@@ -166,9 +166,9 @@ $ echo $?
 0
 ```
 
-The `Active targets` line is the tell — it is printed only when there is at least
-one, so no line means no non-zero exit is possible. Give the snapshot a source
-that knows where things run and the same command blocks:
+The exit is non-zero only when there exists at least one consumer that is BOTH
+incompatible and has at least one active target. Give the snapshot a source that
+knows where things run and the same command blocks:
 
 ```console
 $ pacto impact ./api-v1 ./api-v2 --local ./fleet --target-state ./targets.yaml

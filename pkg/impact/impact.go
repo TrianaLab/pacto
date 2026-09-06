@@ -161,6 +161,12 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 	q := fleet.NewQuery(snap)
 	graph, err := q.Graph(fleet.GraphQuery{Service: string(svcKey), Direction: fleet.DirectionDependents, Transitive: true})
 	if err != nil {
+		// The changed service is not in the graph, so NO consumer can be ruled in
+		// or out. Reporting "complete" here would let an empty consumer list read
+		// as "nothing breaks" when it means "I could not tell" — and warnPartial
+		// early-returns on complete, so the limitation below would never reach a
+		// human at all.
+		res.Completeness = fleet.CompletenessPartial
 		res.Limitations = append(res.Limitations, fleet.Limitation{
 			Code: "SERVICE_NOT_IN_FLEET", Source: "impact",
 			Message: "the changed service is not present in the operational graph; consumers cannot be determined",
