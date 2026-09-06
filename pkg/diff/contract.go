@@ -2,6 +2,8 @@ package diff
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
@@ -62,7 +64,8 @@ func diffContacts(old, new []contract.OwnerContact) []Change {
 	oldByKey := indexContacts(old)
 	newByKey := indexContacts(new)
 
-	for k, o := range oldByKey {
+	for _, k := range slices.Sorted(maps.Keys(oldByKey)) {
+		o := oldByKey[k]
 		n, exists := newByKey[k]
 		if !exists {
 			changes = append(changes, newChange(contactPath(k), Removed, formatContact(o), nil))
@@ -72,9 +75,9 @@ func diffContacts(old, new []contract.OwnerContact) []Change {
 			changes = append(changes, newChange(contactPath(k), Modified, formatContact(o), formatContact(n)))
 		}
 	}
-	for k, n := range newByKey {
+	for _, k := range slices.Sorted(maps.Keys(newByKey)) {
 		if _, exists := oldByKey[k]; !exists {
-			changes = append(changes, newChange(contactPath(k), Added, nil, formatContact(n)))
+			changes = append(changes, newChange(contactPath(k), Added, nil, formatContact(newByKey[k])))
 		}
 	}
 	return changes
@@ -133,14 +136,14 @@ func diffCapabilities(old, new []contract.Capability) []Change {
 	oldByKey := indexCapabilities(old)
 	newByKey := indexCapabilities(new)
 
-	for key, o := range oldByKey {
+	for _, key := range slices.Sorted(maps.Keys(oldByKey)) {
 		if _, exists := newByKey[key]; !exists {
-			changes = append(changes, newChange("capabilities", Removed, formatCapability(o), nil))
+			changes = append(changes, newChange("capabilities", Removed, formatCapability(oldByKey[key]), nil))
 		}
 	}
-	for key, n := range newByKey {
+	for _, key := range slices.Sorted(maps.Keys(newByKey)) {
 		if _, exists := oldByKey[key]; !exists {
-			changes = append(changes, newChange("capabilities", Added, nil, formatCapability(n)))
+			changes = append(changes, newChange("capabilities", Added, nil, formatCapability(newByKey[key])))
 		}
 	}
 
@@ -180,39 +183,6 @@ func newChange(path string, ct ChangeType, oldVal, newVal any) Change {
 		Classification: cls,
 		Reason:         fmt.Sprintf("%s %s", path, ct),
 	}
-}
-
-// diffStringSet compares two string-keyed boolean maps and emits Added/Removed
-// changes. pathPrefix is used for the classification rule lookup (e.g.
-// "openapi.paths"), and entityName for human-readable reasons (e.g. "API path").
-func diffStringSet(oldSet, newSet map[string]bool, pathPrefix, entityName string) []Change {
-	var changes []Change
-
-	for key := range oldSet {
-		if !newSet[key] {
-			changes = append(changes, Change{
-				Path:           fmt.Sprintf("%s[%s]", pathPrefix, key),
-				Type:           Removed,
-				OldValue:       key,
-				Classification: classify(pathPrefix, Removed),
-				Reason:         fmt.Sprintf("%s %s removed", entityName, key),
-			})
-		}
-	}
-
-	for key := range newSet {
-		if !oldSet[key] {
-			changes = append(changes, Change{
-				Path:           fmt.Sprintf("%s[%s]", pathPrefix, key),
-				Type:           Added,
-				NewValue:       key,
-				Classification: classify(pathPrefix, Added),
-				Reason:         fmt.Sprintf("%s %s added", entityName, key),
-			})
-		}
-	}
-
-	return changes
 }
 
 // strChangeType classifies a string field change as Added (was empty), Removed

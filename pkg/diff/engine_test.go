@@ -2,6 +2,7 @@ package diff
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -523,6 +524,55 @@ func TestCompare_SBOMDiff_InvalidNewSBOM(t *testing.T) {
 	if result.SBOMDiff != nil {
 		t.Error("expected nil SBOMDiff when new SBOM is invalid")
 	}
+}
+
+func TestCompareIsDeterministic(t *testing.T) {
+	old := &contract.Contract{
+		Service: contract.Service{Name: "svc", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Name: "alpha", Ref: "oci://x/alpha", Compatibility: "^1.0.0"},
+			{Name: "bravo", Ref: "oci://x/bravo", Compatibility: "^1.0.0"},
+			{Name: "charlie", Ref: "oci://x/charlie", Compatibility: "^1.0.0"},
+			{Name: "delta", Ref: "oci://x/delta", Compatibility: "^1.0.0"},
+			{Name: "echo", Ref: "oci://x/echo", Compatibility: "^1.0.0"},
+		},
+		Interfaces: []contract.Interface{
+			{Name: "one", Type: "openapi", Ref: "a.yaml"},
+			{Name: "two", Type: "grpc", Ref: "b.proto"},
+			{Name: "three", Type: "asyncapi", Ref: "c.yaml"},
+			{Name: "four", Type: "openapi", Ref: "d.yaml"},
+			{Name: "five", Type: "grpc", Ref: "e.proto"},
+		},
+		Capabilities: []contract.Capability{
+			{Type: "cap-a"}, {Type: "cap-b"}, {Type: "cap-c"},
+			{Type: "cap-d"}, {Type: "cap-e"},
+		},
+	}
+	// new removes every dependency, interface and capability, so each unordered
+	// collection contributes five sibling changes whose relative order is the
+	// only thing under test.
+	new := &contract.Contract{Service: contract.Service{Name: "svc", Version: "2.0.0"}}
+
+	first := renderPaths(Compare(context.Background(), old, new, nil, nil).Changes)
+	if len(first) < 15 {
+		t.Fatalf("fixture too small to detect ordering: got %d changes", len(first))
+	}
+	for i := 0; i < 50; i++ {
+		got := renderPaths(Compare(context.Background(), old, new, nil, nil).Changes)
+		if !slices.Equal(got, first) {
+			t.Fatalf("run %d differs:\n first: %v\n   got: %v", i, first, got)
+		}
+	}
+}
+
+// renderPaths projects a change list onto the ordered path+type sequence, which
+// is what a reader sees and what a golden transcript pins.
+func renderPaths(changes []Change) []string {
+	out := make([]string, 0, len(changes))
+	for _, c := range changes {
+		out = append(out, c.Path+"|"+c.Type.String())
+	}
+	return out
 }
 
 // assertHasChange checks that a change with the given path, type, and classification exists.

@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
@@ -79,7 +81,8 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 	newNodes := collectNodes(newGraph.Root)
 	overall := result.Classification
 	var depDiffs []DependencyDiff
-	for name, newNode := range newNodes {
+	for _, name := range slices.Sorted(maps.Keys(newNodes)) {
+		newNode := newNodes[name]
 		if name == rootName {
 			continue
 		}

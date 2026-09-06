@@ -1,6 +1,8 @@
 package diff
 
 import (
+	"maps"
+	"slices"
 	"strconv"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
@@ -14,7 +16,8 @@ func diffDependencies(old, new *contract.Contract) []Change {
 	newByName := indexDeps(new.Dependencies)
 
 	// Removed or modified dependencies.
-	for name, oldDep := range oldByName {
+	for _, name := range slices.Sorted(maps.Keys(oldByName)) {
+		oldDep := oldByName[name]
 		newDep, exists := newByName[name]
 		if !exists {
 			changes = append(changes, newChange("dependencies", Removed, name, nil))
@@ -35,7 +38,7 @@ func diffDependencies(old, new *contract.Contract) []Change {
 	}
 
 	// Added dependencies.
-	for name := range newByName {
+	for _, name := range slices.Sorted(maps.Keys(newByName)) {
 		if _, exists := oldByName[name]; !exists {
 			changes = append(changes, newChange("dependencies", Added, nil, name))
 		}

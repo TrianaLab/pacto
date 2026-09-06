@@ -3,6 +3,8 @@ package diff
 import (
 	"fmt"
 	"io/fs"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -57,7 +59,8 @@ func readOpenAPISpec(fsys fs.FS, path string) (*openAPISpec, error) {
 func diffOpenAPISpecs(old, new *openAPISpec) []Change {
 	var changes []Change
 
-	for path, oldMethods := range old.Paths {
+	for _, path := range slices.Sorted(maps.Keys(old.Paths)) {
+		oldMethods := old.Paths[path]
 		newMethods, exists := new.Paths[path]
 		if !exists {
 			changes = append(changes, Change{
@@ -72,7 +75,7 @@ func diffOpenAPISpecs(old, new *openAPISpec) []Change {
 		changes = append(changes, diffPathMethods(path, oldMethods, newMethods)...)
 	}
 
-	for path := range new.Paths {
+	for _, path := range slices.Sorted(maps.Keys(new.Paths)) {
 		if _, exists := old.Paths[path]; !exists {
 			changes = append(changes, Change{
 				Path:           fmt.Sprintf("openapi.paths[%s]", path),
@@ -97,10 +100,11 @@ func diffPathMethods(path string, oldMethods, newMethods map[string]any) []Chang
 	pathParamsOld := toSlice(oldMethods["parameters"])
 	pathParamsNew := toSlice(newMethods["parameters"])
 
-	for method, oldOp := range oldMethods {
+	for _, method := range slices.Sorted(maps.Keys(oldMethods)) {
 		if !httpMethods[method] {
 			continue
 		}
+		oldOp := oldMethods[method]
 		upper := strings.ToUpper(method)
 		newOp, exists := newMethods[method]
 		if !exists {
@@ -116,7 +120,7 @@ func diffPathMethods(path string, oldMethods, newMethods map[string]any) []Chang
 		changes = append(changes, diffOperation(path, upper, oldOp, newOp, pathParamsOld, pathParamsNew)...)
 	}
 
-	for method := range newMethods {
+	for _, method := range slices.Sorted(maps.Keys(newMethods)) {
 		if !httpMethods[method] {
 			continue
 		}
@@ -220,7 +224,8 @@ func diffParameters(path, method string, oldParams, newParams []any) []Change {
 
 	var changes []Change
 
-	for key, oldParam := range oldByKey {
+	for _, key := range slices.Sorted(maps.Keys(oldByKey)) {
+		oldParam := oldByKey[key]
 		newParam, exists := newByKey[key]
 		if !exists {
 			changes = append(changes, Change{
@@ -250,8 +255,9 @@ func diffParameters(path, method string, oldParams, newParams []any) []Change {
 		}
 	}
 
-	for key, newParam := range newByKey {
+	for _, key := range slices.Sorted(maps.Keys(newByKey)) {
 		if _, exists := oldByKey[key]; !exists {
+			newParam := newByKey[key]
 			cls := classify("openapi.parameters", Added)
 			// adding a required parameter is breaking: existing clients omit it.
 			if paramRequired(newParam) {
@@ -291,7 +297,8 @@ func indexParams(params []any) map[string]map[string]any {
 func diffResponses(path, method string, oldResp, newResp map[string]any) []Change {
 	var changes []Change
 
-	for code, oldVal := range oldResp {
+	for _, code := range slices.Sorted(maps.Keys(oldResp)) {
+		oldVal := oldResp[code]
 		respPath := fmt.Sprintf("openapi.paths[%s].methods[%s].responses[%s]", path, method, code)
 		newVal, exists := newResp[code]
 		if !exists {
@@ -317,7 +324,7 @@ func diffResponses(path, method string, oldResp, newResp map[string]any) []Chang
 		}
 	}
 
-	for code := range newResp {
+	for _, code := range slices.Sorted(maps.Keys(newResp)) {
 		if _, exists := oldResp[code]; !exists {
 			respPath := fmt.Sprintf("openapi.paths[%s].methods[%s].responses[%s]", path, method, code)
 			changes = append(changes, Change{
