@@ -61,6 +61,7 @@ service: { name: checkout, version: "1.0.0", owner: { team: commerce, dri: d, co
 interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
 workload: service
 state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
+dependencies: [ { name: orders, ref: 'oci://{{.Domain}}/orders', required: false, compatibility: '^1.0.0' } ]
 `,
 				"openapi.yaml": `openapi: "3.0.0"
 info: { title: checkout, version: "1.0.0" }
@@ -83,6 +84,7 @@ service: { name: checkout, version: "1.1.0", owner: { team: commerce, dri: d, co
 interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
 workload: service
 state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
+dependencies: [ { name: orders, ref: 'oci://{{.Domain}}/orders', required: false, compatibility: '^1.0.0' } ]
 `,
 				"openapi.yaml": `openapi: "3.0.0"
 info: { title: checkout, version: "1.1.0" }
@@ -126,6 +128,23 @@ dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: f
 		Declared:       true,
 		ObservedBy:     "orders-traces",
 		Reconciliation: "matched",
+	}, {
+		// The verdict the demo's headline reconcile beat is built on: traffic the
+		// graph can see that no contract declares. Nothing here declares it, so it
+		// costs a span and no contract edit.
+		From:           "checkout",
+		To:             "payments",
+		Declared:       false,
+		ObservedBy:     "orders-traces",
+		Reconciliation: "observed-not-declared",
+	}, {
+		// The mirror: declared and never seen. ObservedBy is empty by design —
+		// "the edge is declared but never seen" is what the field's own doc calls
+		// an empty value.
+		From:           "checkout",
+		To:             "orders",
+		Declared:       true,
+		Reconciliation: "declared-not-observed",
 	}},
 	Evidence: []Evidence{{
 		Service: "payments",

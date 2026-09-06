@@ -337,6 +337,21 @@ func (f *fakeProduct) neighborhood(id string) fleet.Neighborhood {
 			ObservationSources: fleet.ObservationSourcesPreview{
 				Total: 1, Count: 1, Items: []fleet.ObservedSourceStat{{Source: fxObs}},
 			},
+		}, {
+			ID:       "e2",
+			From:     svcRef(fxServiceKey(fxMultiRevisionService), fxMultiRevisionService, fxDomain),
+			To:       svcRef(fxServiceKey(fxEvidenceOnlyService), fxEvidenceOnlyService, fxDomain),
+			Relation: "dependency", Expected: false, Observed: true,
+			Provenance: "observed", Difference: "observed-not-declared",
+			ObservationSources: fleet.ObservationSourcesPreview{
+				Total: 1, Count: 1, Items: []fleet.ObservedSourceStat{{Source: fxObs}},
+			},
+		}, {
+			ID:       "e3",
+			From:     svcRef(fxServiceKey(fxMultiRevisionService), fxMultiRevisionService, fxDomain),
+			To:       svcRef(fxServiceKey(fxDependencyConsumer), fxDependencyConsumer, fxDomain),
+			Relation: "dependency", Expected: true, Observed: false,
+			Provenance: "declared", Difference: "declared-not-observed",
 		}},
 	}
 }

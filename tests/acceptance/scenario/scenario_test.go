@@ -167,11 +167,20 @@ func TestTraceExport_GroupsEveryCallOfOneCaller(t *testing.T) {
 }
 
 // The gate reports "N of M facts outstanding". M is derived from the scenario so
-// it cannot quietly keep claiming a number the fixture stopped justifying — and
-// 14 is the count section 8 requires, so this is also the pin on that gate.
-func TestFactCount_IsTheFourteenTheGateOwes(t *testing.T) {
-	if n := OperationalGraph.FactCount(SurfaceKubernetes); n != 14 {
-		t.Errorf("FactCount(kubernetes) = %d, want 14 (3 sources + 1 service list + 3 revisions + 2 targets + 3 for the edge + 1 evidence target + 1 coherence)", n)
+// it cannot quietly keep claiming a number the fixture stopped justifying.
+//
+// The itemisation is the point: if this count moves, one of these terms moved,
+// and the reader should be able to say which without re-deriving the formula.
+func TestFactCount_MatchesTheItemisedDerivation(t *testing.T) {
+	const want = 3 + // sources: oci, cache, orders-traces (evidence sources owe nothing)
+		1 + // every declared service is in the snapshot, exactly once
+		3 + // revisions: checkout x2, orders x1 (payments is evidence-only)
+		2 + // operational targets: one per running workload
+		9 + // 3 per relationship, declared/observed/reconciled, x3 relationships
+		1 + // the remote target survived enrichment
+		1 //  the round read every fact from ONE snapshot
+	if n := OperationalGraph.FactCount(SurfaceKubernetes); n != want {
+		t.Errorf("FactCount(kubernetes) = %d, want %d", n, want)
 	}
 }
 
