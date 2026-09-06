@@ -1228,17 +1228,25 @@ func aggregateServices(snap *FleetSnapshot) {
 	}
 }
 
-// deriveOwner sets a deterministic owner SUMMARY for a service (the owner
-// declared by its lowest-keyed revision that declares one) and reports an
+// deriveOwner sets a deterministic owner SUMMARY for a service — the owner
+// declared by its NEWEST revision that declares one — and reports an
 // OWNER_CONFLICT limitation when revisions disagree. Per-revision ownership is
 // always retained on the revisions themselves; the service field is only a
 // documented summary, not the authority.
+//
+// The order is [lessRevisionChrono] reversed, NOT RevisionKey lexicography. A
+// RevisionKey embeds a content digest, so key order is digest order: under it,
+// editing any byte of any bundle could silently change who Pacto says to notify.
 func deriveOwner(snap *FleetSnapshot, s *ServiceRecord) []Limitation {
-	keys := append([]RevisionKey(nil), s.Revisions...)
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	revs := make([]*ContractRevision, 0, len(s.Revisions))
+	for _, rk := range s.Revisions {
+		revs = append(revs, snap.Revisions[rk])
+	}
+	// Newest first: the reverse of the canonical ascending chronology.
+	sort.Slice(revs, func(i, j int) bool { return lessRevisionChrono(revs[j], revs[i]) })
 	var claims ownerClaimSet
-	for _, rk := range keys {
-		o := snap.Revisions[rk].Owner
+	for _, r := range revs {
+		o := r.Owner
 		if o.IsEmpty() {
 			continue
 		}

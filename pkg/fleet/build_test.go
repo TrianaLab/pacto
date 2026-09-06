@@ -1845,18 +1845,18 @@ func TestDeriveOwner_SameOwnerNoConflict(t *testing.T) {
 
 func TestDeriveOwner_Conflict(t *testing.T) {
 	// Differing owners across revisions → OWNER_CONFLICT; the summary owner is
-	// deterministically the lowest revision key's owner.
+	// deterministically the newest revision's owner.
 	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
-		"svc@a": {Key: "svc@a", Service: "svc", Owner: contract.Owner{Team: "a-team"}},
-		"svc@b": {Key: "svc@b", Service: "svc", Owner: contract.Owner{Team: "b-team"}},
+		"svc@a": {Key: "svc@a", Service: "svc", Version: "1.0.0", Owner: contract.Owner{Team: "old-team"}},
+		"svc@b": {Key: "svc@b", Service: "svc", Version: "2.0.0", Owner: contract.Owner{Team: "new-team"}},
 	}}
 	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@b", "svc@a"}}
 	lim := deriveOwner(snap, s)
 	if len(lim) != 1 || lim[0].Code != LimitationOwnerConflict || lim[0].Source != "fleet" {
 		t.Fatalf("differing owners → OWNER_CONFLICT from fleet, got %+v", lim)
 	}
-	if s.Owner.Team != "a-team" {
-		t.Errorf("owner summary should be the lowest-key revision's owner (a-team), got %+v", s.Owner)
+	if s.Owner.Team != "new-team" {
+		t.Errorf("owner summary should be the newest revision's owner (new-team), got %+v", s.Owner)
 	}
 }
 
@@ -1872,6 +1872,61 @@ func TestBuild_OwnerConflictSurfaced(t *testing.T) {
 	}
 	if !hasLimitation(snap.Limitations, LimitationOwnerConflict) {
 		t.Errorf("conflicting per-revision owners should surface OWNER_CONFLICT: %+v", snap.Limitations)
+	}
+}
+
+func TestDeriveOwnerPrefersTheNewestRevision(t *testing.T) {
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
+		// Digest order and semver order deliberately disagree: "aaa" sorts first
+		// lexically but is the OLDEST version. Before this fix the owner came from
+		// whichever revision happened to hash lowest.
+		"svc@sha256:aaa": {Key: "svc@sha256:aaa", Version: "1.0.0", Owner: contract.Owner{Team: "old-team"}},
+		"svc@sha256:zzz": {Key: "svc@sha256:zzz", Version: "2.0.0", Owner: contract.Owner{Team: "new-team"}},
+	}}
+	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@sha256:aaa", "svc@sha256:zzz"}}
+
+	lims := deriveOwner(snap, s)
+
+	if s.Owner.Team != "new-team" {
+		t.Errorf("Owner.Team = %q, want %q — the owner must come from the newest "+
+			"revision, not the lowest-hashing one", s.Owner.Team, "new-team")
+	}
+	if len(lims) != 1 || lims[0].Code != LimitationOwnerConflict {
+		t.Errorf("limitations = %v, want one OWNER_CONFLICT", lims)
+	}
+}
+
+func TestDeriveOwnerSkipsNewerRevisionsWithNoOwner(t *testing.T) {
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
+		"svc@sha256:aaa": {Key: "svc@sha256:aaa", Version: "1.0.0", Owner: contract.Owner{Team: "only-team"}},
+		"svc@sha256:zzz": {Key: "svc@sha256:zzz", Version: "2.0.0"},
+	}}
+	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@sha256:aaa", "svc@sha256:zzz"}}
+
+	lims := deriveOwner(snap, s)
+
+	if s.Owner.Team != "only-team" {
+		t.Errorf("Owner.Team = %q, want %q — an unowned newest revision must fall "+
+			"through to the newest revision that does declare one", s.Owner.Team, "only-team")
+	}
+	if len(lims) != 0 {
+		t.Errorf("limitations = %v, want none — one declared owner is not a conflict", lims)
+	}
+}
+
+func TestDeriveOwnerIsStableWhenVersionsTie(t *testing.T) {
+	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
+		"svc@sha256:aaa": {Key: "svc@sha256:aaa", Version: "1.0.0", Owner: contract.Owner{Team: "a-team"}},
+		"svc@sha256:zzz": {Key: "svc@sha256:zzz", Version: "1.0.0", Owner: contract.Owner{Team: "z-team"}},
+	}}
+	s := &ServiceRecord{Name: "svc", Revisions: []RevisionKey{"svc@sha256:zzz", "svc@sha256:aaa"}}
+
+	deriveOwner(snap, s)
+
+	// Equal versions fall back to the RevisionKey tie-break, descending, so the
+	// HIGHEST key wins. The point is only that it is deterministic.
+	if s.Owner.Team != "z-team" {
+		t.Errorf("Owner.Team = %q, want %q on a version tie", s.Owner.Team, "z-team")
 	}
 }
 

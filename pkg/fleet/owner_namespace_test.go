@@ -103,13 +103,14 @@ func TestOwnerNamespace_OneLabelTwoNamespacesIsAConflict(t *testing.T) {
 		t.Errorf("OWNER_CONFLICT raised %d times, want 1 — the tally and the limitation must agree", conflicts)
 	}
 	// The service page names both sides, with the namespace, so the two lines are not
-	// one owner disagreeing with itself.
+	// one owner disagreeing with itself. The service owner comes from the newest
+	// revision (DRI:alice), so the conflict shows the older revision's Team:alice.
 	d, err := q.EntityDetail(KindService, "ledger")
 	if err != nil {
 		t.Fatalf("EntityDetail(service, ledger): %v", err)
 	}
 	joined := strings.Join(d.Service.Ownership.Conflicts.Items, " ")
-	if !strings.Contains(joined, "alice (DRI)") {
+	if !strings.Contains(joined, "alice (Team)") {
 		t.Errorf("the conflict preview reads %q, and must name the namespace that makes it a conflict", joined)
 	}
 }
