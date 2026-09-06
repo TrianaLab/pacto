@@ -48,6 +48,13 @@ OUT="$("$BIN" fleet explain identity/auth-service --local "$B" --target-state "$
 assert_contains "$OUT" "target production-eu/kubernetes-workload/identity%2Fauth-service: Unknown" "the named target is Unknown"
 assert_contains "$OUT" "[EVIDENCE_MISSING]" "the reason is named, not implied"
 
+# ...and the same lesson by a second mechanism: api-gateway/v1.2.0's readiness
+# assessment expired, so five claims all marked done earn nothing. Fail closed.
+OUT="$("$BIN" explain "$B/api-gateway/v1.2.0")" || fail "beat 3: explain failed"
+assert_contains "$OUT" "Expires: 2025-01-01 (EXPIRED)" "an expired readiness assessment is marked expired"
+assert_contains "$OUT" "Earned Weight: 0" "an expired assessment earns nothing, fail closed"
+assert_contains "$OUT" "Status: 5 done" "every claim is done and it still earns nothing"
+
 echo "== beat 4: NonCompliant at full coverage =="
 OUT="$("$BIN" fleet get --target commerce/orders-service --local "$B" --target-state "$T")" || fail "beat 4: fleet get failed"
 assert_contains "$OUT" "Compliance: NonCompliant"                 "confirmed violation"

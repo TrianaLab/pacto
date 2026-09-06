@@ -6,9 +6,10 @@
 # runtime fact — each entry is an explicit, declared observation with provenance.
 #
 # It exercises: a compliant target, a non-compliant target (confirmed drift), an
-# unknown target (insufficient evidence), and a stale target (old evidence). The
-# source itself is marked available; a second, unreachable environment is modeled
-# separately by the demo so partial completeness is visible.
+# unknown target (insufficient evidence) and stale targets (old evidence). Under
+# --freshness 24h, all three timestamped targets read as stale; fraud-service is
+# the oldest by design. The source itself is marked available; a second,
+# unreachable environment is modeled separately so partial completeness is visible.
 #
 # This is an OFFLINE demo/test adapter — precomputed target state, NOT the signed
 # external EvidenceSet ingestion protocol.
@@ -63,7 +64,8 @@ targets:
     coverage: { evaluated: 3, required: 3 }
     evidenceAt: 2026-07-20T08:00:00Z
     labels: { env: production, region: us }
-    # evidenceAt is old; with --freshness 24h this target is classified stale.
+    # The oldest evidenceAt in the file, by design. See the header for why every
+    # timestamped target here reads as stale under a short freshness window.
 
 state:
   status: available
