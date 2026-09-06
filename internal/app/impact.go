@@ -6,6 +6,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/internal/fleetsrc"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/impact"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/otelobserver"
@@ -66,7 +67,7 @@ func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, sn
 		impact.Options{
 			// Domain-qualify the changed service from its new reference so impact is
 			// isolated across domains (a local path yields the default domain).
-			Domain:          fleetsrc.OciDomain(opts.NewPath),
+			Domain:          revisionDomain(opts.NewPath),
 			IncludeObserved: opts.IncludeObserved,
 			ObservedEdges:   observed,
 		}), nil
@@ -88,4 +89,19 @@ func observedEdgesFromTraces(data []byte) ([]impact.ObservedEdge, error) {
 		out = append(out, impact.ObservedEdge{Consumer: e.From, Provider: e.To})
 	}
 	return out, nil
+}
+
+// revisionDomain derives the impact domain from the reference that resolved the
+// new revision, using the SAME classifier that loaded it. fleetsrc.OciDomain
+// alone treats only "." "/" and "~" as local, while graph.ParseDependencyRef —
+// which actually resolves the bundle — treats only "oci://" as remote. A bare
+// multi-segment relative path or a file:// URL therefore loaded locally but was
+// keyed under an invented OCI domain, so the domain-qualified identity never
+// joined the fleet and every consumer silently went missing.
+func revisionDomain(ref string) string {
+	parsed := graph.ParseDependencyRef(ref)
+	if parsed.IsLocal() {
+		return ""
+	}
+	return fleetsrc.OciDomain(parsed.Location)
 }

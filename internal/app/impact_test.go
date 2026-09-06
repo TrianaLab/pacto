@@ -169,3 +169,27 @@ func TestService_Impact_BadTraces(t *testing.T) {
 		t.Fatal("expected trace parse error")
 	}
 }
+
+func TestRevisionDomain(t *testing.T) {
+	tests := []struct {
+		name, ref, want string
+	}{
+		// The bug: a bare multi-segment path resolves as a local bundle but
+		// OciDomain alone reads "payments-service" as the artifact under domain
+		// "examples/demo", so the changed service never joins the fleet.
+		{"bare multi-segment path is local", "examples/demo/payments-service", ""},
+		{"file URL is local", "file:///abs/path/payments-service", ""},
+		{"dot-relative path is local", "./payments-service/v2.0.0", ""},
+		{"absolute path is local", "/abs/payments-service", ""},
+		{"oci ref keeps its domain", "oci://ghcr.io/acme/payments:1.0", "ghcr.io/acme"},
+		{"oci ref with digest keeps its domain", "oci://localhost:5000/acme/payments@sha256:abc", "localhost:5000/acme"},
+		{"single-segment oci ref has the default domain", "oci://payments:1.0", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := revisionDomain(tt.ref); got != tt.want {
+				t.Errorf("revisionDomain(%q) = %q, want %q", tt.ref, got, tt.want)
+			}
+		})
+	}
+}
