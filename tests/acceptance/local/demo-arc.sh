@@ -29,6 +29,7 @@ go build -o "$BIN" "$ROOT/cmd/pacto"
 
 B="$ROOT/examples/demo/bundles"
 T="$ROOT/examples/demo/fleet-targets.yaml"
+TR="$ROOT/examples/demo/traces.json"
 
 echo "== beat 1: the fleet exists =="
 OUT="$("$BIN" fleet search --local "$B")" || fail "beat 1: fleet search failed"
@@ -76,5 +77,25 @@ assert_contains "$OUT" "Affected consumers (4):"       "four consumers are affec
 assert_contains "$OUT" "confidence=contractual"        "declared consumers are graded contractual"
 assert_contains "$OUT" "confidence=inferred"           "transitive consumers are graded inferred"
 assert_contains "$OUT" "compat=incompatible"           "a direct consumer is incompatible with the new version"
+
+echo "== beat 8: the same change, with runtime evidence =="
+OUT="$("$BIN" impact "$B/payments-service/v1.2.0" "$B/payments-service/v2.0.0" --local "$B" --traces "$TR")" || fail "beat 8: impact failed"
+assert_contains "$OUT" "Affected consumers (5):" "observed traffic surfaces a consumer nobody declared"
+assert_contains "$OUT" "audit-log"               "the shadow consumer is named"
+assert_contains "$OUT" "confidence=observed"     "an observed-only consumer is graded observed"
+assert_contains "$OUT" "confidence=corroborated" "a declared consumer seen in traffic is upgraded to corroborated"
+
+echo "== beat 9: the same change again, now against live targets =="
+if OUT="$("$BIN" impact "$B/payments-service/v1.2.0" "$B/payments-service/v2.0.0" --local "$B" --traces "$TR" --target-state "$T" 2>&1)"; then
+  fail "impact should exit non-zero: a breaking change reaches an active consumer"
+else
+  pass "impact exits non-zero when a breaking change reaches an active consumer"
+fi
+assert_contains "$OUT" "Active targets" "the active targets are named"
+
+echo "== beat 10: declared versus observed =="
+OUT="$("$BIN" fleet reconcile --local "$B" --traces "$TR")" || fail "beat 10: fleet reconcile failed"
+assert_contains "$OUT" "[matched] orders-service -> payments-service"              "a declared edge seen in traffic is matched"
+assert_contains "$OUT" "[observed-not-declared] audit-log -> payments-service"     "an undeclared edge seen in traffic is surfaced"
 
 echo "== demo-arc acceptance PASSED =="

@@ -1,0 +1,44 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "orders-service"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "name": "POST /charges",
+              "kind": 3,
+              "attributes": [
+                {"key": "peer.service", "value": {"stringValue": "payments-service"}}
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "audit-log"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "name": "GET /charges/{id}",
+              "kind": 3,
+              "attributes": [
+                {"key": "peer.service", "value": {"stringValue": "payments-service"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
