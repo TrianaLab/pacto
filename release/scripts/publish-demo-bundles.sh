@@ -216,7 +216,7 @@ NEG="$(mktemp -d)"; cp -r "$BUNDLES/auth-service" "$NEG/auth-service"
 rewrite_refs "$NEG" "${COORD%%/*}/pacto-demo-absent"
 # Negative control: this lock must FAIL against the absent namespace, and the
 # run is worthless if it silently starts succeeding. Capturing with `|| true`
-# and only printing it at :253 made this unfalsifiable.
+# and only printing the output into the proof file made this unfalsifiable.
 if NEG_OUT="$("$PACTO_BIN" lock "$NEG/auth-service" 2>&1)"; then
   rm -rf "$NEG"
   printf '%s\n' "$NEG_OUT"
