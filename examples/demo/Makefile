@@ -30,7 +30,7 @@ UI_BUILD    := $(abspath .ui-build)
 # short SHA, then "dev", when no tags are present.
 VERSION     ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: build preflight ui wasm wasmexec inject serve test validate smoke clean diff breaking-change evolution graph explain demo-locks
+.PHONY: build preflight ui wasm wasmexec inject serve test validate smoke clean diff breaking-change evolution graph explain
 
 build: preflight ui wasm wasmexec inject
 	@echo "==> Built '$(DIST)' (base $(BASE))"
@@ -104,15 +104,6 @@ inject:
 	  printf '{"base":"%s","version":"%s","build":"%s"}\n' "$(BASE)" "$(VERSION)" "$$bust" > $(DIST)/version.json
 	@echo "==> Injected loader (version $(VERSION)), 404.html, cache-busted engine, version.json"
 
-## Regenerate the committed pacto.lock + .pactoignore for the dep-bearing demo
-## bundles, OFFLINE and DETERMINISTICALLY (no live registry). Re-running this is
-## byte-identical, so the committed demo data stays stable. Run after changing a
-## demo bundle's content or its dependency/reference set, then commit the result.
-## See README ("Demo lockfiles") for the content-hash pin caveat.
-demo-locks:
-	go run ./genlocks
-	@echo "==> Regenerated demo lockfiles (commit the changes)"
-
 ## Run the EmbedSource host tests.
 test:
 	go test ./...
@@ -139,13 +130,9 @@ serve:
 ## These use the locally built `pacto` (run `make build` at the repo root first)
 ## against the demo contracts published at $(DEMO_REPO), so they need network.
 ##
-## They deliberately do NOT point at ./bundles. Those bundles carry the locks
-## genlocks writes, whose pins are content hashes of pacto.yaml (see the header
-## of ./genlocks) rather than OCI manifest digests. Any command that verifies a
-## committed lock -- diff, validate, graph, push -- re-resolves the closure over
-## the network and hard-fails on the mismatch, so a local-path diff can only ever
-## print LOCK_DIGEST_MISMATCH. Lock verification is skipped for an oci:// ref,
-## which is why the published coordinates work and the paths do not.
+## These targets use published OCI coordinates rather than ./bundles so the demo
+## exercises real registry resolution. Local paths work too now that the synthetic
+## lockfiles are gone.
 DEMO_REPO ?= ghcr.io/trianalab/pacto
 PAYMENTS  := oci://$(DEMO_REPO)/payments-service
 

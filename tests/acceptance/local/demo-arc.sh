@@ -53,10 +53,21 @@ assert_contains "$OUT" "Compliance: NonCompliant"                 "confirmed vio
 assert_contains "$OUT" "Coverage: 5/5 evaluated"                  "every check was actually evaluated"
 assert_contains "$OUT" "STATELESS_PERSISTENT_CONFLICT"            "the specific contradiction is named"
 
-# Beats 5 and 6 (the two `pacto diff` beats) are absent on purpose: today they
-# exit 1 on LOCK_DIGEST_MISMATCH with empty stdout, so there is no
-# classification line to assert on. The task that deletes the demo lockfiles
-# adds them here, between beat 4 and beat 7.
+echo "== beat 5: a breaking change, refused =="
+# pacto diff exits 1 on BREAKING, so capture without tripping set -e.
+if OUT="$("$BIN" diff "$B/payments-service/v1.2.0" "$B/payments-service/v2.0.0" 2>&1)"; then
+  fail "diff should exit non-zero on a breaking change"
+else
+  pass "diff exits non-zero"
+fi
+assert_contains "$OUT" "Classification: BREAKING" "the change is classified BREAKING"
+assert_contains "$OUT" "Changes (28):"            "every change is counted"
+assert_contains "$OUT" "dependencies.required (modified)" "a dependency becoming required is caught"
+
+echo "== beat 6: the same field, one release earlier, is only potentially breaking =="
+OUT="$("$BIN" diff "$B/payments-service/v1.0.0" "$B/payments-service/v1.1.0")" || fail "beat 6: diff failed"
+assert_contains "$OUT" "Classification: POTENTIAL_BREAKING" "an additive change is not a break"
+assert_contains "$OUT" "Changes (5):"                       "every change is counted"
 
 echo "== beat 7: blast radius, declared evidence only =="
 OUT="$("$BIN" impact "$B/payments-service/v1.2.0" "$B/payments-service/v2.0.0" --local "$B")" || fail "beat 7: impact failed"

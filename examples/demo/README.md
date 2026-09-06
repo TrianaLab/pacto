@@ -59,35 +59,6 @@ The graph, dependents and cross-reference views derive from each contract's
 declared dependencies (every referenced service is embedded), so no OCI resolver
 is needed.
 
-## Demo lockfiles
-
-The dependency-bearing demo bundles ship a committed `pacto.lock` (plus a
-`.pactoignore` that re-includes it with `!pacto.lock`), so the demo dashboard
-shows resolved dependency/reference pins offline. `pacto.lock` is default-ignored
-when packing a bundle; `.pactoignore` opts it back in so the lock travels with the
-embedded bundle. Only dep-bearing bundles get a lock — leaf bundles (audit-log,
-postgresql, redis, stripe-api, email-provider, platform-*) carry none.
-
-Regenerate with:
-
-```bash
-make demo-locks            # runs ./genlocks, then commit the result
-```
-
-`genlocks` is OFFLINE and DETERMINISTIC: it never contacts a registry, so it
-resolves the closure BY SERVICE NAME within `./bundles` (every referenced service
-is present). The lockfile `digest` is a **content-derived pin for the offline
-demo, not a live registry digest**: it is sha256 over the target's raw
-`pacto.yaml`, which is the address `EmbedSource` computes and the demo fleet
-publishes for every revision, so a pinned reference correlates to a revision the
-demo actually holds. Re-running `make demo-locks` is byte-identical, so the
-committed demo data stays stable. The original declared `oci://` ref is preserved
-verbatim in each entry's `ref`. There is no k8s runtime in the demo, so no drift
-is asserted — pins are shown without a drift status, which is correct offline.
-
-Because that pin is not an OCI manifest digest, the real CLI cannot verify these
-locks: see [Why these use published refs](#why-these-use-published-refs-and-not-bundles).
-
 ## Build
 
 Requirements: Go 1.26+, Node 22+, make.
@@ -135,13 +106,9 @@ The second one fails on purpose: 2.1.1 declares a readiness gate of 80 and one
 
 ### Why these use published refs and not `./bundles`
 
-Every dependency-bearing bundle here carries a `pacto.lock` written by
-[`genlocks`](genlocks), whose pins are content hashes of `pacto.yaml` rather than
-OCI manifest digests — deliberately, so the offline WebAssembly demo can show lock
-pins without a registry. Any command that verifies a committed lock (`diff`,
-`validate`, `graph`, `push`) re-resolves the closure and hard-fails on the
-mismatch, so a local-path `pacto diff` can only ever print
-`LOCK_DIGEST_MISMATCH`. Lock verification is skipped for an `oci://` ref.
+The Makefile CLI demo targets use published OCI coordinates rather than local
+paths to exercise real registry resolution. Local paths work too now that the
+synthetic lockfiles are gone.
 
 ## Size
 

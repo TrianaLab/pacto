@@ -9,8 +9,8 @@
 // (LOCK_UNRESOLVED / stale ref), never on the local contract's own correctness.
 // The demo is designed to run OFFLINE: every referenced service already exists in
 // ./bundles, so the whole closure resolves BY SERVICE NAME within ./bundles —
-// exactly how genlocks and EmbedSource derive the graph. This tool is the offline
-// proof that the demo contracts themselves are valid v2.
+// the same way EmbedSource derives the graph. This tool is the offline proof that
+// the demo contracts themselves are valid v2.
 //
 // Live validation against ghcr.io only passes once the release republishes the
 // demo bundles as v2; that is a production publish and out of scope here. This
@@ -47,7 +47,7 @@ type svcVersion struct {
 	dir      string
 }
 
-// index maps service name -> version -> bundle. Same shape as genlocks.
+// index maps service name -> version -> bundle.
 type index map[string]map[string]*svcVersion
 
 func main() {
@@ -96,7 +96,7 @@ func run() error {
 }
 
 // buildIndex walks bundlesDir for pacto.yaml files and indexes each by service
-// name and version, keeping the raw bytes for validation. Same walk as genlocks.
+// name and version, keeping the raw bytes for validation.
 func buildIndex(root string) (index, error) {
 	idx := index{}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -150,8 +150,8 @@ func (r *offlineResolver) ResolveBundle(_ context.Context, ref string) (*contrac
 	}, nil
 }
 
-// latest returns the highest-semver indexed version of a service. Same selection
-// as genlocks (semver.Latest, lexical fallback).
+// latest returns the highest-semver indexed version of a service, using
+// semver.Latest with lexical fallback.
 func latest(idx index, name string) (*svcVersion, error) {
 	versions := idx[name]
 	if len(versions) == 0 {
@@ -169,8 +169,8 @@ func latest(idx index, name string) (*svcVersion, error) {
 	return versions[pick], nil
 }
 
-// serviceName extracts the service name from a ref, identical to genlocks: strip
-// scheme, registry path and any tag/digest.
+// serviceName extracts the service name from a ref by stripping the scheme,
+// registry path and any tag/digest.
 func serviceName(ref string) string {
 	loc := graph.ParseDependencyRef(ref).Location
 	parts := strings.Split(loc, "/")
