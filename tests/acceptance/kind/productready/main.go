@@ -65,7 +65,10 @@ func main() {
 	var (
 		base      = flag.String("base", "http://127.0.0.1:8080", "dashboard base URL")
 		domain    = flag.String("domain", "", "OCI domain the fixture services live in (registry host + org)")
-		timeout   = flag.Duration("timeout", 6*time.Minute, "how long to wait for the fixture to become true")
+		// Budgeted for the scenario's fact count, not a fixed service list: Build
+		// re-checks every fact each tick, and the count scales with services,
+		// revisions and relationships.
+		timeout = flag.Duration("timeout", 12*time.Minute, "how long to wait for the fixture to become true")
 		interval  = flag.Duration("interval", 5*time.Second, "poll interval")
 		snapshots = flag.Int("snapshots", 1, "how many DISTINCT snapshots must each prove the whole fixture")
 		outPath   = flag.String("out", "", "write the discovered canonical keys here as JSON")
@@ -443,10 +446,11 @@ func (p *prober) probe() (discovered, []string) {
 
 	got := p.journeyInput(svcKey, revKey, tgtKey, evTgtKey)
 
-	// Fact 14: all thirteen came out of ONE snapshot. Each mismatching response has
-	// already reported itself, but the verdict is stated over the round as a whole
-	// so a splice can never be reduced to a single recoverable-looking read — and
-	// so a round that somehow swallowed the per-request error still fails here.
+	// Final fact: all the preceding facts came out of ONE snapshot. Each mismatching
+	// response has already reported itself, but the verdict is stated over the round
+	// as a whole so a splice can never be reduced to a single recoverable-looking
+	// read — and so a round that somehow swallowed the per-request error still fails
+	// here.
 	switch {
 	case p.snapshotID == "":
 		p.failf("no product response identified the snapshot it came from; the round proves nothing")

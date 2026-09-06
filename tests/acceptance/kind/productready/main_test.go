@@ -32,9 +32,6 @@ import (
 
 const (
 	fxDomain    = "reg.example/demo"
-	fxCheckout  = "svc:checkout"
-	fxOrders    = "svc:orders"
-	fxPayments  = "svc:payments"
 	fxRevA      = "rev:checkout-a"
 	fxRevB      = "rev:checkout-b"
 	fxRevOrders = "rev:orders"
@@ -46,6 +43,56 @@ const (
 	fxObs       = "orders-traces"
 	fxEvidence  = "evidence-http"
 )
+
+// fxServices is every service the canonical scenario declares, in scenario
+// order. Deriving it here rather than hardcoding three names is what keeps
+// adding a service to the scenario from breaking five tests in this file.
+var fxServices = func() []string {
+	out := make([]string, 0, len(scenario.OperationalGraph.Services))
+	for _, s := range scenario.OperationalGraph.Services {
+		out = append(out, s.Name)
+	}
+	return out
+}()
+
+// fxServiceKey is the fake Product's service-entity key for a scenario service.
+func fxServiceKey(name string) string { return "svc:" + name }
+
+// fxMultiRevisionService is the scenario service carrying more than one
+// revision — the one the sibling-revision and diff assertions need. It is
+// derived so that a scenario change moves the assertion instead of breaking it.
+var fxMultiRevisionService = func() string {
+	for _, s := range scenario.OperationalGraph.Services {
+		if len(s.Revisions) > 1 {
+			return s.Name
+		}
+	}
+	panic("scenario has no multi-revision service: the revision-chronology " +
+		"assertions in this file have nothing to assert on")
+}()
+
+// fxEvidenceOnlyService is the scenario service with no local contract, whose
+// presence proves an evidence-only entity still appears in the Product.
+var fxEvidenceOnlyService = func() string {
+	for _, s := range scenario.OperationalGraph.Services {
+		if s.EvidenceOnly {
+			return s.Name
+		}
+	}
+	panic("scenario has no evidence-only service")
+}()
+
+// fxDependencyConsumer is the scenario service that declares a dependency on
+// another service — the source of the edge the neighborhood test must find.
+var fxDependencyConsumer = func() string {
+	for _, rel := range scenario.OperationalGraph.Relationships {
+		if rel.Declared {
+			return rel.From
+		}
+	}
+	panic("scenario has no service declaring a dependency: the neighborhood " +
+		"test has no edge to assert on")
+}()
 
 func meta(id string) fleet.ProductMeta {
 	return fleet.ProductMeta{SchemaVersion: "1", SnapshotID: id, AsOf: time.Unix(0, 0).UTC()}
@@ -156,30 +203,46 @@ func (f *fakeProduct) list(id string, q url.Values) fleet.EntityList {
 			refs = append(refs, fleet.EntityRef{Kind: "source", Key: fxCache, Label: fxCache})
 		}
 	case "service":
-		refs = []fleet.EntityRef{
-			svcRef(fxCheckout, "checkout", fxDomain),
-			svcRef(fxOrders, "orders", fxDomain),
-			svcRef(fxPayments, "payments", fxDomain),
+		for _, name := range fxServices {
+			refs = append(refs, svcRef(fxServiceKey(name), name, fxDomain))
 		}
 	case "revision":
 		switch service {
-		case fxCheckout:
+		case fxServiceKey(fxMultiRevisionService):
 			refs = append([]fleet.EntityRef{revRef(fxRevA, "1.0.0"), revRef(fxRevB, "1.1.0")}, f.extraRevisions...)
-		case fxOrders:
+		case fxServiceKey(fxDependencyConsumer):
 			refs = []fleet.EntityRef{revRef(fxRevOrders, "1.0.0")}
+		default:
+			// Generic handler for any other non-evidence-only service
+			for _, s := range scenario.OperationalGraph.Services {
+				if !s.EvidenceOnly && service == fxServiceKey(s.Name) {
+					refs = []fleet.EntityRef{revRef("rev:"+s.Name, "1.0.0")}
+					break
+				}
+			}
 		}
 	case "target":
 		switch service {
-		case fxCheckout:
+		case fxServiceKey(fxMultiRevisionService):
 			if !f.noController {
 				refs = []fleet.EntityRef{{Kind: "target", Key: fxTgtC, Label: "checkout"}}
 			}
-		case fxOrders:
+		case fxServiceKey(fxDependencyConsumer):
 			if !f.noController {
 				refs = []fleet.EntityRef{{Kind: "target", Key: fxTgtO, Label: "orders"}}
 			}
-		case fxPayments:
+		case fxServiceKey(fxEvidenceOnlyService):
 			refs = []fleet.EntityRef{{Kind: "target", Key: fxTgtP, Label: "payments"}}
+		default:
+			// Generic handler for any other service with a workload
+			for _, s := range scenario.OperationalGraph.Services {
+				if s.Workload != nil && service == fxServiceKey(s.Name) {
+					if !f.noController {
+						refs = []fleet.EntityRef{{Kind: "target", Key: "tgt:" + s.Name, Label: s.Name}}
+					}
+					break
+				}
+			}
 		}
 	}
 	return fleet.EntityList{
@@ -199,7 +262,12 @@ func (f *fakeProduct) detail(id, kind, key string) (fleet.EntityDetail, bool) {
 	case "revision":
 		version := map[string]string{fxRevA: "1.0.0", fxRevB: "1.1.0", fxRevOrders: "1.0.0"}[key]
 		if version == "" {
-			return d, false
+			// Generic handler: "rev:servicename" → version "1.0.0"
+			if strings.HasPrefix(key, "rev:") {
+				version = "1.0.0"
+			} else {
+				return d, false
+			}
 		}
 		d.Revision = &fleet.RevisionDetailData{
 			Version: version, Identity: exact,
@@ -218,7 +286,17 @@ func (f *fakeProduct) detail(id, kind, key string) (fleet.EntityDetail, bool) {
 		case fxTgtP:
 			d.Target = &fleet.TargetDetailData{LinkState: "exact", Source: fxEvidence}
 		default:
-			return d, false
+			// Generic handler: "tgt:servicename" → links to "rev:servicename"
+			if strings.HasPrefix(key, "tgt:") {
+				svcName := strings.TrimPrefix(key, "tgt:")
+				d.Target = &fleet.TargetDetailData{
+					LinkState: "exact",
+					Revision:  &fleet.EntityRef{Kind: "revision", Key: "rev:" + svcName},
+					Source:    "k8s",
+				}
+			} else {
+				return d, false
+			}
 		}
 	default:
 		return d, false
@@ -232,8 +310,8 @@ func (f *fakeProduct) neighborhood(id string) fleet.Neighborhood {
 		Perspective: "service",
 		Edges: []fleet.NeighborhoodEdge{{
 			ID:       "e1",
-			From:     svcRef(fxOrders, "orders", fxDomain),
-			To:       svcRef(fxCheckout, "checkout", fxDomain),
+			From:     svcRef(fxServiceKey(fxDependencyConsumer), fxDependencyConsumer, fxDomain),
+			To:       svcRef(fxServiceKey(fxMultiRevisionService), fxMultiRevisionService, fxDomain),
 			Relation: "dependency", Expected: true, Observed: true,
 			Provenance: "declared+observed", Difference: "matched",
 			ObservationSources: fleet.ObservationSourcesPreview{
@@ -475,7 +553,7 @@ func TestGateRejectsSplicedRounds(t *testing.T) {
 		perturb: func(r *http.Request) (string, bool) {
 			q := r.URL.Query()
 			return "snap-other", r.URL.Path == "/api/fleet/entities" &&
-				q.Get("kinds") == "revision" && q.Get("service") == fxCheckout
+				q.Get("kinds") == "revision" && q.Get("service") == fxServiceKey(fxMultiRevisionService)
 		},
 		want: "adopted",
 	}, {
