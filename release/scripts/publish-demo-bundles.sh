@@ -50,6 +50,18 @@ COORD="${PACTO_DEMO_REGISTRY:-localhost:5001/pacto-demo}"
 BUNDLES="$ROOT/examples/demo/bundles"
 OWNED="ghcr.io/trianalab/pacto"   # committed refs' coordinate (== demo-bundles unit coordinate)
 PROOF="$ROOT/release/proofs/demo-artifacts.txt"
+
+# rewrite_refs points every committed oci:// reference under $1 at the target
+# coordinate $2. The demo's bundles are committed with the owned ghcr.io
+# coordinate (a test asserts it, in two always-on jobs), so this is the single
+# seam through which the demo is published anywhere else — a local registry for
+# the Compose stack, a fork's namespace, or a staging run.
+rewrite_refs() {
+  local dir="$1" target="$2"
+  [ "$target" = "$OWNED" ] && return 0
+  find "$dir" -name pacto.yaml -exec sed -i.bak "s#$OWNED#$target#g" {} +
+  find "$dir" -name '*.bak' -delete
+}
 EX_TEMPFAIL=75
 
 CHECK=0
@@ -95,8 +107,7 @@ trap cleanup EXIT
 
 # ---- step 1: copy + repoint + push (no validation gate) ----
 cp -R "$BUNDLES" "$WORK/bundles"
-find "$WORK/bundles" -name pacto.yaml -exec sed -i.bak "s#$OWNED#$COORD#g" {} +
-find "$WORK/bundles" -name '*.bak' -delete
+rewrite_refs "$WORK/bundles" "$COORD"
 find "$WORK/bundles" -name pacto.lock -delete   # regenerated fresh against the live coordinate
 # Reproducibility is a property of the packer now: pkg/oci/bundle.go canonicalizes
 # every tar header, so a bundle's OCI digest depends only on content — no `touch -t`
@@ -202,9 +213,18 @@ dep_bearing() { grep -qE '^[[:space:]]*ref:[[:space:]]*oci://' "$1/pacto.yaml"; 
 # registry host but an empty namespace with no v2 artifacts — proving resolution
 # genuinely depends on the artifacts we pushed, not on the ref string alone.
 NEG="$(mktemp -d)"; cp -r "$BUNDLES/auth-service" "$NEG/auth-service"
-find "$NEG" -name pacto.yaml -exec sed -i.bak "s#$OWNED#${COORD%%/*}/pacto-demo-absent#g" {} +
-find "$NEG" -name '*.bak' -delete; find "$NEG" -name pacto.lock -delete
-NEG_OUT="$("$PACTO_BIN" lock "$NEG/auth-service" 2>&1 || true)"; rm -rf "$NEG"
+rewrite_refs "$NEG" "${COORD%%/*}/pacto-demo-absent"
+# Negative control: this lock must FAIL against the absent namespace, and the
+# run is worthless if it silently starts succeeding. Capturing with `|| true`
+# and only printing it at :253 made this unfalsifiable.
+if NEG_OUT="$("$PACTO_BIN" lock "$NEG/auth-service" 2>&1)"; then
+  rm -rf "$NEG"
+  printf '%s\n' "$NEG_OUT"
+  echo "FAIL: the negative control locked cleanly against an absent namespace; it is no longer a control" >&2
+  exit 1
+fi
+rm -rf "$NEG"
+echo "  negative control failed as expected"
 
 TOTAL_REFS=0 MATCHED=0 ; PROVEN=() ; RESOLVE_FAIL=()
 while IFS= read -r dir; do
