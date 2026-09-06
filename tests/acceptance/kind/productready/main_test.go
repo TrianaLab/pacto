@@ -59,39 +59,59 @@ var fxServices = func() []string {
 func fxServiceKey(name string) string { return "svc:" + name }
 
 // fxMultiRevisionService is the scenario service carrying more than one
-// revision — the one the sibling-revision and diff assertions need. It is
-// derived so that a scenario change moves the assertion instead of breaking it.
+// revision — the one the sibling-revision and diff assertions need. Selected
+// by the scenario's Journey.Provider role, then verified to actually have >1
+// revision so a scenario change that violates the role contract is caught here
+// rather than in a silent assertion failure.
 var fxMultiRevisionService = func() string {
-	for _, s := range scenario.OperationalGraph.Services {
-		if len(s.Revisions) > 1 {
-			return s.Name
-		}
+	name := scenario.OperationalGraph.Journey.Provider
+	s, ok := scenario.OperationalGraph.Service(name)
+	if !ok {
+		panic("scenario Journey.Provider names a service that does not exist")
 	}
-	panic("scenario has no multi-revision service: the revision-chronology " +
-		"assertions in this file have nothing to assert on")
+	if len(s.Revisions) < 2 {
+		panic("scenario Journey.Provider (" + name + ") has fewer than two " +
+			"revisions: the revision-chronology assertions in this file have " +
+			"nothing to assert on")
+	}
+	return name
 }()
 
 // fxEvidenceOnlyService is the scenario service with no local contract, whose
-// presence proves an evidence-only entity still appears in the Product.
+// presence proves an evidence-only entity still appears in the Product. Selected
+// by Journey.External, verified to be EvidenceOnly.
 var fxEvidenceOnlyService = func() string {
-	for _, s := range scenario.OperationalGraph.Services {
-		if s.EvidenceOnly {
-			return s.Name
-		}
+	name := scenario.OperationalGraph.Journey.External
+	s, ok := scenario.OperationalGraph.Service(name)
+	if !ok {
+		panic("scenario Journey.External names a service that does not exist")
 	}
-	panic("scenario has no evidence-only service")
+	if !s.EvidenceOnly {
+		panic("scenario Journey.External (" + name + ") is not evidence-only")
+	}
+	return name
 }()
 
 // fxDependencyConsumer is the scenario service that declares a dependency on
 // another service — the source of the edge the neighborhood test must find.
+// Selected by Journey.Consumer, verified to actually declare a dependency.
 var fxDependencyConsumer = func() string {
+	name := scenario.OperationalGraph.Journey.Consumer
+	if _, ok := scenario.OperationalGraph.Service(name); !ok {
+		panic("scenario Journey.Consumer names a service that does not exist")
+	}
+	found := false
 	for _, rel := range scenario.OperationalGraph.Relationships {
-		if rel.Declared {
-			return rel.From
+		if rel.From == name && rel.Declared {
+			found = true
+			break
 		}
 	}
-	panic("scenario has no service declaring a dependency: the neighborhood " +
-		"test has no edge to assert on")
+	if !found {
+		panic("scenario Journey.Consumer (" + name + ") declares no dependency: " +
+			"the neighborhood test has no edge to assert on")
+	}
+	return name
 }()
 
 func meta(id string) fleet.ProductMeta {
