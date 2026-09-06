@@ -880,6 +880,7 @@ pacto mcp [bundle-ref] [flags]
       --port int                   port for HTTP transport (default 8585)
       --root stringArray           contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges for --fleet (repeatable)
   -t, --transport string           transport type: stdio or http (default "stdio")
 ```
 

@@ -114,8 +114,8 @@ pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 `--local`, `--oci`, `--k8s`, `--cache`, `--evidence-url`, `--target-state`,
-`--namespace` and `--freshness` are all accepted — every `pacto fleet` source
-except `--traces` as a *server* flag; the
+`--traces`, `--namespace` and `--freshness` are all accepted — every `pacto fleet`
+source is available as a server flag; the
 [`pacto mcp` reference](cli-reference.md#pacto-mcp) lists them with their
 defaults. `pacto_impact` still accepts a per-call `traces` argument, and that one
 reads a path off the local filesystem — see the table below. See
