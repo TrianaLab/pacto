@@ -5,18 +5,20 @@
 A guided tour of what Pacto tells a human and an agent, and the five fixes
 building it uncovered.
 
-`docs/examples/demo-tour.md` walks a sixteen-service fleet in twelve beats: read
-four compliance states at once, refuse a breaking change, find a consumer no
-contract declares, reconcile declared against observed, then hand the same fleet
-to an agent over MCP and watch it reach the same conclusions. Every command on
-the page is real. Beats 1 to 10 are generated from a live run by
-`make gen-demo-transcripts`, snippet-included rather than pasted, and compared
-by the docs drift gate — so a page claiming output Pacto no longer produces
-fails CI. Beats 11 and 12 are copied in by hand, because no generator covers a
-server that holds stdin open, and the page says so. All twelve run in
-`tests/acceptance/local/demo-arc.sh` on every pull request, and both readers
-plus the generator share one argument table, so the page and the test can never
-drift apart on what was actually run.
+`docs/examples/demo-tour.md` walks a sixteen-service fleet as six user stories,
+in the order the questions arrive: I inherited this fleet, something says
+Unknown, I am about to ship a break, who do I have to tell, my diagram and my
+traffic disagree, and I want an agent on this without handing it write access.
+Every command on the page is real. The terminal transcripts are generated from a
+live run by `make gen-demo-transcripts`, snippet-included rather than pasted, and
+compared by the docs drift gate — so a page claiming output Pacto no longer
+produces fails CI. The two commands no generator can cover — an MCP server
+holding stdin open and a live dashboard — are copied in by hand, and the page
+says so. Every one of them runs in `tests/acceptance/local/demo-arc.sh` on each
+pull request, and both readers plus the generator share one argument table, so
+the page and the test can never drift apart on what was actually run. A release
+test asserts the two sets cover each other exactly: nothing runs in CI untaught,
+and nothing on the page includes a transcript that does not exist.
 
 Building it against a fleet large enough to be interesting surfaced five bugs
 that a three-service fixture never reaches:

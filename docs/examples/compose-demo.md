@@ -88,7 +88,7 @@ never collide.
 Follow the graph from `orders` to `checkout`, open a revision to read its
 contract, and compare `checkout` 1.0.0 with 1.1.0 to see a change analysed.
 
-For the same moves at the command line — twelve commands from "what is out there"
+For the same moves at the command line — six user stories from "what is out there"
 to "an agent reading the same server" — follow the
 [guided tour](demo-tour.md). It runs offline against a clone of the repository
 rather than against this stack.

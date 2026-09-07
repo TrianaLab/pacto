@@ -1,5 +1,10 @@
 # Every beat of the guided demo arc, written once.
 #
+# A beat is ONE recorded command — the unit CI runs and asserts. The tour groups
+# them into six user stories, so the mapping to the page is many-to-one and the
+# two vocabularies are deliberate: renumbering a beat here is a mechanical change,
+# regrouping the stories is an editorial one, and neither should force the other.
+#
 # Three readers share this file. The acceptance script
 # (tests/acceptance/local/demo-arc.sh) runs each beat and asserts on the bytes it
 # prints. The transcript generator (release/scripts/gen_demo_transcripts.sh) runs

@@ -61,5 +61,5 @@ The source and build harness live in
 Next: the [Docker Compose demo](compose-demo.md) runs the same UI against a real
 registry and Evidence Server on your machine, the
 [guided tour](demo-tour.md) reaches the same facts from the command line in
-twelve offline commands or go straight to the
+six offline user stories or go straight to the
 [Quickstart](../quickstart.md) and publish a contract of your own.

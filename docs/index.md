@@ -273,7 +273,7 @@ Ready to try it? The [live dashboard demo](examples/dashboard-demo.md) puts the
 whole dashboard in your browser, against a fixture fleet, with nothing to
 install — and the [Docker Compose demo](examples/compose-demo.md) runs a real
 one on your own machine. To drive a fleet from the command line, the
-[guided tour](examples/demo-tour.md) is twelve commands over a fixture, offline.
+[guided tour](examples/demo-tour.md) answers six questions over a fixture, offline.
 When you want your own contract, the
 [Quickstart](quickstart.md) takes about five minutes from an empty directory to
 a published bundle. To understand the system rather than drive it, read

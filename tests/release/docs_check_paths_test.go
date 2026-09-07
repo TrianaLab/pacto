@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -56,11 +55,22 @@ func TestDocsCheckPathsCoverDemoTranscripts(t *testing.T) {
 	}
 }
 
-// TestTheDemoTourTeachesTheTwelveBeatJourney: the page a user actually follows.
-// It has to name all twelve beats the acceptance script asserts, link to
-// compose-demo.md rather than restating the run command, and must not claim a
-// beat the acceptance script does not execute.
-func TestTheDemoTourTeachesTheTwelveBeatJourney(t *testing.T) {
+// TestTheDemoTourTeachesEveryRecordedCommand: the page a user actually follows.
+//
+// The tour presents six user stories; the generator, the acceptance script and
+// beats.sh work in "beats", where one beat is one recorded command. A story
+// groups two to four of them, so the two vocabularies are deliberate and the
+// mapping is many-to-one. That means counting headings proves nothing about
+// coverage — what has to hold is that the recorded output and the page cover each
+// other exactly:
+//
+//   - every generated transcript is snippet-included, or a command runs in CI and
+//     is taught nowhere;
+//   - every snippet the page includes exists, or the page renders a broken include;
+//   - the two beats no generator can produce — the MCP stdin handshake and the
+//     live dashboard — are still on the page, since the acceptance script asserts
+//     them and only prose carries them here.
+func TestTheDemoTourTeachesEveryRecordedCommand(t *testing.T) {
 	root := repoRoot(t)
 	tour, err := os.ReadFile(filepath.Join(root, "docs", "examples", "demo-tour.md"))
 	if err != nil {
@@ -68,31 +78,41 @@ func TestTheDemoTourTeachesTheTwelveBeatJourney(t *testing.T) {
 	}
 	doc := string(tour)
 
-	// All twelve beats must be named in the document
-	beatPattern := regexp.MustCompile(`(?i)## Beat (\d+)`)
-	beatsFound := make(map[int]bool)
-	for _, match := range beatPattern.FindAllStringSubmatch(doc, -1) {
-		if n, err := strconv.Atoi(match[1]); err == nil {
-			beatsFound[n] = true
+	generated, err := filepath.Glob(filepath.Join(root, "examples", "demo", "generated", "_beat-*.md"))
+	if err != nil {
+		t.Fatalf("glob generated transcripts: %v", err)
+	}
+	if len(generated) == 0 {
+		t.Fatal("no generated transcripts found; run `make gen-demo-transcripts`")
+	}
+
+	included := map[string]bool{}
+	for _, m := range regexp.MustCompile(`--8<-- "(examples/demo/generated/[^"]+)"`).FindAllStringSubmatch(doc, -1) {
+		included[m[1]] = true
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(m[1]))); err != nil {
+			t.Errorf("demo-tour.md includes %s, which does not exist: the page renders a broken snippet", m[1])
 		}
 	}
-	for i := 1; i <= 12; i++ {
-		if !beatsFound[i] {
-			t.Errorf("demo-tour.md never mentions Beat %d; the acceptance script asserts it", i)
+	for _, g := range generated {
+		rel := filepath.ToSlash(strings.TrimPrefix(g, root+string(filepath.Separator)))
+		if !included[rel] {
+			t.Errorf("%s is generated and asserted in CI but the tour never includes it; a command runs and is taught nowhere", rel)
+		}
+	}
+
+	// The two beats no generator covers. Their text is the only thing carrying
+	// them, so assert the commands themselves rather than a heading.
+	for _, cmd := range []string{
+		"pacto mcp examples/demo/bundles/payments-service/v2.1.0",
+		"pacto dashboard examples/demo/bundles",
+	} {
+		if !strings.Contains(doc, cmd) {
+			t.Errorf("demo-tour.md never shows %q; the acceptance script asserts it and no transcript covers it", cmd)
 		}
 	}
 
 	// Must link to compose-demo.md rather than restating the run command
 	if !strings.Contains(doc, "compose-demo.md") {
 		t.Errorf("demo-tour.md never links compose-demo.md; it should point there for the real-stack journey")
-	}
-
-	// Must not claim a beat the acceptance script does not assert. The script
-	// drives beats 1 through 12, plus beat 3-readiness and beat 11-writes. If the
-	// tour starts mentioning Beat 13 or higher without the acceptance script
-	// executing it, this gate catches it.
-	excessiveBeat := regexp.MustCompile(`(?i)## Beat (1[3-9]|[2-9][0-9])`)
-	if matches := excessiveBeat.FindAllString(doc, -1); len(matches) > 0 {
-		t.Errorf("demo-tour.md claims beats the acceptance script does not execute: %v", matches)
 	}
 }
