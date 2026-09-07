@@ -9,12 +9,14 @@ building it uncovered.
 four compliance states at once, refuse a breaking change, find a consumer no
 contract declares, reconcile declared against observed, then hand the same fleet
 to an agent over MCP and watch it reach the same conclusions. Every command on
-the page is real. The transcripts are generated from a live run by
+the page is real. Beats 1 to 10 are generated from a live run by
 `make gen-demo-transcripts`, snippet-included rather than pasted, and compared
 by the docs drift gate — so a page claiming output Pacto no longer produces
-fails CI. `tests/acceptance/local/demo-arc.sh` executes all twelve beats on
-every pull request, and both readers plus the generator share one argument
-table, so the page and the test can never drift apart on what was actually run.
+fails CI. Beats 11 and 12 are copied in by hand, because no generator covers a
+server that holds stdin open, and the page says so. All twelve run in
+`tests/acceptance/local/demo-arc.sh` on every pull request, and both readers
+plus the generator share one argument table, so the page and the test can never
+drift apart on what was actually run.
 
 Building it against a fleet large enough to be interesting surfaced five bugs
 that a three-service fixture never reaches:
@@ -54,8 +56,14 @@ unchanged ref produces no interface finding, because for those types only the
 ref is diffed. `docs/contract-reference/diff.md` states this in the table
 instead of leaving a reader to infer coverage Pacto does not have.
 
-CI now runs on the demo. `examples/demo/**` and the five subsystems that produce
-the committed transcripts are in the docs-check path filter, the transcripts are
+Two fixture versions moved: `payments-service` 1.2.0 and 2.0.0 are already
+published to `ghcr.io/trianalab/pacto`, and the `capabilities[]` and `sbom/`
+additions this tour needs change their bytes, so they ship as 1.2.1 and 2.0.1
+and a published tag keeps meaning what it meant.
+
+CI now runs on the demo. `examples/demo/**`, its transcript generator, the five
+subsystems that produce the committed transcripts and the two those reach
+through are in the docs-check path filter, the transcripts are
 inside `generated_paths()` so the drift gate covers them, and an MCP integration
 test drives the demo fleet over a real stdio session — including the case where
 `pacto_fleet_status` called with no arguments returns a null item list, which an
