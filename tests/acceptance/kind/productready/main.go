@@ -63,12 +63,12 @@ import (
 
 func main() {
 	var (
-		base      = flag.String("base", "http://127.0.0.1:8080", "dashboard base URL")
-		domain    = flag.String("domain", "", "OCI domain the fixture services live in (registry host + org)")
+		base   = flag.String("base", "http://127.0.0.1:8080", "dashboard base URL")
+		domain = flag.String("domain", "", "OCI domain the fixture services live in (registry host + org)")
 		// Budgeted for the scenario's fact count, not a fixed service list: Build
 		// re-checks every fact each tick, and the count scales with services,
 		// revisions and relationships.
-		timeout = flag.Duration("timeout", 12*time.Minute, "how long to wait for the fixture to become true")
+		timeout   = flag.Duration("timeout", 12*time.Minute, "how long to wait for the fixture to become true")
 		interval  = flag.Duration("interval", 5*time.Second, "poll interval")
 		snapshots = flag.Int("snapshots", 1, "how many DISTINCT snapshots must each prove the whole fixture")
 		outPath   = flag.String("out", "", "write the discovered canonical keys here as JSON")
