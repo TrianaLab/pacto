@@ -254,7 +254,7 @@ A healthy start ends with the controller's workers and the dashboard
 reconciler:
 
 ```text
-INFO  dashboard  Starting dashboard reconciler  {"enabled": true, "image": "ghcr.io/trianalab/pacto/dashboard:3.2.8", ...}
+INFO  dashboard  Starting dashboard reconciler  {"enabled": true, "image": "ghcr.io/trianalab/pacto/dashboard:3.2.9", ...}
 INFO  Starting Controller  {"controller": "pacto", "controllerKind": "Pacto"}
 INFO  Starting workers     {"controller": "pacto", "worker count": 1}
 INFO  dashboard  Dashboard resources reconciled successfully
