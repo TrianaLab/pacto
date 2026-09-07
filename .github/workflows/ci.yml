@@ -58,6 +58,14 @@ jobs:
             release:
               - 'release/**'
               - '.github/workflows/**'
+              # A changeset file affects nothing EXCEPT the release, and adding
+              # one is what opens a release transaction -- so skipping the
+              # release legs for it had the filter exactly backwards. A malformed
+              # changeset used to surface mid-transaction on main, after the tags
+              # are pushed. (The Version PR still skips these legs on purpose;
+              # see the head_ref guards on release-dry-run and
+              # release-version-test.)
+              - '.changeset/**'
               # The demo-ref gate (tests/release) guards the demo bundles, so run the
               # artifact-drift leg when they change too.
               - 'examples/demo/**'
