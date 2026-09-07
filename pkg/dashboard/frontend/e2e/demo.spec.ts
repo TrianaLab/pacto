@@ -425,7 +425,9 @@ test.describe('WASM dashboard demo — workflows', () => {
       '#/fleet/graph',
     ]) {
       await next.click();
-      await expect(page).toHaveURL(new RegExp(`${hash.replace(/[?/]/g, '\\$&')}$`), { timeout: 20_000 });
+      // Compared as a value, not as a pattern: the step's route is a literal, and
+      // hand-escaping it into a regex is a way to be subtly wrong about a slash.
+      await expect(page).toHaveURL((url) => url.hash === hash, { timeout: 20_000 });
     }
 
     // The last step has no screen of its own: it is the hand-off to the CLI tour,
@@ -438,7 +440,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // Back walks it in reverse, dashboard included -- a tour you cannot re-read a step
     // of is a tour you have to restart.
     await page.getByTestId('demo-tour-back').click();
-    await expect(page).toHaveURL(/#\/fleet\/graph$/, { timeout: 20_000 });
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
     await expect(strip).toContainText('5 / 6');
     await expect(page.getByTestId('demo-tour-more')).toBeHidden();
   });
