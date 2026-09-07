@@ -4,78 +4,108 @@ name: Docs check
 # errors, broken internal links or anchors, or pages missing from the nav.
 # `--strict` turns the validation configured in mkdocs.yml (nav.omitted_files,
 # links.anchors, links.not_found) into hard errors.
+#
+# The trigger carries NO `paths:` filter, and that is deliberate. A required
+# status check that is filtered at the trigger never starts on an unrelated PR,
+# so it never reports, so the PR waits forever on a check that will never
+# arrive. Filtering moves into the `changes` job below and the `docs-required`
+# aggregate always runs, which gives branch protection one stable context to
+# require -- the same shape ci.yml uses for `required`.
 on:
   pull_request:
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'overrides/**'
-      - 'MANIFEST.md'
-      - 'integrations/**/docs/**'
-      - 'integrations/**/integration.yaml'
-      - 'release/scripts/gen_integration_docs.py'
-      - 'release/scripts/mkdocs_integration_hook.py'
-      - 'release/scripts/mkdocs_mermaid_hook.py'
-      - 'release/scripts/docs_check.py'
-      - 'release/scripts/check_mermaid.py'
-      - '.github/workflows/docs-check.yml'
-      # Inputs to the browser gate over the built site. The overlay config decides
-      # what is served and whether instant navigation engages; the spec and its
-      # config are the gate itself; the lockfile pins the Mermaid runtime the site
-      # now ships; Makefile/ci.mk are the dependency path that runs any of it.
-      - 'mkdocs.test.yml'
-      - 'pkg/dashboard/frontend/e2e-docs-site/**'
-      - 'pkg/dashboard/frontend/playwright.docs-site.config.ts'
-      - 'pkg/dashboard/frontend/package.json'
-      - 'pkg/dashboard/frontend/package-lock.json'
-      - 'Makefile'
-      - 'ci.mk'
-      # Generated docs are regenerated from these cross-module sources, so a change
-      # to any of them can drift the committed docs. docs-check must run to catch it
-      # (see release/scripts/gen_integration_docs.py + docs_check.py for the inputs).
-      - 'integrations/**/api/**'
-      - 'integrations/**/config/crd/**'
-      - 'integrations/**/config/rbac/**'
-      - 'integrations/**/charts/**'
-      - 'integrations/**/cmd/**'
-      - 'integrations/**/internal/observer/**'
-      - 'pkg/evidence/**'
-      - 'pkg/finding/**'
-      - 'release/release-manifest.json'
-      # docs/examples/demo-tour.md snippet-includes the transcripts in
-      # examples/demo/generated, and generated_paths() puts them under the drift
-      # gate. Every beat's committed output comes from one of five subsystems, so a
-      # change to any of them can drift the page: fleet (beats 1-4, 10), readiness
-      # (beat 3), diff (beats 5-6), impact (beats 7-9) and mcp (beat 11). The last
-      # two are what those five are built out of: pkg/diff compares SBOMs through
-      # pkg/sbom (beat 5 prints an SBOM finding) and pkg/fleet resolves refs through
-      # pkg/graph, so a change in either moves the same committed bytes.
-      - 'examples/demo/**'
-      - 'release/scripts/gen_demo_transcripts.sh'
-      - 'pkg/fleet/**'
-      - 'internal/fleetsrc/**'
-      - 'pkg/readiness/**'
-      - 'pkg/diff/**'
-      - 'pkg/impact/**'
-      - 'internal/mcp/**'
-      - 'pkg/sbom/**'
-      - 'pkg/graph/**'
-      # docs_check.py builds ./cmd/pacto and runs `pacto validate` on every fenced
-      # contract example in the docs, so a change to the validator, the contract
-      # model, the schema or the CLI can invalidate an example without touching any
-      # docs path above. Include those inputs so the fenced-contract gate runs.
-      - 'cmd/pacto/**'
-      - 'internal/cli/**'
-      - 'internal/app/**'
-      - 'pkg/validation/**'
-      - 'pkg/contract/**'
-      - 'schema/**'
+    branches:
+      - main
 
 permissions:
   contents: read
 
+concurrency:
+  group: docs-check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            docs:
+              - 'docs/**'
+              - 'mkdocs.yml'
+              - 'overrides/**'
+              - 'MANIFEST.md'
+              - 'integrations/**/docs/**'
+              - 'integrations/**/integration.yaml'
+              - 'release/scripts/gen_integration_docs.py'
+              - 'release/scripts/mkdocs_integration_hook.py'
+              - 'release/scripts/mkdocs_mermaid_hook.py'
+              - 'release/scripts/docs_check.py'
+              - 'release/scripts/check_mermaid.py'
+              - '.github/workflows/docs-check.yml'
+              # Inputs to the browser gate over the built site. The overlay config
+              # decides what is served and whether instant navigation engages; the
+              # spec and its config are the gate itself; the lockfile pins the
+              # Mermaid runtime the site now ships; Makefile/ci.mk are the
+              # dependency path that runs any of it.
+              - 'mkdocs.test.yml'
+              - 'pkg/dashboard/frontend/e2e-docs-site/**'
+              - 'pkg/dashboard/frontend/playwright.docs-site.config.ts'
+              - 'pkg/dashboard/frontend/package.json'
+              - 'pkg/dashboard/frontend/package-lock.json'
+              - 'Makefile'
+              - 'ci.mk'
+              # Generated docs are regenerated from these cross-module sources, so a
+              # change to any of them can drift the committed docs. docs-check must
+              # run to catch it (see release/scripts/gen_integration_docs.py +
+              # docs_check.py for the inputs).
+              - 'integrations/**/api/**'
+              - 'integrations/**/config/crd/**'
+              - 'integrations/**/config/rbac/**'
+              - 'integrations/**/charts/**'
+              - 'integrations/**/cmd/**'
+              - 'integrations/**/internal/observer/**'
+              - 'pkg/evidence/**'
+              - 'pkg/finding/**'
+              - 'release/release-manifest.json'
+              # docs/examples/demo-tour.md snippet-includes the transcripts in
+              # examples/demo/generated, and generated_paths() puts them under the
+              # drift gate. Every beat's committed output comes from one of five
+              # subsystems, so a change to any of them can drift the page: fleet
+              # (beats 1-4, 10), readiness (beat 3), diff (beats 5-6), impact (beats
+              # 7-9) and mcp (beat 11). The last two are what those five are built
+              # out of: pkg/diff compares SBOMs through pkg/sbom (beat 5 prints an
+              # SBOM finding) and pkg/fleet resolves refs through pkg/graph, so a
+              # change in either moves the same committed bytes.
+              - 'examples/demo/**'
+              - 'release/scripts/gen_demo_transcripts.sh'
+              - 'pkg/fleet/**'
+              - 'internal/fleetsrc/**'
+              - 'pkg/readiness/**'
+              - 'pkg/diff/**'
+              - 'pkg/impact/**'
+              - 'internal/mcp/**'
+              - 'pkg/sbom/**'
+              - 'pkg/graph/**'
+              # docs_check.py builds ./cmd/pacto and runs `pacto validate` on every
+              # fenced contract example in the docs, so a change to the validator,
+              # the contract model, the schema or the CLI can invalidate an example
+              # without touching any docs path above. Include those inputs so the
+              # fenced-contract gate runs.
+              - 'cmd/pacto/**'
+              - 'internal/cli/**'
+              - 'internal/app/**'
+              - 'pkg/validation/**'
+              - 'pkg/contract/**'
+              - 'schema/**'
+
   docs-check:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,3 +144,26 @@ jobs:
       # cross-origin requests aborted. See docs/maintainers/testing.md.
       - name: Browser acceptance over the built site
         run: make test-browser-docs-site
+
+  # Single required status for branch protection, mirroring ci.yml's `required`:
+  # green when the docs gate passed AND when it was correctly skipped, red only
+  # when a leg actually failed. This is the context to require -- requiring
+  # `docs-check` itself would hang every PR that does not touch documentation.
+  docs-required:
+    if: always()
+    needs:
+      - changes
+      - docs-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no docs leg failed
+        run: |
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "leg results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "a required docs leg did not pass"
+              exit 1
+            fi
+          done
+          echo "all required docs legs passed"
