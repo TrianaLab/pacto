@@ -67,15 +67,25 @@ the proto comparison does not do", what it does not.
 The in-browser dashboard demo now teaches itself. Where the fixture notice was a
 banner and nothing more, it offers a guided tour: six steps, each naming one
 thing to do and each gated on the dashboard actually reaching the state that
-proves it was done. The gate is an observation, so it is also the advance — do
-the step and the tour moves on by itself, once the gate has held quiet long
-enough that a search typed one character at a time is never interrupted
-mid-word, and after a moment's confirmation so the reader sees what their action
-produced. The two steps with nothing to observe keep a real button. Every gated
-step carries Skip, which performs the action for the reader rather than jumping
-past it, and Exit leaves at any point. It is opt-in, and it ships only with the
-WebAssembly demo: `examples/demo/boot.js` is loaded by nothing else, so it
-cannot appear in front of a real fleet.
+proves it was done. The gate is an observation, so no step is ever pressed to
+confirm a thing the tour just watched happen — it detects the action, holds the
+verdict until the gate has been quiet long enough that a search typed one
+character at a time is never interrupted mid-word, then says so.
+
+What follows depends on where the answer is. Where the result is read on the
+next screen, the tour moves itself after a moment's confirmation. Where the
+result IS the answer — the service in full, the field-by-field comparison that
+says Breaking, the neighborhood a change reaches — the next step navigates away
+from it, so those hold: the confirmation hands over a Continue the reader
+presses once they have finished reading, and the spotlight moves off the control
+onto what it produced. Showing someone a breaking change and taking it away a
+second later is the one outcome worse than making them press a button. The two
+steps with nothing to observe keep a real button throughout. Every gated step
+carries Skip, which performs the action for the reader rather than jumping past
+it — on a holding step that means they still get to read the result — and Exit
+leaves at any point. It is opt-in, and it ships only with the WebAssembly demo:
+`examples/demo/boot.js` is loaded by nothing else, so it cannot appear in front
+of a real fleet.
 
 The published `pacto-dashboard` bundle described half of its own API. The
 OpenAPI document it shipped was maintained by hand and had fallen to 18 paths

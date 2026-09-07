@@ -96,6 +96,16 @@
     // there is nothing there to watch for and an auto-advance would flash past unread.
     // That is decided by whether the step HAS a gate, never by its number.
     //
+    // Except where the gate IS the answer. On three of these steps the thing the reader
+    // did produces the screen the step was about -- the service in full, the field-by-field
+    // comparison that says Breaking, the neighborhood the change reaches -- and the step
+    // after it navigates away. Moving on a second later shows them the breaking change and
+    // then takes it away before it can be read, which is the one outcome worse than making
+    // them press a button. So those steps HOLD: the tour still detects the action, still
+    // says so, and then hands over a Continue the reader presses when they have finished
+    // looking. The button is never a confirmation that the step happened -- the tour
+    // already knows that -- only a way to say "I have read this".
+    //
     // Every gated step still carries `skip`: a gate the reader cannot clear is a trap, so
     // skip performs the same action programmatically, landing them on the screen a
     // performer reaches rather than one behind it.
@@ -112,8 +122,9 @@
     // and when it is a list the LAST selector that resolves wins, so the light follows
     // the action from a search box to the result it produced; `gate` is the predicate
     // that both proves the step was done and moves the tour on, so a step that HAS one
-    // has no forward button at all; `wait` is what an unsatisfied gate is waiting for,
-    // because a tour that sits there wanting something it has not named is a wall.
+    // has no forward button at all; `hold` marks the gates whose result is the point, which
+    // reveal a Continue instead of moving; `wait` is what an unsatisfied gate is waiting
+    // for, because a tour that sits there wanting something it has not named is a wall.
     var TOUR = [{
       text: NOTICE + " Read that, then press Continue.",
       hash: "#/fleet",
@@ -136,8 +147,12 @@
     }, {
       text: "Step 3 — one service in full. What payments-service declares, every revision it has published and what was observed about the targets running it. Compliance has four states, and “not evaluated” is not one of the passing ones. Open payments-service from the list.",
       hash: "#/fleet/services",
-      target: '[data-testid="service-list"] a[href$="/fleet/services/payments-service"]',
+      // The link, then -- once it has been followed and the link no longer exists -- the
+      // summary it opened. Without the second entry the light goes out at the moment the
+      // step asks the reader to look at something.
+      target: ['[data-testid="service-list"] a[href$="/fleet/services/payments-service"]', "#sec-operational-summary"],
       wait: "Waiting for the payments-service page to open.",
+      hold: true,
       gate: function () { return hashPath() === "#/fleet/services/payments-service"; },
       skip: function () {
         var a = paymentsLink();
@@ -147,9 +162,13 @@
       text: "Step 4 — about to ship a break. Two revisions compared field by field. Removing an API path is Breaking; adding an optional one is not. The classification rules are a published table, not a heuristic. Choose the earlier revision, then press Compare revisions.",
       hash: "#/fleet/changes/payments-service",
       // The whole form, so the two selectors and the submit sit inside one hole; the
-      // reader is asked to use all three and a light on only one of them misleads.
-      target: "#sec-revisions",
+      // reader is asked to use all three and a light on only one of them misleads. Then
+      // the comparison itself: this is the step the whole tour is for, and leaving the
+      // light on the form while the bubble says to read the verdict points at the wrong
+      // half of the screen.
+      target: ["#sec-revisions", '[data-testid="changes-what-changed"]'],
       wait: "Waiting for the comparison to run.",
+      hold: true,
       gate: function () { return !!q('[data-testid="changes-what-changed"]'); },
       skip: function () {
         var s = q("#impact-old-rev");
@@ -162,8 +181,9 @@
     }, {
       text: "Step 5 — who the change reaches. Edges a contract declares and edges something observed are kept apart rather than averaged, so a consumer that declared nothing still turns up. Search orders, then open the result.",
       hash: "#/fleet/graph",
-      target: ['[data-testid="graph-discovery"] input[type=search]', '[data-testid="graph-focus-link"]'],
+      target: ['[data-testid="graph-discovery"] input[type=search]', '[data-testid="graph-focus-link"]', '[data-testid="neighborhood-canvas"]'],
       wait: "Waiting for a focused neighborhood to render.",
+      hold: true,
       gate: function () { return !!q('[data-testid="neighborhood-canvas"]'); },
       skip: function () {
         var i = q('[data-testid="graph-discovery"] input[type=search]');
@@ -501,6 +521,11 @@
     // the result: a view that changes with no warning is disorienting to everyone and a
     // WCAG failure for a reader who cannot watch it happen.
     var GATE_OPEN = "Done — moving on.";
+    // The same observation on a step that holds, which has to say the opposite thing: the
+    // tour saw the action and is deliberately NOT taking the screen away. Announcing the
+    // stay matters as much as announcing a move -- a reader who cannot see the result
+    // otherwise has no way to know the tour is now waiting on them.
+    var HOLD_OPEN = "Done — that is the answer. Read it, then press Continue.";
 
     // Three numbers stand between the gate reporting satisfied and the view changing.
     //
@@ -600,10 +625,25 @@
       // back. And it says something rather than emptying the region -- clearing it
       // announces nothing at all, so the reader who cannot see the screen would be the one
       // told least about the only thing that happens on the step.
-      var msg = confirmAt ? GATE_OPEN : s.wait;
+      var msg = confirmAt ? (s.hold ? HOLD_OPEN : GATE_OPEN) : s.wait;
       if (hintEl.textContent !== msg) {
         hintEl.textContent = msg;
         hintEl.className = confirmAt ? "ok" : "";
+      }
+      // A step whose gate produced the answer hands over the forward control rather than
+      // the screen. Guarded on the button still being hidden so this is one flip per visit
+      // and not a write every frame.
+      if (confirmAt && s.hold) {
+        if (nextBtn.hidden) {
+          nextBtn.hidden = false;
+          // Both of these belong to a step that has not happened yet. The action is done,
+          // so an offer to perform it is noise; and the skip deadline was only ever a floor
+          // under a gate that never opens -- left armed it would move the reader off the
+          // result six seconds later, which is the whole defect this branch exists to fix.
+          skipBtn.hidden = true;
+          skipUntil = 0;
+        }
+        return;
       }
       // One move per frame. The confirmation coming due and the skip deadline expiring can
       // land on the same tick, and both of them mean the same thing.
@@ -753,9 +793,14 @@
       // that says so instead; a step with nothing to observe keeps a real control. Decided
       // by the step, never by its number -- the only thing the number decides is the word
       // on the button, because the last step has nowhere further to send anyone.
+      // A gated step arrives with no forward button either way. On a holding one tick()
+      // reveals it once the gate settles; on the rest it never appears, because the tour
+      // will have moved by then.
       nextBtn.hidden = !!s.gate;
       nextBtn.textContent = i === TOUR.length - 1 ? "Done" : "Continue";
-      autoEl.hidden = !s.gate;
+      // Only where no button is coming at all. On a holding step one is, so promising
+      // otherwise would be a promise the tour breaks a moment later.
+      autoEl.hidden = !s.gate || !!s.hold;
       // Nothing to skip on an ungated step: there is a live button there already, and a
       // second control that does the same thing is a choice the reader has to stop and make.
       skipBtn.hidden = !s.gate;
