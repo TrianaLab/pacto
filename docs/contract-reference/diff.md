@@ -175,9 +175,8 @@ openapi.paths[/users].methods[GET].responses[200]
 |-------|--------|----------------|
 | `asyncapi.channels` | Added | NON_BREAKING |
 | `asyncapi.channels` | Removed | **BREAKING** |
-| `asyncapi.channels` | Modified | POTENTIAL_BREAKING |
 
-A channel present on both sides is compared field by field rather than as one blob, so a new payload property, a changed property type or a new `required` entry each surface as their own change. A `required` change is `BREAKING`; other payload changes are `POTENTIAL_BREAKING`.
+A channel present on both sides is never reported as one opaque modification. It is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change, classified by the [JSON Schema rules](#json-schema-configuration-policy-schemas) below: a `required` change is `BREAKING`, every other inner difference is `POTENTIAL_BREAKING`. That is why there is no `asyncapi.channels` Modified row — the engine has no such change to emit.
 
 ### Operations
 
@@ -185,7 +184,8 @@ A channel present on both sides is compared field by field rather than as one bl
 |-------|--------|----------------|
 | `asyncapi.operations` | Added | NON_BREAKING |
 | `asyncapi.operations` | Removed | **BREAKING** |
-| `asyncapi.operations` | Modified | POTENTIAL_BREAKING |
+
+An operation present on both sides is deep-diffed exactly like a channel, so flipping `action` from `send` to `receive` surfaces as `asyncapi.operations[sendOrder].action` (`POTENTIAL_BREAKING`) rather than a modification of the operation as a whole.
 
 Top-level `operations` are an AsyncAPI 3.x concept. A 2.x document has no `operations` map, so only its channels are compared.
 
@@ -233,7 +233,9 @@ The comparison is a text scan of proto3 source, not a protobuf compile. In pract
 - **`import`s are not resolved.** Only the declarations in the referenced file are compared. A message that moves into an imported file reads as a removal.
 - **Nested messages and `oneof` bodies are not descended into.** Their fields are skipped rather than misread as fields of the enclosing message, so a change inside one produces no change entry.
 - **Identity is the declared name.** A renamed field or rpc reads as a removal plus an addition even when the field number is unchanged.
-- **Comments are stripped before scanning.** A comment marker inside a string literal (a URL in an `option` line, say) truncates that line. That is harmless because `option` statements are not part of the compared surface.
+- **Type identity is textual.** The scanner does not resolve names against `package` or `import`, so fully qualifying a type (`Inner` → `pkg.v1.Inner`) reads as a modified field even though the descriptor is unchanged.
+- **Inline field options are ignored.** A field's trailing `[...]` block is parsed off and dropped, so adding or removing `[deprecated = true]` is not a change while a retype behind one still is. A field whose option block contains braces (a nested text-format value such as `[(validate.rules).string = {min_len: 1}]`) is skipped entirely, on both sides, so it never appears in the compared surface.
+- **Comments and string literals are handled by one pre-scan.** Before anything is matched, the source is walked once and the bytes of every comment and of every string literal's contents are replaced with spaces. A `//` or a `}` inside a string (a URL in an `option` line, say) is therefore inert: it neither truncates the line nor closes a block early. Both quote styles and backslash escapes are understood, and the single pass settles comment-vs-string precedence, so a `/*` written inside a `//` comment does not open a block comment.
 
 ## JSON Schema (configuration & policy schemas)
 

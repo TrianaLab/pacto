@@ -237,6 +237,52 @@ func TestDiffAsyncAPI_OperationModified(t *testing.T) {
 	}
 }
 
+// A channel or operation present on both sides is never reported as one opaque
+// Modified change: it is deep-diffed, and every inner difference is classified
+// by the JSON Schema rules (`required` escalates to BREAKING, everything else is
+// POTENTIAL_BREAKING). This is why the rule table carries no
+// {"asyncapi.channels", Modified} / {"asyncapi.operations", Modified} entry —
+// nothing would ever consult it.
+func TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed(t *testing.T) {
+	channelDoc := strings.Replace(baseAsyncAPI, `            order_id:
+              type: string`, `            order_id:
+              type: integer`, 1)
+	opDoc := strings.Replace(baseAsyncAPIV3, "    action: send", "    action: receive", 1)
+
+	for _, tt := range []struct {
+		name, prefix, deepPath string
+		old, new               string
+		wantDeep               Classification
+	}{
+		{
+			name: "channel", prefix: "asyncapi.channels[order.created]",
+			old: baseAsyncAPI, new: channelDoc,
+			deepPath: "asyncapi.channels[order.created].publish.message.payload.properties.order_id.type",
+			wantDeep: PotentialBreaking,
+		},
+		{
+			name: "operation", prefix: "asyncapi.operations[sendOrder]",
+			old: baseAsyncAPIV3, new: opDoc,
+			deepPath: "asyncapi.operations[sendOrder].action",
+			wantDeep: PotentialBreaking,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			changes := diffAsync(t, tt.old, tt.new)
+			if hasChange(changes, tt.prefix, Modified) {
+				t.Errorf("expected no opaque Modified change at %s, got %+v", tt.prefix, changes)
+			}
+			c, ok := findChange(changes, tt.deepPath, Modified)
+			if !ok {
+				t.Fatalf("expected a deep change at %s, got %+v", tt.deepPath, changes)
+			}
+			if c.Classification != tt.wantDeep {
+				t.Errorf("expected %s from the JSON Schema rules, got %s", tt.wantDeep, c.Classification)
+			}
+		})
+	}
+}
+
 // TestDiffAsyncAPI_DemoFixtures runs the differ over the two real AsyncAPI 2.6
 // documents shipped with the demo bundles, proving the engine against real
 // content rather than only hand-built strings.

@@ -189,13 +189,13 @@ func TestClassify_InterfaceContentPaths(t *testing.T) {
 		ct   ChangeType
 		want Classification
 	}{
-		// AsyncAPI, rule keys
+		// AsyncAPI, rule keys. There is no Modified rule: a channel or operation
+		// present on both sides is deep-diffed, so the engine never asks for one.
+		// TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed proves that.
 		{"asyncapi.channels", Added, NonBreaking},
 		{"asyncapi.channels", Removed, Breaking},
-		{"asyncapi.channels", Modified, PotentialBreaking},
 		{"asyncapi.operations", Added, NonBreaking},
 		{"asyncapi.operations", Removed, Breaking},
-		{"asyncapi.operations", Modified, PotentialBreaking},
 
 		// AsyncAPI, emitted paths
 		{"asyncapi.channels[payment.completed]", Removed, Breaking},

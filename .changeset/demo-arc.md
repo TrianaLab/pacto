@@ -52,11 +52,17 @@ that a three-service fixture never reaches:
   `provenance=observed` — the observed edges that find undeclared consumers were
   absent from the agent-facing surface entirely.
 
-One limitation is now documented rather than implied: only OpenAPI interfaces
-are compared spec-against-spec. Rewriting an AsyncAPI or gRPC document behind an
-unchanged ref produces no interface finding, because for those types only the
-ref is diffed. `docs/contract-reference/diff.md` states this in the table
-instead of leaving a reader to infer coverage Pacto does not have.
+The limitation that made the tour honest is now gone: AsyncAPI and gRPC
+interfaces are compared spec-against-spec, not just by ref. AsyncAPI channels
+and operations are deep-diffed so a payload property or a `required` entry
+surfaces on its own, and a `.proto` is scanned for services, rpcs, messages and
+fields. The proto scan is a text scan, not a compile, so a single pre-scan
+blanks comments and string-literal contents before anything is matched — a `//`
+or a `}` inside a string neither truncates a line nor closes a block early — and
+a field's inline `[...]` option block is parsed off and dropped, so adding
+`[deprecated = true]` is not a change while a retype behind one still is.
+`docs/contract-reference/diff.md` states what each comparison does and, in "What
+the proto comparison does not do", what it does not.
 
 Two fixture versions moved: `payments-service` 1.2.0 and 2.0.0 are already
 published to `ghcr.io/trianalab/pacto`, and the `capabilities[]` and `sbom/`

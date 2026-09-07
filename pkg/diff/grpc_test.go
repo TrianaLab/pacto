@@ -147,6 +147,173 @@ service OrderService {
 	}
 }
 
+// A `//` inside a string literal must not truncate the line. Before the
+// single-pass pre-scan it ate the closing brace of the enclosing message, the
+// braces never balanced, and the WHOLE FILE extracted as an empty surface — so
+// diffing it against anything reported every service and message as removed.
+func TestExtractProto_CommentMarkerInsideStringLiteral(t *testing.T) {
+	src := `syntax = "proto3";
+
+message Order {
+  option (my.ext) = { doc: "https://example.com/orders" };
+  string id = 1;
+}
+
+service OrderService {
+  rpc GetOrder(Order) returns (Order);
+}
+`
+	api := extractProto(src)
+	if got := api.messages["Order"]["id"]; got != "string = 1" {
+		t.Errorf("Order.id = %q, want %q (surface: %+v)", got, "string = 1", api)
+	}
+	if got := api.services["OrderService"]["GetOrder"]; got != "(Order) returns (Order)" {
+		t.Errorf("OrderService.GetOrder = %q (surface: %+v)", got, api)
+	}
+	if changes := diffProto(t, src, src); len(changes) != 0 {
+		t.Errorf("expected 0 changes against itself, got %+v", changes)
+	}
+}
+
+// A `}` inside a string literal must not close the enclosing block early and
+// discard every declaration after it.
+func TestExtractProto_BraceInsideStringLiteral(t *testing.T) {
+	src := `syntax = "proto3";
+
+message Order {
+  option (my.ext) = "a } b";
+  string id = 1;
+}
+`
+	if got := extractProto(src).messages["Order"]["id"]; got != "string = 1" {
+		t.Errorf("Order.id = %q, want %q", got, "string = 1")
+	}
+}
+
+// Both proto quote styles, and a backslash-escaped quote that must not end the
+// literal. Every marker inside these strings is inert.
+func TestExtractProto_QuoteStylesAndEscapes(t *testing.T) {
+	src := `syntax = "proto3";
+
+message Order {
+  option (a) = "he said \"} // still a string\" and stopped";
+  option (b) = 'single quoted } /* also inert */';
+  string id = 1;
+}
+`
+	got := extractProto(src).messages["Order"]
+	want := map[string]string{"id": "string = 1"}
+	if len(got) != len(want) || got["id"] != want["id"] {
+		t.Errorf("fields = %v, want %v", got, want)
+	}
+}
+
+// Comment-vs-comment precedence: a `/*` that appears inside a line comment is
+// not a block-comment opener. The old two-regex strip ran the block pattern
+// first, so this swallowed everything up to the next `*/` in the file.
+func TestExtractProto_BlockMarkerInsideLineComment(t *testing.T) {
+	src := `syntax = "proto3";
+
+// TODO /* revisit this before v2
+message A {
+  string a = 1;
+}
+
+/* a genuine block comment */
+message B {
+  string b = 1;
+}
+`
+	api := extractProto(src)
+	if got := api.messages["A"]["a"]; got != "string = 1" {
+		t.Errorf("message A was swallowed by a phantom block comment: %+v", api.messages)
+	}
+	if got := api.messages["B"]["b"]; got != "string = 1" {
+		t.Errorf("B.b = %q, want %q", got, "string = 1")
+	}
+}
+
+// Unterminated noise must not panic, read past the end of the buffer, or run
+// away and blank the rest of the file.
+func TestExtractProto_UnterminatedNoise(t *testing.T) {
+	tests := map[string]string{
+		"unterminated block comment": "message A {\n  string a = 1;\n}\n/* dangling",
+		"trailing slash":             "message A {\n  string a = 1;\n}\n/",
+		"trailing star":              "message A {\n  string a = 1;\n}\n/* x *",
+		"trailing backslash":         "message A {\n  string a = 1;\n}\noption x = \"y\\",
+	}
+	for name, src := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := extractProto(src).messages["A"]["a"]; got != "string = 1" {
+				t.Errorf("A.a = %q, want %q", got, "string = 1")
+			}
+		})
+	}
+}
+
+// A proto string literal cannot span a raw newline, so an unterminated one ends
+// at the line break. The malformed statement is collateral — its `;` was inside
+// the literal — but the damage stops at that line instead of blanking the rest
+// of the file and collapsing the whole surface.
+func TestExtractProto_UnterminatedStringStopsAtNewline(t *testing.T) {
+	api := extractProto(`message A {
+  option x = "dangling;
+  string a = 1;
+}
+
+message B {
+  string b = 1;
+}
+`)
+	if _, ok := api.messages["A"]; !ok {
+		t.Errorf("message A must still be found, got %+v", api.messages)
+	}
+	if got := api.messages["B"]["b"]; got != "string = 1" {
+		t.Errorf("the runaway literal swallowed message B: %+v", api.messages)
+	}
+}
+
+// Inline field options are recognised but not recorded: a retype behind an
+// option block is still a Modified field, and adding an option block to an
+// otherwise unchanged field is not a change at all.
+func TestDiffGRPC_InlineFieldOptions(t *testing.T) {
+	const (
+		plain      = "message Account {\n  string email = 1;\n  int32 amount = 3;\n}\n"
+		optioned   = "message Account {\n  string email = 1 [deprecated = true];\n  int32 amount = 3 [deprecated = true];\n}\n"
+		retypedOpt = "message Account {\n  string email = 1 [deprecated = true];\n  string amount = 3 [deprecated = true];\n}\n"
+	)
+
+	t.Run("adding an option block is a no-op", func(t *testing.T) {
+		if changes := diffProto(t, plain, optioned); len(changes) != 0 {
+			t.Errorf("expected 0 changes, got %+v", changes)
+		}
+	})
+	t.Run("removing an option block is a no-op", func(t *testing.T) {
+		if changes := diffProto(t, optioned, plain); len(changes) != 0 {
+			t.Errorf("expected 0 changes, got %+v", changes)
+		}
+	})
+	t.Run("a retype behind an option block is still BREAKING", func(t *testing.T) {
+		changes := diffProto(t, optioned, retypedOpt)
+		c, ok := findChange(changes, "grpc.messages[Account].fields[amount]", Modified)
+		if !ok {
+			t.Fatalf("expected the retype to surface, got %+v", changes)
+		}
+		if c.OldValue != "int32 = 3" || c.NewValue != "string = 3" {
+			t.Errorf("expected int32 = 3 -> string = 3, got %v -> %v", c.OldValue, c.NewValue)
+		}
+		if c.Classification != Breaking {
+			t.Errorf("expected BREAKING, got %s", c.Classification)
+		}
+	})
+	t.Run("an option block containing a string is not truncated", func(t *testing.T) {
+		withStr := "message Account {\n  string email = 1 [(v.rules).string.pattern = \"^[a-z]+$\"];\n}\n"
+		if got := extractProto(withStr).messages["Account"]["email"]; got != "string = 1" {
+			t.Errorf("Account.email = %q, want %q", got, "string = 1")
+		}
+	})
+}
+
 func TestDiffGRPC_ServiceRemovedAndAdded(t *testing.T) {
 	renamed := strings.Replace(baseProto, "service OrderService {", "service OrdersV2 {", 1)
 	changes := diffProto(t, baseProto, renamed)
@@ -369,7 +536,10 @@ func TestExtractProto_DemoFixture(t *testing.T) {
 	}
 	api := extractProto(string(data))
 
-	rpcs := api.services["FraudService"]
+	rpcs, ok := api.services["FraudService"]
+	if !ok {
+		t.Fatalf("expected service FraudService, got %v", api.services)
+	}
 	if len(rpcs) != 2 {
 		t.Fatalf("expected 2 rpcs, got %v", rpcs)
 	}
@@ -381,6 +551,14 @@ func TestExtractProto_DemoFixture(t *testing.T) {
 	}
 	if len(api.messages) != 4 {
 		t.Fatalf("expected 4 messages, got %v", api.messages)
+	}
+	for _, name := range []string{
+		"EvaluateTransactionRequest", "EvaluateTransactionResponse",
+		"ReportFraudRequest", "ReportFraudResponse",
+	} {
+		if len(api.messages[name]) == 0 {
+			t.Errorf("expected message %s with fields, got %v", name, api.messages[name])
+		}
 	}
 	if got := api.messages["EvaluateTransactionRequest"]["metadata"]; got != "map<string, string> = 7" {
 		t.Errorf("unexpected metadata field %q", got)

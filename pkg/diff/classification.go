@@ -120,14 +120,15 @@ var rules = map[classificationKey]Classification{
 	{"openapi.responses", Modified}: PotentialBreaking,
 
 	// AsyncAPI channels and operations — the consumer-facing event surface.
-	// A removed channel or operation strips a subscriber's feed outright;
-	// a reshaped one may or may not still deserialise for existing consumers.
-	{"asyncapi.channels", Added}:      NonBreaking,
-	{"asyncapi.channels", Removed}:    Breaking,
-	{"asyncapi.channels", Modified}:   PotentialBreaking,
-	{"asyncapi.operations", Added}:    NonBreaking,
-	{"asyncapi.operations", Removed}:  Breaking,
-	{"asyncapi.operations", Modified}: PotentialBreaking,
+	// A removed channel or operation strips a subscriber's feed outright.
+	// There is deliberately no Modified rule: a channel or operation present on
+	// both sides is deep-diffed by diffJSON, which classifies each inner
+	// difference with classifySchemaChange, so a Modified rule here would never
+	// be consulted.
+	{"asyncapi.channels", Added}:     NonBreaking,
+	{"asyncapi.channels", Removed}:   Breaking,
+	{"asyncapi.operations", Added}:   NonBreaking,
+	{"asyncapi.operations", Removed}: Breaking,
 
 	// gRPC service surface. proto3 has no `required`, so an added rpc, message
 	// or field is always wire-compatible. Everything else here is Breaking:

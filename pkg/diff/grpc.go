@@ -144,11 +144,12 @@ func diffProtoMembers(s protoSection, owner string, old, new map[string]string) 
 }
 
 var (
-	protoBlockCommentRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	protoLineCommentRe  = regexp.MustCompile(`//[^\n]*`)
-	protoBlockRe        = regexp.MustCompile(`(?m)^\s*(service|message)\s+(\w+)\s*\{`)
-	protoRPCRe          = regexp.MustCompile(`(?s)\brpc\s+(\w+)\s*\(([^)]*)\)\s*returns\s*\(([^)]*)\)`)
-	protoFieldRe        = regexp.MustCompile(`^(?:(repeated|optional)\s+)?(map\s*<[^>]*>|[.\w]+)\s+(\w+)\s*=\s*(\d+)$`)
+	protoBlockRe = regexp.MustCompile(`(?m)^\s*(service|message)\s+(\w+)\s*\{`)
+	protoRPCRe   = regexp.MustCompile(`(?s)\brpc\s+(\w+)\s*\(([^)]*)\)\s*returns\s*\(([^)]*)\)`)
+	// The trailing `\[.*\]` is a field's inline option block. It is matched so the
+	// field is still recognised, and discarded so `[deprecated = true]` appearing
+	// or disappearing is not reported as a change.
+	protoFieldRe = regexp.MustCompile(`^(?:(repeated|optional)\s+)?(map\s*<[^>]*>|[.\w]+)\s+(\w+)\s*=\s*(\d+)\s*(?:\[.*\])?$`)
 )
 
 // protoStatementKeywords lead a statement that is never a field declaration.
@@ -158,11 +159,11 @@ var protoStatementKeywords = map[string]bool{
 }
 
 // extractProto scans a proto3 source file for its top-level services and
-// messages. Comments are stripped first, then blocks are walked in source order,
-// jumping past each block body so nested messages are never mistaken for
-// top-level ones.
+// messages. Comments and string literals are blanked first, then blocks are
+// walked in source order, jumping past each block body so nested messages are
+// never mistaken for top-level ones.
 func extractProto(src string) protoAPI {
-	src = stripProtoComments(src)
+	src = blankProtoNoise(src)
 	api := protoAPI{
 		services: make(map[string]map[string]string),
 		messages: make(map[string]map[string]string),
@@ -192,15 +193,60 @@ func extractProto(src string) protoAPI {
 	return api
 }
 
-// stripProtoComments removes block and line comments.
+// blankProtoNoise overwrites the bytes of every comment and the contents of
+// every string literal with spaces, preserving newlines so the line-anchored
+// block regex still sees the original line structure.
 //
-// Comment markers embedded in string literals are not handled: an
-// `option x = "http://example.com";` line loses its tail. That is harmless here
-// because option statements are not part of the extracted surface, and it keeps
-// this a three-line strip instead of a lexer.
-func stripProtoComments(src string) string {
-	src = protoBlockCommentRe.ReplaceAllString(src, "")
-	return protoLineCommentRe.ReplaceAllString(src, "")
+// The result is the same length as the input, so every index computed against
+// it — protoBlockRe's offsets, matchBrace, extractFields — addresses the same
+// declaration it would in the source. Regexes cannot do this job: a `//` inside
+// a string literal would truncate the line and a `}` inside one would close a
+// block early, either of which silently discards real declarations. One pass
+// also settles comment-vs-string precedence, so `// TODO /* revisit` does not
+// open a block comment that swallows the declarations after it.
+func blankProtoNoise(src string) string {
+	out := []byte(src)
+	for i := 0; i < len(out); {
+		switch {
+		case isProtoMarker(out, i, '/', '/'):
+			for ; i < len(out) && out[i] != '\n'; i++ {
+				out[i] = ' '
+			}
+		case isProtoMarker(out, i, '/', '*'):
+			out[i], out[i+1] = ' ', ' '
+			for i += 2; i < len(out) && !isProtoMarker(out, i, '*', '/'); i++ {
+				if out[i] != '\n' {
+					out[i] = ' '
+				}
+			}
+			if i < len(out) {
+				out[i], out[i+1] = ' ', ' '
+				i += 2
+			}
+		case out[i] == '"' || out[i] == '\'':
+			// A proto string literal cannot span a raw newline, so an unterminated
+			// one ends at the line break rather than eating the rest of the file.
+			quote := out[i]
+			for i++; i < len(out) && out[i] != quote && out[i] != '\n'; i++ {
+				if out[i] == '\\' && i+1 < len(out) && out[i+1] != '\n' {
+					out[i] = ' ' // an escaped quote does not close the literal
+					i++
+				}
+				out[i] = ' '
+			}
+			if i < len(out) && out[i] == quote {
+				i++
+			}
+		default:
+			i++
+		}
+	}
+	return string(out)
+}
+
+// isProtoMarker reports whether the two-byte marker first+second starts at i.
+func isProtoMarker(b []byte, i int, first, second byte) bool {
+	return b[i] == first && i+1 < len(b) && b[i+1] == second
 }
 
 // matchBrace returns the index just past the brace matching the one at open, or
