@@ -1,10 +1,17 @@
 name: Security
 
 # Vulnerability scanning: govulncheck (Go source + dependencies, reachability
-# aware) and Trivy (built container image, OS + language CVEs). Runs on PRs and
-# pushes to main, plus a weekly schedule to catch newly disclosed CVEs in
-# unchanged code and base images. The two scan jobs run in parallel (no
-# `needs`); a follow-up `comment` job posts a summary on pull requests.
+# aware) and Trivy (built container image, OS + language CVEs). The two scan jobs
+# run in parallel (no `needs`); a follow-up `comment` job posts a summary on pull
+# requests.
+#
+# Both scans are fail-closed, but until `security-required` existed neither one
+# blocked anything: they reported status contexts branch protection does not
+# require, so a pull request could go red here and merge anyway -- unattended,
+# since Dependabot arms auto-merge the moment it opens. GitHub has no
+# cross-workflow `needs:`, so a workflow that is not ci.yml earns its gate by
+# publishing one aggregate context of its own for protection to require. That is
+# `security-required` at the bottom of this file.
 #
 # Supply-chain note: aquasecurity/trivy-action and setup-trivy were compromised
 # in March 2026 (tags force-pushed to an infostealer), so we install the Trivy
@@ -181,3 +188,31 @@ jobs:
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
+
+  # Single required status for branch protection, mirroring ci.yml's `required`
+  # and docs-check.yml's `docs-required`: green when both scans passed AND when
+  # they were correctly skipped, red only when one actually failed. Requiring
+  # `govulncheck (Go)` and `Trivy (image)` individually would work today but
+  # silently stops covering the next scan someone adds; this aggregate picks it
+  # up as soon as it joins the `needs:` list.
+  #
+  # `comment` is deliberately absent: it posts the PR summary, so a flaky
+  # comment API call must not stand between a clean scan and a merge.
+  security-required:
+    if: always()
+    needs:
+      - govulncheck
+      - trivy-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no scan failed
+        run: |
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "leg results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "a required security scan did not pass"
+              exit 1
+            fi
+          done
+          echo "all required security scans passed"

@@ -11,17 +11,37 @@ on:
     paths:
       - 'pactos/**'
       - 'pkg/dashboard/**'
+  # No `paths:` here, deliberately. `pacto-required` below is a required status
+  # check, and a required check filtered at the trigger never starts on an
+  # unrelated pull request, so it never reports and the pull request waits
+  # forever on a check that will never arrive. The filter lives in the `changes`
+  # job instead -- the same shape docs-check.yml uses.
   pull_request:
-    paths:
-      - 'pactos/**'
-      - 'pkg/dashboard/**'
+    branches: [main]
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      contract: ${{ steps.filter.outputs.contract }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            contract:
+              - 'pactos/**'
+              - 'pkg/dashboard/**'
+              - '.github/workflows/pacto.yml'
+
   bundle:
+    needs: changes
+    if: needs.changes.outputs.contract == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,3 +98,29 @@ jobs:
         run: |
           pacto doc ./pactos/pacto-dashboard \
             --set service.version=0.0.0-pr.${{ github.event.pull_request.number }}
+
+  # Single required status for branch protection, mirroring ci.yml's `required`
+  # and docs-check.yml's `docs-required`: green when the bundle validated AND
+  # when it was correctly skipped, red only when it actually failed. Without it
+  # the dashboard contract bundle was validated pre-merge by a check nothing
+  # required, so the first hard failure would land mid-release-transaction --
+  # after the Go module tags are already pushed, which is the expensive place to
+  # discover it.
+  pacto-required:
+    if: always()
+    needs:
+      - changes
+      - bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no contract leg failed
+        run: |
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "leg results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "a required contract leg did not pass"
+              exit 1
+            fi
+          done
+          echo "all required contract legs passed"
