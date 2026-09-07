@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "payments-service",
-  "documentNamespace": "https://trianalab.com/sbom/payments-service/v2.0.0",
+  "documentNamespace": "https://trianalab.com/sbom/payments-service/v2.0.1",
   "creationInfo": {
     "created": "2026-09-06T00:00:00Z",
     "creators": ["Tool: pacto-demo"]

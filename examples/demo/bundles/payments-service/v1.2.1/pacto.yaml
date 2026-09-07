@@ -1,7 +1,7 @@
 pactoVersion: '2.0'
 service:
   name: payments-service
-  version: 1.2.0
+  version: 1.2.1
   owner:
     team: team/payments
 interfaces:

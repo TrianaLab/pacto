@@ -40,12 +40,15 @@ func TestDocsCheckPathsCoverDemoTranscripts(t *testing.T) {
 	s := string(b)
 	for _, p := range []string{
 		"examples/demo/**",
+		"release/scripts/gen_demo_transcripts.sh",
 		"pkg/fleet/**",
 		"internal/fleetsrc/**",
 		"pkg/readiness/**",
 		"pkg/diff/**",
 		"pkg/impact/**",
 		"internal/mcp/**",
+		"pkg/sbom/**",
+		"pkg/graph/**",
 	} {
 		if !strings.Contains(s, p) {
 			t.Errorf("docs-check.yml path filter is missing %q; a change there could drift the demo transcripts without running docs-check", p)

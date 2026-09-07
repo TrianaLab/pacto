@@ -24,6 +24,10 @@ BIN="$WORK/pacto"
 go build -o "$BIN" ./cmd/pacto
 
 mkdir -p "$OUT"
+# Drop transcripts from a previous beat numbering first. The tour snippet-includes
+# by name, so an orphan left behind here is invisible to the drift gate — it stays
+# byte-identical to itself forever while matching no beat.
+rm -f "$OUT"/_beat-*.md
 
 # emit <basename> <beat>...  — one transcript file, one bash+console pair per beat.
 emit() {

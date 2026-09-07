@@ -46,14 +46,20 @@ on:
       # examples/demo/generated, and generated_paths() puts them under the drift
       # gate. Every beat's committed output comes from one of five subsystems, so a
       # change to any of them can drift the page: fleet (beats 1-4, 10), readiness
-      # (beat 3), diff (beats 5-6), impact (beats 7-9) and mcp (beat 11).
+      # (beat 3), diff (beats 5-6), impact (beats 7-9) and mcp (beat 11). The last
+      # two are what those five are built out of: pkg/diff compares SBOMs through
+      # pkg/sbom (beat 5 prints an SBOM finding) and pkg/fleet resolves refs through
+      # pkg/graph, so a change in either moves the same committed bytes.
       - 'examples/demo/**'
+      - 'release/scripts/gen_demo_transcripts.sh'
       - 'pkg/fleet/**'
       - 'internal/fleetsrc/**'
       - 'pkg/readiness/**'
       - 'pkg/diff/**'
       - 'pkg/impact/**'
       - 'internal/mcp/**'
+      - 'pkg/sbom/**'
+      - 'pkg/graph/**'
       # docs_check.py builds ./cmd/pacto and runs `pacto validate` on every fenced
       # contract example in the docs, so a change to the validator, the contract
       # model, the schema or the CLI can invalidate an example without touching any
