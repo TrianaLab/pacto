@@ -86,11 +86,19 @@
     // route this dashboard already serves, read against the fixture.
     //
     // It is a HARD gate rather than a slideshow. A stepper whose text advances while the
-    // reader watches teaches nothing; each step here names one thing to do and Next stays
-    // genuinely disabled until the app is in the state that proves it was done. That is
-    // also why every gated step carries `skip`: a gate the reader cannot clear is a trap,
-    // so skip performs the same action programmatically and advances, landing them on the
-    // screen a performer reaches rather than one behind it.
+    // reader watches teaches nothing; each step here names one thing to do and the tour
+    // does not move until the app is in the state that proves it was done.
+    //
+    // And when it IS in that state, the tour moves ITSELF. The gate is an observation, so
+    // a Next button after it asks the reader to confirm a thing the tour just watched them
+    // do -- the step twice, once for real and once for the stepper. A step with no action
+    // to observe (the opening notice, the closing hand-off) keeps a real button, because
+    // there is nothing there to watch for and an auto-advance would flash past unread.
+    // That is decided by whether the step HAS a gate, never by its number.
+    //
+    // Every gated step still carries `skip`: a gate the reader cannot clear is a trap, so
+    // skip performs the same action programmatically, landing them on the screen a
+    // performer reaches rather than one behind it.
     //
     // Opt-in, never automatic: nothing below runs until "Take the guided tour" is
     // pressed. A visitor who wants to poke around is never grabbed, and -- because the
@@ -103,10 +111,11 @@
     // to go next rather than about a screen); `target` is what the spotlight cuts out,
     // and when it is a list the LAST selector that resolves wins, so the light follows
     // the action from a search box to the result it produced; `gate` is the predicate
-    // that opens Next; `wait` is what a closed gate is waiting for, because a disabled
-    // control with no reason is a wall.
+    // that both proves the step was done and moves the tour on, so a step that HAS one
+    // has no forward button at all; `wait` is what an unsatisfied gate is waiting for,
+    // because a tour that sits there wanting something it has not named is a wall.
     var TOUR = [{
-      text: NOTICE + " Read that, then press Next.",
+      text: NOTICE + " Read that, then press Continue.",
       hash: "#/fleet",
       target: "#sec-attention"
     }, {
@@ -171,7 +180,7 @@
     }];
 
     var el, label, meter, startBtn, sizeObs;
-    var overlay, spot, bubble, stepNum, textEl, hintEl, backBtn, nextBtn, skipBtn, moreLink;
+    var overlay, spot, bubble, stepNum, textEl, hintEl, autoEl, backBtn, nextBtn, skipBtn, moreLink;
     var step = 0;
     var running = false;
     var raf = 0;
@@ -277,12 +286,19 @@
         // or the hand-off link would sit in every step instead of only the last.
         "#pacto-tour-more[hidden]{display:none}" +
         // The gate's reason. Amber and in the flow rather than a tooltip: the reader has
-        // to be able to see why Next will not move without hovering anything.
+        // to be able to see what the tour is waiting for without hovering anything.
         "#pacto-tour-hint{display:block;margin-top:.45rem;color:#fcd34d}" +
         "#pacto-tour-hint:empty{display:none}" +
-        // The same line says the gate has opened, and amber for good news reads as a
-        // second warning, so the open state is green.
+        // The same line carries the confirmation once the gate has settled, and amber for
+        // good news reads as a second warning, so that state is green.
         "#pacto-tour-hint.ok{color:#86efac}" +
+        // What stands where the forward button does on the steps that have one. A gated
+        // step has no button, and an empty gap where a control was is a reader waiting for
+        // something that is never coming -- so the row says, in the row, that it will move
+        // by itself. Its own full-width line rather than squeezed between Back and Skip:
+        // at 26rem there is not enough left over for a sentence, and a control row three
+        // text lines tall to fit one reads worse than an extra line does.
+        "#pacto-tour-auto{flex:1 1 100%;color:#94a3b8}" +
         // The fixture disclosure, kept reachable while the strip that usually carries it
         // is hidden. Quiet and last: it is a way out, not a step.
         "#pacto-tour-about{display:inline-block;margin-top:.5rem;font-size:.75rem}" +
@@ -481,27 +497,66 @@
       if (r.top < 0 || r.bottom > document.documentElement.clientHeight) { t.scrollIntoView({ block: "center" }); }
     }
 
-    // What the live region says once the gate is open (see tick).
-    var GATE_OPEN = "Done — press Next.";
+    // What the live region says once the gate has settled. It names the move as well as
+    // the result: a view that changes with no warning is disorienting to everyone and a
+    // WCAG failure for a reader who cannot watch it happen.
+    var GATE_OPEN = "Done — moving on.";
 
-    // Skip performs the step's action FOR the reader and then WAITS for that step's own
-    // gate before advancing. It cannot advance in the same tick: every action here is
-    // asynchronous -- a submit that runs an analysis and only then writes the URL, a link
-    // click that loads a neighborhood -- and moving the route out from under one lands the
-    // app's own late write on the screen AFTER it, leaving the URL describing a page
-    // nobody is on. Waiting is also the point of the feature: the reader gets a moment to
-    // see what was just done for them. Bounded, because a gate that never opens must not
-    // hang the tour behind a button that now looks broken -- when the deadline passes it
-    // advances regardless, which is exactly where the old unconditional skip landed.
+    // Three numbers stand between the gate reporting satisfied and the view changing.
+    //
+    // SETTLE_MS -- the gate must HOLD, with no keystroke and no pointer press, for this
+    //   long. Step 2 asks for a typed search, and its gate is open as soon as one
+    //   committed character narrows the list; firing on that yanks the reader away
+    //   mid-word. The quiet period runs from the later of the gate opening and the
+    //   reader's last input, so someone still typing is never interrupted.
+    // CONFIRM_MS -- how long the bubble says so before the screen moves. Without it the
+    //   view changes at the same instant the reader finishes, and nothing connects what
+    //   they did to what it produced.
+    // SKIP_WAIT -- the bound on skip. Skip fires the step's action and then lets the same
+    //   gate everything else uses do the moving, because every action here is
+    //   asynchronous: a submit that runs an analysis and only then writes the URL, a link
+    //   click that loads a neighborhood. Move the route out from under one and the app's
+    //   own late write lands on the screen AFTER it, leaving the URL describing a page
+    //   nobody is on. But a gate that can never open must not strand the reader behind a
+    //   button that now looks broken, so when this deadline passes the tour goes anyway.
+    var SETTLE_MS = 750;
+    var CONFIRM_MS = 350;
     var SKIP_WAIT = 6000;
     var skipUntil = 0;
+    // The gate has been seen CLOSED on this visit to the step, so an open one from here is
+    // something the reader DID rather than a state they walked in on. Stepping Back onto a
+    // step whose result is still on screen would otherwise bounce straight forward again.
+    var armed = false;
+    var openSince = 0;
+    var confirmAt = 0;
+    // The reader's last keystroke or pointer press, anywhere on the page. Capture phase so
+    // a widget that stops propagation cannot hide the fact that someone is mid-action.
+    var lastInput = 0;
+    function noteInput() { lastInput = Date.now(); }
+
+    // A monotonic id for one VISIT to one step, and the visit that has already spent
+    // itself. Skip fires the step's own action, which satisfies the very gate the
+    // auto-advance is watching -- so without this the reader who pressed Skip would be
+    // carried two steps and lose the one they paid a button press for. Keyed on the visit
+    // rather than the step index because Back returns to a step that has already advanced
+    // once and must be allowed to advance again.
+    var visit = 0;
+    var leftVisit = -1;
+
+    // The ONLY way the tour moves forward. Every path -- the settled gate, the skip
+    // deadline, the Continue button -- comes through here, so "this step has already
+    // handed off" is one fact in one place rather than a race between three of them.
+    function advance() {
+      if (!running || leftVisit === visit) { return; }
+      leftVisit = visit;
+      goStep(step + 1);
+    }
 
     function skipStep() {
       // Already waiting: a second press would fire the action again underneath the first.
       if (skipUntil) { return; }
       var s = TOUR[step];
       if (s.skip) { s.skip(); }
-      if (!s.gate) { goStep(step + 1); return; }
       skipUntil = Date.now() + SKIP_WAIT;
       skipBtn.disabled = true;
     }
@@ -523,23 +578,40 @@
       }
       place(t);
       if (!s.gate) { return; }
+      var now = Date.now();
       var open = s.gate();
-      nextBtn.disabled = !open;
+      if (!open) {
+        // Seeing it shut is what arms the step. Everything downstream is then measuring a
+        // transition the reader caused, never a state that was already true.
+        armed = true;
+        openSince = 0;
+        confirmAt = 0;
+      } else if (armed && !openSince) {
+        openSince = now;
+      }
+      if (openSince && !confirmAt && now - openSince >= SETTLE_MS && now - lastInput >= SETTLE_MS) {
+        confirmAt = now;
+      }
       // Guarded because the hint is a live region: writing the same string sixty times a
       // second would announce it sixty times a second.
       //
-      // The open state says something rather than emptying the region. Clearing it
-      // announces nothing at all, so the reader who cannot see a greyed button go live --
-      // and who never had it in the tab order while it was disabled -- was the one told
-      // least about the only state change on the step.
-      var msg = open ? GATE_OPEN : s.wait;
+      // It flips only once the gate has SETTLED, not the moment it opens: a green "Done"
+      // that appears while someone is still typing is a lie the tour then has to take
+      // back. And it says something rather than emptying the region -- clearing it
+      // announces nothing at all, so the reader who cannot see the screen would be the one
+      // told least about the only thing that happens on the step.
+      var msg = confirmAt ? GATE_OPEN : s.wait;
       if (hintEl.textContent !== msg) {
         hintEl.textContent = msg;
-        hintEl.className = open ? "ok" : "";
+        hintEl.className = confirmAt ? "ok" : "";
       }
-      // A skip in flight (see skipStep) waits here: the step's own gate is the only thing
-      // that knows the action it fired has actually finished.
-      if (skipUntil && (open || Date.now() > skipUntil)) { skipUntil = 0; goStep(step + 1); }
+      // One move per frame. The confirmation coming due and the skip deadline expiring can
+      // land on the same tick, and both of them mean the same thing.
+      if (confirmAt && now - confirmAt >= CONFIRM_MS) { advance(); return; }
+      // A skip whose gate never opened (see SKIP_WAIT). The gate itself needs no branch
+      // here: it advances the tour for the reader who did the step and for the reader who
+      // pressed Skip by exactly the same path.
+      if (skipUntil && now > skipUntil) { advance(); }
     }
 
     function ctlButton(id, testid, text, fn) {
@@ -572,7 +644,10 @@
       // the strip (role=status) is hidden for the duration. One announcer at a time.
       bubble.setAttribute("role", "dialog");
       bubble.setAttribute("aria-label", "Guided tour");
-      bubble.setAttribute("aria-describedby", "pacto-tour-text");
+      // The step text plus, on a step with no button, the line saying none is coming. A
+      // hidden element contributes nothing to a description, so on the two steps that DO
+      // have a button the second id costs nothing and says nothing.
+      bubble.setAttribute("aria-describedby", "pacto-tour-text pacto-tour-auto");
       bubble.setAttribute("tabindex", "-1");
       // Escape exits the tour, and it is bound HERE rather than on the document because
       // the tour does not own this key -- the app does. The dashboard's nav drawer, its
@@ -603,16 +678,29 @@
       hintEl.id = "pacto-tour-hint";
       hintEl.setAttribute("aria-live", "polite");
 
+      // Shown on exactly the steps that have no forward button, which is where a reader
+      // would otherwise stand waiting for one. It is not a live region: it does not
+      // change, and every step change reads it out as part of the bubble's description.
+      autoEl = document.createElement("span");
+      autoEl.id = "pacto-tour-auto";
+      autoEl.setAttribute("data-testid", "demo-tour-auto");
+      autoEl.textContent = "No button needed — the tour moves on when you do it.";
+
       backBtn = ctlButton("pacto-tour-back", "demo-tour-back", "Back", function () { goStep(step - 1); });
-      nextBtn = ctlButton("pacto-tour-next", "demo-tour-next", "Next", function () { goStep(step + 1); });
-      // The reason a disabled Next is disabled, attached to the control itself so a
-      // screen reader gets it without hunting for the amber line.
-      nextBtn.setAttribute("aria-describedby", "pacto-tour-hint");
+      // One forward control, and it exists only where the tour cannot see the step happen.
+      // On the opening notice that is Continue; on the terminal hand-off it is Done, and
+      // since there is no step seven, finishing IS leaving -- a Done that did nothing would
+      // be worse than no Done at all. Through advance() like everything else, so the
+      // one-move-per-visit rule holds for the button too.
+      nextBtn = ctlButton("pacto-tour-next", "demo-tour-next", "Continue", function () {
+        if (step === TOUR.length - 1) { exitTour(); } else { advance(); }
+      });
       skipBtn = ctlButton("pacto-tour-skip", "demo-tour-skip", "Skip step", skipStep);
       var exitBtn = ctlButton("pacto-tour-exit", "demo-tour-exit", "Exit tour", exitTour);
 
       var ctl = document.createElement("div");
       ctl.id = "pacto-tour-ctl";
+      ctl.appendChild(autoEl);
       ctl.appendChild(backBtn);
       ctl.appendChild(nextBtn);
       ctl.appendChild(skipBtn);
@@ -649,17 +737,27 @@
     function goStep(i) {
       if (i < 0 || i >= TOUR.length || !running) { return; }
       step = i;
+      visit++;
       lastTarget = null;
+      // A fresh visit has observed nothing yet, so it cannot possibly be finished. This is
+      // also what makes a same-tick double advance impossible: the step we just arrived on
+      // has no armed gate and no skip deadline to trip over.
+      armed = false;
+      openSince = 0;
+      confirmAt = 0;
       var s = TOUR[i];
       stepNum.textContent = (i + 1) + " / " + TOUR.length;
       textEl.textContent = s.text;
       backBtn.disabled = i === 0;
-      nextBtn.hidden = i === TOUR.length - 1;
-      // Closed until proven open, so a step never opens on a stale verdict from the
-      // frame before the route changed.
-      nextBtn.disabled = !!s.gate;
-      // Nothing to skip on an ungated step: Next is already live there, and a second
-      // button that does the same thing is a choice the reader has to stop and make.
+      // A gate is an observation, so a step that has one needs no button and gets the line
+      // that says so instead; a step with nothing to observe keeps a real control. Decided
+      // by the step, never by its number -- the only thing the number decides is the word
+      // on the button, because the last step has nowhere further to send anyone.
+      nextBtn.hidden = !!s.gate;
+      nextBtn.textContent = i === TOUR.length - 1 ? "Done" : "Continue";
+      autoEl.hidden = !s.gate;
+      // Nothing to skip on an ungated step: there is a live button there already, and a
+      // second control that does the same thing is a choice the reader has to stop and make.
       skipBtn.hidden = !s.gate;
       // Whatever a skip was waiting for, it was waiting for the step we just left.
       skipUntil = 0;
@@ -688,6 +786,13 @@
       el.hidden = true;
       buildOverlay();
       if (sizeObs) { sizeObs.observe(bubble); }
+      // On the document rather than on anything the tour owns: the action a step asks for
+      // happens in the APP, so the only place that sees the reader still working is the
+      // page as a whole. keydown and pointerdown only -- they are what "still doing
+      // something" means, and unlike `input` no component synthesizes them while it
+      // renders, so nothing the app does to itself can hold the tour still.
+      document.addEventListener("keydown", noteInput, true);
+      document.addEventListener("pointerdown", noteInput, true);
       goStep(0);
       reserve();
       raf = window.requestAnimationFrame(tick);
@@ -702,12 +807,18 @@
       // reader can no longer see.
       window.cancelAnimationFrame(raf);
       if (sizeObs) { sizeObs.unobserve(bubble); }
-      // The keydown listener goes with the bubble it is bound to, so there is nothing
-      // left behind on the document to remove.
+      // The Escape handler goes with the bubble it is bound to; these two are the only
+      // things the tour ever put on the document, and a tour that is over has no business
+      // still watching what the reader types.
+      document.removeEventListener("keydown", noteInput, true);
+      document.removeEventListener("pointerdown", noteInput, true);
       overlay.parentNode.removeChild(overlay);
       overlay = spot = bubble = null;
       lastTarget = null;
       skipUntil = 0;
+      armed = false;
+      openSince = 0;
+      confirmAt = 0;
       el.hidden = false;
       reserve();
       startBtn.focus();
