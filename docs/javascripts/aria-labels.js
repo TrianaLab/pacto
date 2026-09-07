@@ -35,10 +35,45 @@
     }
   }
 
+  // Material 9.7 wraps each code block's copy and select buttons in a bare <nav>
+  // (`md-code__nav`, built in the theme's bundle, not a partial). That makes every
+  // code block a navigation landmark with no name, so any page carrying two of
+  // them fails landmark-unique -- which is every page on this site.
+  //
+  // Naming them would satisfy the rule and make the page worse: a screen reader's
+  // landmark menu would grow one entry per code block. Two buttons are not a
+  // region to navigate to, so drop the landmark instead and leave the buttons
+  // themselves untouched.
+  function unlandmarkCodeNavs() {
+    var navs = document.querySelectorAll("nav.md-code__nav");
+    for (var i = 0; i < navs.length; i++) {
+      var nav = navs[i];
+      if (nav.getAttribute("role")) continue;
+      if (nav.getAttribute("aria-label") || nav.getAttribute("aria-labelledby")) continue;
+      nav.setAttribute("role", "presentation");
+    }
+  }
+
+  // The breadcrumb trail is the one place this file overwrites a name the theme
+  // set, because the name the theme set is the bug: partials/path.html labels it
+  // `lang.t('nav')`, the same string the primary navigation uses, so the two
+  // collide as landmark-unique on every page deep enough to have a trail. It is a
+  // breadcrumb, and "Breadcrumb" is what it should have been called.
+  function nameBreadcrumb() {
+    var path = document.querySelector("nav.md-path");
+    var primary = document.querySelector("nav.md-nav--primary");
+    if (!path || !primary) return;
+    if (path.getAttribute("aria-label") === primary.getAttribute("aria-label")) {
+      path.setAttribute("aria-label", "Breadcrumb");
+    }
+  }
+
   function apply() {
     name('[data-md-component="search"][role="dialog"]', "Search");
     name('[data-md-component="progress"][role="progressbar"]', "Page loading progress");
     nameSubNavs();
+    unlandmarkCodeNavs();
+    nameBreadcrumb();
   }
 
   // The header persists across instant navigation; the navigation drawer does
