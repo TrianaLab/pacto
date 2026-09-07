@@ -398,6 +398,51 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(strip).toBeHidden();
   });
 
+  // The walkthrough. Labelling the fixture tells a visitor what they are looking at
+  // and nothing about what it is FOR, so the strip is a stepper: each step drives the
+  // real app to the screen that answers one question. The value is entirely in that
+  // navigation -- a stepper whose text advances while the dashboard behind it does not
+  // is a slideshow -- so assert the route at every step, not the copy.
+  //
+  // Demo-only by construction: this lives in examples/demo/boot.js, which ships with
+  // the demo and nothing else, so there is no deployment flag that could turn it on in
+  // front of a real fleet.
+  test('demo tour: each step drives the dashboard to the screen it describes', async ({ page }) => {
+    await waitReady(page);
+    const strip = page.getByTestId('demo-strip');
+    await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
+
+    // Step 1 is the notice, so it navigates nowhere the demo was not already going,
+    // and there is nothing behind it to go back to.
+    await expect(strip).toContainText('1 / 6');
+    await expect(page.getByTestId('demo-tour-back')).toBeHidden();
+
+    const next = page.getByTestId('demo-tour-next');
+    for (const hash of [
+      '#/fleet/services',
+      '#/fleet/services/payments-service',
+      '#/fleet/changes/payments-service',
+      '#/fleet/graph',
+    ]) {
+      await next.click();
+      await expect(page).toHaveURL(new RegExp(`${hash.replace(/[?/]/g, '\\$&')}$`), { timeout: 20_000 });
+    }
+
+    // The last step has no screen of its own: it is the hand-off to the CLI tour,
+    // which answers the same six questions from a terminal.
+    await next.click();
+    await expect(strip).toContainText('6 / 6');
+    await expect(next).toBeHidden();
+    await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/demo-tour/');
+
+    // Back walks it in reverse, dashboard included -- a tour you cannot re-read a step
+    // of is a tour you have to restart.
+    await page.getByTestId('demo-tour-back').click();
+    await expect(page).toHaveURL(/#\/fleet\/graph$/, { timeout: 20_000 });
+    await expect(strip).toContainText('5 / 6');
+    await expect(page.getByTestId('demo-tour-more')).toBeHidden();
+  });
+
   // "Empty once ready" above would also pass for a counter that never ran at all, so
   // prove the thing actually reports progress. Recording every value it takes, rather
   // than sampling the DOM at a moment, keeps the assertion off the race between the
