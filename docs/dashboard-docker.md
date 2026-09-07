@@ -9,7 +9,7 @@ The Pacto dashboard is published as a container image for production and Kuberne
 ghcr.io/trianalab/pacto/dashboard:<version>
 ```
 
-The image tag always matches the Pacto release version, without a `v` prefix — `3.2.7` for Pacto 3.2.7. There is no `latest` tag, so every snippet on this page pins a concrete version; swap it for the release you want. The container runs the exact `pacto` binary for that version.
+The image tag always matches the Pacto release version, without a `v` prefix. There is no `latest` tag, so every snippet on this page pins a concrete version — the current release, kept there by the release pipeline; swap it for the release you want. The container runs the exact `pacto` binary for that version.
 
 The image is signed keylessly by the release workflow — verify it before you deploy it. The command, and the list of which Pacto artifacts carry a signature and which do not, are in [Supply chain: what is signed and what is not](installation.md#supply-chain-what-is-signed-and-what-is-not).
 

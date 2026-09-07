@@ -533,8 +533,34 @@ def check_coordinates() -> None:
                 f"{name}: hand-written --version {ver}; include "
                 f"generated/_install-command.md or _upgrade-command.md instead"
             )
+    # Every pinned image coordinate anywhere on the site, not only the chart's.
+    # `ghcr.io/trianalab/pacto/demo:3.2.1` sat in the Compose demo page against a
+    # 3.2.7 release unit with nothing comparing them, so the page's one
+    # copy-pasteable command named an artifact that release never published.
+    # apply-release-plan.mjs rewrites the pages it knows about; this is what
+    # catches the page it does not. Coordinates absent from the manifest are left
+    # alone — a doc may legitimately name an older image (the v4 controller the
+    # upgrade test pins) and that is not drift.
+    published = {
+        u["coordinate"]: u["tag"]
+        for u in units.values()
+        if u.get("artifactKind") == "oci-image" and u.get("coordinate")
+    }
+    for path in site_markdown():
+        for coord, ver in PINNED_IMAGE_RE.findall(read(path)):
+            want = published.get(coord)
+            if want is not None and ver != want:
+                problems.append(
+                    f"{os.path.relpath(path, REPO_ROOT)}: {coord}:{ver} is not the "
+                    f"published {want}"
+                )
     ok = not problems
     record(ok, "(h) artifact coordinates match release-manifest", "" if ok else " ; ".join(problems[:5]))
+
+
+PINNED_IMAGE_RE = re.compile(
+    r"(ghcr\.io/trianalab/[a-z0-9._/-]+):(v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)"
+)
 
 
 # ---------------------------------------------------------------------------

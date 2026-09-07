@@ -41,8 +41,9 @@ on anywhere without a terminal, where the unanswered prompt cancels the run.
 ## The digest
 
 Each release publishes the demo under one tag — the Pacto version it shipped
-with — so a tag is all you need to know; swap `3.2.7` above for the release you
-want. What actually runs is the digest that tag resolved to, never the tag
+with — so a tag is all you need to know. The tag above is the current release,
+kept there by the release pipeline; swap it for an older one to run that demo
+instead. What actually runs is the digest that tag resolved to, never the tag
 itself: a tag is a publication convenience and can be moved, and the whole point
 of this artifact is that it cannot. That is what makes "the demo you ran" a thing
 that can be named — paste the `$DEMO` value into an issue and anyone gets the

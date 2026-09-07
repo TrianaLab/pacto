@@ -87,6 +87,20 @@ leaves at any point. It is opt-in, and it ships only with the WebAssembly demo:
 `examples/demo/boot.js` is loaded by nothing else, so it cannot appear in front
 of a real fleet.
 
+The image tags a reader copy-pastes no longer age. The Compose demo page named
+`ghcr.io/trianalab/pacto/demo:3.2.7`, the dashboard page named its image five
+times and the operator's install page quoted a startup log naming
+`dashboard:3.2.1` — three releases behind — and nothing compared any of them to
+what was published. `apply-release-plan` now rewrites those coordinates the way
+it already rewrote the chart's `--version` pin, so the Version PR carries the
+new tag instead of leaving a command that resolves to nothing, and the
+idempotency proof covers the pages. That list is not the guarantee: the docs
+gate holds every page on the site to the tag its release unit published, so a
+page pinning a coordinate the rewriter has never heard of fails CI rather than
+rotting. Both pages now say the tag is the current release and that swapping it
+is how you run an older one, instead of repeating the number in prose where
+nothing can check it.
+
 The published `pacto-dashboard` bundle described half of its own API. The
 OpenAPI document it shipped was maintained by hand and had fallen to 18 paths
 against the 32 the server registers, so a consumer reading the contract could
