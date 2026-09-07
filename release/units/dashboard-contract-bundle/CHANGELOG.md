@@ -1,5 +1,7 @@
 # @pacto/dashboard-contract-bundle
 
+## 3.2.9
+
 ## 3.2.8
 
 ## 3.2.7
