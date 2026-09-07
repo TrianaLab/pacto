@@ -208,40 +208,69 @@ func blankProtoNoise(src string) string {
 	out := []byte(src)
 	for i := 0; i < len(out); {
 		switch {
-		case isProtoMarker(out, i, '/', '/'):
-			for ; i < len(out) && out[i] != '\n'; i++ {
-				out[i] = ' '
-			}
-		case isProtoMarker(out, i, '/', '*'):
-			out[i], out[i+1] = ' ', ' '
-			for i += 2; i < len(out) && !isProtoMarker(out, i, '*', '/'); i++ {
-				if out[i] != '\n' {
-					out[i] = ' '
-				}
-			}
-			if i < len(out) {
-				out[i], out[i+1] = ' ', ' '
-				i += 2
-			}
+		case isProtoMarker(out, i, '/', '/'), isProtoMarker(out, i, '/', '*'):
+			i = blankProtoComment(out, i)
 		case out[i] == '"' || out[i] == '\'':
-			// A proto string literal cannot span a raw newline, so an unterminated
-			// one ends at the line break rather than eating the rest of the file.
-			quote := out[i]
-			for i++; i < len(out) && out[i] != quote && out[i] != '\n'; i++ {
-				if out[i] == '\\' && i+1 < len(out) && out[i+1] != '\n' {
-					out[i] = ' ' // an escaped quote does not close the literal
-					i++
-				}
-				out[i] = ' '
-			}
-			if i < len(out) && out[i] == quote {
-				i++
-			}
+			i = blankProtoString(out, i)
 		default:
 			i++
 		}
 	}
 	return string(out)
+}
+
+// blankProtoComment blanks the line or block comment opening at i and returns
+// the index to resume scanning from. Newlines inside a block comment are kept.
+// An unterminated comment runs to the end of the buffer, which is what a
+// compiler would reject anyway.
+func blankProtoComment(buf []byte, i int) int {
+	if isProtoMarker(buf, i, '/', '/') {
+		for ; i < len(buf) && buf[i] != '\n'; i++ {
+			buf[i] = ' '
+		}
+		return i
+	}
+	buf[i], buf[i+1] = ' ', ' '
+	for i += 2; i < len(buf) && !isProtoMarker(buf, i, '*', '/'); i++ {
+		if buf[i] != '\n' {
+			buf[i] = ' '
+		}
+	}
+	if i < len(buf) {
+		buf[i], buf[i+1] = ' ', ' '
+		i += 2
+	}
+	return i
+}
+
+// blankProtoString blanks the contents of the string literal opening at i and
+// returns the index just past its closing quote.
+//
+// A proto string literal cannot span a raw newline, so a quote with no closing
+// quote before the line break is not a literal at all: nothing is blanked and
+// scanning resumes just after that quote. Blanking such a run would delete the
+// statement's terminating `;` along with it, and extractFields would then run
+// the statement into the next declaration and lose a real field.
+func blankProtoString(buf []byte, i int) int {
+	quote := buf[i]
+	end := -1
+	for j := i + 1; j < len(buf) && buf[j] != '\n'; j++ {
+		if buf[j] == '\\' && j+1 < len(buf) && buf[j+1] != '\n' {
+			j++ // an escaped quote does not close the literal
+			continue
+		}
+		if buf[j] == quote {
+			end = j
+			break
+		}
+	}
+	if end < 0 {
+		return i + 1
+	}
+	for j := i + 1; j < end; j++ {
+		buf[j] = ' '
+	}
+	return end + 1
 }
 
 // isProtoMarker reports whether the two-byte marker first+second starts at i.

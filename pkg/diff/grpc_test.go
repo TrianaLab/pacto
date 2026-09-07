@@ -251,10 +251,10 @@ func TestExtractProto_UnterminatedNoise(t *testing.T) {
 	}
 }
 
-// A proto string literal cannot span a raw newline, so an unterminated one ends
-// at the line break. The malformed statement is collateral — its `;` was inside
-// the literal — but the damage stops at that line instead of blanking the rest
-// of the file and collapsing the whole surface.
+// A proto string literal cannot span a raw newline, so a quote with no closing
+// quote before the line break is not a literal at all. Nothing on that line is
+// blanked, which keeps the statement's terminating `;` — blanking it would run
+// the malformed statement into the next declaration and lose a real field.
 func TestExtractProto_UnterminatedStringStopsAtNewline(t *testing.T) {
 	api := extractProto(`message A {
   option x = "dangling;
@@ -265,11 +265,55 @@ message B {
   string b = 1;
 }
 `)
-	if _, ok := api.messages["A"]; !ok {
-		t.Errorf("message A must still be found, got %+v", api.messages)
+	if got := api.messages["A"]["a"]; got != "string = 1" {
+		t.Errorf("the unterminated literal swallowed A.a: %+v", api.messages)
 	}
 	if got := api.messages["B"]["b"]; got != "string = 1" {
 		t.Errorf("the runaway literal swallowed message B: %+v", api.messages)
+	}
+}
+
+// A missing closing quote must not fabricate a change. The only difference
+// between these two sources is that one option value is never closed; blanking
+// to the newline ate its `;`, the next field was swallowed by the run-on
+// statement and the diff reported a BREAKING field removal that never happened.
+func TestDiffGRPC_UnterminatedStringIsNotABreakingChange(t *testing.T) {
+	const (
+		closed   = "syntax = \"proto3\";\n\nmessage Account {\n  option (my.ext) = \"ok\";\n  string email = 1;\n  int32 balance = 2;\n}\n"
+		unclosed = "syntax = \"proto3\";\n\nmessage Account {\n  option (my.ext) = \"ok;\n  string email = 1;\n  int32 balance = 2;\n}\n"
+	)
+	want := map[string]string{"email": "string = 1", "balance": "int32 = 2"}
+
+	for name, src := range map[string]string{"closed": closed, "unclosed": unclosed} {
+		t.Run(name, func(t *testing.T) {
+			got := extractProto(src).messages["Account"]
+			if len(got) != len(want) {
+				t.Fatalf("fields = %v, want %v", got, want)
+			}
+			for k, v := range want {
+				if got[k] != v {
+					t.Errorf("field %s = %q, want %q", k, got[k], v)
+				}
+			}
+		})
+	}
+	if changes := diffProto(t, closed, unclosed); len(changes) != 0 {
+		t.Errorf("expected 0 changes, got %+v", changes)
+	}
+}
+
+// Two unterminated literals in one body must each stop at their own line
+// instead of chaining into one run-on statement that eats every field.
+func TestExtractProto_TwoUnterminatedStringsKeepEveryField(t *testing.T) {
+	got := extractProto("message A {\n  option a = \"x;\n  string keep = 1;\n  option b = \"y;\n  string alsokeep = 2;\n}\n").messages["A"]
+	want := map[string]string{"keep": "string = 1", "alsokeep": "string = 2"}
+	if len(got) != len(want) {
+		t.Fatalf("fields = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("field %s = %q, want %q", k, got[k], v)
+		}
 	}
 }
 
@@ -472,7 +516,7 @@ func TestDiffGRPC_FieldChanges(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			newSrc := baseProto
+			var newSrc string
 			if tt.old == "" {
 				newSrc = strings.Replace(baseProto, "  string order_id = 1;\n  repeated",
 					"  string order_id = 1;\n"+tt.new+"  repeated", 1)
