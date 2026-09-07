@@ -48,6 +48,29 @@ async function searchAndFocus(page: Page, text: string, perspective: 'service' |
   await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
 }
 
+// The tour is opt-in: it exists only after the invitation in the demo strip is pressed,
+// which is also the only thing that lets it move the route.
+async function startTour(page: Page) {
+  await waitReady(page);
+  const start = page.getByTestId('demo-tour-start');
+  await expect(start).toBeVisible({ timeout: 20_000 });
+  await start.click();
+  await expect(page.getByTestId('demo-tour-bubble')).toBeVisible({ timeout: 20_000 });
+}
+
+// Does the cut-out actually contain the element it claims to spotlight? A rotted
+// selector leaves a tour pointing at nothing, and nothing else in the suite would notice.
+async function spotlightEncloses(page: Page, selector: string): Promise<boolean> {
+  return page.evaluate((sel) => {
+    const s = document.querySelector('[data-testid="demo-tour-spotlight"]');
+    const t = document.querySelector(sel);
+    if (!s || !t) return false;
+    const a = s.getBoundingClientRect();
+    const b = t.getBoundingClientRect();
+    return a.left <= b.left && a.right >= b.right && a.top <= b.top && a.bottom >= b.bottom;
+  }, selector);
+}
+
 // Open the accessible text alternative so its node/edge buttons can be selected (a
 // canvas node is drawn to <canvas> and not directly clickable in Playwright; selecting
 // via the accessible list drives the SAME quick-inspection drawer).
@@ -398,51 +421,160 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(strip).toBeHidden();
   });
 
-  // The walkthrough. Labelling the fixture tells a visitor what they are looking at
-  // and nothing about what it is FOR, so the strip is a stepper: each step drives the
-  // real app to the screen that answers one question. The value is entirely in that
-  // navigation -- a stepper whose text advances while the dashboard behind it does not
-  // is a slideshow -- so assert the route at every step, not the copy.
+  // The walkthrough. Labelling the fixture tells a visitor what they are looking at and
+  // nothing about what it is FOR, so the strip offers a guided tour: six steps, each one
+  // making the reader drive the real app to the screen that answers one question.
   //
-  // Demo-only by construction: this lives in examples/demo/boot.js, which ships with
-  // the demo and nothing else, so there is no deployment flag that could turn it on in
-  // front of a real fleet.
-  test('demo tour: each step drives the dashboard to the screen it describes', async ({ page }) => {
+  // It is a HARD gate, so the thing worth asserting is not the copy and not even the
+  // route -- it is that Next stays disabled until the action really happened and that
+  // the action really produced something. A tour whose gates open on their own is the
+  // slideshow this replaced.
+  //
+  // Demo-only by construction: this lives in examples/demo/boot.js, which ships with the
+  // demo and nothing else, so there is no deployment flag that could turn it on in front
+  // of a real fleet.
+  test('demo tour: it never starts itself — the strip invites, and nothing more', async ({ page }) => {
     await waitReady(page);
     const strip = page.getByTestId('demo-strip');
+    // The fixture disclosure is the strip's resting state, owed before anything is
+    // pressed: the fast path from the home page's call to action never passes the
+    // explainer.
     await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
+    await expect(strip).toContainText('two things that look like bugs are deliberate');
+    await expect(page.getByTestId('demo-tour-start')).toBeVisible({ timeout: 20_000 });
+    // No overlay, no dimming, no coach bubble until the invitation is accepted.
+    await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(0);
+    await expect(page.getByTestId('demo-tour-bubble')).toHaveCount(0);
+    // And the first paint still navigates nowhere it was not already going.
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet');
+  });
 
-    // Step 1 is the notice, so it navigates nowhere the demo was not already going,
-    // and there is nothing behind it to go back to.
-    await expect(strip).toContainText('1 / 6');
-    await expect(page.getByTestId('demo-tour-back')).toBeHidden();
-
+  test('demo tour: six steps, each gated on the reader actually doing it', async ({ page }) => {
+    await startTour(page);
     const next = page.getByTestId('demo-tour-next');
-    for (const hash of [
-      '#/fleet/services',
-      '#/fleet/services/payments-service',
-      '#/fleet/changes/payments-service',
-      '#/fleet/graph',
-    ]) {
-      await next.click();
-      // Compared as a value, not as a pattern: the step's route is a literal, and
-      // hand-escaping it into a regex is a way to be subtly wrong about a slash.
-      await expect(page).toHaveURL((url) => url.hash === hash, { timeout: 20_000 });
-    }
+    const stepNo = page.getByTestId('demo-tour-step');
 
-    // The last step has no screen of its own: it is the hand-off to the CLI tour,
-    // which answers the same six questions from a terminal.
+    // 1 — the disclosure, on the overview. It asks nothing, so it opens open.
+    await expect(stepNo).toHaveText('1 / 6');
+    await expect(page.getByTestId('demo-tour-text')).toContainText('two things that look like bugs are deliberate');
+    await expect(page.getByTestId('demo-tour-back')).toBeDisabled();
+    await expect(next).toBeEnabled();
+    // The light is on something real. A spotlight whose selector has rotted points at
+    // nothing and the tour is dead, so prove the cut-out encloses the target it names.
+    await expect(page.getByTestId('demo-tour-spotlight')).toBeVisible();
+    expect(await spotlightEncloses(page, '#sec-attention')).toBe(true);
     await next.click();
-    await expect(strip).toContainText('6 / 6');
+
+    // 2 — search. The gate is the reader's own committed search, not the presence of a
+    // row: this fleet is small enough that payments-service is on the unfiltered page 1.
+    await expect(stepNo).toHaveText('2 / 6');
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/services', { timeout: 20_000 });
+    const search = page.getByTestId('svc-search');
+    await search.fill('payments');
+    await search.press('Enter');
+    const row = page.locator('[data-testid="service-list"] a[href$="/fleet/services/payments-service"]');
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(next).toBeEnabled({ timeout: 20_000 });
+    await next.click();
+
+    // 3 — open it. The step stays on the list route, so the search the reader just
+    // committed survives the step change rather than being navigated away.
+    await expect(stepNo).toHaveText('3 / 6');
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/services?text=payments');
+    await expect(next).toBeDisabled();
+    await row.click();
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/services/payments-service', { timeout: 20_000 });
+    await expect(next).toBeEnabled({ timeout: 20_000 });
+    await next.click();
+
+    // 4 — compare two revisions and get a real field-level diff back.
+    await expect(stepNo).toHaveText('4 / 6');
+    await expect(page).toHaveURL((url) => url.hash.split('?')[0] === '#/fleet/changes/payments-service', { timeout: 20_000 });
+    await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
+    await page.getByRole('button', { name: /Compare revisions/ }).click();
+    await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: 20_000 });
+    await expect(next).toBeEnabled({ timeout: 20_000 });
+    await next.click();
+
+    // 5 — search the operational graph and focus a result, which is what renders a
+    // neighborhood at all (the graph tab opens search-first, never a hairball).
+    await expect(stepNo).toHaveText('5 / 6');
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
+    await page.locator('[data-testid="graph-discovery"] input[type=search]').fill('orders');
+    const focus = page.getByTestId('graph-focus-link').first();
+    await expect(focus).toBeVisible({ timeout: 20_000 });
+    await focus.click();
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
+    await expect(next).toBeEnabled({ timeout: 20_000 });
+    await next.click();
+
+    // 6 — terminal. No screen of its own: it is the hand-off to the CLI tour, which
+    // answers the same six questions from a terminal.
+    await expect(stepNo).toHaveText('6 / 6');
     await expect(next).toBeHidden();
+    await expect(page.getByTestId('demo-tour-skip')).toBeHidden();
     await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/demo-tour/');
 
-    // Back walks it in reverse, dashboard included -- a tour you cannot re-read a step
-    // of is a tour you have to restart.
+    // Back re-opens the previous step, and re-closes its gate: a tour you cannot re-read
+    // a step of is a tour you have to restart.
     await page.getByTestId('demo-tour-back').click();
+    await expect(stepNo).toHaveText('5 / 6');
     await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
-    await expect(strip).toContainText('5 / 6');
     await expect(page.getByTestId('demo-tour-more')).toBeHidden();
+  });
+
+  // The gate is the whole point, so prove it is a real `disabled` attribute rather than
+  // a grey button that still advances.
+  test('demo tour: Next is genuinely disabled until the step is done, then enabled', async ({ page }) => {
+    await startTour(page);
+    const next = page.getByTestId('demo-tour-next');
+    await next.click();
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/services', { timeout: 20_000 });
+    await expect(next).toBeDisabled();
+    // A disabled control with no reason is a wall, so the bubble says what it wants.
+    await expect(page.getByTestId('demo-tour-bubble')).toContainText('Waiting for a search');
+    const search = page.getByTestId('svc-search');
+    await search.fill('payments');
+    await search.press('Enter');
+    await expect(next).toBeEnabled({ timeout: 20_000 });
+    await expect(page.getByTestId('demo-tour-bubble')).not.toContainText('Waiting for a search');
+  });
+
+  // Always skippable, and skipping must not cost the reader the step: it performs the
+  // action for them, so they land where a performer lands rather than one screen behind.
+  test('demo tour: Skip step performs the action and lands on the same screen', async ({ page }) => {
+    await startTour(page);
+    await page.getByTestId('demo-tour-next').click();
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 6');
+    await expect(page.getByTestId('demo-tour-next')).toBeDisabled();
+    await page.getByTestId('demo-tour-skip').click();
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 6');
+    // The search really was committed -- a bare `value =` assignment leaves Svelte's own
+    // state on the old value and this URL would read `#/fleet/services` -- and the row
+    // step 3 asks for is on screen.
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/services?text=payments', { timeout: 20_000 });
+    await expect(page.locator('[data-testid="service-list"] a[href$="/fleet/services/payments-service"]'))
+      .toBeVisible({ timeout: 20_000 });
+  });
+
+  test('demo tour: Exit tour removes the overlay and gives the notice back', async ({ page }) => {
+    await startTour(page);
+    // One announcer at a time: the strip is a role=status live region, so it stands down
+    // while the bubble is speaking.
+    await expect(page.getByTestId('demo-strip')).toBeHidden();
+    await page.getByTestId('demo-tour-exit').click();
+    await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(0);
+    const strip = page.getByTestId('demo-strip');
+    await expect(strip).toBeVisible();
+    await expect(strip).toContainText('fixture fleet');
+    await expect(page.getByTestId('demo-tour-start')).toBeVisible();
+  });
+
+  test('demo tour: Escape exits it', async ({ page }) => {
+    await startTour(page);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(0);
+    await expect(page.getByTestId('demo-strip')).toBeVisible();
   });
 
   // "Empty once ready" above would also pass for a counter that never ran at all, so

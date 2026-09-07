@@ -70,47 +70,116 @@
     // /demo/ and /<version>/demo/; the page it lands on carries the full docs nav.
     var DOCS_HREF = "../examples/dashboard-demo/";
 
-    // The walkthrough, once the engine has landed. A visitor who arrives from the
-    // home page's call to action gets a dashboard of a fleet they have never seen,
-    // and no amount of labelling tells them what any of it is FOR. So the strip
-    // stops being a notice and becomes a stepper: six questions, each one driving
-    // the real app to the screen that answers it. Nothing is simulated -- every step
-    // is a route this dashboard already serves, read against the fixture.
+    // The fixture disclosure. It is owed on load, before anything is pressed, because
+    // the fast path from the home page's primary call to action never passes the
+    // explainer: the fleet is fabricated, and two of its properties (a degraded-source
+    // banner, a config name that appears twice) read as bugs and are deliberate. This
+    // strip is the only place that visitor is ever told, so the notice is the strip's
+    // resting state and the tour never takes it away -- it reappears the moment the
+    // tour exits.
+    var NOTICE = "Demo — a fixture fleet running entirely in your browser. Nothing here is a real system, and two things that look like bugs are deliberate.";
+
+    // The walkthrough. A visitor who arrives from the home page's call to action gets a
+    // dashboard of a fleet they have never seen, and no amount of labelling tells them
+    // what any of it is FOR. So the strip offers a tour: six questions, each one driving
+    // the real app to the screen that answers it. Nothing is simulated -- every step is a
+    // route this dashboard already serves, read against the fixture.
     //
-    // Step 1 is the notice the strip used to show, word for word, because the
-    // obligations it carries do not go away: the fleet is fabricated, and two of its
-    // properties read as bugs and are not. Making it the first step is how the tour
-    // gets to exist without dropping any of that.
+    // It is a HARD gate rather than a slideshow. A stepper whose text advances while the
+    // reader watches teaches nothing; each step here names one thing to do and Next stays
+    // genuinely disabled until the app is in the state that proves it was done. That is
+    // also why every gated step carries `skip`: a gate the reader cannot clear is a trap,
+    // so skip performs the same action programmatically and advances, landing them on the
+    // screen a performer reaches rather than one behind it.
+    //
+    // Opt-in, never automatic: nothing below runs until "Take the guided tour" is
+    // pressed. A visitor who wants to poke around is never grabbed, and -- because the
+    // route change lives behind that press -- the first paint still never navigates.
     //
     // This lives in boot.js, which ships with the demo and nothing else, so a real
     // deployment cannot show it even by mistake -- there is no flag to set wrong.
-    // `hash` is the route the step navigates to; the last step has none, because it
-    // is about where to go next rather than about a screen.
+    //
+    // Per step: `hash` is the route the step needs (the last has none, it is about where
+    // to go next rather than about a screen); `target` is what the spotlight cuts out,
+    // and when it is a list the LAST selector that resolves wins, so the light follows
+    // the action from a search box to the result it produced; `gate` is the predicate
+    // that opens Next; `wait` is what a closed gate is waiting for, because a disabled
+    // control with no reason is a wall.
     var TOUR = [{
-      text: "Demo — a fixture fleet running entirely in your browser. Nothing here is a real system, and two things that look like bugs are deliberate.",
-      hash: "#/fleet"
+      text: NOTICE + " Read that, then press Next.",
+      hash: "#/fleet",
+      target: "#sec-attention"
     }, {
-      text: "Step 2 — what is out there. Every service Pacto found, with its owner, how many contract revisions it has published and how many deployed targets are running them. All of it read from contracts.",
-      hash: "#/fleet/services"
+      text: "Step 2 — what is out there. Every service Pacto found, with its owner, how many contract revisions it has published and how many deployed targets are running them. All of it read from contracts. Type payments in the search box and press Enter.",
+      hash: "#/fleet/services",
+      target: '[data-testid="svc-search"]',
+      wait: "Waiting for a search that narrows the list to payments-service.",
+      gate: function () { return /[?&]text=[^&]/.test(window.location.hash) && !!paymentsLink(); },
+      skip: function () {
+        var i = q('[data-testid="svc-search"]');
+        if (!i) { window.location.hash = "#/fleet/services?text=payments"; return; }
+        setValue(i, "payments");
+        // Blur first: the suggestion popup closes on blur, and left open it covers the
+        // very list the next step asks the reader to click in.
+        i.blur();
+        if (i.form) { i.form.requestSubmit(); }
+      }
     }, {
-      text: "Step 3 — one service in full. What payments-service declares, every revision of it, and what was observed about the targets running it. Compliance has four states, and “not evaluated” is not one of the passing ones.",
-      hash: "#/fleet/services/payments-service"
+      text: "Step 3 — one service in full. What payments-service declares, every revision of it, and what was observed about the targets running it. Compliance has four states, and “not evaluated” is not one of the passing ones. Open payments-service from the list.",
+      hash: "#/fleet/services",
+      target: '[data-testid="service-list"] a[href$="/fleet/services/payments-service"]',
+      wait: "Waiting for the payments-service page to open.",
+      gate: function () { return hashPath() === "#/fleet/services/payments-service"; },
+      skip: function () {
+        var a = paymentsLink();
+        if (a) { a.click(); } else { window.location.hash = "#/fleet/services/payments-service"; }
+      }
     }, {
-      text: "Step 4 — about to ship a break. Two revisions compared field by field. Removing an API path is Breaking; adding an optional one is not. The classification rules are a published table, not a heuristic.",
-      hash: "#/fleet/changes/payments-service"
+      text: "Step 4 — about to ship a break. Two revisions compared field by field. Removing an API path is Breaking; adding an optional one is not. The classification rules are a published table, not a heuristic. Choose the earlier revision, then press Compare revisions.",
+      hash: "#/fleet/changes/payments-service",
+      // The whole form, so the two selectors and the submit sit inside one hole; the
+      // reader is asked to use all three and a light on only one of them misleads.
+      target: "#sec-revisions",
+      wait: "Waiting for the comparison to run.",
+      gate: function () { return !!q('[data-testid="changes-what-changed"]'); },
+      skip: function () {
+        var s = q("#impact-old-rev");
+        var f = q("#sec-revisions");
+        // The oldest revision is the last option, and against the newest (already the
+        // default on the right-hand selector) it is the pair that actually breaks.
+        if (s && s.options.length > 1) { setValue(s, s.options[s.options.length - 1].value); }
+        if (f) { f.requestSubmit(); }
+      }
     }, {
-      text: "Step 5 — who the change reaches. Edges a contract declares and edges something observed are kept apart rather than averaged, so a consumer that declared nothing still turns up.",
-      hash: "#/fleet/graph"
+      text: "Step 5 — who the change reaches. Edges a contract declares and edges something observed are kept apart rather than averaged, so a consumer that declared nothing still turns up. Search orders, then open the result.",
+      hash: "#/fleet/graph",
+      target: ['[data-testid="graph-discovery"] input[type=search]', '[data-testid="graph-focus-link"]'],
+      wait: "Waiting for a focused neighborhood to render.",
+      gate: function () { return !!q('[data-testid="neighborhood-canvas"]'); },
+      skip: function () {
+        var i = q('[data-testid="graph-discovery"] input[type=search]');
+        if (i) { setValue(i, "orders"); }
+        var a = q('[data-testid="graph-focus-link"]');
+        // The results come back from a request, so on a step the reader skipped
+        // immediately there is nothing to click yet: go where the link would have gone.
+        if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
+      }
     }, {
       text: "That is the whole loop: what is out there, what state it is in, what a change breaks and who it reaches — from contracts plus observations, with nothing guessed.",
       href: "../examples/demo-tour/",
       linkText: "The same six questions from a terminal"
     }];
 
-    var el, label, meter, stepNum, backBtn, nextBtn, moreLink;
+    var el, label, meter, startBtn, sizeObs;
+    var overlay, spot, bubble, stepNum, textEl, hintEl, backBtn, nextBtn, skipBtn, moreLink;
     var step = 0;
+    var running = false;
+    var raf = 0;
+    // The element the spotlight is currently on. Kept so the tour scrolls a target into
+    // view when it CHANGES rather than on every frame, which would fight the reader.
+    var lastTarget = null;
     // Set when the engine resolves. mount() reads it because the two can happen in
-    // either order, and only the ready path owns the tour.
+    // either order, and only the ready path may offer the tour.
     var ready = false;
     // The strip mounts on DOMContentLoaded, but the engine can resolve or fail
     // before that. Hold the latest message so the outcome is never dropped.
@@ -158,18 +227,16 @@
         "box-shadow:0 2px 12px rgba(15,23,42,.35);pointer-events:none}" +
         "#pacto-demo-strip a{color:#a5b4fc;text-decoration:underline;white-space:nowrap;" +
         "pointer-events:auto}" +
-        // The stepper's own controls. Same pointer-events:auto rule as the link: the
-        // strip stays transparent to taps meant for the dashboard under it, and only
-        // the things a reader can actually press are pressable.
+        // The invitation. Same pointer-events:auto rule as the link: the strip stays
+        // transparent to taps meant for the dashboard under it, and only the things a
+        // reader can actually press are pressable.
         "#pacto-demo-strip button{pointer-events:auto;appearance:none;cursor:pointer;" +
         "font:inherit;line-height:1}" +
-        "#pacto-demo-back,#pacto-demo-next{border:1px solid #475569;background:none;" +
-        "color:#e2e8f0;border-radius:999px;padding:.2rem .7rem;white-space:nowrap}" +
-        "#pacto-demo-next{border-color:#a5b4fc;color:#c7d2fe}" +
-        "#pacto-demo-back:hover,#pacto-demo-next:hover{background:rgba(148,163,184,.2)}" +
-        "#pacto-demo-back:focus-visible,#pacto-demo-next:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
-        "#pacto-demo-step{color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}" +
-        // The strip wraps once the stepper is in it, so the text can no longer be
+        "#pacto-demo-start{border:1px solid #a5b4fc;background:none;color:#c7d2fe;" +
+        "border-radius:999px;padding:.25rem .8rem;white-space:nowrap}" +
+        "#pacto-demo-start:hover{background:rgba(148,163,184,.2)}" +
+        "#pacto-demo-start:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
+        // The strip wraps once the invitation is in it, so the text can no longer be
         // vertically centred against a single row of controls.
         // A pill radius on a box that now wraps to three lines reads as a lozenge, so
         // soften it; the loading state is one line and looks the same either way.
@@ -185,7 +252,43 @@
         "#pacto-demo-close:hover{color:#e2e8f0;background:rgba(148,163,184,.2)}" +
         "#pacto-demo-strip a:focus-visible,#pacto-demo-close:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
         "@media (max-width:480px){#pacto-demo-strip{bottom:8px;max-width:96vw;" +
-        "font-size:.75rem;padding:.4rem .7rem}}";
+        "font-size:.75rem;padding:.4rem .7rem}}" +
+        // The tour overlay. Two elements, and the dimming is ONE declaration: a 100vmax
+        // spread box-shadow on the cut-out is the dark layer and the hole in it at the
+        // same time. An SVG mask or four dim panels would be more code for the same
+        // picture and would have to be kept in sync with the rect. It ignores pointers,
+        // so the control it highlights stays completely usable -- which is the whole
+        // point of a tour that makes you do the step rather than watch it.
+        "#pacto-tour-overlay{position:fixed;inset:0;z-index:10000;pointer-events:none}" +
+        "#pacto-tour-spot{position:absolute;border-radius:10px;pointer-events:none;" +
+        "box-shadow:0 0 0 100vmax rgba(15,23,42,.62);outline:2px solid #a5b4fc}" +
+        "#pacto-tour-spot[hidden]{display:none}" +
+        // box-sizing so the viewport clamp in place() is arithmetic on the real width.
+        "#pacto-tour-bubble{position:absolute;pointer-events:auto;box-sizing:border-box;" +
+        "width:min(92vw,26rem);background:#1e293b;color:#e2e8f0;border-radius:14px;" +
+        "padding:.7rem .9rem;box-shadow:0 10px 30px rgba(15,23,42,.55);" +
+        "font:400 .8125rem/1.45 system-ui,-apple-system,'Segoe UI',sans-serif}" +
+        "#pacto-tour-bubble:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
+        "#pacto-tour-bubble a{color:#a5b4fc;text-decoration:underline}" +
+        "#pacto-tour-step{display:block;color:#94a3b8;font-variant-numeric:tabular-nums}" +
+        "#pacto-tour-text{display:block;margin-top:.25rem}" +
+        "#pacto-tour-more{display:inline-block;margin-top:.45rem}" +
+        // display:inline-block above beats the UA's [hidden] rule, so say so explicitly
+        // or the hand-off link would sit in every step instead of only the last.
+        "#pacto-tour-more[hidden]{display:none}" +
+        // The gate's reason. Amber and in the flow rather than a tooltip: the reader has
+        // to be able to see why Next will not move without hovering anything.
+        "#pacto-tour-hint{display:block;margin-top:.45rem;color:#fcd34d}" +
+        "#pacto-tour-hint:empty{display:none}" +
+        "#pacto-tour-ctl{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem}" +
+        "#pacto-tour-ctl button{appearance:none;cursor:pointer;font:inherit;line-height:1;" +
+        "border:1px solid #475569;background:none;color:#e2e8f0;border-radius:999px;" +
+        "padding:.3rem .7rem;white-space:nowrap}" +
+        "#pacto-tour-ctl button:hover:not(:disabled){background:rgba(148,163,184,.2)}" +
+        "#pacto-tour-ctl button:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
+        "#pacto-tour-ctl button:disabled{cursor:not-allowed;opacity:.45}" +
+        "#pacto-tour-next{border-color:#a5b4fc;color:#c7d2fe}" +
+        "#pacto-tour-exit{margin-left:auto}";
       document.head.appendChild(style);
 
       el = document.createElement("div");
@@ -199,24 +302,18 @@
       meter = document.createElement("span");
       meter.id = "pacto-demo-meter";
       meter.setAttribute("aria-hidden", "true");
-      stepNum = document.createElement("span");
-      stepNum.id = "pacto-demo-step";
-      // The counter duplicates "Step N —" already in the step text, so it is decoration
-      // to a screen reader and noise inside a live region that re-announces on every
-      // step. The text is the accessible copy.
-      stepNum.setAttribute("aria-hidden", "true");
-      stepNum.hidden = true;
 
-      backBtn = stepButton("pacto-demo-back", "demo-tour-back", "Back", -1);
-      nextBtn = stepButton("pacto-demo-next", "demo-tour-next", "Next", 1);
-
-      // Only the last step has somewhere further to send the reader, so this anchor is
-      // separate from "About this demo" rather than a mutation of it: the explainer
-      // link is owed on every step, and swapping its target would take it away.
-      moreLink = document.createElement("a");
-      moreLink.id = "pacto-demo-more";
-      moreLink.setAttribute("data-testid", "demo-tour-more");
-      moreLink.hidden = true;
+      // The invitation, and nothing more than an invitation. It appears only once the
+      // engine has landed (a tour of an empty dashboard is a dead tour) and pressing it
+      // is the ONLY thing that starts the tour, so a visitor who came to poke around is
+      // never grabbed and the first paint is never allowed to navigate.
+      startBtn = document.createElement("button");
+      startBtn.id = "pacto-demo-start";
+      startBtn.type = "button";
+      startBtn.setAttribute("data-testid", "demo-tour-start");
+      startBtn.textContent = "Take the guided tour";
+      startBtn.hidden = true;
+      startBtn.addEventListener("click", startTour);
 
       var link = document.createElement("a");
       link.href = DOCS_HREF;
@@ -235,10 +332,7 @@
       close.addEventListener("click", function () { el.hidden = true; reserve(); });
       el.appendChild(label);
       el.appendChild(meter);
-      el.appendChild(stepNum);
-      el.appendChild(backBtn);
-      el.appendChild(nextBtn);
-      el.appendChild(moreLink);
+      el.appendChild(startBtn);
       el.appendChild(link);
       el.appendChild(close);
       document.body.appendChild(el);
@@ -248,47 +342,241 @@
       // pointer-events cannot fix that: a button that ignores pointers is not a
       // button. Reserving the strip's own height at the end of the document lets the
       // page scroll clear of it instead, so nothing underneath is ever unreachable.
-      // Observed rather than measured once: the height changes on every step, because
-      // each step's text wraps to a different number of lines.
-      if (window.ResizeObserver) { new window.ResizeObserver(reserve).observe(el); }
-      // The engine can resolve before DOMContentLoaded, in which case the tour was
-      // asked to start against a strip that did not exist yet. Start it here instead
-      // of painting the held message, or a fast load would leave the reader with
-      // step 1's text and no way to reach step 2.
-      if (ready) { goStep(0); } else { label.textContent = pending; }
+      // Observed rather than measured once: the height changes with the message, because
+      // each one wraps to a different number of lines.
+      if (window.ResizeObserver) { sizeObs = new window.ResizeObserver(reserve); sizeObs.observe(el); }
+      // The engine can resolve before DOMContentLoaded, in which case `pending` already
+      // holds the notice and the invitation is owed straight away. Painting the held
+      // message covers both orderings with one line.
+      label.textContent = pending;
+      if (ready) { offerTour(); }
       paint();
     }
 
-    function stepButton(id, testid, text, delta) {
+    function offerTour() { if (startBtn) { startBtn.hidden = false; } }
+
+    function say(text) { pending = text; if (label) { label.textContent = text; } }
+
+    // The gap keeps the last line of the page off the floating box's own shadow rather
+    // than flush against it. Cleared, not zeroed, once nothing is floating: the page owns
+    // its padding again and this leaves no trace of having borrowed it.
+    //
+    // While the tour runs the bubble is the thing that floats, and it owes the page the
+    // same clearance the strip does -- at 320px a coach mark parked at the foot of the
+    // window sits on top of whatever the dashboard drew there, and a tour that makes the
+    // control it is pointing at unreachable is worse than no tour.
+    function reserve() {
+      var box = running ? bubble : (el && !el.hidden ? el : null);
+      var h = box ? box.getBoundingClientRect().height + 24 : 0;
+      document.body.style.paddingBottom = h ? h + "px" : "";
+    }
+
+    // ---- the guided tour -------------------------------------------------------
+
+    function q(sel) { return document.querySelector(sel); }
+    // The route WITHOUT its query. A step's own action can add one -- step 2 commits
+    // `?text=payments` -- and the step after it lives on the same screen, so comparing
+    // the whole hash would navigate back and throw the reader's own search away.
+    function hashPath() { return window.location.hash.split("?")[0]; }
+    // Anchored on the end of the href so a same-named service in another domain (this
+    // fixture publishes one) cannot satisfy a gate meant for the default-domain service.
+    function paymentsLink() { return q('[data-testid="service-list"] a[href$="/fleet/services/payments-service"]'); }
+
+    // Svelte 5 binds on the EVENT, not on the property: assigning .value alone leaves the
+    // component's own state holding the old value, so the submit that follows sends the
+    // old one and the skip silently does nothing. Both events, because a text input binds
+    // on `input` and this app's revision selectors commit on `change`.
+    function setValue(node, value) {
+      node.value = value;
+      node.dispatchEvent(new Event("input", { bubbles: true }));
+      node.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    // A step may name several targets; the LAST one that resolves wins, so the spotlight
+    // follows the action from a search box to the result it produced without the step
+    // needing to know when that happened.
+    function resolve(sel) {
+      if (!sel) { return null; }
+      var list = typeof sel === "string" ? [sel] : sel;
+      var found = null;
+      for (var i = 0; i < list.length; i++) {
+        var e = q(list[i]);
+        if (e) { found = e; }
+      }
+      return found;
+    }
+
+    function clamp(v, lo, hi) { return hi < lo ? lo : (v < lo ? lo : (v > hi ? hi : v)); }
+
+    var SPOT_PAD = 6;
+    var BUBBLE_GAP = 12;
+
+    // Put the cut-out over the target and the bubble beside it: below when there is room
+    // and above otherwise, then clamped into the viewport so it is never half off-screen
+    // at 320px. clientWidth/clientHeight rather than innerWidth/innerHeight because a
+    // classic scrollbar is not addressable space for a fixed box.
+    function place(t) {
+      var vw = document.documentElement.clientWidth;
+      var vh = document.documentElement.clientHeight;
+      var b = bubble.getBoundingClientRect();
+      var left, top;
+      if (!t) {
+        // Pointing at nothing is worse than not pointing: with no target the light goes
+        // out and the bubble takes the middle of the screen until the app renders it.
+        spot.hidden = true;
+        left = (vw - b.width) / 2;
+        top = (vh - b.height) / 2;
+      } else {
+        var r = t.getBoundingClientRect();
+        spot.hidden = false;
+        spot.style.left = (r.left - SPOT_PAD) + "px";
+        spot.style.top = (r.top - SPOT_PAD) + "px";
+        spot.style.width = (r.width + SPOT_PAD * 2) + "px";
+        spot.style.height = (r.height + SPOT_PAD * 2) + "px";
+        left = r.left;
+        top = r.bottom + BUBBLE_GAP + b.height <= vh - BUBBLE_GAP
+          ? r.bottom + BUBBLE_GAP
+          : r.top - BUBBLE_GAP - b.height;
+      }
+      bubble.style.left = Math.round(clamp(left, BUBBLE_GAP, vw - b.width - BUBBLE_GAP)) + "px";
+      bubble.style.top = Math.round(clamp(top, BUBBLE_GAP, vh - b.height - BUBBLE_GAP)) + "px";
+    }
+
+    // Only when it is actually off-screen, and only when the target CHANGES: a tour that
+    // re-scrolls every frame takes the page away from the reader mid-drag.
+    function ensureVisible(t) {
+      var r = t.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > document.documentElement.clientHeight) { t.scrollIntoView({ block: "center" }); }
+    }
+
+    // ponytail: one rAF loop instead of scroll + resize + MutationObserver + a per-gate
+    // subscription. The app renders asynchronously and every gate watches a different
+    // thing, so the listener version is four sources of truth that each have to be torn
+    // down; re-reading three rects and one predicate per frame is cheap, always correct
+    // and has exactly one cancel. Upgrade path if it ever costs anything: throttle to
+    // every other frame, or subscribe once hashchange + ResizeObserver cover the gates.
+    function tick() {
+      if (!running) { return; }
+      raf = window.requestAnimationFrame(tick);
+      var s = TOUR[step];
+      var t = resolve(s.target);
+      if (t !== lastTarget) {
+        lastTarget = t;
+        if (t) { ensureVisible(t); }
+      }
+      place(t);
+      if (!s.gate) { return; }
+      var open = s.gate();
+      nextBtn.disabled = !open;
+      // Guarded because the hint is a live region: writing the same string sixty times a
+      // second would announce it sixty times a second.
+      var msg = open ? "" : s.wait;
+      if (hintEl.textContent !== msg) { hintEl.textContent = msg; }
+    }
+
+    function ctlButton(id, testid, text, fn) {
       var b = document.createElement("button");
       b.id = id;
       b.type = "button";
       b.setAttribute("data-testid", testid);
       b.textContent = text;
-      b.hidden = true;
-      b.addEventListener("click", function () { goStep(step + delta, true); });
+      b.addEventListener("click", fn);
       return b;
     }
 
-    // Drive the tour to step i, and -- when the reader asked for it -- drive the
-    // dashboard with it. The route change is a real hash navigation, so the browser's
-    // own Back button walks the tour backwards for free and every step is a URL the
-    // reader can keep.
-    //
-    // `navigate` is what separates "the reader pressed Next" from "the strip is
-    // painting itself for the first time". Only a press may move the route: the first
-    // paint happens on whatever page the visitor opened, and a deep link into a
-    // revision or a graph is a page they chose. Navigating there would throw it away
-    // and drop them on the overview.
-    function goStep(i, navigate) {
-      if (i < 0 || i >= TOUR.length || !el) { return; }
+    function buildOverlay() {
+      overlay = document.createElement("div");
+      overlay.id = "pacto-tour-overlay";
+      overlay.setAttribute("data-testid", "demo-tour-overlay");
+
+      spot = document.createElement("div");
+      spot.id = "pacto-tour-spot";
+      spot.setAttribute("data-testid", "demo-tour-spotlight");
+      spot.hidden = true;
+
+      bubble = document.createElement("div");
+      bubble.id = "pacto-tour-bubble";
+      bubble.setAttribute("data-testid", "demo-tour-bubble");
+      // role=dialog and NOT aria-modal: the page behind stays live on purpose, because
+      // the reader is meant to operate the thing in the spotlight. The step text is the
+      // description, so moving focus here on a step change reads the name and the step
+      // in one go -- which is also why the text carries no aria-live of its own, and why
+      // the strip (role=status) is hidden for the duration. One announcer at a time.
+      bubble.setAttribute("role", "dialog");
+      bubble.setAttribute("aria-label", "Guided tour");
+      bubble.setAttribute("aria-describedby", "pacto-tour-text");
+      bubble.setAttribute("tabindex", "-1");
+
+      stepNum = document.createElement("span");
+      stepNum.id = "pacto-tour-step";
+      stepNum.setAttribute("data-testid", "demo-tour-step");
+
+      textEl = document.createElement("span");
+      textEl.id = "pacto-tour-text";
+      textEl.setAttribute("data-testid", "demo-tour-text");
+
+      // Only the last step has somewhere further to send the reader, so this anchor is
+      // separate from the strip's "About this demo" rather than a mutation of it: the
+      // explainer link is owed the whole time, and swapping its target would take it away.
+      moreLink = document.createElement("a");
+      moreLink.id = "pacto-tour-more";
+      moreLink.setAttribute("data-testid", "demo-tour-more");
+      moreLink.hidden = true;
+
+      hintEl = document.createElement("span");
+      hintEl.id = "pacto-tour-hint";
+      hintEl.setAttribute("aria-live", "polite");
+
+      backBtn = ctlButton("pacto-tour-back", "demo-tour-back", "Back", function () { goStep(step - 1); });
+      nextBtn = ctlButton("pacto-tour-next", "demo-tour-next", "Next", function () { goStep(step + 1); });
+      // The reason a disabled Next is disabled, attached to the control itself so a
+      // screen reader gets it without hunting for the amber line.
+      nextBtn.setAttribute("aria-describedby", "pacto-tour-hint");
+      skipBtn = ctlButton("pacto-tour-skip", "demo-tour-skip", "Skip step", function () {
+        var s = TOUR[step];
+        if (s.skip) { s.skip(); }
+        goStep(step + 1);
+      });
+      var exitBtn = ctlButton("pacto-tour-exit", "demo-tour-exit", "Exit tour", exitTour);
+
+      var ctl = document.createElement("div");
+      ctl.id = "pacto-tour-ctl";
+      ctl.appendChild(backBtn);
+      ctl.appendChild(nextBtn);
+      ctl.appendChild(skipBtn);
+      ctl.appendChild(exitBtn);
+
+      bubble.appendChild(stepNum);
+      bubble.appendChild(textEl);
+      bubble.appendChild(moreLink);
+      bubble.appendChild(hintEl);
+      bubble.appendChild(ctl);
+      overlay.appendChild(spot);
+      overlay.appendChild(bubble);
+      document.body.appendChild(overlay);
+    }
+
+    // Drive the tour to step i and, if the app is not already on that screen, drive the
+    // dashboard with it. Allowed to navigate at all only because nothing reaches here
+    // until "Take the guided tour" was pressed -- the first paint still never moves the
+    // route, so a deep link into a revision or a graph is still the page the visitor
+    // chose.
+    function goStep(i) {
+      if (i < 0 || i >= TOUR.length || !running) { return; }
       step = i;
+      lastTarget = null;
       var s = TOUR[i];
-      say(s.text);
       stepNum.textContent = (i + 1) + " / " + TOUR.length;
-      stepNum.hidden = false;
-      backBtn.hidden = i === 0;
+      textEl.textContent = s.text;
+      backBtn.disabled = i === 0;
       nextBtn.hidden = i === TOUR.length - 1;
+      // Closed until proven open, so a step never opens on a stale verdict from the
+      // frame before the route changed.
+      nextBtn.disabled = !!s.gate;
+      // Nothing to skip on an ungated step: Next is already live there, and a second
+      // button that does the same thing is a choice the reader has to stop and make.
+      skipBtn.hidden = !s.gate;
+      hintEl.textContent = s.gate ? s.wait : "";
       if (s.href) {
         moreLink.href = s.href;
         moreLink.textContent = s.linkText;
@@ -296,22 +584,45 @@
       } else {
         moreLink.hidden = true;
       }
-      if (navigate && s.hash && window.location.hash !== s.hash) { window.location.hash = s.hash; }
-      // Moving focus to the strip keeps a keyboard reader with the tour after the app
-      // re-renders the whole main region underneath it. Only on an explicit step
-      // change, never on the first paint, or arriving at the demo would steal focus
-      // from the page the reader is still reading.
-      if (navigate) { el.setAttribute("tabindex", "-1"); el.focus(); }
+      if (s.hash && hashPath() !== s.hash) { window.location.hash = s.hash; }
+      place(resolve(s.target));
+      // Keeps a keyboard reader with the tour after the app re-renders the whole main
+      // region underneath it.
+      bubble.focus();
     }
 
-    function say(text) { pending = text; if (label) { label.textContent = text; } }
+    function onKey(e) { if (e.key === "Escape") { exitTour(); } }
 
-    // The gap keeps the last line of the page off the strip's own shadow rather than
-    // flush against it. Cleared, not zeroed, once the strip is gone: the page owns its
-    // padding again and this leaves no trace of having borrowed it.
-    function reserve() {
-      var h = el && !el.hidden ? el.getBoundingClientRect().height + 24 : 0;
-      document.body.style.paddingBottom = h ? h + "px" : "";
+    function startTour() {
+      if (running || !el) { return; }
+      running = true;
+      // One announcer at a time: the strip is a role=status live region and the bubble is
+      // about to become the thing that speaks. It comes straight back on exit.
+      el.hidden = true;
+      buildOverlay();
+      if (sizeObs) { sizeObs.observe(bubble); }
+      document.addEventListener("keydown", onKey);
+      goStep(0);
+      reserve();
+      raf = window.requestAnimationFrame(tick);
+    }
+
+    // Leaves the reader wherever they got to -- a tour that undoes the visitor's own
+    // navigation on the way out has taken something from them.
+    function exitTour() {
+      if (!running) { return; }
+      running = false;
+      // A rAF loop that outlives the tour is a leak that keeps measuring elements the
+      // reader can no longer see.
+      window.cancelAnimationFrame(raf);
+      document.removeEventListener("keydown", onKey);
+      if (sizeObs) { sizeObs.unobserve(bubble); }
+      overlay.parentNode.removeChild(overlay);
+      overlay = spot = bubble = null;
+      lastTarget = null;
+      el.hidden = false;
+      reserve();
+      startBtn.focus();
     }
 
     if (document.readyState === "loading") {
@@ -321,24 +632,26 @@
     }
     window.__pactoReady.then(function () {
       done();
-      // Step 1 names the two deliberate oddities rather than only labelling the
+      // The notice names the two deliberate oddities rather than only labelling the
       // fixture. The visitor who arrived from the home page's primary call to action
       // lands on a degraded-source banner and a config name that appears twice; told
       // nothing, they read both as a broken product and leave. The strip cannot hold
-      // the explanation, but it can say the oddities are intended, put the page that
-      // explains them one click away, and then walk the reader through what the rest
-      // of the screens are for.
+      // the explanation, but it can say the oddities are intended and put the page that
+      // explains them one click away.
       //
-      // goStep(0) rather than an auto-advancing or auto-opening tour: the reader came
-      // to look at a dashboard, and a walkthrough that moves on its own takes the page
-      // away from them. Nothing happens -- and nothing navigates -- until Next is
-      // pressed.
+      // An invitation rather than a tour that opens itself: the reader came to look at a
+      // dashboard, and a walkthrough that starts on its own takes the page away from
+      // them. Nothing happens -- and nothing navigates -- until the button is pressed.
       ready = true;
-      if (el) { goStep(0); } else { say(TOUR[0].text); }
+      say(NOTICE);
+      offerTour();
     });
     window.__pactoDemoFailed = function () {
       done();
       say("The Pacto engine did not load, so every panel will stay empty. Try reloading.");
+      // Every screen the tour visits is served by the engine, so with no engine there is
+      // nothing to walk through.
+      if (startBtn) { startBtn.hidden = true; }
       // A dismissed notice stays dismissed for anything the reader has already been
       // told. This is not that: without the strip, a failed load is a dashboard whose
       // every panel is permanently empty and nothing anywhere saying why.
