@@ -34,10 +34,12 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
-const (
-	bundlesDir   = "bundles"
-	contractFile = "pacto.yaml"
-)
+// Roots walked for contracts. `pacto-dashboard` lives beside ./bundles rather
+// than inside it — it is the dashboard's own bundle, not a fleet fixture — and it
+// is just as much a demo contract, so it is validated here too.
+var roots = []string{"bundles", "pacto-dashboard"}
+
+const contractFile = "pacto.yaml"
 
 // svcVersion is one indexed bundle: its declaring contract, the raw contract
 // bytes (needed for structural + policy validation) and its on-disk directory.
@@ -58,7 +60,7 @@ func main() {
 }
 
 func run() error {
-	idx, err := buildIndex(bundlesDir)
+	idx, err := buildIndex(roots...)
 	if err != nil {
 		return err
 	}
@@ -95,11 +97,11 @@ func run() error {
 	return nil
 }
 
-// buildIndex walks bundlesDir for pacto.yaml files and indexes each by service
+// buildIndex walks each root for pacto.yaml files and indexes each by service
 // name and version, keeping the raw bytes for validation.
-func buildIndex(root string) (index, error) {
+func buildIndex(roots ...string) (index, error) {
 	idx := index{}
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	walk := func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -121,9 +123,11 @@ func buildIndex(root string) (index, error) {
 		}
 		idx[name][ver] = &svcVersion{contract: c, raw: raw, dir: dir}
 		return nil
-	})
-	if err != nil {
-		return nil, err
+	}
+	for _, root := range roots {
+		if err := filepath.WalkDir(root, walk); err != nil {
+			return nil, err
+		}
 	}
 	return idx, nil
 }

@@ -59,7 +59,7 @@ func TestGetVersionsDescendingWithClassification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVersions: %v", err)
 	}
-	wantOrder := []string{"2.1.1", "2.1.0", "2.0.0", "1.2.0", "1.1.0", "1.0.0"}
+	wantOrder := []string{"2.1.1", "2.1.0", "2.0.1", "1.2.1", "1.1.0", "1.0.0"}
 	if len(vs) != len(wantOrder) {
 		t.Fatalf("got %d versions, want %d", len(vs), len(wantOrder))
 	}
@@ -72,8 +72,8 @@ func TestGetVersionsDescendingWithClassification(t *testing.T) {
 		}
 	}
 	for _, v := range vs {
-		if v.Version == "2.0.0" && v.Classification != "BREAKING" {
-			t.Errorf("2.0.0 classification = %q, want BREAKING", v.Classification)
+		if v.Version == "2.0.1" && v.Classification != "BREAKING" {
+			t.Errorf("2.0.1 classification = %q, want BREAKING", v.Classification)
 		}
 	}
 }
@@ -81,8 +81,8 @@ func TestGetVersionsDescendingWithClassification(t *testing.T) {
 func TestGetDiffBreaking(t *testing.T) {
 	src := bundlesFS(t)
 	d, err := src.GetDiff(context.Background(),
-		dashboard.Ref{Name: "payments-service", Version: "1.2.0"},
-		dashboard.Ref{Name: "payments-service", Version: "2.0.0"})
+		dashboard.Ref{Name: "payments-service", Version: "1.2.1"},
+		dashboard.Ref{Name: "payments-service", Version: "2.0.1"})
 	if err != nil {
 		t.Fatalf("GetDiff: %v", err)
 	}

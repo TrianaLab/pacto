@@ -117,7 +117,7 @@ OUT="$("$BIN" $(beat_args 10))" || fail "beat 10: fleet reconcile failed"
 assert_contains "$OUT" "[matched] orders-service -> payments-service"              "a declared edge seen in traffic is matched"
 assert_contains "$OUT" "[observed-not-declared] audit-log -> payments-service"     "an undeclared edge seen in traffic is surfaced"
 
-echo "== beat 11: an agent gets read tools until someone says otherwise =="
+echo "== beat 11: an interface's mutating half is withheld until someone says otherwise =="
 # `pacto mcp` exits 1 when stdin reaches EOF, so both captures end in `|| true`:
 # the exit code says nothing about the write gate, only the stderr line does.
 # Do not "fix" these into exit-code checks.

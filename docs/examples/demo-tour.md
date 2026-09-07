@@ -243,8 +243,8 @@ declaration, not a score.
 
 ## Beat 5 — Refuse a breaking change
 
-Two published revisions of the same service. Pacto compares them field by field
-and classifies every difference.
+Two revisions of the same service. Pacto compares them field by field and
+classifies what it finds.
 
 --8<-- "examples/demo/generated/_beat-05.md"
 
@@ -256,6 +256,14 @@ SBOM package version moving. All of that is one contract compared with another �
 no running service was consulted. The
 [classification rules](../contract-reference/diff.md#change-classification-rules)
 are a published table, not a heuristic.
+
+One difference between these two revisions is deliberately missing from the list.
+Their AsyncAPI documents are not the same file, and no interface entry says so:
+Pacto compares spec content for `openapi` interfaces only, and for the rest it
+compares the `ref`, which here did not move. What Pacto does not compare is
+[a published table too](../contract-reference/diff.md#not-currently-compared),
+because a coverage gap you can read is worth more than one you infer from a clean
+result.
 
 ## Beat 6 — Compare it with the release that was not a break
 

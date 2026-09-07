@@ -76,9 +76,10 @@ func NewEmbedSource(fsys fs.FS) (*EmbedSource, error) {
 		if s.byName[name] == nil {
 			s.byName[name] = make(map[string]*versionEntry)
 		}
-		// The sub-FS rooted at the contract dir carries the committed pacto.lock,
-		// so ServiceDetailsFromBundle applies its pins for the demo too — no manual
-		// lock reading here.
+		// The sub-FS is rooted at the contract dir, so whatever the bundle ships
+		// beside pacto.yaml travels with it. The demo commits no pacto.lock — the
+		// publish script regenerates one against the live coordinate — so there are
+		// no pins to apply here.
 		s.byName[name][ver] = &versionEntry{
 			bundle: &contract.Bundle{Contract: c, RawYAML: raw, FS: sub},
 			hash:   hex.EncodeToString(h[:]),
@@ -142,10 +143,9 @@ func (s *EmbedSource) ListServices(_ context.Context) ([]dashboard.Service, erro
 	return services, nil
 }
 
-// GetService returns full details for a service's latest version. The embedded
-// pacto.lock travels in the bundle FS, so ServiceDetailsFromBundle surfaces its
-// pins. The demo has no k8s runtime, so DriftStatus stays empty (pins shown, no
-// drift assertion) — which is correct offline.
+// GetService returns full details for a service's latest version. The demo
+// commits no pacto.lock, so there are no pins to surface, and it has no k8s
+// runtime, so DriftStatus stays empty — which is correct offline.
 func (s *EmbedSource) GetService(_ context.Context, name string) (*dashboard.ServiceDetails, error) {
 	entry, _, err := s.latestEntry(name)
 	if err != nil {
