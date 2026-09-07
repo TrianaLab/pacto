@@ -329,12 +329,20 @@ ci-ui-drift: ui-build
 	@git diff --exit-code pkg/dashboard/ui/ || (echo "Committed pkg/dashboard/ui/ is out of date. Run 'make ui-build' and commit." && exit 1)
 
 # ── Bundle generation targets ────────────────────────────────────────
-# The OpenAPI spec is generated via the pacto-plugin-openapi-infer plugin
-# using --option source=../.. to point at the repo root (where go.mod lives).
+# Both generated contract artifacts come from ./cmd/genbundle, which reads the
+# live Huma operation registrations and the live config struct — the same source
+# the TypeScript SDK and `check-dashboard-sdk-drift` use, so the contract we
+# publish cannot drift from what the server actually serves.
+#
+# This used to infer the OpenAPI spec from Go source with pacto-plugin-openapi-infer.
+# Inference could not see the Product/Fleet API registrations: it found 18 paths
+# where the server serves 32, so we published a contract describing half the surface
+# with nothing to catch it. Read the registrations, do not guess at them.
 
 gen-openapi:
 	@echo "==> Generating OpenAPI spec..."
-	pacto generate openapi-infer $(BUNDLE_DIR) --option source=../.. --option output=interfaces/openapi.json -o $(BUNDLE_DIR)
+	@mkdir -p $(BUNDLE_DIR)/interfaces
+	go run ./cmd/genbundle dashboard-openapi > $(BUNDLE_DIR)/interfaces/openapi.json
 
 gen-config-schema:
 	@echo "==> Generating configuration JSON schema..."

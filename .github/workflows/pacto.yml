@@ -37,19 +37,6 @@ jobs:
         if: github.event_name != 'release'
         run: go install ./cmd/pacto
 
-      - name: Install official plugins
-        if: github.event_name != 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG=$(gh release view --repo TrianaLab/pacto-plugins --json tagName -q .tagName)
-          GOBIN=$(go env GOPATH)/bin
-          for plugin in pacto-plugin-schema-infer pacto-plugin-openapi-infer; do
-            gh release download "$TAG" --repo TrianaLab/pacto-plugins \
-              --pattern "${plugin}_linux_amd64" --output "${GOBIN}/${plugin}"
-            chmod +x "${GOBIN}/${plugin}"
-          done
-
       - uses: trianalab/pacto-actions@3ae26607b3d6f33caec1213e148ba3feab571ef4 # v1.8.2
         if: github.event_name == 'release'
         with:
