@@ -247,10 +247,14 @@ func blankProtoComment(buf []byte, i int) int {
 // returns the index just past its closing quote.
 //
 // A proto string literal cannot span a raw newline, so a quote with no closing
-// quote before the line break is not a literal at all: nothing is blanked and
-// scanning resumes just after that quote. Blanking such a run would delete the
-// statement's terminating `;` along with it, and extractFields would then run
-// the statement into the next declaration and lose a real field.
+// quote before the line break is not a literal at all. Its tail is blanked to
+// the end of the line — every byte including the opening quote, EXCEPT any `;`,
+// which is left standing. Both halves of that matter. Blanking makes a `{` or a
+// `/*` in the tail inert: an unbalanced brace would make matchBrace fail and
+// drop every declaration in the file, and a comment opener would swallow the
+// rest of the file. Keeping the `;` ends the statement where the source ends
+// it, so the malformed statement does not run into the next declaration and
+// eat a real field.
 func blankProtoString(buf []byte, i int) int {
 	quote := buf[i]
 	end := -1
@@ -265,7 +269,12 @@ func blankProtoString(buf []byte, i int) int {
 		}
 	}
 	if end < 0 {
-		return i + 1
+		for ; i < len(buf) && buf[i] != '\n'; i++ {
+			if buf[i] != ';' {
+				buf[i] = ' '
+			}
+		}
+		return i
 	}
 	for j := i + 1; j < end; j++ {
 		buf[j] = ' '

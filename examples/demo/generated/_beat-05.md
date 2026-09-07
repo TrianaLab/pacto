@@ -6,11 +6,20 @@ pacto diff examples/demo/bundles/payments-service/v1.2.1 examples/demo/bundles/p
 
 ```console
 Classification: BREAKING
-Changes (30):
+Changes (39):
   [NON_BREAKING] service.version (modified): service.version modified [1.2.1 -> 2.0.1]
   [POTENTIAL_BREAKING] capabilities (removed): capabilities removed [- extension (payments.trianalab.com/refund)]
   [NON_BREAKING] capabilities (added): capabilities added [+ extension (payments.trianalab.com/dispute)]
   [POTENTIAL_BREAKING] dependencies.required (modified): dependencies.required modified [fraud-service: required=false -> fraud-service: required=true]
+  [BREAKING] asyncapi.channels[payment.completed] (removed): channel payment.completed removed [- payment.completed]
+  [BREAKING] asyncapi.channels[payment.failed] (removed): channel payment.failed removed [- payment.failed]
+  [POTENTIAL_BREAKING] asyncapi.channels[payment.refunded].publish.message.payload.properties.charge_id (removed): asyncapi.channels[payment.refunded].publish.message.payload.properties.charge_id removed [- map[type:string]]
+  [POTENTIAL_BREAKING] asyncapi.channels[payment.refunded].publish.message.payload.properties.payment_intent_id (added): asyncapi.channels[payment.refunded].publish.message.payload.properties.payment_intent_id added [+ map[type:string]]
+  [BREAKING] asyncapi.channels[payment.refunded].publish.message.payload.required[payment_intent_id] (added): asyncapi.channels[payment.refunded].publish.message.payload.required payment_intent_id added [+ payment_intent_id]
+  [BREAKING] asyncapi.channels[payment.refunded].publish.message.payload.required[charge_id] (removed): asyncapi.channels[payment.refunded].publish.message.payload.required charge_id removed [- charge_id]
+  [NON_BREAKING] asyncapi.channels[payment.intent.created] (added): channel payment.intent.created added [+ payment.intent.created]
+  [NON_BREAKING] asyncapi.channels[payment.intent.failed] (added): channel payment.intent.failed added [+ payment.intent.failed]
+  [NON_BREAKING] asyncapi.channels[payment.intent.succeeded] (added): channel payment.intent.succeeded added [+ payment.intent.succeeded]
   [BREAKING] openapi.paths[/charges] (removed): API path /charges removed [- /charges]
   [BREAKING] openapi.paths[/charges/{id}] (removed): API path /charges/{id} removed [- /charges/{id}]
   [POTENTIAL_BREAKING] openapi.paths[/refunds].methods[POST].request-body.content.application/json.schema.properties.charge_id (removed): openapi.paths[/refunds].methods[POST].request-body.content.application/json.schema.properties.charge_id removed [- map[type:string]]

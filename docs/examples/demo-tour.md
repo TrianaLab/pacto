@@ -174,19 +174,19 @@ declaration, not a score.
 
 --8<-- "examples/demo/generated/_beat-05.md"
 
-Thirty changes, one verdict, and a non-zero exit so CI can gate on it. The
-interesting part is the spread: two API paths removed, a required request field
-swapped for a differently-named one, two configuration keys becoming required, a
-capability dropped, an optional dependency becoming mandatory and one SBOM
-package version moving. All of it is one contract compared with another — no
-running service was consulted. The
+Thirty-nine changes, one verdict, and a non-zero exit so CI can gate on it. The
+interesting part is the spread: two API paths removed, two event channels
+withdrawn, a required request field swapped for a differently-named one, two
+configuration keys becoming required, a capability dropped, an optional
+dependency becoming mandatory and one SBOM package version moving. All of it is
+one contract compared with another — no running service was consulted. The
 [classification rules](../contract-reference/diff.md#change-classification-rules)
 are a published table, not a heuristic.
 
-One difference between these two revisions is deliberately missing from the list.
-Their AsyncAPI documents are not the same file, and no interface entry says so:
-Pacto compares spec content for `openapi` interfaces only, and for the rest it
-compares the `ref`, which here did not move. What Pacto does not compare is
+The event surface is in that list because Pacto compares AsyncAPI content, not
+just the `ref`: `payment.completed` and `payment.failed` are gone outright, and
+`payment.refunded` swapped `charge_id` for `payment_intent_id` in both its
+payload properties and its `required` set. What Pacto does not compare is
 [a published table too](../contract-reference/diff.md#not-currently-compared),
 because a coverage gap you can read is worth more than one you infer from a clean
 result.
@@ -195,9 +195,9 @@ Not every release is a break. The same service, one pair earlier:
 
 --8<-- "examples/demo/generated/_beat-06.md"
 
-`POTENTIAL_BREAKING`, not `BREAKING`: a new endpoint and a new optional
-configuration property break nobody by themselves, but adding a property to a
-schema can still surprise a consumer that validates strictly. Three
+`POTENTIAL_BREAKING`, not `BREAKING`: a new endpoint, a new event channel and a
+new optional configuration property break nobody by themselves, but adding a
+property to a schema can still surprise a consumer that validates strictly. Three
 classifications exist because two would force every additive change into one of
 the wrong ones.
 

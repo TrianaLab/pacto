@@ -6,8 +6,9 @@ pacto diff examples/demo/bundles/payments-service/v1.0.0 examples/demo/bundles/p
 
 ```console
 Classification: POTENTIAL_BREAKING
-Changes (5):
+Changes (6):
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 1.1.0]
+  [NON_BREAKING] asyncapi.channels[payment.failed] (added): channel payment.failed added [+ payment.failed]
   [POTENTIAL_BREAKING] openapi.paths[/refunds].methods[POST].request-body.content.application/json.schema.properties.amount.description (modified): openapi.paths[/refunds].methods[POST].request-body.content.application/json.schema.properties.amount.description changed [Refund amount in cents (partial refund if less than charge) -> Refund amount in cents]
   [NON_BREAKING] openapi.paths[/webhooks/stripe] (added): API path /webhooks/stripe added [+ /webhooks/stripe]
   [POTENTIAL_BREAKING] schema.properties.WEBHOOK_SECRET (added): schema.properties.WEBHOOK_SECRET added [+ map[description:Stripe webhook signing secret for signature verification type:string]]

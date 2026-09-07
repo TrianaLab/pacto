@@ -2,6 +2,7 @@ package diff
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -314,6 +315,72 @@ func TestExtractProto_TwoUnterminatedStringsKeepEveryField(t *testing.T) {
 		if got[k] != v {
 			t.Errorf("field %s = %q, want %q", k, got[k], v)
 		}
+	}
+}
+
+// The tail of an unterminated literal must be inert. A `{` in it would leave
+// the block unbalanced and make matchBrace fail, and a `/*` would open a
+// comment that runs to EOF — either one collapses the whole file's message
+// surface to empty and reports every message as a BREAKING removal, which is a
+// far bigger lie than the single lost field the tail-blanking guards against.
+// Each case is checked against its terminated twin: the only difference between
+// the two sources is the missing closing quote, so neither the extracted fields
+// nor the diff may differ.
+func TestExtractProto_UnterminatedStringTailIsInert(t *testing.T) {
+	tests := map[string]struct{ closed, unclosed string }{
+		"brace in the tail": {
+			closed:   "message Account {\n  option (my.tmpl) = \"/v1/{id\";\n  string email = 1;\n}\nmessage GetReq {\n  string id = 1;\n}\n",
+			unclosed: "message Account {\n  option (my.tmpl) = \"/v1/{id;\n  string email = 1;\n}\nmessage GetReq {\n  string id = 1;\n}\n",
+		},
+		"comment opener in the tail": {
+			closed:   "message Account {\n  option (my.tmpl) = \"a /* b\";\n  string email = 1;\n}\nmessage GetReq {\n  string id = 1;\n}\n",
+			unclosed: "message Account {\n  option (my.tmpl) = \"a /* b;\n  string email = 1;\n}\nmessage GetReq {\n  string id = 1;\n}\n",
+		},
+		"brace in the tail, CRLF": {
+			closed:   "message Account {\r\n  option (my.tmpl) = \"/v1/{id\";\r\n  string email = 1;\r\n}\r\nmessage GetReq {\r\n  string id = 1;\r\n}\r\n",
+			unclosed: "message Account {\r\n  option (my.tmpl) = \"/v1/{id;\r\n  string email = 1;\r\n}\r\nmessage GetReq {\r\n  string id = 1;\r\n}\r\n",
+		},
+		"comment closer in the tail": {
+			closed:   "message Account {\n  option (my.tmpl) = \"a */ b\";\n  string email = 1;\n}\nmessage GetReq {\n  string id = 1;\n}\n",
+			unclosed: "message Account {\n  option (my.tmpl) = \"a */ b;\n  string email = 1;\n}\nmessage GetReq {\n  string id = 1;\n}\n",
+		},
+		"foreign quote in the tail": {
+			closed:   "message Account {\n  option (my.tmpl) = \"it's {here\";\n  string email = 1;\n}\nmessage GetReq {\n  string id = 1;\n}\n",
+			unclosed: "message Account {\n  option (my.tmpl) = \"it's {here;\n  string email = 1;\n}\nmessage GetReq {\n  string id = 1;\n}\n",
+		},
+	}
+
+	want := map[string]map[string]string{
+		"Account": {"email": "string = 1"},
+		"GetReq":  {"id": "string = 1"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			for label, src := range map[string]string{"closed": tt.closed, "unclosed": tt.unclosed} {
+				if got := extractProto(src).messages; !reflect.DeepEqual(got, want) {
+					t.Errorf("%s: messages = %+v, want %+v", label, got, want)
+				}
+			}
+			if changes := diffProto(t, tt.closed, tt.unclosed); len(changes) != 0 {
+				t.Errorf("expected 0 changes, got %+v", changes)
+			}
+		})
+	}
+}
+
+// An unterminated literal with no newline after it must stop at the end of the
+// buffer rather than run off it, and must still leave the fields before it.
+func TestExtractProto_UnterminatedStringAtEOF(t *testing.T) {
+	tests := map[string]string{
+		"no trailing newline": "message A {\n  string a = 1;\n}\noption x = \"{dangling",
+		"lone quote at EOF":   "message A {\n  string a = 1;\n}\n\"",
+	}
+	for name, src := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := extractProto(src).messages["A"]["a"]; got != "string = 1" {
+				t.Errorf("A.a = %q, want %q", got, "string = 1")
+			}
+		})
 	}
 }
 

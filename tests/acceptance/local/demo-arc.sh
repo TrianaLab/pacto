@@ -79,15 +79,16 @@ else
   pass "diff exits non-zero"
 fi
 assert_contains "$OUT" "Classification: BREAKING" "the change is classified BREAKING"
-assert_contains "$OUT" "Changes (30):"            "every change is counted"
+assert_contains "$OUT" "Changes (39):"            "every change is counted"
 assert_contains "$OUT" "dependencies.required (modified)" "a dependency becoming required is caught"
 assert_contains "$OUT" "capabilities (removed)"   "a removed capability is caught"
+assert_contains "$OUT" "asyncapi.channels[payment.completed] (removed)" "a withdrawn event channel is caught, not just the HTTP surface"
 assert_contains "$OUT" "SBOM changes (1):"        "SBOM changes are detected"
 
 echo "== beat 6: the same field, one release earlier, is only potentially breaking =="
 OUT="$("$BIN" $(beat_args 6))" || fail "beat 6: diff failed"
 assert_contains "$OUT" "Classification: POTENTIAL_BREAKING" "an additive change is not a break"
-assert_contains "$OUT" "Changes (5):"                       "every change is counted"
+assert_contains "$OUT" "Changes (6):"                       "every change is counted"
 
 echo "== beat 7: blast radius, declared evidence only =="
 OUT="$("$BIN" $(beat_args 7))" || fail "beat 7: impact failed"
