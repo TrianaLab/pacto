@@ -459,6 +459,9 @@ the boundary between them is the artifact under test — never the subject matte
 **`pkg/dashboard/frontend/e2e/`** owns the dashboard bundle, run by
 `make test-browser`, gated by the `dashboard-e2e` job in CI. `e2e/mermaid.spec.ts`
 lives here and proves that *bundle documentation renders inside the dashboard*.
+`make test-browser` also runs the WASM demo's engine smoke (`examples/demo`)
+first, since it has already built that artifact and a broken engine would make
+the browser failures downstream noise.
 
 **`pkg/dashboard/frontend/e2e-docs-site/`** owns the MkDocs output, run by
 `make test-browser-docs-site`, gated by the Docs check workflow. It builds the

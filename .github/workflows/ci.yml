@@ -48,6 +48,10 @@ jobs:
               - 'go.work'
             dashboard:
               - 'pkg/dashboard/**'
+              # dashboard-e2e builds the WASM demo and now smokes its engine, so
+              # the fixtures and the host that serve it are inputs to this leg. A
+              # demo-only PR used to skip it entirely and land untested.
+              - 'examples/demo/**'
             kubernetes:
               - 'integrations/kubernetes/**'
               - 'go.work'
@@ -420,6 +424,11 @@ jobs:
       - release-dry-run
       - release-version-test
       - demo-bundle-immutability
+      # dashboard-e2e was the one leg nothing aggregated, so it could go red on a
+      # PR and still report mergeable. It carries the browser acceptance suite and
+      # now the demo engine smoke, which is the check whose absence let a fixture
+      # rename turn main red.
+      - dashboard-e2e
     runs-on: ubuntu-latest
     steps:
       - name: Verify no required leg failed
