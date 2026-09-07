@@ -436,7 +436,7 @@ $(HELM_UNITTEST): $(LOCALBIN)
 		echo "Downloading helm-unittest $(HELM_UNITTEST_VERSION)..." ; \
 		os=$$(uname -s | sed 's/Darwin/macos/' | sed 's/Linux/linux/') ; \
 		arch=$$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') ; \
-		curl -sSL "https://github.com/helm-unittest/helm-unittest/releases/download/v$(HELM_UNITTEST_VERSION)/helm-unittest-$${os}-$${arch}-$(HELM_UNITTEST_VERSION).tgz" | \
+		curl -sSL --fail --retry 3 --retry-all-errors "https://github.com/helm-unittest/helm-unittest/releases/download/v$(HELM_UNITTEST_VERSION)/helm-unittest-$${os}-$${arch}-$(HELM_UNITTEST_VERSION).tgz" | \
 			tar xz -C "$(LOCALBIN)" untt ; \
 		mv "$(LOCALBIN)/untt" "$(HELM_UNITTEST)" ; \
 	}

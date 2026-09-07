@@ -443,3 +443,126 @@ func TestMCPCatalogEmptyRootFailsClosed(t *testing.T) {
 		t.Errorf("output does not explain the failure:\n%s", out)
 	}
 }
+
+// TestMCPFleetDemoSurface drives the demo fleet in --fleet mode, covering the fleet
+// tools an agent actually queries: search for all services, status for attention-
+// needing targets, and the bare status trap where an agent asking the obvious way
+// gets an apparent clean bill of health.
+func TestMCPFleetDemoSurface(t *testing.T) {
+	t.Parallel()
+	bin := buildPactoBinary(t)
+	ctx := context.Background()
+
+	demoLocal := filepath.Join(repoRoot, "examples", "demo", "bundles")
+	demoTargets := filepath.Join(repoRoot, "examples", "demo", "fleet-targets.yaml")
+	demoTraces := filepath.Join(repoRoot, "examples", "demo", "traces.json")
+
+	cacheDir := t.TempDir()
+	session, child, stderr := catalogStdioSession(t, bin, cacheDir,
+		"--fleet",
+		"--local", demoLocal,
+		"--target-state", demoTargets,
+		"--traces", demoTraces)
+	defer func() { _ = session.Close() }()
+
+	// pacto_fleet_search returns all 16 services
+	searchRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "pacto_fleet_search",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(pacto_fleet_search): %v", err)
+	}
+	searchText := mcpResultText(t, searchRes)
+	var searchResp struct {
+		Services []struct {
+			Name string `json:"name"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal([]byte(searchText), &searchResp); err != nil {
+		t.Fatalf("decode search response: %v\npayload:\n%s", err, searchText)
+	}
+	if got := len(searchResp.Services); got != 16 {
+		t.Errorf("pacto_fleet_search returned %d services, want 16", got)
+	}
+
+	// pacto_fleet_status with needs_attention returns the NonCompliant and Unknown targets
+	statusRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name: "pacto_fleet_status",
+		Arguments: map[string]any{
+			"needs_attention": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(pacto_fleet_status, needs_attention): %v", err)
+	}
+	statusText := mcpResultText(t, statusRes)
+	var statusResp struct {
+		Items []struct {
+			Code string `json:"code"`
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(statusText), &statusResp); err != nil {
+		t.Fatalf("decode status response: %v\npayload:\n%s", err, statusText)
+	}
+
+	// The two signals a reader cares about: one NON_COMPLIANT and one UNKNOWN target.
+	// The 17 MISSING_READINESS entries are real but not asserted — any fixture change
+	// moves that number without meaning anything, and a test that breaks when someone
+	// adds a revision is a test nobody will trust.
+	var foundNonCompliant, foundUnknown bool
+	for _, item := range statusResp.Items {
+		if item.Code == "NON_COMPLIANT" && item.Name == "production-eu/kubernetes-workload/commerce%2Forders-service" {
+			foundNonCompliant = true
+		}
+		if item.Code == "UNKNOWN" && item.Name == "production-eu/kubernetes-workload/identity%2Fauth-service" {
+			foundUnknown = true
+		}
+	}
+	if !foundNonCompliant {
+		t.Errorf("pacto_fleet_status with needs_attention did not return the NonCompliant target production-eu/kubernetes-workload/commerce%%2Forders-service")
+	}
+	if !foundUnknown {
+		t.Errorf("pacto_fleet_status with needs_attention did not return the Unknown target production-eu/kubernetes-workload/identity%%2Fauth-service")
+	}
+
+	// pacto_fleet_status with NO arguments returns items: null. This is the trap:
+	// an agent asking "what needs attention?" the obvious way gets an apparent clean
+	// bill of health. Pin it so it cannot change silently, and mark it for the fix.
+	bareStatusRes, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "pacto_fleet_status",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(pacto_fleet_status, no args): %v", err)
+	}
+	bareStatusText := mcpResultText(t, bareStatusRes)
+	var bareStatusResp map[string]any
+	if err := json.Unmarshal([]byte(bareStatusText), &bareStatusResp); err != nil {
+		t.Fatalf("decode bare status response: %v\npayload:\n%s", err, bareStatusText)
+	}
+	bareItems, hasBareItems := bareStatusResp["items"]
+	if !hasBareItems {
+		t.Errorf("bare pacto_fleet_status response has no 'items' key; payload: %v", bareStatusResp)
+	}
+	// items is null (not an empty list), and there is no counts key to fall back on.
+	// An agent asking "what needs attention?" the obvious way gets nothing back and
+	// no signal that it asked wrong. This is the trap.
+	if bareItems != nil {
+		t.Errorf("bare pacto_fleet_status returned items = %v, want null (the trap that needs fixing)", bareItems)
+	}
+	if _, hasCounts := bareStatusResp["counts"]; hasCounts {
+		t.Errorf("bare pacto_fleet_status response has a 'counts' key; the trap is partially fixed but still broken")
+	}
+
+	if err := session.Close(); err != nil {
+		t.Errorf("closing the session: %v", err)
+	}
+	if child.ProcessState == nil {
+		t.Fatal("the child process was still running after the session closed")
+	}
+	if child.ProcessState.Sys().(interface{ Signaled() bool }).Signaled() {
+		t.Errorf("the child had to be signalled to stop; stderr:\n%s", stderr)
+	}
+}

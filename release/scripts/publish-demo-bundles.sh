@@ -17,21 +17,19 @@
 # pushed artifacts are byte-identical to what `pacto push` would produce.
 #
 # What it does (staging mode):
-#   1. Regenerate the committed OFFLINE demo locks via genlocks — the deterministic
-#      content-hash generator the WASM demo embeds (run twice => no diff).
-#   2. Copy the bundles to a scratch tree, repoint their refs to the target
+#   1. Copy the bundles to a scratch tree, repoint their refs to the target
 #      coordinate, drop committed locks, and push every bundle (auto-tagged by
 #      each contract's version).
-#   3. PROVE live resolution: `pacto lock` + `pacto validate` each dep-bearing
+#   2. PROVE live resolution: `pacto lock` + `pacto validate` each dep-bearing
 #      bundle and confirm every resolved pin is a digest we just pushed (never a
 #      stale foreign artifact). A pre-push negative control shows the same lock
 #      FAILS before the v2 artifacts exist.
-#   4. Write the proof to release/proofs/demo-artifacts.txt.
+#   3. Write the proof to release/proofs/demo-artifacts.txt.
 #
-# In production mode (PACTO_ALLOW_PROD=1) it only performs step 2 against the
-# production coordinate; the offline-lock regen and live proof are dev/PR concerns.
+# In production mode (PACTO_ALLOW_PROD=1) it only performs step 1 against the
+# production coordinate; the live proof is a dev/PR concern.
 #
-# --check is the PR-time half of this script: it runs step 2's byte-exact
+# --check is the PR-time half of this script: it runs step 1's byte-exact
 # immutability gate against the OWNED production coordinate, READ-ONLY, and stops
 # before the push. It is the only way to learn on a pull request that a demo
 # fixture edit has made a published immutable tag unpublishable — a fact that
@@ -52,6 +50,18 @@ COORD="${PACTO_DEMO_REGISTRY:-localhost:5001/pacto-demo}"
 BUNDLES="$ROOT/examples/demo/bundles"
 OWNED="ghcr.io/trianalab/pacto"   # committed refs' coordinate (== demo-bundles unit coordinate)
 PROOF="$ROOT/release/proofs/demo-artifacts.txt"
+
+# rewrite_refs points every committed oci:// reference under $1 at the target
+# coordinate $2. The demo's bundles are committed with the owned ghcr.io
+# coordinate (a test asserts it, in two always-on jobs), so this is the single
+# seam through which the demo is published anywhere else — a local registry for
+# the Compose stack, a fork's namespace, or a staging run.
+rewrite_refs() {
+  local dir="$1" target="$2"
+  [ "$target" = "$OWNED" ] && return 0
+  find "$dir" -name pacto.yaml -exec sed -i.bak "s#$OWNED#$target#g" {} +
+  find "$dir" -name '*.bak' -delete
+}
 EX_TEMPFAIL=75
 
 CHECK=0
@@ -95,16 +105,9 @@ WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK" "$XDG_CACHE_HOME"; }
 trap cleanup EXIT
 
-# ---- step 1: regenerate committed offline locks (deterministic) ----
-if [ "$PROD" = "0" ] && [ "$CHECK" = "0" ]; then
-  echo "==> genlocks: regenerate committed offline demo locks"
-  ( cd "$ROOT/examples/demo" && go run ./genlocks >/dev/null )
-fi
-
-# ---- step 2: copy + repoint + push (no validation gate) ----
+# ---- step 1: copy + repoint + push (no validation gate) ----
 cp -R "$BUNDLES" "$WORK/bundles"
-find "$WORK/bundles" -name pacto.yaml -exec sed -i.bak "s#$OWNED#$COORD#g" {} +
-find "$WORK/bundles" -name '*.bak' -delete
+rewrite_refs "$WORK/bundles" "$COORD"
 find "$WORK/bundles" -name pacto.lock -delete   # regenerated fresh against the live coordinate
 # Reproducibility is a property of the packer now: pkg/oci/bundle.go canonicalizes
 # every tar header, so a bundle's OCI digest depends only on content — no `touch -t`
@@ -203,16 +206,25 @@ if [ "$PROD" = "1" ]; then
   echo "==> production publish complete ($COORD)"; exit 0
 fi
 
-# ---- step 3: prove live resolution against the pushed v2 artifacts ----
+# ---- step 2: prove live resolution against the pushed v2 artifacts ----
 dep_bearing() { grep -qE '^[[:space:]]*ref:[[:space:]]*oci://' "$1/pacto.yaml"; }
 
 # negative control: the same lock FAILS when pointed at the SAME (reachable)
 # registry host but an empty namespace with no v2 artifacts — proving resolution
 # genuinely depends on the artifacts we pushed, not on the ref string alone.
 NEG="$(mktemp -d)"; cp -r "$BUNDLES/auth-service" "$NEG/auth-service"
-find "$NEG" -name pacto.yaml -exec sed -i.bak "s#$OWNED#${COORD%%/*}/pacto-demo-absent#g" {} +
-find "$NEG" -name '*.bak' -delete; find "$NEG" -name pacto.lock -delete
-NEG_OUT="$("$PACTO_BIN" lock "$NEG/auth-service" 2>&1 || true)"; rm -rf "$NEG"
+rewrite_refs "$NEG" "${COORD%%/*}/pacto-demo-absent"
+# Negative control: this lock must FAIL against the absent namespace, and the
+# run is worthless if it silently starts succeeding. Capturing with `|| true`
+# and only printing the output into the proof file made this unfalsifiable.
+if NEG_OUT="$("$PACTO_BIN" lock "$NEG/auth-service" 2>&1)"; then
+  rm -rf "$NEG"
+  printf '%s\n' "$NEG_OUT"
+  echo "FAIL: the negative control locked cleanly against an absent namespace; it is no longer a control" >&2
+  exit 1
+fi
+rm -rf "$NEG"
+echo "  negative control failed as expected"
 
 TOTAL_REFS=0 MATCHED=0 ; PROVEN=() ; RESOLVE_FAIL=()
 while IFS= read -r dir; do
@@ -233,7 +245,7 @@ while IFS= read -r dir; do
   [ "$ok" = "1" ] && PROVEN+=("${dir#"$WORK"/bundles/}")
 done < <(find "$WORK/bundles" -name pacto.yaml -exec dirname {} \; | sort)
 
-# ---- step 4: write the proof ----
+# ---- step 3: write the proof ----
 mkdir -p "$(dirname "$PROOF")"
 {
   echo "# PROOF - demo OCI bundles resolve to the monorepo-owned v2 coordinate"
@@ -267,9 +279,6 @@ mkdir -p "$(dirname "$PROOF")"
   echo
   echo "## pushed v2 artifacts (service:version -> content digest)"
   sort "$PUSHED" | sed 's/^/    /'
-  echo
-  echo "## offline determinism: committed locks are regenerated by genlocks and"
-  echo "## unchanged (make -C examples/demo demo-locks = zero diff)."
 } > "$PROOF"
 
 echo "==> wrote $PROOF (proven ${#PROVEN[@]} dep-bearing bundles, $MATCHED/$TOTAL_REFS pins matched)"

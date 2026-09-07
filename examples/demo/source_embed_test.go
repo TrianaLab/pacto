@@ -59,7 +59,7 @@ func TestGetVersionsDescendingWithClassification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVersions: %v", err)
 	}
-	wantOrder := []string{"2.1.1", "2.1.0", "2.0.0", "1.2.0", "1.1.0", "1.0.0"}
+	wantOrder := []string{"2.1.1", "2.1.0", "2.0.1", "1.2.1", "1.1.0", "1.0.0"}
 	if len(vs) != len(wantOrder) {
 		t.Fatalf("got %d versions, want %d", len(vs), len(wantOrder))
 	}
@@ -72,8 +72,8 @@ func TestGetVersionsDescendingWithClassification(t *testing.T) {
 		}
 	}
 	for _, v := range vs {
-		if v.Version == "2.0.0" && v.Classification != "BREAKING" {
-			t.Errorf("2.0.0 classification = %q, want BREAKING", v.Classification)
+		if v.Version == "2.0.1" && v.Classification != "BREAKING" {
+			t.Errorf("2.0.1 classification = %q, want BREAKING", v.Classification)
 		}
 	}
 }
@@ -81,8 +81,8 @@ func TestGetVersionsDescendingWithClassification(t *testing.T) {
 func TestGetDiffBreaking(t *testing.T) {
 	src := bundlesFS(t)
 	d, err := src.GetDiff(context.Background(),
-		dashboard.Ref{Name: "payments-service", Version: "1.2.0"},
-		dashboard.Ref{Name: "payments-service", Version: "2.0.0"})
+		dashboard.Ref{Name: "payments-service", Version: "1.2.1"},
+		dashboard.Ref{Name: "payments-service", Version: "2.0.1"})
 	if err != nil {
 		t.Fatalf("GetDiff: %v", err)
 	}
@@ -156,7 +156,6 @@ func TestEmbedSource_GetServiceVersion(t *testing.T) {
 	}
 }
 
-// TestEmbedSource_RealBundlesCarryLocks pins the committed demo locks: a
 // TestEmbedSource_SurfacesCapabilitiesAndSkills guards that the demo actually
 // demonstrates the agent-capabilities feature: services with an http/OpenAPI
 // interface expose derived capability tools, and payments-service ships a skill.
@@ -181,38 +180,6 @@ func TestEmbedSource_SurfacesCapabilitiesAndSkills(t *testing.T) {
 	}
 	if !refund {
 		t.Errorf("payments-service should surface the refund_customer.md skill, got %v", pay.Skills)
-	}
-}
-
-// dep-bearing bundle (payments-service) surfaces its lock with pinned digests,
-// while a leaf bundle (postgresql) has no lock. Guards both the committed lock
-// data and EmbedSource's embedded-lock reading against regressions.
-func TestEmbedSource_RealBundlesCarryLocks(t *testing.T) {
-	src := bundlesFS(t)
-
-	pay, err := src.GetService(context.Background(), "payments-service")
-	if err != nil {
-		t.Fatalf("GetService(payments-service): %v", err)
-	}
-	if pay.Lock == nil || !pay.Lock.Present {
-		t.Fatal("payments-service should carry an embedded lock")
-	}
-	// Every declared dependency should be pinned to a sha256 content hash.
-	if len(pay.Dependencies) == 0 {
-		t.Fatal("payments-service should declare dependencies")
-	}
-	for _, d := range pay.Dependencies {
-		if d.LockedDigest == "" {
-			t.Errorf("dependency %q not pinned by the committed lock", d.Name)
-		}
-	}
-
-	leaf, err := src.GetService(context.Background(), "postgresql")
-	if err != nil {
-		t.Fatalf("GetService(postgresql): %v", err)
-	}
-	if leaf.Lock != nil {
-		t.Errorf("leaf bundle postgresql must have no lock, got %+v", leaf.Lock)
 	}
 }
 

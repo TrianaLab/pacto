@@ -639,3 +639,95 @@ paths:
 		t.Errorf("expected openapi.paths[/users] Removed (spec-level breaking change), got %+v", changes)
 	}
 }
+
+// The spec behind an unchanged ref can be rewritten, so AsyncAPI content is
+// diffed regardless of ref equality.
+func TestDiffInterfaces_AsyncAPIContentDiffed(t *testing.T) {
+	old := minimalContract()
+	old.Interfaces[0] = contract.Interface{Name: "events", Type: contract.InterfaceTypeAsyncAPI, Ref: "interfaces/events.yaml"}
+	new := minimalContract()
+	new.Interfaces[0] = old.Interfaces[0]
+
+	oldFS := fstest.MapFS{"interfaces/events.yaml": &fstest.MapFile{Data: []byte(`asyncapi: "2.6.0"
+channels:
+  order.created: {}
+  order.cancelled: {}
+`)}}
+	newFS := fstest.MapFS{"interfaces/events.yaml": &fstest.MapFile{Data: []byte(`asyncapi: "2.6.0"
+channels:
+  order.created: {}
+`)}}
+
+	changes := diffInterfaces(old, new, oldFS, newFS)
+	c, ok := findChange(changes, "asyncapi.channels[order.cancelled]", Removed)
+	if !ok {
+		t.Fatalf("expected the rewritten AsyncAPI document to be diffed, got %+v", changes)
+	}
+	if c.Classification != Breaking {
+		t.Errorf("expected BREAKING, got %s", c.Classification)
+	}
+}
+
+// Same for a .proto rewritten behind an unchanged ref.
+func TestDiffInterfaces_GRPCContentDiffed(t *testing.T) {
+	old := minimalContract()
+	old.Interfaces[0] = contract.Interface{Name: "rpc", Type: contract.InterfaceTypeGRPC, Ref: "interfaces/api.proto"}
+	new := minimalContract()
+	new.Interfaces[0] = old.Interfaces[0]
+
+	oldFS := fstest.MapFS{"interfaces/api.proto": &fstest.MapFile{Data: []byte(`syntax = "proto3";
+service Orders {
+  rpc Get(GetRequest) returns (GetResponse);
+}
+`)}}
+	newFS := fstest.MapFS{"interfaces/api.proto": &fstest.MapFile{Data: []byte(`syntax = "proto3";
+service Orders {
+  rpc Get(GetRequest) returns (stream GetResponse);
+}
+`)}}
+
+	changes := diffInterfaces(old, new, oldFS, newFS)
+	c, ok := findChange(changes, "grpc.rpcs[Orders.Get]", Modified)
+	if !ok {
+		t.Fatalf("expected the rewritten proto to be diffed, got %+v", changes)
+	}
+	if c.Classification != Breaking {
+		t.Errorf("expected BREAKING, got %s", c.Classification)
+	}
+}
+
+// Content is compared only when both sides declare the same interface type.
+func TestDiffInterfaces_MismatchedTypesNotContentDiffed(t *testing.T) {
+	old := minimalContract()
+	old.Interfaces[0] = contract.Interface{Name: "events", Type: contract.InterfaceTypeAsyncAPI, Ref: "spec"}
+	new := minimalContract()
+	new.Interfaces[0] = contract.Interface{Name: "events", Type: contract.InterfaceTypeGRPC, Ref: "spec"}
+
+	fsys := fstest.MapFS{"spec": &fstest.MapFile{Data: []byte("channels:\n  a: {}\n")}}
+
+	for _, c := range diffInterfaces(old, new, fsys, fsys) {
+		if strings.HasPrefix(c.Path, "asyncapi.") || strings.HasPrefix(c.Path, "grpc.") {
+			t.Errorf("expected no content diff across mismatched types, got %+v", c)
+		}
+	}
+}
+
+// An interface with no ref has no content to compare.
+func TestDiffInterfaces_EmptyRefNotContentDiffed(t *testing.T) {
+	fsys := fstest.MapFS{"spec": &fstest.MapFile{Data: []byte("channels:\n  a: {}\n")}}
+	types := []string{contract.InterfaceTypeOpenAPI, contract.InterfaceTypeAsyncAPI, contract.InterfaceTypeGRPC}
+
+	for _, typ := range types {
+		t.Run(typ, func(t *testing.T) {
+			old := minimalContract()
+			old.Interfaces[0] = contract.Interface{Name: "iface", Type: typ, Ref: ""}
+			new := minimalContract()
+			new.Interfaces[0] = contract.Interface{Name: "iface", Type: typ, Ref: "spec"}
+
+			changes := diffInterfaces(old, new, fsys, fsys)
+			if len(changes) != 1 || changes[0].Path != "interfaces.ref" {
+				t.Errorf("expected only the ref change, got %+v", changes)
+			}
+		})
+	}
+}

@@ -179,3 +179,53 @@ func TestClassify_NameIndexedPaths(t *testing.T) {
 		})
 	}
 }
+
+// TestClassify_InterfaceContentPaths locks the AsyncAPI and gRPC rules, and
+// proves that classify() normalises the bracketed paths the differs actually
+// emit (e.g. "grpc.messages[Order].fields[id]") down to their rule keys.
+func TestClassify_InterfaceContentPaths(t *testing.T) {
+	tests := []struct {
+		path string
+		ct   ChangeType
+		want Classification
+	}{
+		// AsyncAPI, rule keys. There is no Modified rule: a channel or operation
+		// present on both sides is deep-diffed, so the engine never asks for one.
+		// TestDiffAsyncAPI_ModifiedIsAlwaysDeepDiffed proves that.
+		{"asyncapi.channels", Added, NonBreaking},
+		{"asyncapi.channels", Removed, Breaking},
+		{"asyncapi.operations", Added, NonBreaking},
+		{"asyncapi.operations", Removed, Breaking},
+
+		// AsyncAPI, emitted paths
+		{"asyncapi.channels[payment.completed]", Removed, Breaking},
+		{"asyncapi.operations[sendOrder]", Added, NonBreaking},
+
+		// gRPC, rule keys
+		{"grpc.services", Added, NonBreaking},
+		{"grpc.services", Removed, Breaking},
+		{"grpc.rpcs", Added, NonBreaking},
+		{"grpc.rpcs", Removed, Breaking},
+		{"grpc.rpcs", Modified, Breaking},
+		{"grpc.messages", Added, NonBreaking},
+		{"grpc.messages", Removed, Breaking},
+		{"grpc.messages.fields", Added, NonBreaking},
+		{"grpc.messages.fields", Removed, Breaking},
+		{"grpc.messages.fields", Modified, Breaking},
+
+		// gRPC, emitted paths
+		{"grpc.services[FraudService]", Removed, Breaking},
+		{"grpc.rpcs[FraudService.ReportFraud]", Modified, Breaking},
+		{"grpc.messages[Order]", Removed, Breaking},
+		{"grpc.messages[Order].fields[id]", Modified, Breaking},
+		{"grpc.messages[Order].fields[id]", Added, NonBreaking},
+		{"grpc.messages[Order].fields[id]", Removed, Breaking},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path+"_"+tt.ct.String(), func(t *testing.T) {
+			if got := classify(tt.path, tt.ct); got != tt.want {
+				t.Errorf("classify(%q, %s) = %s, want %s", tt.path, tt.ct, got, tt.want)
+			}
+		})
+	}
+}

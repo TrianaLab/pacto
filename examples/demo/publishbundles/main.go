@@ -7,8 +7,8 @@
 // full validation and so cannot republish them. This tool uses the SAME OCI
 // bundle format (pkg/oci Client.Push -> the tar.gz layer + labels pacto pulls),
 // so the pushed artifacts resolve identically to a real push — only the
-// pre-push validation gate is skipped. It is a demo/staging tool, a sibling of
-// genlocks; it is NEVER the production publish path.
+// pre-push validation gate is skipped. It is a demo/staging tool; it is NEVER
+// the production publish path.
 //
 // Each bundle is pushed to <coordinate>/<service>:<contract-version>, so a
 // tagless ref (oci://<coordinate>/<service>) resolves to it by best-semver.

@@ -106,7 +106,7 @@ paths:
 service: { name: orders, version: "1.0.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
 workload: service
 state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
-dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: false, compatibility: '^1.0.0' } ]
+dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: false, compatibility: '^1.0.0' }, { name: payments, ref: 'oci://{{.Domain}}/payments', required: false, compatibility: '^1.0.0' } ]
 `,
 			},
 		}},
@@ -126,6 +126,36 @@ dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: f
 		Declared:       true,
 		ObservedBy:     "orders-traces",
 		Reconciliation: "matched",
+	}, {
+		// The verdict the demo's headline reconcile beat is built on: traffic the
+		// graph can see that no contract declares. Nothing here declares it, so it
+		// costs a span and no contract edit.
+		//
+		// The CLI calls this one observed-not-declared. The Product API does not:
+		// the value asserted here is fleet.DifferenceObservedNotExpected, because
+		// this field is compared against ProductEdge.difference.
+		From:           "checkout",
+		To:             "payments",
+		Declared:       false,
+		ObservedBy:     "orders-traces",
+		Reconciliation: "observed-not-expected",
+	}, {
+		// The mirror: declared and never seen. ObservedBy is empty by design —
+		// "the edge is declared but never seen" is what the field's own doc calls
+		// an empty value. Observation data exists elsewhere in the snapshot, so the
+		// edge is reconcilable and lands on expected-not-observed rather than
+		// insufficient (the CLI's name for the same verdict is
+		// declared-not-observed).
+		//
+		// The pair is orders -> payments rather than a reverse edge between orders
+		// and checkout: the journeys below locate "the orders/checkout dependency"
+		// by the two names and the relation kind, so a second edge joining the same
+		// two services — in either direction — makes that locator ambiguous rather
+		// than wrong. A third service keeps every pair in this fixture unique.
+		From:           "orders",
+		To:             "payments",
+		Declared:       true,
+		Reconciliation: "expected-not-observed",
 	}},
 	Evidence: []Evidence{{
 		Service: "payments",

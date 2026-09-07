@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- synthetic OCI archives --------------------------------------------------
@@ -374,6 +376,53 @@ func TestVerifyNodeRejectsAnAbsentImage(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not present") {
 		t.Fatalf("want an absent-image rejection, got %v", err)
 	}
+}
+
+// The race this harness lost in CI: the load returns, the node's image list has
+// not caught up yet, and the second read is the true one.
+func TestAwaitNodeWaitsOutAStaleImageList(t *testing.T) {
+	shrinkPolling(t)
+	reads := 0
+	read := func() (string, error) {
+		reads++
+		if reads == 1 {
+			return `{"images":[]}`, nil
+		}
+		return crictlOut, nil
+	}
+	if err := awaitNode(read, "registry:2", "sha256:aaa"); err != nil {
+		t.Fatalf("a list that caught up on the second read should pass: %v", err)
+	}
+	if reads != 2 {
+		t.Fatalf("want the second read to settle it, got %d reads", reads)
+	}
+}
+
+// Waiting is not a way out: an image that never appears still fails, and the
+// error is the one verifyNode last gave rather than a timeout that hides it.
+func TestAwaitNodeStillFailsOnAnImageThatNeverArrives(t *testing.T) {
+	shrinkPolling(t)
+	read := func() (string, error) { return `{"images":[]}`, nil }
+	err := awaitNode(read, "registry:2", "sha256:aaa")
+	if err == nil || !strings.Contains(err.Error(), "not present") {
+		t.Fatalf("want the absent-image rejection, got %v", err)
+	}
+}
+
+func TestAwaitNodeReportsAnUnreadableNode(t *testing.T) {
+	shrinkPolling(t)
+	read := func() (string, error) { return "", errors.New("docker exec: no such container") }
+	err := awaitNode(read, "registry:2", "sha256:aaa")
+	if err == nil || !strings.Contains(err.Error(), "no such container") {
+		t.Fatalf("want the read failure surfaced, got %v", err)
+	}
+}
+
+func shrinkPolling(t *testing.T) {
+	t.Helper()
+	timeout, poll := verifyTimeout, verifyPoll
+	verifyTimeout, verifyPoll = 50*time.Millisecond, time.Millisecond
+	t.Cleanup(func() { verifyTimeout, verifyPoll = timeout, poll })
 }
 
 func TestVerifyNodeRejectsUnreadableOutput(t *testing.T) {

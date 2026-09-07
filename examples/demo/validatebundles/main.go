@@ -9,8 +9,8 @@
 // (LOCK_UNRESOLVED / stale ref), never on the local contract's own correctness.
 // The demo is designed to run OFFLINE: every referenced service already exists in
 // ./bundles, so the whole closure resolves BY SERVICE NAME within ./bundles —
-// exactly how genlocks and EmbedSource derive the graph. This tool is the offline
-// proof that the demo contracts themselves are valid v2.
+// the same way EmbedSource derives the graph. This tool is the offline proof that
+// the demo contracts themselves are valid v2.
 //
 // Live validation against ghcr.io only passes once the release republishes the
 // demo bundles as v2; that is a production publish and out of scope here. This
@@ -34,10 +34,12 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
-const (
-	bundlesDir   = "bundles"
-	contractFile = "pacto.yaml"
-)
+// Roots walked for contracts. `pacto-dashboard` lives beside ./bundles rather
+// than inside it — it is the dashboard's own bundle, not a fleet fixture — and it
+// is just as much a demo contract, so it is validated here too.
+var roots = []string{"bundles", "pacto-dashboard"}
+
+const contractFile = "pacto.yaml"
 
 // svcVersion is one indexed bundle: its declaring contract, the raw contract
 // bytes (needed for structural + policy validation) and its on-disk directory.
@@ -47,7 +49,7 @@ type svcVersion struct {
 	dir      string
 }
 
-// index maps service name -> version -> bundle. Same shape as genlocks.
+// index maps service name -> version -> bundle.
 type index map[string]map[string]*svcVersion
 
 func main() {
@@ -58,7 +60,7 @@ func main() {
 }
 
 func run() error {
-	idx, err := buildIndex(bundlesDir)
+	idx, err := buildIndex(roots...)
 	if err != nil {
 		return err
 	}
@@ -95,11 +97,11 @@ func run() error {
 	return nil
 }
 
-// buildIndex walks bundlesDir for pacto.yaml files and indexes each by service
-// name and version, keeping the raw bytes for validation. Same walk as genlocks.
-func buildIndex(root string) (index, error) {
+// buildIndex walks each root for pacto.yaml files and indexes each by service
+// name and version, keeping the raw bytes for validation.
+func buildIndex(roots ...string) (index, error) {
 	idx := index{}
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	walk := func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -121,9 +123,11 @@ func buildIndex(root string) (index, error) {
 		}
 		idx[name][ver] = &svcVersion{contract: c, raw: raw, dir: dir}
 		return nil
-	})
-	if err != nil {
-		return nil, err
+	}
+	for _, root := range roots {
+		if err := filepath.WalkDir(root, walk); err != nil {
+			return nil, err
+		}
 	}
 	return idx, nil
 }
@@ -150,8 +154,8 @@ func (r *offlineResolver) ResolveBundle(_ context.Context, ref string) (*contrac
 	}, nil
 }
 
-// latest returns the highest-semver indexed version of a service. Same selection
-// as genlocks (semver.Latest, lexical fallback).
+// latest returns the highest-semver indexed version of a service, using
+// semver.Latest with lexical fallback.
 func latest(idx index, name string) (*svcVersion, error) {
 	versions := idx[name]
 	if len(versions) == 0 {
@@ -169,8 +173,8 @@ func latest(idx index, name string) (*svcVersion, error) {
 	return versions[pick], nil
 }
 
-// serviceName extracts the service name from a ref, identical to genlocks: strip
-// scheme, registry path and any tag/digest.
+// serviceName extracts the service name from a ref by stripping the scheme,
+// registry path and any tag/digest.
 func serviceName(ref string) string {
 	loc := graph.ParseDependencyRef(ref).Location
 	parts := strings.Split(loc, "/")

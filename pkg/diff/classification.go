@@ -118,6 +118,34 @@ var rules = map[classificationKey]Classification{
 	{"openapi.responses", Added}:    NonBreaking,
 	{"openapi.responses", Removed}:  Breaking,
 	{"openapi.responses", Modified}: PotentialBreaking,
+
+	// AsyncAPI channels and operations — the consumer-facing event surface.
+	// A removed channel or operation strips a subscriber's feed outright.
+	// There is deliberately no Modified rule: a channel or operation present on
+	// both sides is deep-diffed by diffJSON, which classifies each inner
+	// difference with classifySchemaChange, so a Modified rule here would never
+	// be consulted.
+	{"asyncapi.channels", Added}:     NonBreaking,
+	{"asyncapi.channels", Removed}:   Breaking,
+	{"asyncapi.operations", Added}:   NonBreaking,
+	{"asyncapi.operations", Removed}: Breaking,
+
+	// gRPC service surface. proto3 has no `required`, so an added rpc, message
+	// or field is always wire-compatible. Everything else here is Breaking:
+	// removing a service, rpc, message or field breaks every caller, and a
+	// changed rpc signature or a retyped/renumbered field breaks the wire format
+	// for clients built against the old descriptor — that is why field Modified
+	// is Breaking rather than PotentialBreaking.
+	{"grpc.services", Added}:           NonBreaking,
+	{"grpc.services", Removed}:         Breaking,
+	{"grpc.rpcs", Added}:               NonBreaking,
+	{"grpc.rpcs", Removed}:             Breaking,
+	{"grpc.rpcs", Modified}:            Breaking,
+	{"grpc.messages", Added}:           NonBreaking,
+	{"grpc.messages", Removed}:         Breaking,
+	{"grpc.messages.fields", Added}:    NonBreaking,
+	{"grpc.messages.fields", Removed}:  Breaking,
+	{"grpc.messages.fields", Modified}: Breaking,
 }
 
 // classify returns the classification for a given path and change type.

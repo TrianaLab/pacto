@@ -239,27 +239,6 @@ func TestDiffContract_ExtensionCapabilityAdded(t *testing.T) {
 	}
 }
 
-func TestDiffStringSet_AddedAndRemoved(t *testing.T) {
-	oldSet := map[string]bool{"a": true, "b": true}
-	newSet := map[string]bool{"b": true, "c": true}
-	changes := diffStringSet(oldSet, newSet, "test.paths", "item")
-	var foundAdded, foundRemoved bool
-	for _, c := range changes {
-		if c.Type == Added && c.NewValue == "c" {
-			foundAdded = true
-		}
-		if c.Type == Removed && c.OldValue == "a" {
-			foundRemoved = true
-		}
-	}
-	if !foundAdded {
-		t.Error("expected item 'c' Added")
-	}
-	if !foundRemoved {
-		t.Error("expected item 'a' Removed")
-	}
-}
-
 func TestNewChange(t *testing.T) {
 	c := newChange("service.name", Modified, "old", "new")
 	if c.Path != "service.name" {

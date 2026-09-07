@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "PACTO_CACHE_DIR": {
+      "description": "OCI bundle cache directory (default: ~/.cache/pacto/oci)",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_DIAGNOSTICS": {
+      "default": false,
+      "description": "Enable source diagnostics panel",
+      "type": "boolean"
+    },
+    "PACTO_DASHBOARD_HOST": {
+      "default": "127.0.0.1",
+      "description": "Bind address for the server",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_NAMESPACE": {
+      "description": "Kubernetes namespace filter (empty = all)",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_PORT": {
+      "default": 3000,
+      "description": "HTTP server port",
+      "format": "int64",
+      "type": "integer"
+    },
+    "PACTO_DASHBOARD_REPO": {
+      "description": "Comma-separated OCI repositories to scan",
+      "type": "string"
+    },
+    "PACTO_NO_CACHE": {
+      "default": false,
+      "description": "Disable OCI bundle caching",
+      "type": "boolean"
+    },
+    "PACTO_NO_UPDATE_CHECK": {
+      "default": false,
+      "description": "Disable update checks",
+      "type": "boolean"
+    },
+    "PACTO_REGISTRY_PASSWORD": {
+      "description": "Registry authentication password",
+      "type": "string"
+    },
+    "PACTO_REGISTRY_TOKEN": {
+      "description": "Registry authentication token",
+      "type": "string"
+    },
+    "PACTO_REGISTRY_USERNAME": {
+      "description": "Registry authentication username",
+      "type": "string"
+    }
+  },
+  "required": [
+    "PACTO_DASHBOARD_HOST",
+    "PACTO_DASHBOARD_PORT",
+    "PACTO_DASHBOARD_DIAGNOSTICS",
+    "PACTO_NO_CACHE",
+    "PACTO_NO_UPDATE_CHECK"
+  ],
+  "title": "Pacto Dashboard Configuration",
+  "type": "object"
+}

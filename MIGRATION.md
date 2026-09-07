@@ -483,7 +483,7 @@ readiness:
 - [ ] Remove `scaling` if present
 - [ ] Rename `readiness.checks` to `readiness.claims` if present
 - [ ] Run `pacto validate <bundle>` to verify migration
-- [ ] Regenerate lock files if using dependency resolution (`pacto lock` in each bundle; `make -C examples/demo demo-locks` for the demo bundles)
+- [ ] Regenerate lock files if using dependency resolution (`pacto lock` in each bundle)
 - [ ] Update operator CRs to add `interfaceBindings` and `configBindings` if runtime evaluation is needed
 
 ## Further Reading

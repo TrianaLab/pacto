@@ -162,8 +162,13 @@ type Relationship struct {
 	// ObservedBy is the Data Source id whose export carries the call. Empty means
 	// the edge is declared but never seen.
 	ObservedBy string
-	// Reconciliation is the verdict the backend must reach for the pair, e.g.
-	// "matched".
+	// Reconciliation is the verdict the backend must reach for the pair. It is
+	// compared against ProductEdge.difference, so it takes the PRODUCT API's
+	// vocabulary — matched / expected-not-observed / observed-not-expected /
+	// insufficient (the fleet.Difference* constants) — and NOT the CLI's
+	// declared-not-observed / observed-not-declared, which name the same verdicts
+	// on a different surface. "matched" is the one value the two share, which is
+	// why a fixture that only exercised it never caught the difference.
 	Reconciliation string
 }
 

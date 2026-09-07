@@ -2,6 +2,8 @@ package diff
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
@@ -78,7 +80,8 @@ func diffReadinessClaims(old, new []contract.ReadinessClaim) []Change {
 	oldByID := indexClaims(old)
 	newByID := indexClaims(new)
 
-	for id, o := range oldByID {
+	for _, id := range slices.Sorted(maps.Keys(oldByID)) {
+		o := oldByID[id]
 		n, exists := newByID[id]
 		if !exists {
 			changes = append(changes, newChange(claimPath(id), Removed, formatClaim(o), nil))
@@ -88,9 +91,9 @@ func diffReadinessClaims(old, new []contract.ReadinessClaim) []Change {
 			changes = append(changes, newChange(claimPath(id), Modified, formatClaim(o), formatClaim(n)))
 		}
 	}
-	for id, n := range newByID {
+	for _, id := range slices.Sorted(maps.Keys(newByID)) {
 		if _, exists := oldByID[id]; !exists {
-			changes = append(changes, newChange(claimPath(id), Added, nil, formatClaim(n)))
+			changes = append(changes, newChange(claimPath(id), Added, nil, formatClaim(newByID[id])))
 		}
 	}
 	return changes

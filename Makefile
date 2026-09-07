@@ -74,6 +74,7 @@ test-integration:
 # runs — the live-Kubernetes source is covered by the kind acceptance.
 test-acceptance-local:
 	bash tests/acceptance/local/fleet-graph.sh
+	bash tests/acceptance/local/demo-arc.sh
 
 # Level 4 — the distributed Compose demo, proved the way a stranger meets it:
 # the application is published with `docker compose publish` and then executed
@@ -240,11 +241,16 @@ gen-cli-docs:
 # contract by a pinned generator (openapi-typescript), so there is no hand-written
 # wire schema to drift. The generated artifacts are committed and drift-checked.
 SDK_DIR := pkg/dashboard/frontend/src/lib/generated
+DEMO_BUNDLE_DIR := examples/demo/pacto-dashboard/interfaces
 
 # generate-dashboard-openapi writes the deterministic OpenAPI contract that feeds
-# the SDK generator. Huma marshals with sorted keys, so re-running is byte-stable.
+# both the SDK generator and the demo's committed dashboard bundle (a bundle ref
+# cannot point outside its own directory, so the demo needs its own copy). Huma
+# marshals with sorted keys, so re-running is byte-stable. One generator run, two
+# destinations, so the copies cannot diverge by hand.
 generate-dashboard-openapi:
 	go run ./cmd/genbundle dashboard-openapi > $(SDK_DIR)/openapi.json
+	cp $(SDK_DIR)/openapi.json $(DEMO_BUNDLE_DIR)/openapi.json
 
 # generate-dashboard-sdk regenerates the OpenAPI contract and the TypeScript SDK
 # from it with the pinned generator. Requires `npm ci` in the frontend first.
@@ -256,8 +262,8 @@ generate-dashboard-sdk: generate-dashboard-openapi
 # A backend schema or operation change without regenerated frontend artifacts fails
 # here. Run from a clean checkout after `npm ci --ignore-scripts`.
 check-dashboard-sdk-drift: generate-dashboard-sdk
-	git diff --exit-code -- $(SDK_DIR) || { \
-		echo "dashboard SDK is stale: run 'make generate-dashboard-sdk' and commit $(SDK_DIR)"; \
+	git diff --exit-code -- $(SDK_DIR) $(DEMO_BUNDLE_DIR) || { \
+		echo "dashboard SDK is stale: run 'make generate-dashboard-sdk' and commit $(SDK_DIR) $(DEMO_BUNDLE_DIR)"; \
 		exit 1; \
 	}
 

@@ -73,6 +73,7 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
 	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) for --fleet (repeatable)")
 	cmd.Flags().StringArray("target-state", nil, "offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)")
+	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges for --fleet (repeatable)")
 	cmd.Flags().StringArray("evidence-url", nil, "base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)")
 	cmd.Flags().StringArray("oci", nil, "registry reference to include as a published-baseline revision for --fleet (repeatable)")
 	cmd.Flags().Bool("cache", false, "include the local OCI cache as offline baseline revisions (--fleet)")

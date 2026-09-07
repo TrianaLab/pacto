@@ -125,6 +125,39 @@ function assert(cond, msg) {
   assert(after.includes(`--version ${chartVersion}`), `${rel}: install snippet not pinned to ${chartVersion}`);
 }
 
+// ---- 6b. core docs: the image coordinates a reader copy-pastes ----
+// Same failure the chart README's `--version` pin already had, on the other side
+// of the repo: a tag written by hand goes stale at the next release and ships a
+// command that resolves to nothing. Keyed to the coordinate rather than the old
+// tag, so re-running is a no-op. This list is not the guarantee — docs_check (h)
+// holds EVERY page to the published tag, so a doc pinning a coordinate this list
+// has never heard of fails the gate instead of rotting.
+{
+  const images = Object.values(plan.groups)
+    .flatMap((g) => g.artifacts)
+    .filter((a) => a.kind === 'oci-image' && a.coordinate);
+  const pages = [
+    'docs/examples/compose-demo.md',
+    'docs/dashboard-docker.md',
+    // A transcript of the operator's own startup log, which names the dashboard
+    // image it deploys. Sample output ages exactly like a command does.
+    'integrations/kubernetes/docs/installation.md',
+  ];
+  for (const rel of pages) {
+    const after = edit(rel, (s) => {
+      for (const a of images) {
+        s = s.replace(new RegExp(`(${esc(a.coordinate)}:)v?${SEMVER}`, 'g'), `$1${a.tag}`);
+      }
+      return s;
+    });
+    for (const a of images) {
+      for (const [found] of after.matchAll(new RegExp(`${esc(a.coordinate)}:v?${SEMVER}`, 'g'))) {
+        assert(found === `${a.coordinate}:${a.tag}`, `${rel}: ${found} != ${a.coordinate}:${a.tag}`);
+      }
+    }
+  }
+}
+
 // ---- 7. release-manifest.json: every unit -> {version, coordinate, tag, artifactKind} ----
 function stable(v) {
   if (Array.isArray(v)) return v.map(stable);

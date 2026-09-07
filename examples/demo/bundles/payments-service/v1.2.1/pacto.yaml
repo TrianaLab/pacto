@@ -1,7 +1,7 @@
 pactoVersion: '2.0'
 service:
   name: payments-service
-  version: 2.0.0
+  version: 1.2.1
   owner:
     team: team/payments
 interfaces:
@@ -13,6 +13,14 @@ interfaces:
   type: asyncapi
   ref: interfaces/events.json
   visibility: internal
+capabilities:
+- type: health
+  binding:
+    type: http
+    interface: http
+    path: /healthz
+- type: extension
+  ref: payments.trianalab.com/refund
 configurations:
 - name: platform
   ref: oci://ghcr.io/trianalab/pacto/platform-app-config
@@ -21,10 +29,11 @@ configurations:
   schema: configuration/schema.json
   values:
     LOG_LEVEL: info
-    STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    STRIPE_API_KEY: ${STRIPE_API_KEY}
     PAYMENTS_DB_URL: postgresql://postgres:5432/payments
+    ENABLE_REFUNDS: true
     WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
-    FRAUD_CHECK_ENABLED: true
+    FRAUD_CHECK_ENABLED: false
   required: true
 policies:
 - name: http-security
@@ -40,7 +49,7 @@ dependencies:
   compatibility: ^2024.01.01
 - name: fraud-service
   ref: oci://ghcr.io/trianalab/pacto/fraud-service
-  required: true
+  required: false
   compatibility: ^1.0.0
 workload: service
 state:
@@ -53,14 +62,13 @@ metadata:
   tier: domain
   category: payments
   criticality: high
-  summary: Payment Intents API with mandatory fraud detection - BREAKING from v1.x
-    charges API
+  summary: Payment processing with optional fraud detection integration
   language: go
   repo: github.com/trianalab/pacto-demo/payments-service
   tags:
   - payments
   - stripe
-  - payment-intents
-  - fraud-detection
   - webhooks
-  - breaking-change
+  - fraud-detection
+  - charges
+  - refunds

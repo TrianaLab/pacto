@@ -1,5 +1,5 @@
 ---
-# The two "Try it" pages are the fastest answer to "what is this?", so they
+# The three "Try it" pages are the fastest answer to "what is this?", so they
 # outrank pages that merely mention a demo in passing.
 search:
   boost: 3
@@ -59,5 +59,7 @@ The source and build harness live in
 [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo).
 
 Next: the [Docker Compose demo](compose-demo.md) runs the same UI against a real
-registry and Evidence Server on your machine, or go straight to the
+registry and Evidence Server on your machine, the
+[guided tour](demo-tour.md) reaches the same facts from the command line in
+six offline user stories or go straight to the
 [Quickstart](../quickstart.md) and publish a contract of your own.

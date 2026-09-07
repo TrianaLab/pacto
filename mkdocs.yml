@@ -123,6 +123,9 @@ markdown_extensions:
   - pymdownx.snippets:
       base_path:
         - .
+      # Without this a missing --8<-- path is silently dropped: the content
+      # vanishes from the built page and `mkdocs build --strict` still exits 0.
+      check_paths: true
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
@@ -172,6 +175,8 @@ nav:
   - Try it:
       - Live dashboard demo: examples/dashboard-demo.md
       - Runnable demo (Docker Compose): examples/compose-demo.md
+      # Third on purpose: nothing installed, then a stack, then driving it.
+      - Guided tour: examples/demo-tour.md
   - Get started:
       - Installation: installation.md
       - Quickstart: quickstart.md

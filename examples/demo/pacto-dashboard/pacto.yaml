@@ -1,0 +1,37 @@
+pactoVersion: '2.0'
+service:
+  name: pacto-dashboard
+  version: 0.0.0
+  owner:
+    team: trianalab/pacto
+interfaces:
+- name: http-api
+  type: openapi
+  ref: interfaces/openapi.json
+  visibility: public
+configurations:
+- name: default
+  schema: configuration/schema.json
+  required: true
+dependencies: []
+workload: service
+state:
+  type: stateless
+  persistence:
+    scope: local
+    durability: ephemeral
+  dataCriticality: low
+capabilities:
+- type: health
+  binding:
+    type: http
+    interface: http-api
+    path: /health
+- type: metrics
+  binding:
+    type: http
+    interface: http-api
+    path: /metrics
+metadata:
+  description: Read-only web dashboard for exploring Pacto service contracts
+  repository: https://github.com/trianalab/pacto

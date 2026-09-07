@@ -2,6 +2,8 @@ package diff
 
 import (
 	"io/fs"
+	"maps"
+	"slices"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/validation"
@@ -15,7 +17,8 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 	oldByName := indexInterfaces(old.Interfaces)
 	newByName := indexInterfaces(new.Interfaces)
 
-	for name, oldIface := range oldByName {
+	for _, name := range slices.Sorted(maps.Keys(oldByName)) {
+		oldIface := oldByName[name]
 		newIface, exists := newByName[name]
 		if !exists {
 			changes = append(changes, newChange("interfaces", Removed, name, nil))
@@ -34,14 +37,22 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 			changes = append(changes, newChange("interfaces.ref", Modified, name+": "+oldIface.Ref, name+": "+newIface.Ref))
 		}
 
-		// Diff OpenAPI spec content if both are openapi type and both have refs (regardless of ref equality)
-		if oldIface.Type == contract.InterfaceTypeOpenAPI && newIface.Type == contract.InterfaceTypeOpenAPI &&
-			oldIface.Ref != "" && newIface.Ref != "" {
-			changes = append(changes, diffOpenAPI(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
+		// Diff referenced spec content when both sides are the same interface type
+		// and both have refs (regardless of ref equality — a spec can be rewritten
+		// behind an unchanged ref).
+		if oldIface.Type == newIface.Type && oldIface.Ref != "" && newIface.Ref != "" {
+			switch oldIface.Type {
+			case contract.InterfaceTypeOpenAPI:
+				changes = append(changes, diffOpenAPI(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
+			case contract.InterfaceTypeAsyncAPI:
+				changes = append(changes, diffAsyncAPI(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
+			case contract.InterfaceTypeGRPC:
+				changes = append(changes, diffGRPC(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
+			}
 		}
 	}
 
-	for name := range newByName {
+	for _, name := range slices.Sorted(maps.Keys(newByName)) {
 		if _, exists := oldByName[name]; !exists {
 			changes = append(changes, newChange("interfaces", Added, nil, name))
 		}
@@ -88,7 +99,8 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 	oldByName := indexRefSources(old)
 	newByName := indexRefSources(new)
 
-	for name, o := range oldByName {
+	for _, name := range slices.Sorted(maps.Keys(oldByName)) {
+		o := oldByName[name]
 		n, exists := newByName[name]
 		if !exists {
 			changes = append(changes, newChange(field, Removed, refSourceSummary(o), nil))
@@ -114,9 +126,9 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 		changes = append(changes, diffConfigValues(field, name, o.values, n.values)...)
 	}
 
-	for name, n := range newByName {
+	for _, name := range slices.Sorted(maps.Keys(newByName)) {
 		if _, exists := oldByName[name]; !exists {
-			changes = append(changes, newChange(field, Added, nil, refSourceSummary(n)))
+			changes = append(changes, newChange(field, Added, nil, refSourceSummary(newByName[name])))
 		}
 	}
 	return changes

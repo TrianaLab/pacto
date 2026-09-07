@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        ci-oci ci-gates docs-generate docs-check docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
-       gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check
+       gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
 # ── Monorepo CI matrix (go.work) ─────────────────────────────────────
 # The root aggregate. Every leg delegates to the REAL underlying gate across the
@@ -151,11 +151,17 @@ ci-oci:
 ci-release-version:
 	bash release/orchestrator/test-release-version.sh
 
+# The guided tour's terminal transcripts (docs/examples/demo-tour.md). Generated
+# rather than transcribed, so docs-check's drift gate holds them to what the CLI
+# actually prints. Offline: it reads the committed demo fixture and nothing else.
+gen-demo-transcripts:
+	bash release/scripts/gen_demo_transcripts.sh
+
 # Regenerate every generated doc across the workspace. Core CLI reference first,
-# then every discovered integration's own generator (via its integration.yaml
-# documentation.generateCommand) so a future integration is picked up with no
-# change here.
-docs-generate: gen-cli-docs
+# then the demo transcripts, then every discovered integration's own generator
+# (via its integration.yaml documentation.generateCommand) so a future
+# integration is picked up with no change here.
+docs-generate: gen-cli-docs gen-demo-transcripts
 	@for m in integrations/*/integration.yaml; do \
 		[ -f "$$m" ] || continue; \
 		cmd=$$(python3 -c "import yaml,sys; d=yaml.safe_load(open('$$m')) or {}; print((d.get('documentation') or {}).get('generateCommand',''))"); \
@@ -237,6 +243,8 @@ artifact-drift:
 		integrations/kubernetes/charts/pacto-operator/Chart.yaml \
 		integrations/kubernetes/charts/pacto-operator/values.yaml \
 		integrations/kubernetes/charts/pacto-operator/README.md \
+		docs/examples/compose-demo.md docs/dashboard-docker.md \
+		integrations/kubernetes/docs/installation.md \
 		|| { echo "artifact drift: apply-release-plan is not idempotent (re-run mutated tracked files)"; exit 1; }
 	@echo "    artifact-drift: OK"
 
@@ -323,12 +331,20 @@ ci-ui-drift: ui-build
 	@git diff --exit-code pkg/dashboard/ui/ || (echo "Committed pkg/dashboard/ui/ is out of date. Run 'make ui-build' and commit." && exit 1)
 
 # ── Bundle generation targets ────────────────────────────────────────
-# The OpenAPI spec is generated via the pacto-plugin-openapi-infer plugin
-# using --option source=../.. to point at the repo root (where go.mod lives).
+# Both generated contract artifacts come from ./cmd/genbundle, which reads the
+# live Huma operation registrations and the live config struct — the same source
+# the TypeScript SDK and `check-dashboard-sdk-drift` use, so the contract we
+# publish cannot drift from what the server actually serves.
+#
+# This used to infer the OpenAPI spec from Go source with pacto-plugin-openapi-infer.
+# Inference could not see the Product/Fleet API registrations: it found 18 paths
+# where the server serves 32, so we published a contract describing half the surface
+# with nothing to catch it. Read the registrations, do not guess at them.
 
 gen-openapi:
 	@echo "==> Generating OpenAPI spec..."
-	pacto generate openapi-infer $(BUNDLE_DIR) --option source=../.. --option output=interfaces/openapi.json -o $(BUNDLE_DIR)
+	@mkdir -p $(BUNDLE_DIR)/interfaces
+	go run ./cmd/genbundle dashboard-openapi > $(BUNDLE_DIR)/interfaces/openapi.json
 
 gen-config-schema:
 	@echo "==> Generating configuration JSON schema..."
