@@ -82,11 +82,13 @@ never collide.
 | | |
 |---|---|
 | `checkout` | two published revisions, 1.1.0 dropping an API path 1.0.0 exposed |
-| `orders` | declares a dependency on `checkout`, and is observed calling it |
-| `payments` | published like the others, but nothing here runs it — it reaches the fleet as signed evidence from a remote environment |
+| `orders` | declares `checkout` and is observed calling it; declares `payments` and is never seen calling it |
+| `payments` | published like the others, but nothing here runs it — it reaches the fleet as signed evidence from a remote environment, and `checkout` is observed calling it with no contract declaring so |
 
 Follow the graph from `orders` to `checkout`, open a revision to read its
-contract, and compare `checkout` 1.0.0 with 1.1.0 to see a change analysed.
+contract, and compare `checkout` 1.0.0 with 1.1.0 to see a change analysed. The
+three edges are deliberately one of each: matched, declared but never observed,
+and observed but never declared.
 
 For the same moves at the command line — six user stories from "what is out there"
 to "an agent reading the same server" — follow the

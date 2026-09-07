@@ -61,7 +61,6 @@ service: { name: checkout, version: "1.0.0", owner: { team: commerce, dri: d, co
 interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
 workload: service
 state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
-dependencies: [ { name: orders, ref: 'oci://{{.Domain}}/orders', required: false, compatibility: '^1.0.0' } ]
 `,
 				"openapi.yaml": `openapi: "3.0.0"
 info: { title: checkout, version: "1.0.0" }
@@ -84,7 +83,6 @@ service: { name: checkout, version: "1.1.0", owner: { team: commerce, dri: d, co
 interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
 workload: service
 state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
-dependencies: [ { name: orders, ref: 'oci://{{.Domain}}/orders', required: false, compatibility: '^1.0.0' } ]
 `,
 				"openapi.yaml": `openapi: "3.0.0"
 info: { title: checkout, version: "1.1.0" }
@@ -108,7 +106,7 @@ paths:
 service: { name: orders, version: "1.0.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
 workload: service
 state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
-dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: false, compatibility: '^1.0.0' } ]
+dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: false, compatibility: '^1.0.0' }, { name: payments, ref: 'oci://{{.Domain}}/payments', required: false, compatibility: '^1.0.0' } ]
 `,
 			},
 		}},
@@ -148,8 +146,14 @@ dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: f
 		// edge is reconcilable and lands on expected-not-observed rather than
 		// insufficient (the CLI's name for the same verdict is
 		// declared-not-observed).
-		From:           "checkout",
-		To:             "orders",
+		//
+		// The pair is orders -> payments rather than a reverse edge between orders
+		// and checkout: the journeys below locate "the orders/checkout dependency"
+		// by the two names and the relation kind, so a second edge joining the same
+		// two services — in either direction — makes that locator ambiguous rather
+		// than wrong. A third service keeps every pair in this fixture unique.
+		From:           "orders",
+		To:             "payments",
 		Declared:       true,
 		Reconciliation: "expected-not-observed",
 	}},
