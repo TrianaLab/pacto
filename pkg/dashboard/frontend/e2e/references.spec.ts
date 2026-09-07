@@ -1,15 +1,27 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // Every contract relationship the backend can resolve to a canonical Pacto entity is
-// navigable from the UI where that relationship is rendered.
+// navigable from the UI where that relationship is rendered -- and every one it CANNOT
+// resolve says so instead of guessing.
 //
 // The legacy dashboard made remote configuration and policy refs clickable by splitting
-// the ref string. The product IA lost that, then got it back the only correct way: the
-// fleet engine resolves the reference to a canonical ServiceKey inside the referring
-// revision's own DOMAIN, and the UI links to what the backend resolved. Nothing here is
-// inferred from a label, so the adversarial case below is the point of the whole design:
-// the demo publishes a platform-app-config in TWO domains, and a reference to that name
-// must reach the one in the referring revision's domain and never the other.
+// the ref string, which is how a reference to a name two registries both publish reached
+// the wrong contract. The product IA resolves refs the only correct way: the fleet engine
+// needs immutable content-identity evidence -- a digest pinned in the ref, or a
+// pacto.lock entry recording one -- and links only to what it actually resolved.
+//
+// The demo fixtures deliberately carry NEITHER. Their bundles are not published at the
+// registries their refs name, and a synthesized lock digest would be a claim about
+// registry content that is not true; so the demo authors no locks, and every remote
+// config/policy ref in it is genuinely unresolvable. That makes this file a fail-closed
+// suite: it proves the UI keeps the authored ref, states that the destination is unknown
+// and fabricates no link. The adversarial row below is the point -- the demo publishes a
+// platform-app-config in TWO domains, and neither is allowed to be guessed at.
+//
+// The positive path -- a ref WITH content-identity evidence resolving to a ServiceKey in
+// the referring revision's own domain, partner domain included -- is covered against the
+// engine in pkg/fleet/refresolution_test.go. No browser fixture can reach it without
+// asserting a registry digest the demo does not have.
 
 const T = 20_000;
 
@@ -35,84 +47,61 @@ function reference(page: Page, refFragment: string) {
   return page.locator('.cr').filter({ hasText: refFragment }).first();
 }
 
+// Each row is one authored ref in the demo, and `why` is what it would take to link it
+// somewhere wrongly. The partner rows are adversarial: `platform-app-config` exists in
+// both domains and `platform-http-policy` in only one, so basename inference would send
+// the first to the wrong contract and the second to a contract in a domain that never
+// published it.
+const UNRESOLVABLE = [
+  {
+    revision: 'payments-service',
+    ref: 'oci://ghcr.io/trianalab/pacto/platform-app-config',
+    why: 'a configuration ref whose name a service in this same domain does publish',
+  },
+  {
+    revision: 'payments-service',
+    ref: 'oci://ghcr.io/trianalab/pacto/platform-http-policy',
+    why: 'a policy ref whose name a service in this same domain does publish',
+  },
+  {
+    revision: 'partners/settlement-service',
+    ref: 'oci://partners.acme.com/pacto/platform-app-config',
+    why: 'a ref to a name TWO domains publish, so a guess has a wrong answer to reach',
+  },
+  {
+    revision: 'partners/settlement-service',
+    ref: 'oci://partners.acme.com/pacto/platform-http-policy',
+    why: 'a ref to a name only the OTHER domain publishes',
+  },
+];
+
 test.describe('contract references are navigable', () => {
-  test('a configuration reference keeps its authored ref and links to the resolved service', async ({ page }) => {
-    await boot(page);
-    await openLatestRevision(page, 'payments-service');
+  for (const { revision, ref, why } of UNRESOLVABLE) {
+    test(`${ref} carries no resolved identity, so it links nowhere: ${why}`, async ({ page }) => {
+      await boot(page);
+      await openLatestRevision(page, revision);
 
-    const cfg = reference(page, 'ghcr.io/trianalab/pacto/platform-app-config');
-    await expect(cfg).toBeVisible({ timeout: T });
-    // The authored ref is contract information: resolution never replaces it.
-    await expect(cfg).toContainText('oci://ghcr.io/trianalab/pacto/platform-app-config');
+      const row = reference(page, ref.replace('oci://', ''));
+      await expect(row).toBeVisible({ timeout: T });
+      // The authored ref is contract information: not resolving it never drops it.
+      await expect(row).toContainText(ref);
+      await expect(row).toContainText('Unresolved');
+      await expect(row.locator('a.entity-link')).toHaveCount(0);
+    });
+  }
 
-    const link = cfg.locator('a.entity-link');
-    await expect(link).toHaveAttribute('href', '#/fleet/services/platform-app-config');
-    await link.click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Service: platform-app-config' })).toBeVisible({ timeout: T });
-  });
-
-  test('a policy reference links to the resolved service too', async ({ page }) => {
-    await boot(page);
-    await openLatestRevision(page, 'payments-service');
-
-    const pol = reference(page, 'ghcr.io/trianalab/pacto/platform-http-policy');
-    await expect(pol).toBeVisible({ timeout: T });
-    await expect(pol).toContainText('oci://ghcr.io/trianalab/pacto/platform-http-policy');
-
-    const link = pol.locator('a.entity-link');
-    await expect(link).toHaveAttribute('href', '#/fleet/services/platform-http-policy');
-    await link.click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Service: platform-http-policy' })).toBeVisible({ timeout: T });
-  });
-
-  test('a reference to a name TWO domains use resolves inside its own domain', async ({ page }) => {
-    await boot(page);
-    await openLatestRevision(page, 'partners/settlement-service');
-
-    const cfg = reference(page, 'partners.acme.com/pacto/platform-app-config');
-    await expect(cfg).toBeVisible({ timeout: T });
-
-    // Both domains publish a platform-app-config. This revision must reach the PARTNER
-    // one; linking to the default-domain one would be a cross-domain identity failure.
-    const link = cfg.locator('a.entity-link');
-    await expect(link).toHaveAttribute('href', '#/fleet/services/partners%2Fplatform-app-config');
-    await link.click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Service: platform-app-config' })).toBeVisible({ timeout: T });
-    await expect(page).toHaveURL(/partners%2Fplatform-app-config$/);
-    // The page identifies itself as the partner one, not merely by its shared name.
-    await expect(page.locator('main')).toContainText('partners');
-  });
-
-  test('a reference that resolves to nothing says so and fabricates no service', async ({ page }) => {
-    await boot(page);
-    await openLatestRevision(page, 'partners/settlement-service');
-
-    // The partners domain publishes no http policy bundle, so this ref leads nowhere --
-    // and must NOT fall through to the default domain's platform-http-policy.
-    const pol = reference(page, 'partners.acme.com/pacto/platform-http-policy');
-    await expect(pol).toBeVisible({ timeout: T });
-    await expect(pol).toContainText('oci://partners.acme.com/pacto/platform-http-policy');
-    await expect(pol).toContainText('Unresolved');
-    await expect(pol.locator('a.entity-link')).toHaveCount(0);
-  });
-
-  test('the referenced service lists who references it, per domain', async ({ page }) => {
+  test('a service nothing resolvably references says so rather than listing a guess', async ({ page }) => {
     await boot(page);
 
-    await openService(page, 'platform-app-config');
-    const core = page.locator('section', { has: page.getByRole('heading', { name: 'Referenced by' }) });
-    await expect(core).toContainText('payments-service', { timeout: T });
-    // The reverse direction is domain-scoped in both directions: the partner consumer
-    // must not appear here.
-    await expect(core.locator('a.entity-link[href*="partners%2F"]')).toHaveCount(0);
-
-    await openService(page, 'partners/platform-app-config');
-    const partner = page.locator('section', { has: page.getByRole('heading', { name: 'Referenced by' }) });
-    const links = partner.locator('a.entity-link');
-    await expect(links).toHaveCount(1, { timeout: T });
-    await expect(links.first()).toHaveAttribute('href', '#/fleet/services/partners%2Fsettlement-service');
-    await links.first().click();
-    await expect(page).toHaveURL(/partners%2Fsettlement-service$/);
+    // Both domains publish a platform-app-config, and payments-service authors a ref to
+    // the name. Without content-identity evidence the reverse index has nothing to record
+    // -- and must record nothing rather than the consumer whose ref merely looks right.
+    for (const key of ['platform-app-config', 'partners/platform-app-config']) {
+      await openService(page, key);
+      const section = page.locator('section', { has: page.getByRole('heading', { name: 'Referenced by' }) });
+      await expect(section).toContainText("No service references this service's configuration or policy.", { timeout: T });
+      await expect(section.locator('a.entity-link')).toHaveCount(0);
+    }
   });
 
   test('a declared dependency is navigable from the revision that declares it', async ({ page }) => {

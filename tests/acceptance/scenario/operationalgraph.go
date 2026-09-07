@@ -132,19 +132,26 @@ dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: f
 		// The verdict the demo's headline reconcile beat is built on: traffic the
 		// graph can see that no contract declares. Nothing here declares it, so it
 		// costs a span and no contract edit.
+		//
+		// The CLI calls this one observed-not-declared. The Product API does not:
+		// the value asserted here is fleet.DifferenceObservedNotExpected, because
+		// this field is compared against ProductEdge.difference.
 		From:           "checkout",
 		To:             "payments",
 		Declared:       false,
 		ObservedBy:     "orders-traces",
-		Reconciliation: "observed-not-declared",
+		Reconciliation: "observed-not-expected",
 	}, {
 		// The mirror: declared and never seen. ObservedBy is empty by design —
 		// "the edge is declared but never seen" is what the field's own doc calls
-		// an empty value.
+		// an empty value. Observation data exists elsewhere in the snapshot, so the
+		// edge is reconcilable and lands on expected-not-observed rather than
+		// insufficient (the CLI's name for the same verdict is
+		// declared-not-observed).
 		From:           "checkout",
 		To:             "orders",
 		Declared:       true,
-		Reconciliation: "declared-not-observed",
+		Reconciliation: "expected-not-observed",
 	}},
 	Evidence: []Evidence{{
 		Service: "payments",

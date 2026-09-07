@@ -190,7 +190,7 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await expect(page).toHaveURL(/#\/fleet\/changes\//, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: T });
     await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.0' });
+    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: T });
     await expect(page.getByTestId('changes-what-it-affects')).toBeVisible({ timeout: T });

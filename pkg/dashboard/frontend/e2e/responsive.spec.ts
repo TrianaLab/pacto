@@ -100,7 +100,7 @@ for (const w of WIDTHS) {
       await page.goto('/#/fleet/changes/payments-service');
       await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: 20_000 });
       await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-      await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.0' });
+      await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
       await page.getByRole('button', { name: /Compare revisions/ }).click();
       await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
       expect(await bodyHasNoHorizontalOverflow(page), 'change analysis populated results (long paths)').toBe(true);

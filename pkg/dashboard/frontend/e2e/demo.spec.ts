@@ -137,10 +137,10 @@ test.describe('WASM dashboard demo — workflows', () => {
   test('M5b: a legacy service-VERSION bookmark migrates to the canonical Product Revision (keeps the version)', async ({ page }) => {
     // The old #/services/:name/versions/:version bookmark must resolve to a Product Revision
     // never dropping the version to the service page.
-    await page.goto('/#/services/payments-service/versions/2.0.0');
+    await page.goto('/#/services/payments-service/versions/2.0.1');
     await expect(page).toHaveURL(/#\/fleet\/revisions\//, { timeout: 20_000 });
     // The canonical revision detail shows the requested version.
-    await expect(page.getByText('2.0.0').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('2.0.1').first()).toBeVisible({ timeout: 20_000 });
     // Reload preserves the canonical Product Revision URL (a replace, not a bounce).
     await page.reload();
     await expect(page).toHaveURL(/#\/fleet\/revisions\//, { timeout: 20_000 });
@@ -312,7 +312,7 @@ test.describe('WASM dashboard demo — workflows', () => {
 
   test('workflow: a legacy Compare bookmark lands in Change analysis, not a legacy screen', async ({ page }) => {
     await waitReady(page);
-    await page.goto('/#/diff?from_name=payments-service&from_ver=1.2.0&to_name=payments-service&to_ver=2.0.0');
+    await page.goto('/#/diff?from_name=payments-service&from_ver=1.2.1&to_name=payments-service&to_ver=2.0.1');
     // The legacy compare route has a product equivalent, so a Fleet host canonicalizes it
     // and resolves the display NAME to a canonical ServiceKey through the Product API --
     // it never mounts the legacy DiffView beside the product UI.
@@ -325,9 +325,9 @@ test.describe('WASM dashboard demo — workflows', () => {
     await waitReady(page);
     await page.goto('/#/fleet/changes/payments-service');
     // The revision selectors are populated from the product service detail (never the
-    // raw snapshot). Pick the known breaking pair 1.0.0 -> 2.0.0.
+    // raw snapshot). Pick the known breaking pair 1.0.0 -> 2.0.1.
     await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.0' });
+    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     // Stage 1 -- the field-level semantic diff survives the migration off the legacy screen.
     await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: 20_000 });
@@ -342,7 +342,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await waitReady(page);
     await page.goto('/#/fleet/changes/payments-service');
     await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.0' });
+    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
     const cb = page.getByRole('checkbox');
     await expect(cb).toBeEnabled(); // the demo carries embedded observed edges
     await cb.check();
