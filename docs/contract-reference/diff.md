@@ -165,6 +165,76 @@ openapi.paths[/users].methods[POST].request-body
 openapi.paths[/users].methods[GET].responses[200]
 ```
 
+## AsyncAPI
+
+`pacto diff` compares referenced AsyncAPI documents at the channel and operation level. Both AsyncAPI 2.x and 3.x are supported, in YAML or JSON.
+
+### Channels
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `asyncapi.channels` | Added | NON_BREAKING |
+| `asyncapi.channels` | Removed | **BREAKING** |
+| `asyncapi.channels` | Modified | POTENTIAL_BREAKING |
+
+A channel present on both sides is compared field by field rather than as one blob, so a new payload property, a changed property type or a new `required` entry each surface as their own change. A `required` change is `BREAKING`; other payload changes are `POTENTIAL_BREAKING`.
+
+### Operations
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `asyncapi.operations` | Added | NON_BREAKING |
+| `asyncapi.operations` | Removed | **BREAKING** |
+| `asyncapi.operations` | Modified | POTENTIAL_BREAKING |
+
+Top-level `operations` are an AsyncAPI 3.x concept. A 2.x document has no `operations` map, so only its channels are compared.
+
+Only `channels` and `operations` are compared. `info`, `servers`, `components` and `defaultContentType` are ignored for the same reason `metadata` is: they churn on every release without changing what a consumer can publish or subscribe to.
+
+Change paths pinpoint the exact location, for example:
+
+```
+asyncapi.channels[payment.completed]
+asyncapi.channels[payment.refunded].publish.message.payload.required[charge_id]
+asyncapi.operations[sendOrder].action
+```
+
+## gRPC
+
+`pacto diff` compares referenced `.proto` files at the service, rpc, message and field level.
+
+| Field | Change | Classification |
+|-------|--------|----------------|
+| `grpc.services` | Added | NON_BREAKING |
+| `grpc.services` | Removed | **BREAKING** |
+| `grpc.rpcs` | Added | NON_BREAKING |
+| `grpc.rpcs` | Removed | **BREAKING** |
+| `grpc.rpcs` | Modified | **BREAKING** |
+| `grpc.messages` | Added | NON_BREAKING |
+| `grpc.messages` | Removed | **BREAKING** |
+| `grpc.messages.fields` | Added | NON_BREAKING |
+| `grpc.messages.fields` | Removed | **BREAKING** |
+| `grpc.messages.fields` | Modified | **BREAKING** |
+
+proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. Everything else here is `BREAKING`: removing a service, rpc, message or field breaks every caller, and a changed rpc signature (including a switch between unary and streaming) or a field whose type or number changed breaks the wire format for clients built against the old descriptor. That is why a modified field is `BREAKING` rather than `POTENTIAL_BREAKING`.
+
+Change paths pinpoint the exact location, for example:
+
+```
+grpc.services[FraudService]
+grpc.rpcs[FraudService.EvaluateTransaction]
+grpc.messages[EvaluateTransactionRequest].fields[metadata]
+```
+
+### What the proto comparison does not do
+
+The comparison is a text scan of proto3 source, not a protobuf compile. In practice:
+
+- **`import`s are not resolved.** Only the declarations in the referenced file are compared. A message that moves into an imported file reads as a removal.
+- **Nested messages and `oneof` bodies are not descended into.** Their fields are skipped rather than misread as fields of the enclosing message, so a change inside one produces no change entry.
+- **Identity is the declared name.** A renamed field or rpc reads as a removal plus an addition even when the field number is unchanged.
+- **Comments are stripped before scanning.** A comment marker inside a string literal (a URL in an `option` line, say) truncates that line. That is harmless because `option` statements are not part of the compared surface.
+
 ## JSON Schema (configuration & policy schemas)
 
 Schema files referenced by `configurations[].schema`, `policies[].schema`, or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
@@ -202,7 +272,6 @@ noise.
 | Section | Status |
 |---------|--------|
 | `metadata` | Not diffed. Free-form `metadata` keys are carried through to documentation and the dashboard but are ignored by the diff engine. |
-| AsyncAPI and gRPC spec **content** | Not diffed. Only `openapi` interfaces are compared spec against spec. For an `asyncapi` or `grpc` interface the diff sees the contract's own fields — `type`, `ref` and `visibility` — so a changed `ref` is `POTENTIAL_BREAKING` and a rewritten spec behind an unchanged `ref` produces no change entry at all. |
 | `capabilities[].binding` | Not diffed. Capabilities are keyed by `type` (and `ref`), so a changed `binding.interface` or `binding.path` on an otherwise unchanged capability is invisible to `pacto diff`. |
 | `readiness.history[]` | Not diffed. An append-only changelog that changes on every release; see [Readiness](#readiness). |
 
