@@ -64,6 +64,26 @@ a field's inline `[...]` option block is parsed off and dropped, so adding
 `docs/contract-reference/diff.md` states what each comparison does and, in "What
 the proto comparison does not do", what it does not.
 
+The in-browser dashboard demo now teaches itself. Where the fixture notice was a
+banner and nothing more, it offers a guided tour: six steps, each naming one
+thing to do and each gated on the dashboard actually reaching the state that
+proves it was done. The gate is an observation, so it is also the advance — do
+the step and the tour moves on by itself, once the gate has held quiet long
+enough that a search typed one character at a time is never interrupted
+mid-word, and after a moment's confirmation so the reader sees what their action
+produced. The two steps with nothing to observe keep a real button. Every gated
+step carries Skip, which performs the action for the reader rather than jumping
+past it, and Exit leaves at any point. It is opt-in, and it ships only with the
+WebAssembly demo: `examples/demo/boot.js` is loaded by nothing else, so it
+cannot appear in front of a real fleet.
+
+The published `pacto-dashboard` bundle described half of its own API. The
+OpenAPI document it shipped was maintained by hand and had fallen to 18 paths
+against the 32 the server registers, so a consumer reading the contract could
+not see the fleet endpoints at all. `make gen-openapi` now generates it from the
+live Huma registrations, which makes the published bundle byte-identical to the
+drift-gated SDK contract instead of a second copy that ages on its own.
+
 Two fixture versions moved: `payments-service` 1.2.0 and 2.0.0 are already
 published to `ghcr.io/trianalab/pacto`, and the `capabilities[]` and `sbom/`
 additions this tour needs change their bytes, so they ship as 1.2.1 and 2.0.1
