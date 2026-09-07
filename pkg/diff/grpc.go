@@ -179,7 +179,13 @@ func extractProto(src string) protoAPI {
 		open := i + loc[1] - 1 // index of the block's opening brace
 		end := matchBrace(src, open)
 		if end < 0 {
-			break // unbalanced braces: stop rather than guess
+			// This declaration never closes, so it cannot be read — but the
+			// ones after it still can. Resume just past its opening brace
+			// instead of abandoning the rest of the file: losing one
+			// declaration is a wrong answer about one message, while bailing
+			// here reports every later message as removed.
+			i = open + 1
+			continue
 		}
 		body := src[open+1 : end-1]
 		if kind == "service" {

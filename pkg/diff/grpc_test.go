@@ -368,6 +368,30 @@ func TestExtractProto_UnterminatedStringTailIsInert(t *testing.T) {
 	}
 }
 
+// A declaration whose braces never balance costs that one declaration, not the
+// rest of the file. Bailing at the first unbalanced block would report every
+// later message as removed — a fabricated BREAKING verdict from one bad line.
+func TestExtractProto_UnbalancedBlockLosesOnlyItself(t *testing.T) {
+	tests := map[string]string{
+		// The brace closing Account sits inside an unterminated literal, so it
+		// is blanked and Account never closes.
+		"closing brace swallowed by an unterminated literal": "message Account { option (my.tmpl) = \"d }\nmessage GetReq {\n  string id = 1;\n}\nmessage After {\n  string keep = 1;\n}\n",
+		"declaration simply never closed":                    "message Account {\n  string email = 1;\nmessage GetReq {\n  string id = 1;\n}\n",
+	}
+
+	for name, src := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := extractProto(src).messages
+			if _, ok := got["GetReq"]; !ok {
+				t.Errorf("GetReq lost to an earlier unbalanced block: messages = %+v", got)
+			}
+			if len(got) == 0 {
+				t.Errorf("whole file surface collapsed: messages = %+v", got)
+			}
+		})
+	}
+}
+
 // An unterminated literal with no newline after it must stop at the end of the
 // buffer rather than run off it, and must still leave the fields before it.
 func TestExtractProto_UnterminatedStringAtEOF(t *testing.T) {
