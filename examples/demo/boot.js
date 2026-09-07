@@ -125,7 +125,7 @@
         if (i.form) { i.form.requestSubmit(); }
       }
     }, {
-      text: "Step 3 — one service in full. What payments-service declares, every revision of it, and what was observed about the targets running it. Compliance has four states, and “not evaluated” is not one of the passing ones. Open payments-service from the list.",
+      text: "Step 3 — one service in full. What payments-service declares, every revision it has published and what was observed about the targets running it. Compliance has four states, and “not evaluated” is not one of the passing ones. Open payments-service from the list.",
       hash: "#/fleet/services",
       target: '[data-testid="service-list"] a[href$="/fleet/services/payments-service"]',
       wait: "Waiting for the payments-service page to open.",
@@ -280,6 +280,12 @@
         // to be able to see why Next will not move without hovering anything.
         "#pacto-tour-hint{display:block;margin-top:.45rem;color:#fcd34d}" +
         "#pacto-tour-hint:empty{display:none}" +
+        // The same line says the gate has opened, and amber for good news reads as a
+        // second warning, so the open state is green.
+        "#pacto-tour-hint.ok{color:#86efac}" +
+        // The fixture disclosure, kept reachable while the strip that usually carries it
+        // is hidden. Quiet and last: it is a way out, not a step.
+        "#pacto-tour-about{display:inline-block;margin-top:.5rem;font-size:.75rem}" +
         "#pacto-tour-ctl{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem}" +
         "#pacto-tour-ctl button{appearance:none;cursor:pointer;font:inherit;line-height:1;" +
         "border:1px solid #475569;background:none;color:#e2e8f0;border-radius:999px;" +
@@ -410,6 +416,13 @@
 
     var SPOT_PAD = 6;
     var BUBBLE_GAP = 12;
+    // The dim IS the cut-out: it is drawn by a spread shadow on the hole, so a hole the
+    // size of the window leaves the shadow nowhere to fall and the page is not dimmed at
+    // all. At 320px wide, step 1's section is twice the height of the window and starts
+    // above it, which is exactly that case -- an undimmed page with a stray outline round
+    // it. So the hole is the target's VISIBLE part, and when that still runs the whole way
+    // across an axis it keeps this much rim, because a rim is what says the page is held.
+    var DIM_RIM = 16;
 
     // Put the cut-out over the target and the bubble beside it: below when there is room
     // and above otherwise, then clamped into the viewport so it is never half off-screen
@@ -420,23 +433,42 @@
       var vh = document.documentElement.clientHeight;
       var b = bubble.getBoundingClientRect();
       var left, top;
-      if (!t) {
-        // Pointing at nothing is worse than not pointing: with no target the light goes
-        // out and the bubble takes the middle of the screen until the app renders it.
+      // The hole is the part of the target that is ON SCREEN, never the raw rect: a rect
+      // that overhangs the window makes a hole bigger than the window, and a hole bigger
+      // than the window has no dim in it at all.
+      var x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+      if (t) {
+        var r = t.getBoundingClientRect();
+        x0 = clamp(r.left - SPOT_PAD, 0, vw);
+        x1 = clamp(r.right + SPOT_PAD, 0, vw);
+        y0 = clamp(r.top - SPOT_PAD, 0, vh);
+        y1 = clamp(r.bottom + SPOT_PAD, 0, vh);
+        // A target that reaches both edges of an axis (step 1's section on a phone) would
+        // leave that axis undimmed, so keep the rim. Only ever narrows the hole, and only
+        // for a target already bigger than the window, so a target that fits is untouched.
+        if (x1 - x0 >= vw) { x0 = DIM_RIM; x1 = vw - DIM_RIM; }
+        if (y1 - y0 >= vh) { y0 = DIM_RIM; y1 = vh - DIM_RIM; }
+      }
+      if (!t || x1 <= x0 || y1 <= y0) {
+        // Pointing at nothing is worse than not pointing: with no target -- or a target
+        // scrolled clean off the window, which is a hole of no area and would draw as a
+        // stray line on an edge -- the light goes out and the bubble takes the middle of
+        // the screen until the app renders it.
         spot.hidden = true;
         left = (vw - b.width) / 2;
         top = (vh - b.height) / 2;
       } else {
-        var r = t.getBoundingClientRect();
         spot.hidden = false;
-        spot.style.left = (r.left - SPOT_PAD) + "px";
-        spot.style.top = (r.top - SPOT_PAD) + "px";
-        spot.style.width = (r.width + SPOT_PAD * 2) + "px";
-        spot.style.height = (r.height + SPOT_PAD * 2) + "px";
-        left = r.left;
-        top = r.bottom + BUBBLE_GAP + b.height <= vh - BUBBLE_GAP
-          ? r.bottom + BUBBLE_GAP
-          : r.top - BUBBLE_GAP - b.height;
+        spot.style.left = x0 + "px";
+        spot.style.top = y0 + "px";
+        spot.style.width = (x1 - x0) + "px";
+        spot.style.height = (y1 - y0) + "px";
+        // Beside the HOLE, not beside the raw rect: with a target taller than the window
+        // the raw bottom is off-screen and the bubble would be flung to a corner.
+        left = x0;
+        top = y1 + BUBBLE_GAP + b.height <= vh - BUBBLE_GAP
+          ? y1 + BUBBLE_GAP
+          : y0 - BUBBLE_GAP - b.height;
       }
       bubble.style.left = Math.round(clamp(left, BUBBLE_GAP, vw - b.width - BUBBLE_GAP)) + "px";
       bubble.style.top = Math.round(clamp(top, BUBBLE_GAP, vh - b.height - BUBBLE_GAP)) + "px";
@@ -447,6 +479,31 @@
     function ensureVisible(t) {
       var r = t.getBoundingClientRect();
       if (r.top < 0 || r.bottom > document.documentElement.clientHeight) { t.scrollIntoView({ block: "center" }); }
+    }
+
+    // What the live region says once the gate is open (see tick).
+    var GATE_OPEN = "Done — press Next.";
+
+    // Skip performs the step's action FOR the reader and then WAITS for that step's own
+    // gate before advancing. It cannot advance in the same tick: every action here is
+    // asynchronous -- a submit that runs an analysis and only then writes the URL, a link
+    // click that loads a neighborhood -- and moving the route out from under one lands the
+    // app's own late write on the screen AFTER it, leaving the URL describing a page
+    // nobody is on. Waiting is also the point of the feature: the reader gets a moment to
+    // see what was just done for them. Bounded, because a gate that never opens must not
+    // hang the tour behind a button that now looks broken -- when the deadline passes it
+    // advances regardless, which is exactly where the old unconditional skip landed.
+    var SKIP_WAIT = 6000;
+    var skipUntil = 0;
+
+    function skipStep() {
+      // Already waiting: a second press would fire the action again underneath the first.
+      if (skipUntil) { return; }
+      var s = TOUR[step];
+      if (s.skip) { s.skip(); }
+      if (!s.gate) { goStep(step + 1); return; }
+      skipUntil = Date.now() + SKIP_WAIT;
+      skipBtn.disabled = true;
     }
 
     // ponytail: one rAF loop instead of scroll + resize + MutationObserver + a per-gate
@@ -470,8 +527,19 @@
       nextBtn.disabled = !open;
       // Guarded because the hint is a live region: writing the same string sixty times a
       // second would announce it sixty times a second.
-      var msg = open ? "" : s.wait;
-      if (hintEl.textContent !== msg) { hintEl.textContent = msg; }
+      //
+      // The open state says something rather than emptying the region. Clearing it
+      // announces nothing at all, so the reader who cannot see a greyed button go live --
+      // and who never had it in the tab order while it was disabled -- was the one told
+      // least about the only state change on the step.
+      var msg = open ? GATE_OPEN : s.wait;
+      if (hintEl.textContent !== msg) {
+        hintEl.textContent = msg;
+        hintEl.className = open ? "ok" : "";
+      }
+      // A skip in flight (see skipStep) waits here: the step's own gate is the only thing
+      // that knows the action it fired has actually finished.
+      if (skipUntil && (open || Date.now() > skipUntil)) { skipUntil = 0; goStep(step + 1); }
     }
 
     function ctlButton(id, testid, text, fn) {
@@ -506,6 +574,14 @@
       bubble.setAttribute("aria-label", "Guided tour");
       bubble.setAttribute("aria-describedby", "pacto-tour-text");
       bubble.setAttribute("tabindex", "-1");
+      // Escape exits the tour, and it is bound HERE rather than on the document because
+      // the tour does not own this key -- the app does. The dashboard's nav drawer, its
+      // command palette and every type=search field all close or clear on Escape, and a
+      // document-level handler tore the whole tour down with each of them. Step 5 asks the
+      // reader to type into a search box, so the tour was telling them to do the thing
+      // that killed it. On the bubble it fires only while focus is inside the bubble,
+      // which every step change puts it back into, so the affordance survives intact.
+      bubble.addEventListener("keydown", function (e) { if (e.key === "Escape") { exitTour(); } });
 
       stepNum = document.createElement("span");
       stepNum.id = "pacto-tour-step";
@@ -532,11 +608,7 @@
       // The reason a disabled Next is disabled, attached to the control itself so a
       // screen reader gets it without hunting for the amber line.
       nextBtn.setAttribute("aria-describedby", "pacto-tour-hint");
-      skipBtn = ctlButton("pacto-tour-skip", "demo-tour-skip", "Skip step", function () {
-        var s = TOUR[step];
-        if (s.skip) { s.skip(); }
-        goStep(step + 1);
-      });
+      skipBtn = ctlButton("pacto-tour-skip", "demo-tour-skip", "Skip step", skipStep);
       var exitBtn = ctlButton("pacto-tour-exit", "demo-tour-exit", "Exit tour", exitTour);
 
       var ctl = document.createElement("div");
@@ -546,11 +618,24 @@
       ctl.appendChild(skipBtn);
       ctl.appendChild(exitBtn);
 
+      // The fixture disclosure is owed for the whole visit, and the strip that normally
+      // carries it is hidden while the tour speaks -- so from step 2 on, the reader had no
+      // way left to reach the page that says this fleet is invented and that two of its
+      // oddities are deliberate. The bubble carries the same link, to the same place, on
+      // every step; the last step's hand-off to the CLI tour is a different destination
+      // and stays a separate anchor.
+      var about = document.createElement("a");
+      about.id = "pacto-tour-about";
+      about.setAttribute("data-testid", "demo-tour-about");
+      about.href = DOCS_HREF;
+      about.textContent = "About this demo";
+
       bubble.appendChild(stepNum);
       bubble.appendChild(textEl);
       bubble.appendChild(moreLink);
       bubble.appendChild(hintEl);
       bubble.appendChild(ctl);
+      bubble.appendChild(about);
       overlay.appendChild(spot);
       overlay.appendChild(bubble);
       document.body.appendChild(overlay);
@@ -576,7 +661,11 @@
       // Nothing to skip on an ungated step: Next is already live there, and a second
       // button that does the same thing is a choice the reader has to stop and make.
       skipBtn.hidden = !s.gate;
+      // Whatever a skip was waiting for, it was waiting for the step we just left.
+      skipUntil = 0;
+      skipBtn.disabled = false;
       hintEl.textContent = s.gate ? s.wait : "";
+      hintEl.className = "";
       if (s.href) {
         moreLink.href = s.href;
         moreLink.textContent = s.linkText;
@@ -591,8 +680,6 @@
       bubble.focus();
     }
 
-    function onKey(e) { if (e.key === "Escape") { exitTour(); } }
-
     function startTour() {
       if (running || !el) { return; }
       running = true;
@@ -601,7 +688,6 @@
       el.hidden = true;
       buildOverlay();
       if (sizeObs) { sizeObs.observe(bubble); }
-      document.addEventListener("keydown", onKey);
       goStep(0);
       reserve();
       raf = window.requestAnimationFrame(tick);
@@ -615,11 +701,13 @@
       // A rAF loop that outlives the tour is a leak that keeps measuring elements the
       // reader can no longer see.
       window.cancelAnimationFrame(raf);
-      document.removeEventListener("keydown", onKey);
       if (sizeObs) { sizeObs.unobserve(bubble); }
+      // The keydown listener goes with the bubble it is bound to, so there is nothing
+      // left behind on the document to remove.
       overlay.parentNode.removeChild(overlay);
       overlay = spot = bubble = null;
       lastTarget = null;
+      skipUntil = 0;
       el.hidden = false;
       reserve();
       startBtn.focus();

@@ -58,6 +58,20 @@ async function startTour(page: Page) {
   await expect(page.getByTestId('demo-tour-bubble')).toBeVisible({ timeout: 20_000 });
 }
 
+// The same, at a phone viewport, from the first paint. waitReady's probe is a desktop
+// signal -- a narrow window keeps that nav link in the hamburger drawer -- and the
+// invitation is the better readiness signal anyway: the strip only offers it once the
+// engine has resolved. Sized before the goto, because a tour started wide and then
+// narrowed is a reflow, not the geometry a visitor who arrives on a phone actually gets.
+async function startTourAt(page: Page, width: number, height: number) {
+  await page.setViewportSize({ width, height });
+  await page.goto('/');
+  const start = page.getByTestId('demo-tour-start');
+  await expect(start).toBeVisible({ timeout: 30_000 });
+  await start.click();
+  await expect(page.getByTestId('demo-tour-bubble')).toBeVisible({ timeout: 20_000 });
+}
+
 // Does the cut-out actually contain the element it claims to spotlight? A rotted
 // selector leaves a tour pointing at nothing, and nothing else in the suite would notice.
 async function spotlightEncloses(page: Page, selector: string): Promise<boolean> {
@@ -570,11 +584,197 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect(page.getByTestId('demo-tour-start')).toBeVisible();
   });
 
+  // Escape exits, and it still does after the handler was scoped to the bubble: every
+  // step change puts focus back in the bubble, so the key is live exactly where the
+  // reader last was.
   test('demo tour: Escape exits it', async ({ page }) => {
     await startTour(page);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(0);
     await expect(page.getByTestId('demo-strip')).toBeVisible();
+  });
+
+  // ...but the tour does not OWN Escape — the app does. The dashboard's own widgets each
+  // close or clear on Escape, and while the handler sat on the document every one of them
+  // also tore the tour down and lost the reader's progress. Three widgets, three proofs,
+  // because they are three different code paths in the app (a drawer, an overlay dialog
+  // and a browser-native search field) and only the last one reaches the document unaided.
+
+  test('demo tour: Escape closing the mobile nav drawer leaves the tour standing', async ({ page }) => {
+    await startTourAt(page, 390, 844); // the hamburger appears at <=768px
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 6');
+    await page.getByRole('button', { name: 'Menu' }).click();
+    await expect(page.locator('#mobile-drawer')).toBeVisible();
+    // Focus is inside the drawer (it moves there on open), so this Escape belongs to it.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#mobile-drawer')).toHaveCount(0);
+    await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 6'); // and no progress lost
+  });
+
+  test('demo tour: Escape closing the command palette leaves the tour standing', async ({ page }) => {
+    await startTour(page);
+    await page.keyboard.press('ControlOrMeta+k');
+    const palette = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(palette).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(palette).toHaveCount(0);
+    await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('1 / 6');
+  });
+
+  test('demo tour: Escape in a search field leaves the tour standing, and the step still completes', async ({ page }) => {
+    await startTour(page);
+    await page.getByTestId('demo-tour-next').click();
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 6');
+    // A type=search field clears itself on Escape and deliberately lets the key through
+    // when it has no suggestion popup to dismiss — so this is the one that used to reach
+    // the document handler unopposed, on the very step that asks the reader to type.
+    const search = page.getByTestId('svc-search');
+    await search.click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('demo-tour-overlay')).toHaveCount(1);
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('2 / 6');
+    // Alive is not enough: the reader can still finish the step they were asked to do.
+    await search.fill('payments');
+    await search.press('Enter');
+    await expect(page.getByTestId('demo-tour-next')).toBeEnabled({ timeout: 20_000 });
+  });
+
+  // Skip performs the action and then WAITS for that step's own gate. Step 4 is where it
+  // mattered: its action starts an impact analysis that writes the URL when it returns, so
+  // a skip that navigated in the same tick left the address bar describing a screen the
+  // reader was no longer on.
+  test('demo tour: Skip waits for the step it skipped, so the analysis never desyncs the URL', async ({ page }) => {
+    // Sampled on mutation rather than polled: the whole question is whether one state
+    // (step 4, diff rendered) existed BEFORE another (step 5), and a poll can miss it.
+    await page.addInitScript(() => {
+      const log: string[] = [];
+      (window as unknown as { __tourLog: string[] }).__tourLog = log;
+      new MutationObserver(() => {
+        const step = document.querySelector('[data-testid="demo-tour-step"]')?.textContent ?? '';
+        const diff = !!document.querySelector('[data-testid="changes-what-changed"]');
+        const s = `${step}|${diff}`;
+        if (step && log[log.length - 1] !== s) log.push(s);
+      }).observe(document, { subtree: true, childList: true, characterData: true });
+    });
+    await startTour(page);
+    const stepNo = page.getByTestId('demo-tour-step');
+    await page.getByTestId('demo-tour-next').click();
+    await expect(stepNo).toHaveText('2 / 6');
+    await page.getByTestId('demo-tour-skip').click();
+    await expect(stepNo).toHaveText('3 / 6', { timeout: 20_000 });
+    await page.getByTestId('demo-tour-skip').click();
+    await expect(stepNo).toHaveText('4 / 6', { timeout: 20_000 });
+    await expect(page).toHaveURL((url) => url.hash.split('?')[0] === '#/fleet/changes/payments-service', { timeout: 20_000 });
+
+    await page.getByTestId('demo-tour-skip').click();
+    await expect(stepNo).toHaveText('5 / 6', { timeout: 20_000 });
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph', { timeout: 20_000 });
+    // The analysis has nothing left to rewrite: the URL stays on step 5's screen well past
+    // the point where the orphaned replaceState used to land on it.
+    await page.waitForTimeout(2000);
+    await expect(page).toHaveURL((url) => url.hash === '#/fleet/graph');
+    // And it did not merely finish in time — the comparison really ran while step 4 was
+    // still on screen, which is the point of the feature: the reader gets a moment to see
+    // what was done for them.
+    const log = await page.evaluate(() => (window as unknown as { __tourLog: string[] }).__tourLog);
+    expect(log).toContain('4 / 6|true');
+  });
+
+  // Waiting must be bounded: a gate that never opens has to move the reader on rather than
+  // leave them holding a button that now looks broken.
+  test('demo tour: a gate that never opens still lets Skip move on', async ({ page }) => {
+    // Rename the container the step-2 gate looks for, as it renders, so the gate can never
+    // be satisfied. A rename rather than a removal: the node stays where Svelte put it, so
+    // nothing else about the page changes.
+    await page.addInitScript(() => {
+      new MutationObserver(() => {
+        const l = document.querySelector('[data-testid="service-list"]');
+        if (l) l.setAttribute('data-testid', 'service-list-sabotaged');
+      }).observe(document, { subtree: true, childList: true, attributes: true });
+    });
+    await startTour(page);
+    const stepNo = page.getByTestId('demo-tour-step');
+    await page.getByTestId('demo-tour-next').click();
+    await expect(stepNo).toHaveText('2 / 6');
+    const t0 = Date.now();
+    await page.getByTestId('demo-tour-skip').click();
+    await expect(stepNo).toHaveText('3 / 6', { timeout: 20_000 });
+    // It waited for the gate it could never get, then went anyway.
+    expect(Date.now() - t0).toBeGreaterThan(2000);
+  });
+
+  // The dim is drawn by a spread shadow on the cut-out, so a cut-out bigger than the
+  // window is a page with no dim on it at all. At 320px step 1's target is twice the
+  // height of the window, which used to render as an undimmed page with a stray outline.
+  test('demo tour: at 320x800 the cut-out stays on screen and the page is really dimmed', async ({ page }) => {
+    await startTourAt(page, 320, 800);
+    const geom = async () => page.evaluate(() => {
+      const vw = document.documentElement.clientWidth;
+      const vh = document.documentElement.clientHeight;
+      const s = document.querySelector('[data-testid="demo-tour-spotlight"]') as HTMLElement | null;
+      const b = document.querySelector('[data-testid="demo-tour-bubble"]')!.getBoundingClientRect();
+      const r = s && !s.hidden ? s.getBoundingClientRect() : null;
+      return {
+        lit: !!r,
+        onScreen: !r || (r.left >= 0 && r.top >= 0 && r.right <= vw && r.bottom <= vh),
+        dimmed: vw * vh - (r ? r.width * r.height : 0),
+        bubbleOnScreen: b.left >= 0 && b.top >= 0 && b.right <= vw && b.bottom <= vh,
+      };
+    });
+    await expect.poll(geom, { timeout: 20_000 }).toMatchObject({ lit: true, onScreen: true, bubbleOnScreen: true });
+    expect((await geom()).dimmed).toBeGreaterThan(0); // there IS a dim layer, not just an outline
+  });
+
+  // The gate opening is the only state change on a gated step, and emptying a live region
+  // announces nothing — so the reader who cannot see a greyed button go live was the one
+  // told least.
+  test('demo tour: the gate opening is announced, not silently emptied', async ({ page }) => {
+    await startTour(page);
+    await page.getByTestId('demo-tour-next').click();
+    const hint = page.locator('#pacto-tour-hint');
+    await expect(hint).toHaveAttribute('aria-live', 'polite');
+    await expect(hint).toHaveText('Waiting for a search that narrows the list to payments-service.');
+    const search = page.getByTestId('svc-search');
+    await search.fill('payments');
+    await search.press('Enter');
+    await expect(page.getByTestId('demo-tour-next')).toBeEnabled({ timeout: 20_000 });
+    await expect(hint).toHaveText('Done — press Next.');
+  });
+
+  // House style omits the serial comma, and the sentence has to read as though it never
+  // wanted one.
+  test('demo tour: step 3 names the three things without a serial comma', async ({ page }) => {
+    await startTour(page);
+    await page.getByTestId('demo-tour-next').click();
+    await page.getByTestId('demo-tour-skip').click();
+    await expect(page.getByTestId('demo-tour-step')).toHaveText('3 / 6', { timeout: 20_000 });
+    const text = page.getByTestId('demo-tour-text');
+    await expect(text).toContainText('every revision it has published and what was observed about the targets running it');
+    await expect(text).not.toContainText('every revision of it, and');
+  });
+
+  // The strip carrying the fixture disclosure stands down while the tour speaks, so from
+  // step 2 on the reader had no way back to the page that says this fleet is invented. The
+  // bubble owes them the same link, on every step.
+  test('demo tour: the demo disclosure stays one click away on every step', async ({ page }) => {
+    await startTour(page);
+    const about = page.getByTestId('demo-tour-about');
+    const stepNo = page.getByTestId('demo-tour-step');
+    await expect(about).toBeVisible();
+    await expect(about).toHaveAttribute('href', '../examples/dashboard-demo/');
+    for (const n of ['2 / 6', '3 / 6', '4 / 6', '5 / 6', '6 / 6']) {
+      const skip = page.getByTestId('demo-tour-skip');
+      if (await skip.isVisible()) await skip.click();
+      else await page.getByTestId('demo-tour-next').click();
+      await expect(stepNo).toHaveText(n, { timeout: 20_000 });
+      await expect(about).toBeVisible();
+      await expect(about).toHaveAttribute('href', '../examples/dashboard-demo/');
+    }
+    // The last step's hand-off to the CLI tour is a different destination and stays its
+    // own link, so the disclosure was never repurposed into it.
+    await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/demo-tour/');
   });
 
   // "Empty once ready" above would also pass for a counter that never ran at all, so
