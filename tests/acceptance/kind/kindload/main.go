@@ -44,6 +44,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -133,11 +134,10 @@ func loadOne(cluster string, nodes []string, plat string, narrow bool, ref strin
 		return fmt.Errorf("kind load image-archive %s: %w", ref, err)
 	}
 	for _, node := range nodes {
-		seen, err := output("docker", "exec", node, "crictl", "images", "--output", "json")
-		if err != nil {
-			return fmt.Errorf("%s: reading images on node %s: %w", ref, node, err)
+		read := func() (string, error) {
+			return output("docker", "exec", node, "crictl", "images", "--output", "json")
 		}
-		if err := verifyNode(seen, ref, cfg); err != nil {
+		if err := awaitNode(read, ref, cfg); err != nil {
 			return fmt.Errorf("%s: node %s: %w", ref, node, err)
 		}
 	}
@@ -440,6 +440,37 @@ type crictlImage struct {
 	ID       string   `json:"id"`
 	RepoTags []string `json:"repoTags"`
 }
+
+// awaitNode polls the node's view rather than reading it once. `kind load
+// image-archive` returns as soon as containerd has committed the image, but the
+// list crictl reads is the CRI plugin's own store, refreshed off containerd's
+// event bus — so a read issued in the same breath as the load can still be
+// describing the node as it was a moment earlier. Observed in CI on the smaller
+// of two images, the one whose load finished fast enough to win that race.
+// Waiting cannot rescue an image that is genuinely absent or genuinely
+// mismatched: neither ever converges, and the deadline still fails closed with
+// whatever verifyNode last said.
+func awaitNode(read func() (string, error), ref, cfg string) error {
+	deadline := time.Now().Add(verifyTimeout)
+	for {
+		seen, err := read()
+		if err != nil {
+			return fmt.Errorf("reading images: %w", err)
+		}
+		err = verifyNode(seen, ref, cfg)
+		if err == nil || !time.Now().Before(deadline) {
+			return err
+		}
+		time.Sleep(verifyPoll)
+	}
+}
+
+// Variables rather than constants so the tests can shrink the deadline without
+// spending it.
+var (
+	verifyTimeout = 30 * time.Second
+	verifyPoll    = 500 * time.Millisecond
+)
 
 // verifyNode is the claim `imagePullPolicy: Never` rests on: the reference
 // resolves, on this node, to the config digest that was exported. A same-named
