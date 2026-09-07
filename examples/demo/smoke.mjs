@@ -37,12 +37,29 @@ check("GET /api/graph 200 with content", graphRes.status === 200 && graphRes.bod
 
 const versions = json(call("GET", "/api/services/payments-service/versions"));
 check("payments-service has 6 versions", Array.isArray(versions) && versions.length === 6, `${versions.length}`);
-const v200 = versions.find((v) => v.version === "2.0.0");
-check("2.0.0 classified BREAKING", v200 && v200.classification === "BREAKING", v200 && v200.classification);
-
-const diff = json(call("GET", "/api/diff?from_name=payments-service&from_version=1.2.0&to_name=payments-service&to_version=2.0.0"));
-check("diff 1.2.0->2.0.0 BREAKING", diff.classification === "BREAKING", `${diff.changes && diff.changes.length} changes`);
-check("diff includes /charges removal", (diff.changes || []).some((c) => c.path === "openapi.paths[/charges]"));
+// Find the breaking step by what it DOES, not by what it is numbered. A fixture
+// bundle whose bytes change has to republish under a NEW version, because the tag
+// it already published is immutable -- and when payments 1.2.0/2.0.0 became
+// 1.2.1/2.0.1 for exactly that reason, these assertions went on naming versions
+// the fixture no longer had. The list is newest-first and each entry is classified
+// against its predecessor, so every candidate step is (a BREAKING entry, the entry
+// after it); the one this asserts on is whichever of those drops /charges, which
+// also keeps a second breaking revision from stealing the match.
+let brk = null;
+let prev = null;
+let diff = {};
+for (let i = 0; i < versions.length - 1; i++) {
+  if (versions[i].classification !== "BREAKING") continue;
+  const d = json(call("GET", `/api/diff?from_name=payments-service&from_version=${versions[i + 1].version}&to_name=payments-service&to_version=${versions[i].version}`));
+  if (!(d.changes || []).some((c) => c.path === "openapi.paths[/charges]")) continue;
+  brk = versions[i];
+  prev = versions[i + 1];
+  diff = d;
+  break;
+}
+check("a payments step is BREAKING by removing /charges", !!brk, brk ? `${prev.version}->${brk.version}` : "no such step");
+check(`diff ${prev ? prev.version : "?"}->${brk ? brk.version : "?"} BREAKING`,
+  diff.classification === "BREAKING", `${diff.changes && diff.changes.length} changes`);
 
 // Every other GET endpoint the UI's api.ts calls must answer (no 500s), so no
 // dashboard view errors out in the browser.
@@ -105,27 +122,30 @@ const someTargetKey = Object.keys(snap.targets || {})[0];
 const tdetail = json(call("GET", `/api/fleet/target?key=${encodeURIComponent(someTargetKey)}`));
 check("fleet target detail resolves by key", tdetail.target && tdetail.target.key === someTargetKey, someTargetKey);
 
-// Impact: a preconfigured breaking scenario (payments-service 1.0.0 → 2.0.0)
-// resolved entirely from embedded bundles, no OCI. Uses the same published
-// snapshot the graph serves.
-const revs = json(call("GET", "/api/services/payments-service/versions")); // reuse for hashes? use fleet detail refs
+// Impact: payments-service's oldest revision against its newest, resolved
+// entirely from embedded bundles, no OCI. Uses the same published snapshot the
+// graph serves. The pair is named from what was actually diffed -- the label
+// used to read "1.0.0 → 2.0.0" while the code took the newest revision, so it
+// had been reporting a comparison it never ran.
 const payRevs = (detail.revisions || []).slice().sort((a, b) => (a.version < b.version ? -1 : 1));
-const oldRef = payRevs[0].resolvedRef;
-const newRef = payRevs[payRevs.length - 1].resolvedRef;
-const impRes = call("GET", `/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=false`);
+// Guarded so a detail response without revisions fails as this check rather than
+// as a TypeError that takes the rest of the run down with it.
+check("payments-service detail carries revisions to compare", payRevs.length >= 2, `${payRevs.length}`);
+const oldRev = payRevs[0] || {};
+const newRev = payRevs[payRevs.length - 1] || {};
+const impRes = call("GET", `/api/fleet/impact?old=${encodeURIComponent(oldRev.resolvedRef)}&new=${encodeURIComponent(newRev.resolvedRef)}&includeObserved=false`);
 check("impact 200", impRes.status === 200, `status ${impRes.status}`);
 const imp = json(impRes);
 check("impact result binds the published snapshot (section 2.2)", imp.snapshotId === snap.snapshotId, `${imp.snapshotId} vs ${snap.snapshotId}`);
-check("impact 1.0.0→2.0.0 is BREAKING", imp.classification === "BREAKING", imp.classification);
+check(`impact ${oldRev.version}→${newRev.version} is BREAKING`, imp.classification === "BREAKING", imp.classification);
 check("impact has affected consumers (direct + transitive)", (imp.consumers || []).length >= 1);
 
 // Observed: include-observed surfaces the audit-log shadow consumer that declares
 // no dependency on payments-service.
-const impObs = json(call("GET", `/api/fleet/impact?old=${encodeURIComponent(oldRef)}&new=${encodeURIComponent(newRef)}&includeObserved=true`));
+const impObs = json(call("GET", `/api/fleet/impact?old=${encodeURIComponent(oldRev.resolvedRef)}&new=${encodeURIComponent(newRev.resolvedRef)}&includeObserved=true`));
 check("include-observed surfaces the audit-log shadow consumer",
   (impObs.consumers || []).some((c) => c.service === "audit-log"),
   (impObs.consumers || []).map((c) => c.service).join(","));
-void revs;
 
 // ── Product API: the demo must be RICH through the paths the product UI uses ──
 // The product UI never reads the raw snapshot above; it reads these endpoints. A

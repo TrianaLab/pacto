@@ -41,7 +41,7 @@ It showcases the full UI against a realistic set of services:
 - **Dependency graph** — resolved from each contract's declared dependencies,
   with blast-radius highlighting.
 - **Change analysis** — `payments-service` spans six versions; the
-  `v1.2.0 → v2.0.0` step is a breaking change that removes the `/charges` API,
+  `v1.2.1 → v2.0.1` step is a breaking change that removes the `/charges` API,
   and the same screen shows which consumers that break reaches.
 - **Readiness** — never a separate screen, because readiness is declared by a
   contract revision about itself. It is a *Needs attention* category, a

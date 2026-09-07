@@ -899,6 +899,12 @@ jobs:
           node-version: '22'
       - name: Build the WASM dashboard demo
         run: make -C examples/demo build
+      # The publisher checks what the validator checks. docs.yml smokes the engine
+      # before it builds the site; this job is the only thing that actually ships
+      # the demo, so without this it could publish a demo whose engine docs.yml
+      # would have rejected.
+      - name: Smoke test the wasm engine
+        run: make -C examples/demo smoke
       # Fold the demo into the docs tree so mike's internal `mkdocs build` copies it
       # into the released version deploy at /demo/ (mirrors docs.yml). Without this
       # the demo is built but never lands in the version slot, so /latest/demo/ 404s.
