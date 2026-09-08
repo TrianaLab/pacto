@@ -1,5 +1,7 @@
 # @pacto/operator-image
 
+## 5.3.0
+
 ## 5.2.4
 
 ## 5.2.3
