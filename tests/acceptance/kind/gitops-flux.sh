@@ -95,9 +95,12 @@ echo "== Flux $FLUX_VERSION (source + kustomize controllers) =="
 # --server-side: Flux's CRDs are far past the size a last-applied-configuration
 # annotation can hold, and a client-side apply of them fails on exactly that.
 kubectl apply --server-side -f "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml" >/dev/null
-# Nothing here reconciles a HelmRelease or sends an alert; scaling the other two
-# controllers to zero saves their image pulls and keeps the diagnostics readable.
-kubectl -n flux-system scale deploy helm-controller notification-controller --replicas=0 >/dev/null 2>&1 || true
+# Nothing here reconciles a HelmRelease, so helm-controller is scaled away to save
+# its image pull. notification-controller STAYS: the other two post every event to
+# it, and with it gone each post retries five times and logs a connection-refused
+# error. That spam lands in the same controller logs dump_flux prints, which is
+# exactly where the real reason a gate is stuck has to be readable.
+kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
 kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
 kubectl -n flux-system rollout status deploy/kustomize-controller --timeout=240s
 
@@ -137,7 +140,9 @@ apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata: { name: orders, namespace: $APP_NS }
 spec:
-  checkIntervalSeconds: 15
+  # 30 is the CRD floor. It is also not what this scenario relies on: the verdict
+  # that closes the gate arrives on the workload watch, not on the timer.
+  checkIntervalSeconds: 30
   contractRef:
     inline: |
       pactoVersion: '2.0'
