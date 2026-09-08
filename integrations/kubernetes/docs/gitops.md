@@ -91,7 +91,17 @@ Apply it as a merge patch. `argocd-cm` holds Argo's own configuration and a plai
 ```bash
 kubectl -n argocd patch configmap argocd-cm --type merge \
   --patch-file argocd-cm-pacto-health.yaml
+kubectl -n argocd rollout restart statefulset/argocd-application-controller
 ```
+
+The restart is not optional housekeeping. The application controller reads health
+customizations into its resource cache when it starts, and that cached verdict is
+what it compares to decide whether a changed object is worth re-examining. Until
+the controller has the customization, a Pacto's health is cached as nothing, every
+verdict the operator writes compares equal to the last one and the Application
+only catches up on the next periodic resync. On an install without `argocd-server`
+— Argo's core install — a restart is the *only* way in: hot reload of `argocd-cm`
+needs `server.secretkey`, which only `argocd-server` creates.
 
 - **Argo has no built-in generation check**, so the script does its own. Be
   precise about what that proves: `observedGeneration` here is the Pacto object's
@@ -144,6 +154,11 @@ A key that did not take prints `Health script is not configured for
 'pacto.trianalab.io/Pacto'` instead — and prints it while **exiting 0**, so read
 the output rather than the exit code if you wire this into a check.
 
+Both checks read the ConfigMap, not the controller. They will pass on an instance
+whose controller started before the patch and still has no idea the customization
+exists. The one that answers that question is the Application itself: it should
+change health within seconds of a verdict changing, not minutes.
+
 ## Timing
 
 The gate is only as fresh as the verdict behind it, and verdicts do not all land
@@ -163,6 +178,15 @@ its controller writes `observedGeneration` back, and that same write is the watc
 event that queues the Pacto reconcile. So the re-check is guaranteed *queued*
 before Flux can first see the workload as current. It is not guaranteed
 *finished*. The gap is one reconcile.
+
+Every row above is about how fast the verdict lands. When the GitOps tool *looks*
+is a separate question, and only Argo has an answer worth knowing. It re-examines
+a Pacto when the health status the customization returns changes — `Healthy` to
+`Degraded` and back shows up in about a second. A change that lands on the same
+status does not: one `NonCompliant` reason replaced by another is still
+`Degraded`, so the Application keeps showing the old message until the next
+periodic resync, two to five minutes out. The red dot is prompt. The wording
+behind it is not always.
 
 ## Limits
 
