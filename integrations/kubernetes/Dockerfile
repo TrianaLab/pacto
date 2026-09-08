@@ -21,6 +21,16 @@ ARG DASHBOARD_IMAGE=
 # and the staging dry-run leave it unset and build through go.work (the local core,
 # which for those flows is the same commit being released).
 ARG RELEASE_BUILD=
+# The release build must resolve the core tag it just published, which the module
+# proxy has not indexed yet — so the core has to come straight from VCS. GOPRIVATE
+# alone does that: it feeds GONOPROXY, which routes github.com/trianalab/* direct and
+# leaves every OTHER module on the proxy. Forcing the proxy off entirely as well is
+# not a stronger version of the same thing, it is a different and worse one: it sends the
+# whole dependency graph to VCS, so the build depends on every upstream repo still
+# existing at its pinned revision. github.com/google/cel-go (an indirect dep) was
+# deleted from GitHub, which broke the 5.3.0 operator image while the proxy still
+# served the exact version go.sum asks for. The proxy is the durable copy; use it for
+# everything except the one module that is genuinely too fresh to be there.
 
 WORKDIR /workspace
 # Workspace + both module manifests first (cache-friendly).
@@ -35,8 +45,8 @@ RUN set -eu; \
     if [ -n "${RELEASE_BUILD}" ]; then \
       echo "release build: GOWORK=off against the published pinned core"; \
       cd integrations/kubernetes; \
-      GOWORK=off GOFLAGS=-mod=mod GOPROXY=direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' go mod download; \
-      CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off GOFLAGS=-mod=mod GOPROXY=direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' \
+      GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' go mod download; \
+      CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' \
         go build -ldflags "${LDFLAGS}" -o /workspace/manager ./cmd; \
     else \
       echo "workspace build: go.work resolves the local core"; \

@@ -40,7 +40,7 @@ perl -i -pe "s{github.com/trianalab/pacto/v3 v[0-9][0-9.]*}{github.com/trianalab
 [ "$(grep -c '^replace' "$WORK/op/go.mod")" = "0" ] || { echo "ERROR: replace directive present in release state"; exit 1; }
 cd "$WORK/op"
 export GIT_CONFIG_GLOBAL="$TMPGIT" GIT_CONFIG_SYSTEM=/dev/null GOWORK=off GOFLAGS=-mod=mod \
-       GOPROXY=direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' GOMODCACHE="$(mktemp -d)"
+       GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' GOMODCACHE="$(mktemp -d)"
 echo "go mod download (external, GOWORK=off)..."; go mod download github.com/trianalab/pacto/v3
 echo "go build ./... (standalone operator, no go.work, no replace)..."
 go build ./... && go build -o /dev/null ./cmd

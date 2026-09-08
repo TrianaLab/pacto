@@ -62,11 +62,11 @@ EOF
 
 cd "$WORK/consumer"
 export GIT_CONFIG_GLOBAL="$TMPGIT" GIT_CONFIG_SYSTEM=/dev/null \
-       GOWORK=off GOFLAGS=-mod=mod GOPROXY=direct \
+       GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct \
        GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' \
        GOMODCACHE="$MODCACHE"
 
-echo "go get ${MODULE}@v${K8S_VER} (external, GOWORK=off, GOPROXY=direct)..."
+echo "go get ${MODULE}@v${K8S_VER} (external, GOWORK=off, trianalab direct via GOPRIVATE)..."
 go get "${MODULE}@v${K8S_VER}"
 # Fail closed: an external consumer must resolve the module with NO replace.
 [ "$(grep -c '^replace' go.mod)" = "0" ] || { echo "ERROR: consumer go.mod grew a replace directive"; exit 1; }
