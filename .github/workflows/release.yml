@@ -138,30 +138,41 @@ jobs:
   # so the k8s module's require resolves. The GitHub Release + binaries are
   # finalized LAST by the `release` job. Fail-closed: an existing tag pointing at a
   # different commit is an immutable-version violation.
+  #
+  # The JOB runs for every release; the unit gate sits on the STEPS, so a release
+  # that does not change core costs a few seconds here and tags nothing. That looks
+  # like a wasted job and is not one. A skipped job poisons its ENTIRE downstream
+  # closure, not just the jobs that need it directly, and `always()` rescues only the
+  # job that carries it — never that job's descendants. So a skipped core-tag skipped
+  # ledger-init and every Kubernetes publisher straight through the core-ready
+  # barrier, which was built on the assumption that the rule is one hop deep. It is
+  # not. Keeping this job unconditional keeps a skipped node out of the graph
+  # entirely, which is the only thing that reliably breaks the chain.
   core-tag:
     needs: detect
-    if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'core')
+    if: needs.detect.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: contains(fromJSON(needs.detect.outputs.units_json), 'core')
         with:
           # Recovery-safe: build the EXACT transaction source commit, not the branch
           # HEAD at dispatch time (on push these are the same commit).
           ref: ${{ needs.detect.outputs.source_sha }}
           fetch-depth: 0
       - name: Tag the core module (immutable)
+        if: contains(fromJSON(needs.detect.outputs.units_json), 'core')
         env:
           TAG: v${{ needs.detect.outputs.core_version }}
           SRC: ${{ needs.detect.outputs.source_sha }}
         run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$SRC"
 
-  # Core-readiness barrier for the Kubernetes line. Always runs for a release so
-  # the Kubernetes publishers have a stable dependency even when core is unchanged
-  # (a Kubernetes-only release skips core-tag, which would otherwise skip its
-  # dependents). If core changed, require core-tag to have succeeded; if not,
-  # verify the pinned core tag the integration go.mod requires already exists.
+  # Core-readiness barrier for the Kubernetes line. Always runs for a release so the
+  # Kubernetes publishers have a stable dependency. If core changed, require core-tag
+  # to have succeeded; if not, verify the pinned core tag the integration go.mod
+  # requires already exists.
   core-ready:
     needs: [detect, core-tag]
     if: always() && needs.detect.outputs.release == 'true'
@@ -757,9 +768,19 @@ jobs:
           esac
 
   # pacto-publishes: operator-chart
+  # operator-image is a sequencing dependency, not a required one: the chart is
+  # published after the image it points at, but a recovery that republishes only the
+  # chart against an already-published image is legitimate. Without always() that
+  # recovery skips instead — operator-image is gated on its own unit, so narrowing
+  # the dispatch to `operator-chart` skips the image and the skip lands here. The
+  # failure/cancelled guards keep the sequencing: a chart never publishes ahead of an
+  # image that tried to publish and could not.
   operator-chart:
     needs: [detect, operator-image, ledger-init]
-    if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-chart')
+    if: >-
+      always() && needs.detect.outputs.release == 'true' &&
+      contains(fromJSON(needs.detect.outputs.units_json), 'operator-chart') &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -959,3 +980,43 @@ jobs:
           TAG: v${{ needs.detect.outputs.core_version }}
           SRC: ${{ needs.detect.outputs.source_sha }}
         run: bash release/orchestrator/finalize-release.sh "$TAG" "$SRC"
+
+  # A release that fired and published nothing must not report success. Twice now a
+  # run has gone green while the whole Kubernetes line skipped, and a green no-op is
+  # indistinguishable from a real release until someone goes looking for a version
+  # that was never created. This is the answer, and it deliberately does not model
+  # the runner: it reads what the run actually did. `tests/release/dag_test.go`
+  # simulates GitHub's skip semantics to catch a broken wiring before it merges, but
+  # that gate is only as good as our model of the runner — and it was our model of
+  # the runner that was wrong both times. This one cannot be wrong the same way.
+  #
+  # Terminal on purpose: nothing needs it, so it can only turn a run red, never
+  # withhold a publish. always() because the jobs it inspects are exactly the jobs
+  # that skip.
+  verify-transaction:
+    needs:
+      - detect
+      - core-tag
+      - ledger-init
+      - dashboard-image
+      - dashboard-contract-bundle
+      - demo-bundles
+      - demo-compose
+      - k8s-module
+      - operator-image
+      - operator-chart
+      - docs
+      - release
+    if: always() && needs.detect.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Deliberately NOT `ref: source_sha`. This job reads the unit -> job mapping
+      # out of the workflow, and the workflow that ran is the one at the dispatched
+      # ref, not the one at the transaction's source commit. On a push they are the
+      # same commit; on a recovery dispatch they are not.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Every unit in the transaction must have published
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          UNITS: ${{ needs.detect.outputs.units_json }}
+        run: bash release/orchestrator/verify-transaction.sh .github/workflows/release.yml

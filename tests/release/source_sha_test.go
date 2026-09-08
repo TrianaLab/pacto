@@ -71,8 +71,11 @@ func TestReleaseJobsBuildTransactionSourceSha(t *testing.T) {
 	const pin = "ref: ${{ needs.detect.outputs.source_sha }}"
 
 	// detect pins via the dispatch INPUT (it validates HEAD==source_sha itself);
-	// changesets is push-only, opens the Version PR and publishes nothing.
-	exemptCheckout := map[string]bool{"detect": true, "changesets": true}
+	// changesets is push-only, opens the Version PR and publishes nothing;
+	// verify-transaction publishes nothing either and must read the workflow that
+	// ACTUALLY ran — on a recovery dispatch that is the file at the dispatched ref,
+	// not the one at the transaction's source commit.
+	exemptCheckout := map[string]bool{"detect": true, "changesets": true, "verify-transaction": true}
 	// github.sha is legitimate ONLY in detect (it derives source_sha from it on push)
 	// and in non-commit contexts (server_url/repository). Everywhere else it is the
 	// dispatch commit and must not stamp released-artifact metadata.
