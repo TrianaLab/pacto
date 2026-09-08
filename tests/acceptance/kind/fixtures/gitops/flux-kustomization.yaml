@@ -1,0 +1,47 @@
+# Flux promotion gate driven by the Pacto contract verdict.
+#
+# This file is published verbatim in integrations/kubernetes/docs/gitops.md and
+# applied verbatim by tests/acceptance/kind/gitops-flux.sh. Edit it and you edit
+# both; the documented snippet cannot drift from the tested one.
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: orders-staging
+  namespace: flux-system
+spec:
+  interval: 1m
+  # Must exceed the operator's stabilization window (default 2m) plus one
+  # requeue interval, or a real violation arrives as an ambiguous timeout
+  # instead of a clean failure.
+  timeout: 5m
+  prune: true
+  wait: true
+  sourceRef:
+    kind: OCIRepository
+    name: orders
+  path: ./staging
+  healthCheckExprs:
+    - apiVersion: pacto.trianalab.io/v1alpha1
+      kind: Pacto
+      failed: status.contractStatus in ['NonCompliant', 'Invalid']
+      current: status.contractStatus in ['Compliant', 'Reference', 'Warning']
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: orders-production
+  namespace: flux-system
+spec:
+  interval: 1m
+  timeout: 5m
+  prune: true
+  wait: true
+  # Production does not start until staging is healthy, and healthy now
+  # includes the contract verdict. This line is the promotion gate.
+  dependsOn:
+    - name: orders-staging
+  sourceRef:
+    kind: OCIRepository
+    name: orders
+  path: ./production

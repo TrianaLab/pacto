@@ -1,0 +1,77 @@
+# Argo CD health customization that makes a violated Pacto contract turn its
+# Application red.
+#
+# This file is published verbatim in integrations/kubernetes/docs/gitops.md.
+# Apply it as a MERGE PATCH, never as a plain `kubectl apply` -- argocd-cm holds
+# Argo's own keys and a full apply would drop them:
+#
+#   kubectl -n argocd patch configmap argocd-cm --type merge \
+#     --patch-file argocd-cm-pacto-health.yaml
+#
+# The data key must be typed exactly. Argo silently ignores a key it does not
+# recognise, which looks identical to having configured nothing at all.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  resource.customizations.health.pacto.trianalab.io_Pacto: |
+    -- Argo runs this with the Lua string library disabled.
+    -- Only concatenation, comparison, ipairs and tostring() are available.
+
+    -- Set to "Degraded" to make contract warnings block a promotion.
+    local warningHealth = "Healthy"
+
+    local hs = {}
+
+    if obj.status == nil or obj.status.contractStatus == nil then
+      hs.status = "Progressing"
+      hs.message = "waiting for the first contract evaluation"
+      return hs
+    end
+
+    if obj.status.observedGeneration ~= obj.metadata.generation then
+      hs.status = "Progressing"
+      hs.message = "contract not yet evaluated at this generation"
+      return hs
+    end
+
+    local s = obj.status.contractStatus
+
+    if s == "Compliant" or s == "Reference" then
+      hs.status = "Healthy"
+      hs.message = "contract satisfied"
+      return hs
+    end
+
+    if s == "Warning" then
+      hs.status = warningHealth
+      hs.message = "contract satisfied with warnings"
+      return hs
+    end
+
+    if s == "NonCompliant" then
+      hs.status = "Degraded"
+      hs.message = "contract violated"
+      if obj.status.findings ~= nil then
+        for _, f in ipairs(obj.status.findings) do
+          if f.severity == "error" then
+            hs.message = "contract violated: " .. tostring(f.code) .. ": " .. tostring(f.message)
+            break
+          end
+        end
+      end
+      return hs
+    end
+
+    if s == "Invalid" then
+      hs.status = "Degraded"
+      hs.message = "contract is invalid and could not be evaluated"
+      return hs
+    end
+
+    -- Unknown, NotEvaluated, and anything added later.
+    hs.status = "Progressing"
+    hs.message = "contract verdict pending: " .. tostring(s)
+    return hs

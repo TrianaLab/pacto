@@ -57,13 +57,14 @@ kubectl get events --field-selector involvedObject.name=<name> \
   --sort-by=.lastTimestamp
 ```
 
-The operator emits exactly seven, and no others:
+The operator emits exactly eight, and no others:
 
 | Reason | Type | Emitted when | What it tells you |
 | --- | --- | --- | --- |
 | `ContractInvalid` | `Warning` | The contract was obtained and judged invalid | Carries the same message as the `ContractValid` / `Invalid` condition. Fix the contract. |
 | `ContractUnavailable` | `Warning` | The contract could not be obtained at all | Registry unreachable, auth rejected, tag missing. See [Contract not resolving](#contract-not-resolving). |
-| `ValidationFailed` | `Warning` | A contract that *did* load ends the reconcile as anything but `Compliant` or `Reference` | Carries the counts -- `ContractStatus: NonCompliant, 2 errors, 1 warnings`. `status.findings` names each one. |
+| `ValidationFailed` | `Warning` | A contract that *did* load ends the reconcile as anything but `Compliant` or `Reference`, and the status differs from the one the previous reconcile persisted | Carries the counts -- `ContractStatus: NonCompliant, 2 errors, 1 warnings`. `status.findings` names each one. |
+| `ContractRecovered` | `Normal` | The contract status returned to `Compliant` or `Reference` from any other value | The other half of the three warnings above. |
 | `RevisionCreated` | `Normal` | A `PactoRevision` was created for a newly resolved contract | `Created revision <name> for contract v<version>`. Expected on the first resolve and on every version change; not a problem. |
 | `TagOverwritten` | `Warning` | A tag that already resolved now points at a different digest | Someone force-pushed the tag. See [Choosing a reference form](contract-bindings.md#choosing-a-reference-form). |
 | `ReadinessGateUnmet` | `Warning` | The readiness gate went from met to unmet | The message breaks the score down by claim status. |
@@ -77,11 +78,14 @@ Three things about them are easy to misread:
   `ValidationFailed ... ContractStatus: Unknown, 0 errors, 0 warnings`. Read
   the counts, not the reason. A contract that could not be obtained at all
   never reaches this event; it gets `ContractUnavailable` instead.
-- **Only the two readiness events are transition-gated.** The rest are emitted by
-  the reconcile that produces them, so a contract that stays broken keeps
-  producing one. Kubernetes folds repeats of the same reason and message into a
-  single entry with a rising `Count`, so a `Count` of 40 means forty failed
-  reconciles, not forty distinct faults.
+- **Every event except `RevisionCreated` and `TagOverwritten` is transition-gated.**
+  The three contract warnings and `ContractRecovered` fire only when the contract
+  status differs from the one the previous reconcile persisted, and the two
+  readiness events only when the gate flips. A contract that stays broken emits
+  one event, not one per reconcile -- so a `Count` above 1 means the status
+  actually flapped, or the same reason recurred after a recovery. `TagOverwritten`
+  is the exception that still repeats: see
+  [Choosing a reference form](contract-bindings.md#choosing-a-reference-form).
 - **Events expire.** The API server discards them after its `--event-ttl`, one
   hour by default. An absent event means nothing -- absence is not evidence that
   it never fired. Conditions and `status` are the durable record; events are the
@@ -150,9 +154,11 @@ pacto validate oci://ghcr.io/your-org/my-service-pacto:1.2.0
 
 `NonCompliant` means at least one confirmed violation. `CONFIGURATION_ABSENT` (a
 declared configuration is missing) is distinct from `CONFIGURATION_MISMATCH` (it
-exists but differs) -- the finding message names which. Runtime-drift findings only
-fire after the stabilization window; a transient negative reads `Unknown` until the
-window elapses (tune with `--stabilization-window`).
+exists but differs) -- the finding message names which, and the two do not arrive
+at the same speed. An **absence** waits out the stabilization window and reads
+`Unknown` until the negative streak spans it (tune with
+`--stabilization-window`); a **mismatch** is `NonCompliant` on the first reconcile
+that observes it. See [Stabilization delay](limitations.md#stabilization-delay).
 
 ## Status is `Reference`
 

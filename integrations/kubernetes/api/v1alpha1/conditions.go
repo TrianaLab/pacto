@@ -69,11 +69,25 @@ const (
 	ReasonReadinessExpired       = "Expired"
 )
 
-// Event reasons (free-form, emitted via the recorder). Readiness events are
-// emitted on gate transitions only to avoid per-reconcile spam.
+// Event reasons (free-form, emitted via the recorder). Readiness and contract-status
+// events are emitted on transitions only to avoid per-reconcile spam: a Pacto is
+// re-reconciled on every write to the workloads it watches, so an unguarded event
+// fires once per step of a rolling update.
 const (
 	EventReadinessGateUnmet = "ReadinessGateUnmet"
 	EventReadinessRecovered = "ReadinessRecovered"
+
+	// EventValidationFailed is the warning reason for a degraded contract status
+	// reached through a completed evaluation (Warning, NonCompliant, Unknown).
+	EventValidationFailed = "ValidationFailed"
+	// EventContractInvalid is the warning reason when the contract itself is Invalid.
+	EventContractInvalid = "ContractInvalid"
+	// EventContractUnavailable is the warning reason when the contract could not be
+	// obtained (registry/auth/not-found), so validity is undetermined.
+	EventContractUnavailable = "ContractUnavailable"
+	// EventContractRecovered is the normal reason emitted when the contract status
+	// returns to Compliant or Reference from any degraded value.
+	EventContractRecovered = "ContractRecovered"
 )
 
 // Severity levels for runtime reconciliation checks.

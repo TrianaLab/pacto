@@ -53,8 +53,8 @@ func scenarios(t *testing.T) []string {
 			out = append(out, path)
 		}
 	}
-	if len(out) < 6 {
-		t.Fatalf("expected the six kind scenarios, found %d: %v", len(out), out)
+	if len(out) < 7 {
+		t.Fatalf("expected at least seven kind scenarios, found %d: %v", len(out), out)
 	}
 	return out
 }

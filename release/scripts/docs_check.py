@@ -363,6 +363,30 @@ def go_call_args(text: str, limit: int) -> list[str]:
     return args
 
 
+def resolve_param_arg(tok: str, src: str, api_consts: dict, seen: set) -> list[str]:
+    """Resolve a function PARAMETER to the arguments its call sites pass it.
+
+    A parameter has no assignment to read, so the assignment search below finds
+    nothing and the token reads as unresolvable. That is wrong for the one shape
+    it keeps hitting: a small helper that takes the reason and does the emitting,
+    which is the natural factoring when several paths emit the same event under
+    the same transition rule. Follow one hop -- find the declaring signature, take
+    the parameter's position, and resolve what every call in this file passes
+    there. Anything the hop cannot read still resolves to nothing and is reported.
+    """
+    out = []
+    for m in re.finditer(r"^func\s+(?:\([^)]*\)\s*)?(\w+)\(([^)]*)\)", src, re.M):
+        names = [p.strip().split()[0] for p in m.group(2).split(",") if p.strip()]
+        if tok not in names:
+            continue
+        idx = names.index(tok)
+        for call in re.finditer(rf"\b{re.escape(m.group(1))}\(", src):
+            args = go_call_args(src[call.end():], idx + 1)
+            if len(args) > idx and args[idx]:
+                out.extend(resolve_event_token(args[idx], src, api_consts, seen))
+    return out
+
+
 def resolve_event_token(tok: str, src: str, api_consts: dict, seen=None) -> list[str]:
     """Resolve an event-type or event-reason argument to the strings it can be.
 
@@ -382,6 +406,8 @@ def resolve_event_token(tok: str, src: str, api_consts: dict, seen=None) -> list
     out = []
     for rhs in re.findall(rf"^\s*{re.escape(tok)}\s*(?::=|=)\s*(.+?)\s*$", src, re.M):
         out.extend(resolve_event_token(rhs, src, api_consts, seen))
+    if not out:
+        out = resolve_param_arg(tok, src, api_consts, seen)
     return sorted(set(out))
 
 
@@ -391,8 +417,9 @@ def check_events() -> None:
     Those are the strings an operator greps `kubectl get events` for, so a new
     call site or a renamed reason silently invalidates the page. Resolve the real
     call sites rather than restating them here: a literal is taken as-is, an
-    api/v1alpha1 `EventXxx` constant is looked up, and a local variable is
-    resolved through its assignments in the same file. A token that resolves to
+    api/v1alpha1 `EventXxx` constant is looked up, a local variable is resolved
+    through its assignments in the same file, and a parameter is resolved through
+    the arguments that file's own call sites pass it. A token that resolves to
     none of those is reported, so a new emission pattern fails this gate instead
     of slipping past it.
     """
