@@ -234,7 +234,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -249,9 +249,10 @@ jobs:
       # The evidence scenario's store is the OCI registry itself, so it needs an
       # INDEPENDENT OCI client: ORAS is the observer that proves a third party
       # discovers what Pacto published, and publishes evidence Pacto reads back.
-      # gitops-flux needs the same client for a different reason: it publishes the
-      # manifest artifact that Flux's OCIRepository pulls the promotion from.
-      - if: matrix.scenario == 'evidence' || matrix.scenario == 'gitops-flux'
+      # The gitops scenarios need the same client for a different reason: they
+      # publish the manifest artifact the delivery tool pulls the promotion from —
+      # Flux's OCIRepository in one, Argo's OCI application source in the other.
+      - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-')
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         run: go install sigs.k8s.io/kind@v0.30.0

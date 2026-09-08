@@ -21,14 +21,28 @@ verdict holds the deploy instead of going falsely green. The Argo one is a Lua
 health customization written for the sandbox Argo actually runs it in, which has
 the string library disabled.
 
-The Flux snippet is not an illustration. It lives at
-`tests/acceptance/kind/fixtures/gitops/flux-kustomization.yaml`, the page includes
-that file rather than a copy of it, and a new kind acceptance shard applies the
-same file to a real cluster running Flux: a contract that contradicts the workload
-that ships must leave the dependent Kustomization's manifest out of the cluster
-entirely, and correcting the contract must let it through. The shard runs at the
-operator's default stabilization window on purpose, because the page claims a
+Neither snippet is an illustration. Both live under
+`tests/acceptance/kind/fixtures/gitops/`, the page includes those files rather
+than copies of them, and each has a kind acceptance shard that applies it to a
+real cluster running the tool it targets.
+
+`gitops-flux.sh` proves the Flux gate changes what ships: a contract that
+contradicts the workload must leave the dependent Kustomization's manifest out of
+the cluster entirely, and correcting the contract must let it through. It runs at
+the operator's default stabilization window on purpose, because the page claims a
 mismatch does not wait one out.
+
+`gitops-argocd.sh` runs in two passes, because the Argo snippet's failure mode is
+silence — a `data` key Argo does not recognise is ignored, and an ignored key
+looks exactly like having configured nothing. The first pass needs no cluster:
+the `argocd` CLI evaluates the customization in the same Lua sandbox the
+controller uses, which is what gives every contract status an assertion,
+including the states a running cluster passes through too quickly to catch — no
+status yet, a verdict behind the contract, a status added in some future release.
+The second pass serves an Application from an OCI source in kind and requires it
+to go `Degraded` naming the finding, then `Healthy` once the contract is
+corrected. The page's read-back recipe is that same CLI command, and the shard
+runs it against the live cluster rather than only publishing it.
 
 `ContractRecovered` is new. The three contract warnings — `ValidationFailed`,
 `ContractInvalid`, `ContractUnavailable` — are transition-gated, so a contract

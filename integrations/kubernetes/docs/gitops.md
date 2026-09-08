@@ -106,25 +106,43 @@ kubectl -n argocd patch configmap argocd-cm --type merge \
   `ipairs` and `tostring()` are available; `string.format`, `s:gsub()` and the
   rest are not, and reaching for one fails at runtime rather than at load.
 
+That snippet is not an illustration either. `tests/acceptance/kind/gitops-argocd.sh`
+runs **that exact file** twice. Once with no cluster at all, through
+`argocd admin settings resource-overrides health`, which puts every contract
+status through Argo's own Lua sandbox — including the states a running cluster
+passes through too quickly to catch, like a verdict that has not caught up with
+the contract yet. Then inside a kind cluster running Argo CD, where an
+Application must go `Degraded` naming the finding while the contract is violated
+and back to `Healthy` once it is corrected.
+
 ### Check that it took
 
 Argo ignores a `data` key it does not recognise, and an ignored key looks exactly
-like having configured nothing. Unlike the Flux snippet, this one has no live
-acceptance test standing behind it, which is why the read-back matters. Confirm
-the customization is live before you rely on it:
+like having configured nothing. Confirm the customization is live before you rely
+on it:
 
 ```bash
 # The key must read back exactly, group and kind included.
 kubectl -n argocd get cm argocd-cm \
   -o jsonpath='{.data.resource\.customizations\.health\.pacto\.trianalab\.io_Pacto}'
-
-# Then read the health Argo assigns a real object.
-argocd app resources <app> | grep Pacto
 ```
 
-A Pacto whose `status.contractStatus` is `Compliant` should read `Healthy` with
-the message `contract satisfied`. If it reads `Healthy` with an empty message,
-the key did not take.
+Then ask Argo what it makes of a real object. `argocd admin settings` evaluates
+the customization against files on disk, in the same Lua sandbox the controller
+uses, so it answers without waiting for a sync:
+
+```bash
+kubectl -n argocd get cm argocd-cm -o yaml > /tmp/argocd-cm.yaml
+kubectl -n <namespace> get pacto <name> -o yaml > /tmp/pacto.yaml
+
+argocd admin settings resource-overrides health /tmp/pacto.yaml \
+  --argocd-cm-path /tmp/argocd-cm.yaml
+```
+
+A `Compliant` Pacto prints `STATUS: Healthy` and `MESSAGE: contract satisfied`.
+A key that did not take prints `Health script is not configured for
+'pacto.trianalab.io/Pacto'` instead — and prints it while **exiting 0**, so read
+the output rather than the exit code if you wire this into a check.
 
 ## Timing
 
