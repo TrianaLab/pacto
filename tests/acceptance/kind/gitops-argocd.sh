@@ -296,21 +296,23 @@ spec:
   clusterResourceWhitelist: [{ group: '*', kind: '*' }]
 YAML
 
-# Argo computes per-resource health either way; this only decides where it is
-# written. By default the result stays in the controller's cache, which the UI
-# and `argocd app get` read through the API server — and there is no API server
-# here. Persisting it puts the same verdict on .status.resources[] where kubectl
-# can read it, so this scenario asserts on Argo's judgement rather than on its
-# own re-derivation of it. The controller reads the flag once at startup.
-kubectl -n "$ARGO_NS" patch configmap argocd-cmd-params-cm --type merge \
-  -p '{"data":{"controller.resource.health.persist":"true"}}' > /dev/null
-kubectl -n "$ARGO_NS" rollout restart statefulset/argocd-application-controller > /dev/null
-
-kubectl -n "$ARGO_NS" rollout status deploy/argocd-redis --timeout=300s
-kubectl -n "$ARGO_NS" rollout status deploy/argocd-repo-server --timeout=300s
-kubectl -n "$ARGO_NS" rollout status statefulset/argocd-application-controller --timeout=300s
-
 echo "== apply the DOCUMENTED customization, verbatim, the way the page says to =="
+# Patched before the controller comes up, which is the page's recipe — patch,
+# then restart — and the order is load-bearing rather than tidy. The application
+# controller reads health customizations into its live state cache when it
+# starts, and after that only when a settings notification arrives. On a core
+# install that notification can never arrive: argocd-secret ships with no data,
+# only argocd-server generates `server.secretkey`, and the reload errors out on
+# the missing key every time. A controller that started without the
+# customization therefore caches the Pacto's health as nothing forever — and
+# since Argo decides whether to re-examine an app by comparing cached health,
+# nothing-to-nothing compares equal and every verdict the operator writes is
+# dropped as a trigger. The Application then only catches up on the periodic
+# resync, minutes later, which is what made this shard flaky.
+#
+# What this leaves untested, deliberately: patching a controller that is already
+# running and NOT restarting it. That does not work on a core install, so there
+# is nothing to assert but the failure.
 kubectl -n "$ARGO_NS" patch configmap argocd-cm --type merge --patch-file "$FIXTURE" > /dev/null
 
 # Read it back before anything depends on it. argocd-cm is a plain ConfigMap:
@@ -325,6 +327,21 @@ LIVE_SCRIPT="$(kubectl -n "$ARGO_NS" get cm argocd-cm -o jsonpath="{.data.${HEAL
 kubectl -n "$ARGO_NS" get cm argocd-cm -o jsonpath='{.metadata.labels.app\.kubernetes\.io/part-of}' \
   | grep -q argocd || fail "the merge patch replaced argocd-cm instead of adding to it"
 pass "the customization is live in argocd-cm and Argo's own keys survived"
+
+# Argo computes per-resource health either way; this only decides where it is
+# written. By default the result stays in the controller's cache, which the UI
+# and `argocd app get` read through the API server — and there is no API server
+# here. Persisting it puts the same verdict on .status.resources[] where kubectl
+# can read it, so this scenario asserts on Argo's judgement rather than on its
+# own re-derivation of it. The controller reads the flag once at startup, and
+# this restart is also what loads the customization patched in above.
+kubectl -n "$ARGO_NS" patch configmap argocd-cmd-params-cm --type merge \
+  -p '{"data":{"controller.resource.health.persist":"true"}}' > /dev/null
+kubectl -n "$ARGO_NS" rollout restart statefulset/argocd-application-controller > /dev/null
+
+kubectl -n "$ARGO_NS" rollout status deploy/argocd-redis --timeout=300s
+kubectl -n "$ARGO_NS" rollout status deploy/argocd-repo-server --timeout=300s
+kubectl -n "$ARGO_NS" rollout status statefulset/argocd-application-controller --timeout=300s
 
 echo "== point an Application at the in-cluster registry =="
 # type: oci and insecureOCIForceHttp are the whole reason this Secret exists: the
@@ -393,7 +410,13 @@ echo "== C Argo turns the Application red, and names the reason =="
 # finding code.
 kubectl -n "$APP_NS" rollout status deployment/orders --timeout=180s
 pacto_degraded() { [ "$(pacto_health)" = "Degraded" ]; }
-eventually 40 pacto_degraded \
+# 60s, deliberately. The operator's verdict already landed in B, so all that is
+# left here is Argo noticing it, which is event-driven and takes about a second.
+# Argo's fallback path — the periodic resync — cannot fire sooner than its 120s
+# floor, so a budget under that says "noticed, not stumbled upon": if the
+# customization ever stops reaching the controller's cache this fails outright
+# instead of passing on whichever resync tick happens to land in time.
+eventually 20 pacto_degraded \
   || fail "Argo never judged the Pacto Degraded: health='$(pacto_health)' (empty means the customization did not take)"
 grep -q WORKLOAD_MISMATCH <<< "$(pacto_msg)" \
   || fail "Argo judged the Pacto Degraded without the reason: $(pacto_msg)"
@@ -413,7 +436,7 @@ kubectl -n "$ARGO_NS" patch application orders --type merge \
 
 wait_pacto_status "$APP_NS" orders Compliant || fail "the corrected contract never reached Compliant"
 app_green() { [ "$(app_health)" = "Healthy" ] && [ "$(pacto_health)" = "Healthy" ]; }
-eventually 60 app_green \
+eventually 20 app_green \
   || fail "the Application never recovered: app=$(app_health) pacto=$(pacto_health)"
 # The page tells a reader to look for this exact message, and an empty one is how
 # a customization that never took presents itself.
@@ -436,6 +459,20 @@ grep -q '^STATUS: Healthy' <<< "$RECIPE" \
 grep -q '^MESSAGE: contract satisfied' <<< "$RECIPE" \
   || fail "the documented read-back recipe does not report the message the page says: $RECIPE"
 pass "the recipe agrees with the cluster"
+
+# Not an assertion — evidence, printed on the way out. This shard was flaky once
+# because Argo was never re-examining the Application when the operator wrote a
+# verdict, and passed anyway whenever its one comparison happened to catch the
+# settled state. These lines are what distinguishes the two: each is Argo saying
+# a Pacto write is why it looked again. Expect one per verdict transition plus
+# one for the initial apply. Two total means only the applies produced them, the
+# customization is missing from the controller's cache and any pass above was
+# luck. The next person to see this shard go red should read this first.
+echo "-- Argo refreshes attributed to the Pacto --"
+kubectl -n "$ARGO_NS" logs argocd-application-controller-0 2>/dev/null \
+  | grep 'Requesting app refresh caused by object update' \
+  | grep '"kind":"Pacto"' \
+  | grep -oE '"time":"[^"]+"' || echo "  none — Argo never re-examined the app because of a Pacto write"
 
 kill "$REG_PF_PID" 2>/dev/null || true
 echo "GITOPS ARGO CD PROMOTION GATE PASS"

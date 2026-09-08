@@ -44,6 +44,15 @@ to go `Degraded` naming the finding, then `Healthy` once the contract is
 corrected. The page's read-back recipe is that same CLI command, and the shard
 runs it against the live cluster rather than only publishing it.
 
+Building that second pass turned up something the page has to say out loud: the
+merge patch alone is not enough. Argo's application controller caches health
+customizations at startup and compares that cached verdict to decide whether a
+changed object is worth re-examining, so a controller that started without the
+customization treats every verdict the operator writes as no change and only
+catches up on the next periodic resync, minutes later. The page now pairs the
+patch with a controller restart, and says why the two read-back checks cannot
+detect the difference — both read the ConfigMap, not the controller.
+
 `ContractRecovered` is new. The three contract warnings — `ValidationFailed`,
 `ContractInvalid`, `ContractUnavailable` — are transition-gated, so a contract
 that goes back to `Compliant` used to fall silent with no event marking the
