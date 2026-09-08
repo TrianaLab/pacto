@@ -231,6 +231,7 @@ nav:
           - Kubernetes overview: integrations/kubernetes/overview.md
           - Install the operator: integrations/kubernetes/installation.md
           - Upgrade the operator: integrations/kubernetes/upgrade.md
+          - GitOps promotion gates: integrations/kubernetes/gitops.md
           - Contract bindings: integrations/kubernetes/contract-bindings.md
           - Runtime observations: integrations/kubernetes/runtime-observations.md
           - Operator configuration: integrations/kubernetes/operator-configuration.md

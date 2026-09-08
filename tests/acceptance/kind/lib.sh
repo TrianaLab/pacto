@@ -65,6 +65,22 @@ eventually() {
   return 1
 }
 
+# always ROUNDS CMD... — the mirror of eventually: run CMD every 3s and fail on
+# the FIRST round it does not hold. `eventually` proves something becomes true;
+# a gate has to prove something STAYS false, and the two are not the same claim.
+# Checking a gate once, after a sleep, cannot tell "it never opened" from "it
+# opened and closed again" — which is precisely the failure a promotion gate
+# exists to prevent.
+always() {
+  local rounds="$1"; shift
+  local i
+  for ((i = 0; i < rounds; i++)); do
+    "$@" || return 1
+    sleep 3
+  done
+  return 0
+}
+
 # --- cluster lifecycle ------------------------------------------------------
 
 # Every scenario runs against its own KUBECONFIG copy rather than the caller's

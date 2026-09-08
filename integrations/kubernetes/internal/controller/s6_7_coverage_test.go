@@ -333,7 +333,7 @@ func TestFailReconciliation_UnknownStatus(t *testing.T) {
 	}
 	r := newReconciler(pacto)
 
-	_, err := r.failReconciliation(context.Background(), pacto, "contract unavailable", nil, nil, pactov1alpha1.ContractStatusUnknown)
+	_, err := r.failReconciliation(context.Background(), pacto, "contract unavailable", nil, "", pactov1alpha1.ContractStatusUnknown)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestFailReconciliation_InvalidStatus(t *testing.T) {
 	}
 	r := newReconciler(pacto)
 
-	_, err := r.failReconciliation(context.Background(), pacto, "contract invalid", nil, nil, pactov1alpha1.ContractStatusInvalid)
+	_, err := r.failReconciliation(context.Background(), pacto, "contract invalid", nil, "", pactov1alpha1.ContractStatusInvalid)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestFailReconciliation_UnexpectedStatusFallback(t *testing.T) {
 	}
 	r := newReconciler(pacto)
 
-	_, err := r.failReconciliation(context.Background(), pacto, "unexpected", nil, nil, "unexpected-status")
+	_, err := r.failReconciliation(context.Background(), pacto, "unexpected", nil, "", "unexpected-status")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

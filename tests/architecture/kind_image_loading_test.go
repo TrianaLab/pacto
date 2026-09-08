@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -53,10 +54,63 @@ func scenarios(t *testing.T) []string {
 			out = append(out, path)
 		}
 	}
-	if len(out) < 6 {
-		t.Fatalf("expected the six kind scenarios, found %d: %v", len(out), out)
+	if len(out) < 8 {
+		t.Fatalf("expected at least eight kind scenarios, found %d: %v", len(out), out)
 	}
 	return out
+}
+
+// kindMatrixScenarios returns the scenario list the ci-e2e-kind job shards over.
+func kindMatrixScenarios(t *testing.T) []string {
+	t.Helper()
+	wf := readFile(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	_, after, ok := strings.Cut(wf, "scenario: [")
+	if !ok {
+		t.Fatal("no `scenario: [...]` matrix in .github/workflows/ci.yml; the shards are wired some other way now")
+	}
+	list, _, ok := strings.Cut(after, "]")
+	if !ok {
+		t.Fatal("the ci-e2e-kind scenario matrix has no closing bracket")
+	}
+	var out []string
+	for name := range strings.SplitSeq(list, ",") {
+		out = append(out, strings.TrimSpace(name))
+	}
+	return out
+}
+
+// TestEveryKindScenarioRuns is the tripwire for a scenario that exists and never
+// executes. A script is only a gate if something invokes it: ci.mk needs a target
+// whose recipe runs it, and that target's name has to appear in the ci-e2e-kind
+// matrix. Miss either half and the pipeline stays green with one fewer thing
+// proved — and nothing in the repository looks wrong, which is the whole problem.
+func TestEveryKindScenarioRuns(t *testing.T) {
+	mk := readFile(t, filepath.Join(repoDir(t), "ci.mk"))
+	matrix := kindMatrixScenarios(t)
+	const prefix = "test-acceptance-kind-"
+	for _, path := range scenarios(t) {
+		script := "bash tests/acceptance/kind/" + filepath.Base(path)
+		before, _, ok := strings.Cut(mk, script)
+		if !ok {
+			t.Errorf("no ci.mk recipe runs %s, so the scenario runs nowhere", filepath.Base(path))
+			continue
+		}
+		// The target owning that recipe is the nearest rule declared above it.
+		target := ""
+		for line := range strings.SplitSeq(before, "\n") {
+			if name, _, isRule := strings.Cut(line, ":"); isRule && strings.HasPrefix(name, prefix) {
+				target = strings.TrimPrefix(name, prefix)
+			}
+		}
+		if target == "" {
+			t.Errorf("%s is run by a ci.mk recipe with no %s* target above it", filepath.Base(path), prefix)
+			continue
+		}
+		if !slices.Contains(matrix, target) {
+			t.Errorf("%s runs under `make %s%s`, which the ci-e2e-kind matrix does not list, "+
+				"so CI never runs it (matrix: %v)", filepath.Base(path), prefix, target, matrix)
+		}
+	}
 }
 
 func TestScenariosLoadImagesThroughTheSharedBoundary(t *testing.T) {

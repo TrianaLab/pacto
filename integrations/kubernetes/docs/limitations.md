@@ -120,11 +120,26 @@ runtime-evaluated.
 
 ## Stabilization delay
 
-Confirmed runtime-drift violations only surface after the stabilization window
-([`--stabilization-window`](operator-configuration.md), default two minutes).
-This trades immediacy for
-resistance to transient blips: a single negative observation reads `Unknown` until
-the negative streak spans the whole window.
+The stabilization window
+([`--stabilization-window`](operator-configuration.md), default two minutes)
+trades immediacy for resistance to transient blips: a single negative observation
+reads `Unknown` until the negative streak spans the whole window.
+
+It applies to **absences only** — something the operator expected to find and
+did not:
+
+- `INTERFACE_ABSENT`
+- `DEPENDENCY_UNREACHABLE`
+- `CAPABILITY_ABSENT` (active probing only)
+- `CONFIGURATION_ABSENT`, for a declared Secret or ConfigMap
+
+A **mismatch** — something that is there and contradicts the contract — is
+`NonCompliant` on the first reconcile that observes it, with no delay:
+`WORKLOAD_MISMATCH`, `PERSISTENCE_MISMATCH` and `CONFIGURATION_MISMATCH`. There
+is nothing transient to wait out; the evidence is already conclusive.
+
+This split matters if you gate deployments on the verdict. See
+[GitOps promotion gates](gitops.md#timing).
 
 ## API version
 

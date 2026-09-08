@@ -92,6 +92,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	prevReadiness := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
 	readinessWasUnmet := prevReadiness != nil && prevReadiness.Status == metav1.ConditionFalse
 
+	// Same for the contract status, which resetDerivedStatus clears below: the
+	// value read from the API server is the one the previous reconciliation
+	// persisted, and every terminal path threads it back to
+	// emitContractStatusEvent. Empty means never reconciled.
+	prevContractStatus := pacto.Status.ContractStatus
+
 	// 2. Reset all derived status fields so no stale data survives.
 	//    Fields will be repopulated by each step below.
 	r.resetDerivedStatus(pacto)
@@ -105,7 +111,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				&pactov1alpha1.ValidationResult{
 					Valid:  false,
 					Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.contractRef.pullSecretRef", Message: secretErr.Error()}},
-				}, nil, pactov1alpha1.ContractStatusUnknown)
+				}, prevContractStatus, pactov1alpha1.ContractStatusUnknown)
 		}
 		ociAuth = auth
 	}
@@ -121,7 +127,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			&pactov1alpha1.ValidationResult{
 				Valid:  false,
 				Errors: []pactov1alpha1.ValidationIssue{{Message: err.Error()}},
-			}, nil, status)
+			}, prevContractStatus, status)
 	}
 
 	// 4b. Apply configuration overrides (if specified)
@@ -135,7 +141,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				&pactov1alpha1.ValidationResult{
 					Valid:  false,
 					Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.overrides", Message: overrideErr.Error()}},
-				}, loadResult.Contract, pactov1alpha1.ContractStatusInvalid)
+				}, prevContractStatus, pactov1alpha1.ContractStatusInvalid)
 		}
 	}
 
@@ -145,7 +151,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	if len(contractResult.Errors) > 0 {
 		msg := formatValidationErrors(contractResult.Errors)
-		return r.failReconciliation(ctx, pacto, msg, pacto.Status.Validation, effectiveContract, pactov1alpha1.ContractStatusInvalid)
+		return r.failReconciliation(ctx, pacto, msg, pacto.Status.Validation, prevContractStatus, pactov1alpha1.ContractStatusInvalid)
 	}
 
 	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue,
@@ -190,7 +196,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			fmt.Sprintf("Reference contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
 		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusReference
 		pacto.Status.Summary = &pactov1alpha1.Summary{}
-		return r.finishReconciliation(ctx, pacto)
+		return r.finishReconciliation(ctx, pacto, prevContractStatus)
 	}
 
 	// 9. Resolve target
@@ -323,7 +329,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	pacto.Status.Summary = &summary
 	pacto.Status.ContractStatus = status
 
-	return r.finishReconciliation(ctx, pacto)
+	return r.finishReconciliation(ctx, pacto, prevContractStatus)
 }
 
 // resetDerivedStatus clears all status fields that are recomputed each reconciliation.
@@ -356,7 +362,9 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 
 // failReconciliation handles the common pattern for contract-level failures with phase-classified status
 // (spec section 9.8): Invalid vs Unknown. The status parameter drives condition reason + summary.
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, _ *contract.Contract, status string) (ctrl.Result, error) {
+// prevContractStatus is the contract status persisted by the previous reconciliation; it gates the
+// transition event (see emitContractStatusEvent).
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prevContractStatus, status string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	switch status {
@@ -392,12 +400,11 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 		return ctrl.Result{}, statusErr
 	}
 
-	eventType := corev1.EventTypeWarning
-	eventReason := "ContractInvalid"
+	eventReason := pactov1alpha1.EventContractInvalid
 	if status == pactov1alpha1.ContractStatusUnknown {
-		eventReason = "ContractUnavailable"
+		eventReason = pactov1alpha1.EventContractUnavailable
 	}
-	r.Recorder.Event(pacto, eventType, eventReason, msg)
+	r.emitContractStatusEvent(pacto, prevContractStatus, eventReason, msg)
 
 	// Emit metrics
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
@@ -525,8 +532,53 @@ func errorsAsAny(err error, targets ...error) bool {
 	return false
 }
 
+// contractStatusDegraded reports whether a contract status is one a promotion gate
+// should block on. Compliant and Reference are the healthy terminal states; the
+// empty string means "not evaluated yet" and is deliberately NOT degraded, so a
+// Pacto that is born non-compliant still emits its first warning event.
+func contractStatusDegraded(status string) bool {
+	switch status {
+	case "", pactov1alpha1.ContractStatusCompliant, pactov1alpha1.ContractStatusReference:
+		return false
+	default:
+		return true
+	}
+}
+
+// contractStatusMessage renders the event body for a completed evaluation. Summary
+// is set by every path that reaches finishReconciliation, but a nil one must still
+// produce an event rather than silently drop the transition.
+func contractStatusMessage(pacto *pactov1alpha1.Pacto) string {
+	summary := pacto.Status.Summary
+	if summary == nil {
+		summary = &pactov1alpha1.Summary{}
+	}
+	return fmt.Sprintf("ContractStatus: %s, %d errors, %d warnings",
+		pacto.Status.ContractStatus, summary.ErrorCount, summary.WarningCount)
+}
+
+// emitContractStatusEvent records a contract-status event only when the status
+// CHANGED since the reconciliation that last persisted it (prev, captured before
+// resetDerivedStatus wiped it). The controller watches Deployments, ReplicaSets,
+// StatefulSets, Jobs, CronJobs and Services, so an unguarded event fires once per
+// workload status write — a rolling update alone produces dozens. warnReason is
+// the reason for the degraded direction; recovery always uses EventContractRecovered.
+// This mirrors the readiness gate guard (see reconcileReadiness).
+func (r *PactoReconciler) emitContractStatusEvent(pacto *pactov1alpha1.Pacto, prev, warnReason, msg string) {
+	current := pacto.Status.ContractStatus
+	switch {
+	case contractStatusDegraded(current) && current != prev:
+		// Includes escalation between degraded states (Warning -> NonCompliant).
+		r.Recorder.Event(pacto, corev1.EventTypeWarning, warnReason, msg)
+	case !contractStatusDegraded(current) && contractStatusDegraded(prev):
+		r.Recorder.Event(pacto, corev1.EventTypeNormal, pactov1alpha1.EventContractRecovered, msg)
+	}
+}
+
 // finishReconciliation sets final metadata, persists status, and emits metrics.
-func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto) (ctrl.Result, error) {
+// prevContractStatus is the contract status persisted by the previous
+// reconciliation; it gates the transition event (see emitContractStatusEvent).
+func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, prevContractStatus string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	now := metav1.Now()
@@ -538,13 +590,8 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 		return ctrl.Result{}, statusErr
 	}
 
-	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusCompliant && pacto.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
-		if pacto.Status.Summary != nil {
-			r.Recorder.Eventf(pacto, corev1.EventTypeWarning, "ValidationFailed",
-				"ContractStatus: %s, %d errors, %d warnings", pacto.Status.ContractStatus,
-				pacto.Status.Summary.ErrorCount, pacto.Status.Summary.WarningCount)
-		}
-	}
+	r.emitContractStatusEvent(pacto, prevContractStatus,
+		pactov1alpha1.EventValidationFailed, contractStatusMessage(pacto))
 
 	// Emit Prometheus metrics
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)

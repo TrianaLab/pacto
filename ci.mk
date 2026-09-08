@@ -12,6 +12,7 @@ REPOWISE_VERSION ?= 0.36.0
        ci-e2e-compose test-acceptance-compose test-browser-compose \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
+       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd \
        ci-oci ci-gates docs-generate docs-check docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
@@ -102,7 +103,8 @@ ci-e2e-envtest:
 # Each scenario is ONE boundary. They are not merged: a merged cluster run cannot
 # say which boundary broke, and cannot be sharded.
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
-	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation
+	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
+	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -133,6 +135,21 @@ test-acceptance-kind-reconcile:
 
 test-acceptance-kind-evidence:
 	bash tests/acceptance/kind/evidence.sh
+
+# The contract verdict as a DEPLOYMENT GATE: real Flux, real OCIRepository, the
+# two Kustomizations exactly as integrations/kubernetes/docs/gitops.md publishes
+# them. Proves the promotion does not run while the contract is violated and does
+# run once it is satisfied — the claim the docs make, on the surface that makes it.
+test-acceptance-kind-gitops-flux:
+	bash tests/acceptance/kind/gitops-flux.sh
+
+# The same verdict on Argo CD's surface: the health customization the same page
+# publishes, judged first offline against every contract status (the argocd CLI's
+# own Lua sandbox, no cluster) and then inside a real Argo CD serving an
+# Application from an OCI source. Both halves run the documented file itself,
+# because a customization Argo does not recognise leaves the Application green.
+test-acceptance-kind-gitops-argocd:
+	bash tests/acceptance/kind/gitops-argocd.sh
 
 # Compatibility aliases for the older names. Temporary.
 ci-e2e-kind:                    test-acceptance-kind
