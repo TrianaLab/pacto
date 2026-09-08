@@ -2219,6 +2219,8 @@
       
         
       
+        
+      
     
     
     
@@ -2338,6 +2340,34 @@
     
   
     Upgrade the operator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gitops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitOps promotion gates
   
 
     
@@ -3745,7 +3775,7 @@ force-pushed underneath you, or a readiness gate flipping.</p>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>events<span class="w"> </span>--field-selector<span class="w"> </span>involvedObject.name<span class="o">=</span>&lt;name&gt;<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--sort-by<span class="o">=</span>.lastTimestamp
 </span></code></pre></div>
-<p>The operator emits exactly seven, and no others:</p>
+<p>The operator emits exactly eight, and no others:</p>
 <table>
 <thead>
 <tr>
@@ -3771,8 +3801,14 @@ force-pushed underneath you, or a readiness gate flipping.</p>
 <tr>
 <td><code>ValidationFailed</code></td>
 <td><code>Warning</code></td>
-<td>A contract that <em>did</em> load ends the reconcile as anything but <code>Compliant</code> or <code>Reference</code></td>
+<td>A contract that <em>did</em> load ends the reconcile as anything but <code>Compliant</code> or <code>Reference</code>, and the status differs from the one the previous reconcile persisted</td>
 <td>Carries the counts -- <code>ContractStatus: NonCompliant, 2 errors, 1 warnings</code>. <code>status.findings</code> names each one.</td>
+</tr>
+<tr>
+<td><code>ContractRecovered</code></td>
+<td><code>Normal</code></td>
+<td>The contract status returned to <code>Compliant</code> or <code>Reference</code> from any other value</td>
+<td>The other half of the three warnings above.</td>
 </tr>
 <tr>
 <td><code>RevisionCreated</code></td>
@@ -3808,11 +3844,14 @@ force-pushed underneath you, or a readiness gate flipping.</p>
   <code>ValidationFailed ... ContractStatus: Unknown, 0 errors, 0 warnings</code>. Read
   the counts, not the reason. A contract that could not be obtained at all
   never reaches this event; it gets <code>ContractUnavailable</code> instead.</li>
-<li><strong>Only the two readiness events are transition-gated.</strong> The rest are emitted by
-  the reconcile that produces them, so a contract that stays broken keeps
-  producing one. Kubernetes folds repeats of the same reason and message into a
-  single entry with a rising <code>Count</code>, so a <code>Count</code> of 40 means forty failed
-  reconciles, not forty distinct faults.</li>
+<li><strong>Every event except <code>RevisionCreated</code> and <code>TagOverwritten</code> is transition-gated.</strong>
+  The three contract warnings and <code>ContractRecovered</code> fire only when the contract
+  status differs from the one the previous reconcile persisted, and the two
+  readiness events only when the gate flips. A contract that stays broken emits
+  one event, not one per reconcile -- so a <code>Count</code> above 1 means the status
+  actually flapped, or the same reason recurred after a recovery. <code>TagOverwritten</code>
+  is the exception that still repeats: see
+  <a href="../contract-bindings/#choosing-a-reference-form">Choosing a reference form</a>.</li>
 <li><strong>Events expire.</strong> The API server discards them after its <code>--event-ttl</code>, one
   hour by default. An absent event means nothing -- absence is not evidence that
   it never fired. Conditions and <code>status</code> are the durable record; events are the
@@ -3866,9 +3905,11 @@ the CLI:</p>
 <h2 id="status-is-noncompliant">Status is <code>NonCompliant</code><a class="headerlink" href="#status-is-noncompliant" title="Anchor link">&para;</a></h2>
 <p><code>NonCompliant</code> means at least one confirmed violation. <code>CONFIGURATION_ABSENT</code> (a
 declared configuration is missing) is distinct from <code>CONFIGURATION_MISMATCH</code> (it
-exists but differs) -- the finding message names which. Runtime-drift findings only
-fire after the stabilization window; a transient negative reads <code>Unknown</code> until the
-window elapses (tune with <code>--stabilization-window</code>).</p>
+exists but differs) -- the finding message names which, and the two do not arrive
+at the same speed. An <strong>absence</strong> waits out the stabilization window and reads
+<code>Unknown</code> until the negative streak spans it (tune with
+<code>--stabilization-window</code>); a <strong>mismatch</strong> is <code>NonCompliant</code> on the first reconcile
+that observes it. See <a href="../limitations/#stabilization-delay">Stabilization delay</a>.</p>
 <h2 id="status-is-reference">Status is <code>Reference</code><a class="headerlink" href="#status-is-reference" title="Anchor link">&para;</a></h2>
 <p>The contract declares no <code>spec.target</code>, so it is reference-only: parsed and
 validated, never observed. Add a <code>spec.target</code> to enable runtime observation.</p>

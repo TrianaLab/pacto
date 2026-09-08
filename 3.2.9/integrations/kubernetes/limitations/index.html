@@ -2219,6 +2219,8 @@
       
         
       
+        
+      
     
     
     
@@ -2338,6 +2340,34 @@
     
   
     Upgrade the operator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gitops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitOps promotion gates
   
 
     
@@ -3660,11 +3690,24 @@ currently emit. A valid, targeted contract with no runtime evidence yields
 dashboard, which uses it for offline OCI or local sources that were never
 runtime-evaluated.</p>
 <h2 id="stabilization-delay">Stabilization delay<a class="headerlink" href="#stabilization-delay" title="Anchor link">&para;</a></h2>
-<p>Confirmed runtime-drift violations only surface after the stabilization window
-(<a href="../operator-configuration/"><code>--stabilization-window</code></a>, default two minutes).
-This trades immediacy for
-resistance to transient blips: a single negative observation reads <code>Unknown</code> until
-the negative streak spans the whole window.</p>
+<p>The stabilization window
+(<a href="../operator-configuration/"><code>--stabilization-window</code></a>, default two minutes)
+trades immediacy for resistance to transient blips: a single negative observation
+reads <code>Unknown</code> until the negative streak spans the whole window.</p>
+<p>It applies to <strong>absences only</strong> — something the operator expected to find and
+did not:</p>
+<ul>
+<li><code>INTERFACE_ABSENT</code></li>
+<li><code>DEPENDENCY_UNREACHABLE</code></li>
+<li><code>CAPABILITY_ABSENT</code> (active probing only)</li>
+<li><code>CONFIGURATION_ABSENT</code>, for a declared Secret or ConfigMap</li>
+</ul>
+<p>A <strong>mismatch</strong> — something that is there and contradicts the contract — is
+<code>NonCompliant</code> on the first reconcile that observes it, with no delay:
+<code>WORKLOAD_MISMATCH</code>, <code>PERSISTENCE_MISMATCH</code> and <code>CONFIGURATION_MISMATCH</code>. There
+is nothing transient to wait out; the evidence is already conclusive.</p>
+<p>This split matters if you gate deployments on the verdict. See
+<a href="../gitops/#timing">GitOps promotion gates</a>.</p>
 <h2 id="api-version">API version<a class="headerlink" href="#api-version" title="Anchor link">&para;</a></h2>
 <p>The CRDs are served at <code>v1alpha1</code>. Fields are added conservatively and
 additively; see the <a href="../crd-reference/">CRD reference</a> for the current schema.</p>

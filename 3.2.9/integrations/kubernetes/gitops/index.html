@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://pacto.run/3.2.9/integrations/kubernetes/artifact-hub/">
+        <link rel="canonical" href="https://pacto.run/3.2.9/integrations/kubernetes/gitops/">
       
       
-        <link rel="prev" href="../rbac/">
+        <link rel="prev" href="../upgrade/">
       
       
-        <link rel="next" href="../../../plugins/">
+        <link rel="next" href="../contract-bindings/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Published artifacts - Pacto</title>
+        <title>GitOps promotion gates - Pacto</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#published-artifacts" class="md-skip">
+        <a href="#gitops-promotion-gates" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Published artifacts
+              GitOps promotion gates
             
           </span>
         </div>
@@ -2357,10 +2357,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../gitops/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitOps promotion gates
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2376,6 +2403,109 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-gate-buys-you" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the gate buys you
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flux
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#argo-cd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Argo CD
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Argo CD">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#check-that-it-took" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Check that it took
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2609,37 +2739,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Published artifacts
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../artifact-hub/" class="md-nav__link">
         
   
   
@@ -2655,70 +2758,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#artifact-coordinates" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Artifact coordinates
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#verify-a-published-artifact" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify a published artifact
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#artifact-hub-repository" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Artifact Hub repository
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#install-from-the-published-chart" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Install from the published chart
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -3408,10 +3447,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#artifact-coordinates" class="md-nav__link">
+  <a href="#what-the-gate-buys-you" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Artifact coordinates
+        What the gate buys you
       
     </span>
   </a>
@@ -3419,10 +3458,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verify-a-published-artifact" class="md-nav__link">
+  <a href="#flux" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verify a published artifact
+        Flux
       
     </span>
   </a>
@@ -3430,10 +3469,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#artifact-hub-repository" class="md-nav__link">
+  <a href="#argo-cd" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Artifact Hub repository
+        Argo CD
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Argo CD">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#check-that-it-took" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Check that it took
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timing
       
     </span>
   </a>
@@ -3441,10 +3508,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-from-the-published-chart" class="md-nav__link">
+  <a href="#limits" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install from the published chart
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
       
     </span>
   </a>
@@ -3533,74 +3611,329 @@
                   
 
 
+  
+    <a href="https://github.com/TrianaLab/pacto/edit/main/integrations/kubernetes/docs/gitops.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
 
-<!--
-  GENERATED FILE -- DO NOT EDIT.
-  Produced by release/scripts/gen_integration_docs.py from release/release-manifest.json + artifacthub-repo.yml + Chart.yaml.
-  Regenerate with `make docs-generate`; drift is a CI failure (`make docs-check`).
--->
 
-<h1 id="published-artifacts">Published artifacts<a class="headerlink" href="#published-artifacts" title="Anchor link">&para;</a></h1>
-<p>Published artifact coordinates for the Kubernetes integration. All coordinates and versions are generated from <code>release/release-manifest.json</code> -- the single source of truth for what has been published.</p>
-<h2 id="artifact-coordinates">Artifact coordinates<a class="headerlink" href="#artifact-coordinates" title="Anchor link">&para;</a></h2>
+<h1 id="gitops-promotion-gates">GitOps promotion gates<a class="headerlink" href="#gitops-promotion-gates" title="Anchor link">&para;</a></h1>
+<p>The operator reaches a verdict on every reconcile and writes it to
+<code>status.contractStatus</code>. Neither Flux nor Argo CD reads that field on its own, so
+a Kustomization holding a <code>NonCompliant</code> Pacto reports healthy and a violated
+contract cannot turn an Argo Application red. Both tools have an extension point
+for exactly this. This page is the two snippets that close the gap.</p>
+<p>Nothing here changes the operator, the CRD or your contracts. It is configuration
+you add to the delivery tool you already run.</p>
+<h2 id="what-the-gate-buys-you">What the gate buys you<a class="headerlink" href="#what-the-gate-buys-you" title="Anchor link">&para;</a></h2>
+<p>The operator observes; it never writes to your workloads. By the time a verdict
+exists the pods are already serving. What these snippets buy is that <strong>the next
+step stops</strong>: the Kustomization goes unready, the dependent one never starts, the
+Argo Application goes Degraded and whatever alerting you already point at
+unhealthy resources picks it up.</p>
+<p>For catching a breaking change <em>before</em> it lands, the tool is
+<a href="../../../cli-reference/"><code>pacto impact</code></a> in the pull request. A promotion gate is
+the second line, not the first.</p>
+<h2 id="flux">Flux<a class="headerlink" href="#flux" title="Anchor link">&para;</a></h2>
+<p>Flux decides whether a resource is healthy using kstatus, which recognises three
+condition names: <code>Ready</code>, <code>Reconciling</code> and <code>Stalled</code>. Pacto publishes
+<code>ContractValid</code>, <code>RuntimeObserved</code> and <code>ReadinessSatisfied</code>, so kstatus discards
+all three unread and the object falls through to <code>Current</code>. The gate looks
+configured and gates nothing.</p>
+<p><code>spec.healthCheckExprs</code> (kustomize-controller v1.5.0, flux2 v2.5.0 and later)
+replaces the guess with a CEL expression:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Flux promotion gate driven by the Pacto contract verdict.</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1">#</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># This file is published verbatim in integrations/kubernetes/docs/gitops.md and</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># applied verbatim by tests/acceptance/kind/gitops-flux.sh. Edit it and you edit</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># both; the documented snippet cannot drift from the tested one.</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nn">---</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kustomize.toolkit.fluxcd.io/v1</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Kustomization</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orders-staging</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">flux-system</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1m</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span><span class="c1"># Must exceed the operator's stabilization window (default 2m) plus one</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span><span class="c1"># requeue interval, or a real violation arrives as an ambiguous timeout</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span><span class="c1"># instead of a clean failure.</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5m</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">  </span><span class="nt">prune</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">  </span><span class="nt">wait</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OCIRepository</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orders</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./staging</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">  </span><span class="nt">healthCheckExprs</span><span class="p">:</span>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pacto.trianalab.io/v1alpha1</span>
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="w">      </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Pacto</span>
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="w">      </span><span class="nt">failed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status.contractStatus in ['NonCompliant', 'Invalid']</span>
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="w">      </span><span class="nt">current</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status.contractStatus in ['Compliant', 'Reference', 'Warning']</span>
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a><span class="nn">---</span>
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kustomize.toolkit.fluxcd.io/v1</span>
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Kustomization</span>
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orders-production</span>
+</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">flux-system</span>
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="nt">spec</span><span class="p">:</span>
+</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="w">  </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1m</span>
+</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="w">  </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5m</span>
+</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a><span class="w">  </span><span class="nt">prune</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="w">  </span><span class="nt">wait</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a><span class="w">  </span><span class="c1"># Production does not start until staging is healthy, and healthy now</span>
+</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a><span class="w">  </span><span class="c1"># includes the contract verdict. This line is the promotion gate.</span>
+</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a><span class="w">  </span><span class="nt">dependsOn</span><span class="p">:</span>
+</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orders-staging</span>
+</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a><span class="w">  </span><span class="nt">sourceRef</span><span class="p">:</span>
+</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OCIRepository</span>
+</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orders</span>
+</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a><span class="w">  </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./production</span>
+</span></code></pre></div>
+<p><code>sourceRef</code> is whatever you already use — <code>GitRepository</code>, <code>OCIRepository</code> or
+<code>Bucket</code>. The gate does not care where the manifests came from, only what the
+operator says about them once they are applied.</p>
+<p>Four things about that snippet are worth knowing, each checked against
+<code>fluxcd/pkg</code> <code>runtime/cel/status_evaluator.go</code>:</p>
+<ul>
+<li><strong>There is no <code>inProgress</code> expression, deliberately.</strong> When no expression
+  matches, Flux falls through to in-progress. So <code>Unknown</code>, <code>NotEvaluated</code> and
+  any verdict added in a later release hold the deploy and time out rather than
+  going falsely green. The gate fails closed.</li>
+<li><strong>There is no hand-written generation guard, deliberately.</strong> Flux already
+  compares <code>status.observedGeneration</code> to <code>metadata.generation</code> before any
+  expression runs. Writing your own is redundant, and it throws on an object that
+  has no status yet.</li>
+<li><strong><code>Warning</code> sits in the passing set.</strong> Move that one word to <code>failed</code> if you
+  want contract warnings to block promotions. That is the whole knob.</li>
+<li><strong><code>timeout</code> must exceed the operator's stabilization window.</strong> Set it lower and
+  a real violation reaches you as an ambiguous timeout instead of a clean
+  failure. See <a href="#timing">Timing</a> below.</li>
+</ul>
+<p>A Pacto that has just been created has no <code>status</code> at all, and the expression
+errors while that is true. Flux treats the error as not-yet-healthy and keeps
+polling, so the first few seconds of a fresh apply are noisy in the logs and
+harmless in the outcome.</p>
+<p>That snippet is not an illustration. <code>tests/acceptance/kind/gitops-flux.sh</code>
+applies <strong>that exact file</strong> to a kind cluster running Flux, publishes a contract
+that contradicts the workload that ships, and asserts the dependent
+Kustomization's own manifest never reaches the cluster — then corrects the
+contract and asserts it does.</p>
+<p><code>HelmRelease</code> gained the same field in helm-controller v1.5.0 / flux2 v2.8.0. The
+snippet above should transfer unchanged, but it is not covered here.</p>
+<h2 id="argo-cd">Argo CD<a class="headerlink" href="#argo-cd" title="Anchor link">&para;</a></h2>
+<p>Argo picks a health check from a fixed list of built-in kinds and returns nothing
+for everything else, and the roll-up that turns resource health into Application
+health starts at Healthy and ignores that nothing. A Pacto object is therefore
+not unhealthy to Argo — it is invisible, and nothing reports that a check is
+missing.</p>
+<p>A resource health customization in <code>argocd-cm</code> supplies the missing check:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Argo CD health customization that makes a violated Pacto contract turn its</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># Application red.</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1">#</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># This file is published verbatim in integrations/kubernetes/docs/gitops.md.</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Apply it as a MERGE PATCH, never as a plain `kubectl apply` -- argocd-cm holds</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1"># Argo's own keys and a full apply would drop them:</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1">#</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1">#   kubectl -n argocd patch configmap argocd-cm --type merge \</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1">#     --patch-file argocd-cm-pacto-health.yaml</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1">#</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="c1"># The data key must be typed exactly. Argo silently ignores a key it does not</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="c1"># recognise, which looks identical to having configured nothing at all.</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ConfigMap</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="nt">metadata</span><span class="p">:</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">argocd-cm</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">argocd</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="nt">data</span><span class="p">:</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">  </span><span class="nt">resource.customizations.health.pacto.trianalab.io_Pacto</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">    </span><span class="no">-- Argo runs this with the Lua string library disabled.</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">    </span><span class="no">-- Only concatenation, comparison, ipairs and tostring() are available.</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="w">    </span><span class="no">-- Set to "Degraded" to make contract warnings block a promotion.</span>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="w">    </span><span class="no">local warningHealth = "Healthy"</span>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="w">    </span><span class="no">local hs = {}</span>
+</span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>
+</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="w">    </span><span class="no">if obj.status == nil or obj.status.contractStatus == nil then</span>
+</span><span id="__span-1-29"><a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="w">      </span><span class="no">hs.status = "Progressing"</span>
+</span><span id="__span-1-30"><a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="w">      </span><span class="no">hs.message = "waiting for the first contract evaluation"</span>
+</span><span id="__span-1-31"><a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="w">      </span><span class="no">return hs</span>
+</span><span id="__span-1-32"><a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a><span class="w">    </span><span class="no">end</span>
+</span><span id="__span-1-33"><a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>
+</span><span id="__span-1-34"><a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a><span class="w">    </span><span class="no">if obj.status.observedGeneration ~= obj.metadata.generation then</span>
+</span><span id="__span-1-35"><a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a><span class="w">      </span><span class="no">hs.status = "Progressing"</span>
+</span><span id="__span-1-36"><a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a><span class="w">      </span><span class="no">hs.message = "contract not yet evaluated at this generation"</span>
+</span><span id="__span-1-37"><a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a><span class="w">      </span><span class="no">return hs</span>
+</span><span id="__span-1-38"><a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a><span class="w">    </span><span class="no">end</span>
+</span><span id="__span-1-39"><a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>
+</span><span id="__span-1-40"><a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a><span class="w">    </span><span class="no">local s = obj.status.contractStatus</span>
+</span><span id="__span-1-41"><a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>
+</span><span id="__span-1-42"><a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a><span class="w">    </span><span class="no">if s == "Compliant" or s == "Reference" then</span>
+</span><span id="__span-1-43"><a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a><span class="w">      </span><span class="no">hs.status = "Healthy"</span>
+</span><span id="__span-1-44"><a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a><span class="w">      </span><span class="no">hs.message = "contract satisfied"</span>
+</span><span id="__span-1-45"><a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a><span class="w">      </span><span class="no">return hs</span>
+</span><span id="__span-1-46"><a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a><span class="w">    </span><span class="no">end</span>
+</span><span id="__span-1-47"><a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>
+</span><span id="__span-1-48"><a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a><span class="w">    </span><span class="no">if s == "Warning" then</span>
+</span><span id="__span-1-49"><a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a><span class="w">      </span><span class="no">hs.status = warningHealth</span>
+</span><span id="__span-1-50"><a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a><span class="w">      </span><span class="no">hs.message = "contract satisfied with warnings"</span>
+</span><span id="__span-1-51"><a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a><span class="w">      </span><span class="no">return hs</span>
+</span><span id="__span-1-52"><a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a><span class="w">    </span><span class="no">end</span>
+</span><span id="__span-1-53"><a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>
+</span><span id="__span-1-54"><a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a><span class="w">    </span><span class="no">if s == "NonCompliant" then</span>
+</span><span id="__span-1-55"><a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a><span class="w">      </span><span class="no">hs.status = "Degraded"</span>
+</span><span id="__span-1-56"><a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a><span class="w">      </span><span class="no">hs.message = "contract violated"</span>
+</span><span id="__span-1-57"><a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a><span class="w">      </span><span class="no">if obj.status.findings ~= nil then</span>
+</span><span id="__span-1-58"><a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a><span class="w">        </span><span class="no">for _, f in ipairs(obj.status.findings) do</span>
+</span><span id="__span-1-59"><a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a><span class="w">          </span><span class="no">if f.severity == "error" then</span>
+</span><span id="__span-1-60"><a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a><span class="w">            </span><span class="no">hs.message = "contract violated: " .. tostring(f.code) .. ": " .. tostring(f.message)</span>
+</span><span id="__span-1-61"><a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a><span class="w">            </span><span class="no">break</span>
+</span><span id="__span-1-62"><a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a><span class="w">          </span><span class="no">end</span>
+</span><span id="__span-1-63"><a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a><span class="w">        </span><span class="no">end</span>
+</span><span id="__span-1-64"><a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a><span class="w">      </span><span class="no">end</span>
+</span><span id="__span-1-65"><a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a><span class="w">      </span><span class="no">return hs</span>
+</span><span id="__span-1-66"><a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a><span class="w">    </span><span class="no">end</span>
+</span><span id="__span-1-67"><a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>
+</span><span id="__span-1-68"><a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a><span class="w">    </span><span class="no">if s == "Invalid" then</span>
+</span><span id="__span-1-69"><a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a><span class="w">      </span><span class="no">hs.status = "Degraded"</span>
+</span><span id="__span-1-70"><a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a><span class="w">      </span><span class="no">hs.message = "contract is invalid and could not be evaluated"</span>
+</span><span id="__span-1-71"><a id="__codelineno-1-71" name="__codelineno-1-71" href="#__codelineno-1-71"></a><span class="w">      </span><span class="no">return hs</span>
+</span><span id="__span-1-72"><a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a><span class="w">    </span><span class="no">end</span>
+</span><span id="__span-1-73"><a id="__codelineno-1-73" name="__codelineno-1-73" href="#__codelineno-1-73"></a>
+</span><span id="__span-1-74"><a id="__codelineno-1-74" name="__codelineno-1-74" href="#__codelineno-1-74"></a><span class="w">    </span><span class="no">-- Unknown, NotEvaluated, and anything added later.</span>
+</span><span id="__span-1-75"><a id="__codelineno-1-75" name="__codelineno-1-75" href="#__codelineno-1-75"></a><span class="w">    </span><span class="no">hs.status = "Progressing"</span>
+</span><span id="__span-1-76"><a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a><span class="w">    </span><span class="no">hs.message = "contract verdict pending: " .. tostring(s)</span>
+</span><span id="__span-1-77"><a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a><span class="w">    </span><span class="no">return hs</span>
+</span></code></pre></div>
+<p>Apply it as a merge patch. <code>argocd-cm</code> holds Argo's own configuration and a plain
+<code>kubectl apply</code> of the manifest above would drop it:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>argocd<span class="w"> </span>patch<span class="w"> </span>configmap<span class="w"> </span>argocd-cm<span class="w"> </span>--type<span class="w"> </span>merge<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--patch-file<span class="w"> </span>argocd-cm-pacto-health.yaml
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>argocd<span class="w"> </span>rollout<span class="w"> </span>restart<span class="w"> </span>statefulset/argocd-application-controller
+</span></code></pre></div>
+<p>The restart is not optional housekeeping. The application controller reads health
+customizations into its resource cache when it starts, and that cached verdict is
+what it compares to decide whether a changed object is worth re-examining. Until
+the controller has the customization, a Pacto's health is cached as nothing, every
+verdict the operator writes compares equal to the last one and the Application
+only catches up on the next periodic resync. On an install without <code>argocd-server</code>
+— Argo's core install — a restart is the <em>only</em> way in: hot reload of <code>argocd-cm</code>
+needs <code>server.secretkey</code>, which only <code>argocd-server</code> creates.</p>
+<ul>
+<li><strong>Argo has no built-in generation check</strong>, so the script does its own. Be
+  precise about what that proves: <code>observedGeneration</code> here is the Pacto object's
+  own generation, so it says the operator has seen the current <em>contract</em> — not
+  the current workload.</li>
+<li><strong>The findings loop puts the reason in the Argo UI</strong> instead of a bare red dot.</li>
+<li><strong>Nothing maps to Argo's <code>Unknown</code>.</strong> It ranks worse than <code>Degraded</code> in the
+  roll-up, so it would mask genuinely broken workloads in the same Application,
+  and it does not fire the on-degraded trigger. Anything unrecognised becomes
+  <code>Progressing</code> and times out.</li>
+<li><strong>The Lua runs with the string library disabled.</strong> Concatenation, comparison,
+  <code>ipairs</code> and <code>tostring()</code> are available; <code>string.format</code>, <code>s:gsub()</code> and the
+  rest are not, and reaching for one fails at runtime rather than at load.</li>
+</ul>
+<p>That snippet is not an illustration either. <code>tests/acceptance/kind/gitops-argocd.sh</code>
+runs <strong>that exact file</strong> twice. Once with no cluster at all, through
+<code>argocd admin settings resource-overrides health</code>, which puts every contract
+status through Argo's own Lua sandbox — including the states a running cluster
+passes through too quickly to catch, like a verdict that has not caught up with
+the contract yet. Then inside a kind cluster running Argo CD, where an
+Application must go <code>Degraded</code> naming the finding while the contract is violated
+and back to <code>Healthy</code> once it is corrected.</p>
+<h3 id="check-that-it-took">Check that it took<a class="headerlink" href="#check-that-it-took" title="Anchor link">&para;</a></h3>
+<p>Argo ignores a <code>data</code> key it does not recognise, and an ignored key looks exactly
+like having configured nothing. Confirm the customization is live before you rely
+on it:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># The key must read back exactly, group and kind included.</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>argocd<span class="w"> </span>get<span class="w"> </span>cm<span class="w"> </span>argocd-cm<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.data.resource\.customizations\.health\.pacto\.trianalab\.io_Pacto}'</span>
+</span></code></pre></div>
+<p>Then ask Argo what it makes of a real object. <code>argocd admin settings</code> evaluates
+the customization against files on disk, in the same Lua sandbox the controller
+uses, so it answers without waiting for a sync:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>argocd<span class="w"> </span>get<span class="w"> </span>cm<span class="w"> </span>argocd-cm<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>/tmp/argocd-cm.yaml
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>kubectl<span class="w"> </span>-n<span class="w"> </span>&lt;namespace&gt;<span class="w"> </span>get<span class="w"> </span>pacto<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w"> </span>&gt;<span class="w"> </span>/tmp/pacto.yaml
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>argocd<span class="w"> </span>admin<span class="w"> </span>settings<span class="w"> </span>resource-overrides<span class="w"> </span>health<span class="w"> </span>/tmp/pacto.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>--argocd-cm-path<span class="w"> </span>/tmp/argocd-cm.yaml
+</span></code></pre></div>
+<p>A <code>Compliant</code> Pacto prints <code>STATUS: Healthy</code> and <code>MESSAGE: contract satisfied</code>.
+A key that did not take prints <code>Health script is not configured for
+'pacto.trianalab.io/Pacto'</code> instead — and prints it while <strong>exiting 0</strong>, so read
+the output rather than the exit code if you wire this into a check.</p>
+<p>Both checks read the ConfigMap, not the controller. They will pass on an instance
+whose controller started before the patch and still has no idea the customization
+exists. The one that answers that question is the Application itself: it should
+change health within seconds of a verdict changing, not minutes.</p>
+<h2 id="timing">Timing<a class="headerlink" href="#timing" title="Anchor link">&para;</a></h2>
+<p>The gate is only as fresh as the verdict behind it, and verdicts do not all land
+at the same speed.</p>
 <table>
 <thead>
 <tr>
-<th>Artifact</th>
-<th>Kind</th>
-<th>Coordinate</th>
-<th>Version</th>
+<th>Change</th>
+<th>When it becomes <code>NonCompliant</code></th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Controller image</td>
-<td>oci-image</td>
-<td><code>ghcr.io/trianalab/pacto/operator</code></td>
-<td><code>5.3.0</code></td>
+<td>A mismatch — workload, persistence or configuration conformance</td>
+<td>The first reconcile after the workload is observed</td>
 </tr>
 <tr>
-<td>Helm chart</td>
-<td>helm-chart</td>
-<td><code>ghcr.io/trianalab/pacto/charts/pacto-operator</code></td>
-<td><code>5.3.0</code></td>
-</tr>
-<tr>
-<td>Go module</td>
-<td>go-module</td>
-<td><code>github.com/trianalab/pacto/integrations/kubernetes/v5</code></td>
-<td><code>5.3.0</code></td>
-</tr>
-<tr>
-<td>Documentation</td>
-<td>docs</td>
-<td><code>mkdocs:integrations/kubernetes</code></td>
-<td><code>5.3.0</code></td>
+<td>An absence — a missing interface, capability, dependency, Secret or ConfigMap</td>
+<td>After the <a href="../limitations/#stabilization-delay">stabilization window</a> (default two minutes) plus one requeue interval</td>
 </tr>
 </tbody>
 </table>
-<h2 id="verify-a-published-artifact">Verify a published artifact<a class="headerlink" href="#verify-a-published-artifact" title="Anchor link">&para;</a></h2>
-<p>The controller image and the Helm chart are signed keylessly by the release workflow through GitHub's OIDC issuer. Verify either before installing it:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cosign<span class="w"> </span>verify<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github\.com/TrianaLab/pacto/\.github/workflows/release\.yml@'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>ghcr.io/trianalab/pacto/operator:5.3.0
-</span></code></pre></div>
-<p>Anything other than a successful verification -- including <code>no signatures found</code> -- means do not deploy it. Not every Pacto artifact is signed; see <a href="../../../installation/#supply-chain-what-is-signed-and-what-is-not">what is signed and what is not</a>.</p>
-<h2 id="artifact-hub-repository">Artifact Hub repository<a class="headerlink" href="#artifact-hub-repository" title="Anchor link">&para;</a></h2>
+<p>That split is why <code>timeout</code> has a floor. A five-minute timeout against the
+default two-minute window leaves room for the window, one requeue and the apply
+itself.</p>
+<p>There is one gap worth naming. kstatus will not call a Deployment current until
+its controller writes <code>observedGeneration</code> back, and that same write is the watch
+event that queues the Pacto reconcile. So the re-check is guaranteed <em>queued</em>
+before Flux can first see the workload as current. It is not guaranteed
+<em>finished</em>. The gap is one reconcile.</p>
+<p>Every row above is about how fast the verdict lands. When the GitOps tool <em>looks</em>
+is a separate question, and only Argo has an answer worth knowing. It re-examines
+a Pacto when the health status the customization returns changes — <code>Healthy</code> to
+<code>Degraded</code> and back shows up in about a second. A change that lands on the same
+status does not: one <code>NonCompliant</code> reason replaced by another is still
+<code>Degraded</code>, so the Application keeps showing the old message until the next
+periodic resync, two to five minutes out. The red dot is prompt. The wording
+behind it is not always.</p>
+<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Anchor link">&para;</a></h2>
 <ul>
-<li><strong>Repository ID</strong>: <code>4d7aef48-84d5-447f-bd73-8590a6801d0e</code></li>
-<li><strong>Chart image annotation</strong> (<code>artifacthub.io/images</code>, from <code>Chart.yaml</code>):</li>
+<li><strong>Argo health customizations are instance-global.</strong> They live in <code>argocd-cm</code>,
+  so one Argo serving several teams cannot give one team a blocking <code>Warning</code> and
+  another a passing one.</li>
+<li><strong>Neither tool can refuse an artifact for what is inside it.</strong> Flux's only
+  pre-apply gate is a signature check. "Reject this because its contract breaks
+  three consumers" is not something a health gate can express — that is a pull
+  request check.</li>
+<li><strong>The verdict is about the contract, not the rollout.</strong> A Pacto reporting
+  <code>Compliant</code> says the running workload matches its declared contract. It says
+  nothing about request errors, saturation or anything else your normal
+  progressive-delivery signals cover.</li>
+<li><strong><code>status.lastReconciledAt</code> cannot be used as a freshness gate.</strong> Flux hands
+  the expression the custom resource and nothing else; Argo hands the Lua only
+  <code>obj</code>. Neither has a clock to compare it against.</li>
 </ul>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pacto-controller</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/trianalab/pacto/operator:5.3.0</span>
-</span></code></pre></div>
-<h2 id="install-from-the-published-chart">Install from the published chart<a class="headerlink" href="#install-from-the-published-chart" title="Anchor link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>helm<span class="w"> </span>install<span class="w"> </span>pacto-operator<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>oci://ghcr.io/trianalab/pacto/charts/pacto-operator<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--version<span class="w"> </span><span class="m">5</span>.3.0<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--namespace<span class="w"> </span>pacto-operator-system<span class="w"> </span>--create-namespace
-</span></code></pre></div>
+<h2 id="related">Related<a class="headerlink" href="#related" title="Anchor link">&para;</a></h2>
+<ul>
+<li><a href="../troubleshooting/#reading-the-events">Troubleshooting</a> — the events the
+  operator emits when a verdict changes, and why a <code>Count</code> above 1 means the
+  status actually flapped.</li>
+<li><a href="../limitations/">Limitations</a> — what the operator declines to judge, and why
+  those cases read <code>Unknown</code> rather than <code>NonCompliant</code>.</li>
+<li><a href="../crd-reference/">CRD reference</a> — the full <code>status</code> schema the expressions
+  above read from.</li>
+</ul>
 
 
 
@@ -3638,7 +3971,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../rbac/" class="md-footer__link md-footer__link--prev" aria-label="Previous: RBAC">
+          <a href="../upgrade/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Upgrade the operator">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -3648,20 +3981,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                RBAC
+                Upgrade the operator
               </div>
             </div>
           </a>
         
         
           
-          <a href="../../../plugins/" class="md-footer__link md-footer__link--next" aria-label="Next: Plugin development">
+          <a href="../contract-bindings/" class="md-footer__link md-footer__link--next" aria-label="Next: Contract bindings">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Plugin development
+                Contract bindings
               </div>
             </div>
             <div class="md-footer__button md-icon">
