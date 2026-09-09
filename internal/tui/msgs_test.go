@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -19,21 +18,82 @@ func TestSenderSendWithNilProgram(t *testing.T) {
 }
 
 func TestSenderSendWithProgram(t *testing.T) {
-	m := New(testOptions())
-	// Create a program that will exit immediately
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithoutRenderer())
+	received := make(chan string, 1)
+	ready := make(chan struct{})
+	tm := &testModel{msgCh: received, readyCh: ready}
+
+	in, out := &fakeInput{}, &fakeOutput{}
+	p := tea.NewProgram(tm, tea.WithInput(in), tea.WithOutput(out), tea.WithoutRenderer())
 	s := &sender{p: p}
 
-	// Start the program in the background
 	go func() {
 		_, _ = p.Run()
 	}()
 
-	// Give it a moment to start
-	time.Sleep(10 * time.Millisecond)
+	t.Cleanup(func() {
+		p.Send(tea.Quit())
+	})
 
-	// Send should not panic and should not block indefinitely
-	s.send(statusMsg{text: "test"})
+	// Wait for the program to start processing messages
+	select {
+	case <-ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("program did not start within 2 seconds")
+	}
+
+	s.send(testMsg{payload: "test payload"})
+
+	select {
+	case payload := <-received:
+		if payload != "test payload" {
+			t.Fatalf("received payload %q, want %q", payload, "test payload")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("message did not reach the model within 2 seconds")
+	}
+}
+
+type fakeInput struct{}
+
+func (f *fakeInput) Read(p []byte) (n int, err error) {
+	time.Sleep(time.Hour)
+	return 0, nil
+}
+
+type fakeOutput struct{}
+
+func (f *fakeOutput) Write(p []byte) (n int, err error) {
+	return len(p), nil
+}
+
+// testMsg is a custom message type for testing sender.
+type testMsg struct {
+	payload string
+}
+
+// testModel is a minimal tea.Model for testing sender.
+type testModel struct {
+	msgCh   chan string
+	readyCh chan struct{}
+	started bool
+}
+
+func (tm *testModel) Init() tea.Cmd { return nil }
+
+func (tm *testModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if !tm.started && tm.readyCh != nil {
+		tm.started = true
+		close(tm.readyCh)
+	}
+	if m, ok := msg.(testMsg); ok && tm.msgCh != nil {
+		select {
+		case tm.msgCh <- m.payload:
+		default:
+		}
+	}
+	return tm, nil
+}
+
+func (tm *testModel) View() tea.View {
+	return tea.NewView("")
 }
