@@ -8,5 +8,5 @@ type Verb struct {
 }
 
 // verbList returns the verbs available on the current screen.
-// filled in by Task 15
+// A test seam; filled in by Task 15.
 var verbList = func(c *Context) []Verb { return nil }

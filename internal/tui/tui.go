@@ -5,6 +5,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -28,6 +29,7 @@ type Options struct {
 // Context is the state every screen shares. Screens read it and never replace
 // it; the root Model owns the pointer.
 type Context struct {
+	Ctx      context.Context // session context that cancels in-flight loads
 	Svc      *app.Service
 	Fleet    app.FleetOptions
 	Query    *fleet.Query
@@ -50,6 +52,7 @@ type Model struct {
 func New(o Options) *Model {
 	return &Model{
 		ctx: &Context{
+			Ctx:      context.Background(),
 			Svc:      o.Svc,
 			Fleet:    o.Fleet,
 			Send:     &sender{},

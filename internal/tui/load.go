@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"context"
-
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -11,17 +9,10 @@ import (
 // result.
 func loadSnapshot(c *Context) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
-		if testCtx != nil {
-			ctx = testCtx()
-		}
-		snap, err := c.Svc.Fleet(ctx, c.Fleet)
+		snap, err := c.Svc.Fleet(c.Ctx, c.Fleet)
 		if err != nil {
 			return snapshotMsg{err: err}
 		}
 		return snapshotMsg{snap: snap}
 	}
 }
-
-// testCtx is a test seam for injecting a context.
-var testCtx func() context.Context

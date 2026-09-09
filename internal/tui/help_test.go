@@ -66,11 +66,9 @@ func TestPadLongString(t *testing.T) {
 }
 
 func TestHelpScreenViewWithVerbs(t *testing.T) {
-	// Save the original verbList and restore it after
 	orig := verbList
-	defer func() { verbList = orig }()
+	t.Cleanup(func() { verbList = orig })
 
-	// Override verbList for this test
 	verbList = func(c *Context) []Verb {
 		return []Verb{
 			{Key: "l", Help: "lock", Write: false},

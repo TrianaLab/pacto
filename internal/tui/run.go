@@ -22,8 +22,9 @@ func Run(ctx context.Context, o Options) error {
 		opts = append(opts, tea.WithOutput(o.Output))
 	}
 	p := newProgram(m, opts...)
-	// Written once, before the program starts reading it from Cmd goroutines.
+	// Written once, before the program starts reading them from Cmd goroutines.
 	m.ctx.Send.p = p
+	m.ctx.Ctx = ctx
 	_, err := p.Run()
 	return err
 }

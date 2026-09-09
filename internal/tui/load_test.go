@@ -14,6 +14,7 @@ import (
 func TestLoadSnapshotProducesACommand(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	c := &Context{
+		Ctx:   context.Background(),
 		Svc:   svc,
 		Fleet: app.FleetOptions{},
 		Send:  &sender{},
@@ -22,25 +23,26 @@ func TestLoadSnapshotProducesACommand(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("loadSnapshot returned nil command")
 	}
-	// Calling the command produces a snapshotMsg
 	msg := cmd()
-	if _, ok := msg.(snapshotMsg); !ok {
+	sm, ok := msg.(snapshotMsg)
+	if !ok {
 		t.Fatalf("command produced %T, want snapshotMsg", msg)
+	}
+	if sm.err != nil {
+		t.Fatalf("unexpected error: %v", sm.err)
+	}
+	if sm.snap == nil {
+		t.Fatal("want a non-nil snapshot")
 	}
 }
 
 func TestLoadSnapshotWithCancelledContext(t *testing.T) {
-	// Save and restore the test seam
-	orig := testCtx
-	defer func() { testCtx = orig }()
-
-	// Inject a cancelled context to trigger an error
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	testCtx = func() context.Context { return ctx }
 
 	svc := app.NewService(nil, nil)
 	c := &Context{
+		Ctx:   ctx,
 		Svc:   svc,
 		Fleet: app.FleetOptions{LocalRoots: []string{t.TempDir()}},
 		Send:  &sender{},
@@ -143,6 +145,7 @@ func TestLoadSnapshotSuccess(t *testing.T) {
 
 	svc := app.NewService(nil, nil)
 	c := &Context{
+		Ctx:   context.Background(),
 		Svc:   svc,
 		Fleet: app.FleetOptions{LocalRoots: []string{root}},
 		Send:  &sender{},
