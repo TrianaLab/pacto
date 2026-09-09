@@ -83,7 +83,9 @@ func (o *outputScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 		}
 		return o, nil
 	case depResolvedMsg:
-		o.deps++
+		if msg.id == o.id {
+			o.deps++
+		}
 		return o, nil
 	case spinner.TickMsg:
 		sp, cmd := o.sp.Update(msg)

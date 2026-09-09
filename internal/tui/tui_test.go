@@ -118,7 +118,7 @@ func TestUpdatePopMsgWithSingleScreen(t *testing.T) {
 func TestUpdateDelegatesToScreen(t *testing.T) {
 	m := New(testOptions())
 	// Send a message that loadingScreen handles (depResolvedMsg)
-	next, _ := m.Update(depResolvedMsg{})
+	next, _ := m.Update(depResolvedMsg{id: 0})
 	// The loadingScreen should have updated its note
 	ls, ok := next.(*Model).top().(loadingScreen)
 	if !ok {

@@ -40,8 +40,8 @@ func TestOutputSaysWhenLinesWereDropped(t *testing.T) {
 }
 
 func TestOutputIgnoresMessagesFromAPreviousRun(t *testing.T) {
-	// Two verbs run back to back; the first one's late output must not land in
-	// the second one's pane.
+	// Each run gets a fresh id so a superseded run's late messages are dropped
+	// instead of landing in the current pane.
 	c := newLoadedContext(t)
 	o := newOutputScreen("Validate")
 	o.id = 7
@@ -69,12 +69,51 @@ func TestOutputReportsSuccessAndFailure(t *testing.T) {
 	}
 }
 
+func TestOutputIgnoresStaleOutputDoneMsg(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Validate")
+	o.id = 10
+	next, _ := o.Update(c, outputDoneMsg{id: 9})
+	s, ok := next.(*outputScreen)
+	if !ok {
+		t.Fatal("Update returned wrong type")
+	}
+	if !s.running {
+		t.Fatal("screen stopped running from a stale outputDoneMsg")
+	}
+	if s.done {
+		t.Fatal("screen marked done from a stale outputDoneMsg")
+	}
+	if strings.Contains(s.View(c), "done") {
+		t.Fatalf("screen shows done from a stale outputDoneMsg:\n%s", s.View(c))
+	}
+}
+
 func TestOutputShowsProgressWhileRunning(t *testing.T) {
 	c := newLoadedContext(t)
 	o := newOutputScreen("Graph")
-	next, _ := o.Update(c, depResolvedMsg{})
+	next, _ := o.Update(c, depResolvedMsg{id: o.id})
 	if !strings.Contains(next.View(c), "1 ") {
 		t.Fatalf("dependency progress is not shown:\n%s", next.View(c))
+	}
+}
+
+func TestOutputIgnoresStaleDepResolvedMsg(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Graph")
+	o.id = 20
+	next, _ := o.Update(c, depResolvedMsg{id: 19})
+	s, ok := next.(*outputScreen)
+	if !ok {
+		t.Fatal("Update returned wrong type")
+	}
+	if s.deps != 0 {
+		t.Fatalf("dependency counter moved from stale depResolvedMsg: got %d, want 0", s.deps)
+	}
+	next, _ = next.Update(c, depResolvedMsg{id: 20})
+	s = next.(*outputScreen)
+	if s.deps != 1 {
+		t.Fatalf("dependency counter did not move from current depResolvedMsg: got %d, want 1", s.deps)
 	}
 }
 
@@ -159,9 +198,29 @@ func TestOutputHandlesSpinnerTick(t *testing.T) {
 func TestOutputDelegatesToViewport(t *testing.T) {
 	c := newLoadedContext(t)
 	o := newOutputScreen("Test")
-	o.append("test line")
+	for i := 0; i < 50; i++ {
+		o.append(fmt.Sprintf("line %d", i))
+	}
+	o.resize(c)
+	offsetBefore := o.vp.YOffset()
 	next, _ := o.Update(c, tea.KeyPressMsg{Code: tea.KeyDown})
 	if next != o {
 		t.Fatal("viewport message changed the screen")
+	}
+	offsetAfter := o.vp.YOffset()
+	if offsetAfter == offsetBefore {
+		t.Fatalf("viewport did not scroll: offset stayed at %d", offsetBefore)
+	}
+}
+
+func TestOutputViewBeforeUpdate(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Validate")
+	view := o.View(c)
+	if view == "" {
+		t.Fatal("View before any Update returned empty string")
+	}
+	if !strings.Contains(view, "running") {
+		t.Fatalf("View before any Update does not show running status:\n%s", view)
 	}
 }

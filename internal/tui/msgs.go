@@ -24,10 +24,11 @@ type snapshotMsg struct {
 	err  error
 }
 
-// depResolvedMsg is posted from app-layer OnDepResolved callbacks, which fire
-// from arbitrary goroutines. It carries no payload precisely so that it is safe
-// to post from anywhere.
-type depResolvedMsg struct{}
+// depResolvedMsg reports that one more dependency finished resolving. It is
+// posted from app-layer OnDepResolved callbacks, which fire from arbitrary
+// goroutines, so it carries nothing but the id of the run that owns it — no
+// pointers, nothing that needs a lock.
+type depResolvedMsg struct{ id int }
 
 // sender posts messages into a running program from a goroutine. The program
 // pointer is written exactly once, by Run, before p.Run() starts, and only ever

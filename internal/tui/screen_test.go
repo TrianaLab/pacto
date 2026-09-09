@@ -60,7 +60,7 @@ func TestLoadingScreenViewWithNote(t *testing.T) {
 func TestLoadingScreenUpdateWithDepResolvedMsg(t *testing.T) {
 	l := loadingScreen{}
 	c := &Context{}
-	next, cmd := l.Update(c, depResolvedMsg{})
+	next, cmd := l.Update(c, depResolvedMsg{id: 0})
 	if cmd != nil {
 		t.Fatal("Update with depResolvedMsg returned a command, want nil")
 	}
