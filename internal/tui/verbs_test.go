@@ -72,15 +72,7 @@ func TestBundleVerbsDoNotApplyToAnOwner(t *testing.T) {
 // an owner or a source is not a root the neighborhood resolver accepts at all.
 func TestGraphVerbRootsTheWayFleetGraphDoes(t *testing.T) {
 	c := newLoadedContext(t)
-	var g Verb
-	for _, v := range verbList(c) {
-		if v.Key == "g" {
-			g = v
-		}
-	}
-	if g.Argv == nil {
-		t.Fatal("no verb bound to g")
-	}
+	g := verbBoundTo(t, c, "g")
 
 	for _, tt := range []struct {
 		name       string
@@ -129,6 +121,109 @@ func TestGraphVerbRootsTheWayFleetGraphDoes(t *testing.T) {
 				t.Fatalf("g argv = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestFleetExplainVerbNamesASubjectFleetExplainResolves pins e's subject.
+// Query.Explain resolves a service key or name and then a target key
+// (pkg/fleet/query.go:908-924) and nothing else, so handing it the row's own key
+// on a revision, an owner or a source opened an error screen on three of the
+// five kinds the list has a tab for. A revision explains the service it is a
+// revision OF; an owner and a source decline the way g does.
+func TestFleetExplainVerbNamesASubjectFleetExplainResolves(t *testing.T) {
+	c := newLoadedContext(t)
+	e := verbBoundTo(t, c, "e")
+
+	for _, tt := range []struct {
+		name       string
+		sel        Selection
+		want       []string
+		wantReject string
+	}{
+		{
+			"a service is its own subject",
+			Selection{Kind: fleet.KindService, Key: "shop/checkout"},
+			[]string{"pacto", "fleet", "explain", "shop/checkout"}, "",
+		},
+		{
+			// The parent key, never the revision key with the @version cut off:
+			// ParentService is domain-qualified, and a bare "checkout" would name
+			// a different service in a fleet that also holds ops/checkout.
+			"a revision explains its parent service",
+			Selection{Kind: fleet.KindRevision, Key: "shop/checkout@1.0.0", ParentService: "shop/checkout"},
+			[]string{"pacto", "fleet", "explain", "shop/checkout"}, "",
+		},
+		{
+			"a target is its own subject",
+			Selection{Kind: fleet.KindTarget, Key: "prod/Deployment/checkout", ParentService: "shop/checkout"},
+			[]string{"pacto", "fleet", "explain", "prod/Deployment/checkout"}, "",
+		},
+		{
+			"an owner is not a subject",
+			Selection{Kind: fleet.KindOwner, Key: "team:x", Label: "x"},
+			nil, "press y",
+		},
+		{
+			"a source is not a subject",
+			Selection{Kind: fleet.KindSource, Key: "local"},
+			nil, "press y",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			why := e.Applies(tt.sel)
+			if tt.wantReject != "" {
+				if !strings.Contains(why, tt.wantReject) {
+					t.Fatalf("e.Applies(%s) = %q, want a reason pointing at the command that does take it", tt.sel.Kind, why)
+				}
+				return
+			}
+			if why != "" {
+				t.Fatalf("e does not apply to %s: %s", tt.sel.Kind, why)
+			}
+			if got := e.Argv(c, tt.sel); !slices.Equal(got, tt.want) {
+				t.Fatalf("e argv = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFleetExplainRunsTheSubjectItAdvertises closes the gap round 1 was about:
+// a verb whose Argv and Run each decide the argument for themselves drifts, and
+// the yanked line stops being the line that ran. Both read explainSubject, and
+// the output screen's title is built from it too, so the reader is never told
+// they are reading an explanation of the revision.
+func TestFleetExplainRunsTheSubjectItAdvertises(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindRevision)
+	if ref.ParentService == "" {
+		t.Fatal("the fixture revision carries no ParentService, so this test would verify nothing")
+	}
+	sel, err := resolveSelection(c, ref)
+	if err != nil {
+		t.Fatalf("resolveSelection: %v", err)
+	}
+	if sel.ParentService != ref.ParentService {
+		t.Fatalf("resolveSelection dropped ParentService: got %q, want %q", sel.ParentService, ref.ParentService)
+	}
+
+	// The advertised line and the screen the verb opens have to name the same
+	// subject, and it has to be one the fleet can actually answer for.
+	argv := verbBoundTo(t, c, "e").Argv(c, sel)
+	subject := argv[len(argv)-1]
+	if subject == sel.Key {
+		t.Fatalf("e advertises the revision key %q, which Query.Explain never resolves", subject)
+	}
+	if _, err := c.Query.Explain(subject); err != nil {
+		t.Fatalf("e advertises %q, which the fleet cannot explain: %v", subject, err)
+	}
+
+	batch, ok := verbFleetExplain(c, sel)().(tea.BatchMsg)
+	if !ok {
+		t.Fatal("verbFleetExplain did not batch a push with its work")
+	}
+	o := batch[0]().(pushMsg).s.(*outputScreen)
+	if !strings.Contains(o.Title(), subject) {
+		t.Fatalf("the output screen is titled %q, which does not name the subject %q it explained", o.Title(), subject)
 	}
 }
 

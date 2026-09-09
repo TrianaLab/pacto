@@ -277,7 +277,9 @@ func TestVerbFleetExplainError(t *testing.T) {
 	rec := &msgRecorder{}
 	c.Send.p = rec
 
-	sel := Selection{Kind: fleet.KindRevision, Key: "nonexistent", Label: "missing"}
+	// A revision explains its parent service, so the parent is the name that has
+	// to be missing for this to exercise the error path at all.
+	sel := Selection{Kind: fleet.KindRevision, Key: "nonexistent@1.0.0", Label: "missing", ParentService: "nonexistent"}
 	cmd := verbFleetExplain(c, sel)
 	batch := cmd().(tea.BatchMsg)
 	batch[len(batch)-1]()

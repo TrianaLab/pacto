@@ -67,9 +67,11 @@ func verbList(c *Context) []Verb {
 			Run:  verbExplainLocal,
 		},
 		{
-			Key: "e", Help: "explain the selection from the fleet's point of view", Applies: always,
-			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "fleet", "explain", s.Key} },
-			Run:  verbFleetExplain,
+			Key: "e", Help: "explain the selection from the fleet's point of view", Applies: explainable,
+			Argv: func(_ *Context, s Selection) []string {
+				return []string{"pacto", "fleet", "explain", explainSubject(s)}
+			},
+			Run: verbFleetExplain,
 		},
 		{
 			// Local, not hasBundle: a lock file lives beside a bundle on disk, and
@@ -101,10 +103,15 @@ func verbList(c *Context) []Verb {
 			// help screen and the yank verb see it like everything else.
 			Run: func(c *Context, s Selection) tea.Cmd {
 				return push(newGraphScreen(c, fleet.EntityRef{
-					Kind:    s.Kind,
-					Key:     s.Key,
-					Label:   s.Label,
-					Version: s.Version,
+					Kind:  s.Kind,
+					Key:   s.Key,
+					Label: s.Label,
+					// The graph screen is itself a selection a verb can run
+					// against, so the ref carries everything a verb reads off a
+					// row. Dropping ParentService here would leave e explaining
+					// nothing on the graph of a revision.
+					ParentService: s.ParentService,
+					Version:       s.Version,
 				}))
 			},
 		},
@@ -245,6 +252,35 @@ func graphable(sel Selection) string {
 	return ""
 }
 
+// explainable is the Applies predicate for e, and the same shape as graphable:
+// Query.Explain resolves its subject as a service then as a target
+// (pkg/fleet/query.go:908) and an owner key or a source name is neither, so the
+// verb could only ever open a screen showing a NotFoundError. The reason names
+// the command that does take them, which is the line y already yanks on those
+// rows (yank.go:38-47).
+func explainable(sel Selection) string {
+	switch sel.Kind {
+	case fleet.KindOwner, fleet.KindSource:
+		return "fleet explain takes a service or a target — press y for the fleet search line"
+	}
+	return ""
+}
+
+// explainSubject is the one definition of what e explains, read by both the
+// verb's Argv and its Run so the yanked line and the query cannot drift.
+//
+// A revision key is not a subject Query.Explain resolves, so a revision explains
+// the service it is a revision OF: ParentService is that service's canonical,
+// domain-qualified key and is already on the row (pkg/fleet/product.go:184), so
+// this costs no second query. A service and a target are subjects in their own
+// right and pass their key through.
+func explainSubject(sel Selection) string {
+	if sel.Kind == fleet.KindRevision {
+		return sel.ParentService
+	}
+	return sel.Key
+}
+
 // graphRoot is how fleet graph names a root. Only a service is positional; a
 // revision and a target each have their own flag (internal/cli/fleet.go:255).
 func graphRoot(sel Selection) []string {
@@ -370,8 +406,12 @@ func verbExplainLocal(c *Context, sel Selection) tea.Cmd {
 }
 
 func verbFleetExplain(c *Context, sel Selection) tea.Cmd {
-	return runRead(c, "fleet explain "+sel.Label, func(o *outputScreen) error {
-		res, err := c.Query.Explain(sel.Key)
+	// The title names the subject rather than the selection: on a revision row
+	// the answer is about the parent service, and titling it with the revision
+	// label would tell the reader they are reading something they are not.
+	subject := explainSubject(sel)
+	return runRead(c, "fleet explain "+subject, func(o *outputScreen) error {
+		res, err := c.Query.Explain(subject)
 		if err != nil {
 			return err
 		}
@@ -444,11 +484,11 @@ func VerbCommands() []string {
 	// lock from pull, and a bundle-less kind is what sends yank down its own
 	// switch. A verb is counted only for a selection it would really be offered
 	// for, so this reports what the TUI can run rather than what the table can
-	// print.
+	// print. Each is a whole row, ParentService included, because a real one is.
 	sels := []Selection{
-		{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc", Ref: "/tmp/svc", Local: true},
-		{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc", Ref: "oci://ghcr.io/acme/svc:1.0.0"},
-		{Kind: fleet.KindTarget, Key: "prod/Deployment/svc", Label: "svc"},
+		{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc", Ref: "/tmp/svc", Local: true, ParentService: "svc"},
+		{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc", Ref: "oci://ghcr.io/acme/svc:1.0.0", ParentService: "svc"},
+		{Kind: fleet.KindTarget, Key: "prod/Deployment/svc", Label: "svc", ParentService: "svc"},
 		{Kind: fleet.KindOwner, Key: "team:x", Label: "x"},
 	}
 	seen := map[string]bool{}

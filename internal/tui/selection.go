@@ -10,13 +10,21 @@ import (
 // would have been given for it. Ref is empty for entities that are not backed
 // by a bundle (owners and sources), and the verb layer uses that to decide what
 // it can offer. Local distinguishes file:// bundles from registry ones.
+//
+// ParentService is the canonical service key a revision or a target belongs to,
+// carried straight off the row (pkg/fleet/product.go:184,193). It exists because
+// some fleet commands take a service and nothing else, and a revision key is not
+// one: it lets a verb resolve UP to the service without re-querying, and without
+// splitting "svc@1.0.0" on the @, which would yield a bare name that names a
+// different service in every fleet holding two domains.
 type Selection struct {
-	Kind    fleet.EntityKind
-	Key     string
-	Label   string
-	Ref     string
-	Local   bool
-	Version string
+	Kind          fleet.EntityKind
+	Key           string
+	Label         string
+	Ref           string
+	Local         bool
+	Version       string
+	ParentService string
 }
 
 // bundleRef turns a revision's identity into the argument the app-layer
@@ -62,7 +70,10 @@ func bundleRef(id fleet.RevisionIdentity) (ref string, local bool) {
 // which is what the CLI would have picked; a target resolves through the
 // revision it is running; an owner or a source has no bundle at all.
 func resolveSelection(c *Context, ref fleet.EntityRef) (Selection, error) {
-	sel := Selection{Kind: ref.Kind, Key: ref.Key, Label: ref.Label, Version: ref.Version}
+	sel := Selection{
+		Kind: ref.Kind, Key: ref.Key, Label: ref.Label,
+		Version: ref.Version, ParentService: ref.ParentService,
+	}
 	switch ref.Kind {
 	case fleet.KindOwner, fleet.KindSource:
 		return sel, nil
