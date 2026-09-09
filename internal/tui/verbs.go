@@ -89,8 +89,16 @@ func verbList(c *Context) []Verb {
 	return append(vs, writeVerbs()...)
 }
 
+// testWriteVerbsOverride is a test seam: when non-nil, writeVerbs returns it.
+var testWriteVerbsOverride []Verb
+
 // writeVerbs returns the verbs that change something; filled in by Task 16.
-func writeVerbs() []Verb { return nil }
+func writeVerbs() []Verb {
+	if testWriteVerbsOverride != nil {
+		return testWriteVerbsOverride
+	}
+	return nil
+}
 
 // orSelf substitutes b when a is empty, so an un-armed two-selection verb still
 // yanks a sensible command rather than one with a hole in it.

@@ -30,10 +30,14 @@ type snapshotMsg struct {
 // pointers, nothing that needs a lock.
 type depResolvedMsg struct{ id int }
 
+// msgSink is what a sender posts to. *tea.Program is the real one; tests pass a
+// recorder, because a verb's whole observable output is the messages it sends.
+type msgSink interface{ Send(tea.Msg) }
+
 // sender posts messages into a running program from a goroutine. The program
 // pointer is written exactly once, by Run, before p.Run() starts, and only ever
 // read afterwards from tea.Cmd goroutines.
-type sender struct{ p *tea.Program }
+type sender struct{ p msgSink }
 
 func (s *sender) send(m tea.Msg) {
 	if s == nil || s.p == nil {
