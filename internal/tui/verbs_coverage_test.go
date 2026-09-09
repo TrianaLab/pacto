@@ -543,14 +543,6 @@ func TestSelectionOfWithQueryError(t *testing.T) {
 	}
 }
 
-// TestOrSelfWithNonEmptyA tests the non-empty arm of orSelf.
-func TestOrSelfWithNonEmptyA(t *testing.T) {
-	got := orSelf("left", "right")
-	if got != "left" {
-		t.Fatalf("orSelf(left, right) = %q, want left", got)
-	}
-}
-
 // TestDiffColorsUsed runs renderDiff against a result with GraphDiff.
 func TestDiffColorsUsed(t *testing.T) {
 	c, bundleDir := newContextWithService(t)

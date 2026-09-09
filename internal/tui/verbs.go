@@ -12,9 +12,10 @@ import (
 // Verb is one keybound action. Argv is the invocation a reader could have typed
 // instead: it drives the yank verb, the write confirmation and the boundary
 // test's coverage claim, so every verb builds it in exactly one place and the
-// Run closure uses that same builder. Two verbs take an argument no selection
-// carries; their Argv shows it as a placeholder, which is the honest shape of
-// the line rather than an approximation of it.
+// Run closure uses that same builder. Four verbs take an argument no single
+// selection carries — a registry reference, a plugin name, the left-hand side of
+// a comparison; their Argv shows it as a placeholder, which is the honest shape
+// of the line rather than an approximation of it.
 type Verb struct {
 	Key   string
 	Help  string
@@ -83,14 +84,14 @@ func verbList(c *Context) []Verb {
 		{
 			Key: "d", Help: "diff two selections (press twice)", Applies: hasBundle,
 			Argv: func(c *Context, s Selection) []string {
-				return []string{"pacto", "diff", orSelf(c.pendingDiff.Ref, s.Ref), s.Ref}
+				return []string{"pacto", "diff", oldOrPlaceholder(c.pendingDiff.Ref), s.Ref}
 			},
 			Run: verbDiff,
 		},
 		{
 			Key: "i", Help: "impact of one selection on another (press twice)", Applies: hasBundle,
 			Argv: func(c *Context, s Selection) []string {
-				return []string{"pacto", "impact", orSelf(c.pendingImpact.Ref, s.Ref), s.Ref}
+				return []string{"pacto", "impact", oldOrPlaceholder(c.pendingImpact.Ref), s.Ref}
 			},
 			Run: verbImpact,
 		},
@@ -293,13 +294,21 @@ func graphRoot(sel Selection) []string {
 	return []string{sel.Key}
 }
 
-// orSelf substitutes b when a is empty, so an un-armed two-selection verb still
-// yanks a sensible command rather than one with a hole in it.
-func orSelf(a, b string) string {
-	if a == "" {
-		return b
+// oldPlaceholder is the left-hand side of a comparison no single selection can
+// supply, spelled the way diff and impact spell it in their own usage strings
+// (internal/cli/diff.go:14, internal/cli/impact.go:21).
+const oldPlaceholder = "<old>"
+
+// oldOrPlaceholder names the left-hand side d and i advertise: the armed
+// selection once there is one, and the metavar until then. Substituting the
+// CURRENT selection there would advertise "pacto diff /tmp/svc /tmp/svc", which
+// runs, exits 0 and reports NON_BREAKING — a bundle compared with itself,
+// dressed as an answer. A line that fails is better than one that lies.
+func oldOrPlaceholder(ref string) string {
+	if ref == "" {
+		return oldPlaceholder
 	}
-	return a
+	return ref
 }
 
 // dispatchVerb routes a key to a verb. It is called only by the screens that
@@ -478,7 +487,7 @@ func verbImpact(c *Context, sel Selection) tea.Cmd {
 // claim behind. internal/cli asserts on this to prove no command was forgotten.
 func VerbCommands() []string {
 	// A zero Context is enough: Argv reads only the selection, and the two-part
-	// verbs fall back to the selection for both sides.
+	// verbs advertise their metavar for the side no selection supplies.
 	c := &Context{}
 	// One selection per shape the table branches on: locality splits push and
 	// lock from pull, and a bundle-less kind is what sends yank down its own

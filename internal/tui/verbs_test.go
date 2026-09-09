@@ -227,6 +227,37 @@ func TestFleetExplainRunsTheSubjectItAdvertises(t *testing.T) {
 	}
 }
 
+// TestUnarmedComparisonVerbsAdvertiseTheirMetavar pins d and i. Substituting the
+// current selection for the missing left-hand side produced "pacto diff X X",
+// which runs, exits 0 and reports NON_BREAKING: a bundle compared with itself,
+// dressed as an answer. A placeholder line fails when pasted, which is the
+// honest outcome for a command whose other half has not been chosen yet.
+func TestUnarmedComparisonVerbsAdvertiseTheirMetavar(t *testing.T) {
+	c := newLoadedContext(t)
+	sel := Selection{Kind: fleet.KindRevision, Key: "svc@1.0.0", Ref: "/tmp/svc", Local: true}
+	armed := Selection{Kind: fleet.KindRevision, Key: "svc@0.9.0", Ref: "/tmp/svc-old", Local: true}
+
+	for key, command := range map[string]string{"d": "diff", "i": "impact"} {
+		t.Run(command, func(t *testing.T) {
+			v := verbBoundTo(t, c, key)
+
+			c.pendingDiff, c.pendingImpact = Selection{}, Selection{}
+			want := []string{"pacto", command, oldPlaceholder, sel.Ref}
+			if got := v.Argv(c, sel); !slices.Equal(got, want) {
+				t.Fatalf("un-armed %s argv = %v, want %v", key, got, want)
+			}
+
+			// Armed, the line names the real left-hand side: the placeholder
+			// stands in for the missing half only, not for both halves always.
+			c.pendingDiff, c.pendingImpact = armed, armed
+			want = []string{"pacto", command, armed.Ref, sel.Ref}
+			if got := v.Argv(c, sel); !slices.Equal(got, want) {
+				t.Fatalf("armed %s argv = %v, want %v", key, got, want)
+			}
+		})
+	}
+}
+
 func TestDispatchIgnoresAnUnboundKey(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newListScreen(c)
