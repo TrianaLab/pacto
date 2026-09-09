@@ -37,8 +37,10 @@ type CachedStore struct {
 	cacheDir string
 
 	// skipDiskReads disables loading from disk cache (cold-start mode).
-	// Disk writes remain enabled so same-session pulls are persisted.
-	skipDiskReads bool
+	// Disk writes remain enabled so same-session pulls are persisted. Atomic
+	// because the dashboard and the TUI flip it from one goroutine while pulls
+	// read it from others.
+	skipDiskReads atomic.Bool
 
 	// materialized records that THIS process has committed an entry into the disk
 	// cache. It is a different fact from what the cache held at startup and from
@@ -90,7 +92,7 @@ func NewCachedStore(inner BundleStore) *CachedStore {
 // remain enabled so that same-session pulls (e.g. fetch-all-versions) are still
 // persisted and available for enrichment.
 func (c *CachedStore) DisableCache() {
-	c.skipDiskReads = true
+	c.skipDiskReads.Store(true)
 	c.pullMu.Lock()
 	c.pullCache = map[string]*list.Element{}
 	c.pullLRU = list.New()
@@ -238,7 +240,7 @@ func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bu
 	c.pullMu.Unlock()
 
 	// 2. Disk cache (skipped when --no-cache / DisableCache is active).
-	if c.cacheDir == "" || c.skipDiskReads {
+	if c.cacheDir == "" || c.skipDiskReads.Load() {
 		return nil, CachedRef{}, false
 	}
 	for _, dir := range c.entryDirs(ref) {

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -313,4 +314,30 @@ func TestCachedStore_PullCacheEvictsLRUNotFIFO(t *testing.T) {
 	if _, ok := c.pullCache["y"]; ok {
 		t.Fatal("y was least recently used and must be evicted")
 	}
+}
+
+func TestCachedStoreDisableCacheIsRaceFree(t *testing.T) {
+	c := &CachedStore{
+		inner:     &stubStore{},
+		cacheDir:  t.TempDir(),
+		pullCache: map[string]*list.Element{},
+		pullLRU:   list.New(),
+		tagsCache: map[string][]string{},
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			c.DisableCache()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		// cachedEntry reads skipDiskReads on every call.
+		for i := 0; i < 100; i++ {
+			_, _, _ = c.cachedEntry(context.Background(), "oci://example.test/svc:1.0.0")
+		}
+	}()
+	wg.Wait()
 }
