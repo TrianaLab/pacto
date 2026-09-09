@@ -482,3 +482,32 @@ func TestRenderOwnerWithTruncatedServices(t *testing.T) {
 		t.Fatalf("missing truncation indicators:\n%s", out)
 	}
 }
+
+func TestDetailPressGPushesGraphScreen(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindService)
+	s := newDetailScreen(c, ref)
+	_, cmd := s.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	if cmd == nil {
+		t.Fatal("g did not produce a command")
+	}
+	msg := cmd()
+	pm, ok := msg.(pushMsg)
+	if !ok {
+		t.Fatalf("g produced %T, want pushMsg", msg)
+	}
+	if !strings.Contains(pm.s.Title(), "Graph:") {
+		t.Fatalf("g pushed %q, want a graph screen", pm.s.Title())
+	}
+}
+
+func TestDetailSelectedAlwaysReturnsTrue(t *testing.T) {
+	// Detail screen always has a selection (the ref it was opened with)
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindService)
+	d := newDetailScreen(c, ref).(*detailScreen)
+	_, ok := d.selected()
+	if !ok {
+		t.Fatal("detail screen's selected() should always return true")
+	}
+}

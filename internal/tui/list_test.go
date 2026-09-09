@@ -303,3 +303,30 @@ func TestListLoadWithInvalidFilterSetsError(t *testing.T) {
 		t.Fatalf("View should surface the query error:\n%s", out)
 	}
 }
+
+func TestListPressGPushesGraphScreen(t *testing.T) {
+	c := newLoadedContext(t)
+	s := newListScreen(c)
+	_, cmd := s.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	if cmd == nil {
+		t.Fatal("g did not produce a command")
+	}
+	msg := cmd()
+	pm, ok := msg.(pushMsg)
+	if !ok {
+		t.Fatalf("g produced %T, want pushMsg", msg)
+	}
+	if !strings.Contains(pm.s.Title(), "Graph:") {
+		t.Fatalf("g pushed %q, want a graph screen", pm.s.Title())
+	}
+}
+
+func TestListPressGWithNoSelectionDoesNothing(t *testing.T) {
+	c := newLoadedContext(t)
+	l := newListScreen(c).(*listScreen)
+	l.entities = nil // Clear entities so nothing is selected
+	_, cmd := l.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	if cmd != nil {
+		t.Fatal("g with no selection should not produce a command")
+	}
+}

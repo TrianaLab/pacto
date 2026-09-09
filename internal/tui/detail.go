@@ -42,6 +42,14 @@ func (d *detailScreen) Title() string {
 }
 
 func (d *detailScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
+	if k, ok := msg.(tea.KeyPressMsg); ok {
+		switch k.String() {
+		case "g":
+			// Detail screen always has a selection (the ref it was opened with)
+			ref, _ := d.selected()
+			return d, push(newGraphScreen(c, ref))
+		}
+	}
 	d.resize(c)
 	vp, cmd := d.vp.Update(msg)
 	d.vp = vp

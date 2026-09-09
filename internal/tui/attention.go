@@ -99,6 +99,12 @@ func (a *attentionScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 				return a, nil
 			}
 			return a, push(newDetailScreen(c, ref))
+		case "g":
+			ref, ok := a.selected()
+			if !ok {
+				return a, nil
+			}
+			return a, push(newGraphScreen(c, ref))
 		case "tab":
 			a.catIx = (a.catIx + 1) % len(attentionCategories())
 			a.refresh(c)

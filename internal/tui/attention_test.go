@@ -191,3 +191,34 @@ func TestAttentionLoadWithInvalidFilterSetsError(t *testing.T) {
 		t.Fatalf("View should surface the query error:\n%s", out)
 	}
 }
+
+func TestAttentionPressGPushesGraphScreen(t *testing.T) {
+	c := newLoadedContext(t)
+	s := newAttentionScreen(c)
+	// Attention screen needs items to have a selection
+	if a := s.(*attentionScreen); len(a.items) == 0 {
+		t.Skip("fixture has no attention items")
+	}
+	_, cmd := s.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	if cmd == nil {
+		t.Fatal("g did not produce a command")
+	}
+	msg := cmd()
+	pm, ok := msg.(pushMsg)
+	if !ok {
+		t.Fatalf("g produced %T, want pushMsg", msg)
+	}
+	if !strings.Contains(pm.s.Title(), "Graph:") {
+		t.Fatalf("g pushed %q, want a graph screen", pm.s.Title())
+	}
+}
+
+func TestAttentionPressGWithNoSelectionDoesNothing(t *testing.T) {
+	c := newLoadedContext(t)
+	a := newAttentionScreen(c).(*attentionScreen)
+	a.items = nil // Clear items so nothing is selected
+	_, cmd := a.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	if cmd != nil {
+		t.Fatal("g with no selection should not produce a command")
+	}
+}
