@@ -30,7 +30,7 @@ func TestRunWiresTheSenderBeforeStarting(t *testing.T) {
 	}
 }
 
-func TestRunReturnsPPromptlyWhenContextIsCancelled(t *testing.T) {
+func TestRunReturnsPromptlyWhenContextIsCancelled(t *testing.T) {
 	orig := newProgram
 	t.Cleanup(func() { newProgram = orig })
 
@@ -53,3 +53,35 @@ func TestRunReturnsPPromptlyWhenContextIsCancelled(t *testing.T) {
 		t.Fatal("Run did not return within 2 seconds after context cancellation")
 	}
 }
+
+func TestRunWithInputAndOutput(t *testing.T) {
+	orig := newProgram
+	t.Cleanup(func() { newProgram = orig })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var receivedOpts []tea.ProgramOption
+	newProgram = func(m tea.Model, opts ...tea.ProgramOption) *tea.Program {
+		receivedOpts = opts
+		return tea.NewProgram(m, append(opts, tea.WithoutRenderer())...)
+	}
+
+	opts := testOptions()
+	opts.Input = &fakeReader{}
+	opts.Output = &fakeWriter{}
+
+	_ = Run(ctx, opts)
+
+	if len(receivedOpts) < 3 {
+		t.Fatalf("expected at least 3 options (ctx, input, output), got %d", len(receivedOpts))
+	}
+}
+
+type fakeReader struct{}
+
+func (f *fakeReader) Read(p []byte) (n int, err error) { return 0, nil }
+
+type fakeWriter struct{}
+
+func (f *fakeWriter) Write(p []byte) (n int, err error) { return len(p), nil }

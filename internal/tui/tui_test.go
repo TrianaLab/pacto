@@ -64,3 +64,111 @@ func TestErrorMsgIsShownInTheFooter(t *testing.T) {
 		t.Fatalf("view does not show the error:\n%s", next.View().Content)
 	}
 }
+
+func TestUpdateStatusMsg(t *testing.T) {
+	m := New(testOptions())
+	next, _ := m.Update(statusMsg{text: "test status"})
+	got := next.(*Model)
+	if got.ctx.Status != "test status" {
+		t.Fatalf("ctx.Status = %q, want %q", got.ctx.Status, "test status")
+	}
+}
+
+func TestUpdatePushMsg(t *testing.T) {
+	m := New(testOptions())
+	s := loadingScreen{note: "pushed"}
+	next, cmd := m.Update(pushMsg{s: s})
+	got := next.(*Model)
+	if len(got.stack) != 2 {
+		t.Fatalf("stack length = %d, want 2", len(got.stack))
+	}
+	if got.top() != s {
+		t.Fatal("top screen is not the pushed screen")
+	}
+	if cmd != nil {
+		t.Fatal("push should not return a command")
+	}
+}
+
+func TestUpdatePopMsg(t *testing.T) {
+	m := New(testOptions())
+	m.stack = append(m.stack, loadingScreen{note: "second"})
+	next, cmd := m.Update(popMsg{})
+	got := next.(*Model)
+	if len(got.stack) != 1 {
+		t.Fatalf("stack length = %d, want 1", len(got.stack))
+	}
+	if cmd != nil {
+		t.Fatal("pop should not return a command")
+	}
+}
+
+func TestUpdatePopMsgWithSingleScreen(t *testing.T) {
+	m := New(testOptions())
+	if len(m.stack) != 1 {
+		t.Fatalf("initial stack length = %d, want 1", len(m.stack))
+	}
+	next, _ := m.Update(popMsg{})
+	got := next.(*Model)
+	if len(got.stack) != 1 {
+		t.Fatalf("stack length = %d, want 1 (should not pop last screen)", len(got.stack))
+	}
+}
+
+func TestUpdateDelegatesToScreen(t *testing.T) {
+	m := New(testOptions())
+	// Send a message that loadingScreen handles (depResolvedMsg)
+	next, _ := m.Update(depResolvedMsg{})
+	// The loadingScreen should have updated its note
+	ls, ok := next.(*Model).top().(loadingScreen)
+	if !ok {
+		t.Fatalf("top screen is %T, want loadingScreen", next.(*Model).top())
+	}
+	if ls.note != "resolved a dependency" {
+		t.Fatalf("note = %q, want %q", ls.note, "resolved a dependency")
+	}
+}
+
+func TestHeaderWithReadOnly(t *testing.T) {
+	m := New(testOptions())
+	m.ctx.ReadOnly = true
+	h := m.header()
+	if !strings.Contains(h, "[read-only]") {
+		t.Fatalf("header = %q, want it to contain [read-only]", h)
+	}
+}
+
+func TestHeaderWithoutReadOnly(t *testing.T) {
+	m := New(testOptions())
+	m.ctx.ReadOnly = false
+	h := m.header()
+	if strings.Contains(h, "[read-only]") {
+		t.Fatalf("header = %q, should not contain [read-only]", h)
+	}
+}
+
+func TestFooterWithStatus(t *testing.T) {
+	m := New(testOptions())
+	m.ctx.Status = "test status"
+	f := m.footer()
+	if !strings.Contains(f, "test status") {
+		t.Fatalf("footer = %q, want it to contain status", f)
+	}
+}
+
+func TestFooterWithError(t *testing.T) {
+	m := New(testOptions())
+	m.err = errBoom
+	f := m.footer()
+	if !strings.Contains(f, "boom") {
+		t.Fatalf("footer = %q, want it to contain error", f)
+	}
+}
+
+func TestFooterDefault(t *testing.T) {
+	m := New(testOptions())
+	f := m.footer()
+	if !strings.Contains(f, "help") {
+		t.Fatalf("footer = %q, want default help text", f)
+	}
+}
