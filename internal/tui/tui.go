@@ -88,9 +88,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ctx.Query = fleet.NewQuery(msg.snap)
 		m.ctx.Snapshot = msg.snap
-		// Replace rather than push: the loading screen is not somewhere the
-		// user can go back to.
-		m.stack[len(m.stack)-1] = newListScreen(m.ctx)
+		// The snapshot is the world every screen was rendered from, so a fresh
+		// one clears both the progress note and any error left over from the
+		// write that asked for it.
+		m.err = nil
+		m.ctx.Status = ""
+		if _, starting := m.top().(loadingScreen); starting {
+			// Replace rather than push: the loading screen is not somewhere the
+			// user can go back to.
+			m.stack[len(m.stack)-1] = newListScreen(m.ctx)
+			return m, nil
+		}
+		m.reloadScreens()
 		return m, nil
 	case pushMsg:
 		m.stack = append(m.stack, msg.s)
@@ -124,6 +133,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.top().Update(m.ctx, msg)
 	m.stack[len(m.stack)-1] = next
 	return m, cmd
+}
+
+// reloadScreens re-queries every screen on the stack against the new snapshot.
+// r and a finished write both reload from arbitrary depth, so the stack has to
+// survive it: replacing the top with a fresh list turned a service detail into a
+// second list, with a breadcrumb reading "Fleet > Fleet" and a back key that
+// went from a list to a list. Screens below the top are refreshed too, because
+// the reader will pop down to them and a stale one is no more honest for being
+// out of sight.
+func (m *Model) reloadScreens() {
+	for _, s := range m.stack {
+		if r, ok := s.(interface{ refresh(*Context) }); ok {
+			r.refresh(m.ctx)
+		}
+	}
 }
 
 // View composes header, body and footer, then asks for the alt screen on every

@@ -219,3 +219,78 @@ func testSnapshot(t *testing.T) *fleet.FleetSnapshot {
 	}
 	return snap
 }
+
+// emptySnapshot is a fleet whose source reported nothing. The source itself is
+// still an entity; every service, revision, target and owner is gone. Reloading
+// into it is how a test proves a screen re-queried rather than kept the answer
+// it opened with.
+func emptySnapshot(t *testing.T) *fleet.FleetSnapshot {
+	t.Helper()
+	src := fleet.NewMemorySource("test", "memory", &fleet.Collection{})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	return snap
+}
+
+// TestAReloadRefreshesTheStackInsteadOfReplacingTheTop pins what a snapshot
+// arriving under a stack does. r and a finished write both reload from
+// arbitrary depth, and replacing the top with a fresh list turned a detail page
+// into a second list: the breadcrumb read "Fleet > Fleet" and back went from a
+// list to a list.
+func TestAReloadRefreshesTheStackInsteadOfReplacingTheTop(t *testing.T) {
+	m := New(testOptions())
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+	ref := firstEntityOfKind(t, m.ctx, fleet.KindService)
+	m.Update(pushMsg{s: newDetailScreen(m.ctx, ref)})
+	if len(m.stack) != 2 {
+		t.Fatalf("stack depth = %d before the reload, want 2", len(m.stack))
+	}
+	want := m.top().Title()
+
+	m.Update(snapshotMsg{snap: emptySnapshot(t)})
+
+	if len(m.stack) != 2 {
+		t.Fatalf("stack depth = %d after the reload, want the stack left alone", len(m.stack))
+	}
+	if got := m.top().Title(); got != want {
+		t.Fatalf("the reload put %q on top, want %q", got, want)
+	}
+	if d := m.top().(*detailScreen); d.loadErr == nil {
+		t.Fatal("the detail kept its first answer; a reload has to re-query the screen the reader is on")
+	}
+	l, ok := m.stack[0].(*listScreen)
+	if !ok {
+		t.Fatalf("the bottom of the stack is %T, want the list", m.stack[0])
+	}
+	for _, e := range l.entities {
+		if e.Kind == ref.Kind && e.Key == ref.Key {
+			t.Fatal("the list under the detail still lists an entity the new snapshot does not have, and the reader pops down to it")
+		}
+	}
+}
+
+// TestAReloadClearsTheProgressNoteAndAStaleError pins the other half.
+// execDoneMsg sets the status before reloading and clears the error on success;
+// the snapshot that arrives has to finish the job, or the footer reads
+// "reloading the snapshot" forever and an error from a failed write outlives the
+// reload that was meant to move past it.
+func TestAReloadClearsTheProgressNoteAndAStaleError(t *testing.T) {
+	m := New(testOptions())
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+	m.ctx.Status = "reloading the snapshot"
+	m.err = errBoom
+
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+
+	if m.ctx.Status != "" {
+		t.Fatalf("Status = %q after a reload, want the progress note gone", m.ctx.Status)
+	}
+	if m.err != nil {
+		t.Fatalf("err = %v after a clean reload", m.err)
+	}
+	if !strings.Contains(m.footer(), "?: help") {
+		t.Fatalf("the footer reads %q, want the default hint back", m.footer())
+	}
+}

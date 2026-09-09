@@ -16,20 +16,28 @@ import (
 type detailScreen struct {
 	ref     fleet.EntityRef
 	vp      viewport.Model
-	body    string
 	loadErr error
 }
 
 func newDetailScreen(c *Context, ref fleet.EntityRef) screen {
 	d := &detailScreen{ref: ref, vp: viewport.New()}
-	det, err := c.Query.EntityDetail(ref.Kind, ref.Key)
+	d.refresh(c)
+	return d
+}
+
+// refresh re-reads the entity from the current snapshot. The root Model calls
+// this on every screen after a reload, so the page a reader is looking at
+// describes the fleet the footer says it does. A lookup that now fails is
+// recorded rather than left showing the old body: an entity that has gone is
+// news, not a rendering problem.
+func (d *detailScreen) refresh(c *Context) {
+	det, err := c.Query.EntityDetail(d.ref.Kind, d.ref.Key)
 	if err != nil {
 		d.loadErr = err
-		return d
+		return
 	}
-	d.body = renderDetail(det)
-	d.vp.SetContent(d.body)
-	return d
+	d.loadErr = nil
+	d.vp.SetContent(renderDetail(det))
 }
 
 func (d *detailScreen) selected() (fleet.EntityRef, bool) { return d.ref, true }
@@ -55,8 +63,8 @@ func (d *detailScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 
 // resize sizes the viewport. A viewport built with no options is 0x0 and its
 // View returns the empty string, so this must run before the first render. The
-// content is set once in the constructor: Update calls resize on every message,
-// and re-splitting the whole body on every keypress buys nothing.
+// content is set by refresh rather than here: Update calls resize on every
+// message, and re-rendering the whole body on every keypress buys nothing.
 func (d *detailScreen) resize(c *Context) {
 	d.vp.SetWidth(c.Width)
 	h := c.Height - 3
