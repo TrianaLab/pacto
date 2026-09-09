@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -25,9 +26,9 @@ type listScreen struct {
 	truncated bool
 	loadErr   error
 
-	// filter and attention are wired in Task 9.
 	filterText string
-	attention  bool
+	input      textinput.Model
+	typing     bool
 }
 
 // kinds is the tab order. Index 0 is the everything tab, represented by the
@@ -40,11 +41,17 @@ func (l *listScreen) kinds() []fleet.EntityKind {
 }
 
 func newListScreen(c *Context) screen {
+	ti := textinput.New()
+	ti.Placeholder = "filter"
+	// The width is set again on every WindowSizeMsg; this is only the value
+	// before the first resize arrives.
+	ti.SetWidth(40)
 	l := &listScreen{
 		tbl: table.New(
 			table.WithColumns(listColumns()),
 			table.WithFocused(true),
 		),
+		input: ti,
 	}
 	l.refresh(c)
 	return l
@@ -96,6 +103,10 @@ func (l *listScreen) selected() (fleet.EntityRef, bool) {
 	return l.entities[i], true
 }
 
+// capturesText reports that the filter input owns every printable key. globalKey
+// checks for this so that typing "q" into the filter does not pop the screen.
+func (l *listScreen) capturesText() bool { return l.typing }
+
 func (l *listScreen) Title() string { return "Fleet" }
 
 func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
@@ -104,7 +115,40 @@ func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 		l.resize(c)
 		return l, nil
 	case tea.KeyPressMsg:
+		if l.typing {
+			switch msg.String() {
+			case "enter":
+				l.typing = false
+				l.input.Blur()
+				l.filterText = l.input.Value()
+				l.refresh(c)
+				return l, nil
+			case "esc":
+				// Cancel without applying: the half-typed value is discarded and
+				// whatever filter was already applied stays applied.
+				l.typing = false
+				l.input.Blur()
+				l.input.SetValue(l.filterText)
+				return l, nil
+			}
+			in, cmd := l.input.Update(msg)
+			l.input = in
+			return l, cmd
+		}
 		switch msg.String() {
+		case "/":
+			l.typing = true
+			return l, l.input.Focus()
+		case "esc":
+			if l.filterText == "" {
+				return l, nil
+			}
+			l.filterText = ""
+			l.input.SetValue("")
+			l.refresh(c)
+			return l, nil
+		case "a":
+			return l, push(newAttentionScreen(c))
 		case "tab":
 			l.kindIx = (l.kindIx + 1) % len(l.kinds())
 			l.refresh(c)
@@ -125,8 +169,8 @@ func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 // has a width, so this must run before the first View.
 func (l *listScreen) resize(c *Context) {
 	l.tbl.SetWidth(c.Width)
-	// header + tab strip + summary line + footer.
-	h := c.Height - 4
+	// header + tab strip + filter line + summary line + footer.
+	h := c.Height - 5
 	if h < 3 {
 		h = 3
 	}
@@ -138,7 +182,7 @@ func (l *listScreen) View(c *Context) string {
 		return errorStyle.Render("query failed: " + l.loadErr.Error())
 	}
 	l.resize(c)
-	return l.tabs() + "\n" + l.tbl.View() + "\n" + l.summary()
+	return l.tabs() + "\n" + l.filterLine() + "\n" + l.tbl.View() + "\n" + l.summary()
 }
 
 func (l *listScreen) tabs() string {
@@ -152,6 +196,16 @@ func (l *listScreen) tabs() string {
 		parts = append(parts, dimStyle.Render(" "+n+" "))
 	}
 	return strings.Join(parts, " ")
+}
+
+func (l *listScreen) filterLine() string {
+	if l.typing {
+		return l.input.View()
+	}
+	if l.filterText != "" {
+		return dimStyle.Render("filter: " + l.filterText + "  (esc clears)")
+	}
+	return dimStyle.Render("/ filter   a attention   tab kind")
 }
 
 // summary states the page bounds. A truncated page never presents itself as the
