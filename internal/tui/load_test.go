@@ -6,8 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -126,20 +129,81 @@ func TestLoadSnapshotSuccess(t *testing.T) {
 // testSnapshot creates a minimal fleet snapshot for testing.
 func testSnapshot(t *testing.T) *fleet.FleetSnapshot {
 	t.Helper()
-	root := t.TempDir()
-	bundleDir := filepath.Join(root, "test-svc")
-	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	pactoYAML := "pactoVersion: \"2.0\"\nservice:\n  name: test-svc\n  version: \"1.0.0\"\n"
-	if err := os.WriteFile(filepath.Join(bundleDir, "pacto.yaml"), []byte(pactoYAML), 0o644); err != nil {
-		t.Fatal(err)
+
+	fixedNow := func() time.Time { return time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC) }
+
+	// Build two minimal contracts and bundles.
+	testContract := &contract.Contract{
+		PactoVersion: "2.0",
+		Service: contract.Service{
+			Name:    "test-svc",
+			Version: "1.0.0",
+			Owner: contract.Owner{
+				Team: "platform",
+			},
+		},
 	}
 
-	svc := app.NewService(nil, nil)
-	snap, err := svc.Fleet(context.Background(), app.FleetOptions{LocalRoots: []string{root}})
+	anotherContract := &contract.Contract{
+		PactoVersion: "2.0",
+		Service: contract.Service{
+			Name:    "another-svc",
+			Version: "2.0.0",
+			Owner: contract.Owner{
+				DRI: "alice",
+			},
+		},
+	}
+
+	now := fixedNow()
+	col := &fleet.Collection{
+		Revisions: []fleet.RawRevision{
+			{
+				Bundle:       &contract.Bundle{Contract: testContract},
+				RequestedRef: "file:///tmp/test-svc",
+				Digest:       "sha256:test",
+			},
+			{
+				Bundle:       &contract.Bundle{Contract: anotherContract},
+				RequestedRef: "oci://example.com/another-svc:2.0.0",
+				ResolvedRef:  "oci://example.com/another-svc@sha256:abc123",
+				Digest:       "sha256:abc123",
+			},
+		},
+		Targets: []fleet.RawTarget{
+			{
+				Scope:       "default",
+				Kind:        "Deployment",
+				Name:        "test-svc-deploy",
+				Service:     "test-svc",
+				Digest:      "sha256:test",
+				Compliance:  "NonCompliant",
+				EvidenceAt:  &now,
+				Findings: []finding.Finding{
+					{
+						Code:     "TEST_FINDING",
+						Severity: finding.SeverityError,
+						Category: finding.CategoryPolicyViolation,
+						Message:  "test finding message",
+					},
+				},
+			},
+			{
+				Scope:       "production",
+				Kind:        "Deployment",
+				Name:        "another-svc-deploy",
+				Service:     "another-svc",
+				Digest:      "sha256:abc123",
+				Compliance:  "Compliant",
+				EvidenceAt:  &now,
+			},
+		},
+	}
+
+	src := fleet.NewMemorySource("test", "memory", col)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: fixedNow}, src)
 	if err != nil {
-		t.Fatalf("Fleet: %v", err)
+		t.Fatalf("Build: %v", err)
 	}
 	return snap
 }
