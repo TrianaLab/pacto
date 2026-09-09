@@ -105,6 +105,12 @@ func TestRefreshReloadsTheSnapshot(t *testing.T) {
 	if !handled || cmd == nil {
 		t.Fatal("r did not trigger a reload")
 	}
+	// Asserting on the message rather than on cmd != nil: any command at all
+	// satisfies the latter, so r could be bound to a status line and this would
+	// still pass.
+	if _, ok := cmd().(snapshotMsg); !ok {
+		t.Fatalf("r produced %T, want a snapshotMsg", cmd())
+	}
 }
 
 func TestYankArgvWithBundle(t *testing.T) {

@@ -595,13 +595,6 @@ func TestGraphScreenDispatchVerbBranch(t *testing.T) {
 	}
 }
 
-// The write marker in helpScreen.View (help.go:26) is deliberately left
-// uncovered here. writeVerbs() is still the Task 16 placeholder that returns
-// nil, so no verb in the table sets Write, and the only way to reach the marker
-// today is a test-only override of writeVerbs -- a seam in production code
-// standing in for code that lands in the very next task. Task 16 registers four
-// real write verbs and covers it for free.
-
 // TestSenderWithNilSender tests that send() is safe when the sender itself is nil.
 func TestSenderWithNilSender(t *testing.T) {
 	var s *sender

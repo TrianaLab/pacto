@@ -257,7 +257,11 @@ func TestAReloadRefreshesTheStackInsteadOfReplacingTheTop(t *testing.T) {
 	if got := m.top().Title(); got != want {
 		t.Fatalf("the reload put %q on top, want %q", got, want)
 	}
-	if d := m.top().(*detailScreen); d.loadErr == nil {
+	d, ok := m.top().(*detailScreen)
+	if !ok {
+		t.Fatalf("the reload put a %T on top, want the detail the reader was on", m.top())
+	}
+	if d.loadErr == nil {
 		t.Fatal("the detail kept its first answer; a reload has to re-query the screen the reader is on")
 	}
 	l, ok := m.stack[0].(*listScreen)

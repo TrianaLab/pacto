@@ -145,23 +145,81 @@ func TestResolveSelectionForASource(t *testing.T) {
 	}
 }
 
-func TestResolveSelectionStripsTheSchemeFromARealLocalRevision(t *testing.T) {
-	// The unit table above can only assert what a hand-built identity does. This
-	// asserts what the fleet actually produces: internal/fleetsrc records a local
-	// bundle as "file://<dir>" and never sets a resolved ref, so the identity comes
-	// back IdentityNoRef. A ref that still carries the scheme is one no verb can
-	// stat.
+// TestResolveSelectionCarriesLocalityOffEveryPath is the counterpart to the
+// unit table above, which can only assert what a hand-built identity does. This
+// asserts what the fleet actually produces, over each of the three ways a
+// selection reaches a bundle: a revision directly, a service through its active
+// revision and a target through the revision it runs.
+//
+// Both halves matter. internal/fleetsrc records a local bundle as "file://<dir>"
+// and never sets a resolved ref, so a ref that still carries the scheme is one
+// no verb can stat. And Local is what every local-only verb keys on, so a path
+// that drops it silently hides push, generate and both lock verbs on the one
+// selection they are for.
+func TestResolveSelectionCarriesLocalityOffEveryPath(t *testing.T) {
 	c := newLoadedContext(t)
-	sel, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindService, Key: testServiceName})
+	for _, tt := range []struct {
+		name      string
+		ref       fleet.EntityRef
+		wantLocal bool
+	}{
+		{
+			"the local revision directly",
+			fleet.EntityRef{Kind: fleet.KindRevision, Key: revisionKeyOf(t, c, testServiceName)},
+			true,
+		},
+		{
+			"the local service, through its active revision",
+			fleet.EntityRef{Kind: fleet.KindService, Key: testServiceName},
+			true,
+		},
+		{
+			"the local target, through the revision it runs",
+			fleet.EntityRef{Kind: fleet.KindTarget, Key: "default/Deployment/test-svc-deploy"},
+			true,
+		},
+		{
+			"the registry revision",
+			fleet.EntityRef{Kind: fleet.KindRevision, Key: revisionKeyOf(t, c, "another-svc")},
+			false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			sel, err := resolveSelection(c, tt.ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sel.Ref == "" {
+				t.Fatal("resolved to no ref at all")
+			}
+			if strings.HasPrefix(sel.Ref, "file://") {
+				t.Fatalf("Ref = %q, want the bare directory", sel.Ref)
+			}
+			if sel.Local != tt.wantLocal {
+				t.Fatalf("Ref = %q came back Local=%v, want %v", sel.Ref, sel.Local, tt.wantLocal)
+			}
+		})
+	}
+}
+
+// revisionKeyOf returns the fixture's revision key for a service. The key
+// carries a digest, and spelling it out at each call site would make the test
+// about the fixture's constants rather than about resolution.
+func revisionKeyOf(t *testing.T, c *Context, service string) string {
+	t.Helper()
+	list, err := c.Query.Entities(fleet.EntityFilter{
+		Kinds: []fleet.EntityKind{fleet.KindRevision}, Limit: 100,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.HasPrefix(sel.Ref, "file://") {
-		t.Fatalf("Ref = %q, want the bare directory", sel.Ref)
+	for _, e := range list.Entities {
+		if strings.HasPrefix(e.Key, service+"@") {
+			return e.Key
+		}
 	}
-	if sel.Ref == "" {
-		t.Fatal("the local fixture service resolved to no ref at all")
-	}
+	t.Fatalf("the fixture has no revision of %s", service)
+	return ""
 }
 
 func TestResolveSelectionForTarget(t *testing.T) {
