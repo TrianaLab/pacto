@@ -87,9 +87,9 @@ func (b *treeBuilder) edge(e fleet.NeighborhoodEdge) graph.Edge {
 }
 
 // terminalOnly downgrades a reference edge that is not really terminal.
-// render.go:86 prints EdgeReference as a bare line and skips the error, the
-// shared marker and the whole subtree, so the adapter may claim EdgeReference
-// only when there is nothing underneath for it to hide.
+// renderChildren in pkg/graph prints EdgeReference as a bare line and skips
+// the error, the shared marker and the whole subtree, so the adapter may claim
+// EdgeReference only when there is nothing underneath for it to hide.
 func terminalOnly(ge graph.Edge) graph.Edge {
 	if ge.Type != graph.EdgeReference {
 		return ge
