@@ -72,14 +72,14 @@ func TestGraphScreenDirectionCycles(t *testing.T) {
 	ref := firstEntityOfKind(t, c, fleet.KindService)
 	s := newGraphScreen(c, ref)
 	initial := s.(*graphScreen).dirIx
-	s, _ = s.Update(c, tea.KeyPressMsg{Code: 'd', Text: "d"})
+	s, _ = s.Update(c, tea.KeyPressMsg{Code: '\t', Text: "tab"})
 	if got := s.(*graphScreen).dirIx; got == initial {
-		t.Fatal("d did not change direction")
+		t.Fatal("tab did not change direction")
 	}
 	// Cycle through remaining directions to wrap back
 	dirs := graphDirections()
 	for i := 1; i < len(dirs); i++ {
-		s, _ = s.Update(c, tea.KeyPressMsg{Code: 'd', Text: "d"})
+		s, _ = s.Update(c, tea.KeyPressMsg{Code: '\t', Text: "tab"})
 	}
 	if s.(*graphScreen).dirIx != initial {
 		t.Fatalf("direction did not wrap after a full cycle, got %d want %d", s.(*graphScreen).dirIx, initial)

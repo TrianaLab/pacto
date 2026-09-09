@@ -66,27 +66,19 @@ func TestPadLongString(t *testing.T) {
 }
 
 func TestHelpScreenViewWithVerbs(t *testing.T) {
-	orig := verbList
-	t.Cleanup(func() { verbList = orig })
-
-	verbList = func(c *Context) []Verb {
-		return []Verb{
-			{Key: "l", Help: "lock", Write: false},
-			{Key: "p", Help: "push", Write: true},
-		}
-	}
-
 	h := helpScreen{}
-	c := &Context{}
-	view := h.View(c)
+	c := newLoadedContext(t)
 
-	if !strings.Contains(view, "lock") {
-		t.Fatal("View should contain verb help text 'lock'")
+	// The help screen should show at least one verb when write verbs are included.
+	view := h.View(c)
+	if !strings.Contains(view, "validate") {
+		t.Fatal("View should contain at least the 'validate' verb")
 	}
-	if !strings.Contains(view, "push") {
-		t.Fatal("View should contain verb help text 'push'")
-	}
-	if !strings.Contains(view, "writes; asks first") {
-		t.Fatal("View should indicate write verbs")
+
+	// With ReadOnly=true, write verbs should not appear and the marker should be absent.
+	c.ReadOnly = true
+	viewReadOnly := h.View(c)
+	if strings.Contains(viewReadOnly, "writes; asks first") {
+		t.Fatal("View should not show write marker in read-only mode")
 	}
 }

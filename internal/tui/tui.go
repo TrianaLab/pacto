@@ -32,12 +32,17 @@ type Context struct {
 	Svc      *app.Service
 	Fleet    app.FleetOptions
 	Query    *fleet.Query
+	Snapshot *fleet.FleetSnapshot
 	Send     *sender
 	Exe      string
 	ReadOnly bool
 	Width    int
 	Height   int
 	Status   string
+	// pendingDiff and pendingImpact hold the left-hand side of a two-selection
+	// verb between the two keypresses that make it up.
+	pendingDiff   Selection
+	pendingImpact Selection
 }
 
 // Model is the root tea.Model: a screen stack plus the shared context.
@@ -82,6 +87,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.ctx.Query = fleet.NewQuery(msg.snap)
+		m.ctx.Snapshot = msg.snap
 		// Replace rather than push: the loading screen is not somewhere the
 		// user can go back to.
 		m.stack[len(m.stack)-1] = newListScreen(m.ctx)

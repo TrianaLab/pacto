@@ -92,6 +92,9 @@ func (a *attentionScreen) Title() string { return "Attention" }
 
 func (a *attentionScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
+		if cmd, handled := dispatchVerb(c, a, k); handled {
+			return a, cmd
+		}
 		switch k.String() {
 		case "enter":
 			ref, ok := a.selected()
@@ -99,12 +102,6 @@ func (a *attentionScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 				return a, nil
 			}
 			return a, push(newDetailScreen(c, ref))
-		case "g":
-			ref, ok := a.selected()
-			if !ok {
-				return a, nil
-			}
-			return a, push(newGraphScreen(c, ref))
 		case "tab":
 			a.catIx = (a.catIx + 1) % len(attentionCategories())
 			a.refresh(c)

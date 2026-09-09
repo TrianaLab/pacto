@@ -520,3 +520,59 @@ func TestAnalyze_BoundsTheLimitationsEnvelope(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseBlocking(t *testing.T) {
+	tests := []struct {
+		name string
+		r    *Result
+		want bool
+	}{
+		{
+			name: "not breaking",
+			r: &Result{
+				Classification: "NON_BREAKING",
+				Consumers: []AffectedConsumer{
+					{CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/Deployment/svc"}},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "breaking but no incompatible consumers",
+			r: &Result{
+				Classification: "BREAKING",
+				Consumers: []AffectedConsumer{
+					{CompatibilityVerdict: CompatibilityCompatible, Targets: []string{"prod/Deployment/svc"}},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "breaking with incompatible but targetless consumer",
+			r: &Result{
+				Classification: "BREAKING",
+				Consumers: []AffectedConsumer{
+					{CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{}},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "breaking with incompatible active consumer",
+			r: &Result{
+				Classification: "BREAKING",
+				Consumers: []AffectedConsumer{
+					{CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/Deployment/svc"}},
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.r.ReleaseBlocking(); got != tt.want {
+				t.Errorf("ReleaseBlocking() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

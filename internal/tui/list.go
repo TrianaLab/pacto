@@ -148,6 +148,9 @@ func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 		if l.typing {
 			return l.typingKey(c, msg)
 		}
+		if cmd, handled := dispatchVerb(c, l, msg); handled {
+			return l, cmd
+		}
 		switch msg.String() {
 		case "enter":
 			ref, ok := l.selected()
@@ -168,12 +171,6 @@ func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 			return l, nil
 		case "a":
 			return l, push(newAttentionScreen(c))
-		case "g":
-			ref, ok := l.selected()
-			if !ok {
-				return l, nil
-			}
-			return l, push(newGraphScreen(c, ref))
 		case "tab":
 			l.kindIx = (l.kindIx + 1) % len(l.kinds())
 			l.refresh(c)

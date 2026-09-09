@@ -326,7 +326,14 @@ func TestListPressGWithNoSelectionDoesNothing(t *testing.T) {
 	l := newListScreen(c).(*listScreen)
 	l.entities = nil // Clear entities so nothing is selected
 	_, cmd := l.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
-	if cmd != nil {
-		t.Fatal("g with no selection should not produce a command")
+	if cmd == nil {
+		t.Fatal("g with no selection should produce a status message")
+	}
+	msg, ok := cmd().(statusMsg)
+	if !ok {
+		t.Fatalf("g with no selection produced %T, want statusMsg", cmd())
+	}
+	if msg.text == "" {
+		t.Fatal("status message should not be empty")
 	}
 }

@@ -74,7 +74,7 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			err = printImpactResult(cmd, result, format)
 			// Fail closed: a breaking change landing on a live, incompatible
 			// consumer is a release blocker (mirrors `pacto diff`).
-			if err == nil && result.Classification == "BREAKING" && hasIncompatibleActiveConsumer(result) {
+			if err == nil && result.ReleaseBlocking() {
 				err = fmt.Errorf("breaking changes affect active consumers")
 			}
 			return err
@@ -90,17 +90,6 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	addDiffOverrideFlags(cmd)
 
 	return cmd
-}
-
-// hasIncompatibleActiveConsumer reports whether any affected consumer both
-// declares an incompatible range and is actually deployed (has active targets).
-func hasIncompatibleActiveConsumer(r *impact.Result) bool {
-	for _, c := range r.Consumers {
-		if c.CompatibilityVerdict == impact.CompatibilityIncompatible && len(c.Targets) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // printImpactResult renders an impact result as text or JSON.

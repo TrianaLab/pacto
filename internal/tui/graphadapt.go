@@ -161,3 +161,12 @@ func treeColors() graph.TreeColors {
 		Warn:    func(s string) string { return warnStyle.Render(s) },
 	}
 }
+
+func diffColors() graph.DiffColors {
+	return graph.DiffColors{
+		Name:    func(s string) string { return s },
+		Added:   func(s string) string { return okStyle.Render(s) },
+		Removed: func(s string) string { return errorStyle.Render(s) },
+		Changed: func(s string) string { return warnStyle.Render(s) },
+	}
+}

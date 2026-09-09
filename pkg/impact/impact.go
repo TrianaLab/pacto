@@ -123,6 +123,22 @@ func (r *Result) boundEnvelope() {
 	r.Limitations, r.LimitationsTruncated = fleet.BoundLimitations(r.Limitations)
 }
 
+// ReleaseBlocking reports whether this change is the kind `pacto impact` fails
+// on: a breaking change that reaches a consumer which is both incompatible and
+// actually deployed. A consumer that is incompatible on paper but running
+// nowhere the snapshot can see is not a release blocker.
+func (r *Result) ReleaseBlocking() bool {
+	if r.Classification != "BREAKING" {
+		return false
+	}
+	for _, c := range r.Consumers {
+		if c.CompatibilityVerdict == CompatibilityIncompatible && len(c.Targets) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // Analyze compares old→new and projects the change onto the operational graph.
 func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.FS, snap *fleet.FleetSnapshot, opts Options) *Result {
 	d := diff.Compare(ctx, old, new, oldFS, newFS)

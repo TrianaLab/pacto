@@ -56,6 +56,9 @@ func (g *graphScreen) Title() string { return "Graph: " + label(g.ref) }
 
 func (g *graphScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
+		if cmd, handled := dispatchVerb(c, g, k); handled {
+			return g, cmd
+		}
 		switch k.String() {
 		case "+", "=":
 			if g.depth < fleet.MaxNeighborhoodDepth {
@@ -69,7 +72,7 @@ func (g *graphScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 				g.refresh(c)
 			}
 			return g, nil
-		case "d":
+		case "tab":
 			g.dirIx = (g.dirIx + 1) % len(graphDirections())
 			g.refresh(c)
 			return g, nil
@@ -110,7 +113,7 @@ func (g *graphScreen) bar() string {
 	}
 	s := fmt.Sprintf("depth %d (evaluated %d)   direction %s   %d nodes",
 		g.depth, g.nb.EffectiveDepth, g.nb.Direction, len(g.nb.Nodes))
-	line := dimStyle.Render(s + "   +/- depth   d direction")
+	line := dimStyle.Render(s + "   +/- depth   tab direction")
 	if g.nb.Truncated {
 		line += "  " + warnStyle.Render("truncated")
 	}
