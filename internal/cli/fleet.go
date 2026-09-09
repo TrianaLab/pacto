@@ -46,7 +46,20 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return cmd
 }
 
-// fleetOptions reads the shared source flags into app.FleetOptions.
+// fleetFlagNames lists the shared fleet source flags declared by
+// newFleetCommand, in declaration order. It is the single list any other
+// command copies from when it wants the same source surface.
+func fleetFlagNames() []string {
+	return []string{
+		"local", "target-state", "evidence-url", "traces", "oci",
+		"cache", "k8s", "namespace", "freshness",
+	}
+}
+
+// fleetOptions reads the shared source flags into app.FleetOptions. Lookup
+// errors are deliberately discarded: a command may declare a narrower subset of
+// fleetFlagNames (pacto impact does), and an undeclared flag correctly
+// contributes its zero value rather than failing the command.
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
