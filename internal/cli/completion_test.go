@@ -39,6 +39,8 @@ func TestClosedSetFlagsComplete(t *testing.T) {
 	}{
 		// --status is covered by TestStatusFlagCompletes; its vocabulary is
 		// fleet.CanonicalStatuses(), so restating it here would prove nothing.
+		// --compliance shares the same vocabulary (validated by ValidStatus).
+		{"fleet search --compliance", []string{"fleet", "search", "--compliance", ""}, []string{"Compliant", "Invalid", "NonCompliant", "NotEvaluated", "Reference", "Unknown", "Warning"}},
 		{"fleet search --workload", []string{"fleet", "search", "--workload", ""}, []string{"service", "job", "scheduled"}},
 		{"fleet graph --direction", []string{"fleet", "graph", "--direction", ""}, []string{"dependencies", "dependents"}},
 		{"doc --ui", []string{"doc", "--ui", ""}, []string{"swagger"}},

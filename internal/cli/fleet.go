@@ -179,12 +179,13 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultSearchLimit, fleet.MaxSearchLimit))
 	cmd.Flags().Int("offset", 0, "result offset for paging")
 
-	// Two closed vocabularies the code already owns, so declaring them costs
+	// Three closed vocabularies the code already owns, so declaring them costs
 	// nothing at runtime and turns empty completion into real completion. The
-	// remaining string filters (--owner, --compliance, --source, --scope,
-	// --label) take values that come from the fleet data, not from a vocabulary,
-	// so guessing at them would be worse than offering nothing.
+	// remaining string filters (--owner, --source, --scope, --label) take values
+	// that come from the fleet data, not from a vocabulary, so guessing at them
+	// would be worse than offering nothing.
 	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
+	_ = cmd.RegisterFlagCompletionFunc("compliance", staticCompletions(fleet.CanonicalStatuses()...))
 	_ = cmd.RegisterFlagCompletionFunc("workload", staticCompletions(
 		contract.WorkloadService, contract.WorkloadJob, contract.WorkloadScheduled))
 	return cmd
