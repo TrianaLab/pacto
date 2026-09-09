@@ -1,0 +1,167 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+func TestOutputRingBufferIsBounded(t *testing.T) {
+	o := newOutputScreen("Validate")
+	for i := 0; i < outputMaxLines+500; i++ {
+		o.append(fmt.Sprintf("line %d", i))
+	}
+	if len(o.lines) != outputMaxLines {
+		t.Fatalf("buffer holds %d lines, want it capped at %d", len(o.lines), outputMaxLines)
+	}
+	if o.lines[0] == "line 0" {
+		t.Fatal("the ring buffer kept the oldest line; it must drop from the front")
+	}
+	last := o.lines[len(o.lines)-1]
+	if want := fmt.Sprintf("line %d", outputMaxLines+499); last != want {
+		t.Fatalf("last line = %q, want %q", last, want)
+	}
+	if o.dropped == 0 {
+		t.Fatal("dropped lines were not counted")
+	}
+}
+
+func TestOutputSaysWhenLinesWereDropped(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Validate")
+	for i := 0; i < outputMaxLines+1; i++ {
+		o.append("x")
+	}
+	if !strings.Contains(o.View(c), "earlier line") {
+		t.Fatalf("a truncated buffer must say so:\n%s", o.View(c))
+	}
+}
+
+func TestOutputIgnoresMessagesFromAPreviousRun(t *testing.T) {
+	// Two verbs run back to back; the first one's late output must not land in
+	// the second one's pane.
+	c := newLoadedContext(t)
+	o := newOutputScreen("Validate")
+	o.id = 7
+	next, _ := o.Update(c, outputLineMsg{id: 6, line: "stale"})
+	if strings.Contains(next.View(c), "stale") {
+		t.Fatal("output from a superseded run was accepted")
+	}
+	next, _ = next.Update(c, outputLineMsg{id: 7, line: "fresh"})
+	if !strings.Contains(next.View(c), "fresh") {
+		t.Fatal("output from the current run was rejected")
+	}
+}
+
+func TestOutputReportsSuccessAndFailure(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Validate")
+	done, _ := o.Update(c, outputDoneMsg{id: o.id})
+	if !strings.Contains(done.View(c), "done") {
+		t.Fatalf("a successful run says nothing:\n%s", done.View(c))
+	}
+	o2 := newOutputScreen("Validate")
+	failed, _ := o2.Update(c, outputDoneMsg{id: o2.id, err: errBoom})
+	if !strings.Contains(failed.View(c), "boom") {
+		t.Fatalf("a failed run hides the error:\n%s", failed.View(c))
+	}
+}
+
+func TestOutputShowsProgressWhileRunning(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Graph")
+	next, _ := o.Update(c, depResolvedMsg{})
+	if !strings.Contains(next.View(c), "1 ") {
+		t.Fatalf("dependency progress is not shown:\n%s", next.View(c))
+	}
+}
+
+func TestOutputDistinctIdsPerScreen(t *testing.T) {
+	// Two consecutive newOutputScreen calls must get different ids. A stale
+	// run's late output must not land in the next run's pane.
+	o1 := newOutputScreen("First")
+	o2 := newOutputScreen("Second")
+	if o1.id == o2.id {
+		t.Fatalf("two screens got the same id %d; distinct runs need distinct ids", o1.id)
+	}
+}
+
+func TestOutputContentWithoutDrops(t *testing.T) {
+	o := newOutputScreen("Test")
+	o.append("line 1")
+	o.append("line 2")
+	content := o.content()
+	if strings.Contains(content, "earlier line") {
+		t.Fatalf("content shows drop warning when nothing was dropped:\n%s", content)
+	}
+	if !strings.Contains(content, "line 1") || !strings.Contains(content, "line 2") {
+		t.Fatalf("content missing lines:\n%s", content)
+	}
+}
+
+func TestOutputContentWithDrops(t *testing.T) {
+	o := newOutputScreen("Test")
+	for i := 0; i < outputMaxLines+100; i++ {
+		o.append(fmt.Sprintf("line %d", i))
+	}
+	content := o.content()
+	if !strings.Contains(content, "earlier line") {
+		t.Fatalf("content does not show drop warning when lines were dropped:\n%s", content)
+	}
+}
+
+func TestOutputTitle(t *testing.T) {
+	o := newOutputScreen("Validate")
+	if got := o.Title(); got != "Validate" {
+		t.Fatalf("Title() = %q, want %q", got, "Validate")
+	}
+}
+
+func TestOutputResizeAdjustsViewport(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Test")
+	o.append("test line")
+	c.Width, c.Height = 80, 24
+	o.resize(c)
+	if o.vp.Width() != 80 {
+		t.Fatalf("viewport width = %d, want 80", o.vp.Width())
+	}
+	expectedHeight := 20
+	if o.vp.Height() != expectedHeight {
+		t.Fatalf("viewport height = %d, want %d", o.vp.Height(), expectedHeight)
+	}
+}
+
+func TestOutputResizeMinimumHeight(t *testing.T) {
+	c := newLoadedContext(t)
+	c.Width, c.Height = 50, 2
+	o := newOutputScreen("Test")
+	o.resize(c)
+	if o.vp.Height() < 3 {
+		t.Fatalf("viewport height = %d, want at least 3", o.vp.Height())
+	}
+}
+
+func TestOutputHandlesSpinnerTick(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Test")
+	next, cmd := o.Update(c, o.sp.Tick())
+	if next != o {
+		t.Fatal("spinner tick changed the screen")
+	}
+	if cmd == nil {
+		t.Fatal("spinner tick produced no command, want next tick")
+	}
+}
+
+func TestOutputDelegatesToViewport(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Test")
+	o.append("test line")
+	next, _ := o.Update(c, tea.KeyPressMsg{Code: tea.KeyDown})
+	if next != o {
+		t.Fatal("viewport message changed the screen")
+	}
+}
