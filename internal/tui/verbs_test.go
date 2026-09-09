@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -176,15 +177,20 @@ func TestScreenLocalKeysDoNotShadowVerbs(t *testing.T) {
 	}
 }
 
+// TestVerbCommandsOnAZeroContext pins the contract internal/cli depends on: the
+// boundary test calls this from a package that has no fleet to build a Context
+// from, so a zero one has to be enough. A panic here fails the test on its own,
+// with a stack that says which field was read; recovering it would throw that
+// away and report less.
 func TestVerbCommandsOnAZeroContext(t *testing.T) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("VerbCommands panicked on a zero Context: %v", r)
-		}
-	}()
 	cmds := VerbCommands()
 	if len(cmds) == 0 {
 		t.Fatal("VerbCommands returned an empty list, verb table is broken")
+	}
+	for _, c := range cmds {
+		if c == "" || strings.Contains(c, "pacto") {
+			t.Errorf("%q is not a cobra path; commandPath must strip argv[0]", c)
+		}
 	}
 }
 

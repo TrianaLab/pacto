@@ -15,7 +15,14 @@ var embodiedByTUI = map[string]string{
 	"tui":          "this is the command under test",
 	"fleet status": "the list screen is a live fleet status",
 	"fleet search": "the / filter is a live fleet search",
-	"graph":        "the graph screen renders the same tree from a fleet neighborhood",
+	// Partial, and the reason says so rather than rounding up. The g verb walks
+	// a fleet.Neighborhood (internal/tui/graphscreen.go:37) and renders it through
+	// the same graph.Result the CLI prints, so a service already in the snapshot
+	// shows the same dependency tree. What it does not do is what app.Graph does
+	// on top: resolve a bundle path or oci:// ref that is not in the fleet at all,
+	// and report version conflicts.
+	"graph": "the g verb renders the same dependency tree from the fleet neighborhood; " +
+		"resolving a bundle outside the fleet and reporting version conflicts are not covered",
 }
 
 // excludedFromTUI records why each command is deliberately absent, so the
@@ -82,9 +89,19 @@ func TestNoStaleClassification(t *testing.T) {
 			}
 		}
 	}
-	for path := range excludedFromTUI {
+	// An exclusion is a claim that no verb runs the command. A verb that does run
+	// it leaves a reason on the record that reads as a decision but is now false,
+	// which is worse than no record at all.
+	run := map[string]bool{}
+	for _, c := range tui.VerbCommands() {
+		run[c] = true
+	}
+	for path, reason := range excludedFromTUI {
 		if _, both := embodiedByTUI[path]; both {
 			t.Errorf("%q is both embodied and excluded", path)
+		}
+		if run[path] {
+			t.Errorf("%q is excluded (%s) but a verb runs it", path, reason)
 		}
 	}
 }
