@@ -17,28 +17,33 @@ import (
 
 // Options configures a TUI session.
 type Options struct {
-	Svc      *app.Service
-	Fleet    app.FleetOptions
-	ReadOnly bool   // suppress every write verb
-	Exe      string // absolute path to the pacto binary used for write verbs
-	Input    io.Reader
-	Output   io.Writer
+	Svc   *app.Service
+	Fleet app.FleetOptions
+	// SourceArgs is the source flags the session was launched with, already in
+	// argv form. Fleet holds the same information but has transformed it, so a
+	// yanked line is rendered from this rather than reversed out of that.
+	SourceArgs []string
+	ReadOnly   bool   // suppress every write verb
+	Exe        string // absolute path to the pacto binary used for write verbs
+	Input      io.Reader
+	Output     io.Writer
 }
 
 // Context is the state every screen shares. Screens read it and never replace
 // it; the root Model owns the pointer.
 type Context struct {
-	Ctx      context.Context // session context that cancels in-flight loads
-	Svc      *app.Service
-	Fleet    app.FleetOptions
-	Query    *fleet.Query
-	Snapshot *fleet.FleetSnapshot
-	Send     *sender
-	Exe      string
-	ReadOnly bool
-	Width    int
-	Height   int
-	Status   string
+	Ctx        context.Context // session context that cancels in-flight loads
+	Svc        *app.Service
+	Fleet      app.FleetOptions
+	SourceArgs []string // the source flags this session was launched with
+	Query      *fleet.Query
+	Snapshot   *fleet.FleetSnapshot
+	Send       *sender
+	Exe        string
+	ReadOnly   bool
+	Width      int
+	Height     int
+	Status     string
 	// pendingDiff and pendingImpact hold the left-hand side of a two-selection
 	// verb between the two keypresses that make it up.
 	pendingDiff   Selection
@@ -56,14 +61,15 @@ type Model struct {
 func New(o Options) *Model {
 	return &Model{
 		ctx: &Context{
-			Ctx:      context.Background(),
-			Svc:      o.Svc,
-			Fleet:    o.Fleet,
-			Send:     &sender{},
-			Exe:      o.Exe,
-			ReadOnly: o.ReadOnly,
-			Width:    80,
-			Height:   24,
+			Ctx:        context.Background(),
+			Svc:        o.Svc,
+			Fleet:      o.Fleet,
+			SourceArgs: o.SourceArgs,
+			Send:       &sender{},
+			Exe:        o.Exe,
+			ReadOnly:   o.ReadOnly,
+			Width:      80,
+			Height:     24,
 		},
 		stack: []screen{loadingScreen{}},
 	}

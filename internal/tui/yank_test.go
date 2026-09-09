@@ -67,6 +67,72 @@ func TestYankForAnEntityWithNoBundleNamesTheSubjectTheWayTheCommandDoes(t *testi
 	}
 }
 
+// TestYankCarriesTheSessionSourceFlags is the reason y exists: the line has to
+// answer over the fleet on screen. Without the flags, a session launched with
+// anything but the default source yanks a query that rebuilds a different
+// snapshot and reports "not found" for the very thing it names.
+func TestYankCarriesTheSessionSourceFlags(t *testing.T) {
+	c := newLoadedContext(t)
+	c.SourceArgs = []string{"--k8s=true", "--local=a", "--local=b"}
+	for _, tt := range []struct {
+		name string
+		sel  Selection
+		want string
+	}{
+		{
+			"a service",
+			Selection{Kind: fleet.KindService, Key: "svc", Label: "svc"},
+			"pacto fleet get svc --k8s=true --local=a --local=b",
+		},
+		{
+			"a revision",
+			Selection{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc"},
+			"pacto fleet graph --revision svc@1.0.0 --k8s=true --local=a --local=b",
+		},
+		{
+			"a target",
+			Selection{Kind: fleet.KindTarget, Key: "prod/Deployment/svc", Label: "svc"},
+			"pacto fleet get --target prod/Deployment/svc --k8s=true --local=a --local=b",
+		},
+		{
+			"an owner",
+			Selection{Kind: fleet.KindOwner, Key: "team:platform", Label: "platform"},
+			"pacto fleet search --owner platform --k8s=true --local=a --local=b",
+		},
+		{
+			"a source",
+			Selection{Kind: fleet.KindSource, Key: "local", Label: "local"},
+			"pacto fleet search --source local --k8s=true --local=a --local=b",
+		},
+		{
+			// validate reads one bundle off disk and parses no source flag, so this
+			// is the one line they must stay off.
+			"a bundle-backed selection stays a plain validate",
+			Selection{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc", Ref: "./svc"},
+			"pacto validate ./svc",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := yankLine(c, tt.sel); got != tt.want {
+				t.Fatalf("yank = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestYankDoesNotShareTheSourceArgsBacking guards the aliasing bug the append
+// invites: two yanks in one session must not let the first line's tail be
+// overwritten by the second.
+func TestYankDoesNotShareTheSourceArgsBacking(t *testing.T) {
+	c := newLoadedContext(t)
+	c.SourceArgs = []string{"--k8s=true"}
+	first := yankArgv(c, Selection{Kind: fleet.KindService, Key: "one"})
+	yankArgv(c, Selection{Kind: fleet.KindService, Key: "two"})
+	if got := strings.Join(first, " "); got != "pacto fleet get one --k8s=true" {
+		t.Fatalf("the first yanked line became %q", got)
+	}
+}
+
 func TestYankFallsBackToShowingTheLineWhenThereIsNoClipboard(t *testing.T) {
 	orig := clipboardWrite
 	t.Cleanup(func() { clipboardWrite = orig })

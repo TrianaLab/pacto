@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -63,6 +64,33 @@ func fleetFlagNames() []string {
 		"local", "target-state", "evidence-url", "traces", "oci",
 		"cache", "k8s", "namespace", "freshness",
 	}
+}
+
+// fleetSourceArgs renders the source flags the caller actually set back into
+// argv. Visit walks only flags with Changed set, so a default contributes
+// nothing and the line stays as short as what the reader typed. It exists so
+// the TUI can hand a reader a fleet query that resolves the same snapshot the
+// screen is showing, rather than one rebuilt from the defaults.
+func fleetSourceArgs(cmd *cobra.Command) []string {
+	var out []string
+	cmd.Flags().Visit(func(f *pflag.Flag) {
+		if !slices.Contains(fleetFlagNames(), f.Name) {
+			return
+		}
+		// A repeatable flag holds every value at once, so one --name=value per
+		// element; taking Value.String() would emit pflag's "[a,b]" rendering and
+		// lose every element after the first.
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			for _, v := range sv.GetSlice() {
+				out = append(out, "--"+f.Name+"="+v)
+			}
+			return
+		}
+		// --name=value rather than two tokens: it is unambiguous for a bool, where
+		// a bare --k8s would swallow the positional that follows it.
+		out = append(out, "--"+f.Name+"="+f.Value.String())
+	})
+	return out
 }
 
 // fleetOptions reads the shared source flags into app.FleetOptions. Lookup

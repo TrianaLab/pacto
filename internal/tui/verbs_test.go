@@ -435,6 +435,9 @@ func TestCommandPathDefensiveChecks(t *testing.T) {
 		{"simple command", []string{"pacto", "validate"}, "validate"},
 		{"fleet subcommand", []string{"pacto", "fleet", "get"}, "fleet get"},
 		{"non-subcommand", []string{"pacto", "validate", "ref"}, "validate"},
+		// A yanked fleet line now ends in the session's source flags; the path is
+		// still the two words before them.
+		{"source flags after the positional", []string{"pacto", "fleet", "get", "svc", "--k8s=true", "--local=a"}, "fleet get"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

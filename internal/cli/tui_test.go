@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -73,6 +74,48 @@ func TestTUIPassesTheFlagsThroughToTheProgram(t *testing.T) {
 	}
 	if got.Svc == nil {
 		t.Error("Options.Svc is nil, the program has no service to query")
+	}
+}
+
+// TestTUICarriesTheSourceFlagsForYanking pins the four properties a yanked fleet
+// query depends on: a repeatable flag keeps every value, a bool is rendered in
+// --name=value form so it cannot swallow a positional, a flag left at its default
+// contributes nothing, and a non-source flag is not smuggled onto the line.
+func TestTUICarriesTheSourceFlagsForYanking(t *testing.T) {
+	withTTY(t, true)
+	origExe := osExecutable
+	t.Cleanup(func() { osExecutable = origExe })
+	osExecutable = func() (string, error) { return "/fake/pacto", nil }
+
+	origRun := tuiRun
+	t.Cleanup(func() { tuiRun = origRun })
+	var got tui.Options
+	tuiRun = func(_ context.Context, o tui.Options) error {
+		got = o
+		return nil
+	}
+
+	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"tui", "--local", "a", "--local", "b", "--k8s", "--read-only"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil", err)
+	}
+
+	// Visit walks the set flags in lexical order, so this is the whole line.
+	want := []string{"--k8s=true", "--local=a", "--local=b"}
+	if !slices.Equal(got.SourceArgs, want) {
+		t.Fatalf("SourceArgs = %v, want %v", got.SourceArgs, want)
+	}
+}
+
+func TestTUISourceArgsAreEmptyWhenNothingWasTyped(t *testing.T) {
+	// A bare `pacto tui` must not manufacture a --local=. that the reader never
+	// typed: an unset flag has to stay off the yanked line.
+	cmd := newTUICommand(newTestService(t), viper.New())
+	if args := fleetSourceArgs(cmd); len(args) != 0 {
+		t.Fatalf("fleetSourceArgs on an untouched command = %v, want nothing", args)
 	}
 }
 

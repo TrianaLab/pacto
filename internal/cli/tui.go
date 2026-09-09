@@ -49,10 +49,13 @@ func newTUICommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			}
 			readOnly, _ := cmd.Flags().GetBool("read-only")
 			return tuiRun(cmd.Context(), tui.Options{
-				Svc:      svc,
-				Fleet:    fleetOptions(cmd),
-				ReadOnly: readOnly,
-				Exe:      exe,
+				Svc:   svc,
+				Fleet: fleetOptions(cmd),
+				// The yanked line has to resolve the snapshot on screen, not one
+				// rebuilt from the defaults, so it carries the source flags verbatim.
+				SourceArgs: fleetSourceArgs(cmd),
+				ReadOnly:   readOnly,
+				Exe:        exe,
 			})
 		},
 	}
