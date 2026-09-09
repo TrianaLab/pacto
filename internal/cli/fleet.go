@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v3/internal/app"
@@ -26,15 +27,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"as-of time and completeness.",
 	}
 	// Source flags are shared by every subcommand.
-	cmd.PersistentFlags().StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
-	cmd.PersistentFlags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
-	cmd.PersistentFlags().StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
-	cmd.PersistentFlags().StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
-	cmd.PersistentFlags().StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
-	cmd.PersistentFlags().Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
-	cmd.PersistentFlags().Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
-	cmd.PersistentFlags().String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
-	cmd.PersistentFlags().Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	addFleetSourceFlags(cmd.PersistentFlags())
 
 	cmd.AddCommand(newFleetSearchCommand(svc, v))
 	cmd.AddCommand(newFleetGetCommand(svc, v))
@@ -44,6 +37,21 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newFleetExplainCommand(svc, v))
 	cmd.AddCommand(newFleetReconcileCommand(svc, v))
 	return cmd
+}
+
+// addFleetSourceFlags declares the shared fleet source flags on f. Callers pass
+// cmd.PersistentFlags() when subcommands must inherit them (pacto fleet) and
+// cmd.Flags() otherwise (pacto tui).
+func addFleetSourceFlags(f *pflag.FlagSet) {
+	f.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
+	f.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
+	f.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
+	f.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
+	f.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
+	f.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
+	f.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
+	f.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
+	f.Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
 }
 
 // fleetFlagNames lists the shared fleet source flags declared by

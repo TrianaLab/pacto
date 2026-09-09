@@ -145,6 +145,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.AddCommand(newUpdateCommand(info.Version))
 	root.AddCommand(newMCPCommand(svc, info.Version))
 	root.AddCommand(newDashboardCommand(svc, v, info.Version))
+	root.AddCommand(newTUICommand(svc, v))
 
 	attachBanner(root)
 	return root
