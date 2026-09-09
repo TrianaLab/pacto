@@ -4,18 +4,24 @@ import (
 	"context"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
-// loadSnapshot assembles the fleet snapshot off the UI goroutine.
+// loadSnapshot assembles the fleet snapshot off the UI goroutine. It is the one
+// slow operation in the session: every read afterwards is a pure query over the
+// result.
 func loadSnapshot(c *Context) tea.Cmd {
 	return func() tea.Msg {
-		snap, err := c.Svc.Fleet(context.Background(), c.Fleet)
+		ctx := context.Background()
+		if testCtx != nil {
+			ctx = testCtx()
+		}
+		snap, err := c.Svc.Fleet(ctx, c.Fleet)
 		if err != nil {
 			return snapshotMsg{err: err}
 		}
-		_ = fleet.NewQuery(snap) // wired into the context in Task 7
 		return snapshotMsg{snap: snap}
 	}
 }
+
+// testCtx is a test seam for injecting a context.
+var testCtx func() context.Context

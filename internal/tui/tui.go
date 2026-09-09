@@ -5,6 +5,7 @@
 package tui
 
 import (
+	"fmt"
 	"io"
 	"strings"
 
@@ -73,6 +74,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.ctx.Width, m.ctx.Height = msg.Width, msg.Height
+	case snapshotMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.ctx.Query = fleet.NewQuery(msg.snap)
+		// Replace rather than push: the loading screen is not somewhere the
+		// user can go back to.
+		m.stack[len(m.stack)-1] = newListScreen(m.ctx)
+		return m, nil
 	case pushMsg:
 		m.stack = append(m.stack, msg.s)
 		return m, nil
@@ -127,4 +138,18 @@ func (m *Model) footer() string {
 		return dimStyle.Render(m.ctx.Status)
 	}
 	return dimStyle.Render("?: help   q: back   ctrl+c: quit")
+}
+
+// loadedScreen is a placeholder replaced by the List screen in Task 8.
+type loadedScreen struct{ n int }
+
+func (l loadedScreen) Title() string                              { return "Services" }
+func (l loadedScreen) Update(*Context, tea.Msg) (screen, tea.Cmd) { return l, nil }
+func (l loadedScreen) View(*Context) string {
+	return fmt.Sprintf("%d entities", l.n)
+}
+
+func newListScreen(c *Context) screen {
+	snap := c.Query.Snapshot()
+	return loadedScreen{n: len(snap.Services) + len(snap.Targets)}
 }
