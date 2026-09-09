@@ -53,6 +53,37 @@ func TestDetailSelectedIsItsOwnRef(t *testing.T) {
 	}
 }
 
+func TestDetailContentIsSetBeforeTheFirstRender(t *testing.T) {
+	c := newLoadedContext(t)
+	d := newDetailScreen(c, firstEntityOfKind(t, c, fleet.KindService)).(*detailScreen)
+	// Nothing has called View or Update yet, so this proves the constructor
+	// loaded the viewport rather than a later resize doing it.
+	if d.vp.GetContent() == "" {
+		t.Fatal("the viewport has no content before the first render")
+	}
+}
+
+func TestDetailKeepsItsScrollPositionAcrossMessages(t *testing.T) {
+	c := newLoadedContext(t)
+	c.Height = 8 // force the body to overflow so there is somewhere to scroll
+	s := newDetailScreen(c, firstEntityOfKind(t, c, fleet.KindRevision))
+
+	for range 3 {
+		s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	scrolled := s.(*detailScreen).vp.YOffset()
+	if scrolled == 0 {
+		t.Fatal("the revision detail did not scroll; the fixture body is too short to test this")
+	}
+
+	// A message the viewport does nothing with must not send the reader back to
+	// the top of a long page.
+	s, _ = s.Update(c, statusMsg{text: "unrelated"})
+	if got := s.(*detailScreen).vp.YOffset(); got != scrolled {
+		t.Errorf("scroll moved to %d on an unrelated message, want %d", got, scrolled)
+	}
+}
+
 func TestEnterOnTheListOpensDetail(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newListScreen(c)

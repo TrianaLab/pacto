@@ -28,6 +28,7 @@ func newDetailScreen(c *Context, ref fleet.EntityRef) screen {
 		return d
 	}
 	d.body = renderDetail(det)
+	d.vp.SetContent(d.body)
 	return d
 }
 
@@ -48,7 +49,9 @@ func (d *detailScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 }
 
 // resize sizes the viewport. A viewport built with no options is 0x0 and its
-// View returns the empty string, so this must run before the first render.
+// View returns the empty string, so this must run before the first render. The
+// content is set once in the constructor: Update calls resize on every message,
+// and re-splitting the whole body on every keypress buys nothing.
 func (d *detailScreen) resize(c *Context) {
 	d.vp.SetWidth(c.Width)
 	h := c.Height - 3
@@ -56,7 +59,6 @@ func (d *detailScreen) resize(c *Context) {
 		h = 3
 	}
 	d.vp.SetHeight(h)
-	d.vp.SetContent(d.body)
 }
 
 func (d *detailScreen) View(c *Context) string {
