@@ -15,6 +15,10 @@ type binding struct {
 func globalBindings() []binding {
 	return []binding{
 		{"?", "toggle this help", func(m *Model) tea.Cmd { return push(helpScreen{}) }},
+		{"r", "reload the fleet snapshot", func(m *Model) tea.Cmd {
+			m.ctx.Status = "reloading the snapshot"
+			return loadSnapshot(m.ctx)
+		}},
 		{"q", "back, or quit from the root screen", quitOrPop},
 		{"esc", "back, or quit from the root screen", quitOrPop},
 		{"ctrl+c", "quit immediately", func(m *Model) tea.Cmd { return tea.Quit }},

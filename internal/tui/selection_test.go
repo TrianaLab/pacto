@@ -9,9 +9,10 @@ import (
 
 func TestBundleRef(t *testing.T) {
 	tests := []struct {
-		name string
-		id   fleet.RevisionIdentity
-		want string
+		name      string
+		id        fleet.RevisionIdentity
+		wantRef   string
+		wantLocal bool
 	}{
 		// IdentityClass is deliberately left unset throughout: bundleRef must not
 		// consult it, and setting it here would let a class-keyed implementation
@@ -20,28 +21,36 @@ func TestBundleRef(t *testing.T) {
 			"a local bundle becomes a plain path",
 			fleet.RevisionIdentity{RequestedRef: "file:///tmp/svc"},
 			"/tmp/svc",
+			true,
 		},
 		{
 			"a local bundle with no scheme is passed through",
 			fleet.RevisionIdentity{RequestedRef: "/tmp/svc"},
 			"/tmp/svc",
+			false,
 		},
 		{
 			"a registry revision uses the resolved ref",
 			fleet.RevisionIdentity{RequestedRef: "oci://r/s:1", ResolvedRef: "oci://r/s@sha256:aa"},
 			"oci://r/s@sha256:aa",
+			false,
 		},
 		{
 			"a registry revision with no resolved ref falls back to the requested one",
 			fleet.RevisionIdentity{RequestedRef: "oci://r/s:latest"},
 			"oci://r/s:latest",
+			false,
 		},
-		{"nothing to go on yields nothing", fleet.RevisionIdentity{}, ""},
+		{"nothing to go on yields nothing", fleet.RevisionIdentity{}, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := bundleRef(tt.id); got != tt.want {
-				t.Fatalf("bundleRef = %q, want %q", got, tt.want)
+			gotRef, gotLocal := bundleRef(tt.id)
+			if gotRef != tt.wantRef {
+				t.Fatalf("bundleRef ref = %q, want %q", gotRef, tt.wantRef)
+			}
+			if gotLocal != tt.wantLocal {
+				t.Fatalf("bundleRef local = %v, want %v", gotLocal, tt.wantLocal)
 			}
 		})
 	}
@@ -156,7 +165,7 @@ func TestResolveSelectionForTarget(t *testing.T) {
 func TestRefFromServiceRevisionsWithEmptyList(t *testing.T) {
 	c := newLoadedContext(t)
 	s := &fleet.ServiceDetailData{ActiveRevisions: fleet.RefPreview{Total: 0}}
-	if ref := refFromServiceRevisions(c, s); ref != "" {
+	if ref, _ := refFromServiceRevisions(c, s); ref != "" {
 		t.Fatalf("refFromServiceRevisions with no active revisions = %q, want empty", ref)
 	}
 }
@@ -164,7 +173,7 @@ func TestRefFromServiceRevisionsWithEmptyList(t *testing.T) {
 func TestRefFromServiceRevisionsWithNoItems(t *testing.T) {
 	c := newLoadedContext(t)
 	s := &fleet.ServiceDetailData{ActiveRevisions: fleet.RefPreview{Total: 1, Items: nil}}
-	if ref := refFromServiceRevisions(c, s); ref != "" {
+	if ref, _ := refFromServiceRevisions(c, s); ref != "" {
 		t.Fatalf("refFromServiceRevisions with nil items = %q, want empty", ref)
 	}
 }
@@ -177,7 +186,7 @@ func TestRefFromServiceRevisionsWithBadRevisionKey(t *testing.T) {
 			Items: []fleet.EntityRef{{Key: "no-such-revision"}},
 		},
 	}
-	if ref := refFromServiceRevisions(c, s); ref != "" {
+	if ref, _ := refFromServiceRevisions(c, s); ref != "" {
 		t.Fatalf("refFromServiceRevisions with bad key = %q, want empty", ref)
 	}
 }
@@ -185,7 +194,7 @@ func TestRefFromServiceRevisionsWithBadRevisionKey(t *testing.T) {
 func TestRefFromTargetWithNoRevision(t *testing.T) {
 	c := newLoadedContext(t)
 	tgt := &fleet.TargetDetailData{Revision: nil}
-	if ref := refFromTarget(c, tgt); ref != "" {
+	if ref, _ := refFromTarget(c, tgt); ref != "" {
 		t.Fatalf("refFromTarget with no revision = %q, want empty", ref)
 	}
 }
@@ -193,7 +202,7 @@ func TestRefFromTargetWithNoRevision(t *testing.T) {
 func TestRefFromTargetWithBadRevisionKey(t *testing.T) {
 	c := newLoadedContext(t)
 	tgt := &fleet.TargetDetailData{Revision: &fleet.EntityRef{Key: "no-such-revision"}}
-	if ref := refFromTarget(c, tgt); ref != "" {
+	if ref, _ := refFromTarget(c, tgt); ref != "" {
 		t.Fatalf("refFromTarget with bad key = %q, want empty", ref)
 	}
 }

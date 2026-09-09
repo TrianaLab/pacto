@@ -6,17 +6,22 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
-// newLoadedContext returns a Context with a real query over the test snapshot.
+// newLoadedContext returns a Context with a real query over the test snapshot,
+// a real service and a recording message sink.
 func newLoadedContext(t *testing.T) *Context {
 	t.Helper()
+	rec := &msgRecorder{}
 	return &Context{
-		Query:  fleet.NewQuery(testSnapshot(t)),
-		Send:   &sender{},
-		Width:  100,
-		Height: 30,
+		Svc:      app.NewService(nil, nil),
+		Query:    fleet.NewQuery(testSnapshot(t)),
+		Send:     &sender{p: rec},
+		Snapshot: testSnapshot(t),
+		Width:    100,
+		Height:   30,
 	}
 }
 

@@ -106,6 +106,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.ctx.Status = msg.text
 		return m, nil
+	case execDoneMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		// The write changed the world the snapshot describes, so reload it
+		// rather than leaving a confidently stale list on screen.
+		m.err = nil
+		m.ctx.Status = "reloading the snapshot"
+		return m, loadSnapshot(m.ctx)
 	case tea.KeyPressMsg:
 		if cmd, handled := globalKey(m, msg); handled {
 			return m, cmd

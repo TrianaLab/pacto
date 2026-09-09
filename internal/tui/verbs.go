@@ -33,6 +33,13 @@ func always(Selection) bool { return true }
 func verbList(c *Context) []Verb {
 	vs := []Verb{
 		{
+			Key:     "y",
+			Help:    "copy the equivalent pacto command",
+			Applies: always,
+			Argv:    yankArgv,
+			Run:     verbYank,
+		},
+		{
 			Key: "v", Help: "validate the selected bundle", Applies: hasBundle,
 			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "validate", s.Ref} },
 			Run:  verbValidate,
@@ -89,8 +96,61 @@ func verbList(c *Context) []Verb {
 	return append(vs, writeVerbs()...)
 }
 
-// writeVerbs returns the verbs that change something; filled in by Task 16.
-func writeVerbs() []Verb { return nil }
+// writeVerbs are the four verbs that change something. Each is offered only
+// when the selection can carry it, and each goes through runWrite, so there is
+// exactly one confirmation path and no way to add a write that skips it.
+func writeVerbs() []Verb {
+	return []Verb{
+		{
+			Key: "p", Help: "push the selected bundle", Write: true, Applies: hasBundle,
+			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "push", s.Ref} },
+			Run: func(c *Context, s Selection) tea.Cmd {
+				argv := []string{"pacto", "push", s.Ref}
+				return runWrite(c, "Push "+s.Label+" to its configured registry?", argv)
+			},
+		},
+		{
+			Key: "P", Help: "pull the selected revision", Write: true, Applies: hasRemoteRef,
+			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "pull", s.Ref} },
+			Run: func(c *Context, s Selection) tea.Cmd {
+				argv := []string{"pacto", "pull", s.Ref}
+				// pull clobbers its destination and has no --force to soften it,
+				// so the prompt names the destination rather than the source.
+				return runWrite(c, "Pull "+s.Ref+"? This overwrites the destination directory.", argv)
+			},
+		},
+		{
+			Key: "L", Help: "update the selected bundle's lock file", Write: true, Applies: hasBundle,
+			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "lock", "--update", s.Ref} },
+			Run: func(c *Context, s Selection) tea.Cmd {
+				argv := []string{"pacto", "lock", "--update", s.Ref}
+				return runWrite(c, "Rewrite the lock file for "+s.Label+"?", argv)
+			},
+		},
+		{
+			Key: "G", Help: "run generate for the selected bundle", Write: true, Applies: hasLocalBundle,
+			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "generate", s.Ref} },
+			Run: func(c *Context, s Selection) tea.Cmd {
+				argv := []string{"pacto", "generate", s.Ref}
+				// generate executes a plugin binary. The prompt says so, because
+				// confirming this is confirming arbitrary code.
+				return runWrite(c, "Run generate for "+s.Label+"? This executes the configured plugin binaries.", argv)
+			},
+		},
+	}
+}
+
+// hasRemoteRef is the Applies predicate for pull: a local directory is already
+// here, so offering to pull it is nonsense.
+func hasRemoteRef(sel Selection) bool {
+	return sel.Ref != "" && !sel.Local
+}
+
+// hasLocalBundle is the Applies predicate for generate, which writes files next
+// to the bundle and so needs a directory rather than a registry reference.
+func hasLocalBundle(sel Selection) bool {
+	return sel.Ref != "" && sel.Local
+}
 
 // orSelf substitutes b when a is empty, so an un-armed two-selection verb still
 // yanks a sensible command rather than one with a hole in it.

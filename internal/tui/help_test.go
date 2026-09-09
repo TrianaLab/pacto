@@ -75,6 +75,11 @@ func TestHelpScreenViewWithVerbs(t *testing.T) {
 		t.Fatal("View should contain at least the 'validate' verb")
 	}
 
+	// writeVerbs should be shown and carry the write marker in normal mode.
+	if !strings.Contains(view, "writes; asks first") {
+		t.Fatal("View should show write marker for write verbs")
+	}
+
 	// With ReadOnly=true, write verbs should not appear and the marker should be absent.
 	c.ReadOnly = true
 	viewReadOnly := h.View(c)
