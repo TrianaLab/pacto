@@ -1045,6 +1045,46 @@ If the artifact already exists in the registry, `pacto push` prints a warning an
 
 ---
 
+## `pacto tui`
+
+Opens a full-screen terminal UI over the same fleet snapshot `pacto fleet` queries. Navigate services, revisions, targets, owners and sources, then run pacto's verbs against whatever is selected — the selection becomes the argument, so you never type a path.
+
+Read verbs run in-process against the loaded snapshot. Write verbs shell out to this same binary so they own the terminal, and every one of them asks for confirmation first. Pass --read-only to hide the write verbs entirely.
+
+Requires an interactive terminal. In a pipeline or CI, use the plain commands.
+
+```
+pacto tui [flags]
+```
+
+**Examples:**
+
+```
+  # Browse the local fleet
+  pacto tui --local .
+
+  # Browse a live cluster plus the local bundles, without write verbs
+  pacto tui --local . --k8s --read-only
+```
+
+**Flags:**
+
+```
+      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --freshness duration         mark target evidence older than this as stale (0 disables)
+  -h, --help                       help for tui
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --read-only                  hide every write verb
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+```
+
+---
+
 ## `pacto update`
 
 Downloads and installs the specified version of pacto. If no version is given, updates to the latest release.

@@ -338,6 +338,34 @@ An unreachable registry never becomes an empty result, so a service missing from
 
 ---
 
+## The terminal UI
+
+`pacto tui` is the dashboard's terminal equivalent, built over the snapshot `pacto fleet` builds and taking the same source flags. It loads that snapshot once, then lets you move through services, revisions, targets, owners and sources with whatever row is highlighted standing in as the argument, so you never type a path. One difference from the dashboard matters more than the rest: **the dashboard only reads, the TUI writes**. Read verbs run in process against the loaded snapshot; write verbs shell out to this same binary so they own the terminal, and each one names what it is about to change and waits for a `y`. Pass `--read-only` and the four write verbs are absent from the key table rather than refused at the last moment. It needs an interactive terminal — in a pipeline, use the plain commands.
+
+| Key | Action |
+|-----|--------|
+| `tab` / `shift+tab` | cycle the kind tabs, or the graph direction |
+| `/` | filter, `enter` applies and `esc` clears |
+| `enter` | open the highlighted row |
+| `a` | what needs attention |
+| `+` / `-` | graph depth |
+| `?` | the key table for the current screen |
+| `r` | reload the snapshot |
+| `q` / `esc` | back, or quit from the root screen |
+| `y` | copy the equivalent `pacto` command |
+| `v` | validate the selected bundle |
+| `E` / `e` | explain the bundle, or explain it from the fleet's point of view |
+| `l` | check the lock file |
+| `d` / `i` | diff or impact between two selections, pressed twice |
+| `g` | the selection's neighborhood graph |
+| `p` / `P` | push, or pull (writes; asks first) |
+| `L` | rewrite the lock file (writes; asks first) |
+| `G` | run a generate plugin (writes; asks first) |
+
+`y` is the escape hatch: for anything the TUI does not offer, it puts the command you would have typed on the clipboard. See the [`pacto tui` reference](cli-reference.md#pacto-tui) for every flag.
+
+---
+
 ## Tips
 
 - **Build a plugin for your platform.** A Helm plugin, Terraform plugin or custom manifest generator can consume Pacto contracts deterministically.
