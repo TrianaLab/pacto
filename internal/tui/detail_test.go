@@ -506,8 +506,11 @@ func TestDetailSelectedAlwaysReturnsTrue(t *testing.T) {
 	c := newLoadedContext(t)
 	ref := firstEntityOfKind(t, c, fleet.KindService)
 	d := newDetailScreen(c, ref).(*detailScreen)
-	_, ok := d.selected()
+	got, ok := d.selected()
 	if !ok {
 		t.Fatal("detail screen's selected() should always return true")
+	}
+	if got.Key != ref.Key {
+		t.Fatalf("selected() = %+v, want %+v", got, ref)
 	}
 }

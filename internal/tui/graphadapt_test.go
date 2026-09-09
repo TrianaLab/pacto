@@ -202,9 +202,9 @@ func TestNeighborhoodToTreeMapsRelationToEdgeType(t *testing.T) {
 	}
 }
 
-func TestNeighborhoodToTreeMarksOutsideNodesAsShared(t *testing.T) {
-	// An edge to a node not in the bounded projection should be a Shared leaf
-	// with an error, not a nil pointer crash.
+func TestNeighborhoodToTreeMarksOutsideNodesAsError(t *testing.T) {
+	// An edge to a node not in the bounded projection should carry an error
+	// that renders, not a nil pointer crash or silent omission.
 	n := &fleet.Neighborhood{
 		Nodes: []fleet.NeighborhoodNode{nbNode("a", true)},
 		Edges: []fleet.NeighborhoodEdge{nbEdge("a", "b")}, // b is not in Nodes
@@ -214,14 +214,12 @@ func TestNeighborhoodToTreeMarksOutsideNodesAsShared(t *testing.T) {
 		t.Fatalf("want one edge, got %d", len(r.Root.Dependencies))
 	}
 	e := r.Root.Dependencies[0]
-	if !e.Shared {
-		t.Fatal("an edge to an outside node must be Shared")
-	}
 	if e.Error == "" {
 		t.Fatal("an edge to an outside node must carry an error message")
 	}
-	if e.Node != nil {
-		t.Fatal("a Shared edge must not carry a child node")
+	out := graph.RenderTree(r)
+	if !strings.Contains(out, "outside the requested neighborhood") {
+		t.Fatalf("the rendered tree must show the gap:\n%s", out)
 	}
 }
 
@@ -251,5 +249,91 @@ func TestLabelFallbackToKey(t *testing.T) {
 	ref := fleet.EntityRef{Key: "service-key", Label: ""}
 	if got := label(ref); got != "service-key" {
 		t.Fatalf("label() = %q, want %q", got, "service-key")
+	}
+}
+
+func TestNeighborhoodToTreeDoesNotMarkServicesAsLocal(t *testing.T) {
+	// Local in pkg/graph means "resolved from local filesystem", which a fleet
+	// node cannot tell us, so service nodes must not render "[local]".
+	n := &fleet.Neighborhood{
+		Nodes: []fleet.NeighborhoodNode{nbNode("a", true), nbNode("b", false)},
+		Edges: []fleet.NeighborhoodEdge{nbEdge("a", "b")},
+	}
+	r := neighborhoodToTree(n)
+	out := graph.RenderTree(r)
+	if strings.Contains(out, "[local]") {
+		t.Fatalf("service nodes must not render as [local]:\n%s", out)
+	}
+}
+
+func TestNeighborhoodToTreeRunsEdgeOutsideNeighborhoodRendersError(t *testing.T) {
+	// A "runs" edge to a node outside the bounded projection must render its error,
+	// not short-circuit as a terminal [ref] that hides the gap.
+	n := &fleet.Neighborhood{
+		Nodes: []fleet.NeighborhoodNode{nbNode("a", true)},
+		Edges: []fleet.NeighborhoodEdge{{
+			ID: "a->b", From: nbNode("a", true).Ref, To: nbNode("b", false).Ref,
+			Relation: "runs", // maps to EdgeReference
+		}},
+	}
+	r := neighborhoodToTree(n)
+	out := graph.RenderTreeColored(r, graph.TreeColors{})
+	if !strings.Contains(out, "outside the requested neighborhood") {
+		t.Fatalf("runs edge to outside node must render error, got:\n%s", out)
+	}
+}
+
+func TestNeighborhoodToTreeRunsEdgeCycleRendersError(t *testing.T) {
+	// A "runs" edge that closes a cycle must render the cycle error, not hide it
+	// behind a terminal [ref] marker.
+	n := &fleet.Neighborhood{
+		Nodes: []fleet.NeighborhoodNode{nbNode("a", true), nbNode("b", false)},
+		Edges: []fleet.NeighborhoodEdge{
+			{ID: "a->b", From: nbNode("a", true).Ref, To: nbNode("b", false).Ref, Relation: "dependency"},
+			{ID: "b->a", From: nbNode("b", false).Ref, To: nbNode("a", true).Ref, Relation: "runs"},
+		},
+	}
+	r := neighborhoodToTree(n)
+	out := graph.RenderTreeColored(r, graph.TreeColors{})
+	if !strings.Contains(out, "cycle") {
+		t.Fatalf("runs edge in a cycle must render cycle error, got:\n%s", out)
+	}
+}
+
+func TestNeighborhoodToTreeRunsEdgeWithChildrenRendersSubtree(t *testing.T) {
+	// A "runs" edge to a node that has children must render the whole subtree,
+	// not short-circuit and drop the grandchildren.
+	n := &fleet.Neighborhood{
+		Nodes: []fleet.NeighborhoodNode{nbNode("a", true), nbNode("b", false), nbNode("c", false)},
+		Edges: []fleet.NeighborhoodEdge{
+			{ID: "a->b", From: nbNode("a", true).Ref, To: nbNode("b", false).Ref, Relation: "runs"},
+			{ID: "b->c", From: nbNode("b", false).Ref, To: nbNode("c", false).Ref, Relation: "dependency"},
+		},
+	}
+	r := neighborhoodToTree(n)
+	out := graph.RenderTreeColored(r, graph.TreeColors{})
+	if !strings.Contains(out, "c") {
+		t.Fatalf("runs edge with children must render grandchild, got:\n%s", out)
+	}
+}
+
+func TestNeighborhoodToTreeRunsEdgeSharedRendersMarker(t *testing.T) {
+	// A shared "runs" edge must render the (shared) marker, not short-circuit as a terminal [ref].
+	// Diamond: root -> a -> d, root -> b (runs) -> d (shared)
+	n := &fleet.Neighborhood{
+		Nodes: []fleet.NeighborhoodNode{
+			nbNode("root", true), nbNode("a", false), nbNode("b", false), nbNode("d", false),
+		},
+		Edges: []fleet.NeighborhoodEdge{
+			{ID: "root->a", From: nbNode("root", true).Ref, To: nbNode("a", false).Ref, Relation: "dependency"},
+			{ID: "root->b", From: nbNode("root", true).Ref, To: nbNode("b", false).Ref, Relation: "dependency"},
+			{ID: "a->d", From: nbNode("a", false).Ref, To: nbNode("d", false).Ref, Relation: "dependency"},
+			{ID: "b->d", From: nbNode("b", false).Ref, To: nbNode("d", false).Ref, Relation: "runs"},
+		},
+	}
+	r := neighborhoodToTree(n)
+	out := graph.RenderTreeColored(r, graph.TreeColors{})
+	if !strings.Contains(out, "(shared)") {
+		t.Fatalf("shared runs edge must render (shared) marker, got:\n%s", out)
 	}
 }

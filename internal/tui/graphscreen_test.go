@@ -88,22 +88,22 @@ func TestGraphScreenDirectionCycles(t *testing.T) {
 
 func TestGraphScreenWithQueryError(t *testing.T) {
 	c := newLoadedContext(t)
-	// Use a non-existent entity to trigger an error from the real Query
+	// Build through newGraphScreen with a ref the query cannot resolve
 	ref := fleet.EntityRef{Kind: fleet.KindService, Key: "nonexistent", Label: "nonexistent"}
-	g := &graphScreen{ref: ref, vp: viewport.New(), depth: fleet.DefaultNeighborhoodDepth}
-	// Manually trigger refresh with a bad query to force the error path
-	_, err := c.Query.Neighborhood(fleet.NeighborhoodQuery{
-		Kind: ref.Kind,
-		Key:  ref.Key,
-	})
-	if err == nil {
-		t.Fatal("expected error from nonexistent entity, got nil")
+	s := newGraphScreen(c, ref)
+	g := s.(*graphScreen)
+	// The query must have failed during refresh
+	if g.loadErr == nil {
+		t.Fatal("expected loadErr to be set for nonexistent entity")
 	}
-	// Now simulate that error being set
-	g.loadErr = err
+	// The view must surface the failure
 	out := g.View(c)
 	if !strings.Contains(out, "neighborhood query failed") {
 		t.Fatalf("query error not shown:\n%s", out)
+	}
+	// The body must be cleared on error
+	if g.body != "" {
+		t.Fatalf("body should be empty on error, got %q", g.body)
 	}
 }
 
@@ -161,18 +161,13 @@ func TestGraphScreenPassesUnhandledKeysToViewport(t *testing.T) {
 	c := newLoadedContext(t)
 	ref := firstEntityOfKind(t, c, fleet.KindService)
 	s := newGraphScreen(c, ref)
-	// Press an unhandled key (e.g., 'x') that the viewport doesn't specially handle
-	// This tests the fallthrough path that calls vp.Update(msg)
-	before := s.(*graphScreen).vp
+	g := s.(*graphScreen)
+	// Press an unhandled key that falls through to vp.Update
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: 'x', Text: "x"})
-	// After the update, the viewport should have been called (even if it returns the same state)
-	// We verify the path was taken by checking that the screen wasn't changed
-	if s.(*graphScreen) != s {
+	// The fallthrough must return the same screen pointer, not a replacement
+	if s.(*graphScreen) != g {
 		t.Fatal("screen was replaced instead of updated in place")
 	}
-	// The viewport state may or may not change, but the update path was taken
-	// The key assertion is that nothing panicked and we got the screen back
-	_ = before
 }
 
 func TestGraphScreenResizeWithSmallHeight(t *testing.T) {
@@ -180,12 +175,11 @@ func TestGraphScreenResizeWithSmallHeight(t *testing.T) {
 	ref := firstEntityOfKind(t, c, fleet.KindService)
 	s := newGraphScreen(c, ref)
 	g := s.(*graphScreen)
-	// Set a very small height that would result in h < 3
+	// Set a very small height that would result in h < 3 before the clamp
 	c.Height = 2
 	g.resize(c)
 	// The viewport height should be clamped to at least 3
-	// We can't directly check viewport height, but we can verify resize didn't crash
-	if g.vp.Width() == 0 {
-		t.Fatal("viewport was not resized")
+	if got := g.vp.Height(); got != 3 {
+		t.Fatalf("viewport height = %d, want 3 (clamped)", got)
 	}
 }

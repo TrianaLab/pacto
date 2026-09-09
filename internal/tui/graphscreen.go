@@ -103,6 +103,8 @@ func (g *graphScreen) View(c *Context) string {
 // smaller than the requested depth (a target projection is always one hop), so
 // showing the requested number alone would be a lie.
 func (g *graphScreen) bar() string {
+	// Defensive: Query.Neighborhood is not documented to exclude nil when err is nil,
+	// so guard against it to avoid a nil-deref panic in production.
 	if g.nb == nil {
 		return ""
 	}

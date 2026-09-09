@@ -22,6 +22,14 @@ func apply(fn func(string) string, s string) string {
 	return fn(s)
 }
 
+// nameVersion joins name and version, omitting the separator when version is empty.
+func nameVersion(name, version string, col TreeColors) string {
+	if version == "" {
+		return apply(col.Name, name)
+	}
+	return apply(col.Name, name) + "@" + apply(col.Version, version)
+}
+
 // RenderTree renders the dependency graph as a tree-style string
 // similar to the Unix tree command.
 func RenderTree(r *Result) string {
@@ -34,7 +42,7 @@ func RenderTreeColored(r *Result, col TreeColors) string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s@%s\n", apply(col.Name, r.Root.Name), apply(col.Version, r.Root.Version))
+	fmt.Fprintf(&b, "%s\n", nameVersion(r.Root.Name, r.Root.Version, col))
 	renderChildren(&b, r.Root.Dependencies, "", col)
 
 	if len(r.Cycles) > 0 {
@@ -95,7 +103,7 @@ func renderChildren(b *strings.Builder, edges []Edge, prefix string, col TreeCol
 		}
 
 		if edge.Node != nil {
-			label := apply(col.Name, edge.Node.Name) + "@" + apply(col.Version, edge.Node.Version)
+			label := nameVersion(edge.Node.Name, edge.Node.Version, col)
 			if edge.Node.Local {
 				label += " " + apply(col.Marker, "[local]")
 			}
