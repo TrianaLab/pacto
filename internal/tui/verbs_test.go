@@ -124,6 +124,37 @@ func TestGraphVerbRootsTheWayFleetGraphDoes(t *testing.T) {
 	}
 }
 
+// TestTheGraphVerbCarriesEveryFieldASelectionReads closes the one seam where a
+// selection is taken apart and put back together. g is the only verb that
+// navigates: it rebuilds a fleet.EntityRef field by field from the Selection it
+// was handed, and the screen it opens is itself a row verbs dispatch against. So
+// any field resolveSelection reads and that rebuild forgets is a field the next
+// verb sees as empty — which is how e came to explain the empty string on the
+// graph of a revision. Round-tripping through the real screen fails the moment a
+// field is added to one side and not the other.
+func TestTheGraphVerbCarriesEveryFieldASelectionReads(t *testing.T) {
+	c := newLoadedContext(t)
+	sel, err := resolveSelection(c, firstEntityOfKind(t, c, fleet.KindRevision))
+	if err != nil {
+		t.Fatalf("resolveSelection: %v", err)
+	}
+
+	g, ok := verbBoundTo(t, c, "g").Run(c, sel)().(pushMsg).s.(*graphScreen)
+	if !ok {
+		t.Fatal("g did not push a graph screen")
+	}
+	ref, _ := g.selected()
+	again, err := resolveSelection(c, ref)
+	if err != nil {
+		t.Fatalf("the graph screen's own row does not resolve: %v", err)
+	}
+	if again != sel {
+		t.Fatalf("a selection does not survive the graph screen:\n got %+v\nwant %+v\n"+
+			"the g verb rebuilds fleet.EntityRef field by field in verbs.go; carry the new field there too",
+			again, sel)
+	}
+}
+
 // TestFleetExplainVerbNamesASubjectFleetExplainResolves pins e's subject.
 // Query.Explain resolves a service key or name and then a target key
 // (pkg/fleet/query.go:908-924) and nothing else, so handing it the row's own key
