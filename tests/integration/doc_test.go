@@ -218,7 +218,9 @@ func TestDocCommandUI(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for --ui with --serve")
 		}
-		assertContains(t, err.Error(), "mutually exclusive")
+		// Cobra's wording: doc's exclusions are a MarkFlagsMutuallyExclusive
+		// group, not a hand-rolled check.
+		assertContains(t, err.Error(), "[serve ui] were all set")
 	})
 
 	t.Run("ui and output mutually exclusive", func(t *testing.T) {
@@ -228,7 +230,7 @@ func TestDocCommandUI(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for --ui with --output")
 		}
-		assertContains(t, err.Error(), "mutually exclusive")
+		assertContains(t, err.Error(), "[output ui] were all set")
 	})
 
 	t.Run("global target", func(t *testing.T) {

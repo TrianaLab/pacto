@@ -56,7 +56,7 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			port, _ := cmd.Flags().GetInt("port")
 			targets, _ := cmd.Flags().GetStringArray("target")
 
-			if err := validateDocFlags(serve, ui, output, iface); err != nil {
+			if err := validateDocFlags(ui, iface); err != nil {
 				return err
 			}
 
@@ -119,6 +119,11 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	// at runtime and turns empty completion into real completion.
 	_ = cmd.RegisterFlagCompletionFunc("ui", staticCompletions(docUIs...))
 
+	// --serve, --ui and -o each select a different delivery, so at most one can
+	// be asked for. Cobra tests whether the flag was CHANGED, not its value, so
+	// this also rejects an explicit --serve=false alongside -o.
+	cmd.MarkFlagsMutuallyExclusive("serve", "ui", "output")
+
 	addOverrideFlags(cmd)
 
 	return cmd
@@ -164,13 +169,10 @@ func serveUI(cmd *cobra.Command, result *app.DocResult, ui, iface string, port i
 	})
 }
 
-func validateDocFlags(serve bool, ui, output, iface string) error {
-	if serve && ui != "" {
-		return fmt.Errorf("--serve and --ui are mutually exclusive")
-	}
-	if (serve || ui != "") && output != "" {
-		return fmt.Errorf("--serve/--ui and --output are mutually exclusive")
-	}
+// validateDocFlags carries the one doc-flag rule cobra has no primitive for.
+// The three mutual exclusions it used to hand-roll are now a single
+// MarkFlagsMutuallyExclusive group; a "requires" relation has no equivalent.
+func validateDocFlags(ui, iface string) error {
 	if iface != "" && ui == "" {
 		return fmt.Errorf("--interface requires --ui")
 	}
