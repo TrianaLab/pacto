@@ -24,9 +24,20 @@ func TestBundleRef(t *testing.T) {
 			true,
 		},
 		{
-			"a local bundle with no scheme is passed through",
+			"a scheme-less path is passed through but is not called local",
 			fleet.RevisionIdentity{RequestedRef: "/tmp/svc"},
 			"/tmp/svc",
+			false,
+		},
+		{
+			// The regression this flag exists for. internal/fleetsrc/oci.go:179
+			// leaves ResolvedRef scheme-less unless a digest was recorded, and
+			// internal/fleetsrc/k8s.go:84 passes the operator's ref through as it
+			// found it. Reading locality off the absence of an oci:// prefix would
+			// call this local and offer to run plugin binaries against a registry.
+			"a scheme-less registry reference is remote",
+			fleet.RevisionIdentity{ResolvedRef: "ghcr.io/acme/svc:1.0"},
+			"ghcr.io/acme/svc:1.0",
 			false,
 		},
 		{

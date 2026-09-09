@@ -38,14 +38,10 @@ func TestConfirmingAWriteExecsTheRealBinary(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("confirming produced no command")
 	}
-	// Execute the batch to run the callbacks.
-	batch := cmd().(tea.BatchMsg)
-	for _, c := range batch {
-		if msg := c(); msg != nil {
-			if _, ok := msg.(execDoneMsg); ok {
-				// Found the execDoneMsg, which means the callback was executed.
-				break
-			}
+	// Run the batch so the exec callback fires.
+	for _, sub := range cmd().(tea.BatchMsg) {
+		if _, ok := sub().(execDoneMsg); ok {
+			break
 		}
 	}
 	if len(got) < 2 || got[0] != "/opt/bin/pacto" || got[1] != "push" {
@@ -100,7 +96,12 @@ func TestExecSuccessRefreshesTheSnapshot(t *testing.T) {
 }
 
 func TestWriteVerbsCarryTheWriteFlag(t *testing.T) {
-	for _, v := range writeVerbs() {
+	vs := writeVerbs()
+	// Asserted so the loop below cannot pass vacuously if the table empties.
+	if len(vs) != 4 {
+		t.Fatalf("writeVerbs returned %d verbs, want the four documented ones", len(vs))
+	}
+	for _, v := range vs {
 		if !v.Write {
 			t.Errorf("verb %q is in writeVerbs but is not marked Write", v.Key)
 		}

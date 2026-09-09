@@ -14,12 +14,15 @@ import (
 // a real service and a recording message sink.
 func newLoadedContext(t *testing.T) *Context {
 	t.Helper()
-	rec := &msgRecorder{}
+	// One snapshot, not two. tui.go:89-90 builds Query and Snapshot from the same
+	// load, and verbImpact passes c.Snapshot precisely so the answer binds to the
+	// fleet on screen; two independent builds would let that mismatch pass here.
+	snap := testSnapshot(t)
 	return &Context{
 		Svc:      app.NewService(nil, nil),
-		Query:    fleet.NewQuery(testSnapshot(t)),
-		Send:     &sender{p: rec},
-		Snapshot: testSnapshot(t),
+		Query:    fleet.NewQuery(snap),
+		Send:     &sender{p: &msgRecorder{}},
+		Snapshot: snap,
 		Width:    100,
 		Height:   30,
 	}
