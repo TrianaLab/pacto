@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -149,6 +150,15 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().String("scope", "", "correlate to a target with this scope")
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultSearchLimit, fleet.MaxSearchLimit))
 	cmd.Flags().Int("offset", 0, "result offset for paging")
+
+	// Two closed vocabularies the code already owns, so declaring them costs
+	// nothing at runtime and turns empty completion into real completion. The
+	// remaining string filters (--owner, --compliance, --source, --scope,
+	// --label) take values that come from the fleet data, not from a vocabulary,
+	// so guessing at them would be worse than offering nothing.
+	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
+	_ = cmd.RegisterFlagCompletionFunc("workload", staticCompletions(
+		contract.WorkloadService, contract.WorkloadJob, contract.WorkloadScheduled))
 	return cmd
 }
 
@@ -188,6 +198,11 @@ func parseLabels(pairs []string) map[string]string {
 	return out
 }
 
+// newFleetGetCommand builds `pacto fleet get`. It registers no
+// ValidArgsFunction, and neither do `fleet graph` or `fleet explain`: their
+// positionals are service names that only a snapshot knows, and building one at
+// tab time would reach Kubernetes, a registry or the disk cache — a completion
+// that hangs at the prompt is worse than one that is absent.
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get [service]",
@@ -254,6 +269,11 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Int("max-depth", 0, "maximum transitive depth (0 = unlimited)")
 	cmd.Flags().String("revision", "", "root an exact contract revision key")
 	cmd.Flags().String("target", "", "root the revision linked to this target key or name")
+
+	// fleet.DirectionBoth exists but validateDirection rejects it, so offering it
+	// would complete to a value the query errors on.
+	_ = cmd.RegisterFlagCompletionFunc("direction", staticCompletions(
+		string(fleet.DirectionDependencies), string(fleet.DirectionDependents)))
 	return cmd
 }
 

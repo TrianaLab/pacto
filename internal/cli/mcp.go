@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -65,6 +66,7 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 	}
 
 	cmd.Flags().StringP("transport", "t", "stdio", "transport type: stdio or http")
+	_ = cmd.RegisterFlagCompletionFunc("transport", staticCompletions(mcpTransports...))
 	cmd.Flags().Int("port", 8585, "port for HTTP transport")
 	cmd.Flags().String("base-url", "", "base URL for live invocation (overrides the OpenAPI servers[] URL)")
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
@@ -138,12 +140,15 @@ func checkMCPMode(hasBundle, hasRoots, fleetMode bool) error {
 	return nil
 }
 
+// mcpTransports is the closed --transport vocabulary. checkMCPTransport
+// validates against it and shell completion offers it, so the two cannot drift.
+var mcpTransports = []string{"stdio", "http"}
+
 // checkMCPTransport rejects an unknown -t value. Falling back to stdio would
 // hand the client a transport it never asked for and report success doing it,
 // so a typo has to fail before anything is resolved or served.
 func checkMCPTransport(transport string) error {
-	switch transport {
-	case "stdio", "http":
+	if slices.Contains(mcpTransports, transport) {
 		return nil
 	}
 	return fmt.Errorf("unsupported transport %q: only \"stdio\" and \"http\" are supported", transport)

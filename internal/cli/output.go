@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v3/internal/app"
@@ -12,12 +13,15 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/sbom"
 )
 
+// outputFormats is the closed --output-format vocabulary. checkOutputFormat
+// validates against it and shell completion offers it, so the two cannot drift.
+var outputFormats = []string{"text", "json", "markdown"}
+
 // checkOutputFormat rejects an unknown --output-format before the command runs.
 // formatResult's default arm serves text, so without this guard a typo produced
 // text output and a zero exit — a CI step asking for JSON got prose and passed.
 func checkOutputFormat(format string) error {
-	switch format {
-	case "text", "json", "markdown":
+	if slices.Contains(outputFormats, format) {
 		return nil
 	}
 	return fmt.Errorf("unsupported output format %q: only \"text\", \"json\" and \"markdown\" are supported", format)

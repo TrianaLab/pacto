@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -114,13 +115,21 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Int("port", 8484, "port for the documentation server (used with --serve or --ui)")
 	cmd.Flags().StringArray("target", nil, "target server URL for try-it-out requests; supports interface=url mapping (used with --ui)")
 
+	// A closed vocabulary the code already owns, so declaring it costs nothing
+	// at runtime and turns empty completion into real completion.
+	_ = cmd.RegisterFlagCompletionFunc("ui", staticCompletions(docUIs...))
+
 	addOverrideFlags(cmd)
 
 	return cmd
 }
 
+// docUIs is the closed --ui vocabulary. serveUI accepts exactly these and shell
+// completion offers exactly these, so the two cannot drift.
+var docUIs = []string{"swagger"}
+
 func serveUI(cmd *cobra.Command, result *app.DocResult, ui, iface string, port int, targets []string) error {
-	if ui != "swagger" {
+	if !slices.Contains(docUIs, ui) {
 		return fmt.Errorf("unsupported UI type %q: only \"swagger\" is supported", ui)
 	}
 

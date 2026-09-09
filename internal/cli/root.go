@@ -37,6 +37,10 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.PersistentFlags().Bool("no-anim", false, "disable animations")
 	root.PersistentFlags().BoolP("verbose", "v", false, "enable verbose output")
 
+	// A closed vocabulary the code already owns, so declaring it costs nothing
+	// at runtime and turns empty completion into real completion.
+	_ = root.RegisterFlagCompletionFunc(outputFormatKey, staticCompletions(outputFormats...))
+
 	// Bind to Viper
 	_ = v.BindPFlag("config", root.PersistentFlags().Lookup("config"))
 	_ = v.BindPFlag(outputFormatKey, root.PersistentFlags().Lookup(outputFormatKey))
