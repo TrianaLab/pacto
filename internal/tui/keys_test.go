@@ -110,7 +110,7 @@ func TestGlobalKeyEscPops(t *testing.T) {
 // captureScreen is a test screen that captures text
 type captureScreen struct{}
 
-func (c *captureScreen) Title() string                                  { return "Capture" }
-func (c *captureScreen) Update(*Context, tea.Msg) (screen, tea.Cmd)     { return c, nil }
-func (c *captureScreen) View(*Context) string                           { return "capturing" }
-func (c *captureScreen) capturesText() bool                             { return true }
+func (c *captureScreen) Title() string                              { return "Capture" }
+func (c *captureScreen) Update(*Context, tea.Msg) (screen, tea.Cmd) { return c, nil }
+func (c *captureScreen) View(*Context) string                       { return "capturing" }
+func (c *captureScreen) capturesText() bool                         { return true }

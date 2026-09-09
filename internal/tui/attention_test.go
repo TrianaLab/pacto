@@ -195,9 +195,11 @@ func TestAttentionLoadWithInvalidFilterSetsError(t *testing.T) {
 func TestAttentionPressGPushesGraphScreen(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newAttentionScreen(c)
-	// Attention screen needs items to have a selection
+	// g reads the selection, so an empty list would make this test vacuous
+	// rather than wrong. Fail instead of skipping: a skip passes while
+	// verifying nothing, and the fixture is supposed to have a finding.
 	if a := s.(*attentionScreen); len(a.items) == 0 {
-		t.Skip("fixture has no attention items")
+		t.Fatal("the fixture produced no attention items")
 	}
 	_, cmd := s.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
 	if cmd == nil {

@@ -117,6 +117,28 @@ func (l *listScreen) capturesText() bool { return l.typing }
 
 func (l *listScreen) Title() string { return "Fleet" }
 
+// typingKey handles a key press while the filter input has focus. Enter applies
+// what was typed, esc discards it and leaves whatever filter was already
+// applied in place, and every other key belongs to the input.
+func (l *listScreen) typingKey(c *Context, msg tea.KeyPressMsg) (screen, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		l.typing = false
+		l.input.Blur()
+		l.filterText = l.input.Value()
+		l.refresh(c)
+		return l, nil
+	case "esc":
+		l.typing = false
+		l.input.Blur()
+		l.input.SetValue(l.filterText)
+		return l, nil
+	}
+	in, cmd := l.input.Update(msg)
+	l.input = in
+	return l, cmd
+}
+
 func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -124,24 +146,7 @@ func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 		return l, nil
 	case tea.KeyPressMsg:
 		if l.typing {
-			switch msg.String() {
-			case "enter":
-				l.typing = false
-				l.input.Blur()
-				l.filterText = l.input.Value()
-				l.refresh(c)
-				return l, nil
-			case "esc":
-				// Cancel without applying: the half-typed value is discarded and
-				// whatever filter was already applied stays applied.
-				l.typing = false
-				l.input.Blur()
-				l.input.SetValue(l.filterText)
-				return l, nil
-			}
-			in, cmd := l.input.Update(msg)
-			l.input = in
-			return l, cmd
+			return l.typingKey(c, msg)
 		}
 		switch msg.String() {
 		case "enter":

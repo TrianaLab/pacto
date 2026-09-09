@@ -157,7 +157,6 @@ func TestGraphScreenTitle(t *testing.T) {
 	}
 }
 
-
 func TestGraphScreenPassesUnhandledKeysToViewport(t *testing.T) {
 	c := newLoadedContext(t)
 	ref := firstEntityOfKind(t, c, fleet.KindService)

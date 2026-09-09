@@ -206,12 +206,12 @@ func TestDetailUpdateReturnsTheSameScreenNotACopy(t *testing.T) {
 func TestRenderServiceDetailWithAllFields(t *testing.T) {
 	var b strings.Builder
 	s := &fleet.ServiceDetailData{
-		Domain: "example.com",
+		Domain:    "example.com",
 		Ownership: &fleet.OwnershipInfo{Owner: "team-a"},
 		Summary: fleet.ServiceSummary{
-			Revisions:      5,
-			RevisionsInUse: 3,
-			Targets:        10,
+			Revisions:            5,
+			RevisionsInUse:       3,
+			Targets:              10,
 			DeclaredDependencies: 2,
 		},
 		Dependents: fleet.RefPreview{Total: 4},
@@ -327,8 +327,8 @@ func TestRenderOwnerDetailWithAllFields(t *testing.T) {
 			Targets:   30,
 		},
 		Services: fleet.RefPreview{
-			Total: 3,
-			Items: []fleet.EntityRef{{Label: "svc-a"}, {Label: "svc-b"}},
+			Total:     3,
+			Items:     []fleet.EntityRef{{Label: "svc-a"}, {Label: "svc-b"}},
 			Truncated: true,
 		},
 		Attention: fleet.AttentionPreview{

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -42,7 +43,9 @@ func TestNeighborhoodToTreeBuildsFromTheFocusNode(t *testing.T) {
 
 func TestNeighborhoodToTreeBreaksCycles(t *testing.T) {
 	// a -> b -> a. graph.renderChildren has no visited set, so the adapter must
-	// mark the repeat edge Shared, which is the only thing that stops recursion.
+	// cut the back edge itself. It cuts it the way pkg/graph's own resolver does
+	// (resolver.go:212), with an error the renderer prints, so the reader can
+	// tell a broken cycle from a leaf.
 	n := &fleet.Neighborhood{
 		Nodes: []fleet.NeighborhoodNode{nbNode("a", true), nbNode("b", false)},
 		Edges: []fleet.NeighborhoodEdge{nbEdge("a", "b"), nbEdge("b", "a")},
@@ -52,19 +55,22 @@ func TestNeighborhoodToTreeBreaksCycles(t *testing.T) {
 	if len(back) != 1 {
 		t.Fatalf("want the back edge preserved, got %d", len(back))
 	}
-	if !back[0].Shared {
-		t.Fatal("the cycle-closing edge is not marked Shared; rendering it will recurse forever")
-	}
 	if back[0].Node != nil {
-		t.Fatal("a Shared edge must not carry a child node")
+		t.Fatal("a cut edge must not carry a child node; rendering it will recurse forever")
 	}
-	// The real proof: rendering terminates.
+	if !strings.Contains(back[0].Error, "cycle") {
+		t.Fatalf("the cycle-closing edge reports %q, want it to say it is a cycle", back[0].Error)
+	}
+	// The real proof: rendering terminates and shows the break.
 	done := make(chan string, 1)
 	go func() { done <- graph.RenderTreeColored(r, graph.TreeColors{}) }()
 	select {
 	case out := <-done:
 		if !strings.Contains(out, "a") {
 			t.Fatalf("render lost the root:\n%s", out)
+		}
+		if !strings.Contains(out, "cycle") {
+			t.Fatalf("the rendered tree hides the cycle it cut:\n%s", out)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("rendering a cyclic neighborhood did not terminate")
@@ -80,9 +86,90 @@ func TestNeighborhoodToTreeSelfLoop(t *testing.T) {
 		Edges: []fleet.NeighborhoodEdge{nbEdge("a", "a")},
 	}
 	r := neighborhoodToTree(n)
-	if len(r.Root.Dependencies) != 1 || !r.Root.Dependencies[0].Shared {
-		t.Fatalf("a self loop must be a Shared leaf, got %+v", r.Root.Dependencies)
+	if len(r.Root.Dependencies) != 1 {
+		t.Fatalf("want the self loop preserved, got %+v", r.Root.Dependencies)
 	}
+	e := r.Root.Dependencies[0]
+	if e.Node != nil || !strings.Contains(e.Error, "cycle") {
+		t.Fatalf("a self loop must be a cut leaf reported as a cycle, got %+v", e)
+	}
+}
+
+func TestNeighborhoodToTreeSharesAReconvergingSubtree(t *testing.T) {
+	// A diamond: root -> a, root -> b, and both -> d. d must be built once and
+	// referenced the second time, which is what pkg/graph's resolver does and
+	// what the renderer's "(shared)" marker exists for. Expanding it twice is
+	// not just noisy output, it is the base case of an exponential blowup.
+	n := &fleet.Neighborhood{
+		Nodes: []fleet.NeighborhoodNode{
+			nbNode("root", true), nbNode("a", false), nbNode("b", false), nbNode("d", false),
+		},
+		Edges: []fleet.NeighborhoodEdge{
+			nbEdge("root", "a"), nbEdge("root", "b"), nbEdge("a", "d"), nbEdge("b", "d"),
+		},
+	}
+	r := neighborhoodToTree(n)
+	viaA := r.Root.Dependencies[0].Node.Dependencies[0]
+	viaB := r.Root.Dependencies[1].Node.Dependencies[0]
+	if viaA.Shared {
+		t.Fatal("the first arrival at d must be the real subtree, not a shared marker")
+	}
+	if !viaB.Shared {
+		t.Fatal("the second arrival at d must be Shared; expanding it again duplicates the subtree")
+	}
+	if viaB.Node == nil || viaB.Node.Name != "d" {
+		t.Fatalf("a Shared edge still names its target: %+v", viaB.Node)
+	}
+	if len(viaB.Node.Dependencies) != 0 {
+		t.Fatal("a Shared edge carries a shallow copy; the renderer must not descend into it")
+	}
+}
+
+func TestNeighborhoodToTreeStaysBoundedOnAReconvergingGraph(t *testing.T) {
+	// Chained diamonds inside fleet's own MaxNodes/MaxEdges bounds. Without a
+	// global seen set this produced 4,194,301 tree nodes from 61 graph nodes and
+	// allocated its way through a gigabyte on the way there. The tree can never
+	// have more nodes than the graph it came from.
+	const layers = 20
+	var nodes []fleet.NeighborhoodNode
+	var edges []fleet.NeighborhoodEdge
+	nodes = append(nodes, nbNode("n0", true))
+	for i := range layers {
+		cur := fmt.Sprintf("n%d", i)
+		a, b, next := fmt.Sprintf("a%d", i), fmt.Sprintf("b%d", i), fmt.Sprintf("n%d", i+1)
+		nodes = append(nodes, nbNode(a, false), nbNode(b, false), nbNode(next, false))
+		edges = append(edges, nbEdge(cur, a), nbEdge(cur, b), nbEdge(a, next), nbEdge(b, next))
+	}
+	if len(edges) > fleet.DefaultMaxEdges {
+		t.Fatalf("the fixture graph has %d edges, past fleet's own bound of %d; it proves nothing about a real neighborhood",
+			len(edges), fleet.DefaultMaxEdges)
+	}
+
+	done := make(chan int, 1)
+	go func() {
+		done <- countTreeNodes(neighborhoodToTree(&fleet.Neighborhood{Nodes: nodes, Edges: edges}).Root)
+	}()
+	select {
+	case got := <-done:
+		if got > len(nodes) {
+			t.Fatalf("%d graph nodes expanded to %d tree nodes; the subtree sharing is not working", len(nodes), got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the adapter did not finish in 10s on a %d-node graph", len(nodes))
+	}
+}
+
+func countTreeNodes(n *graph.Node) int {
+	if n == nil {
+		return 0
+	}
+	c := 1
+	for _, e := range n.Dependencies {
+		if !e.Shared {
+			c += countTreeNodes(e.Node)
+		}
+	}
+	return c
 }
 
 func TestNeighborhoodToTreeWithNoFocusFallsBackToTheFirstNode(t *testing.T) {

@@ -6,12 +6,17 @@ import (
 )
 
 // neighborhoodToTree projects a fleet neighborhood (a flat digraph that may
-// contain cycles) onto the rooted pointer tree pkg/graph renders. Cycles are
-// broken here and only here: graph.renderChildren has no visited set, and the
-// single thing that stops its recursion is an edge marked Shared. Every
-// cycle-closing edge is therefore emitted as a childless Shared leaf, and the
-// path that closed it is recorded in Result.Cycles so the break is visible
-// rather than silent.
+// contain cycles and reconvergence) onto the rooted pointer tree pkg/graph
+// renders. It mirrors the two checks pkg/graph's own resolver makes
+// (resolver.go:206-219), because the renderer is written against that shape:
+// an edge back to an ancestor is a cycle, and an edge to a node already emitted
+// anywhere is Shared.
+//
+// Both checks are load-bearing. graph.renderChildren has no visited set, so
+// without the ancestor check a cycle recurses until the stack blows. And
+// without the global check a reconverging graph duplicates whole subtrees:
+// sixty-one nodes of chained diamonds — inside fleet's own MaxNodes bound —
+// expand to four million.
 func neighborhoodToTree(n *fleet.Neighborhood) *graph.Result {
 	r := &graph.Result{}
 	if n == nil || len(n.Nodes) == 0 {
@@ -33,23 +38,30 @@ func neighborhoodToTree(n *fleet.Neighborhood) *graph.Result {
 			break
 		}
 	}
-	b := &treeBuilder{byKey: byKey, out: out, onPath: map[string]bool{}}
-	r.Root = b.build(root.Ref.Key, nil)
+	b := &treeBuilder{
+		byKey:  byKey,
+		out:    out,
+		onPath: map[string]bool{},
+		seen:   map[string]*graph.Node{},
+	}
+	r.Root = b.build(root.Ref.Key)
 	r.Cycles = b.cycles
 	return r
 }
 
-// treeBuilder walks the digraph depth-first, tracking the current path so a
-// revisit of a node already on it is a cycle rather than a repeat subtree.
+// treeBuilder walks the digraph depth-first. onPath holds the ancestors of the
+// node being built, so a revisit of one of them is a cycle; seen holds every
+// node built so far, so a revisit of anything else is a shared subtree.
 type treeBuilder struct {
 	byKey  map[string]fleet.NeighborhoodNode
 	out    map[string][]fleet.NeighborhoodEdge
 	onPath map[string]bool
+	seen   map[string]*graph.Node
 	path   []string
 	cycles [][]string
 }
 
-func (b *treeBuilder) build(key string, _ *graph.Node) *graph.Node {
+func (b *treeBuilder) build(key string) *graph.Node {
 	nd := b.byKey[key]
 	n := &graph.Node{
 		Name:    label(nd.Ref),
@@ -57,6 +69,9 @@ func (b *treeBuilder) build(key string, _ *graph.Node) *graph.Node {
 		Ref:     nd.Ref.Key,
 		Local:   nd.Ref.Kind == fleet.KindService,
 	}
+	// Recorded before descending, so a second edge arriving from a sibling
+	// while this subtree is still being built also resolves to Shared.
+	b.seen[key] = n
 	b.onPath[key] = true
 	b.path = append(b.path, key)
 	for _, e := range b.out[key] {
@@ -82,12 +97,21 @@ func (b *treeBuilder) edge(e fleet.NeighborhoodEdge) graph.Edge {
 		ge.Error = "outside the requested neighborhood"
 		return ge
 	}
+	// Order matters: an ancestor is also in seen, and reporting it as a shared
+	// subtree would hide the cycle behind a marker that reads like reuse.
 	if b.onPath[e.To.Key] {
 		b.cycles = append(b.cycles, append(append([]string(nil), b.path...), e.To.Key))
-		ge.Shared = true
+		ge.Error = "cycle detected: " + e.To.Key
 		return ge
 	}
-	ge.Node = b.build(e.To.Key, nil)
+	if prev := b.seen[e.To.Key]; prev != nil {
+		// A shallow copy, exactly as the resolver builds one: the renderer
+		// prints the label and the (shared) marker and does not descend.
+		ge.Shared = true
+		ge.Node = &graph.Node{Name: prev.Name, Version: prev.Version, Ref: prev.Ref, Local: prev.Local}
+		return ge
+	}
+	ge.Node = b.build(e.To.Key)
 	return ge
 }
 
