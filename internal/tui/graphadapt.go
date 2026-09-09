@@ -83,6 +83,24 @@ func (b *treeBuilder) build(key string) *graph.Node {
 }
 
 func (b *treeBuilder) edge(e fleet.NeighborhoodEdge) graph.Edge {
+	return terminalOnly(b.classify(e))
+}
+
+// terminalOnly downgrades a reference edge that is not really terminal.
+// render.go:86 prints EdgeReference as a bare line and skips the error, the
+// shared marker and the whole subtree, so the adapter may claim EdgeReference
+// only when there is nothing underneath for it to hide.
+func terminalOnly(ge graph.Edge) graph.Edge {
+	if ge.Type != graph.EdgeReference {
+		return ge
+	}
+	if ge.Error != "" || ge.Shared || (ge.Node != nil && len(ge.Node.Dependencies) > 0) {
+		ge.Type = graph.EdgeDependency
+	}
+	return ge
+}
+
+func (b *treeBuilder) classify(e fleet.NeighborhoodEdge) graph.Edge {
 	ge := graph.Edge{
 		Ref:           label(e.To),
 		Type:          edgeType(e.Relation),
@@ -94,10 +112,6 @@ func (b *treeBuilder) edge(e fleet.NeighborhoodEdge) graph.Edge {
 		// instead of silently dropping it — a truncated graph that looks whole
 		// is worse than one that admits the gap.
 		ge.Error = "outside the requested neighborhood"
-		// EdgeReference is terminal in render.go:86 and would hide the error; downgrade.
-		if ge.Type == graph.EdgeReference {
-			ge.Type = graph.EdgeDependency
-		}
 		return ge
 	}
 	// Order matters: an ancestor is also in seen, and reporting it as a shared
@@ -105,10 +119,6 @@ func (b *treeBuilder) edge(e fleet.NeighborhoodEdge) graph.Edge {
 	if b.onPath[e.To.Key] {
 		b.cycles = append(b.cycles, append(append([]string(nil), b.path...), e.To.Key))
 		ge.Error = "cycle detected: " + e.To.Key
-		// EdgeReference is terminal in render.go:86 and would hide the error; downgrade.
-		if ge.Type == graph.EdgeReference {
-			ge.Type = graph.EdgeDependency
-		}
 		return ge
 	}
 	if prev := b.seen[e.To.Key]; prev != nil {
@@ -116,17 +126,9 @@ func (b *treeBuilder) edge(e fleet.NeighborhoodEdge) graph.Edge {
 		// prints the label and the (shared) marker and does not descend.
 		ge.Shared = true
 		ge.Node = &graph.Node{Name: prev.Name, Version: prev.Version, Ref: prev.Ref}
-		// EdgeReference is terminal in render.go:86 and would hide the marker; downgrade.
-		if ge.Type == graph.EdgeReference {
-			ge.Type = graph.EdgeDependency
-		}
 		return ge
 	}
 	ge.Node = b.build(e.To.Key)
-	// EdgeReference is terminal in render.go:86 and would hide the subtree; downgrade if it has children.
-	if ge.Type == graph.EdgeReference && ge.Node != nil && len(ge.Node.Dependencies) > 0 {
-		ge.Type = graph.EdgeDependency
-	}
 	return ge
 }
 
