@@ -80,11 +80,17 @@ func TestGlobalKeyWithTextCapture(t *testing.T) {
 	if handled {
 		t.Fatal("q should not be handled during text capture")
 	}
+	if cmd != nil {
+		t.Error("q returned a command during text capture")
+	}
 
 	// ? should NOT be handled during text capture
 	cmd, handled = globalKey(m, tea.KeyPressMsg{Code: '?', Text: "?"})
 	if handled {
 		t.Fatal("? should not be handled during text capture")
+	}
+	if cmd != nil {
+		t.Error("? returned a command during text capture")
 	}
 }
 

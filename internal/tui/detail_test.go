@@ -55,7 +55,7 @@ func TestDetailSelectedIsItsOwnRef(t *testing.T) {
 
 func TestEnterOnTheListOpensDetail(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	_, cmd := s.Update(c, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter produced no command")

@@ -35,7 +35,7 @@ func TestAttentionListsItems(t *testing.T) {
 func TestAttentionCategoryFilterCyclesWithoutMutatingThePackageVar(t *testing.T) {
 	before := append([]string(nil), fleet.AttentionCategories...)
 	c := newLoadedContext(t)
-	var s screen = newAttentionScreen(c)
+	s := newAttentionScreen(c)
 	for i := 0; i < len(before)+2; i++ {
 		s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab})
 	}
@@ -94,7 +94,7 @@ func TestAttentionSelectedOnEmptyListReportsNothing(t *testing.T) {
 
 func TestAttentionTabsCycle(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newAttentionScreen(c)
+	s := newAttentionScreen(c)
 	first := s.(*attentionScreen).catIx
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab})
 	if s.(*attentionScreen).catIx == first {
@@ -108,7 +108,7 @@ func TestAttentionTabsCycle(t *testing.T) {
 
 func TestAttentionHandlesWindowSizeMsg(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newAttentionScreen(c)
+	s := newAttentionScreen(c)
 	c.Width, c.Height = 120, 40
 	s, _ = s.Update(c, tea.WindowSizeMsg{Width: 120, Height: 40})
 	a := s.(*attentionScreen)

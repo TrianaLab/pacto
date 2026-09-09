@@ -31,7 +31,7 @@ func TestListShowsEntities(t *testing.T) {
 
 func TestListTabsCycleKinds(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	first := s.(*listScreen).kindIx
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab})
 	if s.(*listScreen).kindIx == first {
@@ -115,7 +115,7 @@ func TestListSaysWhenTheAnswerIsTruncated(t *testing.T) {
 
 func TestListHandlesWindowSizeMsg(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	c.Width, c.Height = 120, 40
 	s, _ = s.Update(c, tea.WindowSizeMsg{Width: 120, Height: 40})
 	l := s.(*listScreen)
@@ -126,7 +126,7 @@ func TestListHandlesWindowSizeMsg(t *testing.T) {
 
 func TestListDelegatesOtherMessagesToTable(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	l := s.(*listScreen)
 	if len(l.entities) < 2 {
 		t.Fatalf("test setup: need at least 2 entities to test cursor movement, got %d", len(l.entities))
@@ -155,7 +155,7 @@ func TestListResizeHandlesSmallHeights(t *testing.T) {
 
 func TestSlashOpensTheFilterAndCapturesText(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: '/', Text: "/"})
 	l := s.(*listScreen)
 	if !l.capturesText() {
@@ -172,7 +172,7 @@ func TestSlashOpensTheFilterAndCapturesText(t *testing.T) {
 
 func TestEnterAppliesTheFilterAndEscapeClearsIt(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: '/', Text: "/"})
 	s.(*listScreen).input.SetValue("zzz-no-such-service")
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -197,7 +197,7 @@ func TestEnterAppliesTheFilterAndEscapeClearsIt(t *testing.T) {
 
 func TestEscapeWhileTypingCancelsWithoutApplying(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: '/', Text: "/"})
 	s.(*listScreen).input.SetValue("half-typed")
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -244,7 +244,7 @@ func TestListFilterLineShowsHelpWhenNoFilter(t *testing.T) {
 
 func TestListTypingDelegatesToInput(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: '/', Text: "/"})
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: 't', Text: "t"})
 	l := s.(*listScreen)
@@ -255,7 +255,7 @@ func TestListTypingDelegatesToInput(t *testing.T) {
 
 func TestListEscWithNoFilterDoesNothing(t *testing.T) {
 	c := newLoadedContext(t)
-	var s screen = newListScreen(c)
+	s := newListScreen(c)
 	initialEntities := len(s.(*listScreen).entities)
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyEscape})
 	if len(s.(*listScreen).entities) != initialEntities {
