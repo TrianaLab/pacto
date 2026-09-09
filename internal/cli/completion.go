@@ -14,3 +14,8 @@ func staticCompletions(values ...string) cobra.CompletionFunc {
 		return values, cobra.ShellCompDirectiveNoFileComp
 	}
 }
+
+// noCompletions is the empty vocabulary: no candidates, and no filename
+// fallback either. It is for a positional whose values only a built snapshot
+// knows — offering nothing is honest, offering filenames is not.
+var noCompletions = staticCompletions()

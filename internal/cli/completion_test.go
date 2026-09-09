@@ -59,27 +59,26 @@ func TestClosedSetFlagsComplete(t *testing.T) {
 	}
 }
 
-// TestFleetPositionalsOfferNoFilenames guards the deliberate absence of a
-// ValidArgsFunction on the fleet verbs whose positional is a service name: the
-// snapshot they would have to build is not cheap enough to build at the prompt.
+// TestFleetPositionalsOfferNoFilenames pins both halves of the answer for the
+// fleet verbs whose positional is a service name: no candidates, because they
+// live in a snapshot too expensive to build at tab time, and NoFileComp,
+// because without it cobra falls back to filenames for a positional that is
+// never a path. Driving __complete rather than reading the field also proves
+// the function is reached — an unset one gives candidates and the default
+// directive, which is exactly the filename fallback.
 func TestFleetPositionalsOfferNoFilenames(t *testing.T) {
 	for _, verb := range []string{"get", "graph", "explain"} {
 		t.Run(verb, func(t *testing.T) {
 			root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
-			if fn := findFleetVerb(t, root, verb).ValidArgsFunction; fn != nil {
-				t.Fatal("a positional completion here would reach k8s, a registry or the cache at tab time")
+			out, directive := completeFlag(t, root, []string{"fleet", verb, ""})
+			if len(out) != 0 {
+				t.Errorf("completions = %v, want none; a candidate here means a snapshot was built at tab time", out)
+			}
+			if directive != cobra.ShellCompDirectiveNoFileComp {
+				t.Errorf("directive = %v, want NoFileComp; this positional is never a path", directive)
 			}
 		})
 	}
-}
-
-func findFleetVerb(t *testing.T, root *cobra.Command, verb string) *cobra.Command {
-	t.Helper()
-	cmd, _, err := root.Find([]string{"fleet", verb})
-	if err != nil || cmd.Name() != verb {
-		t.Fatalf("could not find `pacto fleet %s`: %v", verb, err)
-	}
-	return cmd
 }
 
 func TestDocUIAndOutputAreMutuallyExclusive(t *testing.T) {

@@ -226,16 +226,16 @@ func parseLabels(pairs []string) map[string]string {
 	return out
 }
 
-// newFleetGetCommand builds `pacto fleet get`. It registers no
-// ValidArgsFunction, and neither do `fleet graph` or `fleet explain`: their
-// positionals are service names that only a snapshot knows, and building one at
-// tab time would reach Kubernetes, a registry or the disk cache — a completion
-// that hangs at the prompt is worse than one that is absent.
 func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get [service]",
 		Short: "Inspect a logical service or an operational target",
 		Args:  cobra.MaximumNArgs(1),
+		// A service key comes from the snapshot, and building one at tab time would
+		// reach k8s, a registry or the disk cache while the reader holds tab. No
+		// candidates is the honest answer; falling back to filenames is not, because
+		// this positional is never a path.
+		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
@@ -272,6 +272,9 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"name to aggregate across its revisions, or --revision/--target to root " +
 			"an exact revision (never 'latest').",
 		Args: cobra.MaximumNArgs(1),
+		// Same as `fleet get`: the candidates live in a snapshot too expensive to
+		// build at the prompt, and this positional is never a path.
+		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
@@ -366,6 +369,9 @@ func newFleetExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "explain <subject>",
 		Short: "Explain the deterministic reasons for a service or target state",
 		Args:  cobra.ExactArgs(1),
+		// Same as `fleet get`: the subject resolves to a service or a target, both
+		// of which only a snapshot knows, and neither of which is ever a path.
+		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
