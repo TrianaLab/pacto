@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
 // clipboardWrite copies a line to the system clipboard. It is nil by default:
@@ -22,7 +24,29 @@ func yankArgv(_ *Context, sel Selection) []string {
 		// path, which is the part the TUI saved them from typing.
 		return []string{"pacto", "validate", sel.Ref}
 	}
-	return []string{"pacto", "fleet", "get", string(sel.Kind), sel.Key}
+	// Without a bundle the line has to be a fleet query, and each kind is named
+	// differently: fleet get takes a service positional or --target, fleet graph
+	// takes a service positional, --revision or --target.
+	switch sel.Kind {
+	case fleet.KindRevision:
+		// get resolves a service and explain tries a service then a target
+		// (pkg/fleet/query.go:908); graph is the only one of the three that will
+		// take a revision key.
+		return []string{"pacto", "fleet", "graph", "--revision", sel.Key}
+	case fleet.KindTarget:
+		return []string{"pacto", "fleet", "get", "--target", sel.Key}
+	case fleet.KindOwner:
+		// An owner and a source are subjects none of get, graph or explain
+		// accept. fleet search is the command that does take them, as a filter.
+		// The owner filter matches the value rather than the namespaced key --
+		// Owner.MatchesFilter substring-matches Team and DRI
+		// (pkg/contract/owner.go:218) -- so it gets Label, where Key still
+		// carries the "team:" prefix (pkg/fleet/product.go:200).
+		return []string{"pacto", "fleet", "search", "--owner", sel.Label}
+	case fleet.KindSource:
+		return []string{"pacto", "fleet", "search", "--source", sel.Key}
+	}
+	return []string{"pacto", "fleet", "get", sel.Key}
 }
 
 // yankLine returns the invocation the current selection would run. It is how

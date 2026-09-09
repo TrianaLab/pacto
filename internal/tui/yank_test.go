@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,11 +22,48 @@ func TestYankProducesARunnableInvocation(t *testing.T) {
 	}
 }
 
-func TestYankForAnEntityWithNoBundleUsesFleetGet(t *testing.T) {
+// TestYankForAnEntityWithNoBundleNamesTheSubjectTheWayTheCommandDoes covers
+// every kind that can reach the fallback. None of fleet get, graph or explain
+// takes a kind and a key as two positionals — that line fails on arity before it
+// reaches the fleet — so each kind gets the form its command actually accepts.
+func TestYankForAnEntityWithNoBundleNamesTheSubjectTheWayTheCommandDoes(t *testing.T) {
 	c := newLoadedContext(t)
-	sel := Selection{Kind: fleet.KindOwner, Key: "team:x", Label: "team:x"}
-	if got := yankLine(c, sel); got != "pacto fleet get owner team:x" {
-		t.Fatalf("yank = %q", got)
+	for _, tt := range []struct {
+		name string
+		sel  Selection
+		want string
+	}{
+		{
+			"an owner filters a search by its value, not its namespaced key",
+			Selection{Kind: fleet.KindOwner, Key: "team:platform", Label: "platform"},
+			"pacto fleet search --owner platform",
+		},
+		{
+			"a source filters a search",
+			Selection{Kind: fleet.KindSource, Key: "local", Label: "local"},
+			"pacto fleet search --source local",
+		},
+		{
+			"a target is a flag on fleet get",
+			Selection{Kind: fleet.KindTarget, Key: "prod/Deployment/svc", Label: "svc"},
+			"pacto fleet get --target prod/Deployment/svc",
+		},
+		{
+			"a revision is a flag on fleet graph, the only one of the three that takes one",
+			Selection{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc 1.0.0"},
+			"pacto fleet graph --revision svc@1.0.0",
+		},
+		{
+			"a service is the positional every fleet command was written for",
+			Selection{Kind: fleet.KindService, Key: "svc", Label: "svc"},
+			"pacto fleet get svc",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := yankLine(c, tt.sel); got != tt.want {
+				t.Fatalf("yank = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -80,10 +118,11 @@ func TestYankArgvWithBundle(t *testing.T) {
 
 func TestYankArgvWithoutBundle(t *testing.T) {
 	c := newLoadedContext(t)
-	sel := Selection{Kind: fleet.KindOwner, Key: "team:x", Label: "team:x"}
+	sel := Selection{Kind: fleet.KindOwner, Key: "team:x", Label: "x"}
 	argv := yankArgv(c, sel)
-	if len(argv) != 5 || argv[0] != "pacto" || argv[1] != "fleet" || argv[2] != "get" || argv[3] != "owner" || argv[4] != "team:x" {
-		t.Fatalf("yankArgv = %v, want [pacto fleet get owner team:x]", argv)
+	want := []string{"pacto", "fleet", "search", "--owner", "x"}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("yankArgv = %v, want %v", argv, want)
 	}
 }
 

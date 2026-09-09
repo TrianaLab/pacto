@@ -22,7 +22,8 @@ type Selection struct {
 // bundleRef turns a revision's identity into the argument the app-layer
 // resolver takes, plus a local flag. A local bundle is recorded by
 // internal/fleetsrc as "file://<dir>" and the resolver wants the bare directory;
-// everything else is an OCI reference the same resolver accepts unchanged.
+// everything else is a registry reference, which the resolver only recognises
+// with its scheme on.
 //
 // The file:// prefix decides locality, never IdentityClass. That field
 // classifies content RETRIEVABILITY from the resolved ref alone
@@ -32,14 +33,28 @@ type Selection struct {
 // identity. A bare registry reference (ghcr.io/acme/svc:1.0, no scheme) is
 // remote, not local: only internal/fleetsrc/local.go emits file://, and it does
 // so always.
+//
+// A remote reference gains oci:// here rather than in each verb, because
+// graph.ParseDependencyRef (pkg/graph/depref.go:59) treats anything without a
+// scheme as a filesystem path. internal/fleetsrc leaves ResolvedRef scheme-less
+// whenever no digest was recorded (oci.go:179) and passes the operator's ref
+// through verbatim (k8s.go:84), so without this every verb would go looking for
+// a directory called "ghcr.io/acme/svc:1.0". Nothing sniffs the shape of the
+// string: only file:// means local, so a bare path the fleet never emits is
+// treated as a registry reference and fails saying so, rather than being read
+// off disk on a guess.
 func bundleRef(id fleet.RevisionIdentity) (ref string, local bool) {
 	ref = id.ResolvedRef
 	if ref == "" {
 		ref = id.RequestedRef
 	}
-	local = strings.HasPrefix(ref, "file://")
-	ref = strings.TrimPrefix(ref, "file://")
-	return ref, local
+	if strings.HasPrefix(ref, "file://") {
+		return strings.TrimPrefix(ref, "file://"), true
+	}
+	if ref != "" && !strings.HasPrefix(ref, "oci://") {
+		ref = "oci://" + ref
+	}
+	return ref, false
 }
 
 // resolveSelection turns a list row into a runnable selection. A revision

@@ -10,11 +10,12 @@ import (
 )
 
 // embodiedByTUI are commands the TUI *is* rather than runs: their whole output
-// is a screen, so no verb produces their argv. They are covered, not excluded.
+// is a screen. A verb may still yank the equivalent line, but that is not what
+// the screen does. They are covered, not excluded.
 var embodiedByTUI = map[string]string{
 	"tui":          "this is the command under test",
 	"fleet status": "the list screen is a live fleet status",
-	"fleet search": "the / filter is a live fleet search",
+	"fleet search": "the / filter is a live fleet search, and y on an owner or a source yanks the filter form",
 	// Partial, and the reason says so rather than rounding up. The g verb walks
 	// a fleet.Neighborhood (internal/tui/graphscreen.go:37) and renders it through
 	// the same graph.Result the CLI prints, so a service already in the snapshot

@@ -10,7 +10,8 @@ import (
 const testServiceName = "test-svc"
 
 // firstEntityOfKind finds the first entity of a given kind in the test snapshot.
-// It skips the test when the fixture has no such entity.
+// A fixture with no such entity fails the test rather than skipping it: a test
+// that verifies nothing must not report success.
 func firstEntityOfKind(t *testing.T, c *Context, kind fleet.EntityKind) fleet.EntityRef {
 	t.Helper()
 	list, err := c.Query.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{kind}, Limit: 1})
@@ -21,4 +22,18 @@ func firstEntityOfKind(t *testing.T, c *Context, kind fleet.EntityKind) fleet.En
 		t.Fatalf("the fixture has no %s entity", kind)
 	}
 	return list.Entities[0]
+}
+
+// cursorOnKind moves a list screen's cursor to the first row of a given kind.
+// The unfiltered list is sorted by kind and owners come first, so a test about
+// any other kind has to say which row it means.
+func cursorOnKind(t *testing.T, l *listScreen, kind fleet.EntityKind) {
+	t.Helper()
+	for i, e := range l.entities {
+		if e.Kind == kind {
+			l.tbl.SetCursor(i)
+			return
+		}
+	}
+	t.Fatalf("the list holds no %s row", kind)
 }

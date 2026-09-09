@@ -20,8 +20,11 @@ type execDoneMsg struct{ err error }
 func runWrite(c *Context, prompt string, argv []string) tea.Cmd {
 	if c.ReadOnly {
 		// verbList already hides write verbs here. This is the choke point that
-		// makes read-only true regardless of what any future caller forgets.
-		return status("read-only mode: " + argv[1] + " is not available")
+		// makes read-only true regardless of what any future caller forgets, so
+		// it must not assume the argv it was handed has a shape. Naming the
+		// command would also mislead: "lock is not available" is false with
+		// lock --check one keystroke away.
+		return status("read-only mode: this session runs no writes")
 	}
 	return push(newConfirmScreen(prompt, argv, func() tea.Cmd {
 		return execVerb(c, argv[1:])

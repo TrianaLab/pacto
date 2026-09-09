@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -11,22 +10,40 @@ import (
 )
 
 // Verb is one keybound action. Argv is the invocation a reader could have typed
-// instead — it drives the yank verb and the write confirmation, so it must
-// always be the real command, never an approximation.
+// instead: it drives the yank verb, the write confirmation and the boundary
+// test's coverage claim, so every verb builds it in exactly one place and the
+// Run closure uses that same builder. Two verbs take an argument no selection
+// carries; their Argv shows it as a placeholder, which is the honest shape of
+// the line rather than an approximation of it.
 type Verb struct {
-	Key     string
-	Help    string
-	Write   bool
-	Applies func(sel Selection) bool
+	Key   string
+	Help  string
+	Write bool
+	// Applies reports why the verb cannot run against sel, and "" when it can.
+	// It returns the reason rather than a bool so the rejection the reader sees
+	// is written next to the condition that produced it: the predicates key on
+	// what the bundle IS, and a message assembled elsewhere from sel.Kind blames
+	// the kind for a locality problem.
+	Applies func(sel Selection) string
 	Argv    func(c *Context, sel Selection) []string
 	Run     func(c *Context, sel Selection) tea.Cmd
 }
 
-// hasBundle is the Applies predicate for every verb that needs a bundle.
-func hasBundle(sel Selection) bool { return sel.Ref != "" }
+// noBundle is the one rejection that really is about the kind: an owner and a
+// source are aggregations over contracts, not contracts.
+func noBundle(sel Selection) string { return "this " + string(sel.Kind) + " has no bundle" }
+
+// hasBundle is the Applies predicate for every verb that takes either a
+// directory or a registry reference.
+func hasBundle(sel Selection) string {
+	if sel.Ref == "" {
+		return noBundle(sel)
+	}
+	return ""
+}
 
 // always is the Applies predicate for verbs that work on any selection.
-func always(Selection) bool { return true }
+func always(Selection) string { return "" }
 
 // verbList is the verb table. It drives dispatch, the help screen and the yank
 // verb from one definition, so none of the three can drift.
@@ -55,7 +72,9 @@ func verbList(c *Context) []Verb {
 			Run:  verbFleetExplain,
 		},
 		{
-			Key: "l", Help: "check the selected bundle's lock file", Applies: hasBundle,
+			// Local, not hasBundle: a lock file lives beside a bundle on disk, and
+			// app.Lock refuses a registry reference outright (internal/app/lock.go:57).
+			Key: "l", Help: "check the selected bundle's lock file", Applies: hasLocalBundle,
 			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "lock", "--check", s.Ref} },
 			Run:  verbLockCheck,
 		},
@@ -74,9 +93,9 @@ func verbList(c *Context) []Verb {
 			Run: verbImpact,
 		},
 		{
-			Key: "g", Help: "open the selection's neighborhood graph", Applies: always,
+			Key: "g", Help: "open the selection's neighborhood graph", Applies: graphable,
 			Argv: func(_ *Context, s Selection) []string {
-				return []string{"pacto", "fleet", "graph", string(s.Kind), s.Key}
+				return append([]string{"pacto", "fleet", "graph"}, graphRoot(s)...)
 			},
 			// Navigation rather than output, but it lives in the table so the
 			// help screen and the yank verb see it like everything else.
@@ -102,54 +121,140 @@ func verbList(c *Context) []Verb {
 func writeVerbs() []Verb {
 	return []Verb{
 		{
-			Key: "p", Help: "push the selected bundle", Write: true, Applies: hasBundle,
-			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "push", s.Ref} },
+			Key: "p", Help: "push the selected bundle to a registry", Write: true, Applies: hasLocalBundle,
+			Argv: func(_ *Context, s Selection) []string { return pushArgv(refPlaceholder, s) },
 			Run: func(c *Context, s Selection) tea.Cmd {
-				argv := []string{"pacto", "push", s.Ref}
-				return runWrite(c, "Push "+s.Label+" to its configured registry?", argv)
+				return promptFor("Registry reference to push "+s.Label+" to (oci://...):", func(ref string) tea.Cmd {
+					return runWrite(c, "Push "+s.Ref+" to "+ref+"?", pushArgv(ref, s))
+				})
 			},
 		},
 		{
 			Key: "P", Help: "pull the selected revision", Write: true, Applies: hasRemoteRef,
-			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "pull", s.Ref} },
+			Argv: pullArgv,
 			Run: func(c *Context, s Selection) tea.Cmd {
-				argv := []string{"pacto", "pull", s.Ref}
 				// pull clobbers its destination and has no --force to soften it,
 				// so the prompt names the destination rather than the source.
-				return runWrite(c, "Pull "+s.Ref+"? This overwrites the destination directory.", argv)
+				return runWrite(c, "Pull "+s.Ref+" into ./"+pullDir(s.Ref)+"? This overwrites that directory.", pullArgv(c, s))
 			},
 		},
 		{
-			Key: "L", Help: "update the selected bundle's lock file", Write: true, Applies: hasBundle,
-			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "lock", "--update", s.Ref} },
+			Key: "L", Help: "update the selected bundle's lock file", Write: true, Applies: hasLocalBundle,
+			Argv: lockUpdateArgv,
 			Run: func(c *Context, s Selection) tea.Cmd {
-				argv := []string{"pacto", "lock", "--update", s.Ref}
-				return runWrite(c, "Rewrite the lock file for "+s.Label+"?", argv)
+				return runWrite(c, "Rewrite the lock file for "+s.Label+"?", lockUpdateArgv(c, s))
 			},
 		},
 		{
-			Key: "G", Help: "run generate for the selected bundle", Write: true, Applies: hasLocalBundle,
-			Argv: func(_ *Context, s Selection) []string { return []string{"pacto", "generate", s.Ref} },
+			Key: "G", Help: "run a generate plugin over the selected bundle", Write: true, Applies: hasLocalBundle,
+			Argv: func(_ *Context, s Selection) []string { return generateArgv(pluginPlaceholder, s) },
 			Run: func(c *Context, s Selection) tea.Cmd {
-				argv := []string{"pacto", "generate", s.Ref}
-				// generate executes a plugin binary. The prompt says so, because
-				// confirming this is confirming arbitrary code.
-				return runWrite(c, "Run generate for "+s.Label+"? This executes the configured plugin binaries.", argv)
+				return promptFor("Plugin to run over "+s.Label+" (executes pacto-plugin-<name>):", func(plugin string) tea.Cmd {
+					// generate executes a plugin binary. The prompt says so, because
+					// confirming this is confirming arbitrary code.
+					return runWrite(c, "Run pacto-plugin-"+plugin+" over "+s.Ref+"? This executes that binary.", generateArgv(plugin, s))
+				})
 			},
 		},
 	}
 }
 
-// hasRemoteRef is the Applies predicate for pull: a local directory is already
-// here, so offering to pull it is nonsense.
-func hasRemoteRef(sel Selection) bool {
-	return sel.Ref != "" && !sel.Local
+// The two arguments no selection can supply. A contract declares neither a
+// registry to publish to nor a plugin to run, so the reader is asked, and the
+// line the help screen and the yank verb show carries the placeholder rather
+// than a value invented for them.
+const (
+	refPlaceholder    = "<ref>"
+	pluginPlaceholder = "<plugin>"
+)
+
+// pushArgv is the one definition of what p runs. The positional is the
+// DESTINATION and the bundle rides on -p (internal/cli/push.go:55); reading the
+// command left to right suggests the opposite, which is how the bundle in the
+// TUI's own working directory ended up being published under someone else's ref.
+func pushArgv(ref string, sel Selection) []string {
+	return []string{"pacto", "push", ref, "-p", sel.Ref}
 }
 
-// hasLocalBundle is the Applies predicate for generate, which writes files next
-// to the bundle and so needs a directory rather than a registry reference.
-func hasLocalBundle(sel Selection) bool {
-	return sel.Ref != "" && sel.Local
+// generateArgv is the one definition of what G runs. The first positional is a
+// plugin NAME, resolved to a pacto-plugin-<name> binary on PATH; the bundle is
+// the optional second (internal/cli/generate.go:16).
+func generateArgv(plugin string, sel Selection) []string {
+	return []string{"pacto", "generate", plugin, sel.Ref}
+}
+
+// pullArgv names the destination explicitly. pull's -o default is the service
+// name read out of the bundle it has just downloaded, so without this the
+// confirmation could not say where the files are about to land.
+func pullArgv(_ *Context, sel Selection) []string {
+	return []string{"pacto", "pull", sel.Ref, "-o", pullDir(sel.Ref)}
+}
+
+// lockUpdateArgv is the one definition of what L runs. lock takes a directory,
+// never a reference, which is why L is a local-only verb.
+func lockUpdateArgv(_ *Context, sel Selection) []string {
+	return []string{"pacto", "lock", "--update", sel.Ref}
+}
+
+// pullDir is the directory pull will write into: the last segment of the
+// repository path with any tag or digest cut off. That is the service name for
+// every ref that follows the convention and a legal directory name for the rest.
+func pullDir(ref string) string {
+	r := strings.TrimPrefix(ref, "oci://")
+	if i := strings.LastIndex(r, "/"); i >= 0 {
+		r = r[i+1:]
+	}
+	if i := strings.IndexAny(r, ":@"); i >= 0 {
+		r = r[:i]
+	}
+	return r
+}
+
+// hasRemoteRef is the Applies predicate for pull: a local directory is already
+// here, so offering to pull it is nonsense.
+func hasRemoteRef(sel Selection) string {
+	if sel.Ref == "" {
+		return noBundle(sel)
+	}
+	if sel.Local {
+		return "this bundle is already a directory on disk"
+	}
+	return ""
+}
+
+// hasLocalBundle is the Applies predicate for the verbs that read or write
+// files beside a bundle, which needs a directory rather than a reference.
+func hasLocalBundle(sel Selection) string {
+	if sel.Ref == "" {
+		return noBundle(sel)
+	}
+	if !sel.Local {
+		return "this bundle is a registry reference, not a directory on disk"
+	}
+	return ""
+}
+
+// graphable is the Applies predicate for g. A neighborhood roots at a service,
+// a revision or a target and nothing else (pkg/fleet/neighborhood.go:514), so on
+// an owner or a source the verb could only ever open a screen showing an error.
+func graphable(sel Selection) string {
+	switch sel.Kind {
+	case fleet.KindOwner, fleet.KindSource:
+		return "a graph roots at a service, a revision or a target"
+	}
+	return ""
+}
+
+// graphRoot is how fleet graph names a root. Only a service is positional; a
+// revision and a target each have their own flag (internal/cli/fleet.go:255).
+func graphRoot(sel Selection) []string {
+	switch sel.Kind {
+	case fleet.KindRevision:
+		return []string{"--revision", sel.Key}
+	case fleet.KindTarget:
+		return []string{"--target", sel.Key}
+	}
+	return []string{sel.Key}
 }
 
 // orSelf substitutes b when a is empty, so an un-armed two-selection verb still
@@ -174,8 +279,8 @@ func dispatchVerb(c *Context, s screen, k tea.KeyPressMsg) (tea.Cmd, bool) {
 		if !ok {
 			return status("nothing selected"), true
 		}
-		if !v.Applies(sel) {
-			return status(fmt.Sprintf("%s does not apply to a %s", v.Help, sel.Kind)), true
+		if why := v.Applies(sel); why != "" {
+			return status(v.Help + " does not apply: " + why), true
 		}
 		return v.Run(c, sel), true
 	}
@@ -335,19 +440,25 @@ func VerbCommands() []string {
 	// A zero Context is enough: Argv reads only the selection, and the two-part
 	// verbs fall back to the selection for both sides.
 	c := &Context{}
+	// One selection per shape the table branches on: locality splits push and
+	// lock from pull, and a bundle-less kind is what sends yank down its own
+	// switch. A verb is counted only for a selection it would really be offered
+	// for, so this reports what the TUI can run rather than what the table can
+	// print.
 	sels := []Selection{
-		// The two shapes Argv actually branches on. yankArgv yields validate for a
-		// bundle-backed selection and fleet get for one with no bundle, and running
-		// only the first would leave fleet get looking like a forgotten command.
-		{Kind: "revision", Key: "k", Label: "l", Ref: "r"},
-		{Kind: "owner", Key: "team:x", Label: "team:x"},
+		{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc", Ref: "/tmp/svc", Local: true},
+		{Kind: fleet.KindRevision, Key: "svc@1.0.0", Label: "svc", Ref: "oci://ghcr.io/acme/svc:1.0.0"},
+		{Kind: fleet.KindTarget, Key: "prod/Deployment/svc", Label: "svc"},
+		{Kind: fleet.KindOwner, Key: "team:x", Label: "x"},
 	}
 	seen := map[string]bool{}
 	var out []string
 	for _, sel := range sels {
 		for _, v := range verbList(c) {
-			argv := v.Argv(c, sel)
-			path := commandPath(argv)
+			if v.Applies(sel) != "" {
+				continue
+			}
+			path := commandPath(v.Argv(c, sel))
 			if path == "" || seen[path] {
 				continue
 			}

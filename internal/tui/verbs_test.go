@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -53,10 +54,81 @@ func TestBundleVerbsDoNotApplyToAnOwner(t *testing.T) {
 	owner := Selection{Kind: fleet.KindOwner, Key: "team:x"}
 	for _, v := range verbList(c) {
 		if v.Key == "v" || v.Key == "E" || v.Key == "l" {
-			if v.Applies(owner) {
+			why := v.Applies(owner)
+			if why == "" {
 				t.Errorf("verb %q claims to apply to an owner, which has no bundle", v.Key)
+				continue
+			}
+			if !strings.Contains(why, "owner") {
+				t.Errorf("verb %q rejected an owner with %q, which does not say what is wrong", v.Key, why)
 			}
 		}
+	}
+}
+
+// TestGraphVerbRootsTheWayFleetGraphDoes pins the g verb's line. fleet graph
+// takes at most one positional, so "graph <kind> <key>" fails on arity before it
+// can look anything up; a revision and a target each go on their own flag, and
+// an owner or a source is not a root the neighborhood resolver accepts at all.
+func TestGraphVerbRootsTheWayFleetGraphDoes(t *testing.T) {
+	c := newLoadedContext(t)
+	var g Verb
+	for _, v := range verbList(c) {
+		if v.Key == "g" {
+			g = v
+		}
+	}
+	if g.Argv == nil {
+		t.Fatal("no verb bound to g")
+	}
+
+	for _, tt := range []struct {
+		name       string
+		sel        Selection
+		want       []string
+		wantReject string
+	}{
+		{
+			"a service is positional",
+			Selection{Kind: fleet.KindService, Key: "svc"},
+			[]string{"pacto", "fleet", "graph", "svc"}, "",
+		},
+		{
+			"a revision goes on --revision",
+			Selection{Kind: fleet.KindRevision, Key: "svc@1.0.0"},
+			[]string{"pacto", "fleet", "graph", "--revision", "svc@1.0.0"}, "",
+		},
+		{
+			"a target goes on --target",
+			Selection{Kind: fleet.KindTarget, Key: "prod/Deployment/svc"},
+			[]string{"pacto", "fleet", "graph", "--target", "prod/Deployment/svc"}, "",
+		},
+		{
+			"an owner is not a root",
+			Selection{Kind: fleet.KindOwner, Key: "team:x"},
+			nil, "roots at",
+		},
+		{
+			"a source is not a root",
+			Selection{Kind: fleet.KindSource, Key: "local"},
+			nil, "roots at",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			why := g.Applies(tt.sel)
+			if tt.wantReject != "" {
+				if !strings.Contains(why, tt.wantReject) {
+					t.Fatalf("g.Applies = %q, want it to mention %q", why, tt.wantReject)
+				}
+				return
+			}
+			if why != "" {
+				t.Fatalf("g does not apply to %s: %s", tt.sel.Kind, why)
+			}
+			if got := g.Argv(c, tt.sel); !slices.Equal(got, tt.want) {
+				t.Fatalf("g argv = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -24,9 +24,12 @@ func TestBundleRef(t *testing.T) {
 			true,
 		},
 		{
-			"a scheme-less path is passed through but is not called local",
+			// bundleRef does not sniff the shape of the string. A bare path that
+			// no source emits is treated as a registry reference and fails saying
+			// so, which beats reading a directory off a guess.
+			"a scheme-less path is not called local and is not special-cased",
 			fleet.RevisionIdentity{RequestedRef: "/tmp/svc"},
-			"/tmp/svc",
+			"oci:///tmp/svc",
 			false,
 		},
 		{
@@ -35,9 +38,12 @@ func TestBundleRef(t *testing.T) {
 			// internal/fleetsrc/k8s.go:84 passes the operator's ref through as it
 			// found it. Reading locality off the absence of an oci:// prefix would
 			// call this local and offer to run plugin binaries against a registry.
-			"a scheme-less registry reference is remote",
+			// The scheme goes on here because graph.ParseDependencyRef resolves a
+			// scheme-less ref as a filesystem path (pkg/graph/depref.go:59), so
+			// every verb downstream would go looking for a directory by that name.
+			"a scheme-less registry reference is remote and gains its scheme",
 			fleet.RevisionIdentity{ResolvedRef: "ghcr.io/acme/svc:1.0"},
-			"ghcr.io/acme/svc:1.0",
+			"oci://ghcr.io/acme/svc:1.0",
 			false,
 		},
 		{

@@ -314,8 +314,11 @@ func TestListLoadWithInvalidFilterSetsError(t *testing.T) {
 
 func TestListPressGPushesGraphScreen(t *testing.T) {
 	c := newLoadedContext(t)
-	s := newListScreen(c)
-	_, cmd := s.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	l := newListScreen(c).(*listScreen)
+	// The unfiltered list sorts owners first and a graph does not root at one,
+	// so put the cursor on a service before pressing the key.
+	cursorOnKind(t, l, fleet.KindService)
+	_, cmd := l.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
 	if cmd == nil {
 		t.Fatal("g did not produce a command")
 	}
