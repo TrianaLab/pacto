@@ -144,6 +144,12 @@ func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 			return l, cmd
 		}
 		switch msg.String() {
+		case "enter":
+			ref, ok := l.selected()
+			if !ok {
+				return l, nil
+			}
+			return l, push(newDetailScreen(c, ref))
 		case "/":
 			l.typing = true
 			return l, l.input.Focus()
