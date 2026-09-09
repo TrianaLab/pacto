@@ -130,7 +130,7 @@ func completeFlag(t *testing.T, root *cobra.Command, args []string) ([]string, c
 		t.Fatalf("__complete failed: %v", err)
 	}
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
-	if len(lines) == 0 {
+	if buf.Len() == 0 {
 		t.Fatal("__complete produced nothing")
 	}
 	// The last line is ":<directive>"; everything before it is a candidate.
