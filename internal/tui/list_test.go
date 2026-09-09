@@ -6,7 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -64,12 +63,17 @@ func TestListTabWrapsAtTheEnd(t *testing.T) {
 func TestListSelectedReturnsTheHighlightedEntity(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newListScreen(c).(*listScreen)
+	if len(s.entities) == 0 {
+		t.Fatal("test setup: need at least one entity")
+	}
 	ref, ok := s.selected()
 	if !ok {
 		t.Fatal("nothing selected in a non-empty list")
 	}
-	if ref.Key == "" {
-		t.Fatal("selected ref has no key")
+	expected := s.entities[0]
+	if ref.Key != expected.Key || ref.Kind != expected.Kind {
+		t.Fatalf("selected() = {Kind: %q, Key: %q}, want {Kind: %q, Key: %q}",
+			ref.Kind, ref.Key, expected.Kind, expected.Key)
 	}
 }
 
@@ -123,9 +127,18 @@ func TestListHandlesWindowSizeMsg(t *testing.T) {
 func TestListDelegatesOtherMessagesToTable(t *testing.T) {
 	c := newLoadedContext(t)
 	var s screen = newListScreen(c)
+	l := s.(*listScreen)
+	if len(l.entities) < 2 {
+		t.Fatalf("test setup: need at least 2 entities to test cursor movement, got %d", len(l.entities))
+	}
+	before := l.tbl.Cursor()
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyDown})
 	if s == nil {
 		t.Fatal("Update returned nil screen")
+	}
+	after := s.(*listScreen).tbl.Cursor()
+	if after <= before {
+		t.Fatalf("cursor = %d after down arrow, want > %d", after, before)
 	}
 }
 
@@ -137,36 +150,6 @@ func TestListResizeHandlesSmallHeights(t *testing.T) {
 	out := l.View(c)
 	if out == "" {
 		t.Fatal("View() should render even with small height")
-	}
-}
-
-func TestListRefreshHandlesQueryErrors(t *testing.T) {
-	snap := &fleet.FleetSnapshot{}
-	c := &Context{
-		Query: fleet.NewQuery(snap),
-		Send:  &sender{},
-		Svc:   app.NewService(nil, nil),
-		Width: 100,
-		Height: 30,
-	}
-	l := newListScreen(c).(*listScreen)
-	f := fleet.EntityFilter{Limit: -1}
-	list, err := c.Query.Entities(f)
-	if err != nil {
-		l.loadErr = err
-		if err != nil {
-			l.entities, l.total, l.shown, l.truncated = nil, 0, 0, false
-			l.tbl.SetRows(nil)
-		}
-	} else {
-		l.entities = list.Entities
-		l.total, l.shown, l.truncated = list.Total, list.Count, list.Truncated
-	}
-	if err != nil && l.loadErr == nil {
-		t.Fatal("loadErr should be set when query fails")
-	}
-	if err != nil && len(l.entities) != 0 {
-		t.Fatal("entities should be empty after error")
 	}
 }
 

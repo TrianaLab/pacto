@@ -11,12 +11,24 @@ import (
 
 func TestAttentionListsItems(t *testing.T) {
 	c := newLoadedContext(t)
-	s := newAttentionScreen(c)
+	s := newAttentionScreen(c).(*attentionScreen)
 	if s.Title() != "Attention" {
 		t.Fatalf("Title() = %q", s.Title())
 	}
-	if s.View(c) == "" {
+	out := s.View(c)
+	if out == "" {
 		t.Fatal("attention screen rendered nothing")
+	}
+	if !strings.Contains(out, "all") {
+		t.Fatalf("view should contain the first category tab 'all':\n%s", out)
+	}
+	if len(s.items) == 0 {
+		t.Skip("test fixture produces no attention items")
+	}
+	firstItem := s.items[0]
+	if !strings.Contains(out, firstItem.Service) && !strings.Contains(out, firstItem.Summary) {
+		t.Fatalf("view should contain text from the first attention item (service=%q, summary=%q):\n%s",
+			firstItem.Service, firstItem.Summary, out)
 	}
 }
 
@@ -99,8 +111,9 @@ func TestAttentionHandlesWindowSizeMsg(t *testing.T) {
 	var s screen = newAttentionScreen(c)
 	c.Width, c.Height = 120, 40
 	s, _ = s.Update(c, tea.WindowSizeMsg{Width: 120, Height: 40})
-	if s == nil {
-		t.Fatal("Update returned nil screen")
+	a := s.(*attentionScreen)
+	if a.tbl.Width() != 120 {
+		t.Fatalf("table width = %d, want 120", a.tbl.Width())
 	}
 }
 
