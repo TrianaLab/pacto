@@ -14,6 +14,10 @@ import (
 // osExecutable is a seam so the TTY-less test can exercise the failure path.
 var osExecutable = os.Executable
 
+// tuiRun is a seam so the test can check the flags reach tui.Options without
+// starting a full-screen program.
+var tuiRun = tui.Run
+
 // newTUICommand builds `pacto tui`: the full-screen terminal front-end. It
 // takes the same fleet source flags as `pacto fleet`, because the snapshot it
 // navigates is the same snapshot.
@@ -44,7 +48,7 @@ func newTUICommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 			readOnly, _ := cmd.Flags().GetBool("read-only")
-			return tui.Run(cmd.Context(), tui.Options{
+			return tuiRun(cmd.Context(), tui.Options{
 				Svc:      svc,
 				Fleet:    fleetOptions(cmd),
 				ReadOnly: readOnly,
