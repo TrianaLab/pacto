@@ -6,10 +6,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// newProgram is a seam so tests can run the model without a terminal.
-var newProgram = func(m tea.Model, opts ...tea.ProgramOption) *tea.Program {
-	return tea.NewProgram(m, opts...)
-}
+// newProgram is a seam so tests can run the model without a terminal. It is the
+// constructor itself rather than a wrapper around it, because a wrapper body
+// would be a statement no test can reach — every test replaces the seam.
+var newProgram = tea.NewProgram
 
 // Run starts the TUI and blocks until the user quits or ctx is cancelled.
 func Run(ctx context.Context, o Options) error {
