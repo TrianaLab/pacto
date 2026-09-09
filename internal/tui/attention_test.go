@@ -23,7 +23,7 @@ func TestAttentionListsItems(t *testing.T) {
 		t.Fatalf("view should contain the first category tab 'all':\n%s", out)
 	}
 	if len(s.items) == 0 {
-		t.Skip("test fixture produces no attention items")
+		t.Fatalf("test fixture produces no attention items")
 	}
 	firstItem := s.items[0]
 	if !strings.Contains(out, firstItem.Service) && !strings.Contains(out, firstItem.Summary) {
@@ -72,7 +72,7 @@ func TestAttentionSelectedReturnsTheHighlightedItem(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newAttentionScreen(c).(*attentionScreen)
 	if len(s.items) == 0 {
-		t.Skip("no attention items in test snapshot")
+		t.Fatalf("no attention items in test snapshot")
 	}
 	ref, ok := s.selected()
 	if !ok {

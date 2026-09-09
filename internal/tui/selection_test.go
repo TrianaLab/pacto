@@ -1,0 +1,189 @@
+package tui
+
+import (
+	"testing"
+
+	"github.com/trianalab/pacto/v3/pkg/fleet"
+)
+
+func TestBundleRef(t *testing.T) {
+	tests := []struct {
+		name string
+		id   fleet.RevisionIdentity
+		want string
+	}{
+		{
+			"a local bundle becomes a plain path",
+			fleet.RevisionIdentity{IdentityClass: fleet.IdentityLocal, RequestedRef: "file:///tmp/svc"},
+			"/tmp/svc",
+		},
+		{
+			"a local bundle with no scheme is passed through",
+			fleet.RevisionIdentity{IdentityClass: fleet.IdentityLocal, RequestedRef: "/tmp/svc"},
+			"/tmp/svc",
+		},
+		{
+			"a registry revision uses the resolved ref",
+			fleet.RevisionIdentity{IdentityClass: fleet.IdentityExact, RequestedRef: "oci://r/s:1", ResolvedRef: "oci://r/s@sha256:aa"},
+			"oci://r/s@sha256:aa",
+		},
+		{
+			"a registry revision with no resolved ref falls back to the requested one",
+			fleet.RevisionIdentity{IdentityClass: fleet.IdentityMutable, RequestedRef: "oci://r/s:latest"},
+			"oci://r/s:latest",
+		},
+		{"nothing to go on yields nothing", fleet.RevisionIdentity{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := bundleRef(tt.id); got != tt.want {
+				t.Fatalf("bundleRef = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveSelectionForARevision(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindRevision)
+	sel, err := resolveSelection(c, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.Ref == "" {
+		t.Fatal("a revision selection resolved to no ref")
+	}
+}
+
+func TestResolveSelectionForARevisionWithEmptyVersionFallback(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindRevision)
+	ref.Version = ""
+	sel, err := resolveSelection(c, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.Version == "" {
+		t.Fatal("revision selection should populate Version from detail when EntityRef.Version is empty")
+	}
+}
+
+func TestResolveSelectionForAServiceGoesThroughItsActiveRevision(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindService)
+	sel, err := resolveSelection(c, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.Ref == "" {
+		t.Fatal("a service selection resolved to no ref")
+	}
+	if sel.Kind != fleet.KindService {
+		t.Fatalf("Kind = %q, want the original service kind", sel.Kind)
+	}
+}
+
+func TestResolveSelectionForAnOwnerHasNoRef(t *testing.T) {
+	// An owner is not a bundle. Resolution must succeed and say so rather than
+	// inventing a ref, so the verb layer can grey out the bundle verbs instead
+	// of running one against nonsense.
+	c := newLoadedContext(t)
+	sel, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindOwner, Key: "team:x", Label: "team:x"})
+	if err != nil {
+		t.Fatalf("owner resolution errored: %v", err)
+	}
+	if sel.Ref != "" {
+		t.Fatalf("Ref = %q, want empty for an owner", sel.Ref)
+	}
+}
+
+func TestResolveSelectionPropagatesALookupError(t *testing.T) {
+	c := newLoadedContext(t)
+	if _, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindService, Key: "no-such"}); err == nil {
+		t.Fatal("want an error for an unknown key")
+	}
+}
+
+func TestResolveSelectionForASource(t *testing.T) {
+	c := newLoadedContext(t)
+	sel, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindSource, Key: "local", Label: "local"})
+	if err != nil {
+		t.Fatalf("source resolution errored: %v", err)
+	}
+	if sel.Ref != "" {
+		t.Fatalf("Ref = %q, want empty for a source", sel.Ref)
+	}
+}
+
+func TestResolveSelectionForServiceWithNoRevisions(t *testing.T) {
+	c := newLoadedContext(t)
+	sel, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindService, Key: testServiceName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A service with no revisions (or no active revisions) should still resolve,
+	// just with an empty Ref.
+	if sel.Kind != fleet.KindService {
+		t.Fatalf("Kind = %q, want service", sel.Kind)
+	}
+}
+
+func TestResolveSelectionForTarget(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindTarget)
+	sel, err := resolveSelection(c, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.Ref == "" {
+		t.Fatal("a target selection resolved to no ref")
+	}
+	if sel.Kind != fleet.KindTarget {
+		t.Fatalf("Kind = %q, want target", sel.Kind)
+	}
+}
+
+func TestRefFromServiceRevisionsWithEmptyList(t *testing.T) {
+	c := newLoadedContext(t)
+	s := &fleet.ServiceDetailData{ActiveRevisions: fleet.RefPreview{Total: 0}}
+	if ref := refFromServiceRevisions(c, s); ref != "" {
+		t.Fatalf("refFromServiceRevisions with no active revisions = %q, want empty", ref)
+	}
+}
+
+func TestRefFromServiceRevisionsWithNoItems(t *testing.T) {
+	c := newLoadedContext(t)
+	s := &fleet.ServiceDetailData{ActiveRevisions: fleet.RefPreview{Total: 1, Items: nil}}
+	if ref := refFromServiceRevisions(c, s); ref != "" {
+		t.Fatalf("refFromServiceRevisions with nil items = %q, want empty", ref)
+	}
+}
+
+func TestRefFromServiceRevisionsWithBadRevisionKey(t *testing.T) {
+	c := newLoadedContext(t)
+	s := &fleet.ServiceDetailData{
+		ActiveRevisions: fleet.RefPreview{
+			Total: 1,
+			Items: []fleet.EntityRef{{Key: "no-such-revision"}},
+		},
+	}
+	if ref := refFromServiceRevisions(c, s); ref != "" {
+		t.Fatalf("refFromServiceRevisions with bad key = %q, want empty", ref)
+	}
+}
+
+func TestRefFromTargetWithNoRevision(t *testing.T) {
+	c := newLoadedContext(t)
+	tgt := &fleet.TargetDetailData{Revision: nil}
+	if ref := refFromTarget(c, tgt); ref != "" {
+		t.Fatalf("refFromTarget with no revision = %q, want empty", ref)
+	}
+}
+
+func TestRefFromTargetWithBadRevisionKey(t *testing.T) {
+	c := newLoadedContext(t)
+	tgt := &fleet.TargetDetailData{Revision: &fleet.EntityRef{Key: "no-such-revision"}}
+	if ref := refFromTarget(c, tgt); ref != "" {
+		t.Fatalf("refFromTarget with bad key = %q, want empty", ref)
+	}
+}

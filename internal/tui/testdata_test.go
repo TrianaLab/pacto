@@ -18,7 +18,7 @@ func firstEntityOfKind(t *testing.T, c *Context, kind fleet.EntityKind) fleet.En
 		t.Fatal(err)
 	}
 	if len(list.Entities) == 0 {
-		t.Skipf("the fixture has no %s entity", kind)
+		t.Fatalf("the fixture has no %s entity", kind)
 	}
 	return list.Entities[0]
 }

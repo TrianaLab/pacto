@@ -100,7 +100,7 @@ func TestEnterOnAttentionOpensDetail(t *testing.T) {
 	c := newLoadedContext(t)
 	a := newAttentionScreen(c).(*attentionScreen)
 	if len(a.items) == 0 {
-		t.Skip("attention screen is empty")
+		t.Fatalf("attention screen is empty")
 	}
 	_, cmd := a.Update(c, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
