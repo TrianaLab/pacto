@@ -86,8 +86,12 @@ func TestDocUIAndOutputAreMutuallyExclusive(t *testing.T) {
 	root.SetArgs([]string{"doc", "--ui", "swagger", "-o", "/tmp/x"})
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	if err := root.Execute(); err == nil {
+	err := root.Execute()
+	if err == nil {
 		t.Fatal("doc accepted two mutually exclusive flags")
+	}
+	if !strings.Contains(err.Error(), "[output ui] were all set") {
+		t.Fatalf("expected cobra mutual exclusion message, got: %v", err)
 	}
 }
 
@@ -98,8 +102,12 @@ func TestValidateDocFlagsStillGuardsTheOneCobraCannot(t *testing.T) {
 	root.SetArgs([]string{"doc", "--interface", "api"})
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
-	if err := root.Execute(); err == nil {
+	err := root.Execute()
+	if err == nil {
 		t.Fatal("--interface without --ui was accepted")
+	}
+	if !strings.Contains(err.Error(), "--interface requires --ui") {
+		t.Fatalf("expected validateDocFlags message, got: %v", err)
 	}
 }
 
