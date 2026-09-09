@@ -94,13 +94,16 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 				defer func() {
 					if r := recover(); r != nil {
 						lg.Debug("update check panicked", "panic", r)
-						updateResultCh <- nil
+						sendUpdate(updateResultCh, nil)
 					}
 				}()
-				updateResultCh <- checkForUpdateFn(info.Version)
+				sendUpdate(updateResultCh, checkForUpdateFn(info.Version))
 			}()
 		} else {
-			updateResultCh <- nil
+			// Non-blocking: cobra skips PersistentPostRunE when RunE errors, so
+			// the buffer can still hold a value from a previous failed Execute.
+			// Dropping the nil is correct — it only means "no update to report".
+			sendUpdate(updateResultCh, nil)
 		}
 
 		return nil
@@ -145,6 +148,17 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 
 	attachBanner(root)
 	return root
+}
+
+// sendUpdate posts an update-check result without ever blocking. The channel is
+// drained by PersistentPostRunE, which cobra skips when RunE errors, so a stale
+// value can still be sitting in the buffer. Dropping a result is harmless: the
+// notice is advisory.
+func sendUpdate(ch chan<- *update.CheckResult, r *update.CheckResult) {
+	select {
+	case ch <- r:
+	default:
+	}
 }
 
 // attachBanner prints the colored logo above the root command's help on a TTY.
