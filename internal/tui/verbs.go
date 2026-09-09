@@ -326,3 +326,60 @@ func verbImpact(c *Context, sel Selection) tea.Cmd {
 		return nil
 	})
 }
+
+// VerbCommands reports which cobra commands the verb table covers, as
+// space-joined paths. It is derived from each verb's Argv rather than written
+// out by hand, so a verb that changes what it runs cannot leave the coverage
+// claim behind. internal/cli asserts on this to prove no command was forgotten.
+func VerbCommands() []string {
+	// A zero Context is enough: Argv reads only the selection, and the two-part
+	// verbs fall back to the selection for both sides.
+	c := &Context{}
+	sels := []Selection{
+		// The two shapes Argv actually branches on. yankArgv yields validate for a
+		// bundle-backed selection and fleet get for one with no bundle, and running
+		// only the first would leave fleet get looking like a forgotten command.
+		{Kind: "revision", Key: "k", Label: "l", Ref: "r"},
+		{Kind: "owner", Key: "team:x", Label: "team:x"},
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, sel := range sels {
+		for _, v := range verbList(c) {
+			argv := v.Argv(c, sel)
+			path := commandPath(argv)
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+// commandPath strips argv down to its cobra path: everything after "pacto" up
+// to the first flag or operand. "pacto lock --check ./svc" is the lock command,
+// and "pacto fleet get revision k" is the fleet get command.
+func commandPath(argv []string) string {
+	if len(argv) < 2 || argv[0] != "pacto" {
+		return ""
+	}
+	parts := []string{argv[1]}
+	if len(argv) > 2 && isSubcommand(argv[1], argv[2]) {
+		parts = append(parts, argv[2])
+	}
+	return strings.Join(parts, " ")
+}
+
+// isSubcommand reports whether child is a subcommand of parent rather than an
+// operand. Fleet is the only command the verb table nests into.
+func isSubcommand(parent, child string) bool {
+	if parent == "fleet" {
+		switch child {
+		case "explain", "get", "graph", "reconcile", "search", "snapshot", "status":
+			return true
+		}
+	}
+	return false
+}

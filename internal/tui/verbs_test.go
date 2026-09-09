@@ -175,3 +175,38 @@ func TestScreenLocalKeysDoNotShadowVerbs(t *testing.T) {
 		}
 	}
 }
+
+func TestVerbCommandsOnAZeroContext(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("VerbCommands panicked on a zero Context: %v", r)
+		}
+	}()
+	cmds := VerbCommands()
+	if len(cmds) == 0 {
+		t.Fatal("VerbCommands returned an empty list, verb table is broken")
+	}
+}
+
+func TestCommandPathDefensiveChecks(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"empty", []string{}, ""},
+		{"too short", []string{"pacto"}, ""},
+		{"wrong prefix", []string{"not-pacto", "validate"}, ""},
+		{"simple command", []string{"pacto", "validate"}, "validate"},
+		{"fleet subcommand", []string{"pacto", "fleet", "get"}, "fleet get"},
+		{"non-subcommand", []string{"pacto", "validate", "ref"}, "validate"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := commandPath(tt.argv)
+			if got != tt.want {
+				t.Errorf("commandPath(%v) = %q, want %q", tt.argv, got, tt.want)
+			}
+		})
+	}
+}
