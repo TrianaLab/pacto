@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -12,24 +13,27 @@ func TestBundleRef(t *testing.T) {
 		id   fleet.RevisionIdentity
 		want string
 	}{
+		// IdentityClass is deliberately left unset throughout: bundleRef must not
+		// consult it, and setting it here would let a class-keyed implementation
+		// pass while failing on every revision fleet actually builds.
 		{
 			"a local bundle becomes a plain path",
-			fleet.RevisionIdentity{IdentityClass: fleet.IdentityLocal, RequestedRef: "file:///tmp/svc"},
+			fleet.RevisionIdentity{RequestedRef: "file:///tmp/svc"},
 			"/tmp/svc",
 		},
 		{
 			"a local bundle with no scheme is passed through",
-			fleet.RevisionIdentity{IdentityClass: fleet.IdentityLocal, RequestedRef: "/tmp/svc"},
+			fleet.RevisionIdentity{RequestedRef: "/tmp/svc"},
 			"/tmp/svc",
 		},
 		{
 			"a registry revision uses the resolved ref",
-			fleet.RevisionIdentity{IdentityClass: fleet.IdentityExact, RequestedRef: "oci://r/s:1", ResolvedRef: "oci://r/s@sha256:aa"},
+			fleet.RevisionIdentity{RequestedRef: "oci://r/s:1", ResolvedRef: "oci://r/s@sha256:aa"},
 			"oci://r/s@sha256:aa",
 		},
 		{
 			"a registry revision with no resolved ref falls back to the requested one",
-			fleet.RevisionIdentity{IdentityClass: fleet.IdentityMutable, RequestedRef: "oci://r/s:latest"},
+			fleet.RevisionIdentity{RequestedRef: "oci://r/s:latest"},
 			"oci://r/s:latest",
 		},
 		{"nothing to go on yields nothing", fleet.RevisionIdentity{}, ""},
@@ -115,16 +119,22 @@ func TestResolveSelectionForASource(t *testing.T) {
 	}
 }
 
-func TestResolveSelectionForServiceWithNoRevisions(t *testing.T) {
+func TestResolveSelectionStripsTheSchemeFromARealLocalRevision(t *testing.T) {
+	// The unit table above can only assert what a hand-built identity does. This
+	// asserts what the fleet actually produces: internal/fleetsrc records a local
+	// bundle as "file://<dir>" and never sets a resolved ref, so the identity comes
+	// back IdentityNoRef. A ref that still carries the scheme is one no verb can
+	// stat.
 	c := newLoadedContext(t)
 	sel, err := resolveSelection(c, fleet.EntityRef{Kind: fleet.KindService, Key: testServiceName})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A service with no revisions (or no active revisions) should still resolve,
-	// just with an empty Ref.
-	if sel.Kind != fleet.KindService {
-		t.Fatalf("Kind = %q, want service", sel.Kind)
+	if strings.HasPrefix(sel.Ref, "file://") {
+		t.Fatalf("Ref = %q, want the bare directory", sel.Ref)
+	}
+	if sel.Ref == "" {
+		t.Fatal("the local fixture service resolved to no ref at all")
 	}
 }
 

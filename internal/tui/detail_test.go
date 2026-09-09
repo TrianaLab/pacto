@@ -190,7 +190,11 @@ func TestDetailTitleFallsBackToKey(t *testing.T) {
 	}
 }
 
-func TestDetailUpdate(t *testing.T) {
+func TestDetailUpdateReturnsTheSameScreenNotACopy(t *testing.T) {
+	// The screen interface lets Update return a different screen, which is how
+	// navigation works. A detail screen must not use that: returning a fresh
+	// value here would discard the loaded body and the scroll position on every
+	// message.
 	c := newLoadedContext(t)
 	s := newDetailScreen(c, fleet.EntityRef{Kind: fleet.KindService, Key: testServiceName})
 	out, _ := s.Update(c, tea.WindowSizeMsg{Width: 50, Height: 20})

@@ -20,16 +20,20 @@ type Selection struct {
 
 // bundleRef turns a revision's identity into the argument the app-layer
 // resolver takes. A local bundle is recorded by internal/fleetsrc as
-// "file://<dir>"; the resolver wants the bare directory. Everything else is an
-// OCI reference, which the same resolver accepts unchanged.
+// "file://<dir>" and the resolver wants the bare directory; everything else is
+// an OCI reference the same resolver accepts unchanged.
+//
+// The prefix decides this, never IdentityClass. That field classifies content
+// RETRIEVABILITY from the resolved ref alone (pkg/fleet/detail.go:76), so a
+// local revision -- which has no resolved ref — comes back IdentityNoRef, not
+// IdentityLocal. Keying on the class would leave the scheme on every real local
+// bundle while passing every hand-built test identity.
 func bundleRef(id fleet.RevisionIdentity) string {
-	if id.IdentityClass == fleet.IdentityLocal {
-		return strings.TrimPrefix(id.RequestedRef, "file://")
+	ref := id.ResolvedRef
+	if ref == "" {
+		ref = id.RequestedRef
 	}
-	if id.ResolvedRef != "" {
-		return id.ResolvedRef
-	}
-	return id.RequestedRef
+	return strings.TrimPrefix(ref, "file://")
 }
 
 // resolveSelection turns a list row into a runnable selection. A revision

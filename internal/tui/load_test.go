@@ -126,7 +126,19 @@ func TestLoadSnapshotSuccess(t *testing.T) {
 	}
 }
 
-// testSnapshot creates a minimal fleet snapshot for testing.
+// Fixture digests. These are 64 hex characters because that is what
+// go-digest accepts: a short stand-in parses as IdentityMalformed, which would
+// silently deny every test the IdentityExact path.
+const (
+	testDigest    = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	anotherDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+)
+
+// testSnapshot builds the fleet every screen test runs against: two services,
+// one reached locally and one from a registry, one target each, one carrying an
+// error finding and one compliant, a team owner and a DRI owner. It is built
+// through fleet.Build over a memory source rather than hand-assembled, because
+// FleetSnapshot's dependency indexes are unexported and only Build fills them.
 func testSnapshot(t *testing.T) *fleet.FleetSnapshot {
 	t.Helper()
 
@@ -161,24 +173,24 @@ func testSnapshot(t *testing.T) *fleet.FleetSnapshot {
 			{
 				Bundle:       &contract.Bundle{Contract: testContract},
 				RequestedRef: "file:///tmp/test-svc",
-				Digest:       "sha256:test",
+				Digest:       testDigest,
 			},
 			{
 				Bundle:       &contract.Bundle{Contract: anotherContract},
 				RequestedRef: "oci://example.com/another-svc:2.0.0",
-				ResolvedRef:  "oci://example.com/another-svc@sha256:abc123",
-				Digest:       "sha256:abc123",
+				ResolvedRef:  "oci://example.com/another-svc@" + anotherDigest,
+				Digest:       anotherDigest,
 			},
 		},
 		Targets: []fleet.RawTarget{
 			{
-				Scope:       "default",
-				Kind:        "Deployment",
-				Name:        "test-svc-deploy",
-				Service:     "test-svc",
-				Digest:      "sha256:test",
-				Compliance:  "NonCompliant",
-				EvidenceAt:  &now,
+				Scope:      "default",
+				Kind:       "Deployment",
+				Name:       "test-svc-deploy",
+				Service:    "test-svc",
+				Digest:     testDigest,
+				Compliance: "NonCompliant",
+				EvidenceAt: &now,
 				Findings: []finding.Finding{
 					{
 						Code:     "TEST_FINDING",
@@ -189,13 +201,13 @@ func testSnapshot(t *testing.T) *fleet.FleetSnapshot {
 				},
 			},
 			{
-				Scope:       "production",
-				Kind:        "Deployment",
-				Name:        "another-svc-deploy",
-				Service:     "another-svc",
-				Digest:      "sha256:abc123",
-				Compliance:  "Compliant",
-				EvidenceAt:  &now,
+				Scope:      "production",
+				Kind:       "Deployment",
+				Name:       "another-svc-deploy",
+				Service:    "another-svc",
+				Digest:     anotherDigest,
+				Compliance: "Compliant",
+				EvidenceAt: &now,
 			},
 		},
 	}
