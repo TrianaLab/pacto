@@ -135,7 +135,7 @@ var docUIs = []string{"swagger"}
 
 func serveUI(cmd *cobra.Command, result *app.DocResult, ui, iface string, port int, targets []string) error {
 	if !slices.Contains(docUIs, ui) {
-		return fmt.Errorf("unsupported UI type %q: only \"swagger\" is supported", ui)
+		return fmt.Errorf("unsupported UI type %q: only \""+strings.Join(docUIs, "\", \"")+"\" is supported", ui)
 	}
 
 	specs := doc.CollectSwaggerSpecs(result.Bundle.Contract.Interfaces)
