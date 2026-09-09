@@ -92,46 +92,6 @@ func TestDepResolvedUpdatesTheLoadingScreen(t *testing.T) {
 	}
 }
 
-func TestLoadedScreenTitle(t *testing.T) {
-	ls := loadedScreen{n: 5}
-	if got := ls.Title(); got != "Services" {
-		t.Fatalf("Title() = %q, want %q", got, "Services")
-	}
-}
-
-func TestLoadedScreenView(t *testing.T) {
-	ls := loadedScreen{n: 42}
-	view := ls.View(&Context{})
-	if !strings.Contains(view, "42") {
-		t.Fatalf("View() = %q, want it to contain entity count", view)
-	}
-	if !strings.Contains(view, "entities") {
-		t.Fatalf("View() = %q, want it to contain 'entities'", view)
-	}
-}
-
-func TestLoadedScreenUpdate(t *testing.T) {
-	ls := loadedScreen{n: 5}
-	c := &Context{}
-	next, cmd := ls.Update(c, statusMsg{text: "test"})
-	if next != ls {
-		t.Fatal("Update should return the receiver unchanged")
-	}
-	if cmd != nil {
-		t.Fatal("Update should return nil command")
-	}
-}
-
-func TestNewListScreen(t *testing.T) {
-	snap := testSnapshot(t)
-	q := fleet.NewQuery(snap)
-	c := &Context{Query: q}
-	s := newListScreen(c)
-	if s.Title() != "Services" {
-		t.Fatal("newListScreen should return a screen with title 'Services'")
-	}
-}
-
 func TestLoadSnapshotSuccess(t *testing.T) {
 	root := t.TempDir()
 	bundleDir := filepath.Join(root, "test-svc")

@@ -6,7 +6,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 
@@ -141,18 +140,4 @@ func (m *Model) footer() string {
 		return dimStyle.Render(m.ctx.Status)
 	}
 	return dimStyle.Render("?: help   q: back   ctrl+c: quit")
-}
-
-// loadedScreen is a placeholder replaced by the List screen in Task 8.
-type loadedScreen struct{ n int }
-
-func (l loadedScreen) Title() string                              { return "Services" }
-func (l loadedScreen) Update(*Context, tea.Msg) (screen, tea.Cmd) { return l, nil }
-func (l loadedScreen) View(*Context) string {
-	return fmt.Sprintf("%d entities", l.n)
-}
-
-func newListScreen(c *Context) screen {
-	snap := c.Query.Snapshot()
-	return loadedScreen{n: len(snap.Services) + len(snap.Targets)}
 }
