@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -61,11 +62,23 @@ func TestPromptSubmitsTheAnswerAfterPoppingItself(t *testing.T) {
 	if got != "oci://ghcr.io/acme/svc:1.0.0" {
 		t.Fatalf("onSubmit received %q, want the trimmed answer", got)
 	}
-	// The pop and whatever onSubmit pushes must not race. tea.Sequence's message
-	// type is unexported, so the assertion available here is that it is not a
-	// batch — which is exactly the change that would reintroduce the race.
+	// The pop and whatever onSubmit pushes must not race, and the pop must go
+	// first, or the confirmation is pushed under the prompt and then popped off.
 	if _, batched := cmd().(tea.BatchMsg); batched {
 		t.Fatal("the pop and the submission are batched; they must run in sequence")
+	}
+	// Order needs reflection: tea.Sequence's message is an unexported []Cmd, so
+	// there is no type to assert against — but its element type is the exported
+	// tea.Cmd, so the slice can be indexed and its first command run. Without
+	// this the test says "sequenced" and proves only "not batched", which stays
+	// green with the two arguments swapped.
+	seq := reflect.ValueOf(cmd())
+	if seq.Kind() != reflect.Slice || seq.Len() != 2 {
+		t.Fatalf("enter produced %T, want tea.Sequence's two commands", cmd())
+	}
+	first := seq.Index(0).Interface().(tea.Cmd)
+	if _, popped := first().(popMsg); !popped {
+		t.Fatalf("the first sequenced command produced %T, want a popMsg", first())
 	}
 }
 
