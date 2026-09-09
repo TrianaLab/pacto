@@ -104,13 +104,21 @@ func NewGoClient() (K8sClient, error) {
 func buildK8sConfig() (*rest.Config, error) {
 	// Try in-cluster config first.
 	config, err := inClusterConfigFunc()
-	if err == nil {
-		return config, nil
+	if err != nil {
+		// Fall back to kubeconfig.
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+		configOverrides := &clientcmd.ConfigOverrides{}
+		config, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
+		if err != nil {
+			return nil, err
+		}
 	}
-	// Fall back to kubeconfig.
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	configOverrides := &clientcmd.ConfigOverrides{}
-	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
+	// Server deprecation warnings go to klog, which writes to stderr directly and
+	// so escapes every writer the caller controls. Nothing here reads them, and
+	// under a full-screen TUI they corrupt the frame. Suppress per config rather
+	// than mutating the client-go process global.
+	config.WarningHandlerWithContext = rest.NoWarnings{}
+	return config, nil
 }
 
 func (c *k8sGoClient) Probe(ctx context.Context) error {

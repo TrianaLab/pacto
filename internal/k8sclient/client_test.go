@@ -25,6 +25,57 @@ import (
 // buildK8sConfig
 // ---------------------------------------------------------------------------
 
+func TestBuildK8sConfigSuppressesAPIWarnings(t *testing.T) {
+	t.Run("in-cluster", func(t *testing.T) {
+		orig := inClusterConfigFunc
+		t.Cleanup(func() { inClusterConfigFunc = orig })
+		inClusterConfigFunc = func() (*rest.Config, error) { return &rest.Config{Host: "https://example.test"}, nil }
+
+		cfg, err := buildK8sConfig()
+		if err != nil {
+			t.Fatalf("buildK8sConfig: %v", err)
+		}
+		if _, ok := cfg.WarningHandlerWithContext.(rest.NoWarnings); !ok {
+			t.Fatalf("want rest.NoWarnings, got %T", cfg.WarningHandlerWithContext)
+		}
+	})
+
+	t.Run("kubeconfig-fallback", func(t *testing.T) {
+		orig := inClusterConfigFunc
+		t.Cleanup(func() { inClusterConfigFunc = orig })
+		inClusterConfigFunc = func() (*rest.Config, error) { return nil, fmt.Errorf("not in cluster") }
+
+		dir := t.TempDir()
+		kubeconfig := filepath.Join(dir, "config")
+		_ = os.WriteFile(kubeconfig, []byte(`apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://test-cluster:6443
+  name: test
+contexts:
+- context:
+    cluster: test
+    user: test
+  name: test
+current-context: test
+users:
+- name: test
+  user:
+    token: test-token
+`), 0o644)
+		t.Setenv("KUBECONFIG", kubeconfig)
+
+		cfg, err := buildK8sConfig()
+		if err != nil {
+			t.Fatalf("buildK8sConfig: %v", err)
+		}
+		if _, ok := cfg.WarningHandlerWithContext.(rest.NoWarnings); !ok {
+			t.Fatalf("want rest.NoWarnings, got %T", cfg.WarningHandlerWithContext)
+		}
+	})
+}
+
 func TestBuildK8sConfig_InCluster(t *testing.T) {
 	orig := inClusterConfigFunc
 	inClusterConfigFunc = func() (*rest.Config, error) {
