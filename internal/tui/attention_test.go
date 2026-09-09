@@ -159,3 +159,22 @@ func TestAttentionResizeHandlesSmallHeights(t *testing.T) {
 		t.Fatal("View() should render even with small height")
 	}
 }
+
+func TestAttentionLoadWithInvalidFilterSetsError(t *testing.T) {
+	c := newLoadedContext(t)
+	a := newAttentionScreen(c).(*attentionScreen)
+	a.load(c, fleet.AttentionFilter{Limit: -1})
+	if a.loadErr == nil {
+		t.Fatal("load with negative limit should produce an error")
+	}
+	if a.items != nil {
+		t.Fatal("items should be cleared after a query error")
+	}
+	if a.tbl.Rows() != nil {
+		t.Fatal("table rows should be cleared after a query error")
+	}
+	out := a.View(c)
+	if !strings.Contains(out, "attention query failed") {
+		t.Fatalf("View should surface the query error:\n%s", out)
+	}
+}

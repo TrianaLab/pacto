@@ -43,11 +43,18 @@ func newAttentionScreen(c *Context) screen {
 	return a
 }
 
-func (a *attentionScreen) refresh(c *Context) {
+// filter is the query this screen's current category describes.
+func (a *attentionScreen) filter() fleet.AttentionFilter {
 	f := fleet.AttentionFilter{}
 	if cat := attentionCategories()[a.catIx]; cat != "" {
 		f.Category = cat
 	}
+	return f
+}
+
+// load runs f and reloads the table from the result. A query error empties the
+// table and is surfaced by View rather than dropped.
+func (a *attentionScreen) load(c *Context, f fleet.AttentionFilter) {
 	list, err := c.Query.Attention(f)
 	a.loadErr = err
 	if err != nil {
@@ -68,6 +75,8 @@ func (a *attentionScreen) refresh(c *Context) {
 	a.tbl.SetRows(rows)
 	a.tbl.SetCursor(0)
 }
+
+func (a *attentionScreen) refresh(c *Context) { a.load(c, a.filter()) }
 
 // selected returns the entity the highlighted finding is about, so the verbs
 // work here exactly as they do on the list.

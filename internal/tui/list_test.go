@@ -298,3 +298,25 @@ func TestListAKeyPushesAttentionScreen(t *testing.T) {
 		t.Fatalf("top screen title = %q, want Attention", next.(*Model).top().Title())
 	}
 }
+
+func TestListLoadWithInvalidFilterSetsError(t *testing.T) {
+	c := newLoadedContext(t)
+	l := newListScreen(c).(*listScreen)
+	if len(l.entities) == 0 {
+		t.Fatal("test setup: list should have entities initially")
+	}
+	l.load(c, fleet.EntityFilter{Offset: -1})
+	if l.loadErr == nil {
+		t.Fatal("load with negative offset should produce an error")
+	}
+	if l.entities != nil {
+		t.Fatal("entities should be cleared after a query error")
+	}
+	if l.tbl.Rows() != nil {
+		t.Fatal("table rows should be cleared after a query error")
+	}
+	out := l.View(c)
+	if !strings.Contains(out, "query failed") {
+		t.Fatalf("View should surface the query error:\n%s", out)
+	}
+}

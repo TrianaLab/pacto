@@ -66,12 +66,18 @@ func listColumns() []table.Column {
 	}
 }
 
-// refresh re-runs the query and reloads the table.
-func (l *listScreen) refresh(c *Context) {
+// filter is the query this screen's current tab and filter text describe.
+func (l *listScreen) filter() fleet.EntityFilter {
 	f := fleet.EntityFilter{Text: l.filterText, Limit: listPageSize}
 	if k := l.kinds()[l.kindIx]; k != "" {
 		f.Kinds = []fleet.EntityKind{k}
 	}
+	return f
+}
+
+// load runs f and reloads the table from the result. A query error empties the
+// table and is surfaced by View rather than dropped.
+func (l *listScreen) load(c *Context, f fleet.EntityFilter) {
 	list, err := c.Query.Entities(f)
 	l.loadErr = err
 	if err != nil {
@@ -93,6 +99,8 @@ func (l *listScreen) refresh(c *Context) {
 	l.tbl.SetRows(rows)
 	l.tbl.SetCursor(0)
 }
+
+func (l *listScreen) refresh(c *Context) { l.load(c, l.filter()) }
 
 // selected returns the highlighted entity. ok is false when the list is empty.
 func (l *listScreen) selected() (fleet.EntityRef, bool) {
