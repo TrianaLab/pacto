@@ -89,16 +89,8 @@ func verbList(c *Context) []Verb {
 	return append(vs, writeVerbs()...)
 }
 
-// testWriteVerbsOverride is a test seam: when non-nil, writeVerbs returns it.
-var testWriteVerbsOverride []Verb
-
 // writeVerbs returns the verbs that change something; filled in by Task 16.
-func writeVerbs() []Verb {
-	if testWriteVerbsOverride != nil {
-		return testWriteVerbsOverride
-	}
-	return nil
-}
+func writeVerbs() []Verb { return nil }
 
 // orSelf substitutes b when a is empty, so an un-armed two-selection verb still
 // yanks a sensible command rather than one with a hole in it.
@@ -187,14 +179,17 @@ func onDep(c *Context, id int) func() {
 
 func verbValidate(c *Context, sel Selection) tea.Cmd {
 	return runRead(c, "validate "+sel.Label, func(o *outputScreen) error {
+		// Unlike the other read verbs, this one renders whatever came back and
+		// reports the error alongside it rather than instead of it. Validate never
+		// returns an error for a bad contract — the verdict is in the result, and
+		// returning early on err would call every invalid bundle fine. The only
+		// errors it does return are for a resolved bundle with no readable
+		// pacto.yaml (internal/app/validate.go:68,71), which nothing that resolved
+		// in the first place can be, so an early return would also add a branch no
+		// input can take. renderValidate reports a nil result honestly.
 		res, err := c.Svc.Validate(c.Ctx, app.ValidateOptions{Path: sel.Ref})
-		if err != nil {
-			return err
-		}
-		// Validate never returns an error for a bad contract; the verdict is in
-		// the result. Reporting err alone would call every invalid bundle fine.
 		emit(c, o, renderValidate(res))
-		return nil
+		return err
 	})
 }
 

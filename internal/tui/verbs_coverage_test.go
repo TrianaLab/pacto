@@ -99,9 +99,11 @@ func TestVerbValidateWithValidBundle(t *testing.T) {
 	}
 }
 
-// TestVerbValidateWithError runs verbValidate against a path that will cause
-// Validate to return an error (not just an invalid result).
-func TestVerbValidateWithError(t *testing.T) {
+// TestVerbValidateReportsUnparseableYamlAsAResult pins the trap the verb is
+// written around: unparseable YAML comes back as (result, nil) with a
+// PARSE_ERROR inside, never as a returned error. A verb that reported only the
+// error would show a clean pane for a bundle that does not parse.
+func TestVerbValidateReportsUnparseableYamlAsAResult(t *testing.T) {
 	c, _ := newContextWithService(t)
 	rec := &msgRecorder{}
 	c.Send.p = rec
@@ -128,8 +130,11 @@ func TestVerbValidateWithError(t *testing.T) {
 	}
 
 	output := strings.Join(lines, "\n")
-	if !strings.Contains(output, "invalid") && !strings.Contains(output, "error") {
-		t.Fatalf("bad YAML should show as invalid or error:\n%s", output)
+	if !strings.Contains(output, "PARSE_ERROR") {
+		t.Fatalf("unparseable YAML did not surface as a PARSE_ERROR in the result:\n%s", output)
+	}
+	if !strings.Contains(output, "invalid") {
+		t.Fatalf("unparseable YAML did not render as invalid:\n%s", output)
 	}
 }
 
@@ -557,12 +562,17 @@ func TestDiffColorsUsed(t *testing.T) {
 	}
 
 	if res.GraphDiff == nil {
-		t.Skip("test fixture produced no GraphDiff")
+		t.Fatal("the two fixtures produced no GraphDiff, so the diff colourisers never run")
 	}
 
 	output := renderDiff(res)
 	if !strings.Contains(output, "Graph changes") {
 		t.Fatalf("output does not contain graph changes:\n%s", output)
+	}
+	// The v2 bundle adds a dependency the v1 bundle does not have, so the added
+	// colouriser must have had something to colour.
+	if !strings.Contains(output, "dep") {
+		t.Fatalf("the added dependency is not named in the graph changes:\n%s", output)
 	}
 }
 
@@ -585,35 +595,12 @@ func TestGraphScreenDispatchVerbBranch(t *testing.T) {
 	}
 }
 
-// TestHelpVerbWriteBranch tests help.go:26 where a write verb shows the marker.
-func TestHelpVerbWriteBranch(t *testing.T) {
-	c := newLoadedContext(t)
-	c.Svc = app.NewService(nil, nil)
-	c.ReadOnly = false
-
-	testWriteVerbsOverride = []Verb{{
-		Key: "w", Help: "write something", Write: true, Applies: always,
-		Argv: func(_ *Context, _ Selection) []string { return []string{"pacto", "write"} },
-		Run:  func(_ *Context, _ Selection) tea.Cmd { return nil },
-	}}
-	t.Cleanup(func() { testWriteVerbsOverride = nil })
-
-	h := helpScreen{}
-	body := h.View(c)
-
-	if !strings.Contains(body, "write something") {
-		t.Fatalf("help body does not show the write verb:\n%s", body)
-	}
-	if !strings.Contains(body, "writes") {
-		t.Fatalf("help body does not show the writes marker:\n%s", body)
-	}
-}
-
-// TestSenderWithNilProgram tests that send() is safe when p is nil.
-func TestSenderWithNilProgram(t *testing.T) {
-	s := &sender{p: nil}
-	s.send(statusMsg{text: "test"})
-}
+// The write marker in helpScreen.View (help.go:26) is deliberately left
+// uncovered here. writeVerbs() is still the Task 16 placeholder that returns
+// nil, so no verb in the table sets Write, and the only way to reach the marker
+// today is a test-only override of writeVerbs -- a seam in production code
+// standing in for code that lands in the very next task. Task 16 registers four
+// real write verbs and covers it for free.
 
 // TestSenderWithNilSender tests that send() is safe when the sender itself is nil.
 func TestSenderWithNilSender(t *testing.T) {

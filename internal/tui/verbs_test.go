@@ -94,7 +94,7 @@ func TestDiffNeedsTwoSelections(t *testing.T) {
 		t.Fatalf("resolveSelection: %v", err)
 	}
 	if sel.Ref == "" {
-		t.Skip("test fixture has no revision with a resolvable bundle ref")
+		t.Fatal("the fixture revision resolved to no bundle ref, so this test would verify nothing")
 	}
 
 	l := newListScreen(c).(*listScreen)
