@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 
@@ -105,5 +106,31 @@ func TestWriteVerbsCarryTheWriteFlag(t *testing.T) {
 		if !v.Write {
 			t.Errorf("verb %q is in writeVerbs but is not marked Write", v.Key)
 		}
+	}
+}
+
+// TestTheWriteSubprocessIsNotToldToAdvertise pins A8. The child is a second
+// pacto, so without these it runs the update check root.go:96 does on every
+// invocation and can print an upgrade banner into the middle of a push.
+func TestTheWriteSubprocessIsNotToldToAdvertise(t *testing.T) {
+	var got *exec.Cmd
+	orig := execProcess
+	t.Cleanup(func() { execProcess = orig })
+	execProcess = func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
+		got = cmd
+		return func() tea.Msg { return fn(nil) }
+	}
+
+	c := newLoadedContext(t)
+	execVerb(c, []string{"push", "./svc"})
+	for _, want := range []string{"PACTO_NO_UPDATE_CHECK=1", "NO_COLOR=1"} {
+		if !slices.Contains(got.Env, want) {
+			t.Errorf("the write subprocess env is missing %s", want)
+		}
+	}
+	// The rest of the environment still has to reach it: a registry credential
+	// or a KUBECONFIG lives there, and a push without them fails.
+	if len(got.Env) <= 2 {
+		t.Fatalf("env = %v, want the inherited environment plus the suppressions", got.Env)
 	}
 }

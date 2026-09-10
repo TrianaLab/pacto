@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"os/exec"
 
 	tea "charm.land/bubbletea/v2"
@@ -37,5 +38,10 @@ func runWrite(c *Context, prompt string, argv []string) tea.Cmd {
 // replace the running binary — none of which is safe under an alt screen.
 func execVerb(c *Context, args []string) tea.Cmd {
 	cmd := exec.Command(c.Exe, args...)
+	// The child inherits the environment plus two suppressions. Without the
+	// first it re-runs the update check root.go:96 does on every invocation and
+	// can print an upgrade banner into the middle of a push. The second keeps
+	// its colour out of a frame this process is about to redraw.
+	cmd.Env = append(os.Environ(), "PACTO_NO_UPDATE_CHECK=1", "NO_COLOR=1")
 	return execProcess(cmd, func(err error) tea.Msg { return execDoneMsg{err: err} })
 }
