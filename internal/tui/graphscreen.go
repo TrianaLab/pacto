@@ -68,6 +68,13 @@ func (g *graphScreen) bindings() []binding {
 
 func (g *graphScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
+		// g is the key that opened this screen, and a graph screen's selection is
+		// its own root, so letting it reach dispatchVerb pushes an identical screen
+		// onto the stack. The reader sees nothing change and then has to press q
+		// once per accidental press to get back out.
+		if k.String() == graphVerbKey {
+			return g, status("already showing the graph of " + label(g.ref))
+		}
 		if cmd, handled := dispatchVerb(c, g, k); handled {
 			return g, cmd
 		}

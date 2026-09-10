@@ -98,7 +98,7 @@ func verbList(c *Context) []Verb {
 			Run: verbImpact,
 		},
 		{
-			Key: "g", Help: "open the selection's neighborhood graph", Applies: graphable,
+			Key: graphVerbKey, Help: "open the selection's neighborhood graph", Applies: graphable,
 			Argv: func(_ *Context, s Selection) []string {
 				return append([]string{"pacto", "fleet", "graph"}, graphRoot(s)...)
 			},
@@ -180,6 +180,11 @@ func writeVerbs() []Verb {
 		},
 	}
 }
+
+// graphVerbKey is the key that opens a neighborhood graph. The graph screen
+// refuses it rather than opening a copy of itself, and reads the key from here
+// so that rebinding the verb cannot leave the screen intercepting the old one.
+const graphVerbKey = "g"
 
 // The two arguments no selection can supply. A contract declares neither a
 // registry to publish to nor a plugin to run, so the reader is asked, and the

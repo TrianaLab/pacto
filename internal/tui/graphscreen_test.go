@@ -106,6 +106,30 @@ func TestGraphScreenShiftTabCyclesBack(t *testing.T) {
 	}
 }
 
+// TestGraphScreenRefusesToOpenItself pins A16. A graph screen's selection is
+// its own root, so g used to push an identical screen: nothing visibly changed
+// and q then had to be pressed once per accidental press.
+func TestGraphScreenRefusesToOpenItself(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindService)
+	var s screen = newGraphScreen(c, ref)
+
+	next, cmd := s.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	if next != s {
+		t.Fatalf("g replaced the screen with %T", next)
+	}
+	if cmd == nil {
+		t.Fatal("g produced no command, want a status saying the graph is already open")
+	}
+	msg, ok := cmd().(statusMsg)
+	if !ok {
+		t.Fatalf("g produced %T, want a statusMsg rather than a second graph screen", cmd())
+	}
+	if !strings.Contains(msg.text, label(ref)) {
+		t.Fatalf("status = %q, want it to name the entity already on screen", msg.text)
+	}
+}
+
 func TestGraphScreenWithQueryError(t *testing.T) {
 	c := newLoadedContext(t)
 	// Build through newGraphScreen with a ref the query cannot resolve
