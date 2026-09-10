@@ -114,3 +114,64 @@ func (c *captureScreen) Title() string                              { return "Ca
 func (c *captureScreen) Update(*Context, tea.Msg) (screen, tea.Cmd) { return c, nil }
 func (c *captureScreen) View(*Context) string                       { return "capturing" }
 func (c *captureScreen) capturesText() bool                         { return true }
+
+// listWithAppliedFilter returns a root model showing the list with a filter
+// already applied — the state three surfaces describe as "esc clears".
+func listWithAppliedFilter(t *testing.T) *Model {
+	t.Helper()
+	m := New(testOptions())
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+	l, ok := m.top().(*listScreen)
+	if !ok {
+		t.Fatalf("the snapshot left %T on top, want the list", m.top())
+	}
+	l.filterText = testServiceName
+	l.refresh(m.ctx)
+	return m
+}
+
+// quits reports whether cmd is the one that ends the program.
+func quits(cmd tea.Cmd) bool {
+	if cmd == nil {
+		return false
+	}
+	_, ok := cmd().(tea.QuitMsg)
+	return ok
+}
+
+// TestEscClearsAnAppliedFilterRatherThanQuitting drives the key through
+// Model.Update, which is where the bug lived: globalKey runs before the top
+// screen sees the key, so esc reached quitOrPop with a stack of one and ended
+// the session while the filter line said "(esc clears)".
+func TestEscClearsAnAppliedFilterRatherThanQuitting(t *testing.T) {
+	m := listWithAppliedFilter(t)
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if quits(cmd) {
+		t.Fatal("esc quit the session instead of clearing the applied filter")
+	}
+	if got := m.top().(*listScreen).filterText; got != "" {
+		t.Fatalf("filterText = %q, want esc to have cleared it", got)
+	}
+}
+
+// TestEscStillLeavesWhenNothingOwnsIt keeps the stand-down narrow: with no
+// filter applied there is nothing to clear, so esc means what the help says.
+func TestEscStillLeavesWhenNothingOwnsIt(t *testing.T) {
+	m := New(testOptions())
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape}); !quits(cmd) {
+		t.Fatal("esc on an unfiltered root list did not quit")
+	}
+}
+
+// TestQIsUnconditional is the escape hatch: whatever a screen claims about esc,
+// q always leaves, so nobody can be trapped in the TUI.
+func TestQIsUnconditional(t *testing.T) {
+	m := listWithAppliedFilter(t)
+
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"}); !quits(cmd) {
+		t.Fatal("q did not quit from the root screen while a filter was applied")
+	}
+}

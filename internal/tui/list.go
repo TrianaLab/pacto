@@ -115,6 +115,13 @@ func (l *listScreen) selected() (fleet.EntityRef, bool) {
 // checks for this so that typing "q" into the filter does not pop the screen.
 func (l *listScreen) capturesText() bool { return l.typing }
 
+// ownsEscape reports that esc has a job here: clearing the applied filter,
+// which is what filterLine has always told the reader it does. It is narrower
+// than capturesText on purpose — that one stands globalKey down for every
+// binding but ctrl+c, so reusing it here would take q, r and ? away too, for as
+// long as a filter was applied.
+func (l *listScreen) ownsEscape() bool { return l.filterText != "" }
+
 func (l *listScreen) Title() string { return "Fleet" }
 
 // typingKey handles a key press while the filter input has focus. Enter applies

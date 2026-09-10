@@ -44,12 +44,22 @@ func globalKey(m *Model, k tea.KeyPressMsg) (tea.Cmd, bool) {
 	if t, ok := m.top().(interface{ capturesText() bool }); ok {
 		capturing = t.capturesText()
 	}
+	// A screen can also claim esc alone, for a state it has to back out of
+	// before leaving. The list claims it while a filter is applied, which is
+	// what its own filter line has always promised.
+	ownsEsc := false
+	if e, ok := m.top().(interface{ ownsEscape() bool }); ok {
+		ownsEsc = e.ownsEscape()
+	}
 	s := k.String()
 	for _, b := range globalBindings() {
 		if b.Key != s {
 			continue
 		}
 		if capturing && b.Key != "ctrl+c" {
+			return nil, false
+		}
+		if ownsEsc && b.Key == "esc" {
 			return nil, false
 		}
 		return b.Cmd(m), true
