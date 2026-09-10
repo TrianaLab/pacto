@@ -136,11 +136,12 @@ func needsShellQuote(r rune) bool {
 func verbYank(c *Context, sel Selection) tea.Cmd {
 	line := yankLine(c, sel)
 	if err := clipboardWrite(line); err != nil {
-		// Show the line rather than the error. A copy fails on a headless box
-		// and over ssh with no clipboard forwarding, which is exactly where
-		// reading the line off the screen and typing it is the fallback; an
-		// error message alone loses the one thing the reader pressed y for.
-		return status(line)
+		// Both, not either. A copy fails on a headless box and over ssh with no
+		// clipboard forwarding, which is exactly where reading the line off the
+		// screen and typing it is the fallback -- so the line has to be here. But
+		// the error has to be here too: without it a real clipboard failure looks
+		// identical to a session that simply has no clipboard.
+		return status("copy failed: " + err.Error() + " -- " + line)
 	}
 	return status("copied: " + line)
 }

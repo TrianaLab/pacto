@@ -140,7 +140,9 @@ func TestYankDoesNotShareTheSourceArgsBacking(t *testing.T) {
 
 // TestYankFallsBackToShowingTheLineWhenTheClipboardFails covers the ssh case:
 // no clipboard to write to, so the line has to be readable on screen. Reporting
-// the error alone would lose the one thing y was pressed for.
+// the error alone would lose the one thing y was pressed for, and reporting the
+// line alone makes a real clipboard failure look like a session that never had
+// one -- so the status carries both.
 func TestYankFallsBackToShowingTheLineWhenTheClipboardFails(t *testing.T) {
 	orig := clipboardWrite
 	t.Cleanup(func() { clipboardWrite = orig })
@@ -158,6 +160,9 @@ func TestYankFallsBackToShowingTheLineWhenTheClipboardFails(t *testing.T) {
 	}
 	if !strings.Contains(msg.text, "pacto ") {
 		t.Fatalf("status = %q, want the invocation", msg.text)
+	}
+	if !strings.Contains(msg.text, errBoom.Error()) {
+		t.Fatalf("status = %q, want the copy failure's reason too", msg.text)
 	}
 }
 
