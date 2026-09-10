@@ -31,7 +31,7 @@ func (l loadingScreen) Title() string { return "Loading" }
 
 func (l loadingScreen) View(c *Context) string {
 	if l.note != "" {
-		return "Building the fleet snapshot...\n\n  " + l.note
+		return "Building the fleet snapshot...\n\n  " + safeText(l.note)
 	}
 	return "Building the fleet snapshot..."
 }

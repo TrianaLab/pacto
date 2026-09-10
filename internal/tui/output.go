@@ -59,13 +59,18 @@ func newOutputScreen(title string) *outputScreen {
 }
 
 // append adds a line, dropping the oldest when the buffer is full.
+//
+// This is the only door into the pane's buffer, so it is where the line is
+// cleaned. safeFragment rather than safeText because a line arrives already
+// part-rendered: emit splits the output of renderValidate and its siblings,
+// which style their verdicts and hand pkg/graph's coloured trees through whole.
 func (o *outputScreen) append(line string) {
 	if len(o.lines) >= outputMaxLines {
 		drop := len(o.lines) - outputMaxLines + 1
 		o.lines = o.lines[drop:]
 		o.dropped += drop
 	}
-	o.lines = append(o.lines, line)
+	o.lines = append(o.lines, safeFragment(line))
 }
 
 func (o *outputScreen) Title() string { return o.title }

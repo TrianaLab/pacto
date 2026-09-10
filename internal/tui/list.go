@@ -254,7 +254,9 @@ func (l *listScreen) tabs() string {
 
 func (l *listScreen) filterLine() string {
 	if l.typing {
-		return l.input.View()
+		// See prompt.go: the input styles itself, so the frame-safe form of its
+		// view is the one that keeps the styling and cleans the rest.
+		return safeFragment(l.input.View())
 	}
 	if l.filterText != "" {
 		return dimStyle.Render("filter: " + safeText(l.filterText) + "  (esc clears)")

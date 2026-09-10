@@ -59,7 +59,11 @@ func (p *promptScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 func (p *promptScreen) View(c *Context) string {
 	var b strings.Builder
 	b.WriteString(warnStyle.Render(p.question) + "\n\n")
-	b.WriteString("  " + p.input.View() + "\n\n")
+	// safeFragment, not safeText: the input renders its own cursor styling, and
+	// its value is whatever was pasted into it. A reader cannot type a control
+	// character but a paste carries one, and this prompt's answer becomes an
+	// argv token on the confirmation screen.
+	b.WriteString("  " + safeFragment(p.input.View()) + "\n\n")
 	b.WriteString(dimStyle.Render("  enter: continue    esc: cancel"))
 	return b.String()
 }

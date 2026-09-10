@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -101,6 +102,44 @@ func safeText(s string) string {
 			fmt.Fprintf(&b, `\x%02x`, r)
 		}
 	}
+	return b.String()
+}
+
+// sgrPattern matches a Select Graphic Rendition, the only escape sequence
+// anything in this process puts in a frame on purpose: lipgloss emits one for a
+// colour, for bold and for faint, and the bubbles components emit one for a
+// cursor. Nothing here emits a cursor move, an erase or an OSC.
+var sgrPattern = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// safeFragment sanitises a string that is already part-rendered -- an output
+// pane line built by one of the renderXxx functions, a text input's own View --
+// by cleaning everything between this process's SGR sequences and leaving those
+// alone. safeText cannot be used on those: it would print our own colours as
+// literal "^[[1m" text.
+//
+// This is the backstop under the field-by-field safeText calls in render.go. A
+// renderer that forgets one field, or a bubbles component handed a pasted
+// value, leaks through the style wrapper because the escape is no longer at the
+// edge -- it is in the middle of a string that legitimately contains escapes.
+//
+// What it does NOT catch is SGR in the data itself: a service name containing
+// "\x1b[31m" reaches the terminal, because this cannot tell that one from
+// lipgloss's. That is a colour, not a cursor move or an erase, so it can
+// discolour a line but not forge one -- and safeText at the field level escapes
+// it anyway, which is why this is a backstop and not the defence.
+func safeFragment(s string) string {
+	if !strings.ContainsFunc(s, isUnsafe) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	last := 0
+	for _, loc := range sgrPattern.FindAllStringIndex(s, -1) {
+		b.WriteString(safeText(s[last:loc[0]]))
+		b.WriteString(s[loc[0]:loc[1]])
+		last = loc[1]
+	}
+	b.WriteString(safeText(s[last:]))
 	return b.String()
 }
 
