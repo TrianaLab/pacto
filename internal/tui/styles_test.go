@@ -1,46 +1,95 @@
 package tui
 
-import "testing"
+import (
+	"image/color"
+	"testing"
 
+	"charm.land/lipgloss/v2"
+
+	"github.com/trianalab/pacto/v3/pkg/fleet"
+)
+
+// TestStatusStyle asserts against the vocabularies EntityRef.Status actually
+// carries, taken from the fleet constants rather than retyped.
+//
+// Its predecessor asserted on "ok", "healthy", "ready", "failed" and
+// "degraded" -- five values the fleet has never produced -- and on lower-case
+// spellings of three it does. It passed because the code it tested made the
+// same mistake, so a status column that rendered every row in the default
+// style was green in CI for as long as it existed. Sourcing the keys from
+// pkg/fleet is what stops the pair drifting together again.
 func TestStatusStyle(t *testing.T) {
-	tests := []struct {
-		status      string
-		wantStyle   string
-		description string
+	for _, tt := range []struct {
+		status string
+		want   color.Color
 	}{
-		{"compliant", "ok", "compliant renders as ok"},
-		{"ok", "ok", "ok renders as ok"},
-		{"healthy", "ok", "healthy renders as ok"},
-		{"ready", "ok", "ready renders as ok"},
-		{"non-compliant", "error", "non-compliant renders as error"},
-		{"invalid", "error", "invalid renders as error"},
-		{"error", "error", "error renders as error"},
-		{"failed", "error", "failed renders as error"},
-		{"unknown", "warn", "unknown renders as warn"},
-		{"stale", "warn", "stale renders as warn"},
-		{"degraded", "warn", "degraded renders as warn"},
-		{"unrecognised", "plain", "unrecognised renders as plain"},
-		{"", "plain", "empty string renders as plain"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.description, func(t *testing.T) {
-			got := statusStyle(tt.status)
-			var want string
-			switch tt.wantStyle {
-			case "ok":
-				want = okStyle.String()
-			case "error":
-				want = errorStyle.String()
-			case "warn":
-				want = warnStyle.String()
-			case "plain":
-				want = ""
+		{fleet.StatusInvalid, colRed},
+		{fleet.StatusNonCompliant, colOrange},
+		{fleet.StatusUnknown, colYellow},
+		{fleet.StatusWarning, colAmber},
+		{fleet.StatusCompliant, colGreen},
+		{fleet.StatusReference, colCyan},
+		{fleet.StatusNotEvaluated, colGrey},
+		{string(fleet.SourceUnavailable), colRed},
+		{string(fleet.SourcePartial), colAmber},
+		{string(fleet.SourceStale), colYellow},
+		{string(fleet.SourceAvailable), colGreen},
+		// Neither vocabulary, and the empty string a target without a verdict
+		// carries: grey, because an unrecognised status is not a pass.
+		{"unrecognised", colGrey},
+		{"", colGrey},
+	} {
+		t.Run(tt.status, func(t *testing.T) {
+			if got := statusPresentationFor(tt.status).Color; got != tt.want {
+				t.Errorf("statusPresentationFor(%q).Color = %v, want %v", tt.status, got, tt.want)
 			}
-			if got.String() != want {
-				t.Errorf("statusStyle(%q) style mismatch", tt.status)
+			want := style{lipgloss.NewStyle().Foreground(tt.want)}.String()
+			if got := statusStyle(tt.status).String(); got != want {
+				t.Errorf("statusStyle(%q) = %q, want %q", tt.status, got, want)
 			}
 		})
+	}
+}
+
+// TestStatusPresentationRanksBySeverity pins the order the banner and the
+// attention filter both read: worst first, and every rank distinct within the
+// compliance vocabulary.
+func TestStatusPresentationRanksBySeverity(t *testing.T) {
+	worstFirst := []string{
+		fleet.StatusInvalid, fleet.StatusNonCompliant, fleet.StatusUnknown,
+		fleet.StatusWarning, fleet.StatusCompliant, fleet.StatusReference,
+		fleet.StatusNotEvaluated,
+	}
+	for i := 1; i < len(worstFirst); i++ {
+		prev, cur := statusPresentationFor(worstFirst[i-1]).Rank, statusPresentationFor(worstFirst[i]).Rank
+		if prev >= cur {
+			t.Fatalf("rank(%s)=%d is not more severe than rank(%s)=%d",
+				worstFirst[i-1], prev, worstFirst[i], cur)
+		}
+	}
+	if r := statusPresentationFor("unrecognised").Rank; r <= statusPresentationFor(fleet.StatusNotEvaluated).Rank {
+		t.Fatalf("an unrecognised status ranks %d, want it last", r)
+	}
+}
+
+// TestNeedsAttentionIsConfirmedProblemsOnly guards the line the pulse keys off:
+// a state that means "could not observe" must not throb like one that means
+// "observed a contradiction".
+func TestNeedsAttentionIsConfirmedProblemsOnly(t *testing.T) {
+	for _, s := range []string{fleet.StatusInvalid, fleet.StatusNonCompliant, string(fleet.SourceUnavailable)} {
+		if !needsAttention(s) {
+			t.Errorf("needsAttention(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{
+		fleet.StatusUnknown, fleet.StatusWarning, fleet.StatusCompliant,
+		fleet.StatusReference, fleet.StatusNotEvaluated,
+		string(fleet.SourceStale), string(fleet.SourcePartial), string(fleet.SourceAvailable),
+		"unrecognised", "",
+	} {
+		if needsAttention(s) {
+			t.Errorf("needsAttention(%q) = true, want false", s)
+		}
 	}
 }
 

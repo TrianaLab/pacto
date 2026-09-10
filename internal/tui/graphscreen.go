@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -20,7 +21,17 @@ type graphScreen struct {
 	body    string
 	nb      *fleet.Neighborhood
 	loadErr error
+	// walkStart is the frame the current traversal reveal began on. Every
+	// refresh restarts it, so changing the depth or the direction re-walks the
+	// tree rather than swapping one finished picture for another.
+	walkStart int
 }
+
+// walkDuration is how long the tree takes to draw itself, root outward. It is a
+// fixed duration rather than a per-line delay: a two-node neighborhood and a
+// two-hundred-node one both finish in the same beat, and the big one simply
+// unrolls faster, which is also the honest signal about which is which.
+const walkDuration = 600 * time.Millisecond
 
 // graphDirections is the cycle order for the direction toggle.
 func graphDirections() []fleet.Direction {
@@ -34,6 +45,7 @@ func newGraphScreen(c *Context, ref fleet.EntityRef) screen {
 }
 
 func (g *graphScreen) refresh(c *Context) {
+	g.walkStart = c.Frame
 	nb, err := c.Query.Neighborhood(fleet.NeighborhoodQuery{
 		Kind:      g.ref.Kind,
 		Key:       g.ref.Key,
@@ -115,8 +127,25 @@ func (g *graphScreen) resize(c *Context) {
 		h = 3
 	}
 	g.vp.SetHeight(h)
-	g.vp.SetContent(g.body)
+	g.vp.SetContent(g.walk(c))
 }
+
+// walk is the tree as far as the traversal has drawn it. The rendered tree is
+// already in root-outward order, so revealing it line by line IS the traversal:
+// the root appears, then its dependencies, then theirs.
+func (g *graphScreen) walk(c *Context) string {
+	if !c.Anim {
+		return g.body
+	}
+	return revealLines(g.body, g.walkProgress(c))
+}
+
+func (g *graphScreen) walkProgress(c *Context) float64 {
+	return progressAt(c.Frame, g.walkStart, framesFor(walkDuration))
+}
+
+// animating is true while the traversal is still unrolling.
+func (g *graphScreen) animating(c *Context) bool { return c.Anim && g.walkProgress(c) < 1 }
 
 func (g *graphScreen) View(c *Context) string {
 	if g.loadErr != nil {

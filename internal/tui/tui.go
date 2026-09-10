@@ -28,6 +28,11 @@ type Options struct {
 	Exe        string // absolute path to the pacto binary used for write verbs
 	Input      io.Reader
 	Output     io.Writer
+	// Anim enables motion. The CLI sets it from the same animationsEnabled check
+	// the spinner uses, so --no-anim, PACTO_NO_ANIM and a non-tty stdout all turn
+	// it off here too. Off is also the default for a zero Options, which is what
+	// keeps every test's frame deterministic without opting out.
+	Anim bool
 }
 
 // Context is the state every screen shares. Screens read it and never replace
@@ -54,6 +59,13 @@ type Context struct {
 	Width      int
 	Height     int
 	Status     string
+	// Anim is whether motion is enabled at all, and Frame is the animation clock:
+	// a count of frames that only ever rises, advanced by the root Model when a
+	// frameMsg lands. Every animation in this package is a pure function of Frame
+	// and the frame it started on, so nothing holds its own timer, everything
+	// stays on one beat, and a test drives the whole thing by assigning an int.
+	Anim  bool
+	Frame int
 	// pendingDiff and pendingImpact hold the left-hand side of a two-selection
 	// verb between the two keypresses that make it up. They live no longer than
 	// the snapshot they were armed against: a reload clears them, because the
@@ -63,11 +75,22 @@ type Context struct {
 	pendingImpact Selection
 }
 
+// transitionFrames is how long a screen change takes to wipe into place: four
+// frames, about a quarter second. Long enough to see where the new screen came
+// from, short enough that a reader holding enter never waits on it.
+const transitionFrames = 4
+
 // Model is the root tea.Model: a screen stack plus the shared context.
 type Model struct {
 	ctx   *Context
 	stack []screen
 	err   error
+	// ticking is whether the animation clock is currently armed. Every arming
+	// site goes through armTick, which checks this: two live tick chains would
+	// advance Frame at double rate and every animation with it.
+	ticking bool
+	// transitionStart is the frame the current screen change began on.
+	transitionStart int
 }
 
 // New builds the root model with a loading screen on top.
@@ -83,6 +106,7 @@ func New(o Options) *Model {
 			ReadOnly:   o.ReadOnly,
 			Width:      80,
 			Height:     24,
+			Anim:       o.Anim,
 		},
 		stack: []screen{loadingScreen{}},
 	}
@@ -91,48 +115,100 @@ func New(o Options) *Model {
 // top returns the screen that currently owns the keyboard.
 func (m *Model) top() screen { return m.stack[len(m.stack)-1] }
 
-// Init kicks off the snapshot load.
-func (m *Model) Init() tea.Cmd { return loadSnapshot(m.ctx) }
+// Init kicks off the snapshot load and starts the clock.
+func (m *Model) Init() tea.Cmd { return tea.Batch(loadSnapshot(m.ctx), m.armTick()) }
+
+// transitionProgress is how far the current screen change has run, 0 to 1. With
+// animation off it is always 1: the transition is over before it starts, which
+// is what makes every render path below collapse to the un-animated frame.
+func (m *Model) transitionProgress() float64 {
+	if !m.ctx.Anim {
+		return 1
+	}
+	return progressAt(m.ctx.Frame, m.transitionStart, transitionFrames)
+}
+
+// animating reports whether anything on screen is still moving. Only the top
+// screen is polled because only the top screen is drawn.
+func (m *Model) animating() bool {
+	if !m.ctx.Anim {
+		return false
+	}
+	return m.transitionProgress() < 1 || screenAnimating(m.top(), m.ctx)
+}
+
+// armTick starts the clock if something needs it and it is not already running.
+// Returning nil when there is nothing to animate is the whole point: an idle
+// TUI schedules no work at all, so a fleet with nothing wrong sits at zero CPU
+// rather than repainting sixteen times a second to show the same frame.
+func (m *Model) armTick() tea.Cmd {
+	if m.ticking || !m.animating() {
+		return nil
+	}
+	m.ticking = true
+	return tick()
+}
+
+// beginTransition restarts the wipe and makes sure the clock is running.
+func (m *Model) beginTransition() tea.Cmd {
+	m.transitionStart = m.ctx.Frame
+	return m.armTick()
+}
+
+// applySnapshot swaps in a snapshot that has finished loading and re-renders
+// whatever is on screen against it.
+func (m *Model) applySnapshot(msg snapshotMsg) tea.Cmd {
+	if msg.err != nil {
+		m.err = msg.err
+		return nil
+	}
+	m.ctx.Query = fleet.NewQuery(msg.snap)
+	m.ctx.Snapshot = msg.snap
+	// The snapshot is the world every screen was rendered from, so a fresh one
+	// clears both the progress note and any error left over from the write that
+	// asked for it. An armed d or i goes with them: the status line was its only
+	// indicator, and its left-hand side may not exist in the world that just
+	// arrived. Left set, it ambushes the next d or i with a comparison against a
+	// revision the reader stopped looking at several minutes ago.
+	m.err = nil
+	m.ctx.Status = ""
+	m.ctx.pendingDiff, m.ctx.pendingImpact = Selection{}, Selection{}
+	if _, starting := m.top().(loadingScreen); starting {
+		// Replace rather than push: the loading screen is not somewhere the user
+		// can go back to.
+		m.stack[len(m.stack)-1] = newListScreen(m.ctx)
+		return m.beginTransition()
+	}
+	m.reloadScreens()
+	return m.beginTransition()
+}
 
 // Update routes global keys and stack navigation, then delegates to the top
 // screen. Global keys are handled first and are not forwarded.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case frameMsg:
+		// The clock, and the only place Frame advances. Re-arming here rather
+		// than unconditionally is what stops it: the moment nothing is moving the
+		// chain ends and no further frames are scheduled.
+		m.ctx.Frame++
+		if m.animating() {
+			return m, tick()
+		}
+		m.ticking = false
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.ctx.Width, m.ctx.Height = msg.Width, msg.Height
 	case snapshotMsg:
-		if msg.err != nil {
-			m.err = msg.err
-			return m, nil
-		}
-		m.ctx.Query = fleet.NewQuery(msg.snap)
-		m.ctx.Snapshot = msg.snap
-		// The snapshot is the world every screen was rendered from, so a fresh
-		// one clears both the progress note and any error left over from the
-		// write that asked for it. An armed d or i goes with them: the status
-		// line was its only indicator, and its left-hand side may not exist in
-		// the world that just arrived. Left set, it ambushes the next d or i
-		// with a comparison against a revision the reader stopped looking at
-		// several minutes ago.
-		m.err = nil
-		m.ctx.Status = ""
-		m.ctx.pendingDiff, m.ctx.pendingImpact = Selection{}, Selection{}
-		if _, starting := m.top().(loadingScreen); starting {
-			// Replace rather than push: the loading screen is not somewhere the
-			// user can go back to.
-			m.stack[len(m.stack)-1] = newListScreen(m.ctx)
-			return m, nil
-		}
-		m.reloadScreens()
-		return m, nil
+		return m, m.applySnapshot(msg)
 	case pushMsg:
 		m.stack = append(m.stack, msg.s)
-		return m, nil
+		return m, m.beginTransition()
 	case popMsg:
 		if len(m.stack) > 1 {
 			m.stack = m.stack[:len(m.stack)-1]
 		}
-		return m, nil
+		return m, m.beginTransition()
 	case errMsg:
 		m.err = msg.err
 		return m, nil
@@ -156,7 +232,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	next, cmd := m.top().Update(m.ctx, msg)
 	m.stack[len(m.stack)-1] = next
-	return m, cmd
+	// A screen can start its own animation from inside Update -- the graph
+	// re-walks itself on a depth change -- and has no way to schedule a frame,
+	// because the clock belongs to the root. Arming here covers all of them, and
+	// costs nothing when the screen did not start anything: armTick asks
+	// animating() first.
+	return m, tea.Batch(cmd, m.armTick())
 }
 
 // reloadScreens re-queries every screen on the stack against the new snapshot.
@@ -178,7 +259,7 @@ func (m *Model) reloadScreens() {
 // frame — bubbletea v2 has no WithAltScreen program option, the request lives
 // on the View and is re-read each render.
 func (m *Model) View() tea.View {
-	body := m.top().View(m.ctx)
+	body := revealLines(m.top().View(m.ctx), m.transitionProgress())
 	v := tea.NewView(m.header() + "\n" + body + "\n" + m.footer())
 	v.AltScreen = true
 	return v

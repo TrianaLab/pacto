@@ -40,29 +40,20 @@ func (s style) Render(parts ...string) string {
 }
 
 var (
-	headerStyle = style{lipgloss.NewStyle().Bold(true)}
-	dimStyle    = style{lipgloss.NewStyle().Faint(true)}
-	errorStyle  = style{lipgloss.NewStyle().Foreground(lipgloss.Color("9"))}
-	warnStyle   = style{lipgloss.NewStyle().Foreground(lipgloss.Color("11"))}
-	okStyle     = style{lipgloss.NewStyle().Foreground(lipgloss.Color("10"))}
-	focusStyle  = style{lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)}
+	headerStyle = style{lipgloss.NewStyle().Bold(true).Foreground(colIndigo)}
+	dimStyle    = style{lipgloss.NewStyle().Foreground(colFaint)}
+	faintStyle  = style{lipgloss.NewStyle().Foreground(colGrey)}
+	errorStyle  = style{lipgloss.NewStyle().Foreground(colRed)}
+	warnStyle   = style{lipgloss.NewStyle().Foreground(colAmber)}
+	okStyle     = style{lipgloss.NewStyle().Foreground(colGreen)}
+	focusStyle  = style{lipgloss.NewStyle().Foreground(colIndigo).Bold(true)}
+	// keyStyle renders a key name in a hint bar; hintStyle renders what it does.
+	keyStyle  = style{lipgloss.NewStyle().Foreground(colIndigo).Bold(true)}
+	hintStyle = style{lipgloss.NewStyle().Foreground(colGrey)}
+	// panelStyle frames a pane. Rounded borders read as one surface rather than
+	// as a grid of cells, which is what makes the split layout legible.
+	panelStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colGrey)
 )
-
-// statusStyle maps a fleet status string to the style that should render it.
-// Unknown values render plain, which is the honest default: an unrecognised
-// status is not a pass.
-func statusStyle(s string) style {
-	switch s {
-	case "compliant", "ok", "healthy", "ready":
-		return okStyle
-	case "non-compliant", "invalid", "error", "failed":
-		return errorStyle
-	case "unknown", "stale", "degraded":
-		return warnStyle
-	default:
-		return style{lipgloss.NewStyle()}
-	}
-}
 
 // safeText makes untrusted text safe to put in a frame. Nothing between a
 // contract on disk and this package validates content: internal/fleetsrc/

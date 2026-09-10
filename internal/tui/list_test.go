@@ -18,7 +18,14 @@ func newLoadedContext(t *testing.T) *Context {
 	// One snapshot, not two. tui.go:89-90 builds Query and Snapshot from the same
 	// load, and verbImpact passes c.Snapshot precisely so the answer binds to the
 	// fleet on screen; two independent builds would let that mismatch pass here.
-	snap := testSnapshot(t)
+	return newContextOver(t, testSnapshot(t))
+}
+
+// newContextOver is newLoadedContext over a snapshot the caller chose, for the
+// tests that need a fleet the shared fixture does not describe -- an empty one,
+// or one with no graded targets.
+func newContextOver(t *testing.T, snap *fleet.FleetSnapshot) *Context {
+	t.Helper()
 	return &Context{
 		Svc:      app.NewService(nil, nil),
 		Query:    fleet.NewQuery(snap),
@@ -170,25 +177,49 @@ func TestListSaysWhenTheAnswerIsTruncated(t *testing.T) {
 	s := newListScreen(c).(*listScreen)
 
 	s.truncated, s.total, s.shown = true, 900, 25
-	if got := s.summary(); !strings.Contains(got, "showing 25 of 900") {
-		t.Fatalf("summary = %q, want it to say showing 25 of 900", got)
+	if got := s.summary(); !strings.Contains(got, "25 of 900") {
+		t.Fatalf("summary = %q, want it to say 25 of 900", got)
 	}
 
 	// And the whole page does not present itself as truncated.
 	s.truncated = false
-	if got := s.summary(); !strings.Contains(got, "900 entities") {
+	if got := s.summary(); !strings.Contains(got, "900 services") {
 		t.Fatalf("summary = %q, want the plain count", got)
 	}
 }
 
+// TestListHandlesWindowSizeMsg checks the split adds up: at a width that fits
+// the detail pane, the table takes everything the pane and the gap between them
+// do not.
 func TestListHandlesWindowSizeMsg(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newListScreen(c)
 	c.Width, c.Height = 120, 40
 	s, _ = s.Update(c, tea.WindowSizeMsg{Width: 120, Height: 40})
 	l := s.(*listScreen)
-	if l.tbl.Width() != 120 {
-		t.Fatalf("table width = %d, want 120", l.tbl.Width())
+	want := 120 - paneWidth(120) - 1
+	if l.tbl.Width() != want {
+		t.Fatalf("table width = %d, want %d", l.tbl.Width(), want)
+	}
+}
+
+// TestListNarrowTerminalDropsThePane checks the fallback: below the split
+// threshold the table takes the whole width and grows a DETAIL column back, so
+// the secondary text the pane would have carried is still on screen somewhere.
+func TestListNarrowTerminalDropsThePane(t *testing.T) {
+	c := newLoadedContext(t)
+	c.Width, c.Height = 70, 24
+	l := newListScreen(c).(*listScreen)
+	l.resize(c)
+	if paneWidth(70) != 0 {
+		t.Fatal("70 columns is too narrow to split")
+	}
+	if l.tbl.Width() != 70 {
+		t.Fatalf("table width = %d, want the full 70", l.tbl.Width())
+	}
+	cols := listColumns(70, false, true)
+	if cols[3].Width == 0 {
+		t.Fatal("with no pane the DETAIL column must come back")
 	}
 }
 
@@ -293,39 +324,39 @@ func TestEscapeWhileTypingCancelsWithoutApplying(t *testing.T) {
 	}
 }
 
-func TestListFilterLineShowsInputWhenTyping(t *testing.T) {
+func TestListHintBarShowsInputWhenTyping(t *testing.T) {
 	c := newLoadedContext(t)
 	l := newListScreen(c).(*listScreen)
 	l.typing = true
 	l.input.SetValue("test")
-	line := l.filterLine()
+	line := l.hintBar(c)
 	if !strings.Contains(line, "test") {
-		t.Fatalf("filterLine while typing does not show input value: %q", line)
+		t.Fatalf("hintBar while typing does not show input value: %q", line)
 	}
 }
 
-func TestListFilterLineShowsAppliedFilter(t *testing.T) {
+func TestListHintBarShowsAppliedFilter(t *testing.T) {
 	c := newLoadedContext(t)
 	l := newListScreen(c).(*listScreen)
 	l.filterText = "applied"
-	line := l.filterLine()
+	line := l.hintBar(c)
 	if !strings.Contains(line, "applied") {
-		t.Fatalf("filterLine with applied filter does not show it: %q", line)
+		t.Fatalf("hintBar with applied filter does not show it: %q", line)
 	}
 	if !strings.Contains(line, "esc") {
-		t.Fatal("filterLine with applied filter should mention esc clears")
+		t.Fatal("hintBar with an applied filter should mention that esc clears it")
 	}
 }
 
-func TestListFilterLineShowsHelpWhenNoFilter(t *testing.T) {
+func TestListHintBarShowsHelpWhenNoFilter(t *testing.T) {
 	c := newLoadedContext(t)
 	l := newListScreen(c).(*listScreen)
-	line := l.filterLine()
+	line := l.hintBar(c)
 	if !strings.Contains(line, "/") {
-		t.Fatalf("filterLine with no filter should show help: %q", line)
+		t.Fatalf("hintBar with no filter should show the keys: %q", line)
 	}
 	if !strings.Contains(line, "attention") {
-		t.Fatalf("filterLine help should mention attention: %q", line)
+		t.Fatalf("hintBar should mention attention: %q", line)
 	}
 }
 

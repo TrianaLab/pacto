@@ -29,15 +29,12 @@ func attentionCategories() []string {
 
 func newAttentionScreen(c *Context) screen {
 	a := &attentionScreen{
-		tbl: table.New(
-			table.WithColumns([]table.Column{
-				{Title: "SEVERITY", Width: 10},
-				{Title: "SERVICE", Width: 28},
-				{Title: "CATEGORY", Width: 14},
-				{Title: "SUMMARY", Width: 44},
-			}),
-			table.WithFocused(true),
-		),
+		tbl: pactoTable([]table.Column{
+			{Title: "SEVERITY", Width: 10},
+			{Title: "SERVICE", Width: 28},
+			{Title: "CATEGORY", Width: 14},
+			{Title: "SUMMARY", Width: 44},
+		}),
 	}
 	a.refresh(c)
 	return a

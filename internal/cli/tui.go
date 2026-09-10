@@ -69,6 +69,10 @@ func newTUICommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				SourceArgs: fleetSourceArgs(cmd),
 				ReadOnly:   readOnly,
 				Exe:        exe,
+				// The same switch the CLI spinner obeys, so --no-anim,
+				// PACTO_NO_ANIM and NO_COLOR turn the motion off here too rather
+				// than needing a second flag nobody would find.
+				Anim: animate(cmd, cmd.OutOrStdout()),
 			})
 		},
 	}
