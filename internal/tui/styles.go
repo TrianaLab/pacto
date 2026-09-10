@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -42,9 +43,10 @@ func statusStyle(s string) lipgloss.Style {
 // only gate on push, pull, lock --update and generate, and a gate that can be
 // made to show a different command than the one it runs is decorative.
 //
-// Controls are escaped in caret notation rather than dropped. A name with a
+// C0 controls are escaped in caret notation rather than dropped. A name with a
 // control character in it is news, and dropping would render two entities that
-// differ identically.
+// differ identically. Caret notation does not extend past DEL, so DEL and the
+// C1 range get a hex escape instead.
 func safeText(s string) string {
 	if !strings.ContainsFunc(s, isControl) {
 		return s
@@ -55,18 +57,24 @@ func safeText(s string) string {
 		switch {
 		case !isControl(r):
 			b.WriteRune(r)
-		case r == 0x7f:
-			b.WriteString("^?")
-		default:
+		case r < 0x20:
 			// C0 caret notation: the control's code plus 0x40 is the letter it is
 			// named after, so ESC (0x1b) prints as ^[ and CR (0x0d) as ^M.
 			b.WriteRune('^')
 			b.WriteRune(r + 0x40)
+		case r == 0x7f:
+			b.WriteString("^?")
+		default:
+			fmt.Fprintf(&b, `\x%02x`, r)
 		}
 	}
 	return b.String()
 }
 
 // isControl reports whether r is a character the terminal acts on rather than
-// shows. ESC is 0x1b, so the C0 range already covers it.
-func isControl(r rune) bool { return r < 0x20 || r == 0x7f }
+// shows. ESC is 0x1b, so the C0 range covers the 7-bit introducers; the C1
+// range 0x80-0x9f is the 8-bit form of the same thing, and charmbracelet/x/ansi
+// -- the parser inside the renderer that composes the frame, which is where the
+// corruption happens -- reads 0x9b as CSI and 0x9d as OSC. No service name,
+// owner or ref has a legitimate C1 in it, so over-escaping costs nothing.
+func isControl(r rune) bool { return r < 0x20 || (r >= 0x7f && r <= 0x9f) }

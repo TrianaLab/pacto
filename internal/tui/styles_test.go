@@ -53,6 +53,11 @@ func TestSafeTextEscapesEveryControlCharacter(t *testing.T) {
 		{"a newline cannot break the row", "a\nb", "a^Jb"},
 		{"a NUL is visible rather than swallowed", "a\x00b", "a^@b"},
 		{"DEL has its own caret spelling", "a\x7fb", "a^?b"},
+		{"8-bit CSI is escaped, because the frame's parser acts on it", "a\u009b2Kb", `a\x9b2Kb`},
+		{"8-bit OSC is escaped too", "a\u009db", `a\x9db`},
+		{"the C1 range starts at U+0080", "a\u0080b", `a\x80b`},
+		{"U+009F is the last C1", "a\u009fb", `a\x9fb`},
+		{"U+00A0 is past C1 and stays", "a\u00a0b", "a\u00a0b"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := safeText(tt.in); got != tt.want {
