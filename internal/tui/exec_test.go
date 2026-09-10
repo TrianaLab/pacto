@@ -34,13 +34,13 @@ func TestConfirmingAWriteExecsTheRealBinary(t *testing.T) {
 	c.Exe = "/opt/bin/pacto"
 	conf := runWrite(c, "Push?", []string{"pacto", "push", "./svc"})().(pushMsg).s
 	// confirmScreen calls onYes during Update, so execProcess has already been
-	// reached by the time Update returns; the returned batch only carries it.
+	// reached by the time Update returns; the returned sequence only carries it.
 	_, cmd := conf.Update(c, tea.KeyPressMsg{Code: 'y', Text: "y"})
 	if cmd == nil {
 		t.Fatal("confirming produced no command")
 	}
-	// Run the batch so the exec callback fires.
-	for _, sub := range cmd().(tea.BatchMsg) {
+	// Run the sequence so the exec callback fires.
+	for _, sub := range cmdMembers(t, cmd) {
 		if _, ok := sub().(execDoneMsg); ok {
 			break
 		}

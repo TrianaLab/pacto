@@ -33,6 +33,28 @@ func TestConfirmYesRunsTheAction(t *testing.T) {
 	}
 }
 
+// TestConfirmYesPopsBeforeItRuns pins A19. Batched, the pop and the action
+// race, so an onYes that pushes an output screen can have it thrown away by the
+// pop that was meant to precede it — the same shape as the bug prompt.go
+// already carries a comment about.
+func TestConfirmYesPopsBeforeItRuns(t *testing.T) {
+	c := newLoadedContext(t)
+	s := newConfirmScreen("go?", []string{"pacto", "push"}, func() tea.Cmd {
+		return push(loadingScreen{})
+	})
+	_, cmd := s.Update(c, tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if _, batched := cmd().(tea.BatchMsg); batched {
+		t.Fatal("y batched the pop with the action; they must be sequenced")
+	}
+	members := cmdMembers(t, cmd)
+	if len(members) != 2 {
+		t.Fatalf("y produced %d commands, want the pop and the action", len(members))
+	}
+	if _, ok := members[0]().(popMsg); !ok {
+		t.Fatalf("the first command is %T, want the pop to run first", members[0]())
+	}
+}
+
 func TestConfirmNoPopsWithoutRunning(t *testing.T) {
 	c := newLoadedContext(t)
 	ran := false

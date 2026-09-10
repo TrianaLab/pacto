@@ -43,7 +43,13 @@ func (s *confirmScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 		if s.onYes == nil {
 			return s, pop()
 		}
-		return s, tea.Batch(pop(), s.onYes())
+		// Sequence rather than Batch, the same way prompt.go:49 does it: the pop
+		// has to land before onYes runs. Batched, the two race, and onYes is free
+		// to push an output screen that the pop then throws away — which is
+		// exactly the bug this shape produced once already. Nothing depends on the
+		// ordering today; the point is that the next edit to onYes cannot
+		// reintroduce it.
+		return s, tea.Sequence(pop(), s.onYes())
 	case "n":
 		return s, pop()
 	}
