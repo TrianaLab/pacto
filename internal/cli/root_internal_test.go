@@ -18,7 +18,7 @@ func TestNewRootCommand_PanicRecovery(t *testing.T) {
 	checkForUpdateFn = func(string) *update.CheckResult {
 		panic("injected panic for test")
 	}
-	defer func() { checkForUpdateFn = old }()
+	t.Cleanup(func() { checkForUpdateFn = old })
 
 	t.Setenv("PACTO_NO_UPDATE_CHECK", "")
 

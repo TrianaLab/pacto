@@ -563,14 +563,62 @@ func TestFleetSnapshot(t *testing.T) {
 		t.Fatalf("snapshot json: %v", err)
 	}
 
-	// A missing evidence file makes a source unavailable → the snapshot carries a
-	// limitation, exercising the limitation-print branch.
-	lout, _, err := execFleet(t, "fleet", "snapshot", "--local", root, "--target-state", filepath.Join(t.TempDir(), "missing.yaml"))
+	// A missing evidence file makes a source unavailable → the snapshot is
+	// partial. Every other fleet printer says so on STDERR, and snapshot owes the
+	// same: a CI step that redirects stdout and watches stderr must not read a
+	// partial snapshot as a clean run.
+	lout, lerr, err := execFleet(t, "fleet", "snapshot", "--local", root, "--target-state", filepath.Join(t.TempDir(), "missing.yaml"))
 	if err != nil {
 		t.Fatalf("snapshot partial: %v", err)
 	}
-	if !strings.Contains(lout, "limitation [SOURCE_UNAVAILABLE]") {
-		t.Errorf("expected a snapshot limitation line:\n%s", lout)
+	if !strings.Contains(lerr, "warning: answer is partial") {
+		t.Errorf("expected the partial-answer warning on stderr:\n%s", lerr)
+	}
+	if !strings.Contains(lerr, "[SOURCE_UNAVAILABLE]") {
+		t.Errorf("expected the limitation on stderr:\n%s", lerr)
+	}
+	if strings.Contains(lout, "SOURCE_UNAVAILABLE") {
+		t.Errorf("limitations must not go to stdout:\n%s", lout)
+	}
+}
+
+// TestFleetSnapshotNoCacheDropsTheCacheSource: --no-cache is the reader's
+// "ignore the disk cache" switch, and it is honoured on the dashboard path. A
+// fleet snapshot that keeps serving cached bundles as a baseline while the OCI
+// source re-pulls answers from exactly the stale data the reader excluded.
+func TestFleetSnapshotNoCacheDropsTheCacheSource(t *testing.T) {
+	local := t.TempDir()
+
+	// Without --no-cache the cache source is present, so the assertion below
+	// cannot pass vacuously.
+	out, _, err := execFleet(t, "fleet", "snapshot", "--local", local, "--cache")
+	if err != nil {
+		t.Fatalf("snapshot --cache: %v", err)
+	}
+	if !strings.Contains(out, "cache (cache)") {
+		t.Fatalf("expected a cache source with --cache alone:\n%s", out)
+	}
+
+	out, _, err = execFleet(t, "fleet", "snapshot", "--local", local, "--cache", "--no-cache")
+	if err != nil {
+		t.Fatalf("snapshot --cache --no-cache: %v", err)
+	}
+	if strings.Contains(out, "cache (cache)") {
+		t.Errorf("--no-cache must drop the cache source:\n%s", out)
+	}
+}
+
+// TestFleetSnapshotNoCacheFromEnv: --no-cache is bound to viper, so
+// PACTO_NO_CACHE=1 disables the bundle cache exactly as the flag does. The fleet
+// path has to see the resolved decision, not just the typed flag.
+func TestFleetSnapshotNoCacheFromEnv(t *testing.T) {
+	t.Setenv("PACTO_NO_CACHE", "1")
+	out, _, err := execFleet(t, "fleet", "snapshot", "--local", t.TempDir(), "--cache")
+	if err != nil {
+		t.Fatalf("snapshot --cache: %v", err)
+	}
+	if strings.Contains(out, "cache (cache)") {
+		t.Errorf("PACTO_NO_CACHE must drop the cache source:\n%s", out)
 	}
 }
 

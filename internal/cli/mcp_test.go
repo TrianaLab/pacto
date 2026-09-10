@@ -369,18 +369,6 @@ func TestServeHTTP_ListenerClosed(t *testing.T) {
 	}
 }
 
-func TestMCPRegistersTracesForFleetMode(t *testing.T) {
-	cmd := newMCPCommand(nil, "v")
-	f := cmd.Flags().Lookup("traces")
-	if f == nil {
-		t.Fatal("mcp has no --traces flag: fleetOptions reads it, so --fleet " +
-			"silently drops observed edges and no agent can ever see provenance=observed")
-	}
-	if f.Value.Type() != "stringArray" {
-		t.Errorf("--traces type = %q, want stringArray to match pacto fleet", f.Value.Type())
-	}
-}
-
 func waitForServer(t *testing.T, url string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

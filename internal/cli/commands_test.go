@@ -608,7 +608,7 @@ func TestLoginCommand_WriteConfigError(t *testing.T) {
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected error when writePactoConfig fails")
+		t.Error("expected error when the credential file cannot be written")
 	}
 }
 

@@ -83,6 +83,10 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 		}
 
 		if v.GetBool("no-cache") {
+			// Materialize the resolved decision back onto the flag: viper also
+			// answers from PACTO_NO_CACHE and the config file, and everything
+			// downstream (fleetOptions) reads the flag, so this keeps one answer.
+			_ = cmd.Flags().Set("no-cache", "true")
 			if toggler, ok := svc.BundleStore.(interface{ DisableCache() }); ok {
 				toggler.DisableCache()
 			}

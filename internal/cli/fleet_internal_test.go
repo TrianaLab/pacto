@@ -62,13 +62,24 @@ func TestFleetOptionsCarriesTheCatalogRoots(t *testing.T) {
 	}
 }
 
-// TestImpactDeclaresTheCatalogRoots: blast radius is the answer the closure
-// matters most for, because a consumer nobody listed is exactly the one a
-// breaking change surprises.
-func TestImpactDeclaresTheCatalogRoots(t *testing.T) {
-	cmd := newImpactCommand(newTestService(t), viper.New())
-	if cmd.Flags().Lookup("root") == nil {
-		t.Error("pacto impact does not declare --root")
+// TestFleetOptionsReadersDeclareEverySharedFlag: fleetOptions reads all ten
+// source flags by name off whatever command it is handed, so a command that
+// builds a snapshot but forgets one silently drops that whole source — the
+// reader gets an answer, just not over the fleet they asked for. --root is the
+// sharpest of them (blast radius is the answer a dependency closure matters most
+// for, because a consumer nobody listed is exactly the one a breaking change
+// surprises), but every one of them is a source.
+func TestFleetOptionsReadersDeclareEverySharedFlag(t *testing.T) {
+	for _, cmd := range []*cobra.Command{
+		newImpactCommand(newTestService(t), viper.New()),
+		newMCPCommand(newTestService(t), "test"),
+		newTUICommand(newTestService(t), viper.New()),
+	} {
+		for _, name := range fleetFlagNames() {
+			if cmd.Flags().Lookup(name) == nil {
+				t.Errorf("pacto %s does not declare --%s, so fleetOptions reads nothing for it", cmd.Name(), name)
+			}
+		}
 	}
 }
 

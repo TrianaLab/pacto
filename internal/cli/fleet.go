@@ -43,18 +43,26 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 // addFleetSourceFlags declares the shared fleet source flags on f. Callers pass
 // cmd.PersistentFlags() when subcommands must inherit them (pacto fleet) and
-// cmd.Flags() otherwise (pacto tui).
+// cmd.Flags() otherwise (pacto tui, pacto impact, pacto mcp).
+//
+// A flag the caller already declared wins: AddFlagSet ignores a name that is
+// present, which is how a command keeps a deliberately narrowed spelling (`pacto
+// impact --traces` takes one document and reads it itself) or its own help text
+// (`pacto mcp --root` selects a catalog, not a snapshot closure) without having
+// to restate the other nine.
 func addFleetSourceFlags(f *pflag.FlagSet) {
-	f.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
-	f.StringArray("root", nil, "contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)")
-	f.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
-	f.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
-	f.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
-	f.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
-	f.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
-	f.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
-	f.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
-	f.Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	shared := pflag.NewFlagSet("fleet-source", pflag.ContinueOnError)
+	shared.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
+	shared.StringArray("root", nil, "contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)")
+	shared.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
+	shared.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
+	shared.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
+	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
+	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
+	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
+	shared.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
+	shared.Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	f.AddFlagSet(shared)
 }
 
 // fleetFlagNames lists the shared fleet source flags declared by
@@ -116,6 +124,12 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	traceFiles, _ := cmd.Flags().GetStringArray("traces")
 	ociRefs, _ := cmd.Flags().GetStringArray("oci")
 	includeCache, _ := cmd.Flags().GetBool("cache")
+	// --no-cache is the root's "ignore the disk cache" switch, and the bundle
+	// store already honours it. A snapshot that kept the cache source would
+	// answer from exactly the stale bundles the reader excluded while the OCI
+	// source re-pulls. The root materializes an env- or config-set value back
+	// onto the flag, so this one read covers all three.
+	noCache, _ := cmd.Flags().GetBool("no-cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
 	namespace, _ := cmd.Flags().GetString("namespace")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
@@ -126,7 +140,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		EvidenceURLs:       evidenceURLs,
 		ObservationSources: app.TraceFileSources(traceFiles),
 		OCIRefs:            ociRefs,
-		IncludeCache:       includeCache,
+		IncludeCache:       includeCache && !noCache,
 		IncludeK8s:         includeK8s,
 		K8sNamespace:       namespace,
 		FreshnessWindow:    freshness,

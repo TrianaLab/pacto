@@ -81,13 +81,12 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 
-	// Fleet source flags (mirrors `pacto fleet`).
-	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
-	cmd.Flags().StringArray("root", nil, "contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)")
-	cmd.Flags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets (repeatable)")
-	cmd.Flags().Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
 	cmd.Flags().Bool("include-observed", false, "let observed (runtime) relationships raise consumer confidence")
+	// Declared before the shared set so this narrowing wins: impact takes ONE
+	// trace document and reads it itself (see divergentFleetFlagTypes).
 	cmd.Flags().String("traces", "", "OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)")
+	// Every other fleet source flag, from the one declaration `pacto fleet` uses.
+	addFleetSourceFlags(cmd.Flags())
 	addDiffOverrideFlags(cmd)
 
 	return cmd
