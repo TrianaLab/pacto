@@ -31,6 +31,15 @@ type Options struct {
 
 // Context is the state every screen shares. Screens read it and never replace
 // it; the root Model owns the pointer.
+//
+// The event loop OWNS this struct. Send, Ctx, Svc and Exe are written once
+// before the program starts and are safe to read from anywhere; every other
+// field is event-loop-only, and Query, Snapshot and Status are reassigned on
+// every reload. So a tea.Cmd closure must read what it needs into a local
+// BEFORE it returns and close over the local — reading a field from inside the
+// goroutine races the next snapshotMsg. There is deliberately no mutex: one
+// would make every future field read look safe when the invariant is ownership,
+// not locking.
 type Context struct {
 	Ctx        context.Context // session context that cancels in-flight loads
 	Svc        *app.Service

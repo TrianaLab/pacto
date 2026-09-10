@@ -3,10 +3,12 @@ package tui
 import (
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -443,4 +445,46 @@ func TestCommandPathDefensiveChecks(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAReloadDoesNotRaceALiveReadVerb drives the interleaving the -race gate
+// could never see on its own: two verb workers on their own goroutines while
+// the event loop installs a new snapshot over the Context they are reading.
+// Nothing synchronises the two halves — a handshake between them would create
+// the happens-before edge that hides the very race this exists to catch — so
+// the goroutines are started first, the writes run on the test goroutine and
+// the join is at the end.
+//
+// e and i are the whole population: they are the only tea.Cmd closures that
+// read a Context field Model.Update reassigns (Query and Snapshot).
+func TestAReloadDoesNotRaceALiveReadVerb(t *testing.T) {
+	m := New(Options{Svc: app.NewService(nil, nil), Exe: "/usr/bin/pacto"})
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+
+	ref := firstEntityOfKind(t, m.ctx, fleet.KindService)
+	sel, err := resolveSelection(m.ctx, ref)
+	if err != nil {
+		t.Fatalf("resolveSelection: %v", err)
+	}
+	// i only runs once its left-hand side is armed.
+	m.ctx.pendingImpact = sel
+
+	workers := []tea.Cmd{
+		readVerbWorker(t, verbFleetExplain(m.ctx, sel)),
+		readVerbWorker(t, verbImpact(m.ctx, sel)),
+	}
+	fresh := testSnapshot(t)
+
+	var wg sync.WaitGroup
+	for _, w := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w()
+		}()
+	}
+	for range 200 {
+		m.Update(snapshotMsg{snap: fresh})
+	}
+	wg.Wait()
 }

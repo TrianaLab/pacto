@@ -428,8 +428,11 @@ func verbFleetExplain(c *Context, sel Selection) tea.Cmd {
 	// the answer is about the parent service, and titling it with the revision
 	// label would tell the reader they are reading something they are not.
 	subject := explainSubject(sel)
+	// Read on the event loop, not in the closure: a reload lands on c.Query while
+	// this worker is running, and the event loop owns the Context (tui.go:34).
+	q := c.Query
 	return runRead(c, "fleet explain "+subject, func(o *outputScreen) error {
-		res, err := c.Query.Explain(subject)
+		res, err := q.Explain(subject)
 		if err != nil {
 			return err
 		}
@@ -475,13 +478,18 @@ func verbImpact(c *Context, sel Selection) tea.Cmd {
 	}
 	old := c.pendingImpact
 	c.pendingImpact = Selection{}
+	// Read on the event loop, not in the closure: a reload lands on c.Snapshot
+	// while this worker is running, and the event loop owns the Context
+	// (tui.go:34). Hoisting also pins the answer to the fleet that was on screen
+	// when the reader pressed i, which is the fleet they meant.
+	snap, fl := c.Snapshot, c.Fleet
 	return runRead(c, "impact", func(o *outputScreen) error {
 		// ImpactWithSnapshot binds the answer to the snapshot on screen. Impact
 		// would build a second one, and then the blast radius shown would not be
 		// the blast radius over the fleet the reader is looking at.
 		res, err := c.Svc.ImpactWithSnapshot(c.Ctx, app.ImpactOptions{
-			OldPath: old.Ref, NewPath: sel.Ref, Fleet: c.Fleet,
-		}, c.Snapshot)
+			OldPath: old.Ref, NewPath: sel.Ref, Fleet: fl,
+		}, snap)
 		if err != nil {
 			return err
 		}
