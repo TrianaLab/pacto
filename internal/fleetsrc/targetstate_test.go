@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -229,10 +230,37 @@ func TestStateFixtureToState(t *testing.T) {
 		"weird":       fleet.SourceAvailable, // unknown → available fallback
 		"":            fleet.SourceAvailable,
 	}
+	at := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	for status, want := range cases {
-		if got := (stateFixture{Status: status}).toState().Status; got != want {
-			t.Errorf("toState(%q) = %q, want %q", status, got, want)
+		got := (stateFixture{Status: status}).toState(at)
+		if got.Status != want {
+			t.Errorf("toState(%q) = %q, want %q", status, got.Status, want)
 		}
+		// Whatever health it declares, the read that produced it succeeded, so
+		// every declared state carries the read time.
+		if got.LastSuccessfulSync == nil || !got.LastSuccessfulSync.Equal(at) || got.ObservedAt == nil || !got.ObservedAt.Equal(at) {
+			t.Errorf("toState(%q) = %+v, want both timestamps at %v", status, got, at)
+		}
+	}
+}
+
+// A fixture that DECLARES a source state takes fleet.Build's declared-state
+// branch, which copies the state verbatim and stamps nothing. Saying "available"
+// therefore cost the source both freshness timestamps, and the snapshot reported
+// a source it had just read as one that had never synced. Same defect as the
+// evidence source's, one file over.
+func TestTargetStateFileSource_DeclaredStateKeepsItsFreshness(t *testing.T) {
+	path := writeFixture(t, "targets.yaml", validFixture)
+	col, err := NewTargetStateFileSource("target-state", path).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	st := buildOneSourceState(t, &staticSource{id: "target-state", kind: "target-state", col: col})
+	if st.Status != fleet.SourceAvailable {
+		t.Errorf("status = %q, want the declared available", st.Status)
+	}
+	if st.LastSuccessfulSync == nil || st.ObservedAt == nil {
+		t.Errorf("a source that just read its fixture has synced: state = %+v, want both timestamps set", st)
 	}
 }
 

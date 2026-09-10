@@ -80,15 +80,12 @@ func (s *CacheSource) Kind() string { return "cache" }
 // (nothing cached), not an error.
 func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	unreadable := unreadableDirs{source: s.id, root: s.cacheDir}
-	gens, err := cachedGenerations(s.cacheDir, &unreadable)
+	gens, err := cachedGenerations(ctx, s.cacheDir, &unreadable)
 	if err != nil {
 		return nil, err
 	}
 	col := &fleet.Collection{Limitations: unreadable.limitations()}
 	for _, g := range gens {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		// An entry the walk could SEE and the read could not resolve to one whole
 		// generation is a gap in the baseline, and a partial baseline that says so
 		// is not the same thing as an empty one.
@@ -133,14 +130,11 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 			})
 			continue
 		}
-		// A cached entry may have answered this resolution, and an entry that states
-		// its own reference states what these bytes ARE — reference, domain and all.
-		// The caller's spelling can be an alias the cache resolved through; the
-		// record came back from the generation that actually served the bytes.
-		if rec.Ref != "" {
-			ref = rec.Ref
-			concrete = strings.TrimPrefix(rec.Ref, "oci://")
-		}
+		// The reference is the caller's, deliberately: [oci.Resolver.ResolvePinned]
+		// reports only a digest on this path, because a cache entry that states any
+		// OTHER reference is a miss there rather than an answer. A branch here for
+		// "the record named a different reference" restated that rule as its
+		// opposite and could never run.
 		col.Revisions = append(col.Revisions, revisionOf(ref, concrete, rec, bundle))
 	}
 	return col, nil
@@ -266,7 +260,7 @@ type cachedGeneration struct {
 // <cacheDir>/<repo...>/<tag>/bundle.tar.gz read as <repo...>:<tag> — which is
 // approximate, because a path spells a registry port and a tag with the same
 // characters it spells itself with. Results are sorted for deterministic output.
-func cachedGenerations(cacheDir string, unreadable *unreadableDirs) ([]cachedGeneration, error) {
+func cachedGenerations(ctx context.Context, cacheDir string, unreadable *unreadableDirs) ([]cachedGeneration, error) {
 	if _, err := os.Stat(cacheDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -286,6 +280,11 @@ func cachedGenerations(cacheDir string, unreadable *unreadableDirs) ([]cachedGen
 		}
 		if d.IsDir() || d.Name() != oci.CachedBundleFile {
 			return nil
+		}
+		// Cancellation belongs HERE, not after the walk: the cost is the gunzip and
+		// untar below, once per entry in a cache that can hold thousands.
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		bundle, rec, ok := oci.ReadCacheEntry(filepath.Dir(path))
 		ref := rec.Ref

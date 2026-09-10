@@ -104,6 +104,32 @@ func TestAcceptor_HappyPath(t *testing.T) {
 	}
 }
 
+// Ingestion PUBLISHES the compliance ladder, it does not re-rank. There is one
+// producer, [validation.DeriveStatus], because the operator writes the same
+// ranking to status.contract.status and the two are compared against each other;
+// the copy that used to live here had already drifted from it.
+func TestAccept_ComplianceIsTheSingleLadder(t *testing.T) {
+	c := contract.Contract{
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "payments"},
+		// A declared interface is an always-required assertion, and the test evidence
+		// carries no observation of it, so the verdict is uncertainty rather than the
+		// empty-contract Compliant a happy path would report.
+		Interfaces: []contract.Interface{{Name: "http", Type: contract.InterfaceTypeOpenAPI, Ref: "openapi.yaml"}},
+	}
+	a, priv := newTestAcceptor(t, fakeResolver{c: c}, NewMemoryStore())
+	rec, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()))
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if want := validation.DeriveStatus(rec.Findings, rec.Coverage); rec.Compliance != want {
+		t.Errorf("compliance = %q, want %q: ingestion must publish the single producer's ranking, not its own", rec.Compliance, want)
+	}
+	if rec.Compliance != fleet.StatusUnknown {
+		t.Errorf("compliance = %q, want Unknown for a required assertion nothing observed", rec.Compliance)
+	}
+}
+
 func TestAcceptor_ReplayAndSequence(t *testing.T) {
 	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 5, "e1", testEvidenceSet())); err != nil {
@@ -275,23 +301,6 @@ func TestAcceptor_DecodeError(t *testing.T) {
 	}
 }
 
-func TestDeriveCompliance(t *testing.T) {
-	errF := finding.Finding{Severity: finding.SeverityError}
-	warnF := finding.Finding{Severity: finding.SeverityWarning}
-	if got := deriveCompliance([]finding.Finding{errF}, validation.Coverage{}); got != "NonCompliant" {
-		t.Errorf("error → NonCompliant, got %q", got)
-	}
-	if got := deriveCompliance(nil, validation.Coverage{Evaluated: 1, Required: 3}); got != "Unknown" {
-		t.Errorf("incomplete coverage → Unknown, got %q", got)
-	}
-	if got := deriveCompliance([]finding.Finding{warnF}, validation.Coverage{Evaluated: 3, Required: 3}); got != "Warning" {
-		t.Errorf("warning → Warning, got %q", got)
-	}
-	if got := deriveCompliance(nil, validation.Coverage{Evaluated: 2, Required: 2}); got != "Compliant" {
-		t.Errorf("clean → Compliant, got %q", got)
-	}
-}
-
 func TestMemoryStore_Commit(t *testing.T) {
 	m := NewMemoryStore()
 	ctx := context.Background()
@@ -326,6 +335,55 @@ func TestMemoryStore_Commit(t *testing.T) {
 	}
 }
 
+func TestHandler_HTTP(t *testing.T) {
+	store := NewMemoryStore()
+	a, priv := newTestAcceptor(t, fakeResolver{}, store)
+	h := NewHandler(a, []string{"env-a", "env-b"}, nil, nil)
+	mux := http.NewServeMux()
+	h.Routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// Health + producers + readiness (nil ready → always 200).
+	expectGET(t, srv.URL+"/api/evidence/v1/health", http.StatusOK)
+	expectGET(t, srv.URL+"/api/evidence/v1/producers", http.StatusOK)
+	expectGET(t, srv.URL+"/api/evidence/v1/ready", http.StatusOK)
+
+	// Valid envelope → 202.
+	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusAccepted)
+	// Replay → 409.
+	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusConflict)
+	// Bad signature (unknown key) → 401.
+	_, other := testKeypair2()
+	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, other, 2, "e2", testEvidenceSet()), http.StatusUnauthorized)
+	// Invalid evidence → 422.
+	bad := testEvidenceSet()
+	bad.Subject = evidence.SubjectRef{}
+	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 3, "e3", bad), http.StatusUnprocessableEntity)
+}
+
+// onAccept is deprecated but still honoured, so it is still public behaviour a
+// v3 host can depend on. It fires once per accepted envelope and never for a
+// rejected one -- a host counting accepts must not count a replay.
+func TestHandler_OnAcceptFiresOnlyOnAccept(t *testing.T) {
+	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
+	accepts := 0
+	h := NewHandler(a, nil, func() { accepts++ }, nil)
+	mux := http.NewServeMux()
+	h.Routes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	post(t, srv.URL+EnvelopesPath, signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusAccepted)
+	if accepts != 1 {
+		t.Fatalf("onAccept fired %d times after one accept, want 1", accepts)
+	}
+	post(t, srv.URL+EnvelopesPath, signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusConflict)
+	if accepts != 1 {
+		t.Errorf("onAccept fired %d times, want 1: a replay is not an accept", accepts)
+	}
+}
+
 func TestSource_Collect(t *testing.T) {
 	store := NewMemoryStore()
 	// The RESOLVED contract (service "payments" under domain ghcr.io/acme) — not the
@@ -351,35 +409,45 @@ func TestSource_Collect(t *testing.T) {
 	}
 }
 
-func TestHandler_HTTP(t *testing.T) {
-	store := NewMemoryStore()
-	a, priv := newTestAcceptor(t, fakeResolver{}, store)
-	var refreshed int
-	h := NewHandler(a, []string{"env-a", "env-b"}, func() { refreshed++ }, nil)
-	mux := http.NewServeMux()
-	h.Routes(mux)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	// Health + producers + readiness (nil ready → always 200).
-	expectGET(t, srv.URL+"/api/evidence/v1/health", http.StatusOK)
-	expectGET(t, srv.URL+"/api/evidence/v1/producers", http.StatusOK)
-	expectGET(t, srv.URL+"/api/evidence/v1/ready", http.StatusOK)
-
-	// Valid envelope → 202 + refresh hook fired.
-	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusAccepted)
-	if refreshed != 1 {
-		t.Errorf("onAccept should fire once, got %d", refreshed)
+func TestSource_CollectUnavailable(t *testing.T) {
+	src := NewSource("s", healthStore{health: SourceHealth{Status: HealthUnavailable, Subjects: 2, FailedSubjects: 2}})
+	_, err := src.Collect(context.Background())
+	if !errors.Is(err, ErrRegistryUnavailable) {
+		t.Fatalf("unreadable store should error, got %v", err)
 	}
-	// Replay → 409.
-	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusConflict)
-	// Bad signature (unknown key) → 401.
-	_, other := testKeypair2()
-	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, other, 2, "e2", testEvidenceSet()), http.StatusUnauthorized)
-	// Invalid evidence → 422.
-	bad := testEvidenceSet()
-	bad.Subject = evidence.SubjectRef{}
-	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 3, "e3", bad), http.StatusUnprocessableEntity)
+	if !strings.Contains(err.Error(), "2 of 2 contract subjects unreadable") {
+		t.Errorf("error should carry the sanitized reason, got %q", err)
+	}
+}
+
+func TestSource_CollectPartial(t *testing.T) {
+	rec := Record{Envelope: evidenceenvelope.Envelope{
+		ID: "e1", Producer: evidenceenvelope.Producer{ID: "env-a"},
+		EvidenceSet: evidence.EvidenceSet{Subject: evidence.SubjectRef{Kind: "service", Name: "payments"}},
+	}}
+	src := NewSource("s", healthStore{
+		recs:   []Record{rec},
+		health: SourceHealth{Status: HealthPartial, Subjects: 2, FailedSubjects: 1, InvalidArtifacts: 1},
+	})
+	col, err := src.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("a partial read must still yield what it read: %v", err)
+	}
+	if len(col.Targets) != 1 {
+		t.Fatalf("targets = %d, want the one record that WAS read", len(col.Targets))
+	}
+	// The limitation is the whole signal: fleet.Build derives partial from it and
+	// stamps the timestamps, so declaring the state here as well would add a
+	// second, timestamp-less answer to the same question.
+	if col.State != nil {
+		t.Errorf("state = %+v, want nil: partiality is declared through the limitation", col.State)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourcePartial {
+		t.Errorf("limitations = %+v, want one SOURCE_PARTIAL", col.Limitations)
+	}
+	if !strings.Contains(col.Limitations[0].Message, "1 of 2 contract subjects unreadable") {
+		t.Errorf("limitation should carry the store's own reason, got %q", col.Limitations[0].Message)
+	}
 }
 
 func TestHandler_Ready(t *testing.T) {
@@ -631,38 +699,31 @@ func TestAccept_CrossDomainIsolation(t *testing.T) {
 	if _, err := a.Accept(context.Background(), mk("payments-b", "oci://reg-b.io/team/payments@"+digB, "b", 2)); err != nil {
 		t.Fatal(err)
 	}
-	col, err := NewSource("", store).Collect(context.Background())
-	if err != nil || len(col.Targets) != 2 {
-		t.Fatalf("collect: %d targets err=%v", len(col.Targets), err)
-	}
-	byDomain := map[string]fleet.RawTarget{}
-	for _, tg := range col.Targets {
-		byDomain[tg.Domain] = tg
+	// The accepted RECORDS are the live projection; the identity is asserted where
+	// Accept writes it, not through a second fleet.Source nobody wired up.
+	byDomain := map[string]Record{}
+	for _, rec := range store.List(context.Background()).Records {
+		byDomain[rec.Domain] = rec
 	}
 	// Same logical service NAME, distinct domains, distinct revision digests.
 	want := map[string]string{"reg-a.io/team": digA, "reg-b.io/team": digB}
+	keys := map[fleet.ServiceKey]bool{}
 	for dom, dig := range want {
-		tg, ok := byDomain[dom]
+		rec, ok := byDomain[dom]
 		if !ok {
-			t.Fatalf("missing target for domain %s (got %v)", dom, byDomain)
+			t.Fatalf("missing record for domain %s (got %v)", dom, byDomain)
 		}
-		if tg.Service != "payments" {
-			t.Errorf("domain %s: service = %q, want payments", dom, tg.Service)
+		if rec.Service != "payments" {
+			t.Errorf("domain %s: service = %q, want payments", dom, rec.Service)
 		}
-		if tg.Digest != dig {
-			t.Errorf("domain %s: digest = %q, want %q (crossed?)", dom, tg.Digest, dig)
+		if rec.Digest != dig {
+			t.Errorf("domain %s: digest = %q, want %q (crossed?)", dom, rec.Digest, dig)
 		}
+		keys[fleet.NewServiceKeyDomain(rec.Domain, rec.Service)] = true
 	}
-	// Built into a snapshot, they are two distinct domain-qualified services.
-	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
-		fleet.NewMemorySource("ev", "evidence-ingest", col))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for dom := range want {
-		if snap.Services[fleet.NewServiceKeyDomain(dom, "payments")] == nil {
-			t.Errorf("missing domain-qualified service %s/payments", dom)
-		}
+	// Domain-qualified, they are two distinct services rather than one merged one.
+	if len(keys) != 2 {
+		t.Errorf("service keys = %v, want two distinct domain-qualified services", keys)
 	}
 }
 
@@ -679,45 +740,6 @@ func TestOCIRefHelpers(t *testing.T) {
 	}
 	if got := ociDigest("oci://ghcr.io/x:tag"); got != "" { // no digest → empty
 		t.Errorf("ociDigest(no @) = %q, want empty", got)
-	}
-}
-
-// TestSource_CollectUnavailable: an unreadable store is a source ERROR, so the
-// snapshot records the source as unavailable — never as an empty environment.
-func TestSource_CollectUnavailable(t *testing.T) {
-	src := NewSource("s", healthStore{health: SourceHealth{Status: HealthUnavailable, Subjects: 2, FailedSubjects: 2}})
-	_, err := src.Collect(context.Background())
-	if !errors.Is(err, ErrRegistryUnavailable) {
-		t.Fatalf("unreadable store should error, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "2 of 2 contract subjects unreadable") {
-		t.Errorf("error should carry the sanitized reason, got %q", err)
-	}
-}
-
-// TestSource_CollectPartial: a partly-read store keeps what it read and says so,
-// so absence within it is explicitly non-authoritative.
-func TestSource_CollectPartial(t *testing.T) {
-	rec := Record{Envelope: evidenceenvelope.Envelope{
-		ID: "e1", Producer: evidenceenvelope.Producer{ID: "env-a"},
-		EvidenceSet: evidence.EvidenceSet{Subject: evidence.SubjectRef{Kind: "service", Name: "payments"}},
-	}}
-	src := NewSource("s", healthStore{
-		recs:   []Record{rec},
-		health: SourceHealth{Status: HealthPartial, Subjects: 2, FailedSubjects: 1, InvalidArtifacts: 1},
-	})
-	col, err := src.Collect(context.Background())
-	if err != nil {
-		t.Fatalf("a partial read must still yield what it read: %v", err)
-	}
-	if len(col.Targets) != 1 {
-		t.Fatalf("targets = %d, want the one record that WAS read", len(col.Targets))
-	}
-	if col.State == nil || col.State.Status != fleet.SourcePartial {
-		t.Errorf("state = %+v, want partial", col.State)
-	}
-	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourcePartial {
-		t.Errorf("limitations = %+v, want one SOURCE_PARTIAL", col.Limitations)
 	}
 }
 
@@ -798,15 +820,4 @@ func TestNewAcceptor_DefaultClock(t *testing.T) {
 	if _, err := a.Accept(context.Background(), data); err != nil {
 		t.Fatalf("default-clock accept should succeed: %v", err)
 	}
-}
-
-func TestHandler_NilOnAccept(t *testing.T) {
-	store := NewMemoryStore()
-	a, priv := newTestAcceptor(t, fakeResolver{}, store)
-	h := NewHandler(a, nil, nil, nil) // nil onAccept must not panic
-	mux := http.NewServeMux()
-	h.Routes(mux)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusAccepted)
 }

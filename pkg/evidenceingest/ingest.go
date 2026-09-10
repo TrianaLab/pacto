@@ -256,8 +256,15 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 	}
 	findings, coverage := validation.Evaluate(c, env.EvidenceSet)
 	rec := Record{
-		Envelope:   env,
-		Compliance: deriveCompliance(findings, coverage),
+		Envelope: env,
+		// The compliance ladder has ONE producer. Ingestion and the operator rank
+		// their verdicts against each other, so a second copy here is a copy that
+		// drifts: this one already ranked an unknown finding under complete coverage
+		// as Compliant where the producer ranks it Unknown. Runtime findings are all
+		// ingestion has to give -- the record it accepted was already validated, so
+		// it holds no structural findings -- which is a difference in what this
+		// caller holds, not in the rule. See [validation.DeriveStatus].
+		Compliance: validation.DeriveStatus(findings, coverage),
 		Findings:   findings,
 		Coverage:   coverage,
 		AcceptedAt: a.now(),
@@ -291,86 +298,6 @@ func (a *Acceptor) List(ctx context.Context) ListResult {
 func TargetKey(rec Record) string {
 	env := rec.Envelope
 	return string(fleet.NewTargetKey(env.Producer.ID, "external", env.EvidenceSet.Subject.Name))
-}
-
-// deriveCompliance maps findings and coverage onto the canonical status: a
-// confirmed error is NonCompliant; incomplete coverage is Unknown (uncertainty,
-// not a violation); otherwise Compliant.
-func deriveCompliance(findings []finding.Finding, cov validation.Coverage) string {
-	for _, f := range findings {
-		if f.Severity == finding.SeverityError {
-			return fleet.StatusNonCompliant
-		}
-	}
-	if cov.Required > 0 && cov.Evaluated < cov.Required {
-		return fleet.StatusUnknown
-	}
-	for _, f := range findings {
-		if f.Severity == finding.SeverityWarning {
-			return fleet.StatusWarning
-		}
-	}
-	return fleet.StatusCompliant
-}
-
-// Source exposes accepted evidence as fleet targets.
-type Source struct {
-	id    string
-	store Store
-}
-
-// NewSource returns a fleet source over an accepted-evidence store.
-func NewSource(id string, store Store) *Source {
-	if id == "" {
-		id = "evidence-ingest"
-	}
-	return &Source{id: id, store: store}
-}
-
-// ID implements [fleet.Source].
-func (s *Source) ID() string { return s.id }
-
-// Kind implements [fleet.Source].
-func (s *Source) Kind() string { return "evidence-ingest" }
-
-// Collect implements [fleet.Source], projecting each stored record into a target.
-// A store nobody could read is an error, so the source is recorded as
-// unavailable; a store read only in part keeps the records it did read and says
-// so. Neither ever becomes an authoritative empty environment.
-func (s *Source) Collect(ctx context.Context) (*fleet.Collection, error) {
-	res := s.store.List(ctx)
-	if res.Health.Status == HealthUnavailable {
-		return nil, fmt.Errorf("%w: %s", ErrRegistryUnavailable, res.Health.Reason())
-	}
-	col := &fleet.Collection{}
-	if res.Health.Status == HealthPartial {
-		col.State = &fleet.SourceState{Status: fleet.SourcePartial}
-		col.Limitations = append(col.Limitations, fleet.Limitation{
-			Code: fleet.LimitationSourcePartial, Source: s.id, Message: res.Health.Reason(),
-		})
-	}
-	for _, rec := range res.Records {
-		env := rec.Envelope
-		at := env.EvidenceSet.ObservedAt
-		col.Targets = append(col.Targets, fleet.RawTarget{
-			Scope: env.Producer.ID,
-			Kind:  "external",
-			// Name is the operational target (the envelope Subject); Service/Domain/
-			// Digest are the RESOLVED logical identity, so the target links to the
-			// correct domain-qualified service and revision.
-			Name:         env.EvidenceSet.Subject.Name,
-			Service:      rec.Service,
-			Domain:       rec.Domain,
-			Digest:       rec.Digest,
-			ResolvedRef:  env.EvidenceSet.ContractRef,
-			Compliance:   rec.Compliance,
-			Findings:     rec.Findings,
-			Coverage:     &fleet.Coverage{Evaluated: rec.Coverage.Evaluated, Required: rec.Coverage.Required},
-			EvidenceAt:   &at,
-			ReconciledAt: &rec.AcceptedAt,
-		})
-	}
-	return col, nil
 }
 
 // MemoryStore is an in-memory [Store]: it enforces replay protection (duplicate
@@ -434,6 +361,77 @@ func (m *MemoryStore) List(_ context.Context) ListResult {
 	return ListResult{Records: out, Health: SourceHealth{Status: HealthReady}}
 }
 
+// Source exposes accepted evidence as fleet targets.
+//
+// Deprecated: nothing in Pacto builds a fleet from an ingestion store directly.
+// The platform reads the same records over the HTTP projection at [TargetsPath],
+// which is the boundary the store is actually deployed behind. Removed at v4.
+type Source struct {
+	id    string
+	store Store
+}
+
+// NewSource returns a fleet source over an accepted-evidence store.
+//
+// Deprecated: see [Source]. Removed at v4.
+func NewSource(id string, store Store) *Source {
+	if id == "" {
+		id = "evidence-ingest"
+	}
+	return &Source{id: id, store: store}
+}
+
+// ID implements [fleet.Source].
+//
+// Deprecated: see [Source]. Removed at v4.
+func (s *Source) ID() string { return s.id }
+
+// Kind implements [fleet.Source].
+//
+// Deprecated: see [Source]. Removed at v4.
+func (s *Source) Kind() string { return "evidence-ingest" }
+
+// Collect implements [fleet.Source], projecting each stored record into a target.
+// A store nobody could read is an error, so the source is recorded as
+// unavailable; a store read only in part keeps the records it did read and says
+// so. Neither ever becomes an authoritative empty environment.
+//
+// Deprecated: see [Source]. Removed at v4.
+func (s *Source) Collect(ctx context.Context) (*fleet.Collection, error) {
+	res := s.store.List(ctx)
+	if res.Health.Status == HealthUnavailable {
+		return nil, fmt.Errorf("%w: %s", ErrRegistryUnavailable, res.Health.Reason())
+	}
+	col := &fleet.Collection{}
+	if res.Health.Status == HealthPartial {
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: fleet.LimitationSourcePartial, Source: s.id, Message: res.Health.Reason(),
+		})
+	}
+	for _, rec := range res.Records {
+		env := rec.Envelope
+		at := env.EvidenceSet.ObservedAt
+		col.Targets = append(col.Targets, fleet.RawTarget{
+			Scope: env.Producer.ID,
+			Kind:  "external",
+			// Name is the operational target (the envelope Subject); Service/Domain/
+			// Digest are the RESOLVED logical identity, so the target links to the
+			// correct domain-qualified service and revision.
+			Name:         env.EvidenceSet.Subject.Name,
+			Service:      rec.Service,
+			Domain:       rec.Domain,
+			Digest:       rec.Digest,
+			ResolvedRef:  env.EvidenceSet.ContractRef,
+			Compliance:   rec.Compliance,
+			Findings:     rec.Findings,
+			Coverage:     &fleet.Coverage{Evaluated: rec.Coverage.Evaluated, Required: rec.Coverage.Required},
+			EvidenceAt:   &at,
+			ReconciledAt: &rec.AcceptedAt,
+		})
+	}
+	return col, nil
+}
+
 // maxSourceTargets bounds the number of targets GET /targets returns so a large
 // store cannot produce an unbounded response. It is a var so tests can lower it.
 var maxSourceTargets = 1000
@@ -453,12 +451,21 @@ type Handler struct {
 }
 
 // NewHandler returns an HTTP handler for the accept pipeline. producers is the
-// list of trusted producer ids to advertise; onAccept (optional) is invoked after
-// a successful accept; ready (optional) gates the /ready probe and is handed the
-// requesting caller's context, so a probe of a remote store dies with the request
-// that asked for it. Store health is not a separate hook: it comes back from the
-// same read that produced the targets, so the DTO can never describe a read it
-// did not perform.
+// list of trusted producer ids to advertise; ready (optional) gates the /ready
+// probe and is handed the requesting caller's context, so a probe of a remote
+// store dies with the request that asked for it. Store health is not a separate
+// hook: it comes back from the same read that produced the targets, so the DTO
+// can never describe a read it did not perform.
+//
+// onAccept (optional) is invoked after a successful accept. Nothing in Pacto
+// passes one -- the operational graph reads the store rather than being pushed
+// at -- so it is a notification seam for an embedding host and no in-tree caller
+// exercises it.
+//
+// Deprecated: pass nil for onAccept. A host that needs to observe accepts should
+// wrap [Store.Commit], which fires on the durable write rather than on the HTTP
+// response and so cannot report an accept the store did not keep. The parameter
+// is removed at v4.
 func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func(context.Context) bool) *Handler {
 	sorted := append([]string(nil), producers...)
 	sort.Strings(sorted)
@@ -466,8 +473,12 @@ func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready f
 }
 
 // EnvelopesPath is the ingestion endpoint a producer POSTs a signed envelope to.
-// Exported so a client can target it against a base host URL.
-const EnvelopesPath = "/api/evidence/v1/envelopes"
+// TargetsPath is the read-only projection a consumer GETs. Both are exported so
+// a client targets them against a base host URL instead of respelling them.
+const (
+	EnvelopesPath = "/api/evidence/v1/envelopes"
+	TargetsPath   = "/api/evidence/v1/targets"
+)
 
 // Routes registers the ingestion endpoints on mux under /api/evidence/v1.
 func (h *Handler) Routes(mux *http.ServeMux) {
@@ -475,7 +486,7 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/evidence/v1/health", h.handleHealth)
 	mux.HandleFunc("GET /api/evidence/v1/ready", h.handleReady)
 	mux.HandleFunc("GET /api/evidence/v1/producers", h.handleProducers)
-	mux.HandleFunc("GET /api/evidence/v1/targets", h.handleTargets)
+	mux.HandleFunc("GET "+TargetsPath, h.handleTargets)
 }
 
 func (h *Handler) handleEnvelope(w http.ResponseWriter, r *http.Request) {

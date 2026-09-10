@@ -15,7 +15,6 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"github.com/trianalab/pacto/v3/internal/cachehook"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/oci"
@@ -30,12 +29,6 @@ type fakeStore struct {
 	tags map[string][]string
 	// resolves counts digest resolutions, which are registry round trips.
 	resolves int
-	// recorded is the identity each CACHE ENTRY holds beside its bundle, which an
-	// offline store reads back together with the bytes. It is a different fact
-	// from digest above — what the registry says now, online — and an entry
-	// missing from it is one written before the sidecar existed: readable bytes,
-	// no stated identity.
-	recorded map[string]oci.CachedRef
 }
 
 func bundleFor(name string) *contract.Bundle {
@@ -75,20 +68,6 @@ func (f *fakeStore) Pull(_ context.Context, ref string) (*contract.Bundle, error
 		return b, nil
 	}
 	return nil, errors.New("not found")
-}
-
-// PullCachedPinned makes this fake an offline-capable store, as the real
-// CachedStore is: it serves a bundle with the identity recorded beside it and
-// never touches the registry.
-func (f *fakeStore) PullCachedPinned(_ context.Context, ref string) (*contract.Bundle, oci.CachedRef, bool) {
-	if f.pullErr[ref] != nil {
-		return nil, oci.CachedRef{}, false
-	}
-	b, ok := f.bundles[ref]
-	if !ok {
-		return nil, oci.CachedRef{}, false
-	}
-	return b, f.recorded[ref], true
 }
 
 func (f *fakeStore) Resolve(_ context.Context, ref string) (string, error) {
@@ -298,6 +277,41 @@ func TestCacheSource_Collect_ContextCancelled(t *testing.T) {
 	cancel()
 	if _, err := NewCacheSource("cache", dir).Collect(ctx); err == nil {
 		t.Fatal("expected context error")
+	}
+}
+
+// A cancellation that arrives WHILE the walk is running must stop the walk.
+//
+// The expensive work is per entry: every bundle.tar.gz found is gunzipped and
+// untarred. Checking ctx only after the walk returned meant a cancelled snapshot
+// still read the whole shared cache first — thousands of entries on a developer
+// machine — and then discarded all of it. The test cancels from inside the walk,
+// so the reads that follow are the ones the fix has to not perform.
+func TestCacheSource_Collect_CancelStopsTheWalk(t *testing.T) {
+	dir := t.TempDir()
+	for _, svc := range []string{"a", "b", "c", "d", "e"} {
+		mustCacheFile(t, dir, "ghcr.io/org/"+svc+"/1.0.0/bundle.tar.gz")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	entries := 0
+	orig := fsWalkDir
+	fsWalkDir = func(root string, fn fs.WalkDirFunc) error {
+		return orig(root, func(p string, d fs.DirEntry, walkErr error) error {
+			if d != nil && d.Name() == oci.CachedBundleFile {
+				entries++
+				cancel()
+			}
+			return fn(p, d, walkErr)
+		})
+	}
+	t.Cleanup(func() { fsWalkDir = orig })
+
+	if _, err := NewCacheSource("cache", dir).Collect(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Collect err = %v, want context.Canceled", err)
+	}
+	if entries != 1 {
+		t.Errorf("the walk reached %d cache entries after cancellation, want 1: ctx is checked outside the walk, so every remaining entry is still read and unpacked", entries)
 	}
 }
 
@@ -621,118 +635,53 @@ func (r *oneArtifactRegistry) Pull(context.Context, string) (*contract.Bundle, e
 	return r.bundle, nil
 }
 
-// TestCacheSource_Collect_TheWalkAndTheReadAreOneGeneration holds the inventory
-// to the coherence rule while a competing writer works: the disk cache is
-// SHARED, and another Pacto process commits a whole new generation into an entry
-// between a reader's two observations of it. Pairing one generation's bytes with
-// the next one's identity publishes content under a digest it does not have.
-func TestCacheSource_Collect_TheWalkAndTheReadAreOneGeneration(t *testing.T) {
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	ctx := context.Background()
-	const ref = "localhost:5000/demo/checkout:1.0.0"
-	genA, genB := validDigest("a"), validDigest("b")
-	holds := map[string]string{genA: "gen-a", genB: "gen-b"}
-
-	install := func(digest string) {
-		t.Helper()
-		writer := oci.NewCachedStore(&oneArtifactRegistry{digest: digest, bundle: diskBundle(holds[digest])})
-		writer.DisableCache() // cold, so it really pulls and really commits
-		if _, err := writer.Pull(ctx, ref); err != nil {
-			t.Fatalf("installing generation %s: %v", digest, err)
-		}
-	}
-	install(genA)
-
-	// A SECOND store over the same directory commits generation B once the entry
-	// read holds A's bytes and is about to ask what they are.
-	fired := 0
-	atBarrier(t, 1, func() { fired++; install(genB) })
-
-	col, err := NewCacheSource("cache", oci.NewCachedStore(&oneArtifactRegistry{digest: genA}).CacheDir()).Collect(ctx)
-	if err != nil {
-		t.Fatalf("Collect: %v", err)
-	}
-	if fired != 1 {
-		t.Fatalf("the competing writer never ran: this asserts nothing about the window it commits in")
-	}
-	if len(col.Revisions) != 1 {
-		t.Fatalf("revisions = %+v, want the one cached entry", col.Revisions)
-	}
-	rev := col.Revisions[0]
-	want, published := holds[rev.Digest]
-	if !published {
-		t.Fatalf("revision digest %q belongs to no published generation", rev.Digest)
-	}
-	if got := rev.Bundle.Contract.Service.Name; got != want {
-		t.Fatalf("the revision carries the bytes of %q under digest %s, which holds %q", got, rev.Digest, want)
-	}
-	if rev.ResolvedRef != "oci://localhost:5000/demo/checkout@"+rev.Digest {
-		t.Errorf("ResolvedRef = %q, want the canonical pin of the digest it reported", rev.ResolvedRef)
-	}
-}
-
-// TestCacheSource_Collect_IdentityComesFromTheGenerationThatServedTheBytes is
-// the same interleaving with the two generations spelled DIFFERENTLY, which is
-// what makes an identity read apart from the bytes a separate FACT rather than a
-// copy of the same one. The two references below — a registry port and a path
-// segment — are the pair the pre-injective cache key spelled to ONE entry
-// directory, and the legacy entries of that era are still readable.
+// TestCacheSource_Collect_IdentityComesFromTheEntryNotThePath is what the
+// inventory itself owns of the coherence rule. Reading the bundle and asking a
+// SECOND time what it is — from the path it was found under, or by resolving the
+// reference again after the walk — publishes one generation's bytes under
+// another's identity, because a shared cache changes underneath a walk. So every
+// field of a revision comes from the single [oci.ReadCacheEntry] that served the
+// bytes; that read's own atomicity is pkg/oci's, and is proven there.
 //
-//	localhost:5000/demo/checkout:1.0.0
-//	localhost/5000/demo/checkout:1.0.0
+// These two references are the pair the pre-injective cache key spelled to ONE
+// entry directory, so they are what a path and a record can genuinely disagree
+// about, and the legacy entries of that era are still readable:
 //
-// Binding only bundle and digest to the generation that answered leaves the
-// reference an earlier observation saw describing bytes it never read: the
-// revision then claims generation B's digest under generation A's repository and
-// domain. A revision is one generation or it is not a revision.
-func TestCacheSource_Collect_IdentityComesFromTheGenerationThatServedTheBytes(t *testing.T) {
+//	localhost:5000/demo/checkout:1.0.0   what the entry RECORDS
+//	localhost/5000/demo/checkout:1.0.0   what the path it sits at SPELLS
+//
+// A path spells a registry port with the same character it spells a repository
+// separator with, so the two disagree on the domain as well as the reference.
+func TestCacheSource_Collect_IdentityComesFromTheEntryNotThePath(t *testing.T) {
 	dir := t.TempDir()
-	const refA, refB = "localhost:5000/demo/checkout:1.0.0", "localhost/5000/demo/checkout:1.0.0"
-	digestA, digestB := validDigest("a"), validDigest("b")
-	// What each published generation IS, whole: bytes, reference and the domain
-	// that reference belongs to.
-	gens := map[string]struct{ ref, holds, domain string }{
-		digestA: {refA, "gen-a", "localhost:5000/demo"},
-		digestB: {refB, "gen-b", "localhost/5000/demo"},
-	}
-	// Generation A, installed. These are hand-built because the two references
-	// must land in ONE entry directory, which is exactly what the current
-	// injective key no longer does and the legacy layout still holds.
-	entry := filepath.Join(dir, filepath.FromSlash("localhost/5000/demo/checkout/1.0.0"))
-	mustGeneration(t, entry, gens[digestA].holds, refA, digestA)
-	// Generation B, staged OUTSIDE the walked tree, ready to be committed whole.
-	staged := filepath.Join(t.TempDir(), "next")
-	mustGeneration(t, staged, gens[digestB].holds, refB, digestB)
-
-	fired := 0
-	atBarrier(t, 1, func() { fired++; installOver(t, entry, staged) })
+	const recorded = "localhost:5000/demo/checkout:1.0.0"
+	digest := validDigest("a")
+	// Hand-built: the current injective key would never put this record at this
+	// path, and the legacy layout still holds entries that do.
+	mustGeneration(t, filepath.Join(dir, filepath.FromSlash("localhost/5000/demo/checkout/1.0.0")),
+		"gen-a", recorded, digest)
 
 	col, err := NewCacheSource("cache", dir).Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
-	if fired != 1 {
-		t.Fatalf("the competing writer never ran: this asserts nothing about the window it commits in")
-	}
 	if len(col.Revisions) != 1 {
 		t.Fatalf("revisions = %+v, want the one cached entry", col.Revisions)
 	}
 	rev := col.Revisions[0]
-	gen, published := gens[rev.Digest]
-	if !published {
-		t.Fatalf("revision digest %q belongs to no published generation", rev.Digest)
+	if rev.Digest != digest {
+		t.Fatalf("Digest = %q, want the recorded %q", rev.Digest, digest)
 	}
-	// Either generation is an acceptable answer; a mixture of the two is not.
-	if got := rev.Bundle.Contract.Service.Name; got != gen.holds {
-		t.Errorf("bundle is %q, but digest %s holds %q", got, rev.Digest, gen.holds)
+	if got := rev.Bundle.Contract.Service.Name; got != "gen-a" {
+		t.Errorf("bundle is %q, but digest %s holds %q", got, rev.Digest, "gen-a")
 	}
-	if rev.RequestedRef != gen.ref {
-		t.Errorf("RequestedRef = %q, but the bytes came from the generation pulled as %q", rev.RequestedRef, gen.ref)
+	if rev.RequestedRef != recorded {
+		t.Errorf("RequestedRef = %q, want %q — the record beside the bytes, not the path they sit at", rev.RequestedRef, recorded)
 	}
-	if rev.Domain != gen.domain {
-		t.Errorf("Domain = %q, want %q — the domain of the reference that served these bytes", rev.Domain, gen.domain)
+	if want := "localhost:5000/demo"; rev.Domain != want {
+		t.Errorf("Domain = %q, want %q — the domain of the reference that served these bytes", rev.Domain, want)
 	}
-	if want := pinRefToDigest(gen.ref, rev.Digest); rev.ResolvedRef != want {
+	if want := pinRefToDigest(recorded, digest); rev.ResolvedRef != want {
 		t.Errorf("ResolvedRef = %q, want %q", rev.ResolvedRef, want)
 	}
 }
@@ -790,10 +739,11 @@ func TestOCISource_Collect_ACachedAliasIsNotThisReferencesRevision(t *testing.T)
 		t.Errorf("ResolvedRef = %q, want %q", rev.ResolvedRef, want)
 	}
 
-	// And the other reference still has the offline baseline it installed.
+	// And the other reference still has the offline baseline it installed. This
+	// reader's registry refuses to be asked, so an answer at all is the cache's.
 	reader := oci.NewCachedStore(&oneArtifactRegistry{digest: digestB})
-	if _, rec, ok := reader.PullCachedPinned(ctx, refB); !ok || rec.Digest != digestB {
-		t.Errorf("the other reference's entry is now %+v (hit=%v)", rec, ok)
+	if _, digest, err := reader.PullPinned(ctx, refB); err != nil || digest != digestB {
+		t.Errorf("the other reference's entry now answers %q (err=%v)", digest, err)
 	}
 }
 
@@ -859,33 +809,4 @@ func mustGeneration(t *testing.T, dir, marker, ref, digest string) {
 		t.Fatal(err)
 	}
 	mustSidecar(t, dir, string(rec))
-}
-
-// atBarrier runs fn inside the next n cache-entry reads, between the bundle and
-// the identity beside it — the window a competing writer commits in.
-func atBarrier(t *testing.T, n int, fn func()) {
-	t.Helper()
-	old := cachehook.AfterBundleRead
-	t.Cleanup(func() { cachehook.AfterBundleRead = old })
-	cachehook.AfterBundleRead = func() {
-		if n == 0 {
-			return
-		}
-		n--
-		fn()
-	}
-}
-
-// installOver commits the generation staged at src over the entry at dst, the
-// way the cache itself does: the old generation is UNLINKED — a reader holding
-// it keeps reading it, and sees its files absent rather than rewritten — and the
-// new one takes the name.
-func installOver(t *testing.T, dst, src string) {
-	t.Helper()
-	if err := os.RemoveAll(dst); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(src, dst); err != nil {
-		t.Fatal(err)
-	}
 }
