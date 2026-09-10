@@ -2,12 +2,16 @@ package contract
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -32,9 +36,12 @@ func sortedKeys(m map[string]bool) []string {
 }
 
 // schemaTopLevelFields returns the top-level property names of the JSON schema.
+// This must be the copy pkg/validation embeds and nothing else: the root object is
+// additionalProperties:false, so a field added to any other copy plus the Go model
+// would turn this gate green while every contract using that field is rejected.
 func schemaTopLevelFields(t *testing.T, root string) map[string]bool {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root, "schema", "pacto-v2.0.schema.json"))
+	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.0.schema.json"))
 	if err != nil {
 		t.Fatalf("read schema: %v", err)
 	}
@@ -114,5 +121,171 @@ func TestContractTopLevelFieldParity(t *testing.T) {
 	// Explicit: `verification` is gone from every surface (contract-model item 1).
 	if schemaFields["verification"] || modelFields["verification"] || docFields["verification"] {
 		t.Error("`verification` must be removed from the schema, Go model and docs")
+	}
+}
+
+// vocabKey identifies a vocabulary by its value set rather than by the name of
+// whatever declares it. Two fields constrained to the same values are the same
+// vocabulary, however each side spells the constants.
+func vocabKey(vals []string) string {
+	s := append([]string(nil), vals...)
+	sort.Strings(s)
+	return strings.Join(s, ",")
+}
+
+// schemaEnums returns every string enum in the contract schema, keyed by value
+// set and mapping to the JSON pointers that spell it.
+func schemaEnums(t *testing.T, root string) map[string][]string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(root, "pkg", "validation", "schema", "pacto-v2.0.schema.json"))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	var doc any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	out := map[string][]string{}
+	var walk func(n any, ptr string)
+	walk = func(n any, ptr string) {
+		switch v := n.(type) {
+		case map[string]any:
+			if raw, ok := v["enum"].([]any); ok {
+				vals, allStrings := make([]string, 0, len(raw)), true
+				for _, x := range raw {
+					s, ok := x.(string)
+					if !ok {
+						allStrings = false
+						break
+					}
+					vals = append(vals, s)
+				}
+				if allStrings {
+					k := vocabKey(vals)
+					out[k] = append(out[k], ptr+"/enum")
+				}
+			}
+			for k, c := range v {
+				walk(c, ptr+"/"+k)
+			}
+		case []any:
+			for i, c := range v {
+				walk(c, ptr+"/"+strconv.Itoa(i))
+			}
+		}
+	}
+	walk(doc, "")
+	return out
+}
+
+// goVocabularies returns every parenthesized const block in pkg/contract whose
+// members are all plain string literals, keyed by value set. Constants are
+// invisible to reflection, so reading the source is the only way to enumerate
+// them without keeping a third copy of each list here.
+func goVocabularies(t *testing.T, root string) map[string][]string {
+	t.Helper()
+	dir := filepath.Join(root, "pkg", "contract")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read pkg/contract: %v", err)
+	}
+	fset := token.NewFileSet()
+	out := map[string][]string{}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, d := range f.Decls {
+			g, ok := d.(*ast.GenDecl)
+			// A one-value block still declares a vocabulary and can still
+			// drift, so only an empty one is skipped. A bare unparenthesized
+			// `const X = "y"` is not declaring a vocabulary and is not read.
+			if !ok || g.Tok != token.CONST || !g.Lparen.IsValid() || len(g.Specs) == 0 {
+				continue
+			}
+			// names is nil the moment any member is not `Name = "literal"`,
+			// which means the block is not a vocabulary and is skipped whole.
+			var names, vals []string
+			for _, s := range g.Specs {
+				sp, ok := s.(*ast.ValueSpec)
+				if !ok || len(sp.Names) != 1 || len(sp.Values) != 1 {
+					names = nil
+					break
+				}
+				lit, ok := sp.Values[0].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					names = nil
+					break
+				}
+				v, uerr := strconv.Unquote(lit.Value)
+				if uerr != nil {
+					names = nil
+					break
+				}
+				names = append(names, sp.Names[0].Name)
+				vals = append(vals, v)
+			}
+			if names == nil {
+				continue
+			}
+			k := vocabKey(vals)
+			out[k] = append(out[k], names...)
+		}
+	}
+	return out
+}
+
+// vocabulariesWithoutSchemaEnum are Go const blocks that deliberately have no
+// schema counterpart, keyed by value set. Both are discriminators Pacto computes
+// while reading a bundle rather than values anyone writes in one, so the schema
+// has nothing to constrain.
+var vocabulariesWithoutSchemaEnum = map[string]string{
+	"config,policy": "ReferenceKind*: which section a reference was found in",
+	"dri,team":      "OwnerKind*: which of owner's mutually exclusive fields was set",
+}
+
+// TestVocabularyParityWithSchema is the DRY gate over contract vocabularies.
+// Every enum a bundle author can write exists twice: as a Go const block in
+// pkg/contract, and as an "enum" in the JSON Schema pkg/validation embeds. Only
+// the schema copy is enforced, so a value added to the Go side alone compiles,
+// reads as supported and is then rejected at validation with no hint that the
+// constant promising it was never wired up.
+//
+// The reverse direction is deliberately not asserted: a schema enum is free to
+// exist without Go constants (pactoVersion's sole legal value needs no name),
+// and demanding one would manufacture constants nothing reads.
+func TestVocabularyParityWithSchema(t *testing.T) {
+	root := repoRootFromCaller(t)
+	enums := schemaEnums(t, root)
+	vocabs := goVocabularies(t, root)
+
+	if len(vocabs) == 0 {
+		t.Fatal("found no Go const vocabularies in pkg/contract; the source scan is broken, not the package")
+	}
+
+	for key, names := range vocabs {
+		if _, ok := enums[key]; ok {
+			continue
+		}
+		if vocabulariesWithoutSchemaEnum[key] != "" {
+			continue
+		}
+		t.Errorf("const block %v spells the vocabulary [%s], which matches no enum in the contract schema.\n"+
+			"A bundle is validated against the schema, so a value only the Go side knows is rejected at validation.\n"+
+			"Add it to the schema enum, or record the block in vocabulariesWithoutSchemaEnum with the reason it has no counterpart.", names, key)
+	}
+
+	for key, reason := range vocabulariesWithoutSchemaEnum {
+		if _, ok := vocabs[key]; !ok {
+			t.Errorf("vocabulariesWithoutSchemaEnum exempts [%s] (%s), which no const block in pkg/contract declares; delete the entry", key, reason)
+		}
+		if ptrs, ok := enums[key]; ok {
+			t.Errorf("vocabulariesWithoutSchemaEnum exempts [%s] (%s), but the schema now constrains it at %v; delete the entry", key, reason, ptrs)
+		}
 	}
 }
