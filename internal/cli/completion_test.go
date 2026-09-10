@@ -83,6 +83,31 @@ func TestFleetPositionalsOfferNoFilenames(t *testing.T) {
 	}
 }
 
+// TestDocUIHelpNamesTheClosedSet pins A23. serveUI accepts docUIs and nothing
+// else, so "e.g. swagger" advertised an open set that does not exist; and the
+// example above it called the one supported explorer by a different product's
+// name. Both are read off docUIs now, so a second UI updates all three surfaces
+// at once.
+func TestDocUIHelpNamesTheClosedSet(t *testing.T) {
+	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
+	doc, _, err := root.Find([]string{"doc"})
+	if err != nil {
+		t.Fatalf("find doc: %v", err)
+	}
+	help := doc.Flags().Lookup("ui").Usage
+	if strings.Contains(help, "e.g.") {
+		t.Errorf("--ui help %q still advertises an open set", help)
+	}
+	for _, ui := range docUIs {
+		if !strings.Contains(help, ui) {
+			t.Errorf("--ui help %q does not list %q", help, ui)
+		}
+	}
+	if strings.Contains(doc.Example, "Scalar") {
+		t.Error("the doc examples still name Scalar UI; the explorer they launch is Swagger UI")
+	}
+}
+
 func TestDocUIAndOutputAreMutuallyExclusive(t *testing.T) {
 	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "-o", "/tmp/x"})

@@ -34,7 +34,7 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
   # Serve on a custom port
   pacto doc my-service --serve --port 9090
 
-  # Launch an interactive API explorer (Scalar UI)
+  # Launch an interactive API explorer (Swagger UI)
   pacto doc my-service --ui swagger
 
   # Select a specific interface
@@ -110,7 +110,10 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 	cmd.Flags().StringP("output", "o", "", "output directory for generated Markdown; a NAME.html value writes a static documentation site to a NAME/ directory instead")
 	cmd.Flags().Bool("serve", false, "serve the offline dashboard-grade documentation site over a local HTTP server")
-	cmd.Flags().String("ui", "", "UI type for interactive API explorer (e.g. swagger)")
+	// "e.g. swagger" advertised an open set that does not exist: serveUI accepts
+	// docUIs and nothing else. Derived from the same slice as the completion and
+	// the rejection message, so the three cannot drift.
+	cmd.Flags().String("ui", "", fmt.Sprintf("UI type for the interactive API explorer (one of: %s)", strings.Join(docUIs, ", ")))
 	cmd.Flags().String("interface", "", "interface name to display (used with --ui)")
 	cmd.Flags().Int("port", 8484, "port for the documentation server (used with --serve or --ui)")
 	cmd.Flags().StringArray("target", nil, "target server URL for try-it-out requests; supports interface=url mapping (used with --ui)")
