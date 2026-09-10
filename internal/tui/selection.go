@@ -78,7 +78,18 @@ func bundleRef(id fleet.RevisionIdentity) (ref string, local bool) {
 		ref = id.RequestedRef
 	}
 	if strings.HasPrefix(ref, "file://") {
-		return strings.TrimPrefix(ref, "file://"), true
+		dir := strings.TrimPrefix(ref, "file://")
+		// Trimming a scheme can turn a path into an option. file://-o/tmp/evil
+		// leaves "-o/tmp/evil", which every command the verb table builds reads
+		// as a flag rather than a bundle — and generate really does take -o, --set
+		// and -f. The string is not ours: internal/fleetsrc/k8s.go:84 copies the
+		// CR's resolvedRef through verbatim, so it comes from whoever can write a
+		// CR status. ./ says what the ref already meant, in a form no flag parser
+		// can read as a flag.
+		if strings.HasPrefix(dir, "-") {
+			dir = "./" + dir
+		}
+		return dir, true
 	}
 	if ref != "" && !strings.HasPrefix(ref, "oci://") {
 		ref = "oci://" + ref

@@ -43,6 +43,23 @@ func TestBundleRef(t *testing.T) {
 			true,
 		},
 		{
+			// A21. Trimming the scheme is what turns a path into an option: the
+			// bare remainder reaches argv, and generate takes -o, --set and -f.
+			// The ref comes from a CR status (internal/fleetsrc/k8s.go:84), so it
+			// is attacker-shaped input, and ./ keeps the meaning while making it
+			// unreadable as a flag.
+			"a local path that looks like a flag is kept a path",
+			fleet.RevisionIdentity{RequestedRef: "file://-o/tmp/evil"},
+			"./-o/tmp/evil",
+			true,
+		},
+		{
+			"a single leading dash is enough to trigger it",
+			fleet.RevisionIdentity{ResolvedRef: "file://--set=x"},
+			"./--set=x",
+			true,
+		},
+		{
 			// bundleRef does not sniff the shape of the string. A bare path that
 			// no source emits is treated as a registry reference and fails saying
 			// so, which beats reading a directory off a guess.
