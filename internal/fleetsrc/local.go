@@ -16,6 +16,7 @@ package fleetsrc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -30,6 +31,10 @@ import (
 
 // maxScanDepth bounds how deep LocalSource descends below its root.
 const maxScanDepth = 8
+
+// maxUnreadableNotes bounds how many refused directories are reported one by
+// one before the rest are summarised as a count.
+const maxUnreadableNotes = 10
 
 // LocalSource discovers pacto.yaml bundles under a root directory and emits one
 // contract revision per bundle. It is the offline definition source for the
@@ -60,9 +65,11 @@ func (s *LocalSource) Kind() string { return "local" }
 // skipped rather than failing the whole source.
 func (s *LocalSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	col := &fleet.Collection{}
+	unreadable := 0
 	err := filepath.WalkDir(s.root, func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			unreadable++
+			return s.noteUnreadable(col, p, unreadable, walkErr)
 		}
 		if err := ctx.Err(); err != nil {
 			return err
@@ -93,16 +100,60 @@ func (s *LocalSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	if err != nil {
 		return nil, err
 	}
+	if unreadable > maxUnreadableNotes {
+		// One line instead of eighty. A home directory on macOS refuses around a
+		// hundred TCC-guarded paths, and a limitation per refusal would bury the
+		// gaps a reader can act on under privacy directories they cannot.
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: fleet.LimitationSourcePartial, Source: s.id,
+			Message: fmt.Sprintf("%d directories could not be read in total; only the first %d are listed", unreadable, maxUnreadableNotes),
+		})
+	}
 	return col, nil
 }
 
-// relPathSafe returns the pacto.yaml path relative to the scan root for display,
-// falling back to the base name when it cannot be made relative.
+// noteUnreadable records a directory the walk could not read and keeps going.
+// One refused directory is not a reason to throw away every bundle beside it:
+// a scan rooted at a macOS home directory reaches TCC-guarded paths like
+// ~/Library/Accounts within milliseconds, and failing there reported the whole
+// source unavailable -- zero services -- while hundreds of readable bundles sat
+// further down. Report the gap and carry on, exactly as an unparseable bundle
+// does below.
+//
+// The root is the one exception. Nothing was read at all, so there is no
+// partial answer to report and an unavailable source is the honest result.
+func (s *LocalSource) noteUnreadable(col *fleet.Collection, p string, n int, err error) error {
+	if p == s.root {
+		return err
+	}
+	if n > maxUnreadableNotes {
+		return fs.SkipDir
+	}
+	// The reason, not the wrapper: a *fs.PathError stringifies to "open
+	// <absolute path>: permission denied", which would put the caller's home
+	// directory back into a message the relative path was chosen to keep it out
+	// of. Everything else keeps its whole text -- there is no path in it to strip.
+	reason := err.Error()
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		reason = pathErr.Err.Error()
+	}
+	col.Limitations = append(col.Limitations, fleet.Limitation{
+		Code: fleet.LimitationSourcePartial, Source: s.id,
+		Message: "could not read " + relPathSafe(s.root, p) + ": " + reason,
+	})
+	return fs.SkipDir
+}
+
+// relPathSafe returns a scanned path relative to the scan root for display,
+// falling back to its last element when it cannot be made relative. Only the
+// relative form is shown: a scan root is usually an absolute path off the
+// caller's machine, and the message is the same message an agent reads.
 func relPathSafe(root, p string) string {
 	if rel, err := filepath.Rel(root, p); err == nil {
 		return rel
 	}
-	return filepath.Base(filepath.Dir(p)) + "/pacto.yaml"
+	return filepath.Base(p)
 }
 
 // skipDir reports whether a directory should not be descended into: hidden dirs

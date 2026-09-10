@@ -95,7 +95,11 @@ evidence [collector](collectors.md), which produces compliance evidence *for* a
 source to carry.)
 
 - **Local bundles** (`--local`) — the revision a developer is editing, before it
-  is pushed.
+  is pushed. The scan defaults to the working directory, descends 8 levels and
+  skips hidden directories, `node_modules` and `vendor`. A directory the
+  operating system refuses is reported as a gap and stepped over, so pointing
+  `--local` at a home directory still finds the bundles below the privacy-guarded
+  paths it meets on the way; past 10 refusals the rest are summarised as a count.
 - **A contract root and its closure** (`--root <path|oci://ref>`) — the root you
   name *plus every revision it declares*, followed transitively. The other
   definition sources stop at what someone listed: a local scan finds the bundles
