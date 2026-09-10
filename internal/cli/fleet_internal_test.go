@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -36,5 +37,37 @@ func TestFleetFlagNamesMatchDeclaredFlags(t *testing.T) {
 	root.PersistentFlags().VisitAll(func(*pflag.Flag) { n++ })
 	if n != len(fleetFlagNames()) {
 		t.Errorf("newFleetCommand declares %d persistent flags, fleetFlagNames lists %d", n, len(fleetFlagNames()))
+	}
+}
+
+// TestFleetOptionsCarriesTheCatalogRoots pins the flag that makes a fleet
+// follow declarations instead of stopping at what someone listed. It is the
+// same --root `pacto mcp` discovers a catalog from, so a reader who learned it
+// there does not have to learn a second spelling here.
+func TestFleetOptionsCarriesTheCatalogRoots(t *testing.T) {
+	cmd := &cobra.Command{Use: "x"}
+	addFleetSourceFlags(cmd.Flags())
+	if err := cmd.Flags().Parse([]string{"--root=./svc", "--root=oci://ghcr.io/acme/platform:1.4.0"}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := []string{"./svc", "oci://ghcr.io/acme/platform:1.4.0"}
+	if got := fleetOptions(cmd).CatalogRoots; !slices.Equal(got, want) {
+		t.Errorf("CatalogRoots = %v, want %v", got, want)
+	}
+	// And it survives the round trip back to argv, so the command the TUI hands
+	// a reader resolves the same closure the screen is showing.
+	wantArgs := []string{"--root=./svc", "--root=oci://ghcr.io/acme/platform:1.4.0"}
+	if got := fleetSourceArgs(cmd); !slices.Equal(got, wantArgs) {
+		t.Errorf("fleetSourceArgs = %v, want %v", got, wantArgs)
+	}
+}
+
+// TestImpactDeclaresTheCatalogRoots: blast radius is the answer the closure
+// matters most for, because a consumer nobody listed is exactly the one a
+// breaking change surprises.
+func TestImpactDeclaresTheCatalogRoots(t *testing.T) {
+	cmd := newImpactCommand(newTestService(t), viper.New())
+	if cmd.Flags().Lookup("root") == nil {
+		t.Error("pacto impact does not declare --root")
 	}
 }

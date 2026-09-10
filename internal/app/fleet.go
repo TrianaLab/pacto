@@ -50,6 +50,12 @@ type FleetOptions struct {
 	// edges Build folds into the snapshot as domain-qualified observed
 	// relationships.
 	ObservationSources []ObservationSourceSpec
+	// CatalogRoots are contract roots whose whole dependency CLOSURE joins the
+	// snapshot: each root is resolved and its declarations followed, so a bundle
+	// that depends on a registry reference brings that reference in rather than
+	// leaving a dangling edge. It is the same discovery `pacto mcp --root`
+	// performs, through the same resolver, so the two cannot disagree.
+	CatalogRoots []string
 	// OCIRefs are registry references to include as published-baseline revisions.
 	// Requires a configured BundleStore.
 	OCIRefs []string
@@ -79,6 +85,9 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	var sources []fleet.Source
 	for i, root := range opts.LocalRoots {
 		sources = append(sources, fleetsrc.NewLocalSource(sourceID("local", i, len(opts.LocalRoots)), root))
+	}
+	if len(opts.CatalogRoots) > 0 {
+		sources = append(sources, &catalogSource{id: "catalog", svc: s, roots: opts.CatalogRoots})
 	}
 	for i, path := range opts.TargetStateFiles {
 		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))

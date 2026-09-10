@@ -96,6 +96,16 @@ source to carry.)
 
 - **Local bundles** (`--local`) — the revision a developer is editing, before it
   is pushed.
+- **A contract root and its closure** (`--root <path|oci://ref>`) — the root you
+  name *plus every revision it declares*, followed transitively. The other
+  definition sources stop at what someone listed: a local scan finds the bundles
+  in a directory and `--oci` pulls exactly the references you typed, so a bundle
+  depending on `oci://ghcr.io/acme/payments:2.1.0` leaves a dangling edge unless
+  that reference is passed separately. `--root` follows the declaration instead.
+  It is the same discovery [`pacto mcp --root`](mcp-integration.md) freezes into
+  a catalog, through the same resolver, so the two cannot disagree about what a
+  reference means. Roots and dependencies that do not resolve stay visible as
+  limitations rather than vanishing.
 - **Contracts in OCI** (`--oci <ref>`) — the published revision catalogue,
   resolved cache-first so a pulled ref works offline.
 - **Local OCI cache** (`--cache`) — every bundle already pulled to disk, as an
@@ -120,9 +130,9 @@ but they supply observed dependency edges rather than revisions and targets — 
 
 Every source flag above is shared by `pacto fleet` and the MCP fleet server, so
 the same graph is reachable from either. `pacto impact` reads a narrower set —
-`--local` and `--target-state` only, alongside `--freshness`, a single-file
-`--traces` and `--include-observed` — so a blast-radius question is answered from
-an offline graph. No source leaks its transport
+`--local`, `--root` and `--target-state` only, alongside `--freshness`, a
+single-file `--traces` and `--include-observed` — so a blast-radius question is
+answered from an offline graph. No source leaks its transport
 into the graph: a Kubernetes-backed source, an OCI-backed source, a local source
 and the dashboard adapter each implement the same small interface, so the read
 model stays free of Kubernetes, MCP and dashboard code.

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -184,5 +185,47 @@ func TestLoadRevision_ParseError(t *testing.T) {
 	}
 	if _, err := loadRevision(dir); err == nil {
 		t.Error("expected an error for an unparseable contract")
+	}
+}
+
+func TestLoadRevision_IgnoreFileError(t *testing.T) {
+	dir := t.TempDir()
+	writeBundle(t, dir, "svc")
+	// A directory where the ignore file should be: it exists, so Load does not
+	// take the not-exist path, and reading it fails. A permission bit would not
+	// do -- CI runs as root, where every mode is readable.
+	if err := os.Mkdir(filepath.Join(dir, ".pactoignore"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadRevision(dir)
+	if err == nil || !strings.Contains(err.Error(), ".pactoignore") {
+		t.Fatalf("err = %v, want one naming .pactoignore", err)
+	}
+}
+
+// TestLoadRevision_DigestIgnoresUnpackagedFiles is the reason the FS is
+// ignore-filtered. A content digest claims two bundles ARE the same bundle, and
+// the lockfile, the catalog and a pushed artifact all hash the packaged file
+// set. Hashing the raw directory instead would make one developer's .DS_Store
+// into a second revision of one service at one version -- a content conflict
+// reported against a fleet where nothing changed.
+func TestLoadRevision_DigestIgnoresUnpackagedFiles(t *testing.T) {
+	clean, littered := t.TempDir(), t.TempDir()
+	writeBundle(t, clean, "svc")
+	writeBundle(t, littered, "svc")
+	if err := os.WriteFile(filepath.Join(littered, ".DS_Store"), []byte("finder"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := loadRevision(clean)
+	if err != nil {
+		t.Fatalf("loadRevision(clean): %v", err)
+	}
+	b, err := loadRevision(littered)
+	if err != nil {
+		t.Fatalf("loadRevision(littered): %v", err)
+	}
+	if a.Digest == "" || a.Digest != b.Digest {
+		t.Errorf("digests %q and %q differ; an unpackaged file changed a bundle's identity", a.Digest, b.Digest)
 	}
 }

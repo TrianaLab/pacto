@@ -46,6 +46,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 // cmd.Flags() otherwise (pacto tui).
 func addFleetSourceFlags(f *pflag.FlagSet) {
 	f.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
+	f.StringArray("root", nil, "contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)")
 	f.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
 	f.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
 	f.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
@@ -61,7 +62,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 // command copies from when it wants the same source surface.
 func fleetFlagNames() []string {
 	return []string{
-		"local", "target-state", "evidence-url", "traces", "oci",
+		"local", "root", "target-state", "evidence-url", "traces", "oci",
 		"cache", "k8s", "namespace", "freshness",
 	}
 }
@@ -99,6 +100,10 @@ func fleetSourceArgs(cmd *cobra.Command) []string {
 // contributes its zero value rather than failing the command.
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
+	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
+	// exclusive with --fleet, so reading it here never picks up a value the mcp
+	// fleet path could have set.
+	roots, _ := cmd.Flags().GetStringArray("root")
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
 	evidenceURLs, _ := cmd.Flags().GetStringArray("evidence-url")
 	traceFiles, _ := cmd.Flags().GetStringArray("traces")
@@ -109,6 +114,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	return app.FleetOptions{
 		LocalRoots:         local,
+		CatalogRoots:       roots,
 		TargetStateFiles:   targetState,
 		EvidenceURLs:       evidenceURLs,
 		ObservationSources: app.TraceFileSources(traceFiles),

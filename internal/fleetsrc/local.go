@@ -24,6 +24,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/ignore"
 	"github.com/trianalab/pacto/v3/pkg/lock"
 )
 
@@ -127,6 +128,15 @@ func skipDir(root, p string, d fs.DirEntry) bool {
 // content hash over the bundle provides an immutable local revision identity.
 // It returns an error (not a silent skip) when the bundle cannot be loaded, so
 // the caller can surface a broken contract instead of hiding it.
+//
+// The FS is ignore-filtered, which is what makes that identity mean anything.
+// A content digest is a claim that two bundles are the same bundle, and every
+// other place Pacto makes it -- the lockfile, the catalog, a pushed artifact --
+// hashes the packaged file set. Hashing the raw directory instead would say a
+// contract changed because a .DS_Store appeared beside it, and would hash a
+// whole .git tree for a bundle that lives at a repository root. Two views of
+// one bundle would then be two revisions of one service at one version, which
+// is precisely the shape of a content conflict.
 func loadRevision(dir string) (fleet.RawRevision, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 	if err != nil {
@@ -136,7 +146,12 @@ func loadRevision(dir string) (fleet.RawRevision, error) {
 	if err != nil {
 		return fleet.RawRevision{}, fmt.Errorf("parse pacto.yaml: %w", err)
 	}
-	fsys := os.DirFS(dir)
+	dirFS := os.DirFS(dir)
+	matcher, err := ignore.Load(dirFS)
+	if err != nil {
+		return fleet.RawRevision{}, fmt.Errorf("read %s: %w", ignore.IgnoreFileName, err)
+	}
+	fsys := ignore.FS(dirFS, matcher)
 	b := &contract.Bundle{Contract: c, RawYAML: data, FS: fsys}
 	rev := fleet.RawRevision{Bundle: b, RequestedRef: "file://" + dir}
 	if h, err := lock.HashFS(fsys); err == nil {

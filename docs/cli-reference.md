@@ -452,6 +452,7 @@ pacto fleet [flags]
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
@@ -683,6 +684,7 @@ pacto impact <old> <new> [flags]
       --new-values stringArray     values file to merge into the new contract (can be repeated)
       --old-set stringArray        set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray     values file to merge into the old contract (can be repeated)
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) supplying targets (repeatable)
       --traces string              OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
 ```
@@ -1079,6 +1081,7 @@ pacto tui [flags]
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --read-only                  hide every write verb
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
