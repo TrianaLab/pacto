@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -96,6 +100,55 @@ var divergentFleetFlagTypes = map[string]string{
 	// Reconciliation compares the snapshot's declared edges against exactly one
 	// observed trace document, which it reads itself.
 	"pacto fleet reconcile --traces": "string",
+}
+
+// yankedFleetSubcommands returns the `pacto fleet` subcommands the TUI can put
+// in a yanked command line. It reads internal/tui/yank.go rather than importing
+// it: the list is a set of literals inside fleetLine calls, and exporting a seam
+// that exists only for this assertion would be a worse trade than a regexp.
+func yankedFleetSubcommands(t *testing.T) []string {
+	t.Helper()
+	_, self, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve caller path")
+	}
+	src, err := os.ReadFile(filepath.Join(filepath.Dir(self), "..", "tui", "yank.go"))
+	if err != nil {
+		t.Fatalf("read yank.go: %v", err)
+	}
+	var out []string
+	for _, m := range regexp.MustCompile(`fleetLine\("([a-z-]+)"`).FindAllStringSubmatch(string(src), -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// TestYankedFleetSubcommandsTakeTheSharedFlagTypes closes the argv round trip.
+// The TUI renders SourceArgs from its OWN flag set, where every shared source
+// flag is repeatable, then pastes them after `pacto fleet <sub>`. A subcommand
+// that narrows one of those flags to a single value parses the repeated form
+// without complaint and keeps only the last, so a reader whose session loaded
+// two trace files would be handed a line that quietly uses one.
+//
+// divergentFleetFlagTypes above records every narrowing, and yank.go chooses
+// every subcommand. Nothing in the type system says those two lists must not
+// intersect, so this does.
+func TestYankedFleetSubcommandsTakeTheSharedFlagTypes(t *testing.T) {
+	subs := yankedFleetSubcommands(t)
+	if len(subs) == 0 {
+		t.Fatal("found no fleetLine subcommands in internal/tui/yank.go; the scan is broken, not the TUI")
+	}
+	for _, sub := range subs {
+		for _, flag := range fleetFlagNames() {
+			typ, narrowed := divergentFleetFlagTypes["pacto fleet "+sub+" --"+flag]
+			if !narrowed {
+				continue
+			}
+			t.Errorf("yank.go yanks `pacto fleet %s`, which narrows --%s to %s.\n"+
+				"SourceArgs renders --%s repeatably, so the pasted line keeps only its last value.\n"+
+				"Either drop the subcommand from yank.go or stop narrowing the flag there.", sub, flag, typ, flag)
+		}
+	}
 }
 
 // TestSharedFleetFlagTypesAreConsistent walks the command tree and fails any
