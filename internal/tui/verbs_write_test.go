@@ -149,6 +149,37 @@ func TestWriteVerbArgvsMatchTheRealSignatures(t *testing.T) {
 	}
 }
 
+// TestReadVerbArgvsMatchTheRealSignatures is the read half of the table above,
+// which had no counterpart at all. Two of these lines were pinned by nothing:
+// l's --check could become --update, and a read-only verb would then advertise
+// and yank a WRITE command with none of the "(writes; asks first)" marking the
+// help screen puts on the four that ask; and v's command word could become
+// anything, because yankArgv emits "pacto validate" independently, so
+// VerbCommands still reported validate and the internal/cli boundary test
+// stayed green. E was protected only by that accident.
+func TestReadVerbArgvsMatchTheRealSignatures(t *testing.T) {
+	c := newLoadedContext(t)
+	sel := localSel()
+	for _, tt := range []struct {
+		key  string
+		want []string
+	}{
+		{"v", []string{"pacto", "validate", "/tmp/local"}},
+		{"E", []string{"pacto", "explain", "/tmp/local"}},
+		{"l", []string{"pacto", "lock", "--check", "/tmp/local"}},
+	} {
+		t.Run(tt.key, func(t *testing.T) {
+			v := verbBoundTo(t, c, tt.key)
+			if v.Write {
+				t.Errorf("%q is marked as a write verb; the line below is a read command", tt.key)
+			}
+			if got := v.Argv(c, sel); !slices.Equal(got, tt.want) {
+				t.Fatalf("%q argv = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestThePromptedVerbsRunTheLineTheyAdvertise is the anti-drift assertion. Each
 // prompted verb has one argv builder, so what the confirmation runs must be
 // what Argv shows with the placeholder replaced by the answer. Two definitions
