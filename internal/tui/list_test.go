@@ -38,6 +38,17 @@ func TestListShowsEntities(t *testing.T) {
 	}
 }
 
+// TestListOpensOnServices pins the landing tab. All sorts kind-first, so on a
+// fleet with enough owners and revisions to fill a page the All tab shows no
+// services at all -- which is the whole screen the reader came for.
+func TestListOpensOnServices(t *testing.T) {
+	c := newLoadedContext(t)
+	l := newListScreen(c).(*listScreen)
+	if got := l.kinds()[l.kindIx]; got != fleet.KindService {
+		t.Fatalf("the session opened on the %q tab, want %q", got, fleet.KindService)
+	}
+}
+
 func TestListTabsCycleKinds(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newListScreen(c)
@@ -46,8 +57,8 @@ func TestListTabsCycleKinds(t *testing.T) {
 	if s.(*listScreen).kindIx == first {
 		t.Fatal("tab did not advance the kind tab")
 	}
-	if got := s.(*listScreen).kinds()[s.(*listScreen).kindIx]; got != fleet.KindService {
-		t.Fatalf("tab 1 = %q, want %q", got, fleet.KindService)
+	if got := s.(*listScreen).kinds()[s.(*listScreen).kindIx]; got != fleet.KindRevision {
+		t.Fatalf("the tab after Services = %q, want %q", got, fleet.KindRevision)
 	}
 	// Shift+tab goes back.
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
@@ -60,12 +71,13 @@ func TestListTabWrapsAtTheEnd(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newListScreen(c).(*listScreen)
 	n := len(s.kinds())
+	start := s.kindIx
 	var cur screen = s
 	for i := 0; i < n; i++ {
 		cur, _ = cur.Update(c, tea.KeyPressMsg{Code: tea.KeyTab})
 	}
-	if cur.(*listScreen).kindIx != 0 {
-		t.Fatalf("kindIx = %d after a full cycle, want 0", cur.(*listScreen).kindIx)
+	if cur.(*listScreen).kindIx != start {
+		t.Fatalf("kindIx = %d after a full cycle, want %d", cur.(*listScreen).kindIx, start)
 	}
 }
 

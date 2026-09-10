@@ -326,6 +326,13 @@ func TestDiffNeedsTwoSelections(t *testing.T) {
 	}
 
 	l := newListScreen(c).(*listScreen)
+	// The session lands on Services, so switch to the Revisions tab first.
+	for i, k := range l.kinds() {
+		if k == fleet.KindRevision {
+			l.kindIx = i
+		}
+	}
+	l.refresh(c)
 	// Find the revision in the list and set the cursor on it
 	found := false
 	for i, e := range l.entities {

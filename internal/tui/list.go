@@ -31,6 +31,16 @@ type listScreen struct {
 	typing     bool
 }
 
+// servicesKindIx is the tab the session opens on: index 1 of kinds(), Services.
+//
+// Not the All tab, even though it is index 0. sortEntityRefs orders kind-first
+// and alphabetically -- owner < revision < service < source < target -- so on a
+// fleet with 200-plus owners and revisions between them, All's first page ends
+// before the first service row and the landing screen shows no services at all,
+// at exactly the fleet size this feature exists for. Services is also the tab
+// the reader wanted; All is one shift+tab away.
+const servicesKindIx = 1
+
 // kinds is the tab order. Index 0 is the everything tab, represented by the
 // empty kind so the filter can pass it through untouched.
 func (l *listScreen) kinds() []fleet.EntityKind {
@@ -51,7 +61,8 @@ func newListScreen(c *Context) screen {
 			table.WithColumns(listColumns()),
 			table.WithFocused(true),
 		),
-		input: ti,
+		kindIx: servicesKindIx,
+		input:  ti,
 	}
 	l.refresh(c)
 	return l
