@@ -27,9 +27,13 @@ func nbEdge(from, to string) fleet.NeighborhoodEdge {
 	}
 }
 
+// TestNeighborhoodToTreeBuildsFromTheFocusNode roots at the focus node, and the
+// focus node is deliberately NOT Nodes[0]. With the fixture the other way round
+// the whole focus-selection loop could be deleted — leaving the fall-back
+// root := n.Nodes[0] — and this test still passed, so it distinguished nothing.
 func TestNeighborhoodToTreeBuildsFromTheFocusNode(t *testing.T) {
 	n := &fleet.Neighborhood{
-		Nodes: []fleet.NeighborhoodNode{nbNode("a", true), nbNode("b", false)},
+		Nodes: []fleet.NeighborhoodNode{nbNode("b", false), nbNode("a", true)},
 		Edges: []fleet.NeighborhoodEdge{nbEdge("a", "b")},
 	}
 	r := neighborhoodToTree(n)
