@@ -71,3 +71,59 @@ func TestImpactDeclaresTheCatalogRoots(t *testing.T) {
 		t.Error("pacto impact does not declare --root")
 	}
 }
+
+// divergentFleetFlagTypes records every command that declares a shared fleet
+// source flag under a different type, keyed by "<command path> --<flag>". Each
+// entry is a deliberate narrowing whose value the command reads itself, so
+// fleetOptions contributing nothing for it is correct rather than lossy.
+var divergentFleetFlagTypes = map[string]string{
+	// One trace document, read as bytes and handed to impact.Analyze as ad-hoc
+	// observed edges. That path names every observed endpoint it cannot map to a
+	// unique fleet service as a limitation; folding the same file in as a
+	// repeatable observation source instead would resolve them silently.
+	"pacto impact --traces": "string",
+	// Reconciliation compares the snapshot's declared edges against exactly one
+	// observed trace document, which it reads itself.
+	"pacto fleet reconcile --traces": "string",
+}
+
+// TestSharedFleetFlagTypesAreConsistent walks the command tree and fails any
+// command declaring a shared fleet source flag under a type addFleetSourceFlags
+// does not use. Nothing else catches this: the flag parses, the user sees it
+// accepted, and fleetOptions' typed lookup then returns the zero value with an
+// error it discards — so the value simply never reaches the snapshot. The two
+// commands that diverge on purpose carry their reason in
+// divergentFleetFlagTypes.
+func TestSharedFleetFlagTypesAreConsistent(t *testing.T) {
+	shared := pflag.NewFlagSet("shared", pflag.ContinueOnError)
+	addFleetSourceFlags(shared)
+
+	seen := map[string]bool{}
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		cmd.Flags().VisitAll(func(f *pflag.Flag) {
+			want := shared.Lookup(f.Name)
+			if want == nil || f.Value.Type() == want.Value.Type() {
+				return
+			}
+			key := cmd.CommandPath() + " --" + f.Name
+			seen[key] = true
+			if divergentFleetFlagTypes[key] != f.Value.Type() {
+				t.Errorf("%s is declared %s where the shared fleet flag is %s; fleetOptions reads the zero value for it",
+					key, f.Value.Type(), want.Value.Type())
+			}
+		})
+		for _, c := range cmd.Commands() {
+			walk(c)
+		}
+	}
+	walk(NewRootCommand(newTestService(t), VersionInfo{Version: "test"}))
+
+	// A stale exception is as misleading as a missing one: it documents a
+	// divergence that no longer exists and would silently bless the next.
+	for key := range divergentFleetFlagTypes {
+		if !seen[key] {
+			t.Errorf("divergentFleetFlagTypes lists %q, which no longer diverges", key)
+		}
+	}
+}

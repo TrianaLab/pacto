@@ -98,6 +98,13 @@ func fleetSourceArgs(cmd *cobra.Command) []string {
 // errors are deliberately discarded: a command may declare a narrower subset of
 // fleetFlagNames (pacto impact does), and an undeclared flag correctly
 // contributes its zero value rather than failing the command.
+//
+// Discarding the error also swallows a TYPE mismatch, which is the sharper
+// edge: a command that declares a shared flag name with a different type parses
+// the user's value happily and then contributes nothing here, silently. Two
+// commands do that on purpose (`pacto impact` and `pacto fleet reconcile` each
+// take a single --traces document and read it themselves), and
+// TestSharedFleetFlagTypesAreConsistent fails any third one that appears.
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
 	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually

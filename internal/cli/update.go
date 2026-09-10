@@ -7,7 +7,7 @@ import (
 	"github.com/trianalab/pacto/v3/internal/update"
 )
 
-func newUpdateCommand(version string) *cobra.Command {
+func newUpdateCommand(version string, updater *update.Updater) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update [version]",
 		Short: "Update pacto to a newer version",
@@ -30,14 +30,14 @@ func newUpdateCommand(version string) *cobra.Command {
 
 			_, _ = fmt.Fprintln(cmd.OutOrStderr(), "Checking for updates...")
 
-			result, err := update.Update(version, targetVersion)
+			result, err := updater.Update(version, targetVersion)
 			if err != nil {
 				return err
 			}
 
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Updated pacto %s -> %s\n", result.PreviousVersion, result.NewVersion)
 
-			pluginResults, err := update.UpdatePlugins()
+			pluginResults, err := updater.UpdatePlugins()
 			if err != nil {
 				_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Warning: plugin update failed: %v\n", err)
 			}

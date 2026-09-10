@@ -146,7 +146,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.AddCommand(newLoginCommand())
 	root.AddCommand(newLogoutCommand())
 	root.AddCommand(newVersionCommand(info, v))
-	root.AddCommand(newUpdateCommand(info.Version))
+	root.AddCommand(newUpdateCommand(info.Version, update.New()))
 	root.AddCommand(newMCPCommand(svc, info.Version))
 	root.AddCommand(newDashboardCommand(svc, v, info.Version))
 	root.AddCommand(newTUICommand(svc, v))
