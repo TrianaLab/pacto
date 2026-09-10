@@ -474,12 +474,27 @@ func TestScreenLocalKeysDoNotShadowVerbs(t *testing.T) {
 // from, so a zero one has to be enough. A panic here fails the test on its own,
 // with a stack that says which field was read; recovering it would throw that
 // away and report less.
+// It also pins the answer exactly. "Non-empty, and nothing in it says pacto"
+// left two structural claims unasserted: that the owner selection earns its
+// place in sels — its one contribution, fleet search, is claimed on the
+// internal/cli side by embodiedByTUI as well — and that the Applies filter is
+// applied at all, which is the difference between reporting what the TUI can
+// RUN and what the table can print.
+//
+// The order is part of the pin, because the order is what shows the second one:
+// with every verb offered for every selection, pull is produced by the local
+// revision instead of the registry one and moves ahead of generate, while the
+// set of distinct commands does not change at all.
 func TestVerbCommandsOnAZeroContext(t *testing.T) {
-	cmds := VerbCommands()
-	if len(cmds) == 0 {
-		t.Fatal("VerbCommands returned an empty list, verb table is broken")
+	want := []string{
+		"validate", "explain", "fleet explain", "lock", "diff", "impact",
+		"fleet graph", "push", "generate", "pull", "fleet get", "fleet search",
 	}
-	for _, c := range cmds {
+	got := VerbCommands()
+	if !slices.Equal(got, want) {
+		t.Fatalf("VerbCommands() = %v\nwant                %v", got, want)
+	}
+	for _, c := range got {
 		if c == "" || strings.Contains(c, "pacto") {
 			t.Errorf("%q is not a cobra path; commandPath must strip argv[0]", c)
 		}
