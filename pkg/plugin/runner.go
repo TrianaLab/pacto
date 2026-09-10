@@ -99,6 +99,13 @@ func (r *SubprocessRunner) Run(ctx context.Context, name string, req GenerateReq
 	return &resp, nil
 }
 
+// Find resolves name to the pacto-plugin-<name> binary Run would execute. It is
+// exported for callers that ask a human to approve running a plugin: PATH is
+// searched before ~/.config/pacto/plugins/, so the name alone does not say
+// which binary is about to run and a confirmation showing only the name cannot
+// be checked against anything.
+func Find(name string) (string, error) { return findPlugin(name) }
+
 // findPlugin locates a pacto-plugin-<name> binary in PATH or the user plugin directory.
 func findPlugin(name string) (string, error) {
 	binaryName := "pacto-plugin-" + name

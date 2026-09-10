@@ -151,6 +151,27 @@ func TestFindPlugin_InConfigDir(t *testing.T) {
 	}
 }
 
+// TestFind_IsTheSameLookupAsRun pins the exported wrapper to the lookup the
+// runner uses. A confirmation prompt that showed a path Run would not execute
+// would be worse than showing no path at all.
+func TestFind_IsTheSameLookupAsRun(t *testing.T) {
+	dir := t.TempDir()
+	buildTestPlugin(t, dir, "test", successPluginSrc)
+	t.Setenv("PATH", dir)
+
+	got, err := Find("test")
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	want, err := findPlugin("test")
+	if err != nil {
+		t.Fatalf("findPlugin: %v", err)
+	}
+	if got != want {
+		t.Fatalf("Find(%q) = %q, want %q", "test", got, want)
+	}
+}
+
 func TestFindPlugin_NotFound(t *testing.T) {
 	home := t.TempDir() // empty — no plugins inside
 

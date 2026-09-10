@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +11,21 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
+
+// stubPlugin puts a pacto-plugin-<name> on an isolated PATH and returns the
+// path it will resolve to. G now resolves the binary before it builds the
+// prompt, so without this the generate tests would pass or fail depending on
+// what the machine running them happens to have installed.
+func stubPlugin(t *testing.T, name string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pacto-plugin-"+name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	return path
+}
 
 // verbByKey returns the write verb bound to key, failing if it is missing. A
 // missing verb is a real failure rather than a skip: the table is the only
@@ -76,13 +93,17 @@ func TestEveryWriteVerbOpensAConfirmation(t *testing.T) {
 		key    string
 		sel    Selection
 		answer string // non-empty when the verb prompts before it can build a command
+		plugin string // non-empty when the answer has to resolve to a binary
 	}{
 		{key: "p", sel: localSel(), answer: "oci://ghcr.io/acme/local:1.0.0"},
 		{key: "P", sel: remoteSel()},
 		{key: "L", sel: localSel()},
-		{key: "G", sel: localSel(), answer: "schema-infer"},
+		{key: "G", sel: localSel(), answer: "schema-infer", plugin: "schema-infer"},
 	} {
 		t.Run(tt.key, func(t *testing.T) {
+			if tt.plugin != "" {
+				stubPlugin(t, tt.plugin)
+			}
 			c := newLoadedContext(t)
 			v := verbByKey(t, tt.key)
 			if why := v.Applies(tt.sel); why != "" {
@@ -137,11 +158,15 @@ func TestThePromptedVerbsRunTheLineTheyAdvertise(t *testing.T) {
 		key         string
 		answer      string
 		placeholder string
+		plugin      string // non-empty when the answer has to resolve to a binary
 	}{
-		{"p", "oci://ghcr.io/acme/local:1.0.0", refPlaceholder},
-		{"G", "schema-infer", pluginPlaceholder},
+		{"p", "oci://ghcr.io/acme/local:1.0.0", refPlaceholder, ""},
+		{"G", "schema-infer", pluginPlaceholder, "schema-infer"},
 	} {
 		t.Run(tt.key, func(t *testing.T) {
+			if tt.plugin != "" {
+				stubPlugin(t, tt.plugin)
+			}
 			c := newLoadedContext(t)
 			sel := localSel()
 			v := verbByKey(t, tt.key)
@@ -162,6 +187,46 @@ func TestThePromptedVerbsRunTheLineTheyAdvertise(t *testing.T) {
 				t.Fatalf("%q confirms %v but advertises %v", tt.key, confirm.argv, want)
 			}
 		})
+	}
+}
+
+// TestGenerateConfirmationNamesTheBinaryAndTheDestination covers what the
+// reader is actually approving. plugin.Find searches PATH before
+// ~/.config/pacto/plugins/, so a name can resolve to something they never
+// installed; and app.Generate MkdirAlls <plugin>-output in the working
+// directory, which the prompt used to leave out entirely.
+func TestGenerateConfirmationNamesTheBinaryAndTheDestination(t *testing.T) {
+	bin := stubPlugin(t, "schema-infer")
+	c := newLoadedContext(t)
+
+	cmd := answerThePrompt(t, verbByKey(t, "G").Run(c, localSel()), "schema-infer")
+	confirm, ok := cmd().(pushMsg).s.(*confirmScreen)
+	if !ok {
+		t.Fatalf("G produced %T, want the confirmation", cmd().(pushMsg).s)
+	}
+	if !strings.Contains(confirm.prompt, bin) {
+		t.Fatalf("the prompt %q does not name the binary it resolved (%s)", confirm.prompt, bin)
+	}
+	if !strings.Contains(confirm.prompt, "./schema-infer-output/") {
+		t.Fatalf("the prompt %q does not name the directory generate writes", confirm.prompt)
+	}
+}
+
+// TestGenerateSaysSoWhenThePluginIsNotInstalled keeps the failure at prompt
+// time. Confirming first and failing afterwards asks the reader to approve
+// running a binary that does not exist.
+func TestGenerateSaysSoWhenThePluginIsNotInstalled(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	c := newLoadedContext(t)
+
+	cmd := answerThePrompt(t, verbByKey(t, "G").Run(c, localSel()), "nope")
+	msg, ok := cmd().(statusMsg)
+	if !ok {
+		t.Fatalf("an unresolvable plugin produced %T, want a statusMsg", cmd())
+	}
+	if !strings.Contains(msg.text, "nope") {
+		t.Fatalf("status = %q, want it to name the plugin that did not resolve", msg.text)
 	}
 }
 

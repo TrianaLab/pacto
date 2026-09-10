@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/plugin"
 )
 
 // Verb is one keybound action. Argv is the invocation a reader could have typed
@@ -157,10 +159,22 @@ func writeVerbs() []Verb {
 			Key: "G", Help: "run a generate plugin over the selected bundle", Write: true, Applies: hasLocalBundle,
 			Argv: func(_ *Context, s Selection) []string { return generateArgv(pluginPlaceholder, s) },
 			Run: func(c *Context, s Selection) tea.Cmd {
-				return promptFor("Plugin to run over "+s.Label+" (executes pacto-plugin-<name>):", func(plugin string) tea.Cmd {
-					// generate executes a plugin binary. The prompt says so, because
-					// confirming this is confirming arbitrary code.
-					return runWrite(c, "Run pacto-plugin-"+plugin+" over "+s.Ref+"? This executes that binary.", generateArgv(plugin, s))
+				return promptFor("Plugin to run over "+s.Label+" (executes pacto-plugin-<name>):", func(name string) tea.Cmd {
+					// generate executes a plugin binary, so the confirmation has to
+					// name the binary rather than the plugin. plugin.Find searches
+					// PATH before ~/.config/pacto/plugins/, so a name can resolve to
+					// something the reader never installed and the name alone gives
+					// them nothing to check.
+					bin, err := plugin.Find(name)
+					if err != nil {
+						// At prompt time, not after the reader has confirmed.
+						return status(err.Error())
+					}
+					// app.Generate defaults its output directory to <plugin>-output
+					// and MkdirAlls it in the working directory, which the prompt
+					// used to leave out entirely.
+					return runWrite(c, fmt.Sprintf("Run %s over %s? It writes ./%s-output/.", bin, s.Ref, name),
+						generateArgv(name, s))
 				})
 			},
 		},
