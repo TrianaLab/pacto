@@ -124,13 +124,25 @@ func TestListSurfacesAQueryError(t *testing.T) {
 	}
 }
 
+// TestListSaysWhenTheAnswerIsTruncated asserts on summary() rather than on the
+// whole view, and on the sentence rather than on the two numbers loose in it.
+// Over the view the old assertion passed with the warning deleted outright:
+// "25" was matched by a fixture digest of repeated 2s and "900" by the
+// fall-through "%d entities" line, so the test named for the truncation warning
+// was green whether or not there was one.
 func TestListSaysWhenTheAnswerIsTruncated(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newListScreen(c).(*listScreen)
+
 	s.truncated, s.total, s.shown = true, 900, 25
-	out := s.View(c)
-	if !strings.Contains(out, "900") || !strings.Contains(out, "25") {
-		t.Fatalf("a truncated page must state both numbers:\n%s", out)
+	if got := s.summary(); !strings.Contains(got, "showing 25 of 900") {
+		t.Fatalf("summary = %q, want it to say showing 25 of 900", got)
+	}
+
+	// And the whole page does not present itself as truncated.
+	s.truncated = false
+	if got := s.summary(); !strings.Contains(got, "900 entities") {
+		t.Fatalf("summary = %q, want the plain count", got)
 	}
 }
 
