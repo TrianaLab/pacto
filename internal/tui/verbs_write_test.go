@@ -287,6 +287,43 @@ func TestWriteVerbApplicability(t *testing.T) {
 	}
 }
 
+// TestEachVerbIsWiredToThePredicateItNames closes the gap the table above
+// leaves open. That one calls hasRemoteRef and hasLocalBundle as free
+// functions, so it proves the predicates are right and says nothing about which
+// verb is wired to which; TestEveryWriteVerbOpensAConfirmation only asserts the
+// positive case, so a strictly looser predicate is invisible there too. Swap any
+// of these for hasBundle and every other assertion in the package stays green
+// while G offers to run a plugin binary over oci://ghcr.io/... and P offers
+// "This overwrites that directory" against the reader's own working tree.
+//
+// l is here although it writes nothing: app.Lock refuses a registry reference
+// outright, so a looser predicate turns it into a verb that can only fail.
+func TestEachVerbIsWiredToThePredicateItNames(t *testing.T) {
+	c := newLoadedContext(t)
+	for _, tt := range []struct {
+		key                   string
+		wantLocal, wantRemote bool
+	}{
+		{"l", true, false},
+		{"p", true, false},
+		{"P", false, true},
+		{"L", true, false},
+		{"G", true, false},
+	} {
+		t.Run(tt.key, func(t *testing.T) {
+			v := verbBoundTo(t, c, tt.key)
+			if why := v.Applies(localSel()); (why == "") != tt.wantLocal {
+				t.Errorf("%q on a local directory: applies=%v (%q), want applies=%v",
+					tt.key, why == "", why, tt.wantLocal)
+			}
+			if why := v.Applies(remoteSel()); (why == "") != tt.wantRemote {
+				t.Errorf("%q on a registry reference: applies=%v (%q), want applies=%v",
+					tt.key, why == "", why, tt.wantRemote)
+			}
+		})
+	}
+}
+
 // matchReason compares an Applies result to what the test expects: "" means the
 // verb applies, anything else is a substring of the reason it did not.
 func matchReason(got, want string) bool {
