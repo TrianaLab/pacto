@@ -79,11 +79,12 @@ func (s *CacheSource) Kind() string { return "cache" }
 // baseline revision. An absent cache directory yields an empty collection
 // (nothing cached), not an error.
 func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	gens, err := cachedGenerations(s.cacheDir)
+	unreadable := unreadableDirs{source: s.id, root: s.cacheDir}
+	gens, err := cachedGenerations(s.cacheDir, &unreadable)
 	if err != nil {
 		return nil, err
 	}
-	col := &fleet.Collection{}
+	col := &fleet.Collection{Limitations: unreadable.limitations()}
 	for _, g := range gens {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -241,7 +242,9 @@ type cachedGeneration struct {
 
 // cachedGenerations walks the cache directory and reads every entry it finds
 // into one whole generation each. An absent cache directory is not an error:
-// nothing has been pulled yet.
+// nothing has been pulled yet, and neither is an entry the walk cannot open —
+// unreadable collects those so the caller can report them as gaps rather than
+// answer that the cache is empty.
 //
 // The walk DISCOVERS entry directories and does nothing else. It does not decide
 // what an entry holds, and it does not hand a reference onward for someone to
@@ -263,7 +266,7 @@ type cachedGeneration struct {
 // <cacheDir>/<repo...>/<tag>/bundle.tar.gz read as <repo...>:<tag> — which is
 // approximate, because a path spells a registry port and a tag with the same
 // characters it spells itself with. Results are sorted for deterministic output.
-func cachedGenerations(cacheDir string) ([]cachedGeneration, error) {
+func cachedGenerations(cacheDir string, unreadable *unreadableDirs) ([]cachedGeneration, error) {
 	if _, err := os.Stat(cacheDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -274,7 +277,12 @@ func cachedGenerations(cacheDir string) ([]cachedGeneration, error) {
 	seen := map[string]bool{}
 	err := fsWalkDir(cacheDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			// A cache directory is shared, and one entry it will not open is not a
+			// reason to report that nothing was ever pulled. Run pacto once under
+			// sudo and the root-owned entries refuse every later read; aborting
+			// here emptied the entire offline baseline instead of the handful of
+			// entries actually out of reach.
+			return unreadable.note(path, walkErr)
 		}
 		if d.IsDir() || d.Name() != oci.CachedBundleFile {
 			return nil

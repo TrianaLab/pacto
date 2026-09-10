@@ -340,6 +340,52 @@ func TestCacheSource_Collect_WalkError(t *testing.T) {
 	}
 }
 
+// A cache directory is shared, and one entry it cannot open must not empty the
+// whole offline baseline. Run pacto once under sudo and every later read of the
+// root-owned entries is refused; aborting there answered "nothing has ever been
+// pulled" for a machine with a full cache. Same policy as the local scan, and
+// the same shared tracker enforces it.
+func TestCacheSource_Collect_RefusedEntryIsAGapNotAnAbort(t *testing.T) {
+	dir := t.TempDir()
+	entry := "ghcr.io/org/svc/1.0.0"
+	mustCacheFile(t, dir, entry+"/bundle.tar.gz")
+	mustSidecar(t, filepath.Join(dir, filepath.FromSlash(entry)),
+		`{"ref":"ghcr.io/org/svc:1.0.0","digest":"`+validDigest("d")+`"}`)
+
+	// The seam rather than a chmod: a mode-000 directory is readable when the
+	// suite runs as root, and a branch that skips there is a branch the coverage
+	// gate never sees. WalkDir hands the callback a traversal error for the
+	// directory it could not open and then carries on with the rest of the tree,
+	// converting an fs.SkipDir answer into "carry on" — reproduced exactly.
+	orig := fsWalkDir
+	fsWalkDir = func(root string, fn fs.WalkDirFunc) error {
+		refused := filepath.Join(root, "refused")
+		if err := fn(refused, nil, errors.New("permission denied")); err != nil && !errors.Is(err, fs.SkipDir) {
+			return err
+		}
+		return filepath.WalkDir(root, fn)
+	}
+	t.Cleanup(func() { fsWalkDir = orig })
+
+	col, err := NewCacheSource("cache", dir).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %d, want the one readable entry to survive the refusal", len(col.Revisions))
+	}
+	if len(col.Limitations) != 1 {
+		t.Fatalf("limitations = %+v, want exactly one", col.Limitations)
+	}
+	lim := col.Limitations[0]
+	if lim.Code != fleet.LimitationSourcePartial || lim.Source != "cache" {
+		t.Errorf("limitation = %+v, want SOURCE_PARTIAL from cache", lim)
+	}
+	if !strings.Contains(lim.Message, "could not read refused") || strings.Contains(lim.Message, dir) {
+		t.Errorf("message = %q, want the refused directory named relative to the cache root", lim.Message)
+	}
+}
+
 func TestCacheSource_Collect_SidecarIsTheIdentity(t *testing.T) {
 	dir := t.TempDir()
 	dgst := validDigest("d")

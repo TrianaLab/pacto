@@ -105,22 +105,10 @@ func hasLimitation(ls []fleet.Limitation, code string) bool {
 	return false
 }
 
-func TestRelPathSafe(t *testing.T) {
-	root := t.TempDir()
-	p := filepath.Join(root, "svc", "pacto.yaml")
-	if got := relPathSafe(root, p); got != filepath.Join("svc", "pacto.yaml") {
-		t.Errorf("relative = %q, want svc/pacto.yaml", got)
-	}
-	// An absolute root with a relative path cannot be made relative → base fallback.
-	if got := relPathSafe("/abs/root", "svc/pacto.yaml"); got != "pacto.yaml" {
-		t.Errorf("fallback = %q, want pacto.yaml", got)
-	}
-}
-
 // TestLocalSourceKeepsScanningPastAnUnreadableDir is the whole reason
-// noteUnreadable exists: a scan rooted at a home directory meets a directory the
-// operating system will not open long before it meets the bundles, and aborting
-// there answered "no services" for a machine full of them.
+// [unreadableDirs] exists: a scan rooted at a home directory meets a directory
+// the operating system will not open long before it meets the bundles, and
+// aborting there answered "no services" for a machine full of them.
 func TestLocalSourceKeepsScanningPastAnUnreadableDir(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("a refused directory is not reproducible as root")
@@ -154,44 +142,6 @@ func TestLocalSourceKeepsScanningPastAnUnreadableDir(t *testing.T) {
 	// root rather than echoing the caller's absolute path back at them.
 	if !strings.Contains(lim.Message, "locked") || strings.Contains(lim.Message, root) {
 		t.Errorf("message %q should name locked relative to the root", lim.Message)
-	}
-}
-
-// TestNoteUnreadable covers the two cases the walk cannot produce on demand: a
-// failure at the root itself, and a walk error that is not a *fs.PathError.
-func TestNoteUnreadable(t *testing.T) {
-	s := NewLocalSource("", "/root")
-	col := &fleet.Collection{}
-	boom := errors.New("boom")
-
-	// At the root nothing was read at all, so there is no partial answer to
-	// report and an unavailable source is the honest result.
-	if err := s.noteUnreadable(col, "/root", 1, boom); !errors.Is(err, boom) {
-		t.Errorf("err = %v, want the walk error", err)
-	}
-	if len(col.Limitations) != 0 {
-		t.Errorf("limitations = %+v, want none", col.Limitations)
-	}
-
-	// Below it, the walk carries on and an error with no path inside it keeps
-	// its whole text.
-	if err := s.noteUnreadable(col, "/root/sub", 1, boom); !errors.Is(err, fs.SkipDir) {
-		t.Errorf("err = %v, want SkipDir", err)
-	}
-	if len(col.Limitations) != 1 {
-		t.Fatalf("limitations = %+v, want exactly one", col.Limitations)
-	}
-	if got := col.Limitations[0].Message; got != "could not read sub: boom" {
-		t.Errorf("message = %q, want `could not read sub: boom`", got)
-	}
-
-	// Past the cap the gap is still skipped, but silently: the count at the end
-	// of the walk speaks for the rest.
-	if err := s.noteUnreadable(col, "/root/sub", maxUnreadableNotes+1, boom); !errors.Is(err, fs.SkipDir) {
-		t.Errorf("err = %v, want SkipDir", err)
-	}
-	if len(col.Limitations) != 1 {
-		t.Errorf("limitations = %+v, want the capped one to add nothing", col.Limitations)
 	}
 }
 
