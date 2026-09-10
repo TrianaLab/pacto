@@ -356,9 +356,9 @@ still come back and the missing source is reported as `unavailable`, never as
 empty. A missing result does not prove absence when the sources are incomplete,
 which is the whole point of [the operational graph](../operational-graph.md).
 
-The same snapshot also opens as a full-screen terminal UI, for reading the fleet
-without a browser. It needs an interactive terminal, so unlike everything above
-it is not scriptable and leaves no transcript:
+The same snapshot — plus the observed edges from story 5 — also opens as a
+full-screen terminal UI, for reading the fleet without a browser. It needs an
+interactive terminal, so unlike the recorded stories it leaves no transcript:
 
 ```bash
 pacto tui \
@@ -373,8 +373,9 @@ targets, so before you press anything `orders-service` reads `NonCompliant`,
 `auth-service` reads `Unknown` and `payments-service` and `fraud-service` read
 `Compliant`. Press `a` for what needs attention — the twenty-two items
 `pfleet status` prints above — and `g` on a highlighted row for its neighborhood
-graph. `--read-only` hides the four write verbs outright, and the full key table
-is in [The terminal UI](../platform-engineers.md#the-terminal-ui).
+graph. `--read-only` drops push, pull, lock update and generate from the UI
+entirely, and the full key table is in
+[The terminal UI](../platform-engineers.md#the-terminal-ui).
 
 The same read model is available to an agent. `pacto mcp --fleet` serves it as six
 read-only tools — `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`,
