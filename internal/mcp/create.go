@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -42,10 +43,16 @@ type CreateInput struct {
 	Interfaces   []InterfaceInput
 	Dependencies []DependencyInput
 
-	Workload                  string
-	StoresData                bool
-	DataSurvivesRestart       bool
-	DataSharedAcrossInstances bool
+	Workload string
+	// The three intent booleans are pointers because description inference only
+	// fills in what the caller left unsaid. A plain bool cannot tell "the caller
+	// said false" apart from "the caller said nothing", so an explicit
+	// stores_data=false against a description mentioning postgres used to be
+	// overridden into stateful/persistent/shared — the opposite of what was
+	// declared, in the section that feeds compliance and blast radius.
+	StoresData                *bool
+	DataSurvivesRestart       *bool
+	DataSharedAcrossInstances *bool
 	DataLossImpact            string
 
 	ConfigProperties []ConfigProperty
@@ -261,7 +268,8 @@ func Create(input CreateInput) (*CreateResult, error) {
 	}
 
 	// Validate before writing
-	if err := validateYAML(yamlBytes); err != nil {
+	c, err := validateYAML(yamlBytes)
+	if err != nil {
 		return nil, fmt.Errorf("generated contract is invalid: %w", err)
 	}
 
@@ -270,7 +278,7 @@ func Create(input CreateInput) (*CreateResult, error) {
 	if input.DryRun {
 		return &CreateResult{
 			Path:      filepath.Join(dir, "pacto.yaml"),
-			Summary:   summarizeFromMap(m),
+			Summary:   summarizeContract(c),
 			Derived:   derived,
 			FileCount: 0,
 		}, nil
@@ -284,7 +292,7 @@ func Create(input CreateInput) (*CreateResult, error) {
 
 	return &CreateResult{
 		Path:      filepath.Join(dir, "pacto.yaml"),
-		Summary:   summarizeFromMap(m),
+		Summary:   summarizeContract(c),
 		Derived:   derived,
 		FileCount: fileCount,
 	}, nil
@@ -309,15 +317,9 @@ func applyHintsToCreate(input *CreateInput, h descriptionHints) {
 		}
 	}
 
-	if !input.StoresData && h.storesData {
-		input.StoresData = true
-	}
-	if !input.DataSurvivesRestart && h.dataDurable {
-		input.DataSurvivesRestart = true
-	}
-	if !input.DataSharedAcrossInstances && h.dataShared {
-		input.DataSharedAcrossInstances = true
-	}
+	inferBool(&input.StoresData, h.storesData)
+	inferBool(&input.DataSurvivesRestart, h.dataDurable)
+	inferBool(&input.DataSharedAcrossInstances, h.dataShared)
 
 	if input.Workload == "" {
 		if h.isScheduled {
@@ -326,6 +328,18 @@ func applyHintsToCreate(input *CreateInput, h descriptionHints) {
 			input.Workload = contract.WorkloadJob
 		}
 	}
+}
+
+// inferBool applies an inferred true only where the caller said nothing.
+func inferBool(dst **bool, inferred bool) {
+	if *dst == nil && inferred {
+		*dst = &inferred
+	}
+}
+
+// boolOrFalse reads an optional intent flag, treating "unsaid" as false.
+func boolOrFalse(p *bool) bool {
+	return p != nil && *p
 }
 
 func buildCreateMap(input CreateInput) map[string]any {
@@ -357,9 +371,9 @@ func buildCreateMap(input CreateInput) map[string]any {
 	m["workload"] = workload
 
 	intent := stateIntent{
-		storesData:                input.StoresData,
-		dataSurvivesRestart:       input.DataSurvivesRestart,
-		dataSharedAcrossInstances: input.DataSharedAcrossInstances,
+		storesData:                boolOrFalse(input.StoresData),
+		dataSurvivesRestart:       boolOrFalse(input.DataSurvivesRestart),
+		dataSharedAcrossInstances: boolOrFalse(input.DataSharedAcrossInstances),
 		dataLossImpact:            input.DataLossImpact,
 	}
 	m["state"] = deriveStateMap(intent)
@@ -757,7 +771,13 @@ func applyMetadataEdits(m map[string]any, set map[string]any, remove []string) [
 // --- Check ---
 
 // Check validates an existing contract and returns structured results.
-func Check(path string) (*CheckResult, error) {
+//
+// It runs the same recursive policy resolution `pacto validate` runs, so an
+// agent looping until Check says valid stops on a contract CI also accepts. The
+// local-only validator used by pack and push downgrades an unresolvable
+// policies[].ref to a warning, which is exactly the disagreement that let a loop
+// terminate on a contract the pipeline then rejected.
+func Check(ctx context.Context, resolver validation.BundleResolver, path string) (*CheckResult, error) {
 	dir := path
 	if dir == "" {
 		dir = "."
@@ -783,7 +803,7 @@ func Check(path string) (*CheckResult, error) {
 		return result, nil
 	}
 
-	vr := validation.Validate(c, rawYAML, bundleFS)
+	vr := validation.ValidateWithResolver(ctx, c, rawYAML, bundleFS, resolver)
 
 	cr := &CheckResult{
 		Valid:   vr.IsValid(),
@@ -869,24 +889,33 @@ func valueToNode(v any) (*yaml.Node, error) {
 
 // --- Validation helpers ---
 
-func validateYAML(yamlBytes []byte) error {
+// validateYAML parses and validates a generated contract, returning the parsed
+// contract so the caller can summarize it instead of re-deriving a summary from
+// the map it was built out of.
+func validateYAML(yamlBytes []byte) (*contract.Contract, error) {
 	c, err := contract.Parse(bytes.NewReader(yamlBytes))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	bundleFS := buildStubFS(c, yamlBytes)
 
 	result := validation.Validate(c, yamlBytes, bundleFS)
 	if !result.IsValid() {
-		return fmt.Errorf("%s", result.Errors[0].Message)
+		return nil, fmt.Errorf("%s", result.Errors[0].Message)
 	}
-	return nil
+	return c, nil
 }
 
 // buildStubFS creates an in-memory FS with pacto.yaml and stub files for
 // referenced interface contracts and config schema, so validation passes
 // before files are written to disk.
+//
+// It stubs every declared interface ref, which is only honest if every declared
+// interface ref is also written. writeBundle and scaffoldNewInterfaceFiles
+// therefore scaffold all three interface types too: asyncapi used to be
+// stubbed-but-never-written, so pacto_create reported success and left a bundle
+// that failed FILE_NOT_FOUND on the very next read.
 func buildStubFS(c *contract.Contract, yamlBytes []byte) fstest.MapFS {
 	m := fstest.MapFS{
 		"pacto.yaml": &fstest.MapFile{Data: yamlBytes},
@@ -968,18 +997,16 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 
 	// Scaffold interface spec files
 	for _, iface := range input.Interfaces {
-		if iface.Type == contract.InterfaceTypeOpenAPI || iface.Type == contract.InterfaceTypeGRPC {
-			ifaceDir := filepath.Join(dir, "interfaces")
-			if err := osMkdirAll(ifaceDir, 0755); err != nil {
-				return fileCount, fmt.Errorf("failed to create %s: %w", ifaceDir, err)
-			}
-			ifacePath := filepath.Join(ifaceDir, iface.Name+".yaml")
-			stub := scaffoldInterfaceStub(input.Name, iface)
-			if err := atomicWriteFile(ifacePath, stub, 0644); err != nil {
-				return fileCount, fmt.Errorf("failed to write %s: %w", ifacePath, err)
-			}
-			fileCount++
+		ifaceDir := filepath.Join(dir, "interfaces")
+		if err := osMkdirAll(ifaceDir, 0755); err != nil {
+			return fileCount, fmt.Errorf("failed to create %s: %w", ifaceDir, err)
 		}
+		ifacePath := filepath.Join(ifaceDir, iface.Name+".yaml")
+		stub := scaffoldInterfaceStub(input.Name, iface)
+		if err := atomicWriteFile(ifacePath, stub, 0644); err != nil {
+			return fileCount, fmt.Errorf("failed to write %s: %w", ifacePath, err)
+		}
+		fileCount++
 	}
 
 	// Scaffold config schema if needed
@@ -1001,9 +1028,6 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 
 func scaffoldNewInterfaceFiles(dir string, interfaces []InterfaceInput) error {
 	for _, iface := range interfaces {
-		if iface.Type != contract.InterfaceTypeOpenAPI && iface.Type != contract.InterfaceTypeGRPC {
-			continue
-		}
 		ifaceDir := filepath.Join(dir, "interfaces")
 		if err := osMkdirAll(ifaceDir, 0755); err != nil {
 			return fmt.Errorf("failed to create %s: %w", ifaceDir, err)
@@ -1021,8 +1045,13 @@ func scaffoldNewInterfaceFiles(dir string, interfaces []InterfaceInput) error {
 	return nil
 }
 
+// scaffoldInterfaceStub renders a starter spec for one declared interface. It
+// covers all three interface types because every declared interface is written:
+// a type with no stub of its own would still get a file, and an OpenAPI document
+// under an asyncapi interface is worse than an empty one.
 func scaffoldInterfaceStub(serviceName string, iface InterfaceInput) []byte {
-	if iface.Type == contract.InterfaceTypeGRPC {
+	switch iface.Type {
+	case contract.InterfaceTypeGRPC:
 		capitalizedName := strings.ToUpper(serviceName[:1]) + serviceName[1:]
 		return []byte(fmt.Sprintf(`syntax = "proto3";
 
@@ -1032,6 +1061,14 @@ service %sService {
   // Add your RPC methods here
 }
 `, serviceName, capitalizedName))
+	case contract.InterfaceTypeAsyncAPI:
+		return []byte(fmt.Sprintf(`asyncapi: "3.0.0"
+info:
+  title: %s
+  version: "0.1.0"
+channels: {}
+operations: {}
+`, serviceName))
 	}
 
 	// Default: OpenAPI stub
@@ -1114,89 +1151,6 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 	}
 
 	return s
-}
-
-func summarizeFromMap(m map[string]any) ContractSummary {
-	s := ContractSummary{Sections: make(map[string]string)}
-	summarizeService(&s, m)
-	summarizeRuntime(&s, m)
-	summarizeInterfacesFromMap(&s, m)
-	summarizeDepsFromMap(&s, m)
-	summarizeSectionsFromMap(&s, m)
-	return s
-}
-
-func summarizeService(s *ContractSummary, m map[string]any) {
-	svc, ok := m["service"].(map[string]any)
-	if !ok {
-		return
-	}
-	s.Name, _ = svc["name"].(string)
-	s.Version, _ = svc["version"].(string)
-	if str, ok := svc["owner"].(string); ok {
-		s.Owner = str
-	} else if obj, ok := svc["owner"].(map[string]any); ok {
-		if team, _ := obj["team"].(string); team != "" {
-			s.Owner = team
-		} else if dri, _ := obj["dri"].(string); dri != "" {
-			s.Owner = dri
-		}
-	}
-}
-
-func summarizeRuntime(s *ContractSummary, m map[string]any) {
-	s.Workload, _ = m["workload"].(string)
-	if state, ok := m["state"].(map[string]any); ok {
-		s.StateType, _ = state["type"].(string)
-	}
-}
-
-func summarizeInterfacesFromMap(s *ContractSummary, m map[string]any) {
-	ifaces, ok := m["interfaces"].([]any)
-	if !ok {
-		return
-	}
-	for _, iface := range ifaces {
-		if ifaceMap, ok := iface.(map[string]any); ok {
-			name, _ := ifaceMap["name"].(string)
-			typ, _ := ifaceMap["type"].(string)
-			s.Interfaces = append(s.Interfaces, fmt.Sprintf("%s (%s)", name, typ))
-		}
-	}
-}
-
-func summarizeDepsFromMap(s *ContractSummary, m map[string]any) {
-	deps, ok := m["dependencies"].([]any)
-	if !ok {
-		return
-	}
-	for _, dep := range deps {
-		if depMap, ok := dep.(map[string]any); ok {
-			if ref, ok := depMap["ref"].(string); ok {
-				s.Dependencies = append(s.Dependencies, ref)
-			}
-		}
-	}
-}
-
-func summarizeSectionsFromMap(s *ContractSummary, m map[string]any) {
-	for _, key := range []string{"service", "interfaces", "workload", "state"} {
-		if _, ok := m[key]; ok {
-			s.Sections[key] = "present"
-		}
-	}
-	for _, key := range []string{"policies", "dependencies", "metadata"} {
-		if _, ok := m[key]; ok {
-			s.Sections[key] = "present"
-		} else {
-			s.Sections[key] = "absent"
-		}
-	}
-	if _, ok := m["configurations"]; ok {
-		s.Sections["configurations"] = "present"
-	} else {
-		s.Sections["configurations"] = "absent"
-	}
 }
 
 func assessSections(c *contract.Contract) map[string]string {
@@ -1300,10 +1254,6 @@ func defaultCompatibility(compat string) string {
 		return compat
 	}
 	return "^1.0.0"
-}
-
-func intPtr(v int) *int {
-	return &v
 }
 
 func collectDerived(input CreateInput, h descriptionHints) []string {

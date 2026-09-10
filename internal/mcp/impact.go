@@ -30,12 +30,20 @@ func impactTool() *mcpsdk.Tool {
 	}
 }
 
-func impactHandler(provide impactProvider) mcpsdk.ToolHandler {
-	return func(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-		res, err := provide(ctx, parseInput(req, "old_ref"), parseInput(req, "new_ref"), parseInputBool(req, "include_observed"), parseInput(req, "traces"))
+type impactArgs struct {
+	OldRef          string `json:"old_ref"`
+	NewRef          string `json:"new_ref"`
+	IncludeObserved bool   `json:"include_observed"`
+	Traces          string `json:"traces"`
+}
+
+func impactHandler(provide impactProvider) mcpsdk.ToolHandlerFor[impactArgs, any] {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, a impactArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := provide(ctx, a.OldRef, a.NewRef, a.IncludeObserved, a.Traces)
 		if err != nil {
-			return errorResult(err), nil
+			return errorResult(err), nil, nil
 		}
-		return jsonResult(res)
+		r, err := jsonResult(res)
+		return r, nil, err
 	}
 }

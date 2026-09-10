@@ -2,8 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/trianalab/pacto/v3/pkg/validation"
@@ -38,53 +36,58 @@ func createTool() *mcpsdk.Tool {
 	}
 }
 
-func createHandler() mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+// createArgs is the wire shape of pacto_create. The three intent booleans are
+// pointers so an explicit false is distinguishable from an omitted argument:
+// description inference only fills in what the caller left unsaid.
+type createArgs struct {
+	Name                      string `json:"name"`
+	Description               string `json:"description"`
+	Path                      string `json:"path"`
+	Version                   string `json:"version"`
+	Owner                     string `json:"owner"`
+	Interfaces                string `json:"interfaces"`
+	Dependencies              string `json:"dependencies"`
+	Workload                  string `json:"workload"`
+	StoresData                *bool  `json:"stores_data"`
+	DataSurvivesRestart       *bool  `json:"data_survives_restart"`
+	DataSharedAcrossInstances *bool  `json:"data_shared_across_instances"`
+	DataLossImpact            string `json:"data_loss_impact"`
+	ConfigProperties          string `json:"config_properties"`
+	Metadata                  string `json:"metadata"`
+	DryRun                    bool   `json:"dry_run"`
+}
+
+func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, args createArgs) (*mcpsdk.CallToolResult, any, error) {
 		input := CreateInput{
-			Name:                      parseInput(req, "name"),
-			Description:               parseInput(req, "description"),
-			Path:                      parseInput(req, "path"),
-			Version:                   parseInput(req, "version"),
-			Owner:                     parseInput(req, "owner"),
-			Workload:                  parseInput(req, "workload"),
-			StoresData:                parseInputBool(req, "stores_data"),
-			DataSurvivesRestart:       parseInputBool(req, "data_survives_restart"),
-			DataSharedAcrossInstances: parseInputBool(req, "data_shared_across_instances"),
-			DataLossImpact:            parseInput(req, "data_loss_impact"),
-			DryRun:                    parseInputBool(req, "dry_run"),
+			Name:                      args.Name,
+			Description:               args.Description,
+			Path:                      args.Path,
+			Version:                   args.Version,
+			Owner:                     args.Owner,
+			Workload:                  args.Workload,
+			StoresData:                args.StoresData,
+			DataSurvivesRestart:       args.DataSurvivesRestart,
+			DataSharedAcrossInstances: args.DataSharedAcrossInstances,
+			DataLossImpact:            args.DataLossImpact,
+			DryRun:                    args.DryRun,
 		}
 
-		if input.Name == "" {
-			return errorResult(fmt.Errorf("name is required")), nil
-		}
-
-		// Parse JSON array fields
-		if raw := parseInput(req, "interfaces"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.Interfaces); err != nil {
-				return errorResult(fmt.Errorf("invalid interfaces JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "dependencies"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.Dependencies); err != nil {
-				return errorResult(fmt.Errorf("invalid dependencies JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "config_properties"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.ConfigProperties); err != nil {
-				return errorResult(fmt.Errorf("invalid config_properties JSON: %w", err)), nil
-			}
-		}
-		if raw := parseInput(req, "metadata"); raw != "" {
-			if err := json.Unmarshal([]byte(raw), &input.Metadata); err != nil {
-				return errorResult(fmt.Errorf("invalid metadata JSON: %w", err)), nil
-			}
+		if err := unmarshalFields([]jsonField{
+			{"interfaces", args.Interfaces, &input.Interfaces},
+			{"dependencies", args.Dependencies, &input.Dependencies},
+			{"config_properties", args.ConfigProperties, &input.ConfigProperties},
+			{"metadata", args.Metadata, &input.Metadata},
+		}); err != nil {
+			return nil, nil, err
 		}
 
 		result, err := Create(input)
 		if err != nil {
-			return errorResult(err), nil
+			return nil, nil, err
 		}
-		return jsonResult(result)
+		res, err := jsonResult(result)
+		return res, nil, err
 	}
 }
 
@@ -118,80 +121,61 @@ func editTool() *mcpsdk.Tool {
 	}
 }
 
-// parseEditScalars extracts scalar (string/bool) fields into EditInput.
-func parseEditScalars(req *mcpsdk.CallToolRequest, input *EditInput) {
-	for _, f := range []struct {
-		field string
-		dst   **string
-	}{
-		{"name", &input.Name},
-		{"version", &input.Version},
-		{"owner", &input.Owner},
-		{"workload", &input.Workload},
-		{"data_loss_impact", &input.DataLossImpact},
-	} {
-		if s := parseInput(req, f.field); s != "" {
-			*f.dst = &s
-		}
-	}
-	for _, f := range []struct {
-		field string
-		dst   **bool
-	}{
-		{"stores_data", &input.StoresData},
-		{"data_survives_restart", &input.DataSurvivesRestart},
-		{"data_shared_across_instances", &input.DataSharedAcrossInstances},
-	} {
-		if parseInputHasField(req, f.field) {
-			b := parseInputBool(req, f.field)
-			*f.dst = &b
-		}
-	}
+// editArgs is the wire shape of pacto_edit. Every optional scalar is a pointer,
+// so an argument the caller never sent leaves the contract's current value alone.
+type editArgs struct {
+	Path                      string  `json:"path"`
+	Name                      *string `json:"name"`
+	Version                   *string `json:"version"`
+	Owner                     *string `json:"owner"`
+	AddInterfaces             string  `json:"add_interfaces"`
+	RemoveInterfaces          string  `json:"remove_interfaces"`
+	AddDependencies           string  `json:"add_dependencies"`
+	RemoveDependencies        string  `json:"remove_dependencies"`
+	Workload                  *string `json:"workload"`
+	StoresData                *bool   `json:"stores_data"`
+	DataSurvivesRestart       *bool   `json:"data_survives_restart"`
+	DataSharedAcrossInstances *bool   `json:"data_shared_across_instances"`
+	DataLossImpact            *string `json:"data_loss_impact"`
+	AddConfigProperties       string  `json:"add_config_properties"`
+	SetMetadata               string  `json:"set_metadata"`
+	RemoveMetadata            string  `json:"remove_metadata"`
+	DryRun                    bool    `json:"dry_run"`
 }
 
-// parseEditJSONFields extracts JSON array/object fields into EditInput.
-func parseEditJSONFields(req *mcpsdk.CallToolRequest, input *EditInput) error {
-	type jsonField struct {
-		name string
-		dst  any
-	}
-	fields := []jsonField{
-		{"add_interfaces", &input.AddInterfaces},
-		{"remove_interfaces", &input.RemoveInterfaces},
-		{"add_dependencies", &input.AddDependencies},
-		{"remove_dependencies", &input.RemoveDeps},
-		{"add_config_properties", &input.AddConfigProperties},
-		{"set_metadata", &input.SetMetadata},
-		{"remove_metadata", &input.RemoveMetadata},
-	}
-	for _, f := range fields {
-		if raw := parseInput(req, f.name); raw != "" {
-			if err := json.Unmarshal([]byte(raw), f.dst); err != nil {
-				return fmt.Errorf("invalid %s JSON: %w", f.name, err)
-			}
-		}
-	}
-	return nil
-}
-
-func editHandler() mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+func editHandler() mcpsdk.ToolHandlerFor[editArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, args editArgs) (*mcpsdk.CallToolResult, any, error) {
 		input := EditInput{
-			Path:   parseInput(req, "path"),
-			DryRun: parseInputBool(req, "dry_run"),
+			Path:                      args.Path,
+			Name:                      args.Name,
+			Version:                   args.Version,
+			Owner:                     args.Owner,
+			Workload:                  args.Workload,
+			StoresData:                args.StoresData,
+			DataSurvivesRestart:       args.DataSurvivesRestart,
+			DataSharedAcrossInstances: args.DataSharedAcrossInstances,
+			DataLossImpact:            args.DataLossImpact,
+			DryRun:                    args.DryRun,
 		}
 
-		parseEditScalars(req, &input)
-
-		if err := parseEditJSONFields(req, &input); err != nil {
-			return errorResult(err), nil
+		if err := unmarshalFields([]jsonField{
+			{"add_interfaces", args.AddInterfaces, &input.AddInterfaces},
+			{"remove_interfaces", args.RemoveInterfaces, &input.RemoveInterfaces},
+			{"add_dependencies", args.AddDependencies, &input.AddDependencies},
+			{"remove_dependencies", args.RemoveDependencies, &input.RemoveDeps},
+			{"add_config_properties", args.AddConfigProperties, &input.AddConfigProperties},
+			{"set_metadata", args.SetMetadata, &input.SetMetadata},
+			{"remove_metadata", args.RemoveMetadata, &input.RemoveMetadata},
+		}); err != nil {
+			return nil, nil, err
 		}
 
 		result, err := Edit(input)
 		if err != nil {
-			return errorResult(err), nil
+			return nil, nil, err
 		}
-		return jsonResult(result)
+		res, err := jsonResult(result)
+		return res, nil, err
 	}
 }
 
@@ -209,14 +193,18 @@ func checkTool() *mcpsdk.Tool {
 	}
 }
 
-func checkHandler() mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-		path := parseInput(req, "path")
-		result, err := Check(path)
+type checkArgs struct {
+	Path string `json:"path"`
+}
+
+func checkHandler(resolver validation.BundleResolver) mcpsdk.ToolHandlerFor[checkArgs, any] {
+	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args checkArgs) (*mcpsdk.CallToolResult, any, error) {
+		result, err := Check(ctx, resolver, args.Path)
 		if err != nil {
-			return errorResult(err), nil
+			return nil, nil, err
 		}
-		return jsonResult(result)
+		res, err := jsonResult(result)
+		return res, nil, err
 	}
 }
 
@@ -239,8 +227,8 @@ type schemaResult struct {
 	JSONSchema  string `json:"jsonSchema"`
 }
 
-func schemaHandler() mcpsdk.ToolHandler {
-	return func(_ context.Context, _ *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+func schemaHandler() mcpsdk.ToolHandlerFor[struct{}, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		result := schemaResult{
 			Description: "Pacto is an operational contract format for cloud-native services. " +
 				"A pacto.yaml file describes the service itself — interfaces, dependencies, " +
@@ -249,7 +237,8 @@ func schemaHandler() mcpsdk.ToolHandler {
 			Docs:       docsURL,
 			JSONSchema: string(validation.SchemaBytes()),
 		}
-		return jsonResult(result)
+		res, err := jsonResult(result)
+		return res, nil, err
 	}
 }
 
@@ -261,15 +250,39 @@ type property struct {
 	Enum        []string // optional: closed set of allowed string values
 }
 
+// inputSchema builds the tool's declared JSON Schema. It is the schema the SDK
+// validates every incoming call against, so a property's declared type and enum
+// are enforced rather than advisory.
 func inputSchema(props map[string]property, required []string) map[string]any {
+	isRequired := make(map[string]bool, len(required))
+	for _, name := range required {
+		isRequired[name] = true
+	}
 	propMap := make(map[string]any, len(props))
 	for name, p := range props {
 		entry := map[string]any{
-			"type":        p.Type,
+			"type":        any(p.Type),
 			"description": p.Description,
 		}
+		// An LLM caller routinely sends an explicit null for an optional
+		// argument it is not using. Rejecting that fails the whole call over the
+		// one argument the caller said it did not want — the edit it did ask for
+		// never happens — so for an optional argument null is declared valid and
+		// decodes to the same zero value an omitted argument does. A required
+		// argument keeps rejecting null: there "not provided" is the error.
+		optional := !isRequired[name]
+		if optional {
+			entry["type"] = []string{p.Type, "null"}
+		}
 		if len(p.Enum) > 0 {
-			entry["enum"] = p.Enum
+			vals := make([]any, 0, len(p.Enum)+1)
+			for _, v := range p.Enum {
+				vals = append(vals, v)
+			}
+			if optional {
+				vals = append(vals, nil)
+			}
+			entry["enum"] = vals
 		}
 		propMap[name] = entry
 	}
@@ -277,36 +290,16 @@ func inputSchema(props map[string]property, required []string) map[string]any {
 		"type":       "object",
 		"properties": propMap,
 	}
+	// An argument nobody declared is a mistake, most often a misremembered name.
+	// Accepting it silently drops it and answers as if the caller had never asked
+	// for it. A tool that declares no properties has no name to misremember, and
+	// real clients send a dummy argument to zero-argument tools, so closing it
+	// there rejects every call and buys nothing.
+	if len(propMap) > 0 {
+		schema["additionalProperties"] = false
+	}
 	if len(required) > 0 {
 		schema["required"] = required
 	}
 	return schema
-}
-
-// --- input parsing helpers ---
-
-func parseInputIntPtr(req *mcpsdk.CallToolRequest, field string) *int {
-	args := parseArgs(req)
-	if args == nil {
-		return nil
-	}
-	raw, ok := args[field]
-	if !ok {
-		return nil
-	}
-	var n float64
-	if err := json.Unmarshal(raw, &n); err != nil {
-		return nil
-	}
-	i := int(n)
-	return &i
-}
-
-func parseInputHasField(req *mcpsdk.CallToolRequest, field string) bool {
-	args := parseArgs(req)
-	if args == nil {
-		return false
-	}
-	_, ok := args[field]
-	return ok
 }

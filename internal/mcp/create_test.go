@@ -2,10 +2,13 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -130,9 +133,9 @@ func TestCreate_WithDependencies(t *testing.T) {
 func TestCreate_StatefulRuntime(t *testing.T) {
 	result, err := Create(CreateInput{
 		Name:                      "stateful-svc",
-		StoresData:                true,
-		DataSurvivesRestart:       true,
-		DataSharedAcrossInstances: true,
+		StoresData:                boolPtr(true),
+		DataSurvivesRestart:       boolPtr(true),
+		DataSharedAcrossInstances: boolPtr(true),
 		DataLossImpact:            "high",
 		DryRun:                    true,
 	})
@@ -284,7 +287,7 @@ func TestCreate_ExplicitOverridesInference(t *testing.T) {
 		Name:        "explicit-svc",
 		Description: "REST API with postgres",
 		Interfaces:  []InterfaceInput{{Name: "custom-api", Type: "grpc"}},
-		StoresData:  false,
+		StoresData:  boolPtr(false),
 		DryRun:      true,
 	})
 	if err != nil {
@@ -608,7 +611,7 @@ func TestEdit_ChangeWorkload(t *testing.T) {
 
 func TestCheck_ValidBundle(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -621,7 +624,7 @@ func TestCheck_ValidBundle(t *testing.T) {
 }
 
 func TestCheck_InvalidPath(t *testing.T) {
-	_, err := Check("/nonexistent-path")
+	_, err := Check(context.Background(), nil, "/nonexistent-path")
 	if err == nil {
 		t.Error("expected error for invalid path")
 	}
@@ -630,7 +633,7 @@ func TestCheck_InvalidPath(t *testing.T) {
 func TestCheck_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("not: valid: yaml: {{"), 0644)
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -641,7 +644,7 @@ func TestCheck_InvalidYAML(t *testing.T) {
 
 func TestCheck_DefaultPath(t *testing.T) {
 	// Empty path defaults to "."
-	_, err := Check("")
+	_, err := Check(context.Background(), nil, "")
 	// This will likely fail because . doesn't have pacto.yaml, which is expected
 	if err == nil {
 		// It's OK if CWD happens to have pacto.yaml
@@ -674,7 +677,7 @@ state:
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -743,13 +746,6 @@ func TestDefaultCompatibility(t *testing.T) {
 	}
 	if c := defaultCompatibility("~2.0.0"); c != "~2.0.0" {
 		t.Errorf("expected ~2.0.0, got %q", c)
-	}
-}
-
-func TestIntPtr(t *testing.T) {
-	p := intPtr(42)
-	if *p != 42 {
-		t.Errorf("expected 42, got %d", *p)
 	}
 }
 
@@ -1011,47 +1007,6 @@ func TestEnsureConfigSection(t *testing.T) {
 	})
 }
 
-func TestSummarizeFromMap(t *testing.T) {
-	m := map[string]any{
-		"pactoVersion": "1.0",
-		"service":      map[string]any{"name": "test", "version": "1.0.0", "owner": "team/x"},
-		"interfaces":   []any{map[string]any{"name": "api", "type": "http"}},
-		"dependencies": []any{map[string]any{"ref": "postgres"}},
-		"state": map[string]any{
-			"workload": "service",
-			"state":    map[string]any{"type": "stateless"},
-		},
-		"metadata": map[string]any{"team": "x"},
-	}
-	s := summarizeFromMap(m)
-	if s.Name != "test" {
-		t.Errorf("expected test, got %q", s.Name)
-	}
-	if s.Owner != "team/x" {
-		t.Errorf("expected team/x, got %q", s.Owner)
-	}
-	if len(s.Interfaces) != 1 {
-		t.Errorf("expected 1 interface, got %d", len(s.Interfaces))
-	}
-	if len(s.Dependencies) != 1 {
-		t.Errorf("expected 1 dependency, got %d", len(s.Dependencies))
-	}
-	if s.Sections["metadata"] != "present" {
-		t.Error("expected metadata present")
-	}
-}
-
-func TestSummarizeFromMapMinimal(t *testing.T) {
-	m := map[string]any{
-		"pactoVersion": "1.0",
-		"service":      map[string]any{"name": "test", "version": "1.0.0"},
-	}
-	s := summarizeFromMap(m)
-	if s.Sections["metadata"] != "absent" {
-		t.Error("expected metadata absent")
-	}
-}
-
 func TestValueToNode(t *testing.T) {
 	_, err := valueToNode("hello")
 	if err != nil {
@@ -1082,18 +1037,17 @@ func TestScaffoldNewInterfaceFiles(t *testing.T) {
 
 	if err := scaffoldNewInterfaceFiles(dir, []InterfaceInput{
 		{Name: "grpc-api", Type: "grpc"},
-		{Name: "events", Type: "asyncapi"}, // should be skipped
+		{Name: "events", Type: "asyncapi"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	// gRPC file should be created
-	if _, err := os.Stat(filepath.Join(dir, "interfaces", "grpc-api.yaml")); err != nil {
-		t.Errorf("expected grpc-api.yaml: %v", err)
-	}
-	// event file should NOT be created
-	if _, err := os.Stat(filepath.Join(dir, "interfaces", "events.yaml")); err == nil {
-		t.Error("event interface should not scaffold a file")
+	// Every declared interface gets a file, asyncapi included: the contract
+	// references it, so a missing file is a FILE_NOT_FOUND on the next read.
+	for _, name := range []string{"grpc-api.yaml", "events.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, "interfaces", name)); err != nil {
+			t.Errorf("expected %s: %v", name, err)
+		}
 	}
 }
 
@@ -1140,7 +1094,7 @@ func TestDependencyName(t *testing.T) {
 
 func TestScaffoldNewInterfaceFiles_MkdirError(t *testing.T) {
 	oldMkdir := osMkdirAll
-	defer func() { osMkdirAll = oldMkdir }()
+	t.Cleanup(func() { osMkdirAll = oldMkdir })
 	osMkdirAll = func(string, os.FileMode) error { return fmt.Errorf("mkdir denied") }
 
 	err := scaffoldNewInterfaceFiles(t.TempDir(), []InterfaceInput{{Name: "api", Type: "openapi"}})
@@ -1151,7 +1105,7 @@ func TestScaffoldNewInterfaceFiles_MkdirError(t *testing.T) {
 
 func TestScaffoldNewInterfaceFiles_WriteError(t *testing.T) {
 	oldWrite := osWriteFile
-	defer func() { osWriteFile = oldWrite }()
+	t.Cleanup(func() { osWriteFile = oldWrite })
 	osWriteFile = func(string, []byte, os.FileMode) error { return fmt.Errorf("disk full") }
 
 	dir := t.TempDir()
@@ -1267,7 +1221,7 @@ runtime:
 func TestCreate_WriteBundleError(t *testing.T) {
 	// Try to create in a path that will fail
 	oldMkdir := osMkdirAll
-	defer func() { osMkdirAll = oldMkdir }()
+	t.Cleanup(func() { osMkdirAll = oldMkdir })
 	osMkdirAll = func(_ string, _ os.FileMode) error {
 		return fmt.Errorf("mkdir failed")
 	}
@@ -1310,7 +1264,7 @@ func TestCreate_WithGRPCInterface(t *testing.T) {
 
 func TestAtomicWriteFile_WriteError(t *testing.T) {
 	oldWrite := osWriteFile
-	defer func() { osWriteFile = oldWrite }()
+	t.Cleanup(func() { osWriteFile = oldWrite })
 	osWriteFile = func(_ string, _ []byte, _ os.FileMode) error {
 		return fmt.Errorf("write failed")
 	}
@@ -1323,7 +1277,7 @@ func TestAtomicWriteFile_WriteError(t *testing.T) {
 
 func TestAtomicWriteFile_RenameError(t *testing.T) {
 	oldRename := osRename
-	defer func() { osRename = oldRename }()
+	t.Cleanup(func() { osRename = oldRename })
 	osRename = func(_, _ string) error {
 		return fmt.Errorf("rename failed")
 	}
@@ -1338,7 +1292,7 @@ func TestAtomicWriteFile_RenameError(t *testing.T) {
 // --- validateYAML error path ---
 
 func TestValidateYAML_ParseError(t *testing.T) {
-	err := validateYAML([]byte("not valid yaml: {{"))
+	_, err := validateYAML([]byte("not valid yaml: {{"))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
@@ -1363,8 +1317,7 @@ func TestMarshalContract_Valid(t *testing.T) {
 // --- Edit handler JSON parsing errors ---
 
 func TestEditTool_InvalidDependenciesJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"add_dependencies": "not-json",
 	})
 	if !result.IsError {
@@ -1373,8 +1326,7 @@ func TestEditTool_InvalidDependenciesJSON(t *testing.T) {
 }
 
 func TestEditTool_InvalidRemoveInterfacesJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"remove_interfaces": "not-json",
 	})
 	if !result.IsError {
@@ -1383,8 +1335,7 @@ func TestEditTool_InvalidRemoveInterfacesJSON(t *testing.T) {
 }
 
 func TestEditTool_InvalidRemoveDepsJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"remove_dependencies": "not-json",
 	})
 	if !result.IsError {
@@ -1393,8 +1344,7 @@ func TestEditTool_InvalidRemoveDepsJSON(t *testing.T) {
 }
 
 func TestEditTool_InvalidConfigJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"add_config_properties": "not-json",
 	})
 	if !result.IsError {
@@ -1403,8 +1353,7 @@ func TestEditTool_InvalidConfigJSON(t *testing.T) {
 }
 
 func TestEditTool_InvalidSetMetadataJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"set_metadata": "not-json",
 	})
 	if !result.IsError {
@@ -1413,8 +1362,7 @@ func TestEditTool_InvalidSetMetadataJSON(t *testing.T) {
 }
 
 func TestEditTool_InvalidRemoveMetadataJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"remove_metadata": "not-json",
 	})
 	if !result.IsError {
@@ -1424,8 +1372,7 @@ func TestEditTool_InvalidRemoveMetadataJSON(t *testing.T) {
 
 func TestEditTool_AllStringFields(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"path":             dir,
 		"name":             "new-name",
 		"version":          "2.0.0",
@@ -1441,8 +1388,7 @@ func TestEditTool_AllStringFields(t *testing.T) {
 
 func TestEditTool_BoolFields(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"path":                         dir,
 		"data_survives_restart":        true,
 		"data_shared_across_instances": true,
@@ -1452,23 +1398,24 @@ func TestEditTool_BoolFields(t *testing.T) {
 	}
 }
 
-func TestEditTool_ReplicaFields(t *testing.T) {
+// TestEditTool_UndeclaredArgumentIsRejected pins additionalProperties:false.
+// pacto_edit has no "replicas" argument, and the call used to succeed with the
+// value silently dropped, so an agent was told the edit it asked for was applied.
+func TestEditTool_UndeclaredArgumentIsRejected(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_edit", map[string]any{
+	result := callTool(t, "pacto_edit", map[string]any{
 		"path":     dir,
 		"replicas": 3,
 	})
-	if result.IsError {
-		t.Errorf("unexpected error: %s", resultText(t, result))
+	if !result.IsError {
+		t.Error("expected an error result for an argument the tool does not declare")
 	}
 }
 
 // --- Create handler JSON parsing errors ---
 
 func TestCreateTool_InvalidDependenciesJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_create", map[string]any{
+	result := callTool(t, "pacto_create", map[string]any{
 		"name":         "test",
 		"dependencies": "not-json",
 	})
@@ -1478,8 +1425,7 @@ func TestCreateTool_InvalidDependenciesJSON(t *testing.T) {
 }
 
 func TestCreateTool_InvalidConfigJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_create", map[string]any{
+	result := callTool(t, "pacto_create", map[string]any{
 		"name":              "test",
 		"config_properties": "not-json",
 	})
@@ -1489,8 +1435,7 @@ func TestCreateTool_InvalidConfigJSON(t *testing.T) {
 }
 
 func TestCreateTool_InvalidMetadataJSON(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_create", map[string]any{
+	result := callTool(t, "pacto_create", map[string]any{
 		"name":     "test",
 		"metadata": "not-json",
 	})
@@ -1752,7 +1697,7 @@ runtime:
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1780,7 +1725,7 @@ state:
   dataCriticality: low
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1814,7 +1759,7 @@ interfaces:
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 	_ = os.WriteFile(filepath.Join(dir, "interfaces", "api.yaml"), []byte("{}"), 0644)
 
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1920,7 +1865,7 @@ func TestWriteBundle_InterfaceErrors(t *testing.T) {
 		}
 		return oldMkdir(path, perm)
 	}
-	defer func() { osMkdirAll = oldMkdir }()
+	t.Cleanup(func() { osMkdirAll = oldMkdir })
 
 	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
@@ -1943,7 +1888,7 @@ func TestWriteBundle_ConfigError(t *testing.T) {
 		}
 		return oldMkdir(path, perm)
 	}
-	defer func() { osMkdirAll = oldMkdir }()
+	t.Cleanup(func() { osMkdirAll = oldMkdir })
 
 	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
@@ -1956,57 +1901,6 @@ func TestWriteBundle_ConfigError(t *testing.T) {
 		t.Errorf("expected config error, got: %v", err)
 	}
 }
-
-func TestSummarizeFromMap_Empty(t *testing.T) {
-	s := summarizeFromMap(map[string]any{})
-	if s.Name != "" {
-		t.Error("expected empty name")
-	}
-}
-
-func TestSummarizeFromMap_StructuredOwner(t *testing.T) {
-	t.Run("team and dri", func(t *testing.T) {
-		m := map[string]any{
-			"service": map[string]any{
-				"name":    "svc",
-				"version": "1.0.0",
-				"owner":   map[string]any{"team": "foundations", "dri": "alice"},
-			},
-		}
-		s := summarizeFromMap(m)
-		if s.Owner != "foundations" {
-			t.Errorf("expected owner=foundations, got %q", s.Owner)
-		}
-	})
-	t.Run("dri only", func(t *testing.T) {
-		m := map[string]any{
-			"service": map[string]any{
-				"name":    "svc",
-				"version": "1.0.0",
-				"owner":   map[string]any{"dri": "bob"},
-			},
-		}
-		s := summarizeFromMap(m)
-		if s.Owner != "bob" {
-			t.Errorf("expected owner=bob, got %q", s.Owner)
-		}
-	})
-	t.Run("empty structured", func(t *testing.T) {
-		m := map[string]any{
-			"service": map[string]any{
-				"name":    "svc",
-				"version": "1.0.0",
-				"owner":   map[string]any{},
-			},
-		}
-		s := summarizeFromMap(m)
-		if s.Owner != "" {
-			t.Errorf("expected empty owner, got %q", s.Owner)
-		}
-	})
-}
-
-// --- Error path coverage ---
 
 func TestEdit_ParseYAMLError(t *testing.T) {
 	dir := t.TempDir()
@@ -2023,7 +1917,7 @@ func TestEdit_WriteError(t *testing.T) {
 	osWriteFile = func(_ string, _ []byte, _ os.FileMode) error {
 		return fmt.Errorf("write failed")
 	}
-	defer func() { osWriteFile = oldWrite }()
+	t.Cleanup(func() { osWriteFile = oldWrite })
 
 	_, err := Edit(EditInput{
 		Path:    dir,
@@ -2036,7 +1930,7 @@ func TestEdit_WriteError(t *testing.T) {
 
 func TestCreate_MarshalError(t *testing.T) {
 	// This is hard to trigger naturally. Let me just test validateYAML validation failure.
-	err := validateYAML([]byte(`pactoVersion: "2.0"
+	_, err := validateYAML([]byte(`pactoVersion: "2.0"
 service:
   name: test
   version: "1.0.0"
@@ -2062,7 +1956,7 @@ func TestWriteBundle_InterfaceWriteError(t *testing.T) {
 		}
 		return oldWrite(path, data, perm)
 	}
-	defer func() { osWriteFile = oldWrite }()
+	t.Cleanup(func() { osWriteFile = oldWrite })
 
 	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
@@ -2083,7 +1977,7 @@ func TestWriteBundle_ConfigWriteError(t *testing.T) {
 		}
 		return oldWrite(path, data, perm)
 	}
-	defer func() { osWriteFile = oldWrite }()
+	t.Cleanup(func() { osWriteFile = oldWrite })
 
 	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
@@ -2094,18 +1988,6 @@ func TestWriteBundle_ConfigWriteError(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error")
-	}
-}
-
-func TestCreateHandler_ReplicasOnly(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	result := callTool(t, svc, "pacto_create", map[string]any{
-		"name":     "replica-svc",
-		"replicas": 2,
-		"dry_run":  true,
-	})
-	if result.IsError {
-		t.Errorf("unexpected error: %s", resultText(t, result))
 	}
 }
 
@@ -2176,7 +2058,7 @@ dependencies:
 	if err := os.WriteFile(filepath.Join(dir, "openapi.yaml"), testutil.TestOpenAPI(), 0644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2193,7 +2075,7 @@ func TestWriteBundle_PactoWriteError(t *testing.T) {
 	osWriteFile = func(_ string, _ []byte, _ os.FileMode) error {
 		return fmt.Errorf("pacto write failed")
 	}
-	defer func() { osWriteFile = oldWrite }()
+	t.Cleanup(func() { osWriteFile = oldWrite })
 
 	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{Name: "test"})
 	if err == nil {
@@ -2265,10 +2147,9 @@ runtime:
 }
 
 func TestCreateHandler_AllPaths(t *testing.T) {
-	svc := app.NewService(nil, nil)
 
 	// Exercise all string fields in createHandler
-	result := callTool(t, svc, "pacto_create", map[string]any{
+	result := callTool(t, "pacto_create", map[string]any{
 		"name":                         "full-svc",
 		"description":                  "REST API with postgres",
 		"path":                         filepath.Join(t.TempDir(), "full-svc"),
@@ -2293,7 +2174,7 @@ func TestCreateHandler_AllPaths(t *testing.T) {
 
 func TestValueToNode_MarshalError(t *testing.T) {
 	orig := yamlMarshalFn
-	defer func() { yamlMarshalFn = orig }()
+	t.Cleanup(func() { yamlMarshalFn = orig })
 	yamlMarshalFn = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("marshal boom")
 	}
@@ -2305,7 +2186,7 @@ func TestValueToNode_MarshalError(t *testing.T) {
 
 func TestValueToNode_UnmarshalError(t *testing.T) {
 	orig := yamlUnmarshalFn
-	defer func() { yamlUnmarshalFn = orig }()
+	t.Cleanup(func() { yamlUnmarshalFn = orig })
 	yamlUnmarshalFn = func(data []byte, v any) error {
 		return fmt.Errorf("unmarshal boom")
 	}
@@ -2317,7 +2198,7 @@ func TestValueToNode_UnmarshalError(t *testing.T) {
 
 func TestValueToNode_EmptyContent(t *testing.T) {
 	orig := yamlUnmarshalFn
-	defer func() { yamlUnmarshalFn = orig }()
+	t.Cleanup(func() { yamlUnmarshalFn = orig })
 	// Simulate empty/whitespace input yielding a document with no content.
 	yamlUnmarshalFn = func(data []byte, v any) error { return nil }
 	_, err := valueToNode("hello")
@@ -2328,7 +2209,7 @@ func TestValueToNode_EmptyContent(t *testing.T) {
 
 func TestMarshalContract_ValueToNodeError(t *testing.T) {
 	orig := yamlMarshalFn
-	defer func() { yamlMarshalFn = orig }()
+	t.Cleanup(func() { yamlMarshalFn = orig })
 	yamlMarshalFn = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("node error")
 	}
@@ -2344,7 +2225,7 @@ func TestMarshalContract_ValueToNodeError(t *testing.T) {
 func TestBuildBundleFSForValidation_WalkError(t *testing.T) {
 	// Use a broken FS to trigger the walkErr path
 	origDirFS := osDirFS
-	defer func() { osDirFS = origDirFS }()
+	t.Cleanup(func() { osDirFS = origDirFS })
 
 	osDirFS = func(dir string) fs.FS {
 		return &brokenFS{}
@@ -2405,7 +2286,7 @@ runtime:
 
 func TestCreate_YAMLMarshalError(t *testing.T) {
 	orig := yamlMarshalFn
-	defer func() { yamlMarshalFn = orig }()
+	t.Cleanup(func() { yamlMarshalFn = orig })
 	yamlMarshalFn = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("create marshal fail")
 	}
@@ -2418,7 +2299,7 @@ func TestCreate_YAMLMarshalError(t *testing.T) {
 func TestEdit_YAMLMarshalError(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	orig := yamlMarshalFn
-	defer func() { yamlMarshalFn = orig }()
+	t.Cleanup(func() { yamlMarshalFn = orig })
 	yamlMarshalFn = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("edit marshal fail")
 	}
@@ -2437,6 +2318,8 @@ func (b *brokenFS) Open(name string) (fs.File, error) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func boolPtr(b bool) *bool { return &b }
 
 func containsStr(ss []string, substr string) bool {
 	for _, s := range ss {
@@ -2505,7 +2388,7 @@ interfaces:
     ref: interfaces/api2.yaml
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2527,7 +2410,7 @@ dependencies:
     compatibility: ^1.0.0
 `
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0644)
-	result, err := Check(dir)
+	result, err := Check(context.Background(), nil, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2538,7 +2421,7 @@ dependencies:
 func TestEdit_ScaffoldNewInterfaceError(t *testing.T) {
 	dir := testutil.WriteTestBundle(t)
 	oldMkdir := osMkdirAll
-	defer func() { osMkdirAll = oldMkdir }()
+	t.Cleanup(func() { osMkdirAll = oldMkdir })
 	osMkdirAll = func(path string, perm os.FileMode) error {
 		if strings.Contains(path, "interfaces") {
 			return fmt.Errorf("mkdir denied")
@@ -2553,5 +2436,139 @@ func TestEdit_ScaffoldNewInterfaceError(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "failed to create") {
 		t.Errorf("expected scaffold error, got: %v", err)
+	}
+}
+
+// TestCreateTool_ExplicitFalseSurvivesInference pins the pointer distinction all
+// the way through the wire. "postgres" in the description infers stores_data,
+// data_survives_restart and data_shared_across_instances all true; each of the
+// three sent as an explicit false must win, because a plain bool made "the
+// caller said false" indistinguishable from "the caller said nothing".
+func TestCreateTool_ExplicitFalseSurvivesInference(t *testing.T) {
+	const desc = "REST API backed by postgres"
+
+	tests := []struct {
+		name        string
+		args        map[string]any
+		wantType    string
+		wantScope   string
+		wantDurable string
+	}{
+		{
+			name: "all three explicitly false",
+			args: map[string]any{
+				"stores_data": false, "data_survives_restart": false,
+				"data_shared_across_instances": false,
+			},
+			wantType: "stateless", wantScope: "local", wantDurable: "ephemeral",
+		},
+		{
+			name: "stateful but neither durable nor shared",
+			args: map[string]any{
+				"stores_data": true, "data_survives_restart": false,
+				"data_shared_across_instances": false,
+			},
+			wantType: "stateful", wantScope: "local", wantDurable: "ephemeral",
+		},
+		{
+			name:     "unsaid still infers",
+			args:     map[string]any{},
+			wantType: "stateful", wantScope: "shared", wantDurable: "persistent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "svc")
+			args := map[string]any{"name": "svc", "description": desc, "path": out}
+			for k, v := range tt.args {
+				args[k] = v
+			}
+			if res := callTool(t, "pacto_create", args); res.IsError {
+				t.Fatalf("unexpected error: %s", resultText(t, res))
+			}
+
+			data, err := os.ReadFile(filepath.Join(out, "pacto.yaml"))
+			if err != nil {
+				t.Fatalf("reading the written contract: %v", err)
+			}
+			c, err := contract.Parse(bytes.NewReader(data))
+			if err != nil {
+				t.Fatalf("re-parsing the written contract: %v", err)
+			}
+			if c.State == nil {
+				t.Fatal("expected a state section")
+			}
+			if c.State.Type != tt.wantType {
+				t.Errorf("state.type = %q, want %q", c.State.Type, tt.wantType)
+			}
+			if c.State.Persistence.Scope != tt.wantScope {
+				t.Errorf("persistence.scope = %q, want %q", c.State.Persistence.Scope, tt.wantScope)
+			}
+			if c.State.Persistence.Durability != tt.wantDurable {
+				t.Errorf("persistence.durability = %q, want %q", c.State.Persistence.Durability, tt.wantDurable)
+			}
+		})
+	}
+}
+
+// TestSummaryShapeAgreesAcrossTools pins one summarizer behind create, edit and
+// check. The map-based summarizer create used to run reported only the sections
+// present in the generated map plus a fixed absent-list, so an agent comparing
+// a create summary with the edit summary of the same contract saw keys appear
+// and disappear and read that as the edit having changed the contract.
+func TestSummaryShapeAgreesAcrossTools(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "shape-svc")
+	created, err := Create(CreateInput{Name: "shape-svc", Path: out})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	edited, err := Edit(EditInput{Path: out, Version: strPtr("2.0.0")})
+	if err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	checked, err := Check(context.Background(), nil, out)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	want := slices.Sorted(maps.Keys(edited.Summary.Sections))
+	if got := slices.Sorted(maps.Keys(created.Summary.Sections)); !slices.Equal(got, want) {
+		t.Errorf("create sections = %v, want the same keys as edit %v", got, want)
+	}
+	if got := slices.Sorted(maps.Keys(checked.Summary.Sections)); !slices.Equal(got, want) {
+		t.Errorf("check sections = %v, want the same keys as edit %v", got, want)
+	}
+	for _, key := range want {
+		if created.Summary.Sections[key] != edited.Summary.Sections[key] {
+			t.Errorf("section %q = %q on create and %q on edit", key,
+				created.Summary.Sections[key], edited.Summary.Sections[key])
+		}
+	}
+}
+
+// TestCreateTool_AsyncAPIRoundTrips pins finding 19's fix end to end. pacto_create
+// validated against a stub asyncapi file it then never wrote, so it reported
+// success and left a bundle whose very next read failed FILE_NOT_FOUND.
+func TestCreateTool_AsyncAPIRoundTrips(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "events-svc")
+	res := callTool(t, "pacto_create", map[string]any{
+		"name":       "events-svc",
+		"path":       out,
+		"interfaces": `[{"name":"events","type":"asyncapi"}]`,
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", resultText(t, res))
+	}
+	if _, err := os.Stat(filepath.Join(out, "interfaces", "events.yaml")); err != nil {
+		t.Fatalf("expected the asyncapi spec to be written: %v", err)
+	}
+	check, err := Check(context.Background(), nil, out)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if !check.Valid {
+		t.Errorf("re-reading the created bundle is invalid: %+v", check.Errors)
 	}
 }

@@ -111,7 +111,7 @@ func registerCatalogSurface(server *mcpsdk.Server, cat *catalog.Catalog) {
 			"visible rather than resolved. Read-only.",
 	}, catalogClosureHandler(cat))
 
-	server.AddTool(catalogRevisionTool(), catalogRevisionHandler(cat))
+	mcpsdk.AddTool(server, catalogRevisionTool(), catalogRevisionHandler(cat))
 }
 
 // catalogOverview is the cheap half of the catalog: what it is and what was
@@ -185,26 +185,36 @@ func catalogRevisionTool() *mcpsdk.Tool {
 	}
 }
 
-func catalogRevisionHandler(cat *catalog.Catalog) mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+// catalogRevisionArgs is the full identity the lookup is keyed by. name, scheme
+// and digest are declared required and the schema is enforced before this
+// struct is filled, so a call that omits one is an error the agent sees rather
+// than a lookup of the empty identity answered `{"found": false}` — which in a
+// complete catalog reads as an authoritative "that revision does not exist".
+type catalogRevisionArgs struct {
+	Name   string `json:"name"`
+	Domain string `json:"domain"`
+	Scheme string `json:"scheme"`
+	Digest string `json:"digest"`
+}
+
+func catalogRevisionHandler(cat *catalog.Catalog) mcpsdk.ToolHandlerFor[catalogRevisionArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a catalogRevisionArgs) (*mcpsdk.CallToolResult, any, error) {
 		// The content identity is validated rather than trusted, so a tag or a
 		// version arriving here is refused instead of quietly missing.
-		content, err := catalog.NewContentID(
-			catalog.ContentScheme(parseInput(req, "scheme")),
-			parseInput(req, "digest"),
-		)
+		content, err := catalog.NewContentID(catalog.ContentScheme(a.Scheme), a.Digest)
 		if err != nil {
-			return errorResult(err), nil
+			return errorResult(err), nil, nil
 		}
 		id := catalog.RevisionID{
-			Service: catalog.ServiceID{Domain: parseInput(req, "domain"), Name: parseInput(req, "name")},
+			Service: catalog.ServiceID{Domain: a.Domain, Name: a.Name},
 			Content: content,
 		}
 		answer := catalogRevisionAnswer{Completeness: cat.Meta().Completeness, Requested: id}
 		if rev, ok := cat.Revision(id); ok {
 			answer.Found, answer.Revision = true, &rev
 		}
-		return jsonResult(answer)
+		r, err := jsonResult(answer)
+		return r, nil, err
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 // fleetInstructions describe the read-only fleet query tools and how they differ
@@ -31,12 +32,12 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 // (identical to NewServer) so a caller with no fleet sources degrades cleanly.
 // When provideImpact is non-nil the pacto_impact tool is registered too; a nil
 // provider omits it, so a caller that cannot resolve revisions degrades cleanly.
-func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider) *mcpsdk.Server {
+func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider, resolver validation.BundleResolver) *mcpsdk.Server {
 	instructions := baseInstructions
 	if q != nil {
 		instructions += "\n\n" + fleetInstructions
 	}
-	server := newServer(version, instructions)
+	server := newServer(version, instructions, resolver)
 	if q != nil {
 		registerFleetTools(server, q, provideImpact)
 	}
@@ -46,13 +47,13 @@ func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider
 // registerFleetTools adds the five read-only fleet query tools, plus the
 // read-only pacto_impact tool when an impact provider is supplied.
 func registerFleetTools(server *mcpsdk.Server, q *fleet.Query, provideImpact impactProvider) {
-	server.AddTool(fleetSearchTool(), fleetSearchHandler(q))
-	server.AddTool(fleetGetTool(), fleetGetHandler(q))
-	server.AddTool(fleetGraphTool(), fleetGraphHandler(q))
-	server.AddTool(fleetStatusTool(), fleetStatusHandler(q))
-	server.AddTool(fleetExplainTool(), fleetExplainHandler(q))
+	mcpsdk.AddTool(server, fleetSearchTool(), fleetSearchHandler(q))
+	mcpsdk.AddTool(server, fleetGetTool(), fleetGetHandler(q))
+	mcpsdk.AddTool(server, fleetGraphTool(), fleetGraphHandler(q))
+	mcpsdk.AddTool(server, fleetStatusTool(), fleetStatusHandler(q))
+	mcpsdk.AddTool(server, fleetExplainTool(), fleetExplainHandler(q))
 	if provideImpact != nil {
-		server.AddTool(impactTool(), impactHandler(provideImpact))
+		mcpsdk.AddTool(server, impactTool(), impactHandler(provideImpact))
 	}
 }
 
@@ -82,22 +83,38 @@ func fleetSearchTool() *mcpsdk.Tool {
 	}
 }
 
-func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-		f := fleet.SearchFilter{
-			Text: parseInput(req, "text"), Owner: parseInput(req, "owner"),
-			Status: parseInput(req, "status"), Compliance: parseInput(req, "compliance"),
-			Source: parseInput(req, "source"), Workload: parseInput(req, "workload"),
-			Scope:         parseInput(req, "scope"),
-			HasCapability: parseInputBool(req, "has_capability"), HasDependency: parseInputBool(req, "has_dependency"),
-			ReadyOnly: parseInputBool(req, "ready"), NotReady: parseInputBool(req, "not_ready"),
-			Limit: intOrZero(parseInputIntPtr(req, "limit")),
-		}
-		res, err := q.Search(f)
+// fleetSearchArgs mirrors pacto_fleet_search's declared schema. The field names
+// are the wire names, so a mistyped argument is rejected against the schema
+// before it reaches the query instead of decoding to a zero that reads as
+// "filter not requested".
+type fleetSearchArgs struct {
+	Text          string `json:"text"`
+	Owner         string `json:"owner"`
+	Status        string `json:"status"`
+	Compliance    string `json:"compliance"`
+	Source        string `json:"source"`
+	Scope         string `json:"scope"`
+	Workload      string `json:"workload"`
+	HasCapability bool   `json:"has_capability"`
+	HasDependency bool   `json:"has_dependency"`
+	Ready         bool   `json:"ready"`
+	NotReady      bool   `json:"not_ready"`
+	Limit         int    `json:"limit"`
+}
+
+func fleetSearchHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetSearchArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetSearchArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := q.Search(fleet.SearchFilter{
+			Text: a.Text, Owner: a.Owner, Status: a.Status, Compliance: a.Compliance,
+			Source: a.Source, Workload: a.Workload, Scope: a.Scope,
+			HasCapability: a.HasCapability, HasDependency: a.HasDependency,
+			ReadyOnly: a.Ready, NotReady: a.NotReady, Limit: a.Limit,
+		})
 		if err != nil {
-			return errorResult(err), nil
+			return errorResult(err), nil, nil
 		}
-		return jsonResult(res)
+		r, err := jsonResult(res)
+		return r, nil, err
 	}
 }
 
@@ -113,24 +130,32 @@ func fleetGetTool() *mcpsdk.Tool {
 	}
 }
 
-func fleetGetHandler(q *fleet.Query) mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-		if target := parseInput(req, "target"); target != "" {
-			tv, err := q.GetTarget(target)
-			if err != nil {
-				return errorResult(err), nil
-			}
-			return jsonResult(tv)
+type fleetGetArgs struct {
+	Service string `json:"service"`
+	Target  string `json:"target"`
+}
+
+func fleetGetHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetGetArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetGetArgs) (*mcpsdk.CallToolResult, any, error) {
+		var (
+			res any
+			err error
+		)
+		switch {
+		case a.Target != "":
+			res, err = q.GetTarget(a.Target)
+		case a.Service != "":
+			res, err = q.GetService(a.Service)
+		default:
+			// Exactly one of the two is required, which no schema keyword the
+			// declared map can carry expresses, so the handler still checks it.
+			return errorResult(fmt.Errorf("provide either 'service' or 'target'")), nil, nil
 		}
-		service := parseInput(req, "service")
-		if service == "" {
-			return errorResult(fmt.Errorf("provide either 'service' or 'target'")), nil
-		}
-		sv, err := q.GetService(service)
 		if err != nil {
-			return errorResult(err), nil
+			return errorResult(err), nil, nil
 		}
-		return jsonResult(sv)
+		r, err := jsonResult(res)
+		return r, nil, err
 	}
 }
 
@@ -150,23 +175,33 @@ func fleetGraphTool() *mcpsdk.Tool {
 	}
 }
 
-func fleetGraphHandler(q *fleet.Query) mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+type fleetGraphArgs struct {
+	Service    string `json:"service"`
+	Revision   string `json:"revision"`
+	Target     string `json:"target"`
+	Direction  string `json:"direction"`
+	Transitive bool   `json:"transitive"`
+	MaxDepth   int    `json:"max_depth"`
+}
+
+func fleetGraphHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetGraphArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetGraphArgs) (*mcpsdk.CallToolResult, any, error) {
 		dir := fleet.DirectionDependencies
-		if parseInput(req, "direction") == "dependents" {
+		if a.Direction == "dependents" {
 			dir = fleet.DirectionDependents
 		}
 		res, err := q.Graph(fleet.GraphQuery{
-			Service:    parseInput(req, "service"),
-			Revision:   fleet.RevisionKey(parseInput(req, "revision")),
-			Target:     parseInput(req, "target"),
+			Service:    a.Service,
+			Revision:   fleet.RevisionKey(a.Revision),
+			Target:     a.Target,
 			Direction:  dir,
-			Transitive: parseInputBool(req, "transitive"), MaxDepth: intOrZero(parseInputIntPtr(req, "max_depth")),
+			Transitive: a.Transitive, MaxDepth: a.MaxDepth,
 		})
 		if err != nil {
-			return errorResult(err), nil
+			return errorResult(err), nil, nil
 		}
-		return jsonResult(res)
+		r, err := jsonResult(res)
+		return r, nil, err
 	}
 }
 
@@ -188,14 +223,26 @@ func fleetStatusTool() *mcpsdk.Tool {
 	}
 }
 
-func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-		return jsonResult(q.Status(fleet.StatusQuery{
-			NeedsAttention: parseInputBool(req, "needs_attention"), NonCompliant: parseInputBool(req, "non_compliant"),
-			Unknown: parseInputBool(req, "unknown"), Invalid: parseInputBool(req, "invalid"),
-			StaleEvidence: parseInputBool(req, "stale"), MissingReadiness: parseInputBool(req, "missing_readiness"),
-			UnresolvedDeps: parseInputBool(req, "unresolved_deps"), Limit: intOrZero(parseInputIntPtr(req, "limit")),
+type fleetStatusArgs struct {
+	NeedsAttention   bool `json:"needs_attention"`
+	NonCompliant     bool `json:"non_compliant"`
+	Unknown          bool `json:"unknown"`
+	Invalid          bool `json:"invalid"`
+	Stale            bool `json:"stale"`
+	MissingReadiness bool `json:"missing_readiness"`
+	UnresolvedDeps   bool `json:"unresolved_deps"`
+	Limit            int  `json:"limit"`
+}
+
+func fleetStatusHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetStatusArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetStatusArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := jsonResult(q.Status(fleet.StatusQuery{
+			NeedsAttention: a.NeedsAttention, NonCompliant: a.NonCompliant,
+			Unknown: a.Unknown, Invalid: a.Invalid,
+			StaleEvidence: a.Stale, MissingReadiness: a.MissingReadiness,
+			UnresolvedDeps: a.UnresolvedDeps, Limit: a.Limit,
 		}))
+		return r, nil, err
 	}
 }
 
@@ -210,20 +257,17 @@ func fleetExplainTool() *mcpsdk.Tool {
 	}
 }
 
-func fleetExplainHandler(q *fleet.Query) mcpsdk.ToolHandler {
-	return func(_ context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-		res, err := q.Explain(parseInput(req, "subject"))
-		if err != nil {
-			return errorResult(err), nil
-		}
-		return jsonResult(res)
-	}
+type fleetExplainArgs struct {
+	Subject string `json:"subject"`
 }
 
-// intOrZero dereferences an optional int, defaulting to 0.
-func intOrZero(p *int) int {
-	if p == nil {
-		return 0
+func fleetExplainHandler(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetExplainArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetExplainArgs) (*mcpsdk.CallToolResult, any, error) {
+		res, err := q.Explain(a.Subject)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		r, err := jsonResult(res)
+		return r, nil, err
 	}
-	return *p
 }

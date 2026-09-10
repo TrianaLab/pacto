@@ -3,7 +3,6 @@ package mcp
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -262,20 +261,12 @@ func TestRegisterCapabilities_CredsRequireBaseURL(t *testing.T) {
 	}
 }
 
-func TestCapabilityHandler_InvalidArgsAndInvokeError(t *testing.T) {
+func TestCapabilityHandler_InvokeError(t *testing.T) {
 	op := openapi.Operation{Method: "GET", Path: "/x"}
 	h := capabilityHandler(op, &openapi.Doc{}, "http://127.0.0.1:0", CapabilityOptions{})
 
-	// malformed arguments
-	bad := &mcpsdk.CallToolRequest{Params: &mcpsdk.CallToolParamsRaw{Arguments: json.RawMessage("not json")}}
-	res, err := h(context.Background(), bad)
-	if err != nil || !res.IsError {
-		t.Fatalf("expected invalid-args error result, got res=%v err=%v", res, err)
-	}
-
 	// transport failure surfaces as an error result
-	ok := &mcpsdk.CallToolRequest{Params: &mcpsdk.CallToolParamsRaw{Arguments: json.RawMessage(`{}`)}}
-	res, err = h(context.Background(), ok)
+	res, _, err := h(context.Background(), nil, map[string]any{})
 	if err != nil || !res.IsError {
 		t.Fatalf("expected invoke error result, got res=%v err=%v", res, err)
 	}
@@ -319,12 +310,240 @@ func TestRegisterCapabilities_BundleCannotShadowAPactoTool(t *testing.T) {
 	}
 }
 
+// deleteSpec declares a mutating operation with one required, typed path
+// parameter — the shape whose validation gap turned model output straight into a
+// live request against a real service.
+const deleteSpec = `{
+  "openapi": "3.1.0",
+  "paths": {"/orders/{id}": {"delete": {"operationId": "deleteOrder",
+    "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}]}}}
+}`
+
+// connectDeleteOrder wires the deleteOrder tool to a recording httptest server
+// and returns the session plus the requests that actually reached the service.
+func connectDeleteOrder(t *testing.T) (*mcpsdk.ClientSession, *[]string) {
+	t.Helper()
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(deleteSpec)}}, httpIface("http", "o.json"))
+	session := connectCaps(t, bundle, CapabilityOptions{
+		BaseURL: srv.URL, AllowWrites: true, HTTPClient: srv.Client(),
+	}, io.Discard)
+	return session, &seen
+}
+
+// TestCapabilityTool_InvalidArgumentsNeverReachTheService is the counterexample
+// for the unvalidated capability tool. These tools are the worst ones to leave
+// unchecked: they turn model output directly into calls against a live service.
+// Registered raw, the declared InputSchema was decoration — a DELETE whose
+// required path parameter the agent simply omitted was sent with "{id}" still
+// literal in the URL, and an object where the schema says string was sent as
+// Go's %v of a map. Both came back to the agent as IsError=false successes.
+func TestCapabilityTool_InvalidArgumentsNeverReachTheService(t *testing.T) {
+	cases := []struct {
+		name string
+		args map[string]any
+	}{
+		{"required parameter omitted", map[string]any{}},
+		{"wrong-typed parameter", map[string]any{"id": map[string]any{"a": 1}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			session, seen := connectDeleteOrder(t)
+			res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+				Name: "deleteOrder", Arguments: tc.args,
+			})
+			if err != nil {
+				t.Fatalf("CallTool deleteOrder: %v", err)
+			}
+			if !res.IsError {
+				t.Errorf("invalid arguments reported as success: %s", resultText(t, res))
+			}
+			if len(*seen) != 0 {
+				t.Errorf("a mutating request reached the live service: %v", *seen)
+			}
+		})
+	}
+}
+
+// TestCapabilityTool_ValidArgumentsStillInvoke pins that the validation added
+// above did not close the door on the calls that are correct.
+func TestCapabilityTool_ValidArgumentsStillInvoke(t *testing.T) {
+	session, seen := connectDeleteOrder(t)
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "deleteOrder", Arguments: map[string]any{"id": "42"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool deleteOrder: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("valid call rejected: %s", resultText(t, res))
+	}
+	if len(*seen) != 1 || (*seen)[0] != "DELETE /orders/42" {
+		t.Errorf("service saw %v, want one DELETE /orders/42", *seen)
+	}
+}
+
+// TestRegisterCapabilities_UnresolvableSchemaIsUnavailableNotInvisible covers the
+// other side of the same change. The validating AddTool panics on a schema it
+// cannot resolve, and these schemas are built from bundle content, so a bundle
+// carrying a dangling $ref would otherwise take the whole MCP server down.
+// Dropping the tool outright is the wrong answer too: to the agent, an absent
+// tool says the service has no such operation, and the stderr line goes to
+// whoever launched the server. The operation stays listed as unavailable, says
+// why when called and never reaches the network.
+func TestRegisterCapabilities_UnresolvableSchemaIsUnavailableNotInvisible(t *testing.T) {
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	spec := `{"openapi":"3.1.0","paths":{
+	  "/broken": {"get": {"operationId": "broken", "parameters": [
+	    {"name": "q", "in": "query", "schema": {"$ref": "#/components/schemas/Nope"}}]}},
+	  "/ok": {"get": {"operationId": "fine"}}
+	}}`
+	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(spec)}}, httpIface("http", "o.json"))
+	var stderr strings.Builder
+	session := connectCaps(t, bundle, CapabilityOptions{BaseURL: srv.URL, HTTPClient: srv.Client()}, &stderr)
+
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	var broken *mcpsdk.Tool
+	names := map[string]bool{}
+	for _, tl := range listed.Tools {
+		names[tl.Name] = true
+		if tl.Name == "broken" {
+			broken = tl
+		}
+	}
+	if !names["fine"] {
+		t.Errorf("the healthy operation must still register, got %v", names)
+	}
+	if broken == nil {
+		t.Fatalf("the unusable operation vanished from the tool list: the agent cannot tell it from an operation the service never had (%v)", names)
+	}
+	if !strings.Contains(broken.Description, "UNAVAILABLE") {
+		t.Errorf("an unusable operation must announce itself, got %q", broken.Description)
+	}
+	res, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{Name: "broken"})
+	if err != nil {
+		t.Fatalf("CallTool broken: %v", err)
+	}
+	if !res.IsError || !strings.Contains(resultText(t, res), "could not expose it") {
+		t.Errorf("calling it must explain itself, got IsError=%v %q", res.IsError, resultText(t, res))
+	}
+	if hit {
+		t.Error("the stand-in reached the live service")
+	}
+	if !strings.Contains(stderr.String(), "broken") {
+		t.Errorf("the unusable operation was not reported: %q", stderr.String())
+	}
+}
+
+// TestRegisterCapabilities_Draft4ExclusiveBoundsStillRegister guards the blast
+// radius of that skip. The boolean form of exclusiveMinimum/exclusiveMaximum is
+// draft-4's, and draft-4 is the only JSON Schema dialect OpenAPI 3.0 allows — so
+// this is not a pathological bundle, it is every 3.0 spec that bounds a number.
+// The SDK unmarshals the declared schema into a draft 2020-12 struct, where the
+// keyword is a number, and the boolean blew up the registration: the operation
+// vanished from ListTools and only stderr said why.
+func TestRegisterCapabilities_Draft4ExclusiveBoundsStillRegister(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.RawQuery)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	spec := `{"openapi":"3.0.3","paths":{"/x":{"get":{"operationId":"op","parameters":[
+	  {"name":"q","in":"query","schema":{"type":"integer","minimum":1,"exclusiveMinimum":true}}]}}}}`
+	bundle := capBundle(fstest.MapFS{"o.json": {Data: []byte(spec)}}, httpIface("http", "o.json"))
+	var stderr strings.Builder
+	session := connectCaps(t, bundle, CapabilityOptions{BaseURL: srv.URL, HTTPClient: srv.Client()}, &stderr)
+
+	if !toolNames(t, session)["op"] {
+		t.Fatalf("an ordinary OpenAPI 3.0 operation was dropped: %q", stderr.String())
+	}
+	// The bound is translated, not discarded: minimum:1 + exclusiveMinimum:true
+	// means q must exceed 1.
+	rejected, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "op", Arguments: map[string]any{"q": 1}})
+	if err != nil {
+		t.Fatalf("CallTool op: %v", err)
+	}
+	if !rejected.IsError {
+		t.Errorf("q=1 violates the exclusive minimum but was accepted: %s", resultText(t, rejected))
+	}
+	accepted, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "op", Arguments: map[string]any{"q": 2}})
+	if err != nil {
+		t.Fatalf("CallTool op: %v", err)
+	}
+	if accepted.IsError {
+		t.Errorf("q=2 satisfies the exclusive minimum but was rejected: %s", resultText(t, accepted))
+	}
+	if len(seen) != 1 || seen[0] != "q=2" {
+		t.Errorf("service saw %v, want exactly one q=2", seen)
+	}
+}
+
+// TestNormalizeDraft4Bounds covers the forms the walk has to reach that a single
+// spec cannot show at once: the false form (no bound at all), the maximum side,
+// nesting below the top level and a non-boolean keyword left untouched.
+func TestNormalizeDraft4Bounds(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"a": map[string]any{"type": "number", "maximum": 10.0, "exclusiveMaximum": true},
+			"b": map[string]any{"type": "number", "minimum": 3.0, "exclusiveMinimum": false},
+			"c": map[string]any{"type": "array", "items": []any{
+				map[string]any{"exclusiveMinimum": true},               // no sibling bound
+				map[string]any{"exclusiveMinimum": 5.0, "const": true}, // already 2020-12
+			}},
+		},
+	}
+	normalizeDraft4Bounds(schema)
+
+	props := schema["properties"].(map[string]any)
+	a := props["a"].(map[string]any)
+	if a["exclusiveMaximum"] != 10.0 {
+		t.Errorf("exclusiveMaximum = %v, want the former maximum 10", a["exclusiveMaximum"])
+	}
+	if _, ok := a["maximum"]; ok {
+		t.Errorf("the sibling maximum must be removed, got %v", a)
+	}
+	b := props["b"].(map[string]any)
+	if _, ok := b["exclusiveMinimum"]; ok {
+		t.Errorf("exclusiveMinimum:false means no exclusive bound, got %v", b)
+	}
+	if b["minimum"] != 3.0 {
+		t.Errorf("exclusiveMinimum:false must leave minimum alone, got %v", b)
+	}
+	items := props["c"].(map[string]any)["items"].([]any)
+	if bare := items[0].(map[string]any); len(bare) != 0 {
+		t.Errorf("a boolean bound with no sibling has no meaning and must be dropped, got %v", bare)
+	}
+	if kept := items[1].(map[string]any); kept["exclusiveMinimum"] != 5.0 || kept["const"] != true {
+		t.Errorf("a 2020-12 bound (and an unrelated boolean) must survive, got %v", kept)
+	}
+}
+
 // TestReservedToolNames_CoversEveryPactoTool keeps the reserved set honest: it is
 // read back from a fully-loaded server, so a tool added to Pacto without being
 // reserved becomes shadowable and this test says so.
 func TestReservedToolNames_CoversEveryPactoTool(t *testing.T) {
 	cat, _ := platformCatalog(t)
-	server := NewFleetServer("test", buildFleetQuery(t), stubImpact(nil, nil, nil))
+	server := NewFleetServer("test", buildFleetQuery(t), stubImpact(nil, nil, nil), nil)
 	registerCatalogSurface(server, cat)
 	bundle := capBundle(fstest.MapFS{"openapi.json": &fstest.MapFile{Data: []byte(capSpec)}},
 		httpIface("api", "openapi.json"))

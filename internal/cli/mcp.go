@@ -112,7 +112,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 		if err != nil {
 			return nil, err
 		}
-		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc)), nil
+		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc), nil
 	case len(args) > 0:
 		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
@@ -198,6 +198,7 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 		BaseURL:     baseURL,
 		Creds:       creds,
 		AllowWrites: allowWrites,
+		Resolver:    svc,
 	}
 	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
 }
