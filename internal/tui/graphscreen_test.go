@@ -86,6 +86,26 @@ func TestGraphScreenDirectionCycles(t *testing.T) {
 	}
 }
 
+// TestGraphScreenShiftTabCyclesBack makes the documented row true: the guide
+// says tab and shift+tab cycle "the kind tabs, or the graph direction", and
+// direction used to cycle forward only.
+func TestGraphScreenShiftTabCyclesBack(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindService)
+	var s screen = newGraphScreen(c, ref)
+	initial := s.(*graphScreen).dirIx
+
+	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	want := len(graphDirections()) - 1
+	if got := s.(*graphScreen).dirIx; got != want {
+		t.Fatalf("shift+tab from %d left dirIx at %d, want a wrap to %d", initial, got, want)
+	}
+	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if got := s.(*graphScreen).dirIx; got != want-1 {
+		t.Fatalf("the second shift+tab left dirIx at %d, want %d", got, want-1)
+	}
+}
+
 func TestGraphScreenWithQueryError(t *testing.T) {
 	c := newLoadedContext(t)
 	// Build through newGraphScreen with a ref the query cannot resolve

@@ -62,6 +62,7 @@ func (g *graphScreen) bindings() []binding {
 		{Key: "+ or =", Help: "one hop deeper"},
 		{Key: "- or _", Help: "one hop shallower"},
 		{Key: "tab", Help: "next direction: both, dependencies, dependents"},
+		{Key: "shift+tab", Help: "previous direction"},
 	}
 }
 
@@ -85,6 +86,11 @@ func (g *graphScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 			return g, nil
 		case "tab":
 			g.dirIx = (g.dirIx + 1) % len(graphDirections())
+			g.refresh(c)
+			return g, nil
+		case "shift+tab":
+			n := len(graphDirections())
+			g.dirIx = (g.dirIx - 1 + n) % n
 			g.refresh(c)
 			return g, nil
 		}
