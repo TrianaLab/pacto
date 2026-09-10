@@ -259,6 +259,15 @@ func TestWriteVerbApplicability(t *testing.T) {
 			"owner has no bundle", "owner has no bundle",
 		},
 		{
+			// A ref with nothing after the last slash leaves pullDir empty, and
+			// -o "" is not "./": app.Pull falls back to the remote bundle's own
+			// service name, so the files would land somewhere the confirmation
+			// never named.
+			"a reference with no final segment",
+			Selection{Kind: fleet.KindRevision, Ref: "oci://ghcr.io/acme/"},
+			"no final path segment", "not a directory on disk",
+		},
+		{
 			// Local without a ref is not a local bundle. Nothing produces this,
 			// but the ref check has to come first or the message would claim a
 			// directory that is not there.
@@ -296,6 +305,10 @@ func TestPullDirNamesTheDirectoryPullWillCreate(t *testing.T) {
 		{"oci://ghcr.io/acme/svc@sha256:aabb", "svc"},
 		{"oci://ghcr.io/acme/svc", "svc"},
 		{"svc:1.0.0", "svc"},
+		// The two shapes that leave nothing behind. hasRemoteRef declines them
+		// rather than letting the verb build -o "".
+		{"oci://ghcr.io/acme/", ""},
+		{"oci://", ""},
 	} {
 		t.Run(tt.ref, func(t *testing.T) {
 			if got := pullDir(tt.ref); got != tt.want {

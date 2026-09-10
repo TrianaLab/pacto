@@ -246,6 +246,14 @@ func hasRemoteRef(sel Selection) string {
 	if sel.Local {
 		return "this bundle is already a directory on disk"
 	}
+	// A ref ending in / (or a bare oci://) leaves pullDir with nothing, and the
+	// argv would then carry -o "" while the confirmation offered "./". They are
+	// not the same destination: internal/app/pull.go applies safeOutputName only
+	// when Output is empty, so the files would land under the remote bundle's own
+	// service name — somewhere the reader was never shown. Decline instead.
+	if pullDir(sel.Ref) == "" {
+		return "this reference has no final path segment to name a directory"
+	}
 	return ""
 }
 
