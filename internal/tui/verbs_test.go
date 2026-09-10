@@ -37,7 +37,15 @@ func TestReadOnlyHidesEveryWriteVerb(t *testing.T) {
 	}
 }
 
-func TestEveryVerbHasHelpAndAnArgv(t *testing.T) {
+// TestEveryVerbIsPopulatedAndYankable is a shape check and is named as one. It
+// says each row of the table has its four fields set and that argv starts with
+// pacto, which is what y needs to yank a runnable line; it says nothing about
+// what any argv spells, and it caught none of the argv mutations that
+// TestReadVerbArgvsMatchTheRealSignatures and
+// TestWriteVerbArgvsMatchTheRealSignatures now kill. Its value is that a verb
+// added with a nil Applies or Run cannot reach the key table, which no
+// per-verb test would notice.
+func TestEveryVerbIsPopulatedAndYankable(t *testing.T) {
 	c := newLoadedContext(t)
 	sel := Selection{Kind: fleet.KindRevision, Key: "k", Label: "l", Ref: "./svc"}
 	for _, v := range verbList(c) {

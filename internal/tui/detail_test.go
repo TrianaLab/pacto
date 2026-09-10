@@ -190,6 +190,19 @@ func TestDetailTitleFallsBackToKey(t *testing.T) {
 	}
 }
 
+// TestDetailTitlePrefersTheLabel is the other side of the fallback. A revision
+// key carries a digest, so a title taken from the key is a header of hex where
+// the reader expects a name -- and only a ref with both fields set can tell the
+// preference from the fallback.
+func TestDetailTitlePrefersTheLabel(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := fleet.EntityRef{Kind: fleet.KindService, Key: "the-key", Label: "the-label"}
+	s := newDetailScreen(c, ref).(*detailScreen)
+	if got := s.Title(); got != "the-label" {
+		t.Fatalf("Title() = %q, want the-label", got)
+	}
+}
+
 func TestDetailUpdateReturnsTheSameScreenNotACopy(t *testing.T) {
 	// The screen interface lets Update return a different screen, which is how
 	// navigation works. A detail screen must not use that: returning a fresh
@@ -512,5 +525,14 @@ func TestDetailSelectedAlwaysReturnsTrue(t *testing.T) {
 	}
 	if got.Key != ref.Key {
 		t.Fatalf("selected() = %+v, want %+v", got, ref)
+	}
+
+	// "Always" is the claim in the name, so the ref the screen can say least
+	// about has to hold it too: the verb layer decides what applies from the
+	// selection's own fields, and a screen that reported "nothing selected"
+	// here would silently offer no verbs at all rather than saying why.
+	zero := newDetailScreen(c, fleet.EntityRef{}).(*detailScreen)
+	if _, ok := zero.selected(); !ok {
+		t.Fatal("a detail screen over a zero ref reported no selection")
 	}
 }

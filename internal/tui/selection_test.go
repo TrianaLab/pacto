@@ -134,6 +134,24 @@ func TestResolveSelectionForARevisionWithEmptyVersionFallback(t *testing.T) {
 	}
 }
 
+// TestResolveSelectionKeepsTheVersionTheRowCarries is the other half of the
+// fallback above: the detail's version is a default for a row that has none,
+// never an override. The fixture's two agree, so only a row that disagrees can
+// tell the guard from an unconditional assignment -- and the row is what the
+// reader is looking at when they press the key.
+func TestResolveSelectionKeepsTheVersionTheRowCarries(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindRevision)
+	ref.Version = "9.9.9"
+	sel, err := resolveSelection(c, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.Version != "9.9.9" {
+		t.Fatalf("Version = %q, want the row's own 9.9.9", sel.Version)
+	}
+}
+
 func TestResolveSelectionForAServiceGoesThroughItsActiveRevision(t *testing.T) {
 	c := newLoadedContext(t)
 	ref := firstEntityOfKind(t, c, fleet.KindService)
@@ -270,6 +288,33 @@ func TestResolveSelectionForTarget(t *testing.T) {
 	}
 	if sel.Kind != fleet.KindTarget {
 		t.Fatalf("Kind = %q, want target", sel.Kind)
+	}
+}
+
+// TestRefFromServiceRevisionsTakesTheFirstActiveRevision pins which end of the
+// list is read, which the fixture services cannot: they have one active
+// revision each, so Items[0] and Items[len-1] are the same row. Two revisions
+// of different locality tell them apart, and locality is what decides whether
+// the local-only verbs are offered at all.
+func TestRefFromServiceRevisionsTakesTheFirstActiveRevision(t *testing.T) {
+	c := newLoadedContext(t)
+	s := &fleet.ServiceDetailData{
+		ActiveRevisions: fleet.RefPreview{
+			Total: 2,
+			Items: []fleet.EntityRef{
+				{Kind: fleet.KindRevision, Key: revisionKeyOf(t, c, testServiceName)},
+				{Kind: fleet.KindRevision, Key: revisionKeyOf(t, c, "another-svc")},
+			},
+		},
+	}
+	wantRef, wantLocal := refFromRevisionKey(c, s.ActiveRevisions.Items[0].Key)
+	if !wantLocal {
+		t.Fatalf("test setup: %s is meant to be the local revision", testServiceName)
+	}
+	ref, local := refFromServiceRevisions(c, s)
+	if ref != wantRef || local != wantLocal {
+		t.Fatalf("refFromServiceRevisions = (%q, %v), want the first item's (%q, %v)",
+			ref, local, wantRef, wantLocal)
 	}
 }
 

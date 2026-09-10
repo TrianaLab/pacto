@@ -81,6 +81,41 @@ func TestListTabWrapsAtTheEnd(t *testing.T) {
 	}
 }
 
+// TestListShiftTabWrapsBackwardFromTheFirstTab pins the +len(kinds()) term in
+// the backward modulo. Without it Go's remainder yields -1 and the tab strip
+// either clamps or panics; either way the first tab is a dead end in a strip
+// the help calls a cycle.
+func TestListShiftTabWrapsBackwardFromTheFirstTab(t *testing.T) {
+	c := newLoadedContext(t)
+	l := newListScreen(c).(*listScreen)
+	l.kindIx = 0
+	var s screen = l
+	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	want := len(l.kinds()) - 1
+	if got := s.(*listScreen).kindIx; got != want {
+		t.Fatalf("shift+tab from the first tab left kindIx at %d, want a wrap to %d", got, want)
+	}
+}
+
+// TestReloadingPutsTheCursorBackOnTheFirstRow pins the SetCursor(0) in load. A
+// tab change or a filter replaces every row underneath a cursor the table keeps
+// where it was, so the highlight lands on an entity the reader never chose --
+// and the highlight is the argument every verb receives.
+func TestReloadingPutsTheCursorBackOnTheFirstRow(t *testing.T) {
+	c := newLoadedContext(t)
+	l := newListScreen(c).(*listScreen)
+	l.kindIx = 0 // the All tab, which is the one with rows to spare
+	l.refresh(c)
+	if len(l.entities) < 2 {
+		t.Fatalf("the fixture list has %d rows; this test needs at least 2", len(l.entities))
+	}
+	l.tbl.SetCursor(1)
+	l.refresh(c)
+	if got := l.tbl.Cursor(); got != 0 {
+		t.Fatalf("the cursor stayed on row %d across a reload, want row 0", got)
+	}
+}
+
 func TestListSelectedReturnsTheHighlightedEntity(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newListScreen(c).(*listScreen)

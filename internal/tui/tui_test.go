@@ -210,6 +210,24 @@ func TestFooterWithError(t *testing.T) {
 	}
 }
 
+// TestFooterPrefersTheErrorOverAStaleStatus pins the order of the two branches.
+// Both fields are set at once on the ordinary path -- a verb sets a status when
+// it starts and the failure lands afterwards -- so checking Status first would
+// leave the reader looking at the line that announced the work while the reason
+// it stopped is never shown.
+func TestFooterPrefersTheErrorOverAStaleStatus(t *testing.T) {
+	m := New(testOptions())
+	m.ctx.Status = "running pacto validate"
+	m.err = errBoom
+	f := m.footer()
+	if !strings.Contains(f, "boom") {
+		t.Fatalf("footer = %q, want the error", f)
+	}
+	if strings.Contains(f, "running pacto validate") {
+		t.Fatalf("footer = %q, want the error to replace the status that preceded it", f)
+	}
+}
+
 func TestFooterDefault(t *testing.T) {
 	m := New(testOptions())
 	f := m.footer()

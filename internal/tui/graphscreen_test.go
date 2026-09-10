@@ -67,22 +67,44 @@ func TestGraphScreenDepthClampAtMin(t *testing.T) {
 	}
 }
 
+// TestGraphScreenDirectionCycles asserts the sequence, not just that the index
+// moved and came back. "It changed and it wrapped" is equally true of a cycle
+// running backwards, so it left tab and shift+tab free to swap: the help
+// promises tab goes both, dependencies, dependents, in that order.
 func TestGraphScreenDirectionCycles(t *testing.T) {
 	c := newLoadedContext(t)
 	ref := firstEntityOfKind(t, c, fleet.KindService)
 	s := newGraphScreen(c, ref)
-	initial := s.(*graphScreen).dirIx
-	s, _ = s.Update(c, tea.KeyPressMsg{Code: '\t', Text: "tab"})
-	if got := s.(*graphScreen).dirIx; got == initial {
-		t.Fatal("tab did not change direction")
+	if got := s.(*graphScreen).dirIx; got != 0 {
+		t.Fatalf("a fresh graph opens at dirIx %d, want 0 (%s)", got, graphDirections()[0])
 	}
-	// Cycle through remaining directions to wrap back
 	dirs := graphDirections()
-	for i := 1; i < len(dirs); i++ {
+	for _, want := range []int{1, 2, 0} {
 		s, _ = s.Update(c, tea.KeyPressMsg{Code: '\t', Text: "tab"})
+		if got := s.(*graphScreen).dirIx; got != want {
+			t.Fatalf("tab moved to dirIx %d (%s), want %d (%s)", got, dirs[got], want, dirs[want])
+		}
 	}
-	if s.(*graphScreen).dirIx != initial {
-		t.Fatalf("direction did not wrap after a full cycle, got %d want %d", s.(*graphScreen).dirIx, initial)
+}
+
+// TestGraphScreenBarSeparatesRequestedDepthFromEvaluatedDepth pins the second
+// number in the bar. A target projection is always one hop however deep the
+// reader asked, so printing the request twice would report a neighborhood the
+// query never walked.
+func TestGraphScreenBarSeparatesRequestedDepthFromEvaluatedDepth(t *testing.T) {
+	c := newLoadedContext(t)
+	ref := firstEntityOfKind(t, c, fleet.KindService)
+	g := &graphScreen{
+		ref:   ref,
+		vp:    viewport.New(),
+		depth: 2,
+		nb: &fleet.Neighborhood{
+			Nodes:          []fleet.NeighborhoodNode{{Ref: ref, Focus: true}},
+			EffectiveDepth: 1,
+		},
+	}
+	if got := g.bar(); !strings.Contains(got, "depth 2 (evaluated 1)") {
+		t.Fatalf("bar = %q, want it to say depth 2 (evaluated 1)", got)
 	}
 }
 
