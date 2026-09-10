@@ -51,19 +51,37 @@ func TestEveryVerbHasHelpAndAnArgv(t *testing.T) {
 	}
 }
 
-func TestBundleVerbsDoNotApplyToAnOwner(t *testing.T) {
+// TestOnlyYankAppliesToAnOwner is an allow-list of one, deliberately. Narrowing
+// it to the three verbs it used to name read as exhaustive and was not: d and i
+// were free to be loosened to always, which arms a diff whose left-hand side is
+// the empty string, and a new bundle verb was born untested.
+//
+// An owner is an aggregation over contracts, not a contract, so y -- which
+// yanks the fleet search line for exactly this case -- is the only verb that has
+// anything to offer. The reason has to name the owner for every verb whose
+// predicate keys on the bundle; e and g decline on kind instead and say so in
+// their own words, which is why they are exempt from the wording check and from
+// nothing else.
+func TestOnlyYankAppliesToAnOwner(t *testing.T) {
 	c := newLoadedContext(t)
-	owner := Selection{Kind: fleet.KindOwner, Key: "team:x"}
+	owner := Selection{Kind: fleet.KindOwner, Key: "team:x", Label: "x"}
 	for _, v := range verbList(c) {
-		if v.Key == "v" || v.Key == "E" || v.Key == "l" {
-			why := v.Applies(owner)
-			if why == "" {
-				t.Errorf("verb %q claims to apply to an owner, which has no bundle", v.Key)
-				continue
+		if v.Key == "y" {
+			if why := v.Applies(owner); why != "" {
+				t.Errorf("y declined an owner with %q; it is the one verb an owner row has", why)
 			}
-			if !strings.Contains(why, "owner") {
-				t.Errorf("verb %q rejected an owner with %q, which does not say what is wrong", v.Key, why)
-			}
+			continue
+		}
+		why := v.Applies(owner)
+		if why == "" {
+			t.Errorf("verb %q claims to apply to an owner, which has no bundle", v.Key)
+			continue
+		}
+		if v.Key == "e" || v.Key == graphVerbKey {
+			continue
+		}
+		if !strings.Contains(why, "owner") {
+			t.Errorf("verb %q rejected an owner with %q, which does not say what is wrong", v.Key, why)
 		}
 	}
 }
