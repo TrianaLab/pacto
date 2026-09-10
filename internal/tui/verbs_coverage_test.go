@@ -69,8 +69,7 @@ func TestVerbValidateWithValidBundle(t *testing.T) {
 		t.Fatal("verbValidate returned nil command")
 	}
 
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var lines []string
 	var done bool
@@ -119,8 +118,7 @@ func TestVerbValidateReportsUnparseableYamlAsAResult(t *testing.T) {
 
 	sel := Selection{Ref: badDir, Label: "bad"}
 	cmd := verbValidate(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var lines []string
 	for _, m := range rec.msgs {
@@ -156,8 +154,7 @@ func TestVerbValidateWithInvalidBundle(t *testing.T) {
 
 	sel := Selection{Ref: badDir, Label: "bad"}
 	cmd := verbValidate(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var lines []string
 	for _, m := range rec.msgs {
@@ -183,8 +180,7 @@ func TestVerbExplainLocalSuccess(t *testing.T) {
 
 	sel := Selection{Ref: bundleDir, Label: "test-svc"}
 	cmd := verbExplainLocal(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var lines []string
 	var done bool
@@ -218,8 +214,7 @@ func TestVerbExplainLocalError(t *testing.T) {
 
 	sel := Selection{Ref: "/nonexistent", Label: "missing"}
 	cmd := verbExplainLocal(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var foundError bool
 	for _, m := range rec.msgs {
@@ -243,8 +238,7 @@ func TestVerbFleetExplainSuccess(t *testing.T) {
 	sel := Selection{Kind: ref.Kind, Key: ref.Key, Label: ref.Label}
 
 	cmd := verbFleetExplain(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var done bool
 	var lines []string
@@ -281,8 +275,7 @@ func TestVerbFleetExplainError(t *testing.T) {
 	// to be missing for this to exercise the error path at all.
 	sel := Selection{Kind: fleet.KindRevision, Key: "nonexistent@1.0.0", Label: "missing", ParentService: "nonexistent"}
 	cmd := verbFleetExplain(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var foundError bool
 	for _, m := range rec.msgs {
@@ -308,8 +301,7 @@ func TestVerbLockCheckSuccess(t *testing.T) {
 
 	sel := Selection{Ref: bundleDir, Label: "test-svc"}
 	cmd := verbLockCheck(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var done bool
 	var lines []string
@@ -343,8 +335,7 @@ func TestVerbLockCheckError(t *testing.T) {
 
 	sel := Selection{Ref: "/nonexistent", Label: "missing"}
 	cmd := verbLockCheck(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var foundError bool
 	for _, m := range rec.msgs {
@@ -367,8 +358,7 @@ func TestVerbDiffRunArm(t *testing.T) {
 	c.pendingDiff = sel
 
 	cmd := verbDiff(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	if c.pendingDiff.Ref != "" {
 		t.Fatal("pendingDiff was not cleared after running")
@@ -399,8 +389,7 @@ func TestVerbDiffError(t *testing.T) {
 	sel := Selection{Ref: "/nonexistent", Label: "missing"}
 
 	cmd := verbDiff(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var foundError bool
 	for _, m := range rec.msgs {
@@ -423,8 +412,7 @@ func TestVerbImpactRunArm(t *testing.T) {
 	c.pendingImpact = sel
 
 	cmd := verbImpact(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	if c.pendingImpact.Ref != "" {
 		t.Fatal("pendingImpact was not cleared after running")
@@ -455,8 +443,7 @@ func TestVerbImpactError(t *testing.T) {
 	sel := Selection{Ref: "/nonexistent", Label: "missing"}
 
 	cmd := verbImpact(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var foundError bool
 	for _, m := range rec.msgs {
@@ -641,8 +628,7 @@ func TestVerbLockWithDependencies(t *testing.T) {
 
 	sel := Selection{Ref: mainDir, Label: "main-svc"}
 	cmd := verbLockCheck(c, sel)
-	batch := cmd().(tea.BatchMsg)
-	batch[len(batch)-1]()
+	readVerbWorker(t, cmd)()
 
 	var foundDepMsg bool
 	for _, m := range rec.msgs {

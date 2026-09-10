@@ -248,11 +248,7 @@ func TestFleetExplainRunsTheSubjectItAdvertises(t *testing.T) {
 		t.Fatalf("e advertises %q, which the fleet cannot explain: %v", subject, err)
 	}
 
-	batch, ok := verbFleetExplain(c, sel)().(tea.BatchMsg)
-	if !ok {
-		t.Fatal("verbFleetExplain did not batch a push with its work")
-	}
-	o := batch[0]().(pushMsg).s.(*outputScreen)
+	o := readVerbPush(t, verbFleetExplain(c, sel))().(pushMsg).s.(*outputScreen)
 	if !strings.Contains(o.Title(), subject) {
 		t.Fatalf("the output screen is titled %q, which does not name the subject %q it explained", o.Title(), subject)
 	}
@@ -367,20 +363,20 @@ func TestRunReadOpensAnOutputScreen(t *testing.T) {
 		close(ran)
 		return nil
 	})
-	// runRead batches three commands and push is first, so the loop finds the
-	// screen without also firing the spinner tick, which sleeps.
-	batch, ok := cmd().(tea.BatchMsg)
-	if !ok {
-		t.Fatalf("runRead produced %T, want a tea.BatchMsg", cmd())
+	// Sequenced, not batched: batched, the worker can beat its own push, and
+	// Model.Update routes every outputLineMsg to the top screen only, so a fast
+	// verb loses its whole output behind a spinner that never stops.
+	if _, batched := cmd().(tea.BatchMsg); batched {
+		t.Fatal("runRead batched the push with the worker; they race and the fast verb loses its output")
 	}
-	m, ok := batch[0]().(pushMsg)
+	m, ok := readVerbPush(t, cmd)().(pushMsg)
 	if !ok {
-		t.Fatalf("the first batched command produced %T, want a pushMsg", batch[0]())
+		t.Fatalf("the first sequenced command produced %T, want a pushMsg", readVerbPush(t, cmd)())
 	}
 	if _, isOutput := m.s.(*outputScreen); !isOutput {
 		t.Fatalf("runRead pushed %T, want an *outputScreen", m.s)
 	}
-	batch[len(batch)-1]() // the work command, last in the batch
+	readVerbWorker(t, cmd)()
 	<-ran
 }
 

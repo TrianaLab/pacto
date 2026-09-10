@@ -359,16 +359,25 @@ func status(text string) tea.Cmd {
 // runRead opens an output screen and runs fn against it on a background
 // goroutine. fn appends through the screen's id so late output from a
 // superseded run is discarded rather than mixed in.
+//
+// Sequence rather than Batch, for the reason prompt.go:47 gives: the push has to
+// land before the worker starts posting. Model.Update routes an outputLineMsg to
+// the top screen only, so a worker that wins the race against its own push has
+// every line discarded and leaves the reader watching an empty pane behind a
+// spinner that never stops. The faster the verb, the likelier it is — a cached
+// validate is exactly the case that loses.
 func runRead(c *Context, title string, fn func(o *outputScreen) error) tea.Cmd {
 	o := newOutputScreen(title)
-	return tea.Batch(
+	return tea.Sequence(
 		push(o),
-		o.sp.Tick,
-		func() tea.Msg {
-			err := fn(o)
-			c.Send.send(outputDoneMsg{id: o.id, err: err})
-			return nil
-		},
+		tea.Batch(
+			o.sp.Tick,
+			func() tea.Msg {
+				err := fn(o)
+				c.Send.send(outputDoneMsg{id: o.id, err: err})
+				return nil
+			},
+		),
 	)
 }
 

@@ -1,10 +1,46 @@
 package tui
 
 import (
+	"reflect"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
+
+// cmdMembers runs a container command — the value tea.Batch or tea.Sequence
+// hands back — and returns the commands it carries. Only the container is run
+// here: firing a leaf is what the caller is testing, and the spinner tick
+// sleeps. Both containers carry a []tea.Cmd but only BatchMsg is exported, so
+// the match is on the shape rather than on the type.
+func cmdMembers(t *testing.T, cmd tea.Cmd) []tea.Cmd {
+	t.Helper()
+	msg := cmd()
+	v := reflect.ValueOf(msg)
+	if v.Kind() != reflect.Slice || v.Type().Elem() != reflect.TypeFor[tea.Cmd]() {
+		t.Fatalf("expected a batched or sequenced command, got %T", msg)
+	}
+	out := make([]tea.Cmd, v.Len())
+	for i := range out {
+		out[i] = v.Index(i).Interface().(tea.Cmd)
+	}
+	return out
+}
+
+// readVerbPush and readVerbWorker unwrap what runRead returns, which is
+// Sequence(push, Batch(tick, worker)).
+func readVerbPush(t *testing.T, cmd tea.Cmd) tea.Cmd {
+	t.Helper()
+	return cmdMembers(t, cmd)[0]
+}
+
+func readVerbWorker(t *testing.T, cmd tea.Cmd) tea.Cmd {
+	t.Helper()
+	seq := cmdMembers(t, cmd)
+	batch := cmdMembers(t, seq[len(seq)-1])
+	return batch[len(batch)-1]
+}
 
 // testServiceName is the service the test fixture bundle declares.
 const testServiceName = "test-svc"
