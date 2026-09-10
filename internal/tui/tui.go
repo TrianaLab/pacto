@@ -54,7 +54,10 @@ type Context struct {
 	Height     int
 	Status     string
 	// pendingDiff and pendingImpact hold the left-hand side of a two-selection
-	// verb between the two keypresses that make it up.
+	// verb between the two keypresses that make it up. They live no longer than
+	// the snapshot they were armed against: a reload clears them, because the
+	// left-hand side may not exist in the new world and the status line that
+	// announced the arming is cleared with it.
 	pendingDiff   Selection
 	pendingImpact Selection
 }
@@ -105,9 +108,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ctx.Snapshot = msg.snap
 		// The snapshot is the world every screen was rendered from, so a fresh
 		// one clears both the progress note and any error left over from the
-		// write that asked for it.
+		// write that asked for it. An armed d or i goes with them: the status
+		// line was its only indicator, and its left-hand side may not exist in
+		// the world that just arrived. Left set, it ambushes the next d or i
+		// with a comparison against a revision the reader stopped looking at
+		// several minutes ago.
 		m.err = nil
 		m.ctx.Status = ""
+		m.ctx.pendingDiff, m.ctx.pendingImpact = Selection{}, Selection{}
 		if _, starting := m.top().(loadingScreen); starting {
 			// Replace rather than push: the loading screen is not somewhere the
 			// user can go back to.

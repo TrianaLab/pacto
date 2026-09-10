@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
 var errBoom = errors.New("boom")
@@ -170,5 +171,29 @@ func TestFooterDefault(t *testing.T) {
 	f := m.footer()
 	if !strings.Contains(f, "help") {
 		t.Fatalf("footer = %q, want default help text", f)
+	}
+}
+
+// TestAReloadDisarmsAPendingComparison pins A9. The status line was the only
+// sign that d or i was half-pressed, and a reload clears it, so a left-hand
+// side that survived would ambush the next press with a comparison against a
+// revision the reader stopped looking at -- and which the new snapshot may not
+// contain at all.
+func TestAReloadDisarmsAPendingComparison(t *testing.T) {
+	m := New(testOptions())
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+
+	sel, err := resolveSelection(m.ctx, firstEntityOfKind(t, m.ctx, fleet.KindService))
+	if err != nil {
+		t.Fatalf("resolveSelection: %v", err)
+	}
+	m.ctx.pendingDiff, m.ctx.pendingImpact = sel, sel
+
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+	if m.ctx.pendingDiff != (Selection{}) {
+		t.Errorf("pendingDiff survived the reload as %+v", m.ctx.pendingDiff)
+	}
+	if m.ctx.pendingImpact != (Selection{}) {
+		t.Errorf("pendingImpact survived the reload as %+v", m.ctx.pendingImpact)
 	}
 }
