@@ -138,10 +138,13 @@ func TestYankDoesNotShareTheSourceArgsBacking(t *testing.T) {
 	}
 }
 
-func TestYankFallsBackToShowingTheLineWhenThereIsNoClipboard(t *testing.T) {
+// TestYankFallsBackToShowingTheLineWhenTheClipboardFails covers the ssh case:
+// no clipboard to write to, so the line has to be readable on screen. Reporting
+// the error alone would lose the one thing y was pressed for.
+func TestYankFallsBackToShowingTheLineWhenTheClipboardFails(t *testing.T) {
 	orig := clipboardWrite
 	t.Cleanup(func() { clipboardWrite = orig })
-	clipboardWrite = nil
+	clipboardWrite = func(string) error { return errBoom }
 
 	c := newLoadedContext(t)
 	l := newListScreen(c)
@@ -158,15 +161,12 @@ func TestYankFallsBackToShowingTheLineWhenThereIsNoClipboard(t *testing.T) {
 	}
 }
 
-func TestYankReportsAClipboardFailure(t *testing.T) {
-	orig := clipboardWrite
-	t.Cleanup(func() { clipboardWrite = orig })
-	clipboardWrite = func(string) error { return errBoom }
-
-	c := newLoadedContext(t)
-	cmd, _ := dispatchVerb(c, newListScreen(c), tea.KeyPressMsg{Code: 'y', Text: "y"})
-	if msg := cmd().(statusMsg); !strings.Contains(msg.text, "boom") {
-		t.Fatalf("a clipboard failure was swallowed: %q", msg.text)
+// TestYankIsWiredToARealClipboard pins the default. The seam existing is not
+// the same as it being connected: clipboardWrite was nil for the whole branch,
+// so y printed the line while four surfaces said it copied.
+func TestYankIsWiredToARealClipboard(t *testing.T) {
+	if clipboardWrite == nil {
+		t.Fatal("clipboardWrite is nil, so y never copies while Verb.Help says it does")
 	}
 }
 

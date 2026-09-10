@@ -4,15 +4,19 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/atotto/clipboard"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
-// clipboardWrite copies a line to the system clipboard. It is nil by default:
-// the TUI adds no clipboard dependency, and showing the line is a perfectly
-// good fallback that also works over ssh. A host that wants real copying sets
-// this at build time.
-var clipboardWrite func(string) error
+// clipboardWrite copies a line to the system clipboard. atotto/clipboard is
+// already linked into the binary through charm.land/bubbles/v2/textinput, which
+// this package imports, so real copying costs no extra weight and no new module
+// edge -- go.mod only gains a direct line for a package that was already there.
+//
+// It stays a variable so the tests can drive both outcomes on a machine with no
+// clipboard at all.
+var clipboardWrite = clipboard.WriteAll
 
 // yankArgv is the single definition of what y copies. yankLine and the verb's
 // Argv both come from here, so the line shown, the line copied and the line the
@@ -131,11 +135,12 @@ func needsShellQuote(r rune) bool {
 // verbYank is registered in verbList as the y verb.
 func verbYank(c *Context, sel Selection) tea.Cmd {
 	line := yankLine(c, sel)
-	if clipboardWrite == nil {
-		return status(line)
-	}
 	if err := clipboardWrite(line); err != nil {
-		return status("copy failed: " + err.Error())
+		// Show the line rather than the error. A copy fails on a headless box
+		// and over ssh with no clipboard forwarding, which is exactly where
+		// reading the line off the screen and typing it is the fallback; an
+		// error message alone loses the one thing the reader pressed y for.
+		return status(line)
 	}
 	return status("copied: " + line)
 }

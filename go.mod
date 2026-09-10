@@ -7,6 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.9
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/Masterminds/semver/v3 v3.5.0
+	github.com/atotto/clipboard v0.1.4
 	github.com/danielgtaylor/huma/v2 v2.39.1
 	github.com/google/go-containerregistry v0.22.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
@@ -25,7 +26,6 @@ require (
 )
 
 require (
-	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
 	github.com/charmbracelet/x/ansi v0.11.8 // indirect
