@@ -342,6 +342,26 @@ An unreachable registry never becomes an empty result, so a service missing from
 
 `pacto tui` is the dashboard's terminal equivalent, built over the snapshot `pacto fleet` builds and taking the same source flags. It loads that snapshot once and opens on the Services tab, then lets you move through services, revisions, targets, owners and sources with whatever row is highlighted standing in as the argument, so you never type a path. One difference from the dashboard matters more than the rest: **the dashboard only reads, the TUI writes**. Read verbs run in-process against the loaded snapshot; write verbs shell out to this same binary so they own the terminal, and each one names what it is about to change before it waits for a `y` — the directory a pull will overwrite, the resolved plugin binary and the output directory a generate will write. Pass `--read-only` and the four write verbs are absent from the in-TUI help screen rather than refused at the last moment. It needs an interactive terminal — in a pipeline, use the plain commands.
 
+```bash
+# whatever bundles are under the current directory
+pacto tui
+
+# a populated screen instead of an empty one: the committed demo fixture
+pacto tui --local examples/demo/bundles \
+  --target-state examples/demo/fleet-targets.yaml \
+  --traces examples/demo/traces.json --freshness 24h
+
+# the same demo with no clone at all, straight out of the registry
+pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""
+
+# the same bundles, without the write verbs
+pacto tui --local examples/demo/bundles --read-only
+```
+
+`--local` defaults to the current directory, so the bare form needs no arguments — with no bundles under it, the first screen says the snapshot is empty and names every source it consulted. The fixture is committed to the repository, so the second command needs a clone (`git clone https://github.com/TrianaLab/pacto.git && cd pacto`) and a paste from the repository root; it opens on 16 services and 4 operational targets. Start it, then read the keys below with it open.
+
+The third command needs nothing on disk. `--root` follows a published contract's dependency declarations rather than scanning a directory, so pointing it at the demo's root bundle pulls that whole closure out of `ghcr.io` — 12 of the demo's 16 services. The four it does not reach are the three shared `platform-*` bundles, which services declare as configuration and policy references rather than dependencies, and `audit-log`, which nothing depends on. `--local ""` switches off the default directory scan, so the screen holds the demo rather than the demo plus whatever your working directory happens to contain. What a registry cannot supply is where anything runs: targets come from the `--target-state` fixture in the repository, so every service reads `NotEvaluated`, and the attention tab holds the 6 contract-level findings without the compliance ones. Contracts and the graph come from the registry; the states need the fixture.
+
 | Key | Action |
 |-----|--------|
 | `tab` / `shift+tab` | cycle the tabs: kinds on the list, categories under `a`, direction on a graph |

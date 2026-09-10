@@ -109,7 +109,12 @@ source to carry.)
 - **Contracts in OCI** (`--oci <ref>`) — the published revision catalogue,
   resolved cache-first so a pulled ref works offline.
 - **Local OCI cache** (`--cache`) — every bundle already pulled to disk, as an
-  offline baseline.
+  offline baseline. Opt-in, unlike the dashboard, which picks the cache up while
+  it boots. A snapshot is built from the sources you name, and on a machine that
+  has been pulling contracts for months the cache is a record of everything
+  anyone ever fetched — other fleets, one-off comparisons, test fixtures — which
+  is an offline baseline worth asking for and a fleet nobody operates. Reach for
+  it when the registry is unreachable, not to fill an empty screen.
 - **Live Kubernetes** (`--k8s [--namespace]`) — Pacto CRs read straight from a
   running cluster: which revision runs in which target and its operator-computed
   compliance, findings, coverage and observed runtime.

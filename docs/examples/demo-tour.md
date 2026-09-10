@@ -20,9 +20,9 @@ stdin open. Every command on the page runs in
 
 ## Before you start
 
-Everything here is offline except the last command. No cluster, no registry, no
+Everything here is offline except `pacto dashboard`. No cluster, no registry, no
 running service and no network — the fixture is committed to the repository, so
-it works on a plane. `pacto dashboard` probes for a kubeconfig and for OCI
+it works on a plane. The dashboard probes for a kubeconfig and for OCI
 repositories while it boots; it runs without either.
 
 You need the [Pacto CLI](../installation.md) on your `PATH`, and a clone, because
@@ -355,6 +355,26 @@ at a file that does not exist to see what partial looks like: the local revision
 still come back and the missing source is reported as `unavailable`, never as
 empty. A missing result does not prove absence when the sources are incomplete,
 which is the whole point of [the operational graph](../operational-graph.md).
+
+The same snapshot also opens as a full-screen terminal UI, for reading the fleet
+without a browser. It needs an interactive terminal, so unlike everything above
+it is not scriptable and leaves no transcript:
+
+```bash
+pacto tui \
+  --local examples/demo/bundles \
+  --target-state examples/demo/fleet-targets.yaml \
+  --traces examples/demo/traces.json \
+  --freshness 24h
+```
+
+It opens on the Services tab over the same sixteen services and four deployed
+targets, so before you press anything `orders-service` reads `NonCompliant`,
+`auth-service` reads `Unknown` and `payments-service` and `fraud-service` read
+`Compliant`. Press `a` for what needs attention — the twenty-two items
+`pfleet status` prints above — and `g` on a highlighted row for its neighborhood
+graph. `--read-only` hides the four write verbs outright, and the full key table
+is in [The terminal UI](../platform-engineers.md#the-terminal-ui).
 
 The same read model is available to an agent. `pacto mcp --fleet` serves it as six
 read-only tools — `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`,

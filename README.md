@@ -78,6 +78,9 @@ pacto diff oci://ghcr.io/acme/svc:1.0 oci://ghcr.io/acme/svc:2.0
 
 # Explore everything in a browser
 pacto dashboard                              # auto-detects local, OCI and K8s sources
+
+# Explore everything in a terminal instead
+pacto tui                                    # runs pacto's verbs against whatever you select
 ```
 
 The [Quickstart](https://pacto.run/latest/quickstart) goes from zero to a published contract in about five minutes, using a throwaway local registry so you need no account.
