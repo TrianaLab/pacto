@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v3/internal/tui"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 func TestTUIRequiresATerminal(t *testing.T) {
@@ -128,5 +129,40 @@ func TestTUIDeclaresTheSharedSourceFlags(t *testing.T) {
 	}
 	if cmd.Flags().Lookup("read-only") == nil {
 		t.Error("pacto tui does not declare --read-only")
+	}
+}
+
+// TestTUIKeepsTheLoggerOffTheAltScreen pins A7: root.go points the logger at
+// stderr, and stderr here is the terminal bubbletea has taken over, so a
+// warning from a snapshot build lands on top of the frame with nothing to
+// repaint it.
+func TestTUIKeepsTheLoggerOffTheAltScreen(t *testing.T) {
+	withTTY(t, true)
+	origExe := osExecutable
+	t.Cleanup(func() { osExecutable = origExe })
+	osExecutable = func() (string, error) { return "/fake/pacto", nil }
+
+	origRun := tuiRun
+	t.Cleanup(func() { tuiRun = origRun })
+	var got context.Context
+	tuiRun = func(ctx context.Context, _ tui.Options) error {
+		got = ctx
+		return nil
+	}
+
+	var out, errOut strings.Builder
+	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	// -v is what docs/developers.md tells readers to pass, and it is the case
+	// that turns the whole of pkg/oci into a Debug writer on every reload.
+	root.SetArgs([]string{"tui", "-v"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() = %v, want nil", err)
+	}
+
+	logging.LoggerFromContext(got).Warn("a snapshot source is unreachable")
+	if errOut.Len() != 0 || out.Len() != 0 {
+		t.Fatalf("the logger reached the terminal the alt screen owns: out=%q err=%q", out.String(), errOut.String())
 	}
 }

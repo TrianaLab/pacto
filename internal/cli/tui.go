@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/internal/tui"
+	"github.com/trianalab/pacto/v3/pkg/logging"
 )
 
 // osExecutable is a seam so the TTY-less test can exercise the failure path.
@@ -48,7 +50,18 @@ func newTUICommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return err
 			}
 			readOnly, _ := cmd.Flags().GetBool("read-only")
-			return tuiRun(cmd.Context(), tui.Options{
+			// Send the logs nowhere. root.go's PersistentPreRunE points the
+			// logger at stderr, which here is the terminal the alt screen owns,
+			// so a warning from a snapshot build or an in-process read verb
+			// writes raw text over the frame with nothing to repaint it. At -v
+			// the whole of pkg/oci logs on every reload. Discarding is the right
+			// trade for a screen: the Long text above already sends anyone who
+			// wants the detail to the plain commands, which log normally.
+			//
+			// Not verbose, whatever the flag says: nothing reads these records,
+			// so formatting them at Debug is work for a writer that drops them.
+			ctx := logging.WithLogger(cmd.Context(), logging.New(io.Discard, false))
+			return tuiRun(ctx, tui.Options{
 				Svc:   svc,
 				Fleet: fleetOptions(cmd),
 				// The yanked line has to resolve the snapshot on screen, not one
