@@ -71,17 +71,21 @@ var rules = map[classificationKey]Classification{
 	{"interfaces.ref", Modified}:        PotentialBreaking,
 	{"interfaces.visibility", Modified}: PotentialBreaking,
 
-	// Configurations (name-indexed)
+	// Configurations (name-indexed). A source that gains a schema where it had
+	// none is deliberately absent: it newly constrains a consumer who was
+	// unconstrained, which is the PotentialBreaking default, and a row restating
+	// the default is one nothing detects the deletion of. Dropping a schema is
+	// the row that has to be here, because Breaking is not the default.
 	{"configurations", Added}:           NonBreaking,
 	{"configurations", Removed}:         Breaking,
 	{"configurations.schema", Modified}: PotentialBreaking,
-	{"configurations.schema", Added}:    NonBreaking,
 	{"configurations.schema", Removed}:  Breaking,
 	{"configurations.ref", Modified}:    PotentialBreaking,
 	{"configurations.ref", Added}:       NonBreaking,
 	{"configurations.ref", Removed}:     Breaking,
 
-	// Policies (name-indexed)
+	// Policies (name-indexed). policies.schema Added and Removed are absent for
+	// the reason above: both are the PotentialBreaking default.
 	{"policies", Added}:           NonBreaking,
 	{"policies", Removed}:         PotentialBreaking,
 	{"policies.schema", Modified}: PotentialBreaking,
@@ -109,15 +113,14 @@ var rules = map[classificationKey]Classification{
 	{"openapi.parameters", Removed}:  Breaking,
 	{"openapi.parameters", Modified}: PotentialBreaking,
 
-	// OpenAPI request body
-	{"openapi.request-body", Added}:    PotentialBreaking,
-	{"openapi.request-body", Removed}:  PotentialBreaking,
-	{"openapi.request-body", Modified}: PotentialBreaking,
-
-	// OpenAPI responses
-	{"openapi.responses", Added}:    NonBreaking,
-	{"openapi.responses", Removed}:  Breaking,
-	{"openapi.responses", Modified}: PotentialBreaking,
+	// OpenAPI responses. There is no Modified rule: a status code present on both
+	// sides is deep-diffed by diffJSON, which classifies each inner difference
+	// with classifySchemaChange, so a Modified rule here would never be
+	// consulted. openapi.request-body has no rows at all — a body appearing or
+	// disappearing is the PotentialBreaking default, and its inner changes go the
+	// same deep-diff route.
+	{"openapi.responses", Added}:   NonBreaking,
+	{"openapi.responses", Removed}: Breaking,
 
 	// AsyncAPI channels and operations — the consumer-facing event surface.
 	// A removed channel or operation strips a subscriber's feed outright.

@@ -8,8 +8,9 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
-// intPtrChanged returns true if two int pointers differ.
-func intPtrChanged(a, b *int) bool {
+// ptrChanged reports whether two optional values differ, treating "absent" as
+// distinct from the zero value: an omitted minScore is not a minScore of 0.
+func ptrChanged[T comparable](a, b *T) bool {
 	if a == nil && b == nil {
 		return false
 	}
@@ -19,14 +20,19 @@ func intPtrChanged(a, b *int) bool {
 	return *a != *b
 }
 
-func intPtrVal(p *int) int {
+// ptrVal renders an optional value for the change summary. Absent reads as the
+// zero value here; the change type already carries the appear/disappear fact.
+func ptrVal[T any](p *T) T {
+	var zero T
 	if p == nil {
-		return 0
+		return zero
 	}
 	return *p
 }
 
-func intPtrChangeType(old, new *int) ChangeType {
+// ptrChangeType returns the change type for an optional value's transition. The
+// caller must ensure ptrChanged(old, new) is true.
+func ptrChangeType[T any](old, new *T) ChangeType {
 	if old == nil {
 		return Added
 	}
@@ -55,16 +61,16 @@ func diffReadiness(old, new *contract.Readiness) []Change {
 
 	var changes []Change
 
-	if intPtrChanged(old.MinScore, new.MinScore) {
+	if ptrChanged(old.MinScore, new.MinScore) {
 		changes = append(changes, newChange("readiness.minScore",
-			intPtrChangeType(old.MinScore, new.MinScore), intPtrVal(old.MinScore), intPtrVal(new.MinScore)))
+			ptrChangeType(old.MinScore, new.MinScore), ptrVal(old.MinScore), ptrVal(new.MinScore)))
 	}
 	if old.Expires != new.Expires {
 		changes = append(changes, newChange("readiness.expires", strChangeType(old.Expires, new.Expires), old.Expires, new.Expires))
 	}
-	if floatPtrChanged(old.PartialCredit, new.PartialCredit) {
+	if ptrChanged(old.PartialCredit, new.PartialCredit) {
 		changes = append(changes, newChange("readiness.partialCredit",
-			floatPtrChangeType(old.PartialCredit, new.PartialCredit), floatPtrVal(old.PartialCredit), floatPtrVal(new.PartialCredit)))
+			ptrChangeType(old.PartialCredit, new.PartialCredit), ptrVal(old.PartialCredit), ptrVal(new.PartialCredit)))
 	}
 
 	changes = append(changes, diffReadinessClaims(old.Claims, new.Claims)...)
@@ -113,33 +119,4 @@ func claimPath(id string) string {
 
 func formatClaim(c contract.ReadinessClaim) string {
 	return fmt.Sprintf("status=%s weight=%d evidence=%s", c.Status, c.Weight, c.Evidence)
-}
-
-func floatPtrChanged(a, b *float64) bool {
-	if a == nil && b == nil {
-		return false
-	}
-	if a == nil || b == nil {
-		return true
-	}
-	return *a != *b
-}
-
-func floatPtrVal(p *float64) float64 {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
-
-// floatPtrChangeType returns the change type for an optional float pointer
-// transition. The caller must ensure floatPtrChanged(old, new) is true.
-func floatPtrChangeType(old, new *float64) ChangeType {
-	if old == nil {
-		return Added
-	}
-	if new == nil {
-		return Removed
-	}
-	return Modified
 }

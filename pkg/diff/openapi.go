@@ -183,7 +183,7 @@ func diffOperation(path, method string, oldOp, newOp any, pathParamsOld, pathPar
 		// Deep-diff the request body so field-level changes are classified
 		// precisely — notably a newly required property (Breaking, via the schema
 		// differ) rather than one shallow POTENTIAL_BREAKING for the whole body.
-		changes = append(changes, diffJSON(bodyPath, oldBody, newBody)...)
+		changes = append(changes, diffJSON(dirRequest, bodyPath, oldBody, newBody)...)
 	}
 
 	// Compare responses.
@@ -312,15 +312,13 @@ func diffResponses(path, method string, oldResp, newResp map[string]any) []Chang
 			continue
 		}
 		if !yamlEqual(oldVal, newVal) {
-			oldSummary, newSummary := mapDelta(toStringMap(oldVal), toStringMap(newVal), nil)
-			changes = append(changes, Change{
-				Path:           respPath,
-				Type:           Modified,
-				OldValue:       oldSummary,
-				NewValue:       newSummary,
-				Classification: classify("openapi.responses", Modified),
-				Reason:         fmt.Sprintf("%s %s response %s modified", method, path, code),
-			})
+			// Deep-diff the response for the same reason the request body is,
+			// and with more at stake: dropping a property a success response
+			// guaranteed is the commonest way a provider breaks its consumers,
+			// and one flat POTENTIAL_BREAKING for the whole response hides it
+			// from the BREAKING-only CI gate. dirResponse mirrors the required
+			// semantics, which point the other way on this side.
+			changes = append(changes, diffJSON(dirResponse, respPath, oldVal, newVal)...)
 		}
 	}
 
@@ -341,11 +339,57 @@ func diffResponses(path, method string, oldResp, newResp map[string]any) []Chang
 }
 
 // toStringMap converts an interface{} to map[string]any.
+//
+// It has to accept the map[interface{}]interface{} yaml.v3 decodes a mapping
+// with a non-string key into, because a spec that writes its status codes
+// unquoted (`200:` rather than `"200":`) produces exactly that for `responses`.
+// Returning nil for those dropped every response change in such a document.
 func toStringMap(v any) map[string]any {
-	if m, ok := v.(map[string]any); ok {
+	switch m := v.(type) {
+	case map[string]any:
 		return m
+	case map[any]any:
+		return stringKeyedMap(m, func(val any) any { return val })
 	}
 	return nil
+}
+
+// stringKeyedMap rewrites a yaml-decoded mapping's keys as strings, passing each
+// value through conv.
+//
+// Two keys of one mapping can stringify to the same string — `1:` and `1.0:`
+// side by side decode to an int and a float that print alike, and yaml.v3 keeps
+// both, since its duplicate-key check compares the raw scalar text — and only
+// one can survive. Entries are visited in sorted order, by stringified key and by
+// Go-syntax rendering of the value, and the FIRST in that order wins, so it resolves
+// the same way on every run. Ranging the map directly picked a different winner
+// per run, which made the same pair of specs diff differently on consecutive
+// runs.
+func stringKeyedMap(m map[any]any, conv func(any) any) map[string]any {
+	type entry struct {
+		key string
+		val any
+	}
+	entries := make([]entry, 0, len(m))
+	for k, val := range m {
+		entries = append(entries, entry{fmt.Sprintf("%v", k), val})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].key != entries[j].key {
+			return entries[i].key < entries[j].key
+		}
+		// %#v, not %v: `true` and `"true"` print alike under %v, so a tie there
+		// left the winner to the map iteration again — and those two marshal to
+		// different JSON, so the same specs diffed differently run to run.
+		return fmt.Sprintf("%#v", entries[i].val) < fmt.Sprintf("%#v", entries[j].val)
+	})
+	out := make(map[string]any, len(entries))
+	for _, e := range entries {
+		if _, taken := out[e.key]; !taken {
+			out[e.key] = conv(e.val)
+		}
+	}
+	return out
 }
 
 // toSlice converts an interface{} to []any.
@@ -357,11 +401,13 @@ func toSlice(v any) []any {
 }
 
 // yamlEqual compares two values by serializing to YAML. yaml.v3 produces
-// deterministic output with sorted map keys.
+// deterministic output with sorted map keys. A value it cannot encode reads as
+// CHANGED, never as equal: a swallowed marshal error here would silence a diff
+// rather than report a spurious one, and only one of those is recoverable.
 func yamlEqual(a, b any) bool {
-	aBytes, _ := yaml.Marshal(a)
-	bBytes, _ := yaml.Marshal(b)
-	return string(aBytes) == string(bBytes)
+	aBytes, aErr := yaml.Marshal(a)
+	bBytes, bErr := yaml.Marshal(b)
+	return aErr == nil && bErr == nil && string(aBytes) == string(bBytes)
 }
 
 // flattenMap recursively flattens a map into dot-separated key paths.

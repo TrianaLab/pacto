@@ -106,17 +106,14 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 			changes = append(changes, newChange(field, Removed, refSourceSummary(o), nil))
 			continue
 		}
+		// Both arms go through strChangeType so the empty-string transition is
+		// classified as what it is. A source that DROPS its schema is a removal,
+		// not a modification, and only the removal row reaches Breaking.
 		if o.schema != n.schema {
-			changes = append(changes, newChange(field+".schema", Modified, name+": "+o.schema, name+": "+n.schema))
+			changes = append(changes, newChange(field+".schema", strChangeType(o.schema, n.schema), name+": "+o.schema, name+": "+n.schema))
 		}
 		if o.ref != n.ref {
-			ct := Modified
-			if o.ref == "" {
-				ct = Added
-			} else if n.ref == "" {
-				ct = Removed
-			}
-			changes = append(changes, newChange(field+".ref", ct, name+": "+o.ref, name+": "+n.ref))
+			changes = append(changes, newChange(field+".ref", strChangeType(o.ref, n.ref), name+": "+o.ref, name+": "+n.ref))
 		}
 		// Diff schema file contents when both reference local schemas.
 		if o.schema != "" && n.schema != "" {
@@ -138,7 +135,7 @@ func diffRefSources(field string, old, new []refSource, oldFS, newFS fs.FS) []Ch
 // structural diff but reclassifying every change as NonBreaking: values are the
 // provider's own defaults, not part of the consumer-facing contract surface.
 func diffConfigValues(field, name string, old, new map[string]any) []Change {
-	changes := diffJSON(field+"["+name+"].values", old, new)
+	changes := diffJSON(dirUnknown, field+"["+name+"].values", old, new)
 	for i := range changes {
 		changes[i].Classification = NonBreaking
 	}
