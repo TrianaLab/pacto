@@ -203,13 +203,26 @@ func TestSlashOpensTheFilterAndCapturesText(t *testing.T) {
 	}
 }
 
+// TestEnterAppliesTheFilterAndEscapeClearsIt goes through Model.Update, which
+// is the only path a reader has. Driven straight at listScreen.Update it passed
+// while the shipped behaviour was the opposite: globalKey runs first and binds
+// esc to quitOrPop, so on the root screen esc quit the session and the clear
+// branch below it was unreachable. The screen now claims the key through
+// ownsEscape, and this is what proves the claim is honoured.
 func TestEnterAppliesTheFilterAndEscapeClearsIt(t *testing.T) {
-	c := newLoadedContext(t)
-	s := newListScreen(c)
-	s, _ = s.Update(c, tea.KeyPressMsg{Code: '/', Text: "/"})
-	s.(*listScreen).input.SetValue("zzz-no-such-service")
-	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyEnter})
-	l := s.(*listScreen)
+	m := newLoadedModel(t)
+	l, ok := m.top().(*listScreen)
+	if !ok {
+		t.Fatalf("the loaded session is showing %T, want the list", m.top())
+	}
+	unfiltered := len(l.entities)
+	if unfiltered == 0 {
+		t.Fatal("the fixture list is empty, so this would verify nothing")
+	}
+
+	press(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
+	l.input.SetValue("zzz-no-such-service")
+	press(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if l.capturesText() {
 		t.Fatal("enter did not leave text-capture mode")
 	}
@@ -219,12 +232,18 @@ func TestEnterAppliesTheFilterAndEscapeClearsIt(t *testing.T) {
 	if len(l.entities) != 0 {
 		t.Fatalf("filter matched %d entities, want 0", len(l.entities))
 	}
-	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if s.(*listScreen).filterText != "" {
-		t.Fatal("escape did not clear the applied filter")
+
+	cmd := press(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if cmd != nil {
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Fatal("esc quit the session; the filter line promises it clears the filter")
+		}
 	}
-	if len(s.(*listScreen).entities) == 0 {
-		t.Fatal("clearing the filter did not restore the full list")
+	if l.filterText != "" {
+		t.Fatalf("filterText = %q after esc, want it cleared", l.filterText)
+	}
+	if len(l.entities) != unfiltered {
+		t.Fatalf("clearing the filter left %d entities, want the full %d back", len(l.entities), unfiltered)
 	}
 }
 
@@ -286,13 +305,21 @@ func TestListTypingDelegatesToInput(t *testing.T) {
 	}
 }
 
-func TestListEscWithNoFilterDoesNothing(t *testing.T) {
-	c := newLoadedContext(t)
-	s := newListScreen(c)
-	initialEntities := len(s.(*listScreen).entities)
-	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if len(s.(*listScreen).entities) != initialEntities {
-		t.Fatal("esc with no filter should not change entities")
+// TestListEscWithNoFilterStillQuits is the other half of the ownsEscape claim,
+// and the reason it is scoped to esc rather than folded into capturesText: a
+// screen that took the key unconditionally would leave a reader on the root
+// screen with no way out but ctrl+c.
+func TestListEscWithNoFilterStillQuits(t *testing.T) {
+	m := newLoadedModel(t)
+	if l, ok := m.top().(*listScreen); !ok || l.filterText != "" {
+		t.Fatalf("the session is showing %T with a filter applied; this test needs the clean list", m.top())
+	}
+	cmd := press(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if cmd == nil {
+		t.Fatal("esc on the root screen produced no command, want a quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("esc on the root screen produced %T, want tea.QuitMsg", cmd())
 	}
 }
 

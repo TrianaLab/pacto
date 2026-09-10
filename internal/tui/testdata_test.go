@@ -60,6 +60,43 @@ func firstEntityOfKind(t *testing.T, c *Context, kind fleet.EntityKind) fleet.En
 	return list.Entities[0]
 }
 
+// newLoadedModel returns the root model with the fixture snapshot already
+// delivered, so the list is the top of a real stack.
+//
+// Tests that press keys should go through this rather than through a screen's
+// own Update: globalKey runs BEFORE the top screen, and it is that ordering,
+// not the screen's switch statement, that decides what a key does. Calling
+// listScreen.Update directly is how esc came to be documented as "clears the
+// filter" while the only path a reader has bound it to quit.
+func newLoadedModel(t *testing.T) *Model {
+	t.Helper()
+	m := New(testOptions())
+	m.Update(snapshotMsg{snap: testSnapshot(t)})
+	return m
+}
+
+// press drives one key press through the root model and returns what it asked
+// for. The model updates in place; a different one coming back is a bug in the
+// test rather than something to accommodate.
+func press(t *testing.T, m *Model, k tea.KeyPressMsg) tea.Cmd {
+	t.Helper()
+	next, cmd := m.Update(k)
+	if next.(*Model) != m {
+		t.Fatalf("%s produced a different model", k.String())
+	}
+	return cmd
+}
+
+// pressAndRun presses a key and then delivers the message its command produced,
+// which is what the bubbletea runtime does. A test that only calls Update sees
+// the pushMsg but never the stack it changes.
+func pressAndRun(t *testing.T, m *Model, k tea.KeyPressMsg) {
+	t.Helper()
+	if cmd := press(t, m, k); cmd != nil {
+		m.Update(cmd())
+	}
+}
+
 // verbBoundTo returns the verb bound to a key. An unbound key fails the test:
 // a table-driven test that silently ran against a zero Verb would assert on
 // nothing and report success.

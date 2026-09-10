@@ -192,9 +192,11 @@ func (l *listScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 			l.typing = true
 			return l, l.input.Focus()
 		case "esc":
-			if l.filterText == "" {
-				return l, nil
-			}
+			// Reached only when ownsEscape() claimed the key, which is exactly
+			// when a filter is applied: with none, globalKey binds esc to
+			// quitOrPop and never delegates it here. So there is no empty-filter
+			// case to guard — the guard that used to sit here was reachable only
+			// from a test calling this method directly.
 			l.filterText = ""
 			l.input.SetValue("")
 			l.refresh(c)

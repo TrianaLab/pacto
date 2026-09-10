@@ -49,18 +49,6 @@ func TestHelpScreenView(t *testing.T) {
 	}
 }
 
-// press drives one key through the model and then delivers the message its
-// command produced, which is what the bubbletea runtime does. A test that only
-// calls Update sees the pushMsg but never the stack it changes.
-func press(t *testing.T, m *Model, k tea.KeyPressMsg) {
-	t.Helper()
-	_, cmd := m.Update(k)
-	if cmd == nil {
-		return
-	}
-	m.Update(cmd())
-}
-
 // TestHelpTogglesRatherThanStacking pins ? as a toggle, which is what its own
 // help text calls it. helpScreen.Update ignores every message and globalKey runs
 // first, so before the fix each press pushed another help screen and twelve g
@@ -70,11 +58,11 @@ func TestHelpTogglesRatherThanStacking(t *testing.T) {
 	m.Update(snapshotMsg{snap: testSnapshot(t)})
 	depth := len(m.stack)
 
-	press(t, m, tea.KeyPressMsg{Code: '?', Text: "?"})
+	pressAndRun(t, m, tea.KeyPressMsg{Code: '?', Text: "?"})
 	if _, ok := m.top().(helpScreen); !ok {
 		t.Fatalf("? left %T on top, want the help screen", m.top())
 	}
-	press(t, m, tea.KeyPressMsg{Code: '?', Text: "?"})
+	pressAndRun(t, m, tea.KeyPressMsg{Code: '?', Text: "?"})
 	if len(m.stack) != depth {
 		t.Fatalf("stack depth = %d after ? twice, want %d", len(m.stack), depth)
 	}
