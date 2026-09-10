@@ -43,3 +43,21 @@ func TestStatusStyle(t *testing.T) {
 		})
 	}
 }
+
+func TestSafeTextEscapesEveryControlCharacter(t *testing.T) {
+	for _, tt := range []struct{ name, in, want string }{
+		{"ordinary text is untouched", "payments-api", "payments-api"},
+		{"non-ASCII is untouched", "pagos-españa", "pagos-españa"},
+		{"escape becomes caret bracket", "a\x1b[2Kb", "a^[[2Kb"},
+		{"a carriage return cannot return the cursor", "a\rb", "a^Mb"},
+		{"a newline cannot break the row", "a\nb", "a^Jb"},
+		{"a NUL is visible rather than swallowed", "a\x00b", "a^@b"},
+		{"DEL has its own caret spelling", "a\x7fb", "a^?b"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := safeText(tt.in); got != tt.want {
+				t.Fatalf("safeText(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}

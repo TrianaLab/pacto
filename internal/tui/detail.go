@@ -104,18 +104,26 @@ func renderDetail(d *fleet.EntityDetail) string {
 	if len(d.Actions) > 0 {
 		b.WriteString("\n" + headerStyle.Render("Suggested actions") + "\n")
 		for _, a := range d.Actions {
-			b.WriteString("  " + a + "\n")
+			b.WriteString("  " + safeText(a) + "\n")
 		}
 	}
 	return b.String()
 }
 
 // field writes one aligned label/value line, skipping empty values so a detail
-// page never shows a column of blanks.
+// page never shows a column of blanks. Every value here comes from the fleet,
+// so it goes through safeText.
 func field(b *strings.Builder, label, value string) {
 	if value == "" {
 		return
 	}
+	styledField(b, label, safeText(value))
+}
+
+// styledField is field for a value this package rendered itself. Such a value
+// is control characters on purpose — that is what a lipgloss style is — so it
+// must not go through safeText, which would print the style as text.
+func styledField(b *strings.Builder, label, value string) {
 	fmt.Fprintf(b, "  %s %s\n", dimStyle.Render(pad(label+":", 18)), value)
 }
 
@@ -136,7 +144,7 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
 	if s.ActiveRevisions.Total > 0 {
 		section(b, "Active revisions")
 		for _, r := range s.ActiveRevisions.Items {
-			fmt.Fprintf(b, "  %s\n", r.Label)
+			fmt.Fprintf(b, "  %s\n", safeText(r.Label))
 		}
 		if s.ActiveRevisions.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.ActiveRevisions.Total-len(s.ActiveRevisions.Items))) + "\n")
@@ -145,7 +153,7 @@ func renderServiceDetail(b *strings.Builder, s *fleet.ServiceDetailData) {
 	if s.Findings.Total > 0 {
 		section(b, fmt.Sprintf("Findings (%d)", s.Findings.Total))
 		for _, f := range s.Findings.Items {
-			fmt.Fprintf(b, "  %s %s: %s\n", statusStyle(string(f.Finding.Severity)).Render(string(f.Finding.Severity)), f.Entity.Label, f.Finding.Message)
+			fmt.Fprintf(b, "  %s %s: %s\n", statusStyle(string(f.Finding.Severity)).Render(safeText(string(f.Finding.Severity))), safeText(f.Entity.Label), safeText(f.Finding.Message))
 		}
 		if s.Findings.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", s.Findings.Total-len(s.Findings.Items))) + "\n")
@@ -176,19 +184,19 @@ func renderRevisionDetail(b *strings.Builder, r *fleet.RevisionDetailData) {
 	if r.Interfaces.Total > 0 {
 		section(b, fmt.Sprintf("Interfaces (%d)", r.Interfaces.Total))
 		for _, iface := range r.Interfaces.Items {
-			fmt.Fprintf(b, "  %s: %s\n", iface.Name, iface.Type)
+			fmt.Fprintf(b, "  %s: %s\n", safeText(iface.Name), safeText(iface.Type))
 		}
 	}
 	if r.Configurations.Total > 0 {
 		section(b, fmt.Sprintf("Configurations (%d)", r.Configurations.Total))
 		for _, cfg := range r.Configurations.Items {
-			fmt.Fprintf(b, "  %s\n", cfg.Name)
+			fmt.Fprintf(b, "  %s\n", safeText(cfg.Name))
 		}
 	}
 	if r.Policies.Total > 0 {
 		section(b, fmt.Sprintf("Policies (%d)", r.Policies.Total))
 		for _, pol := range r.Policies.Items {
-			fmt.Fprintf(b, "  %s\n", pol.Name)
+			fmt.Fprintf(b, "  %s\n", safeText(pol.Name))
 		}
 	}
 	if r.ExactTargets.Total > 0 || r.InferredTargets.Total > 0 {
@@ -238,7 +246,7 @@ func renderTargetDetail(b *strings.Builder, t *fleet.TargetDetailData) {
 		}
 		section(b, fmt.Sprintf("Observed runtime (%s)", totalStr))
 		for _, kv := range t.ObservedRuntime.Items {
-			fmt.Fprintf(b, "  %s: %s\n", kv.Key, kv.Value)
+			fmt.Fprintf(b, "  %s: %s\n", safeText(kv.Key), safeText(kv.Value))
 		}
 		if t.ObservedRuntime.Truncated {
 			b.WriteString("  " + dimStyle.Render("... truncated") + "\n")
@@ -247,7 +255,7 @@ func renderTargetDetail(b *strings.Builder, t *fleet.TargetDetailData) {
 	if t.Findings.Total > 0 {
 		section(b, fmt.Sprintf("Findings (%d)", t.Findings.Total))
 		for _, f := range t.Findings.Items {
-			fmt.Fprintf(b, "  %s: %s\n", statusStyle(string(f.Severity)).Render(string(f.Severity)), f.Message)
+			fmt.Fprintf(b, "  %s: %s\n", statusStyle(string(f.Severity)).Render(safeText(string(f.Severity))), safeText(f.Message))
 		}
 		if t.Findings.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", t.Findings.Total-len(t.Findings.Items))) + "\n")
@@ -263,7 +271,7 @@ func renderOwnerDetail(b *strings.Builder, o *fleet.OwnerDetailData) {
 	if o.Services.Total > 0 {
 		section(b, fmt.Sprintf("Services (%d)", o.Services.Total))
 		for _, svc := range o.Services.Items {
-			fmt.Fprintf(b, "  %s\n", svc.Label)
+			fmt.Fprintf(b, "  %s\n", safeText(svc.Label))
 		}
 		if o.Services.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", o.Services.Total-len(o.Services.Items))) + "\n")
@@ -272,7 +280,7 @@ func renderOwnerDetail(b *strings.Builder, o *fleet.OwnerDetailData) {
 	if o.Attention.Total > 0 {
 		section(b, fmt.Sprintf("Attention (%d)", o.Attention.Total))
 		for _, item := range o.Attention.Items {
-			fmt.Fprintf(b, "  %s %s: %s\n", statusStyle(item.Severity).Render(item.Severity), item.Service, item.Summary)
+			fmt.Fprintf(b, "  %s %s: %s\n", statusStyle(item.Severity).Render(safeText(item.Severity)), safeText(item.Service), safeText(item.Summary))
 		}
 		if o.Attention.Truncated {
 			b.WriteString("  " + dimStyle.Render(fmt.Sprintf("... and %d more", o.Attention.Total-len(o.Attention.Items))) + "\n")

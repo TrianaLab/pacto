@@ -66,10 +66,10 @@ func (a *attentionScreen) load(c *Context, f fleet.AttentionFilter) {
 	rows := make([]table.Row, 0, len(list.Items))
 	for _, it := range list.Items {
 		rows = append(rows, table.Row{
-			statusStyle(it.Severity).Render(it.Severity),
-			it.Service,
-			it.Category,
-			it.Summary,
+			statusStyle(it.Severity).Render(safeText(it.Severity)),
+			safeText(it.Service),
+			safeText(it.Category),
+			safeText(it.Summary),
 		})
 	}
 	a.tbl.SetRows(rows)
@@ -166,7 +166,7 @@ func (a *attentionScreen) nextStep() string {
 	}
 	it := a.items[i]
 	if it.NextStep == "" {
-		return dimStyle.Render(it.Reason)
+		return dimStyle.Render(safeText(it.Reason))
 	}
-	return dimStyle.Render(fmt.Sprintf("%s  ->  %s", it.Reason, it.NextStep))
+	return dimStyle.Render(fmt.Sprintf("%s  ->  %s", safeText(it.Reason), safeText(it.NextStep)))
 }

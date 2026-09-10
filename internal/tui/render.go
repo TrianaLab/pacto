@@ -116,7 +116,7 @@ func renderExplain(r *app.ExplainResult) string {
 		if !r.Readiness.Passing {
 			passing = errorStyle.Render("not passing")
 		}
-		field(&b, "status", passing)
+		styledField(&b, "status", passing)
 		field(&b, "score", fmt.Sprintf("%d/%d", r.Readiness.Score, r.Readiness.MinScore))
 		field(&b, "checks", fmt.Sprintf("%d done, %d partial, %d not done",
 			r.Readiness.DoneCount, r.Readiness.PartialCount, r.Readiness.NotDoneCount))

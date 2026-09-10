@@ -175,10 +175,13 @@ func (m *Model) View() tea.View {
 	return v
 }
 
+// header renders the breadcrumb trail. Sanitising the crumbs here rather than
+// in each Title covers every screen at once, including the output screens whose
+// titles are built from a selection's label.
 func (m *Model) header() string {
 	crumbs := make([]string, 0, len(m.stack))
 	for _, s := range m.stack {
-		crumbs = append(crumbs, s.Title())
+		crumbs = append(crumbs, safeText(s.Title()))
 	}
 	title := headerStyle.Render("pacto  " + strings.Join(crumbs, " > "))
 	if m.ctx.ReadOnly {
@@ -188,11 +191,13 @@ func (m *Model) header() string {
 }
 
 func (m *Model) footer() string {
+	// Both of these carry fleet content: a status is built from a selection's
+	// label, and an error quotes the path or the name that failed.
 	if m.err != nil {
-		return errorStyle.Render("error: " + m.err.Error())
+		return errorStyle.Render("error: " + safeText(m.err.Error()))
 	}
 	if m.ctx.Status != "" {
-		return dimStyle.Render(m.ctx.Status)
+		return dimStyle.Render(safeText(m.ctx.Status))
 	}
 	return dimStyle.Render("?: help   q: back   ctrl+c: quit")
 }

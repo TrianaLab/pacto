@@ -141,12 +141,14 @@ func edgeType(relation string) string {
 	return graph.EdgeReference
 }
 
-// label prefers the human label and falls back to the canonical key.
+// label prefers the human label and falls back to the canonical key. Both are
+// fleet content and this is the only thing between them and the tree renderer,
+// so both go through safeText.
 func label(r fleet.EntityRef) string {
 	if r.Label != "" {
-		return r.Label
+		return safeText(r.Label)
 	}
-	return r.Key
+	return safeText(r.Key)
 }
 
 // treeColors is the TUI's colouriser for the shared tree renderer. It exists

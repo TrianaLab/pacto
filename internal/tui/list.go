@@ -90,10 +90,10 @@ func (l *listScreen) load(c *Context, f fleet.EntityFilter) {
 	rows := make([]table.Row, 0, len(list.Entities))
 	for _, e := range list.Entities {
 		rows = append(rows, table.Row{
-			string(e.Kind),
-			e.Label,
-			statusStyle(e.Status).Render(e.Status),
-			e.Secondary,
+			safeText(string(e.Kind)),
+			safeText(e.Label),
+			statusStyle(e.Status).Render(safeText(e.Status)),
+			safeText(e.Secondary),
 		})
 	}
 	l.tbl.SetRows(rows)
@@ -225,7 +225,7 @@ func (l *listScreen) filterLine() string {
 		return l.input.View()
 	}
 	if l.filterText != "" {
-		return dimStyle.Render("filter: " + l.filterText + "  (esc clears)")
+		return dimStyle.Render("filter: " + safeText(l.filterText) + "  (esc clears)")
 	}
 	return dimStyle.Render("/ filter   a attention   tab kind")
 }

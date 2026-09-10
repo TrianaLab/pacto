@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -346,5 +347,21 @@ func TestListPressGWithNoSelectionDoesNothing(t *testing.T) {
 	}
 	if msg.text == "" {
 		t.Fatal("status message should not be empty")
+	}
+}
+
+// TestListRowsCannotBeForged covers the half of A3 the reviewer saw survive
+// past the confirmation: the same bytes reach the table, where a row can
+// repaint itself as a healthier one.
+func TestListRowsCannotBeForged(t *testing.T) {
+	root := t.TempDir()
+	writeBundle(t, filepath.Join(root, "evil"), "evil-svc", "1.0.0",
+		"  owner:\n    team: \"platform\\r\\e[2Kcompliant\"\n")
+	c := newContextOverLocalRoot(t, root)
+	l := newListScreen(c).(*listScreen)
+
+	out := l.View(c)
+	if strings.Contains(out, "\r") || strings.Contains(out, "\x1b[2K") {
+		t.Fatalf("a row emits the bytes that repaint the line:\n%q", out)
 	}
 }

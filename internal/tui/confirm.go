@@ -42,10 +42,17 @@ func (s *confirmScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 	return s, nil
 }
 
+// View sanitises here rather than at the runWrite call sites, so a write verb
+// added later cannot forget: both the prompt and the argv are built from fleet
+// content, and safeText explains what those bytes can do to this screen.
 func (s *confirmScreen) View(c *Context) string {
+	argv := make([]string, len(s.argv))
+	for i, tok := range s.argv {
+		argv[i] = safeText(tok)
+	}
 	var b strings.Builder
-	b.WriteString(warnStyle.Render(s.prompt) + "\n\n")
-	b.WriteString("  " + focusStyle.Render(strings.Join(s.argv, " ")) + "\n\n")
+	b.WriteString(warnStyle.Render(safeText(s.prompt)) + "\n\n")
+	b.WriteString("  " + focusStyle.Render(strings.Join(argv, " ")) + "\n\n")
 	b.WriteString(dimStyle.Render("  y: run it    n: cancel    (only lowercase y confirms)"))
 	return b.String()
 }

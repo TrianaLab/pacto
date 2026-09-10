@@ -93,3 +93,25 @@ func TestConfirmIgnoresNonKeyPressMessages(t *testing.T) {
 		t.Fatal("non-KeyPressMsg produced a command")
 	}
 }
+
+// forgedName is a service name that repaints the line it is printed on: the
+// carriage return returns the cursor to column zero and the erase-line wipes
+// what was already there, so everything before it on that line is replaced by
+// what follows. bubbletea's cell renderer acts on both while it composes the
+// frame, so a terminal that filters escapes is not a defence.
+const forgedName = "my-service\r\x1b[2Kpacto lock --check ./my-service"
+
+func TestConfirmCannotBeForged(t *testing.T) {
+	c := newLoadedContext(t)
+	s := newConfirmScreen("Rewrite the lock file for "+forgedName+"?",
+		[]string{"pacto", "lock", "--update", "./" + forgedName}, nil)
+	out := s.View(c)
+
+	if strings.Contains(out, "\r") || strings.Contains(out, "\x1b[2K") {
+		t.Fatalf("the confirmation emits the bytes that repaint the line, so the gate can show a command other than the one y runs:\n%q", out)
+	}
+	// The gate is only useful if it still says what will run.
+	if !strings.Contains(out, "lock --update") {
+		t.Fatalf("the confirmation no longer shows the command it will run:\n%q", out)
+	}
+}
