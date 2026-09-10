@@ -325,6 +325,72 @@ func TestRenderDiffWithGraphDiff(t *testing.T) {
 	}
 }
 
+// TestRenderersEscapeHostileContractText covers the output pane, which the
+// reader consults to decide whether to run a write: a forged diff or a forged
+// impact steers that decision at one remove. Every renderer here is fed the
+// same payload and has to show it rather than let the frame act on it.
+func TestRenderersEscapeHostileContractText(t *testing.T) {
+	const hostile = "svc\r\x1b[2Kpacto lock --check ./svc"
+	const escaped = "svc^M^[[2Kpacto lock --check ./svc"
+
+	for _, tt := range []struct{ name, got string }{
+		{"validate path and message", renderValidate(&app.ValidateResult{
+			Path:   hostile,
+			Errors: []contract.ValidationError{{Code: hostile, Message: hostile}},
+			Warnings: []contract.ValidationWarning{
+				{Code: hostile, Message: hostile},
+			},
+		})},
+		{"diff paths, classification and reasons", renderDiff(&app.DiffResult{
+			OldPath:        hostile,
+			NewPath:        hostile,
+			Classification: hostile,
+			Changes:        []diff.Change{{Path: hostile, Type: diff.Removed, Reason: hostile}},
+			DependencyDiffs: []app.DependencyDiff{
+				{Name: hostile, Classification: hostile},
+			},
+		})},
+		{"explain capabilities, interfaces and dependencies", renderExplain(&app.ExplainResult{
+			Name:         hostile,
+			Version:      "1.0.0",
+			Capabilities: []app.ExplainCapability{{Type: hostile, Ref: hostile}, {Type: hostile}},
+			Interfaces:   []app.ExplainInterface{{Name: hostile, Type: hostile}},
+			Dependencies: []app.ExplainDependency{{Name: hostile, Ref: hostile}},
+		})},
+		{"fleet explain subject and reasons", renderFleetExplain(&fleet.ExplainResult{
+			Kind:    "service",
+			Subject: hostile,
+			Status:  hostile,
+			Reasons: []fleet.Reason{{Code: hostile, Message: hostile}},
+		})},
+		{"lock path", renderLock(&app.LockResult{Path: hostile, Written: true})},
+		{"impact service, consumers and owners", renderImpact(&impact.Result{
+			Service:        hostile,
+			OldVersion:     hostile,
+			NewVersion:     hostile,
+			Classification: hostile,
+			Consumers: []impact.AffectedConsumer{
+				{Service: hostile, Confidence: impact.Confidence(hostile)},
+			},
+			Owners: []string{hostile},
+		})},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Assert the payload reached the pane, so a renderer that dropped the
+			// field entirely cannot pass this for the wrong reason.
+			if !strings.Contains(tt.got, escaped) {
+				t.Fatalf("escaped payload missing from the output, got:\n%q", tt.got)
+			}
+			// The pane legitimately carries this package's own lipgloss escapes, so
+			// look for the payload's controls specifically rather than for any ESC.
+			if strings.Contains(tt.got, hostile) || strings.Contains(tt.got, "\x1b[2K") ||
+				strings.ContainsRune(tt.got, '\r') {
+				t.Fatalf("raw control characters survived into the output, got:\n%q", tt.got)
+			}
+		})
+	}
+}
+
 func TestRenderImpactWithBreakingChanges(t *testing.T) {
 	r := &impact.Result{
 		Service:        "test-svc",

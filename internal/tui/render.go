@@ -19,15 +19,15 @@ func renderValidate(r *app.ValidateResult) string {
 	}
 	var b strings.Builder
 	if r.Valid {
-		b.WriteString(okStyle.Render("valid") + "  " + r.Path + "\n")
+		b.WriteString(okStyle.Render("valid") + "  " + safeText(r.Path) + "\n")
 	} else {
-		b.WriteString(errorStyle.Render("invalid") + "  " + r.Path + "\n")
+		b.WriteString(errorStyle.Render("invalid") + "  " + safeText(r.Path) + "\n")
 	}
 	for _, e := range r.Errors {
-		fmt.Fprintf(&b, "  %s %s %s\n", errorStyle.Render("error"), e.Code, e.Message)
+		fmt.Fprintf(&b, "  %s %s %s\n", errorStyle.Render("error"), safeText(e.Code), safeText(e.Message))
 	}
 	for _, w := range r.Warnings {
-		fmt.Fprintf(&b, "  %s %s %s\n", warnStyle.Render("warn"), w.Code, w.Message)
+		fmt.Fprintf(&b, "  %s %s %s\n", warnStyle.Render("warn"), safeText(w.Code), safeText(w.Message))
 	}
 	return b.String()
 }
@@ -40,9 +40,9 @@ func renderDiff(r *app.DiffResult) string {
 	}
 	var b strings.Builder
 	if r.Classification == "BREAKING" {
-		b.WriteString(errorStyle.Render("BREAKING") + "  " + r.OldPath + " -> " + r.NewPath + "\n")
+		b.WriteString(errorStyle.Render("BREAKING") + "  " + safeText(r.OldPath) + " -> " + safeText(r.NewPath) + "\n")
 	} else {
-		b.WriteString(r.Classification + "  " + r.OldPath + " -> " + r.NewPath + "\n")
+		b.WriteString(safeText(r.Classification) + "  " + safeText(r.OldPath) + " -> " + safeText(r.NewPath) + "\n")
 	}
 	if len(r.Changes) == 0 {
 		b.WriteString("\nNo changes detected.\n")
@@ -50,16 +50,19 @@ func renderDiff(r *app.DiffResult) string {
 	}
 	section(&b, "Changes")
 	for _, c := range r.Changes {
-		fmt.Fprintf(&b, "  [%s] %s (%s): %s\n", c.Classification, c.Path, c.Type, c.Reason)
+		fmt.Fprintf(&b, "  [%s] %s (%s): %s\n", c.Classification, safeText(c.Path), c.Type, safeText(c.Reason))
 	}
 	if len(r.DependencyDiffs) > 0 {
 		section(&b, "Dependency changes")
 		for _, dd := range r.DependencyDiffs {
-			fmt.Fprintf(&b, "  %s [%s] (%d changes)\n", dd.Name, dd.Classification, len(dd.Changes))
+			fmt.Fprintf(&b, "  %s [%s] (%d changes)\n", safeText(dd.Name), safeText(dd.Classification), len(dd.Changes))
 		}
 	}
 	if r.GraphDiff != nil {
 		section(&b, "Graph changes")
+		// Not sanitised here: the tree arrives already coloured, so safeText would
+		// print pkg/graph's own escapes as text. Sanitising belongs in pkg/graph,
+		// which has both the names and the styling.
 		b.WriteString(graph.RenderDiffTreeColored(r.GraphDiff, diffColors()))
 	}
 	return b.String()
@@ -88,16 +91,16 @@ func renderExplain(r *app.ExplainResult) string {
 		section(&b, fmt.Sprintf("Capabilities (%d)", len(r.Capabilities)))
 		for _, cap := range r.Capabilities {
 			if cap.Ref != "" {
-				fmt.Fprintf(&b, "  %s: %s\n", cap.Type, cap.Ref)
+				fmt.Fprintf(&b, "  %s: %s\n", safeText(cap.Type), safeText(cap.Ref))
 			} else {
-				fmt.Fprintf(&b, "  %s\n", cap.Type)
+				fmt.Fprintf(&b, "  %s\n", safeText(cap.Type))
 			}
 		}
 	}
 	if len(r.Interfaces) > 0 {
 		section(&b, fmt.Sprintf("Interfaces (%d)", len(r.Interfaces)))
 		for _, iface := range r.Interfaces {
-			fmt.Fprintf(&b, "  %s (%s)\n", iface.Name, iface.Type)
+			fmt.Fprintf(&b, "  %s (%s)\n", safeText(iface.Name), safeText(iface.Type))
 		}
 	}
 	if len(r.Dependencies) > 0 {
@@ -107,7 +110,7 @@ func renderExplain(r *app.ExplainResult) string {
 			if dep.Required {
 				req = " [required]"
 			}
-			fmt.Fprintf(&b, "  %s: %s%s\n", dep.Name, dep.Ref, req)
+			fmt.Fprintf(&b, "  %s: %s%s\n", safeText(dep.Name), safeText(dep.Ref), req)
 		}
 	}
 	if r.Readiness != nil {
@@ -130,14 +133,14 @@ func renderFleetExplain(r *fleet.ExplainResult) string {
 		return "(no result)"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s: %s\n", r.Kind, r.Subject, r.Status)
+	fmt.Fprintf(&b, "%s %s: %s\n", safeText(r.Kind), safeText(r.Subject), safeText(r.Status))
 	if len(r.Reasons) == 0 {
 		b.WriteString(dimStyle.Render("  no reasons recorded\n"))
 		return b.String()
 	}
 	section(&b, "Reasons")
 	for _, reason := range r.Reasons {
-		fmt.Fprintf(&b, "  [%s] %s\n", reason.Code, reason.Message)
+		fmt.Fprintf(&b, "  [%s] %s\n", safeText(reason.Code), safeText(reason.Message))
 	}
 	return b.String()
 }
@@ -152,7 +155,7 @@ func renderLock(r *app.LockResult) string {
 	if r.UpToDate {
 		b.WriteString(okStyle.Render("up to date") + "\n")
 	} else if r.Written {
-		b.WriteString(okStyle.Render("written") + "  " + r.Path + "\n")
+		b.WriteString(okStyle.Render("written") + "  " + safeText(r.Path) + "\n")
 	}
 	field(&b, "dependencies", fmt.Sprintf("%d", r.Dependencies))
 	field(&b, "references", fmt.Sprintf("%d", r.References))
@@ -170,20 +173,20 @@ func renderImpact(r *impact.Result) string {
 		b.WriteString(errorStyle.Render("this would fail `pacto impact` in CI") + "\n")
 	}
 	if r.Classification == "BREAKING" {
-		b.WriteString(errorStyle.Render("BREAKING") + "  " + r.Service + " " + r.OldVersion + " -> " + r.NewVersion + "\n")
+		b.WriteString(errorStyle.Render("BREAKING") + "  " + safeText(r.Service) + " " + safeText(r.OldVersion) + " -> " + safeText(r.NewVersion) + "\n")
 	} else {
-		b.WriteString(r.Classification + "  " + r.Service + " " + r.OldVersion + " -> " + r.NewVersion + "\n")
+		b.WriteString(safeText(r.Classification) + "  " + safeText(r.Service) + " " + safeText(r.OldVersion) + " -> " + safeText(r.NewVersion) + "\n")
 	}
 	if len(r.BreakingChanges) > 0 {
 		section(&b, fmt.Sprintf("Breaking changes (%d)", len(r.BreakingChanges)))
 		for _, c := range r.BreakingChanges {
-			fmt.Fprintf(&b, "  [%s] %s (%s): %s\n", c.Classification, c.Path, c.Type, c.Reason)
+			fmt.Fprintf(&b, "  [%s] %s (%s): %s\n", c.Classification, safeText(c.Path), c.Type, safeText(c.Reason))
 		}
 	}
 	if len(r.PotentiallyBreakingChanges) > 0 {
 		section(&b, fmt.Sprintf("Potentially breaking changes (%d)", len(r.PotentiallyBreakingChanges)))
 		for _, c := range r.PotentiallyBreakingChanges {
-			fmt.Fprintf(&b, "  [%s] %s (%s): %s\n", c.Classification, c.Path, c.Type, c.Reason)
+			fmt.Fprintf(&b, "  [%s] %s (%s): %s\n", c.Classification, safeText(c.Path), c.Type, safeText(c.Reason))
 		}
 	}
 	if len(r.Consumers) == 0 {
@@ -198,7 +201,7 @@ func renderImpact(r *impact.Result) string {
 			} else {
 				depth = fmt.Sprintf(" [depth %d]", cons.Depth)
 			}
-			compat := cons.CompatibilityVerdict
+			compat := safeText(cons.CompatibilityVerdict)
 			if compat == impact.CompatibilityIncompatible {
 				compat = errorStyle.Render(compat)
 			}
@@ -206,13 +209,13 @@ func renderImpact(r *impact.Result) string {
 			if len(cons.Targets) == 0 {
 				targets = dimStyle.Render("no targets")
 			}
-			fmt.Fprintf(&b, "  %s%s: %s, %s, %s\n", cons.Service, depth, compat, cons.Confidence, targets)
+			fmt.Fprintf(&b, "  %s%s: %s, %s, %s\n", safeText(cons.Service), depth, compat, safeText(string(cons.Confidence)), targets)
 		}
 	}
 	if len(r.Owners) > 0 {
 		section(&b, fmt.Sprintf("Owners to review (%d)", len(r.Owners)))
 		for _, owner := range r.Owners {
-			fmt.Fprintf(&b, "  %s\n", owner)
+			fmt.Fprintf(&b, "  %s\n", safeText(owner))
 		}
 	}
 	return b.String()
