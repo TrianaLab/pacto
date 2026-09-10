@@ -67,8 +67,65 @@ func (c *Context) fleetLine(sub string, args ...string) []string {
 // yankLine returns the invocation the current selection would run. It is how
 // the TUI stays a front-end over the CLI rather than a replacement for it: for
 // every command the TUI does not offer, the reader gets the exact line to type.
+//
+// Every token is shell-quoted, because the values in it are untrusted and the
+// line's documented purpose is to be pasted into a shell. Nothing between the
+// contract on disk and this function validates content: internal/fleetsrc/
+// local.go calls contract.Parse and nothing else, so owner.team's
+// ^[a-zA-Z0-9._/-]+$ pattern never runs on a fleet load, and k8s.go copies
+// custom-resource values through verbatim. Unquoted, an owner of
+// "platform;touch /tmp/pwned;true" yanks a line that runs that command, and the
+// quieter half of the same bug is that any value with a space in it pastes as
+// two arguments plus a stray positional.
+//
+// The quoting lives here rather than in yankArgv because that argv is also
+// Verb.Argv, which execVerb hands to exec.Command directly: no shell is
+// involved there, so a quote would become a literal character in the argument
+// instead of protecting it. internal/cli's fleetSourceArgs is left alone for
+// the same reason.
 func yankLine(c *Context, sel Selection) string {
-	return strings.Join(yankArgv(c, sel), " ")
+	argv := yankArgv(c, sel)
+	quoted := make([]string, len(argv))
+	for i, tok := range argv {
+		quoted[i] = shellQuote(tok)
+	}
+	return strings.Join(quoted, " ")
+}
+
+// shellQuote renders tok as exactly one POSIX shell word. A token made only of
+// characters the shell reads literally is returned unchanged, so the ordinary
+// line stays as readable as it was; anything else is single-quoted, with an
+// inner quote spelled the only way single quotes allow.
+//
+// C0 controls and DEL are STRIPPED rather than quoted. A quoted newline is
+// still a newline, and several terminals submit a pasted line the moment they
+// see one, so there is no rendering of a control character that is both honest
+// and safe.
+func shellQuote(tok string) string {
+	tok = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, tok)
+	if tok != "" && !strings.ContainsFunc(tok, needsShellQuote) {
+		return tok
+	}
+	return "'" + strings.ReplaceAll(tok, "'", `'\''`) + "'"
+}
+
+// needsShellQuote reports whether r has any meaning to a POSIX shell. The
+// allowed set is the conservative one: unreserved ASCII plus the punctuation
+// that appears in a ref, a flag or a path, so a bare `pacto fleet get svc
+// --local=.` is untouched while everything else is quoted rather than judged.
+func needsShellQuote(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	case strings.ContainsRune("@%_+=:,./-", r):
+		return false
+	}
+	return true
 }
 
 // verbYank is registered in verbList as the y verb.

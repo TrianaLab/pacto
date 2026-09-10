@@ -1,12 +1,17 @@
 package tui
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -230,5 +235,90 @@ func TestReadOnlyRejectsAWriteEvenIfOneIsDispatched(t *testing.T) {
 	}
 	if msg, ok := cmd().(statusMsg); !ok || !strings.Contains(msg.text, "read-only") {
 		t.Fatalf("got %T, want a statusMsg naming read-only mode", cmd())
+	}
+}
+
+// newContextOverLocalRoot builds a Context over the bundles really on disk under
+// root, rather than over the hand-built fixture. The hostile-content tests need
+// the real load path, because the whole point is that nothing on it validates.
+func newContextOverLocalRoot(t *testing.T, root string) *Context {
+	t.Helper()
+	snap, err := app.NewService(nil, nil).Fleet(context.Background(), app.FleetOptions{LocalRoots: []string{root}})
+	if err != nil {
+		t.Fatalf("Fleet: %v", err)
+	}
+	return &Context{
+		Ctx: context.Background(), Svc: app.NewService(nil, nil),
+		Query: fleet.NewQuery(snap), Snapshot: snap, Send: &sender{},
+		Width: 100, Height: 30,
+	}
+}
+
+// TestYankDoesNotPasteToExecute is the reproduction, end to end from a contract
+// on disk. internal/fleetsrc/local.go parses pacto.yaml and validates nothing,
+// so owner.team's ^[a-zA-Z0-9._/-]+$ pattern never runs and the value below
+// reaches the screen verbatim. Unquoted, the line y offers as "the exact line to
+// type" runs the payload the moment it is pasted.
+func TestYankDoesNotPasteToExecute(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "pwned")
+	root := t.TempDir()
+	// The payload is a shell redirection rather than a command, so the check
+	// depends on nothing but /bin/sh itself.
+	payload := "platform;>" + marker + ";true"
+	writeBundle(t, filepath.Join(root, "evil"), "evil-svc", "1.0.0",
+		"  owner:\n    team: \""+payload+"\"\n")
+
+	c := newContextOverLocalRoot(t, root)
+	sel, err := resolveSelection(c, firstEntityOfKind(t, c, fleet.KindOwner))
+	if err != nil {
+		t.Fatalf("resolveSelection: %v", err)
+	}
+	line := yankLine(c, sel)
+	if !strings.Contains(line, marker) {
+		t.Fatalf("the owner value never reached the yanked line, so this proves nothing:\n  %s", line)
+	}
+
+	sh := exec.Command("/bin/sh", "-c", line)
+	// An empty PATH so the pacto in the line resolves to nothing: the only thing
+	// that can happen here is whatever the contract smuggled in.
+	sh.Env = []string{"PATH=" + t.TempDir()}
+	_ = sh.Run()
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("pasting the yanked line ran the contract's payload:\n  %s", line)
+	}
+}
+
+// TestYankKeepsAValueWithASpaceAsOneArgument is the quieter half of the same
+// bug: a source flag holding a path with a space pastes as two arguments plus a
+// stray positional, so the line silently runs a different command.
+func TestYankKeepsAValueWithASpaceAsOneArgument(t *testing.T) {
+	c := newLoadedContext(t)
+	c.SourceArgs = []string{"--local=/tmp/My Projects"}
+	want := `pacto fleet get svc '--local=/tmp/My Projects'`
+	if got := yankLine(c, Selection{Kind: fleet.KindService, Key: "svc"}); got != want {
+		t.Fatalf("yank = %s, want %s", got, want)
+	}
+}
+
+// TestShellQuoteHandlesTheAwkwardTokens covers the three shapes the quoter has
+// to get exactly right and cannot get from a fixture: the inner single quote,
+// the empty token and the control character that is stripped rather than quoted.
+func TestShellQuoteHandlesTheAwkwardTokens(t *testing.T) {
+	for _, tt := range []struct{ name, in, want string }{
+		{"a plain token is left alone", "pacto", "pacto"},
+		{"a ref keeps its punctuation", "oci://ghcr.io/acme/svc:1.0.0", "oci://ghcr.io/acme/svc:1.0.0"},
+		{"a flag with a value is left alone", "--local=.", "--local=."},
+		{"a shell metacharacter is quoted", "a;b", `'a;b'`},
+		{"an inner quote is spelled the only way single quotes allow", "it's", `'it'\''s'`},
+		{"an empty token still occupies one argument", "", `''`},
+		{"a newline is stripped, not quoted", "a\nb", "ab"},
+		{"a carriage return and a NUL are stripped too", "a\r\x00b", "ab"},
+		{"a token that is only control characters collapses to an empty word", "\x01\x02", `''`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shellQuote(tt.in); got != tt.want {
+				t.Fatalf("shellQuote(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
 	}
 }
