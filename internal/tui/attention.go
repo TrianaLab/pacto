@@ -90,6 +90,15 @@ func (a *attentionScreen) selected() (fleet.EntityRef, bool) {
 
 func (a *attentionScreen) Title() string { return "Attention" }
 
+// bindings are the keys Update handles below, in the order the help lists them.
+func (a *attentionScreen) bindings() []binding {
+	return []binding{
+		{Key: "enter", Help: "open the entity the finding is about"},
+		{Key: "tab", Help: "next category tab"},
+		{Key: "shift+tab", Help: "previous category tab"},
+	}
+}
+
 func (a *attentionScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
 		if cmd, handled := dispatchVerb(c, a, k); handled {

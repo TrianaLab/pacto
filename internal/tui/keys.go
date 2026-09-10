@@ -2,19 +2,39 @@ package tui
 
 import tea "charm.land/bubbletea/v2"
 
-// binding is one key and what it does. The same slice drives dispatch and the
-// help screen, so help can never drift from behaviour.
+// binding is one key and what it does. For the global keys the same slice
+// drives dispatch and the help screen, so help can never drift from behaviour.
+// A screen's own bindings() reuses the type to describe keys its Update handles
+// directly and leaves Cmd nil: nothing dispatches those from a table.
 type binding struct {
 	Key  string
 	Help string
 	Cmd  func(m *Model) tea.Cmd
 }
 
+// screenBindings is the optional interface a screen implements to list the keys
+// it handles itself. helpScreen renders them for the screen below it, which is
+// what "the key table for the current screen" has always promised: tab, /,
+// enter, a and the depth keys are exactly what a first-time reader needs, and
+// none of them is a global key or a verb.
+type screenBindings interface {
+	bindings() []binding
+}
+
 // globalBindings are the keys that mean the same thing on every screen, in the
 // order the help screen lists them.
 func globalBindings() []binding {
 	return []binding{
-		{"?", "toggle this help", func(m *Model) tea.Cmd { return push(helpScreen{}) }},
+		{"?", "toggle this help", func(m *Model) tea.Cmd {
+			// Toggle, as the help text says. helpScreen.Update ignores every
+			// message and globalKey runs before the top screen, so without this a
+			// second ? pushed a second help screen and the reader needed one q per
+			// press to get back.
+			if _, ok := m.top().(helpScreen); ok {
+				return pop()
+			}
+			return push(helpScreen{under: m.top()})
+		}},
 		{"r", "reload the fleet snapshot", func(m *Model) tea.Cmd {
 			m.ctx.Status = "reloading the snapshot"
 			return loadSnapshot(m.ctx)

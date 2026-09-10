@@ -135,6 +135,18 @@ func (l *listScreen) ownsEscape() bool { return l.filterText != "" }
 
 func (l *listScreen) Title() string { return "Fleet" }
 
+// bindings are the keys Update handles below, in the order the help lists them.
+func (l *listScreen) bindings() []binding {
+	return []binding{
+		{Key: "enter", Help: "open the highlighted entity"},
+		{Key: "/", Help: "filter; enter applies, esc discards"},
+		{Key: "esc", Help: "clear an applied filter"},
+		{Key: "a", Help: "what needs attention"},
+		{Key: "tab", Help: "next kind tab"},
+		{Key: "shift+tab", Help: "previous kind tab"},
+	}
+}
+
 // typingKey handles a key press while the filter input has focus. Enter applies
 // what was typed, esc discards it and leaves whatever filter was already
 // applied in place, and every other key belongs to the input.

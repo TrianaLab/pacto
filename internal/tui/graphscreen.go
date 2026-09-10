@@ -54,6 +54,17 @@ func (g *graphScreen) selected() (fleet.EntityRef, bool) { return g.ref, true }
 
 func (g *graphScreen) Title() string { return "Graph: " + label(g.ref) }
 
+// bindings are the keys Update handles below, in the order the help lists them.
+// The aliases are listed rather than hidden: = and _ are the unshifted keys,
+// and a reader who finds them by accident should see them named.
+func (g *graphScreen) bindings() []binding {
+	return []binding{
+		{Key: "+ or =", Help: "one hop deeper"},
+		{Key: "- or _", Help: "one hop shallower"},
+		{Key: "tab", Help: "next direction: both, dependencies, dependents"},
+	}
+}
+
 func (g *graphScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
 		if cmd, handled := dispatchVerb(c, g, k); handled {

@@ -6,9 +6,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// helpScreen lists the global keys and the verbs available on the screen below
-// it. It is generated from the binding tables, never hand-maintained.
-type helpScreen struct{}
+// helpScreen lists the global keys, the keys of the screen below it and the
+// verbs available there. It is generated from the binding tables, never
+// hand-maintained.
+//
+// under is the screen the reader pressed ? on. Without it the help could only
+// ever show the global keys and the verbs, which left out tab, shift+tab, /,
+// enter, a and the depth keys -- the whole navigation keymap, and precisely the
+// part a first-time reader has no other way to discover.
+type helpScreen struct{ under screen }
 
 func (h helpScreen) Title() string { return "Help" }
 
@@ -19,6 +25,13 @@ func (h helpScreen) View(c *Context) string {
 	b.WriteString(headerStyle.Render("Keys") + "\n")
 	for _, k := range globalBindings() {
 		b.WriteString("  " + focusStyle.Render(pad(k.Key, 8)) + k.Help + "\n")
+	}
+	if s, ok := h.under.(screenBindings); ok {
+		// safeText because a detail screen's title is the entity's own label.
+		b.WriteString("\n" + headerStyle.Render("On "+safeText(h.under.Title())) + "\n")
+		for _, k := range s.bindings() {
+			b.WriteString("  " + focusStyle.Render(pad(k.Key, 8)) + k.Help + "\n")
+		}
 	}
 	b.WriteString("\n" + headerStyle.Render("Verbs") + "\n")
 	for _, v := range verbList(c) {

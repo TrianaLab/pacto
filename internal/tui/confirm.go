@@ -25,6 +25,14 @@ func newConfirmScreen(prompt string, argv []string, onYes func() tea.Cmd) screen
 
 func (s *confirmScreen) Title() string { return "Confirm" }
 
+// bindings are the keys Update handles below, in the order the help lists them.
+func (s *confirmScreen) bindings() []binding {
+	return []binding{
+		{Key: "y", Help: "run it (only lowercase y confirms)"},
+		{Key: "n", Help: "cancel"},
+	}
+}
+
 func (s *confirmScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 	k, ok := msg.(tea.KeyPressMsg)
 	if !ok {
