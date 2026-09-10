@@ -31,7 +31,7 @@ func newDetailScreen(c *Context, ref fleet.EntityRef) screen {
 // recorded rather than left showing the old body: an entity that has gone is
 // news, not a rendering problem.
 func (d *detailScreen) refresh(c *Context) {
-	det, err := c.Query.EntityDetail(d.ref.Kind, d.ref.Key)
+	det, err := requireDetail(c.Query.EntityDetail(d.ref.Kind, d.ref.Key))
 	if err != nil {
 		d.loadErr = err
 		return

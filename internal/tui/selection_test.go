@@ -1,11 +1,30 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
+
+// TestRequireDetailRefusesANilDetail pins A17. Query.EntityDetail returns
+// jsonClone(d) and jsonClone swallows both of its errors, so (nil, nil) is a
+// representable answer and all three call sites dereference the result on the
+// next line. A nil that reaches them takes the whole session down.
+func TestRequireDetailRefusesANilDetail(t *testing.T) {
+	if _, err := requireDetail(nil, nil); err == nil {
+		t.Fatal("requireDetail(nil, nil) returned no error; the callers would dereference the nil")
+	}
+	if _, err := requireDetail(nil, errBoom); !errors.Is(err, errBoom) {
+		t.Fatalf("requireDetail(nil, errBoom) = %v, want the caller's own error unwrapped", err)
+	}
+	want := &fleet.EntityDetail{}
+	got, err := requireDetail(want, nil)
+	if err != nil || got != want {
+		t.Fatalf("requireDetail(det, nil) = %v, %v; want the detail through untouched", got, err)
+	}
+}
 
 func TestBundleRef(t *testing.T) {
 	tests := []struct {

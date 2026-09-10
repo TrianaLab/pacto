@@ -1,10 +1,31 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
+
+// requireDetail adds the guarantee EntityDetail's signature does not give: a
+// non-nil detail whenever the error is nil. Query.EntityDetail returns
+// jsonClone(d), and jsonClone (pkg/fleet/clone.go:22-27) discards both the
+// marshal and the unmarshal error, so (nil, nil) is representable — and all
+// three callers dereference the result on the next line. Turning it into an
+// error puts it on the path the screens already render rather than taking the
+// whole session down with it.
+//
+// It wraps the call rather than guarding each caller so that a fourth one
+// cannot be written without it: det, err := requireDetail(q.EntityDetail(...)).
+func requireDetail(det *fleet.EntityDetail, err error) (*fleet.EntityDetail, error) {
+	if err != nil {
+		return nil, err
+	}
+	if det == nil {
+		return nil, errors.New("the fleet returned no detail for this entity")
+	}
+	return det, nil
+}
 
 // Selection is what a verb runs against: an entity plus the argument the CLI
 // would have been given for it. Ref is empty for entities that are not backed
@@ -78,7 +99,7 @@ func resolveSelection(c *Context, ref fleet.EntityRef) (Selection, error) {
 	case fleet.KindOwner, fleet.KindSource:
 		return sel, nil
 	}
-	det, err := c.Query.EntityDetail(ref.Kind, ref.Key)
+	det, err := requireDetail(c.Query.EntityDetail(ref.Kind, ref.Key))
 	if err != nil {
 		return Selection{}, err
 	}
@@ -100,7 +121,7 @@ func resolveSelection(c *Context, ref fleet.EntityRef) (Selection, error) {
 // locality. It returns empty when the revision cannot be resolved, which is the
 // honest answer: a verb with no ref is a verb that cannot run.
 func refFromRevisionKey(c *Context, key string) (string, bool) {
-	det, err := c.Query.EntityDetail(fleet.KindRevision, key)
+	det, err := requireDetail(c.Query.EntityDetail(fleet.KindRevision, key))
 	if err != nil || det.Revision == nil {
 		return "", false
 	}
