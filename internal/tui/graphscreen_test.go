@@ -92,7 +92,7 @@ func TestGraphScreenDirectionCycles(t *testing.T) {
 func TestGraphScreenShiftTabCyclesBack(t *testing.T) {
 	c := newLoadedContext(t)
 	ref := firstEntityOfKind(t, c, fleet.KindService)
-	var s screen = newGraphScreen(c, ref)
+	s := newGraphScreen(c, ref)
 	initial := s.(*graphScreen).dirIx
 
 	s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
@@ -112,7 +112,7 @@ func TestGraphScreenShiftTabCyclesBack(t *testing.T) {
 func TestGraphScreenRefusesToOpenItself(t *testing.T) {
 	c := newLoadedContext(t)
 	ref := firstEntityOfKind(t, c, fleet.KindService)
-	var s screen = newGraphScreen(c, ref)
+	s := newGraphScreen(c, ref)
 
 	next, cmd := s.Update(c, tea.KeyPressMsg{Code: 'g', Text: "g"})
 	if next != s {
