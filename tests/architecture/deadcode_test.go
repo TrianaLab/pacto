@@ -35,6 +35,14 @@ import (
 // else used in production reads as used, so the gate under-reports. The
 // direction matters more than the precision -- a red run is always a real
 // finding, and a green run is the weaker claim.
+//
+// A live example of that under-report, so the limitation is not theoretical:
+// pkg/otelobserver.Observe has no caller, but the operator calls a method also
+// named Observe on its own runtime observer, and the two are indistinguishable
+// here. Resolving them apart needs the import graph, and a first pass at that
+// showed why it is not worth it: qualifying non-method uses is easy, but a
+// method use is a selector on a value whose type only a type-checker knows, so
+// every method in the repo would read as dead.
 
 // deadCodeAllowlist names symbols the gate would otherwise report, each with
 // the reason it is allowed to have no production caller. A stale entry fails
@@ -44,7 +52,6 @@ var deadCodeAllowlist = map[string]string{
 	// The rest is filled in when the tag comes off. Every entry is
 	// "<pkg>.<Symbol>": reason.
 
-	"pkg/contract.CapabilityBindingHTTP":    schemaVocabulary,
 	"pkg/contract.PolicyTargetContract":     schemaVocabulary,
 	"pkg/contract.CategoryArchitecture":     schemaVocabulary,
 	"pkg/contract.CategoryBackupRecovery":   schemaVocabulary,
@@ -76,7 +83,7 @@ var deadCodeAllowlist = map[string]string{
 // not Go code, and pkg/contract's TestVocabularyParityWithSchema is what keeps
 // the two copies from drifting. Deleting a member here would leave the schema
 // still accepting a value Pacto no longer names.
-const schemaVocabulary = "readiness vocabulary mirrored by a JSON Schema enum; pinned by pkg/contract.TestVocabularyParityWithSchema"
+const schemaVocabulary = "bundle vocabulary mirrored by a JSON Schema enum; pinned by pkg/contract.TestVocabularyParityWithSchema"
 
 // runtimeDispatched are methods the standard library calls through an
 // interface it discovers by reflection, never by name. errors.Is walks Unwrap,
@@ -115,7 +122,7 @@ func TestNoProductionSymbolIsReachableOnlyFromTests(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if skipDir(root, path) {
+			if skipTree(root, path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -135,15 +142,22 @@ func TestNoProductionSymbolIsReachableOnlyFromTests(t *testing.T) {
 			return relErr
 		}
 		pkgDir := filepath.ToSlash(filepath.Dir(rel))
-		isTest := strings.HasSuffix(path, "_test.go")
+		isTestFile := strings.HasSuffix(path, "_test.go")
 
+		// Uses are collected from the whole tree, because a call is a call
+		// wherever it is written: examples/ ships as demo programs and
+		// integrations/ is a second module that imports pkg/, so deleting a
+		// symbol either one calls breaks a real build. Only some of the tree
+		// counts as PRODUCTION use, and only some of it is the gate's to
+		// police -- those are separate questions with separate answers.
 		into := prodUses
-		if isTest {
+		if isTestFile || isTestSupport(pkgDir) {
 			into = testUses
-		} else {
-			decls = append(decls, declaredIn(f, fset, pkgDir)...)
 		}
 		collectUses(f, into)
+		if !isTestFile && policedDecls(pkgDir) {
+			decls = append(decls, declaredIn(f, fset, pkgDir)...)
+		}
 		return nil
 	})
 	if err != nil {
@@ -314,10 +328,12 @@ func isGenerated(f *ast.File) bool {
 	return false
 }
 
-// skipDir excludes what is not this module's production source: the other Go
-// module, the directories the coverage gate itself excludes, and vendored,
-// generated or tool trees.
-func skipDir(root, path string) bool {
+// skipTree excludes directories that are not this repo's own source, so nothing
+// in them is read as either a declaration or a use. Dot-prefixed trees matter
+// most: .claude/worktrees holds whole stale checkouts of this repo, and every
+// call in one would otherwise read as a live caller of code nothing calls
+// anymore.
+func skipTree(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return true
@@ -329,11 +345,31 @@ func skipDir(root, path string) bool {
 	if strings.HasPrefix(filepath.Base(rel), ".") {
 		return true
 	}
-	switch rel {
-	case "integrations", "examples", "testutil", "tests", "node_modules", "vendor":
-		return true
-	}
-	return strings.HasSuffix(rel, "/testutil") ||
+	return rel == "node_modules" || rel == "vendor" ||
 		strings.Contains(rel, "/node_modules") ||
 		strings.Contains(rel, "/frontend/")
+}
+
+// isTestSupport reports whether a package exists only to serve tests. Its files
+// are not named _test.go, but nothing ships them, so a symbol they alone reach
+// is exactly as dead as one reached only from a _test.go file.
+func isTestSupport(pkgDir string) bool {
+	return pkgDir == "tests" || strings.HasPrefix(pkgDir, "tests/") ||
+		pkgDir == "testutil" || strings.HasSuffix(pkgDir, "/testutil")
+}
+
+// policedDecls reports whether the gate answers for dead code in a package. It
+// does not answer for the other Go module, for the demo programs the coverage
+// gate also excludes, or for test support: each may hold whatever it needs, and
+// what each calls still counts as real use.
+func policedDecls(pkgDir string) bool {
+	if isTestSupport(pkgDir) {
+		return false
+	}
+	for _, ex := range [...]string{"integrations", "examples"} {
+		if pkgDir == ex || strings.HasPrefix(pkgDir, ex+"/") {
+			return false
+		}
+	}
+	return true
 }
