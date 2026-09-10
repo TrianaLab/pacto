@@ -261,7 +261,7 @@ pacto doc [dir | oci://ref] [flags]
   # Serve on a custom port
   pacto doc my-service --serve --port 9090
 
-  # Launch an interactive API explorer (Scalar UI)
+  # Launch an interactive API explorer (Swagger UI)
   pacto doc my-service --ui swagger
 
   # Select a specific interface
@@ -284,7 +284,7 @@ pacto doc [dir | oci://ref] [flags]
       --serve                serve the offline dashboard-grade documentation site over a local HTTP server
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
       --target stringArray   target server URL for try-it-out requests; supports interface=url mapping (used with --ui)
-      --ui string            UI type for interactive API explorer (e.g. swagger)
+      --ui string            UI type for the interactive API explorer (one of: swagger)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
