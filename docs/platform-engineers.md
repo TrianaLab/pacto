@@ -340,18 +340,19 @@ An unreachable registry never becomes an empty result, so a service missing from
 
 ## The terminal UI
 
-`pacto tui` is the dashboard's terminal equivalent, built over the snapshot `pacto fleet` builds and taking the same source flags. It loads that snapshot once, then lets you move through services, revisions, targets, owners and sources with whatever row is highlighted standing in as the argument, so you never type a path. One difference from the dashboard matters more than the rest: **the dashboard only reads, the TUI writes**. Read verbs run in process against the loaded snapshot; write verbs shell out to this same binary so they own the terminal, and each one names what it is about to change and waits for a `y`. Pass `--read-only` and the four write verbs are absent from the key table rather than refused at the last moment. It needs an interactive terminal — in a pipeline, use the plain commands.
+`pacto tui` is the dashboard's terminal equivalent, built over the snapshot `pacto fleet` builds and taking the same source flags. It loads that snapshot once and opens on the Services tab, then lets you move through services, revisions, targets, owners and sources with whatever row is highlighted standing in as the argument, so you never type a path. One difference from the dashboard matters more than the rest: **the dashboard only reads, the TUI writes**. Read verbs run in-process against the loaded snapshot; write verbs shell out to this same binary so they own the terminal, and each one names what it is about to change before it waits for a `y` — the directory a pull will overwrite, the resolved plugin binary and the output directory a generate will write. Pass `--read-only` and the four write verbs are absent from the in-TUI help screen rather than refused at the last moment. It needs an interactive terminal — in a pipeline, use the plain commands.
 
 | Key | Action |
 |-----|--------|
-| `tab` / `shift+tab` | cycle the kind tabs, or the graph direction |
-| `/` | filter, `enter` applies and `esc` clears |
+| `tab` / `shift+tab` | cycle the tabs: kinds on the list, categories under `a`, direction on a graph |
+| `/` | filter; `enter` applies it, `esc` discards what you typed |
 | `enter` | open the highlighted row |
 | `a` | what needs attention |
 | `+` / `-` | graph depth |
-| `?` | the key table for the current screen |
+| `?` | toggle the key table for the current screen |
 | `r` | reload the snapshot |
-| `q` / `esc` | back, or quit from the root screen |
+| `q` | back, or quit from the root screen |
+| `esc` | clear an applied filter, otherwise the same as `q` |
 | `y` | copy the equivalent `pacto` command |
 | `v` | validate the selected bundle |
 | `E` / `e` | explain the bundle, or explain it from the fleet's point of view |
@@ -362,7 +363,7 @@ An unreachable registry never becomes an empty result, so a service missing from
 | `L` | rewrite the lock file (writes; asks first) |
 | `G` | run a generate plugin (writes; asks first) |
 
-`y` is the escape hatch: for anything the TUI does not offer, it puts the command you would have typed on the clipboard. See the [`pacto tui` reference](cli-reference.md#pacto-tui) for every flag.
+`y` is the escape hatch: for anything the TUI does not offer, it puts the command you would have typed on the clipboard, shell-quoted so a value carrying a space or a semicolon still pastes as one argument. When there is no clipboard to write to — over `ssh`, on a headless box — the line is printed instead, alongside the reason it could not be copied. See the [`pacto tui` reference](cli-reference.md#pacto-tui) for every flag.
 
 ---
 

@@ -46,7 +46,7 @@ var excludedFromTUI = map[string]string{
 	"logout":          "trivial, and pairs with login",
 	"mcp":             "speaks a protocol on stdio",
 	"update":          "replaces the running binary, which is the TUI",
-	"version":         "shown in the TUI status bar already",
+	"version":         "reports the running binary's own version; there is no fleet entity a row could name",
 }
 
 func TestEveryCommandIsEitherInTheTUIOrExcluded(t *testing.T) {

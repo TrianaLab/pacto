@@ -372,7 +372,7 @@ Pacto discovers the SBOM by scanning `sbom/` for recognized extensions — no co
 - **Use `--verbose` for debugging.** Pass `-v` to any command to see debug-level logs (OCI operations, resolution steps, cache hits/misses) on stderr.
 - **Use metadata for organizational context.** Team ownership, on-call channels, and service tiers go in `metadata`.
 - **Explore contracts visually.** Run `pacto dashboard` to launch the operational dashboard — navigate the operational graph, inspect interfaces, review configuration schemas, and use Change analysis to see what a revision changed and what that change affects. It auto-detects contracts from local directories, OCI registries, and Kubernetes.
-- **Or stay in the terminal.** `pacto tui` is the same fleet in a full-screen terminal UI, and unlike the dashboard it can act: validate, diff, explain and lock-check run against the highlighted row, and push, pull, lock update and generate run as confirmed subprocesses. See [The terminal UI](platform-engineers.md#the-terminal-ui).
+- **Or stay in the terminal.** `pacto tui` is the same fleet in a full-screen terminal UI, and unlike the dashboard it can act: validate, explain, lock-check and the neighborhood graph run against the highlighted row, diff and impact against two rows you arm in turn, and push, pull, lock update and generate run as confirmed subprocesses. See [The terminal UI](platform-engineers.md#the-terminal-ui).
 
 ---
 
