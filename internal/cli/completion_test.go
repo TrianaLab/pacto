@@ -62,14 +62,14 @@ func TestClosedSetFlagsComplete(t *testing.T) {
 }
 
 // TestFleetPositionalsOfferNoFilenames pins both halves of the answer for the
-// fleet verbs whose positional is a service name: no candidates, because they
-// live in a snapshot too expensive to build at tab time, and NoFileComp,
-// because without it cobra falls back to filenames for a positional that is
-// never a path. Driving __complete rather than reading the field also proves
-// the function is reached — an unset one gives candidates and the default
-// directive, which is exactly the filename fallback.
+// fleet verbs whose positional is a service name or free text: no candidates,
+// because they live in a snapshot too expensive to build at tab time, and
+// NoFileComp, because without it cobra falls back to filenames for a positional
+// that is never a path. Driving __complete rather than reading the field also
+// proves the function is reached — an unset one gives candidates and the
+// default directive, which is exactly the filename fallback.
 func TestFleetPositionalsOfferNoFilenames(t *testing.T) {
-	for _, verb := range []string{"get", "graph", "explain"} {
+	for _, verb := range []string{"search", "get", "graph", "explain"} {
 		t.Run(verb, func(t *testing.T) {
 			root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
 			out, directive := completeFlag(t, root, []string{"fleet", verb, ""})

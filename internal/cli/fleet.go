@@ -147,6 +147,10 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "search [text]",
 		Short: "Search logical services in the fleet",
 		Args:  cobra.MaximumNArgs(1),
+		// Free text matched against the fleet, never a path — the same reason its
+		// three siblings give. Without this the shell falls back to filenames and
+		// offers the working directory as if it were a search term.
+		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
