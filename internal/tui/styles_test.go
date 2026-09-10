@@ -58,6 +58,12 @@ func TestSafeTextEscapesEveryControlCharacter(t *testing.T) {
 		{"the C1 range starts at U+0080", "a\u0080b", `a\x80b`},
 		{"U+009F is the last C1", "a\u009fb", `a\x9fb`},
 		{"U+00A0 is past C1 and stays", "a\u00a0b", "a\u00a0b"},
+		{"a right-to-left override cannot reorder the line", "a\u202eb", `a\u202eb`},
+		{"U+202A is the first bidi embedding code", "a\u202ab", `a\u202ab`},
+		{"U+2066 is the first bidi isolate", "a\u2066b", `a\u2066b`},
+		{"U+2069 is the last bidi isolate", "a\u2069b", `a\u2069b`},
+		{"U+2065 is below the isolates and stays", "a\u2065b", "a\u2065b"},
+		{"U+206A is above the isolates and stays", "a\u206ab", "a\u206ab"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := safeText(tt.in); got != tt.want {

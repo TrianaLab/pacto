@@ -61,8 +61,10 @@ func renderDiff(r *app.DiffResult) string {
 	if r.GraphDiff != nil {
 		section(&b, "Graph changes")
 		// Not sanitised here: the tree arrives already coloured, so safeText would
-		// print pkg/graph's own escapes as text. Sanitising belongs in pkg/graph,
-		// which has both the names and the styling.
+		// print pkg/graph's own escapes as text. It is sanitised one level down
+		// instead, in diffColors — every label RenderDiffTreeColored prints is
+		// picked from one of those four functions, so that is the only place that
+		// can tell a contract's bytes from lipgloss's.
 		b.WriteString(graph.RenderDiffTreeColored(r.GraphDiff, diffColors()))
 	}
 	return b.String()

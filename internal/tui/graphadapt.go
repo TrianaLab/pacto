@@ -154,9 +154,16 @@ func label(r fleet.EntityRef) string {
 // treeColors is the TUI's colouriser for the shared tree renderer. It exists
 // because internal/cli's equivalent is package-private and emits raw ANSI;
 // this one goes through lipgloss so it honours the terminal's colour profile.
+//
+// Every untrusted token pkg/graph prints goes through one of these five
+// functions -- names and refs through Name, versions through Version, edge
+// errors through Error, cycles and conflicts through Warn (render.go:45-118) --
+// so the colouriser is this package's ingress for a rendered tree. The four
+// styled ones sanitise because style.Render does; Name is the identity
+// colouriser and has to say so itself.
 func treeColors() graph.TreeColors {
 	return graph.TreeColors{
-		Name:    func(s string) string { return s },
+		Name:    safeText,
 		Version: func(s string) string { return dimStyle.Render(s) },
 		Marker:  func(s string) string { return dimStyle.Render(s) },
 		Error:   func(s string) string { return errorStyle.Render(s) },
@@ -164,9 +171,14 @@ func treeColors() graph.TreeColors {
 	}
 }
 
+// diffColors is the same for the diff tree, and is the reason renderDiff can
+// hand pkg/graph's already-coloured output straight to the pane: every label
+// RenderDiffTreeColored prints is picked from one of these four
+// (renderdiff.go:33-83), so the names inside a diff tree are cleaned here
+// rather than left to a caller that cannot see them.
 func diffColors() graph.DiffColors {
 	return graph.DiffColors{
-		Name:    func(s string) string { return s },
+		Name:    safeText,
 		Added:   func(s string) string { return okStyle.Render(s) },
 		Removed: func(s string) string { return errorStyle.Render(s) },
 		Changed: func(s string) string { return warnStyle.Render(s) },
