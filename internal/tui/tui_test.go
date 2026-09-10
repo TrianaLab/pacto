@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -145,6 +146,49 @@ func TestHeaderWithoutReadOnly(t *testing.T) {
 	h := m.header()
 	if strings.Contains(h, "[read-only]") {
 		t.Fatalf("header = %q, should not contain [read-only]", h)
+	}
+}
+
+// TestHeaderFitsTheTerminal pins the one thing the header has to do besides
+// name the trail: stay on its own line. Every push added a crumb and nothing
+// dropped one, so twelve of them gave a 285-column breadcrumb on an 80-column
+// terminal and the frame wrapped it over the body.
+func TestHeaderFitsTheTerminal(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		crumbs   []string
+		readOnly bool
+		want     string // a crumb the header must still show
+	}{
+		{"a short trail is untouched", []string{"Fleet", "payments"}, false, "payments"},
+		{"a long trail keeps both ends", []string{
+			"Fleet", "payments-api", "Graph: payments-api", "orders-api",
+			"Graph: orders-api", "shipping-api", "Graph: shipping-api",
+			"billing-api", "Graph: billing-api", "notifications-api",
+		}, false, "Fleet"},
+		{"the read-only tag is part of the budget", []string{
+			"Fleet", "payments-api", "Graph: payments-api", "orders-api",
+			"Graph: orders-api", "shipping-api", "Graph: shipping-api",
+		}, true, "[read-only]"},
+		{"two crumbs too long for the width are cut", []string{
+			strings.Repeat("a", 60), strings.Repeat("b", 60),
+		}, false, "aaaa"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New(testOptions())
+			m.ctx.ReadOnly = tt.readOnly
+			m.stack = nil
+			for _, c := range tt.crumbs {
+				m.stack = append(m.stack, newOutputScreen(c))
+			}
+			h := m.header()
+			if got := lipgloss.Width(h); got > m.ctx.Width {
+				t.Fatalf("header is %d columns wide on a %d-column terminal:\n%s", got, m.ctx.Width, h)
+			}
+			if !strings.Contains(h, tt.want) {
+				t.Fatalf("header lost %q:\n%s", tt.want, h)
+			}
+		})
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -191,11 +192,40 @@ func (m *Model) header() string {
 	for _, s := range m.stack {
 		crumbs = append(crumbs, safeText(s.Title()))
 	}
-	title := headerStyle.Render("pacto  " + strings.Join(crumbs, " > "))
+	const prefix = "pacto  "
+	const tag = "  [read-only]"
+	room := m.ctx.Width - lipgloss.Width(prefix)
+	if m.ctx.ReadOnly {
+		room -= lipgloss.Width(tag)
+	}
+	title := headerStyle.Render(prefix + breadcrumb(crumbs, room))
 	if m.ctx.ReadOnly {
 		title += "  " + warnStyle.Render("[read-only]")
 	}
 	return title
+}
+
+// breadcrumb renders the trail in at most width cells. Every push adds a crumb
+// and nothing ever dropped one, so twelve g presses gave a 285-column trail on
+// an 80-column terminal and the renderer wrapped it over the body.
+//
+// What goes is the middle: the first crumb says where the reader started and the
+// last says where they are now, and the trail between the two is what a narrow
+// terminal can afford to lose. A first-and-last that still does not fit is cut
+// rather than wrapped -- a header that eats the screen is worse than a clipped
+// one.
+func breadcrumb(crumbs []string, width int) string {
+	trail := strings.Join(crumbs, " > ")
+	if lipgloss.Width(trail) <= width {
+		return trail
+	}
+	if len(crumbs) > 2 {
+		trail = crumbs[0] + " > ... > " + crumbs[len(crumbs)-1]
+		if lipgloss.Width(trail) <= width {
+			return trail
+		}
+	}
+	return lipgloss.NewStyle().MaxWidth(width).Render(trail)
 }
 
 func (m *Model) footer() string {
