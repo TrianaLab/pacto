@@ -148,8 +148,9 @@ Compares two contracts and classifies every change using a deterministic rule ta
 Parses SPDX 2.3 and CycloneDX 1.5 SBOM files from the bundle's `sbom/` directory and normalizes them into a unified package model. Provides a diff engine that compares two SBOM documents and reports package-level changes (added, removed, version/license modified).
 
 - `ParseFromFS()` -- scans `sbom/` for recognized extensions, auto-detects format
-- `HasSBOM()` -- checks whether a bundle contains recognized SBOM files
 - `Diff()` -- compares two SBOM documents and returns changes
+- `HasSBOM()` -- deprecated; nothing in Pacto calls it, and `ParseFromFS()`
+  returning a non-nil document answers the same question. Removed at v4.
 
 The diff engine (`pkg/diff`) calls into this package when both bundles contain SBOMs. Results are reported separately from contract changes and don't affect classification.
 
@@ -236,7 +237,7 @@ Key components:
 
 - **`BundleStore`** interface -- the core abstraction: `Push()`, `Pull()`, `Resolve()`, `ListTags()`
 - **`Client`** -- implements `BundleStore` using `go-containerregistry`. Translates between `contract.Bundle` and OCI images (tar.gz layer with metadata labels)
-- **`CachedStore`** -- wraps any `BundleStore` with in-memory and disk caching (`~/.cache/pacto/oci/<registry>/<repo>/<tag>/bundle.tar.gz`). Can be disabled at runtime via `--no-cache`
+- **`CachedStore`** -- wraps any `BundleStore` with in-memory and disk caching. An entry is `~/.cache/pacto/oci/_v2/<escaped repo segments>/<escaped tag>/`, holding `bundle.tar.gz` and a `ref.json` sidecar naming the reference that bundle came from. The reserved `_v2/` segment keeps the layout disjoint from the pre-injective one it replaced: that key spelled every `:` as `/`, so `localhost:5000/demo/svc:1.0.0` and `localhost/5000/demo/svc:1.0.0` named one directory and overwrote each other. Entries in the old layout are still read, and only served when their sidecar names the reference asked for; nothing is written there. `--no-cache` stops disk *reads* -- writes continue, so a bundle pulled in the same session is still available for enrichment
 - **`Resolver`** -- lazy version resolution with semver filtering. `Resolve()` pulls bundles in `LocalOnly` or `RemoteAllowed` mode. `FetchAllVersions()` pulls every semver tag to populate the cache. `FilterSemverTags()` selects valid semver tags sorted descending
 - **Credential chain** -- `NewKeychain()` resolves credentials by priority order; see [CLI reference → Authentication](cli-reference.md#authentication) for the full chain
 - **Typed errors** -- `AuthenticationError`, `ArtifactNotFoundError`, `RegistryUnreachableError`, `InvalidRefError`, `InvalidBundleError`, `NoMatchingVersionError`

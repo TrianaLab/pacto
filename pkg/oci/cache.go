@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
-	"github.com/trianalab/pacto/v3/internal/cachehook"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 )
@@ -28,10 +28,27 @@ import (
 // bundles ever blow the ceiling on their own.
 var pullCacheMaxEntries = 512
 
+// tagsTTL bounds how long one observation of a repository's tag set is reused.
+// See [CachedStore.ListTags] for why an unbounded memo is wrong. It is half the
+// interval the dashboard's rediscovery loop runs at, which is the property that
+// matters: a TTL equal to the interval lets an entry written just after one pass
+// survive the next one, so a release could stay invisible for two passes rather
+// than one. Half the interval guarantees every pass but the one that filled the
+// memo reads through to the registry.
+const tagsTTL = 30 * time.Second
+
+// tagsEntry is one observation of a repository's tags and WHEN it was made. The
+// timestamp is the whole point: without it the memo cannot tell a fresh answer
+// from the first answer this process ever got.
+type tagsEntry struct {
+	tags []string
+	at   time.Time
+}
+
 // CachedStore wraps a BundleStore with in-memory and disk caching. Pulled
 // bundles are kept in memory (fastest) and persisted to disk under
 // ~/.cache/pacto/oci/ so they survive across process invocations. ListTags
-// results are cached in memory for the lifetime of the process.
+// results are memoized for [tagsTTL].
 type CachedStore struct {
 	inner    BundleStore
 	cacheDir string
@@ -55,7 +72,7 @@ type CachedStore struct {
 	pullLRU   *list.List
 
 	tagsMu    sync.Mutex
-	tagsCache map[string][]string
+	tagsCache map[string]tagsEntry
 }
 
 // pullEntry is the value stored in each pullLRU list element. ref is the LOOKUP
@@ -83,7 +100,7 @@ func NewCachedStore(inner BundleStore) *CachedStore {
 		cacheDir:  dir,
 		pullCache: map[string]*list.Element{},
 		pullLRU:   list.New(),
-		tagsCache: map[string][]string{},
+		tagsCache: map[string]tagsEntry{},
 	}
 }
 
@@ -98,7 +115,7 @@ func (c *CachedStore) DisableCache() {
 	c.pullLRU = list.New()
 	c.pullMu.Unlock()
 	c.tagsMu.Lock()
-	c.tagsCache = map[string][]string{}
+	c.tagsCache = map[string]tagsEntry{}
 	c.tagsMu.Unlock()
 }
 
@@ -141,17 +158,27 @@ func (c *CachedStore) Resolve(ctx context.Context, ref string) (string, error) {
 	return c.inner.Resolve(ctx, ref)
 }
 
-// ListTags returns the tags for repo, serving from the in-memory tags cache on
-// a hit and otherwise querying the wrapped store and caching the result for the
-// process lifetime.
+// ListTags returns the tags for repo, serving a recent observation from memory
+// and otherwise querying the wrapped store.
+//
+// The memo EXPIRES, for the same reason [CachedStore.Resolve] has none: the tag
+// set is a mutable registry fact, and a memo that outlives the fact answers with
+// a registry that no longer exists. A memo for the process lifetime made a
+// long-running reader — the dashboard rediscovers on a loop — answer every pass
+// from its FIRST observation, so a release published after startup was invisible
+// forever and fetch-all-versions pulled nothing while reporting success.
+//
+// [tagsTTL] is short enough that the next rediscovery pass sees a new release
+// and long enough that the several ListTags calls one pass makes over one repo
+// cost one round trip.
 func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, error) {
 	c.tagsMu.Lock()
-	if cached, ok := c.tagsCache[repo]; ok {
-		c.tagsMu.Unlock()
-		logging.LoggerFromContext(ctx).Debug("tags cache hit", "repo", repo)
-		return cached, nil
-	}
+	cached, ok := c.tagsCache[repo]
 	c.tagsMu.Unlock()
+	if ok && time.Since(cached.at) < tagsTTL {
+		logging.LoggerFromContext(ctx).Debug("tags cache hit", "repo", repo)
+		return cached.tags, nil
+	}
 
 	tags, err := c.inner.ListTags(ctx, repo)
 	if err != nil {
@@ -159,7 +186,7 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 	}
 
 	c.tagsMu.Lock()
-	c.tagsCache[repo] = tags
+	c.tagsCache[repo] = tagsEntry{tags: tags, at: time.Now()}
 	c.tagsMu.Unlock()
 
 	return tags, nil
@@ -170,6 +197,10 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 // It NEVER contacts the registry, so it is the offline read path: [Resolver] in
 // [LocalOnly] mode uses it, which is what keeps "local only" from silently
 // becoming a per-ref network pull on a cache miss.
+//
+// Deprecated: it exists to serve [LocalOnly], which has no production caller.
+// Use [CachedStore.Pull], which reads the cache first and falls through to the
+// registry. Removed at v4.
 func (c *CachedStore) PullCached(ctx context.Context, ref string) (*contract.Bundle, bool) {
 	bundle, _, hit := c.pullCached(ctx, ref)
 	return bundle, hit
@@ -184,6 +215,10 @@ func (c *CachedStore) PullCached(ctx context.Context, ref string) (*contract.Bun
 // The record is the entry's own statement, not the lookup key echoed back, and a
 // hit is only reported when the two AGREE (see [CachedStore.pullCached]). A zero
 // record means the entry predates the sidecar and states no identity at all.
+//
+// Deprecated: it exists to serve [LocalOnly], which has no production caller.
+// Use [CachedStore.PullPinned], which reads the cache first and falls through to
+// the registry. Removed at v4.
 func (c *CachedStore) PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
 	return c.pullCached(ctx, ref)
 }
@@ -328,6 +363,10 @@ type CachedRef struct {
 // content under the next generation's identity. Anything that needs both facts
 // must call [ReadCacheEntry]; this reports what a sidecar says, for callers
 // checking what a WRITER wrote.
+//
+// Deprecated: no production caller reads a sidecar on its own, and the pairing
+// it invites is the splice [ReadCacheEntry] exists to prevent. Use
+// [ReadCacheEntry]. Removed at v4.
 func ReadCachedRef(dir string) (CachedRef, bool) {
 	b, err := os.ReadFile(filepath.Join(dir, CachedRefFile))
 	if err != nil {
@@ -636,6 +675,14 @@ func ReadCacheEntry(dir string) (*contract.Bundle, CachedRef, bool) {
 	return nil, CachedRef{}, false
 }
 
+// afterBundleRead runs between the two observations a cache-entry read makes:
+// after the bundle bytes have come off a held generation and before the identity
+// beside them is read through the same handle. That instant is the one a
+// competing writer commits in, and it is the only place a test can prove the
+// reader stays on one generation. Production never replaces it; the zero value
+// is a no-op.
+var afterBundleRead = func() {}
+
 // readCacheGeneration reads one generation through a single directory handle.
 // The last result reports that the generation went away mid-read, so the caller
 // can read its successor instead of returning half of each.
@@ -656,7 +703,7 @@ func readCacheGeneration(dir string) (*contract.Bundle, CachedRef, bool) {
 		return nil, CachedRef{}, false
 	}
 
-	cachehook.AfterBundleRead()
+	afterBundleRead()
 
 	rec, ok := readCachedRefFrom(root)
 	// No sidecar has two meanings: an entry written before sidecars existed —

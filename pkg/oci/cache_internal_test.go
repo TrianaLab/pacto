@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
@@ -135,7 +136,7 @@ func TestCachedStore_PullCacheEvictsBeyondCap(t *testing.T) {
 		inner:     inner,
 		pullCache: map[string]*list.Element{},
 		pullLRU:   list.New(),
-		tagsCache: map[string][]string{},
+		tagsCache: map[string]tagsEntry{},
 	}
 	ctx := context.Background()
 
@@ -290,7 +291,7 @@ func TestCachedStore_PullCacheEvictsLRUNotFIFO(t *testing.T) {
 		inner:     inner,
 		pullCache: map[string]*list.Element{},
 		pullLRU:   list.New(),
-		tagsCache: map[string][]string{},
+		tagsCache: map[string]tagsEntry{},
 	}
 	ctx := context.Background()
 
@@ -322,7 +323,7 @@ func TestCachedStoreDisableCacheIsRaceFree(t *testing.T) {
 		cacheDir:  t.TempDir(),
 		pullCache: map[string]*list.Element{},
 		pullLRU:   list.New(),
-		tagsCache: map[string][]string{},
+		tagsCache: map[string]tagsEntry{},
 	}
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -340,4 +341,65 @@ func TestCachedStoreDisableCacheIsRaceFree(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+}
+
+// tagListingStore answers ListTags with whatever the test last published, and
+// counts how often it was actually asked.
+type tagListingStore struct {
+	mu    sync.Mutex
+	tags  []string
+	calls int
+}
+
+func (s *tagListingStore) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", nil
+}
+func (s *tagListingStore) Resolve(context.Context, string) (string, error) { return "", nil }
+func (s *tagListingStore) Pull(context.Context, string) (*contract.Bundle, error) {
+	return nil, errors.New("this store must not be pulled")
+}
+func (s *tagListingStore) ListTags(context.Context, string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	return s.tags, nil
+}
+
+// TestCachedStore_ListTags_AnAgedMemoIsReListed is the counterexample for a memo
+// that never expires. A tag set is a MUTABLE registry fact, so a memo kept for
+// the process lifetime answered a long-running reader — the dashboard
+// rediscovers on a loop — from its FIRST observation forever: a release
+// published after startup was invisible for as long as the process ran.
+func TestCachedStore_ListTags_AnAgedMemoIsReListed(t *testing.T) {
+	inner := &tagListingStore{tags: []string{"1.0.0"}}
+	c := NewCachedStore(inner)
+	ctx := context.Background()
+	const repo = "ghcr.io/test/repo"
+
+	if _, err := c.ListTags(ctx, repo); err != nil {
+		t.Fatalf("first ListTags: %v", err)
+	}
+
+	// 2.0.0 is released, and the memo ages past its TTL.
+	inner.mu.Lock()
+	inner.tags = []string{"1.0.0", "2.0.0"}
+	inner.mu.Unlock()
+	c.tagsMu.Lock()
+	aged := c.tagsCache[repo]
+	aged.at = aged.at.Add(-tagsTTL - time.Second)
+	c.tagsCache[repo] = aged
+	c.tagsMu.Unlock()
+
+	tags, err := c.ListTags(ctx, repo)
+	if err != nil {
+		t.Fatalf("second ListTags: %v", err)
+	}
+	if len(tags) != 2 {
+		t.Errorf("tags = %v, want the released 2.0.0 too: an expired memo must be re-listed", tags)
+	}
+	inner.mu.Lock()
+	defer inner.mu.Unlock()
+	if inner.calls != 2 {
+		t.Errorf("the registry was asked %d times, want 2: the aged memo answered instead", inner.calls)
+	}
 }

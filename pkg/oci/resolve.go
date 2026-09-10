@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
+	msemver "github.com/Masterminds/semver/v3"
 	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
 // TagLister can list available tags for an OCI repository.
@@ -35,39 +35,34 @@ func HasExplicitTag(ref string) bool {
 
 // BestTag selects the highest semver tag from tags. If constraint is non-empty,
 // only tags satisfying the semver constraint are considered.
+//
+// Which tags count as versions, and which of them is highest, is [semver]'s
+// answer and not a second one: a repository's version list must not depend on
+// whether the resolver or the dashboard asked. All that is left here is the
+// constraint, which is the only part of the question this package owns.
 func BestTag(tags []string, constraint string) (string, error) {
-	var versions []*semver.Version
-	for _, t := range tags {
-		v, err := semver.NewVersion(t)
-		if err != nil {
-			continue
+	// Descending, so the first tag that satisfies the constraint is the best one.
+	sorted := semver.Filter(tags)
+
+	if constraint == "" {
+		if len(sorted) == 0 {
+			return "", fmt.Errorf("no semver tags found: %w", ErrNoMatchingTag)
 		}
-		versions = append(versions, v)
+		return sorted[0], nil
 	}
 
-	if constraint != "" {
-		c, err := semver.NewConstraint(constraint)
-		if err != nil {
-			return "", fmt.Errorf("invalid constraint %q: %w", constraint, err)
-		}
-		var filtered []*semver.Version
-		for _, v := range versions {
-			if c.Check(v) {
-				filtered = append(filtered, v)
-			}
-		}
-		versions = filtered
+	c, err := msemver.NewConstraint(constraint)
+	if err != nil {
+		return "", fmt.Errorf("invalid constraint %q: %w", constraint, err)
 	}
-
-	if len(versions) == 0 {
-		if constraint != "" {
-			return "", fmt.Errorf("no tags satisfy constraint %q: %w", constraint, ErrNoMatchingTag)
+	for _, tag := range sorted {
+		// Filter already accepted these, so the re-parse cannot fail.
+		v, _ := msemver.NewVersion(tag)
+		if c.Check(v) {
+			return tag, nil
 		}
-		return "", fmt.Errorf("no semver tags found: %w", ErrNoMatchingTag)
 	}
-
-	sort.Sort(semver.Collection(versions))
-	return versions[len(versions)-1].Original(), nil
+	return "", fmt.Errorf("no tags satisfy constraint %q: %w", constraint, ErrNoMatchingTag)
 }
 
 // ResolveRef resolves an OCI reference that may be missing a tag by querying

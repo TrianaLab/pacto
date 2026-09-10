@@ -24,6 +24,12 @@ type BundleStore interface {
 type ClientOption func(*Client)
 
 // WithNameOptions adds name.Option values used when parsing OCI references.
+//
+// Deprecated: no production caller remains, and its only real use — name.Insecure
+// — is a GLOBAL plain-HTTP allowance where [WithInsecureRegistries] scopes the
+// same thing per host, so a test configured this way cannot catch a ref that
+// accidentally reaches the public internet over http. Use
+// [WithInsecureRegistries]. Removed at v4.
 func WithNameOptions(opts ...name.Option) ClientOption {
 	return func(c *Client) {
 		c.nameOpts = append(c.nameOpts, opts...)

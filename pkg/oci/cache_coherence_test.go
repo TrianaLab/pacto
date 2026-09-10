@@ -60,8 +60,7 @@ func (s *fixedStore) Pull(context.Context, string) (*contract.Bundle, error) {
 func useTempCacheHome(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
-	old := oci.SetUserHomeDirFn(func() (string, error) { return home, nil })
-	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
+	t.Setenv("HOME", home)
 }
 
 // heldBundle reads an entry back through the real disk-cache read path, over a

@@ -16,6 +16,13 @@ type ResolveMode int
 
 const (
 	// LocalOnly restricts resolution to the local disk cache.
+	//
+	// Deprecated: no production caller remains — the fleet OCI source moved to a
+	// resolver that also knows how to dial, so "offline" is now a decision the
+	// caller makes about which sources to include rather than a resolver mode.
+	// Use [RemoteAllowed] with a [CachedStore]. Removed at v4 along with
+	// [CachedStore.PullCached], [CachedStore.PullCachedPinned] and
+	// [ReadCachedRef], which exist to serve it.
 	LocalOnly ResolveMode = iota
 	// RemoteAllowed permits fetching from the OCI registry on cache miss.
 	RemoteAllowed

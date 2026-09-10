@@ -1,7 +1,9 @@
 package oci
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,9 +47,19 @@ func EnvInsecureRegistries() []string {
 var userHomeDirFn = os.UserHomeDir
 
 // ExportedUserHomeDirFn returns the current userHomeDirFn for testing.
+//
+// Deprecated: use t.Setenv("HOME", dir) instead. This is a test hook on the
+// exported surface of a released major, so any importer can redirect credential
+// and cache resolution in a running process. Removed at v4 together with
+// [SetUserHomeDirFn].
 func ExportedUserHomeDirFn() func() (string, error) { return userHomeDirFn }
 
 // SetUserHomeDirFn sets userHomeDirFn and returns the previous value for deferred restore.
+//
+// Deprecated: use t.Setenv("HOME", dir) instead, which scopes the override to
+// one test instead of the process. An exported mutable process-global that only
+// tests set lets any importer repoint where pacto reads credentials and writes
+// its cache. Removed at v4.
 func SetUserHomeDirFn(fn func() (string, error)) func() (string, error) {
 	old := userHomeDirFn
 	userHomeDirFn = fn
@@ -176,13 +188,13 @@ func (k *pactoConfigKeychain) Resolve(target authn.Resource) (authn.Authenticato
 		return authn.Anonymous, nil
 	}
 
-	data, err := os.ReadFile(cfgPath)
+	// The READ path fails open, and this is the one line that decides it: a
+	// config that cannot be read or parsed leaves this keychain anonymous so the
+	// next source in the chain still gets its turn. loadPactoConfig itself fails
+	// closed, for the writers; the two answers to one file state are opposite on
+	// purpose, so the swallow is spelled where it is taken.
+	cfg, err := loadPactoConfig(cfgPath)
 	if err != nil {
-		return authn.Anonymous, nil
-	}
-
-	var cfg PactoConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
 		return authn.Anonymous, nil
 	}
 
@@ -192,6 +204,102 @@ func (k *pactoConfigKeychain) Resolve(target authn.Resource) (authn.Authenticato
 	}
 
 	return authn.FromConfig(authn.AuthConfig{Auth: entry.Auth}), nil
+}
+
+// SetCredential stores username/password for registry in pacto's credential
+// file (see [PactoConfigPath]), replacing whatever entry was there and leaving
+// every other registry's entry untouched. The file ends up mode 0600 whether or
+// not it already existed.
+//
+// It FAILS CLOSED: a credential file that exists but cannot be read or parsed is
+// an error, never an empty starting point. Continuing from a zero-valued config
+// on a transient EACCES or EIO would rewrite the file with one entry and delete
+// every other stored credential while reporting success — which is the one
+// failure a credential writer must not have.
+func SetCredential(registry, username, password string) error {
+	path, err := PactoConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine config path: %w", err)
+	}
+	cfg, err := loadPactoConfig(path)
+	if err != nil {
+		return err
+	}
+	if cfg.Auths == nil {
+		cfg.Auths = map[string]PactoAuth{}
+	}
+	// Base64 "username:password", the Docker convention [pactoConfigKeychain]
+	// hands straight to authn on the read side.
+	cfg.Auths[registry] = PactoAuth{
+		Auth: base64.StdEncoding.EncodeToString([]byte(username + ":" + password)),
+	}
+	return storePactoConfig(path, cfg)
+}
+
+// RemoveCredential deletes registry's entry from pacto's credential file and
+// reports whether one was there to delete.
+//
+// A missing credential file is (false, nil) — nothing is stored, so nothing is
+// removed — but an unreadable or unparseable one is an error, the same
+// fail-closed rule as [SetCredential] and for the same reason.
+func RemoveCredential(registry string) (bool, error) {
+	path, err := PactoConfigPath()
+	if err != nil {
+		return false, fmt.Errorf("failed to determine config path: %w", err)
+	}
+	cfg, err := loadPactoConfig(path)
+	if err != nil {
+		return false, err
+	}
+	if _, ok := cfg.Auths[registry]; !ok {
+		return false, nil
+	}
+	delete(cfg.Auths, registry)
+	if err := storePactoConfig(path, cfg); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// loadPactoConfig reads the credential file. Only "there is no file" yields an
+// empty config; every other failure is reported, so a writer built on this can
+// never mistake "could not look" for "nothing stored".
+func loadPactoConfig(path string) (PactoConfig, error) {
+	var cfg PactoConfig
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return cfg, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return cfg, fmt.Errorf("failed to parse existing %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// storePactoConfig writes cfg as the credential file, owner-readable only.
+func storePactoConfig(path string, cfg PactoConfig) error {
+	// PactoConfig is strings all the way down, so marshalling cannot fail.
+	out, _ := json.MarshalIndent(cfg, "", "  ")
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create %s: %w", dir, err)
+	}
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return fmt.Errorf("failed to write %s: %w", path, err)
+	}
+	// os.WriteFile applies its mode only to a file it CREATES, so an existing
+	// config would keep whatever permissions it already had — world-readable
+	// credentials, silently. Chmod in place is what makes 0600 a property of the
+	// file. Unlinking first would do it too and costs two regressions: a read-only
+	// config directory holding a writable config can be written but not unlinked,
+	// and a config symlinked into a dotfiles repo would lose the link, because
+	// remove does not follow one and write does. Chmod's own error is a
+	// *PathError, which already names the operation and the file.
+	return os.Chmod(path, 0600)
 }
 
 // ghKeychain uses the gh CLI to obtain tokens for GitHub registries.
