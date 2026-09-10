@@ -295,6 +295,46 @@ func TestDispatchIgnoresAnUnboundKey(t *testing.T) {
 	}
 }
 
+// countingScreen reports how many times dispatch asked it what is selected.
+type countingScreen struct {
+	ref  fleet.EntityRef
+	asks int
+}
+
+func (s *countingScreen) Title() string                              { return "Counting" }
+func (s *countingScreen) Update(*Context, tea.Msg) (screen, tea.Cmd) { return s, nil }
+func (s *countingScreen) View(*Context) string                       { return "" }
+func (s *countingScreen) selected() (fleet.EntityRef, bool) {
+	s.asks++
+	return s.ref, true
+}
+
+// TestDispatchResolvesTheSelectionOnlyForABoundKey pins A18. Resolving first
+// meant every j, k, g and stray keystroke on a list ran Query.EntityDetail and
+// its JSON deep clone — about 1.9 ms of work thrown away per press.
+func TestDispatchResolvesTheSelectionOnlyForABoundKey(t *testing.T) {
+	c := newLoadedContext(t)
+	s := &countingScreen{ref: firstEntityOfKind(t, c, fleet.KindService)}
+
+	for _, k := range []tea.KeyPressMsg{
+		{Code: 'j', Text: "j"}, {Code: 'k', Text: "k"}, {Code: 'Z', Text: "Z"},
+	} {
+		if _, handled := dispatchVerb(c, s, k); handled {
+			t.Fatalf("%s is not a verb but was consumed", k.String())
+		}
+	}
+	if s.asks != 0 {
+		t.Fatalf("unbound keys resolved the selection %d times, want 0", s.asks)
+	}
+
+	if _, handled := dispatchVerb(c, s, tea.KeyPressMsg{Code: 'v', Text: "v"}); !handled {
+		t.Fatal("v was not handled")
+	}
+	if s.asks != 1 {
+		t.Fatalf("v resolved the selection %d times, want exactly 1", s.asks)
+	}
+}
+
 func TestDispatchWithNothingSelectedSetsAStatusInsteadOfRunning(t *testing.T) {
 	c := newLoadedContext(t)
 	l := newListScreen(c).(*listScreen)
