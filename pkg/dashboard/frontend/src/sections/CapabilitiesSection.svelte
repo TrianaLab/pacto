@@ -42,7 +42,10 @@
 
     {#if skills?.length > 0}
       <div class="skills">
-        <h4>Skills</h4>
+        <!-- h3: the section title is an h2, so the first level inside a section body
+             is h3. h4 only read as legal while an earlier section happened to supply
+             the missing h3. -->
+        <h3>Skills</h3>
         {#each skills as skill, i}
           <div class="detail-card">
             <button type="button" class="detail-card-header" onclick={() => toggleSkill(i)}>
@@ -73,7 +76,7 @@
   .muted { color: var(--c-text-2); }
 
   .skills { margin-top: var(--sp-3); }
-  .skills h4 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
+  .skills h3 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
 
   .detail-card {
     border: 1px solid var(--c-border);

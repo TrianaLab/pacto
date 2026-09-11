@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { DOC_ORIGIN } from './ports';
 
 /**
  * Exhaustive heading / landmark / page-title audit over EVERY canonical Fleet
@@ -138,9 +139,12 @@ let bootSeq = 0;
  * below it can pass against the page we already audited. Forcing a real navigation
  * also makes this an honest deep-link test: each route is entered cold, the way a
  * shared link enters it.
+ *
+ * `origin` selects the host: empty (the default) means the baseURL, the WASM demo.
+ * The legacy sweep passes DOC_ORIGIN to reach the offline export instead.
  */
-async function boot(page: Page, hash: string) {
-  await page.goto(`/index.html?boot=${++bootSeq}${hash}`);
+async function boot(page: Page, hash: string, origin = '') {
+  await page.goto(`${origin}/index.html?boot=${++bootSeq}${hash}`);
   await page.waitForFunction(() => !document.body.textContent?.includes('Loading Pacto'), null, { timeout: 60_000 });
   // Wait for the page's own h1, not a fixed sleep: a detail route only grows its
   // heading once the entity request lands, and the title mirrors the heading.
@@ -223,26 +227,26 @@ test.describe('document structure on every canonical Fleet route', () => {
 });
 
 test.describe('document structure on the retained non-Fleet compatibility surface', () => {
-  // The offline `pacto doc` export has no Product API, so the legacy views are its only
-  // UI and are retained deliberately. "Retained" has to mean accessible too.
-  test.beforeEach(async ({ page }) => {
-    await page.route('**/api/capabilities', async (route) => {
-      const res = await route.fetch();
-      const body = await res.json().catch(() => ({}));
-      await route.fulfill({ json: { ...body, fleet: false } });
-    });
-  });
-
+  // The legacy views are retained deliberately, and they have exactly ONE host: the
+  // offline `pacto doc --format html` export, which carries its answers inline as
+  // window.__PACTO_STATIC__ and reports fleet:false. No live host serves them -- the
+  // wasm demo included -- because a live host has a whole fleet and answers
+  // /api/fleet/* instead. This sweep used to run against the demo with the
+  // capabilities probe stubbed to fleet:false, which reached the legacy views but
+  // fed them a host that 404s /api/services, so it was auditing an error state.
+  // "Retained" has to mean accessible too, so audit the export itself.
   test('legacy routes', async ({ page }) => {
     test.setTimeout(SWEEP_TIMEOUT);
-    await boot(page, '#/services');
+    await boot(page, '#/services', DOC_ORIGIN);
     await assertStructure(page, 'Legacy services list');
 
-    const name = await page.evaluate(async () => {
-      const j = await (await fetch('/api/services')).json();
-      return (j.services || j || [])[0]?.name || '';
-    });
-    test.skip(!name, 'no legacy service to open');
+    // The export names the one service it was built from, so take the name from the
+    // export rather than from the services list -- which a single-bundle export
+    // deliberately answers empty.
+    const name = await page.evaluate(
+      () => (globalThis as { __PACTO_STATIC__?: { service?: string } }).__PACTO_STATIC__?.service || '',
+    );
+    expect(name, 'the offline export did not name its service').not.toBe('');
 
     for (const [label, hash] of [
       ['Legacy service detail', `#/services/${encodeURIComponent(name)}`],
@@ -252,17 +256,17 @@ test.describe('document structure on the retained non-Fleet compatibility surfac
       ['Legacy readiness', '#/readiness'],
       ['Legacy standalone compare', '#/diff'],
     ] as Array<[string, string]>) {
-      await boot(page, hash);
+      await boot(page, hash, DOC_ORIGIN);
       await assertStructure(page, label);
     }
 
     // The legacy owner detail is only reachable by id, so take the id the list itself
     // links to rather than guessing one.
-    await boot(page, '#/owners');
+    await boot(page, '#/owners', DOC_ORIGIN);
     const ownerLink = page.locator('a[href^="#/owners/"]').first();
     const ownerHref = (await ownerLink.count()) ? await ownerLink.getAttribute('href') : null;
     if (ownerHref) {
-      await boot(page, ownerHref);
+      await boot(page, ownerHref, DOC_ORIGIN);
       await assertStructure(page, 'Legacy owner detail');
     }
   });

@@ -17,6 +17,11 @@
 
 BASE        ?= ./
 DIST        ?= dist
+# The offline `pacto doc --format html` export the browser suite audits. Written
+# OUTSIDE $(DIST) so the published demo site never carries it, and served on its
+# own origin because the embedded UI it reuses references its assets absolutely.
+DOC_DIST    ?= .doc-export
+DOC_BUNDLE  ?= bundles/payments-service/v2.0.1
 GOROOT      := $(shell go env GOROOT)
 SERVE_PORT  ?= 8088
 FRONTEND    := $(abspath ../../pkg/dashboard/frontend)
@@ -30,7 +35,7 @@ UI_BUILD    := $(abspath .ui-build)
 # short SHA, then "dev", when no tags are present.
 VERSION     ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: build preflight ui wasm wasmexec inject serve test validate smoke clean diff breaking-change evolution graph explain
+.PHONY: build preflight ui wasm wasmexec inject doc-export serve test validate smoke clean diff breaking-change evolution graph explain
 
 build: preflight ui wasm wasmexec inject
 	@echo "==> Built '$(DIST)' (base $(BASE))"
@@ -104,6 +109,16 @@ inject:
 	  printf '{"base":"%s","version":"%s","build":"%s"}\n' "$(BASE)" "$(VERSION)" "$$bust" > $(DIST)/version.json
 	@echo "==> Injected loader (version $(VERSION)), 404.html, cache-busted engine, version.json"
 
+## Build the offline static export of one demo bundle: `pacto doc -o NAME.html`
+## writes a self-contained site to NAME/. This is the ONLY host of the legacy
+## non-Fleet views -- a live host, the wasm demo included, serves /api/fleet/*
+## and does not mount /api/services at all -- so it is what the browser suite's
+## legacy structural audit runs against. Offline: the bundle is a local path.
+doc-export:
+	@rm -rf $(DOC_DIST)
+	go run ../../cmd/pacto doc $(DOC_BUNDLE) -o $(DOC_DIST).html
+	@echo "==> Built '$(DOC_DIST)' from $(DOC_BUNDLE)"
+
 ## Run the EmbedSource host tests.
 test:
 	go test ./...
@@ -168,5 +183,5 @@ explain:
 	@pacto explain $(REF)
 
 clean:
-	@rm -rf $(DIST) .serve $(UI_BUILD)
+	@rm -rf $(DIST) .serve $(UI_BUILD) $(DOC_DIST)
 	@echo "==> Cleaned"

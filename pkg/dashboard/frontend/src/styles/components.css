@@ -254,7 +254,11 @@ select {
      title/message text below AA contrast (axe samples it mid-fade). The resting state is
      AA; the fade added no real value on a resting empty/error panel. */
 }
-.state-box h3 { color: var(--c-text-2); }
+/* Matches every level a state box can legally take: h1 when the box REPLACES the page
+   and its heading is the only one on it, h2 when it sits under the page h1, h3 when it
+   is nested inside a section. The scoped copies in EmptyState.svelte and
+   ProductEmptyState.svelte already read this way. */
+.state-box :is(h1, h2, h3) { color: var(--c-text-2); }
 .state-box p { max-width: 400px; line-height: var(--line-height); }
 
 /* ─── Section heading ─── */

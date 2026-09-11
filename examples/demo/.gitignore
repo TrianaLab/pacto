@@ -2,6 +2,7 @@
 /dist/
 /.serve/
 /.ui-build/
+/.doc-export/
 
 # Host build binary (named after the package dir)
 /demo

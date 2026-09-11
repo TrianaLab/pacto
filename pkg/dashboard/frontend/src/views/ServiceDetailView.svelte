@@ -303,11 +303,15 @@
   });
 </script>
 
+<!-- h1 in each of these branches, not h3: they REPLACE the whole detail page, so the
+     heading in the box is the only heading the page has. An h3 alone left the page with
+     no h1 at all (WCAG 1.3.1, axe page-has-heading-one) -- the failure is invisible from
+     inside the component, because the h1 it is standing in for is in a sibling branch. -->
 {#if resolving}
-  <div class="state-box"><div class="spinner"></div><h3>Resolving remote dependency...</h3></div>
+  <div class="state-box"><div class="spinner"></div><h1>Resolving remote dependency...</h1></div>
 {:else if resolveError}
   <div class="state-box">
-    <h3>{resolveError.title}</h3>
+    <h1>{resolveError.title}</h1>
     <p>{resolveError.message}</p>
     <code>{resolveError.ref}</code>
     <a href="#/" class="btn" style="margin-top:12px">Back to overview</a>
@@ -323,7 +327,7 @@
   </div>
 {:else if error}
   <div class="state-box">
-    <h3>Service not found</h3>
+    <h1>Service not found</h1>
     <p>{error}</p>
     <a href="#/" class="btn" style="margin-top:12px">Back to overview</a>
   </div>

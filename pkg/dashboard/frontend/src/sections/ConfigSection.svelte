@@ -81,7 +81,9 @@
             {/if}
             {#if config.secretKeys?.length > 0}
               <div class="detail-card-sub-section">
-                <h4>Secret Keys</h4>
+                <!-- h3, not h4: the section title is an h2 and nothing between it and
+                     here is a heading, so h4 skipped a level. -->
+                <h3>Secret Keys</h3>
                 <table class="detail-card-table">
                   <thead><tr><th>Key</th><th>Type</th></tr></thead>
                   <tbody>
@@ -167,5 +169,5 @@
   .detail-card-table { font-size: var(--text-sm); }
   .detail-card-table th { font-size: var(--text-xs); }
   .detail-card-sub-section { margin-top: var(--sp-3); }
-  .detail-card-sub-section h4 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
+  .detail-card-sub-section h3 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
 </style>

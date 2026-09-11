@@ -133,7 +133,11 @@
   <EmptyState loading message={initialLoading ? 'Loading services…' : 'Discovering services…'} />
 {:else if services.length === 0}
   <div class="state-box">
-    <h3>No services found</h3>
+    <!-- h2, not h3: this box is the page's whole content and sits directly under the
+         page h1, so h3 skipped a level (WCAG 1.3.1). Same rule EmptyState's `level`
+         default already encodes; this block is hand-rolled because of the source
+         hints below, which EmptyState has no shape for. -->
+    <h2>No services found</h2>
     {#if enabledSources.length === 0}
       <p>No data sources are available. Start with one of these:</p>
       <ul class="source-hints">
