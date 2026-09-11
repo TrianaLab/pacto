@@ -86,6 +86,13 @@ function assert(cond, msg) {
 // same hashes the proxy will later serve. Same technique as verify-standalone.sh, verified
 // against the published v3.3.1: the local staging tag reproduced the proxy's h1 exactly.
 //
+// That equivalence holds only while HEAD is the tree the version will be tagged from, which
+// is the release case and not the backfill case: pinning a version that is ALREADY published
+// from an unrelated HEAD would mint a hash the proxy disagrees with, turning "missing go.sum
+// entry" into a checksum MISMATCH — a security error, and a worse failure than the one this
+// section exists to prevent. So the published module wins when it exists. The staging tag is
+// the fallback, taken only when the proxy genuinely does not have this version.
+//
 // Skipped entirely when the entry is already present, which is every run between releases —
 // including ci.mk's artifact-drift idempotency check, which re-runs this script and demands
 // a byte-identical tree. Deterministic input, deterministic hash, so the re-run is a no-op.
@@ -94,28 +101,53 @@ function assert(cond, msg) {
   const before = readFileSync(R(rel), 'utf8');
   if (!before.includes(`${pin.module} ${pin.version} h1:`)) {
     const opDir = R('integrations', 'kubernetes');
+    // Section 1 already pinned the require, so go.mod is at its final state here.
+    // `-mod=mod` below licenses go to rewrite it; nothing about resolving one
+    // already-required module should, so treat any rewrite as a bug rather than
+    // letting go quietly restate the operator's requirements mid-release.
+    const goModBefore = readFileSync(R('integrations', 'kubernetes', 'go.mod'), 'utf8');
     const run = (cmd, args, opts = {}) =>
       execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts });
-    const gitConfig = join(mkdtempSync(join(tmpdir(), 'aprp-git-')), 'config');
-    writeFileSync(gitConfig,
-      `[url "file://${root}"]\n\tinsteadOf = https://github.com/trianalab/pacto\n`);
-    const staged = run('git', ['-C', root, 'tag', '-l', pin.version]).trim() !== '';
+    // A throwaway module cache per attempt: a hash must come from the source this run
+    // resolved, never from whatever a previous run happened to leave behind.
+    const download = (extra) => run('go', ['mod', 'download', pin.module], {
+      cwd: opDir,
+      env: {
+        ...process.env,
+        GOWORK: 'off', GOFLAGS: '-mod=mod',
+        GOMODCACHE: mkdtempSync(join(tmpdir(), 'aprp-mod-')),
+        ...extra,
+      },
+    });
+
+    let published = true;
     try {
-      // Only create the staging tag if the real one is absent; never clobber a published tag.
-      if (!staged) run('git', ['-C', root, 'tag', pin.version, 'HEAD']);
-      run('go', ['mod', 'download', pin.module], {
-        cwd: opDir,
-        env: {
-          ...process.env,
-          GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_SYSTEM: '/dev/null',
-          GOWORK: 'off', GOFLAGS: '-mod=mod',
-          GOPRIVATE: 'github.com/trianalab/*', GONOSUMDB: 'github.com/trianalab/*',
-          GOMODCACHE: mkdtempSync(join(tmpdir(), 'aprp-mod-')),
-        },
-      });
-    } finally {
-      if (!staged) { try { run('git', ['-C', root, 'tag', '-d', pin.version]); } catch { /* best effort */ } }
+      // Authoritative path: the real proxy with the checksum database ON. Anything
+      // inherited that would bypass either is cleared, so a published version can only
+      // produce the hash the rest of the world will verify against.
+      download({ GOPRIVATE: '', GONOPROXY: '', GONOSUMDB: '', GONOSUMCHECK: '' });
+    } catch {
+      published = false;
     }
+    if (!published) {
+      const gitConfig = join(mkdtempSync(join(tmpdir(), 'aprp-git-')), 'config');
+      writeFileSync(gitConfig,
+        `[url "file://${root}"]\n\tinsteadOf = https://github.com/trianalab/pacto\n`);
+      // Unpublished, so the tag should not exist. If one does, it is the source of truth
+      // for its own version — resolve through it rather than clobbering it.
+      const staged = run('git', ['-C', root, 'tag', '-l', pin.version]).trim() !== '';
+      try {
+        if (!staged) run('git', ['-C', root, 'tag', pin.version, 'HEAD']);
+        download({
+          GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_SYSTEM: '/dev/null',
+          GOPRIVATE: 'github.com/trianalab/*', GONOSUMDB: 'github.com/trianalab/*',
+        });
+      } finally {
+        if (!staged) { try { run('git', ['-C', root, 'tag', '-d', pin.version]); } catch { /* best effort */ } }
+      }
+    }
+    assert(readFileSync(R('integrations', 'kubernetes', 'go.mod'), 'utf8') === goModBefore,
+      'integrations/kubernetes/go.mod: rewritten by `go mod download`; only its go.sum may move here');
     const after = readFileSync(R(rel), 'utf8');
     assert(after.includes(`${pin.module} ${pin.version} h1:`),
       `${rel}: no checksum for ${pin.module} ${pin.version} after go mod download`);
