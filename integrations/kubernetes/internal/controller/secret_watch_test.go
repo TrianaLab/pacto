@@ -35,6 +35,12 @@ import (
 // The probe is a cache read with ReaderFailOnMissingInformer set, so a read can never
 // lazily create the informer it is asking about: an informer either already exists
 // (because the watch built it) or the read fails with ErrResourceNotCached.
+//
+// That same property is why this spec covers WATCHES only and cannot be widened to
+// cover a typed cached READ: the setting suppresses the lazy informer creation such a
+// read leaks through, so the read would fail here rather than leak and the probe would
+// stay green either way. The other half of INV-5 -- that no component's Secret Get goes
+// through a cached client -- is pinned in internal/dashboard/secret_read_test.go.
 var _ = Describe("INV-5: the pull-secret watch", func() {
 	It("caches Secret metadata but never Secret values", func() {
 		// An empty namespace, so this second manager reconciles nothing the other specs own.

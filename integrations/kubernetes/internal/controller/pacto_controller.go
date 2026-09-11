@@ -59,6 +59,10 @@ type PactoReconciler struct {
 	// APIReader reads straight from the API server, bypassing the manager's cache.
 	// SetupWithManager wires it; only the pull Secret is read through it, so a Secret's
 	// values are never held in an informer store (INV-5).
+	//
+	// INV-5 is module-wide, not controller-local: the dashboard reconciler reads its
+	// OCI Secrets through its own APIReader for the same reason, and a typed Get on
+	// EITHER cached client is enough to break it cluster-wide.
 	APIReader                         client.Reader
 	Scheme                            *runtime.Scheme
 	Recorder                          record.EventRecorder
@@ -184,11 +188,10 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		pacto.Status.CurrentRevision = revisionName
 	}
 
-	if ociRef != "" && !strings.Contains(ociRef, "@") {
-		if syncErr := r.syncAllRevisions(ctx, pacto, ociRef, ociAuth); syncErr != nil {
-			log.Error(syncErr, "Failed to sync all revisions")
-		}
-	}
+	// Mirroring every registry tag into a PactoRevision is NOT a step of this
+	// reconcile: it costs one ListTags plus one Load per tag, and Reconcile is
+	// re-entered on every write to every watched workload. RevisionMirror runs it
+	// on its own ticker instead.
 
 	// 8. Reference-only: skip runtime validation
 	if pacto.IsReference() {
@@ -1119,6 +1122,14 @@ func (r *PactoReconciler) revisionsBySourceRef(ctx context.Context, pacto *pacto
 	return byRef, nil
 }
 
+// syncAllRevisions mirrors every registry tag of baseRef into a PactoRevision and
+// raises TagOverwritten when a tag's digest moved. Called by RevisionMirror, never
+// from Reconcile.
+//
+// A per-tag failure does not abort the pass -- one unreadable tag must not stop the
+// rest being mirrored -- but it is no longer swallowed into a V(1) line either: the
+// failures are joined into the returned error, and RevisionMirror turns that into
+// the same event vocabulary the main load path uses.
 func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1alpha1.Pacto, baseRef string, ociAuth *authn.AuthConfig) error {
 	log := logf.FromContext(ctx)
 
@@ -1136,6 +1147,7 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 		return err
 	}
 
+	var failures []error
 	for _, tag := range tags {
 		taggedRef := strings.TrimPrefix(baseRef, "oci://")
 		if idx := strings.LastIndex(taggedRef, ":"); idx > strings.LastIndex(taggedRef, "/") {
@@ -1154,7 +1166,7 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 
 			loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
 			if loadErr != nil {
-				log.V(1).Info("Skipping digest check: failed to load", "tag", tag, "error", loadErr)
+				failures = append(failures, fmt.Errorf("digest check for tag %s: %w", tag, loadErr))
 				continue
 			}
 
@@ -1172,7 +1184,7 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 
 			revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
 			if revErr != nil {
-				log.V(1).Info("Failed to create revision for force-pushed tag", "tag", tag, "error", revErr)
+				failures = append(failures, fmt.Errorf("revision for force-pushed tag %s: %w", tag, revErr))
 				continue
 			}
 			log.Info("Created new revision for force-pushed tag", "tag", tag, "revision", revName)
@@ -1181,19 +1193,19 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 
 		loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
 		if loadErr != nil {
-			log.V(1).Info("Skipping tag: failed to load", "tag", tag, "error", loadErr)
+			failures = append(failures, fmt.Errorf("tag %s: %w", tag, loadErr))
 			continue
 		}
 
 		revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
 		if revErr != nil {
-			log.V(1).Info("Skipping tag: failed to create revision", "tag", tag, "error", revErr)
+			failures = append(failures, fmt.Errorf("revision for tag %s: %w", tag, revErr))
 			continue
 		}
 		log.V(1).Info("Synced revision for tag", "tag", tag, "revision", revName)
 	}
 
-	return nil
+	return errors.Join(failures...)
 }
 
 // resolveOCIAuth reads a Secret and extracts OCI registry credentials.

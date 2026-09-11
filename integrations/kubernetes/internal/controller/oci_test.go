@@ -294,8 +294,8 @@ func TestSyncAllRevisions_ForcePush_LoadError(t *testing.T) {
 	}
 
 	err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc", nil)
-	if err != nil {
-		t.Fatalf("unexpected error (should continue on load error): %v", err)
+	if err == nil || !strings.Contains(err.Error(), "digest check for tag 1.0.0") {
+		t.Fatalf("expected the per-tag failure to be reported, got %v", err)
 	}
 }
 
@@ -319,8 +319,49 @@ func TestSyncAllRevisions_LoadError(t *testing.T) {
 	}
 
 	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
-	if err != nil {
-		t.Fatalf("unexpected error (should continue on load error): %v", err)
+	if err == nil || !strings.Contains(err.Error(), "tag 2.0.0") {
+		t.Fatalf("expected the per-tag failure to be reported, got %v", err)
+	}
+}
+
+// TestSyncAllRevisions_OneBadTagDoesNotStopTheRest pins the shape of the reporting
+// change: a failing tag is surfaced, but the pass still mirrors every other tag.
+func TestSyncAllRevisions_OneBadTagDoesNotStopTheRest(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-pacto", Namespace: "default", UID: "test-uid"},
+	}
+
+	r := newReconciler(pacto)
+	r.Loader = &mockLoader{
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
+			return []string{"1.0.0", "2.0.0"}, nil
+		},
+		loadFn: func(_ context.Context, ref string, _ string) (*loader.LoadResult, error) {
+			if strings.HasSuffix(ref, ":1.0.0") {
+				return nil, fmt.Errorf("load failed")
+			}
+			return &loader.LoadResult{
+				Contract:    &contract.Contract{Service: contract.Service{Name: "svc", Version: "2.0.0"}},
+				RawYAML:     []byte("v2-yaml"),
+				ResolvedRef: ref,
+			}, nil
+		},
+	}
+
+	err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc", nil)
+	if err == nil || !strings.Contains(err.Error(), "tag 1.0.0") {
+		t.Fatalf("expected the bad tag to be reported, got %v", err)
+	}
+	if strings.Contains(err.Error(), "tag 2.0.0") {
+		t.Fatalf("the good tag must not be reported as a failure: %v", err)
+	}
+
+	revList := &pactov1alpha1.PactoRevisionList{}
+	if err := r.List(context.Background(), revList, client.InNamespace("default")); err != nil {
+		t.Fatalf("failed to list revisions: %v", err)
+	}
+	if len(revList.Items) != 1 {
+		t.Fatalf("expected the good tag to still be mirrored, got %d revisions", len(revList.Items))
 	}
 }
 
@@ -512,8 +553,8 @@ func TestSyncAllRevisions_EnsureRevisionError(t *testing.T) {
 		}).Build()
 
 	err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc", nil)
-	if err != nil {
-		t.Fatalf("unexpected error (should continue on ensureRevision error): %v", err)
+	if err == nil || !strings.Contains(err.Error(), "revision for tag 6.0.0") {
+		t.Fatalf("expected the per-tag failure to be reported, got %v", err)
 	}
 }
 

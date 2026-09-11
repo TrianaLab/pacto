@@ -28,11 +28,19 @@ import (
 type Reconciler struct {
 	client.Client
 
-	// APIReader performs uncached reads straight against the API server. cleanup()
-	// uses it so disabling the dashboard never starts a cluster-scoped informer
-	// (ClusterRole/ClusterRoleBinding/ServiceAccount) whose list/watch the chart
-	// only grants when the dashboard is enabled. A cached read would block cache
-	// sync and crashloop the manager. Required.
+	// APIReader performs uncached reads straight against the API server. Required.
+	//
+	// cleanup() uses it so disabling the dashboard never starts a cluster-scoped
+	// informer (ClusterRole/ClusterRoleBinding/ServiceAccount) whose list/watch the
+	// chart only grants when the dashboard is enabled. A cached read would block
+	// cache sync and crashloop the manager.
+	//
+	// EVERY Secret read goes through it too (INV-5, see PactoReconciler). A typed
+	// Get on the embedded cached client lazily starts a corev1.Secret informer, and
+	// the chart grants secrets list/watch cluster-scoped, so one such Get parks
+	// every in-scope Secret's .Data in the operator's heap. It is also the only
+	// form the teardown RBAC permits: the always-on grant for the managed secret is
+	// get + delete by resourceName, with no list/watch to build an informer from.
 	APIReader client.Reader
 
 	Scheme *runtime.Scheme
@@ -114,6 +122,8 @@ func (r *Reconciler) reconcileClusterRoleBinding(ctx context.Context) error {
 // reconcileOCICredentials reads the configured OCI secrets, merges their credentials,
 // and creates/updates a managed dockerconfigjson secret for the dashboard pod.
 // If no OCI secrets are configured, it cleans up any previously-created managed secret.
+// Both reads go through APIReader; see the field comment for why a cached one is a
+// cluster-wide INV-5 violation.
 func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 	log := logf.FromContext(ctx).WithName("dashboard")
 	secretNames := r.Config.EffectiveOCISecrets()
@@ -121,7 +131,7 @@ func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 	if len(secretNames) == 0 {
 		// Clean up managed secret if it exists
 		existing := &corev1.Secret{}
-		err := r.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: ManagedSecretName}, existing)
+		err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: ManagedSecretName}, existing)
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
@@ -135,7 +145,7 @@ func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 	var sources []*corev1.Secret
 	for _, name := range secretNames {
 		secret := &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: name}, secret); err != nil {
+		if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: name}, secret); err != nil {
 			log.Error(err, "Failed to read OCI secret", "secret", name)
 			return fmt.Errorf("reading OCI secret %q: %w", name, err)
 		}

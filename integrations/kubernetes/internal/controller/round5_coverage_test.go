@@ -501,11 +501,15 @@ func TestReconcile_EnsureRevisionError(t *testing.T) {
 	}
 }
 
-// ---------- Reconcile: syncAllRevisions error branch (171-174) ----------
+// ---------- Reconcile: no registry fan-out (finding 46) ----------
 
-func TestReconcile_SyncAllRevisionsError(t *testing.T) {
+// TestReconcile_DoesNotMirrorTags pins the half of finding 46 that moved the tag
+// mirror out of Reconcile. Reconcile is re-entered on every write to every watched
+// Service, Deployment, StatefulSet, ReplicaSet, Job and CronJob, so a ListTags here
+// is one registry round trip (plus a Load per tag) per workload write.
+func TestReconcile_DoesNotMirrorTags(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
-		ObjectMeta: metav1.ObjectMeta{Name: "sync-err", Namespace: "default", UID: "u"},
+		ObjectMeta: metav1.ObjectMeta{Name: "no-fanout", Namespace: "default", UID: "u"},
 		Spec: pactov1alpha1.PactoSpec{
 			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0"},
 		},
@@ -519,14 +523,15 @@ func TestReconcile_SyncAllRevisionsError(t *testing.T) {
 			}, nil
 		},
 		listTagsFn: func(_ context.Context, _ string) ([]string, error) {
-			return nil, fmt.Errorf("registry unreachable")
+			t.Error("Reconcile listed registry tags; the mirror belongs to RevisionMirror")
+			return nil, nil
 		},
 	}
 
-	if _, err := r.Reconcile(context.Background(), reconcileReq("sync-err", "default")); err != nil {
+	if _, err := r.Reconcile(context.Background(), reconcileReq("no-fanout", "default")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := getPacto(t, r, "sync-err", "default")
+	got := getPacto(t, r, "no-fanout", "default")
 	if got.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
 		t.Errorf("expected Reference, got %s", got.Status.ContractStatus)
 	}
@@ -1027,8 +1032,9 @@ func TestSyncAllRevisions_ForcePush_EnsureRevisionError(t *testing.T) {
 		},
 	}
 
-	if err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc", nil); err != nil {
-		t.Fatalf("unexpected error (should continue on ensureRevision error): %v", err)
+	err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc", nil)
+	if err == nil || !strings.Contains(err.Error(), "revision for force-pushed tag 1.0.0") {
+		t.Fatalf("expected the per-tag failure to be reported, got %v", err)
 	}
 }
 
