@@ -311,8 +311,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
-      - name: Install crane (checksum-verified via GOSUMDB)
-        run: go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+      - name: Install crane
+        uses: ./.github/actions/setup-crane
       - name: Install ORAS
         # The dry-run drives the real durable OCI-backed ledger (ledger.sh), which
         # stores + reads the ledger as an OCI artifact via oras — exactly as the
@@ -350,7 +350,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install crane (the byte-exact comparison IS crane)
-        run: go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
+        uses: ./.github/actions/setup-crane
       - name: Log in to GHCR (read-only, for the published-digest lookup)
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:

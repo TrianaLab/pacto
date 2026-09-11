@@ -55,9 +55,14 @@ import (
 // for it. The key is the command name as it appears on a command line. The value
 // is the installer's identity WITHOUT its pin — the pin is checked separately,
 // and by consistency, so bumping it stays a one-line change.
+//
+// Every value here names something that hands over a PREBUILT binary. A Go
+// module path would not: see
+// TestTheReleasePathNeverCompilesThirdPartyToolingFromSource for the release
+// that cost.
 var toolInstaller = map[string]string{
 	"oras":   "oras-project/setup-oras",
-	"crane":  "github.com/google/go-containerregistry/cmd/crane",
+	"crane":  "./.github/actions/setup-crane",
 	"cosign": "sigstore/cosign-installer",
 	"syft":   "anchore/sbom-action/download-syft",
 	"helm":   "azure/setup-helm",
@@ -277,6 +282,10 @@ func TestToolInstallersArePinnedAndIdentical(t *testing.T) {
 
 	for _, tool := range slices.Sorted(maps.Keys(toolInstaller)) {
 		installer := toolInstaller[tool]
+		if strings.HasPrefix(installer, "./") {
+			checkInTreeInstaller(t, root, workflows, tool, installer)
+			continue
+		}
 		seen := map[string][]string{} // pin -> where
 		for _, w := range workflows {
 			for i, line := range strings.Split(w.text, "\n") {
@@ -304,6 +313,103 @@ func TestToolInstallersArePinnedAndIdentical(t *testing.T) {
 		for _, pin := range slices.Sorted(maps.Keys(seen)) {
 			if !shape.MatchString(pin) {
 				t.Errorf("%s is installed from %s@%s (%s) — a release must not resolve its tooling through a movable reference; pin a %s", tool, installer, pin, strings.Join(seen[pin], ", "), label)
+			}
+		}
+	}
+}
+
+// inTreeVersionRE finds the version an in-tree installer pins, wherever the
+// action spells it: `CRANE_VERSION: v0.20.2` and anything shaped like it.
+var inTreeVersionRE = regexp.MustCompile(`_VERSION:\s*"?(v?\d+\.\d+\.\d+)"?`)
+
+// checkInTreeInstaller is the pin rule for an installer that lives in this
+// repository rather than in someone else's. Such an action needs no `@pin`: it
+// is read out of the same checkout as the workflow that calls it, so the two
+// move together by construction and cannot partially bump. What it does need is
+// exactly one version inside it — the pin did not disappear when it moved out of
+// the workflow, and a second one in the action file would be the same partial
+// bump in a new place.
+func checkInTreeInstaller(t *testing.T, root string, workflows []workflow, tool, installer string) {
+	t.Helper()
+
+	var used []string
+	for _, w := range workflows {
+		for i, line := range strings.Split(w.text, "\n") {
+			if strings.Contains(line, "uses:") && strings.Contains(line, installer) {
+				used = append(used, w.name+":"+strconv.Itoa(i+1))
+			}
+		}
+	}
+	if len(used) == 0 {
+		t.Errorf("no workflow installs %s via %s — either the installer changed or the tool is gone; update toolInstaller so the closure gate keeps meaning something", tool, installer)
+		return
+	}
+
+	path := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(installer, "./")), "action.yml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Errorf("%d workflow steps use %s but %s is unreadable (%v) — a `uses: ./…` that resolves to nothing fails at run time, in a publish job", len(used), installer, path, err)
+		return
+	}
+	pins := map[string]bool{}
+	for _, m := range inTreeVersionRE.FindAllStringSubmatch(string(b), -1) {
+		pins[m[1]] = true
+	}
+	switch len(pins) {
+	case 1: // the one thing we want
+	case 0:
+		t.Errorf("%s pins no version of %s — the pin moved out of the workflows and has to land somewhere; a release must not resolve its tooling through a movable reference", path, tool)
+	default:
+		t.Errorf("%s pins %d different versions of %s (%s) — a partial bump, in the one file that was supposed to make bumping atomic", path, len(pins), tool, strings.Join(slices.Sorted(maps.Keys(pins)), " vs "))
+	}
+}
+
+// goInstallRE finds a `go install` and the package it compiles.
+var goInstallRE = regexp.MustCompile(`\bgo install\s+([^\s;&|]+)`)
+
+// TestTheReleasePathNeverCompilesThirdPartyToolingFromSource is the rule release
+// run 34613593980 bought.
+//
+// crane was the only tool in the release path built from source at publish time.
+// oras, cosign, syft and helm all arrive as prebuilt binaries from pinned
+// installers; crane alone ran `go install …/cmd/crane@v0.20.2`, which fetches
+// roughly twenty third-party module zips, in seven publish jobs, every release.
+// One of those fetches — docker/distribution, from proxy.golang.org — returned
+// an HTTP/2 INTERNAL_ERROR, and the release half-shipped: operator-image failed,
+// operator-chart and the GitHub Release job skipped behind it, and 3.3.0/5.4.0
+// existed as Go tags with no binaries and no operator artifacts.
+//
+// A publish job is a transaction. Compiling a tool inside one turns every
+// transitive dependency of that tool into a way for the transaction to die
+// halfway, in exchange for a binary its upstream already publishes. So: nothing
+// in release.yml compiles third-party source.
+//
+// Scoped to release.yml deliberately. `go install` elsewhere — govulncheck in
+// security.yml, helm-docs and kind in ci.yml — fails a check rather than
+// stranding a release, and a red check is not an irreversible half-publish.
+func TestTheReleasePathNeverCompilesThirdPartyToolingFromSource(t *testing.T) {
+	root := repoRoot(t)
+
+	for _, tool := range slices.Sorted(maps.Keys(toolInstaller)) {
+		if strings.HasPrefix(toolInstaller[tool], "github.com/") {
+			t.Errorf("toolInstaller[%q] is the Go module path %q — that is a source build; point it at an installer that hands over a prebuilt binary", tool, toolInstaller[tool])
+		}
+	}
+
+	jobs := workflowJobs(t, root, "release.yml")
+	if len(jobs) == 0 {
+		t.Fatal("release.yml parsed to no jobs — this gate would pass vacuously")
+	}
+	for _, name := range slices.Sorted(maps.Keys(jobs)) {
+		for _, l := range commandLines(jobs[name].runs()) {
+			for _, m := range goInstallRE.FindAllStringSubmatch(l, -1) {
+				pkg := strings.Trim(m[1], `"'`)
+				if strings.HasPrefix(pkg, "./") || strings.HasPrefix(pkg, "../") {
+					continue // this repository's own binary — there is no prebuilt one to fetch instead.
+				}
+				t.Errorf("release.yml job %q runs `go install %s` — a publish job must not compile third-party source. "+
+					"Every module that build downloads is one more way for the transaction to die after an irreversible push; "+
+					"install a prebuilt binary the way oras, cosign, syft, helm and crane are installed.", name, pkg)
 			}
 		}
 	}

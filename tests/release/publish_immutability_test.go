@@ -32,8 +32,11 @@ func TestDemoBundlesImmutabilityGateFailsClosedWithoutCrane(t *testing.T) {
 	if !ok {
 		t.Fatal("release.yml has no demo-bundles job")
 	}
-	if !strings.Contains(demo, "cmd/crane") {
-		t.Error("demo-bundles job does not install crane, so the byte-exact immutability gate never runs")
+	// Ask toolInstaller rather than matching a literal, so the day crane's
+	// installer changes again this assertion moves with it instead of quietly
+	// looking for a string no workflow contains any more.
+	if !strings.Contains(demo, toolInstaller["crane"]) {
+		t.Errorf("demo-bundles job does not install crane (no %q), so the byte-exact immutability gate never runs", toolInstaller["crane"])
 	}
 }
 

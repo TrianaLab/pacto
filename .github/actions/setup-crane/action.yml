@@ -1,0 +1,76 @@
+name: Setup crane
+description: Put the pinned crane release binary on PATH, from the published tarball rather than a source build
+
+# Why this exists, in one incident: release run 34613593980 (transaction
+# f93d13f5aaf491e5) died in `Install crane` with
+#
+#   github.com/docker/distribution@v2.8.2+incompatible: read
+#   "https://proxy.golang.org/.../v2.8.2+incompatible.zip": stream error;
+#   INTERNAL_ERROR; received from peer
+#
+# and took the release with it: operator-image failed, operator-chart and the
+# GitHub Release job were skipped behind it, and 3.3.0/5.4.0 shipped as a Go tag
+# with no binaries and no operator artifacts.
+#
+# The flake was transient. The exposure was not. crane was the ONE tool in this
+# repository's release path built from source at publish time -- oras, cosign,
+# syft and helm all arrive as prebuilt binaries from pinned actions -- so it
+# alone fetched roughly twenty third-party module zips per job, in seven release
+# jobs, every release. That is well over a hundred network operations a release
+# needed only in order to produce a binary its upstream already publishes.
+#
+# One tarball and one checksum file replace all of it, and the fetch retries.
+# tests/release/workflow_tooling_test.go holds the rule so it cannot come back.
+
+runs:
+  using: composite
+  steps:
+    - name: Install crane
+      shell: bash
+      env:
+        # Bump these four together. The digests are the upstream release's own,
+        # copied from
+        # https://github.com/google/go-containerregistry/releases/download/v0.20.2/checksums.txt
+        # and pinned HERE rather than read from that file at run time: a checksum
+        # fetched over the same connection as the artifact proves only that the
+        # two agree with each other.
+        CRANE_VERSION: v0.20.2
+        CRANE_SHA256_X86_64: c14340087103ba9dadf61d45acd20675490fd0ccbd56ac7901fc1b502137f44b
+        CRANE_SHA256_ARM64: aff0db48825124c9331ea310057214bd4e92c01aa2e414d539e9659841d9422a
+      run: |
+        set -euo pipefail
+
+        case "$(uname -m)" in
+          x86_64)        asset=go-containerregistry_Linux_x86_64.tar.gz; want=$CRANE_SHA256_X86_64 ;;
+          aarch64|arm64) asset=go-containerregistry_Linux_arm64.tar.gz;  want=$CRANE_SHA256_ARM64 ;;
+          *) echo "::error::no pinned crane build for runner arch $(uname -m)"; exit 1 ;;
+        esac
+
+        url="https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/${asset}"
+        tmp=$(mktemp -d)
+
+        # Retry the one network operation that is left. A release job that dies
+        # here strands a transaction, so a transient 5xx or a reset connection is
+        # worth four more attempts before giving up.
+        for attempt in 1 2 3 4 5; do
+          if curl --fail --silent --show-error --location --retry 0 \
+                  --connect-timeout 15 --max-time 180 \
+                  -o "$tmp/$asset" "$url"; then
+            break
+          fi
+          if [ "$attempt" = 5 ]; then
+            echo "::error::could not download $url after 5 attempts"
+            exit 1
+          fi
+          echo "crane download attempt $attempt failed; retrying in $((attempt * 5))s"
+          sleep $((attempt * 5))
+        done
+
+        echo "$want  $tmp/$asset" | sha256sum --check --status \
+          || { echo "::error::checksum mismatch for $asset -- got $(sha256sum "$tmp/$asset" | cut -d' ' -f1), pinned $want"; exit 1; }
+
+        tar -xzf "$tmp/$asset" -C "$tmp" crane
+        install -m 0755 "$tmp/crane" /usr/local/bin/crane
+        rm -rf "$tmp"
+
+        crane version
