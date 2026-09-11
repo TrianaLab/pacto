@@ -809,20 +809,46 @@ type StatusResult struct {
 	Items []StatusItem `json:"items"`
 }
 
-// Status reports services and targets needing attention across the selected
-// categories. Per-category collection is delegated to small helpers.
+// Status reports the entities needing attention in the selected categories. It is
+// a PROJECTION of collectAttention, not a second implementation: this list and the
+// product backlog answer the same question, and while each derived its own items
+// they drifted: this one reported an unresolved dependency as a "relationship"
+// named by an arrow-joined pseudo-edge, an entity no other endpoint can resolve,
+// and it counted observed edges the backlog correctly excludes. One producer means
+// a rule can only be changed in the place both readers see it.
 func (q *Query) Status(sq StatusQuery) *StatusResult {
 	all := sq.NeedsAttention
+	want := map[string]bool{
+		categoryNonCompliant: all || sq.NonCompliant,
+		categoryUnknown:      all || sq.Unknown,
+		categoryStale:        all || sq.StaleEvidence,
+		categoryInvalid:      all || sq.Invalid,
+		categoryReadiness:    all || sq.MissingReadiness,
+		categoryUnresolved:   all || sq.UnresolvedDeps,
+	}
 	var items []StatusItem
-	items = append(items, q.targetStatusItems(all, sq)...)
-	items = append(items, q.revisionStatusItems(all, sq)...)
-	items = append(items, q.unresolvedStatusItems(all, sq)...)
-
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Code != items[j].Code {
-			return items[i].Code < items[j].Code
+	for _, it := range q.collectAttention() {
+		if !want[it.Category] {
+			continue
 		}
-		return items[i].Name < items[j].Name
+		items = append(items, StatusItem{
+			Kind: string(it.Entity.Kind), Name: it.Entity.Key, Code: it.Code, Reason: it.Reason,
+		})
+	}
+
+	// Reason is the third key because it is the only field that separates two
+	// unresolved dependencies of the same service: they now share a Kind, a Name and
+	// a Code, and sort.Slice is not stable, so without it the truncated list would
+	// vary between runs on the same snapshot.
+	sort.Slice(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		if a.Code != b.Code {
+			return a.Code < b.Code
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.Reason < b.Reason
 	})
 	limit := sq.Limit
 	if limit <= 0 {
@@ -832,49 +858,6 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		items = items[:limit]
 	}
 	return &StatusResult{Meta: q.meta(), Items: items}
-}
-
-func (q *Query) targetStatusItems(all bool, sq StatusQuery) []StatusItem {
-	var items []StatusItem
-	for _, t := range q.snap.Targets {
-		if (all || sq.NonCompliant) && t.Compliance == StatusNonCompliant {
-			items = append(items, StatusItem{Kind: "target", Name: string(t.Key), Code: "NON_COMPLIANT", Reason: "target has confirmed drift"})
-		}
-		if (all || sq.Unknown) && t.Compliance == StatusUnknown {
-			items = append(items, StatusItem{Kind: "target", Name: string(t.Key), Code: "UNKNOWN", Reason: "target compliance is unknown (insufficient evidence)"})
-		}
-		if (all || sq.StaleEvidence) && t.Stale {
-			items = append(items, StatusItem{Kind: "target", Name: string(t.Key), Code: "STALE_EVIDENCE", Reason: "target evidence is older than the freshness window"})
-		}
-	}
-	return items
-}
-
-func (q *Query) revisionStatusItems(all bool, sq StatusQuery) []StatusItem {
-	var items []StatusItem
-	for _, rev := range q.snap.Revisions {
-		if (all || sq.Invalid) && rev.validated && !rev.Valid {
-			items = append(items, StatusItem{Kind: "revision", Name: string(rev.Key), Code: "INVALID_CONTRACT", Reason: "contract is structurally invalid"})
-		}
-		if (all || sq.MissingReadiness) && rev.Readiness == nil {
-			items = append(items, StatusItem{Kind: "revision", Name: string(rev.Key), Code: "MISSING_READINESS", Reason: "revision declares no readiness assessment"})
-		}
-	}
-	return items
-}
-
-func (q *Query) unresolvedStatusItems(all bool, sq StatusQuery) []StatusItem {
-	if !all && !sq.UnresolvedDeps {
-		return nil
-	}
-	var items []StatusItem
-	for i := range q.snap.Relationships {
-		rel := q.snap.Relationships[i]
-		if rel.Type == RelationshipDependency && !rel.Resolved {
-			items = append(items, StatusItem{Kind: "relationship", Name: string(rel.FromService) + "→" + rel.To, Code: "UNRESOLVED_DEPENDENCY", Reason: "declared dependency is not resolved in the fleet"})
-		}
-	}
-	return items
 }
 
 // AssertionRef identifies the declared assertion a reason is about.

@@ -19,7 +19,7 @@ import (
 func mcpCallTool(t *testing.T, svc *app.Service, toolName string, args map[string]any) *mcpsdk.CallToolResult {
 	t.Helper()
 	ctx := context.Background()
-	server := pactomcp.NewServer(svc, "test-e2e")
+	server := pactomcp.NewServer(svc.PolicyResolver, "test-e2e")
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "e2e-client", Version: "1.0"}, nil)
 
 	t1, t2 := mcpsdk.NewInMemoryTransports()

@@ -1,9 +1,10 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
   import MarkdownView from '../MarkdownView.svelte';
   import DocModal from '../DocModal.svelte';
 
-  let { docs = [], referencedPaths = [], open = $bindable(false), id = '', source = '' } = $props();
+  let { docs = [], referencedPaths = [], open = $bindable(false), id = '' } = $props();
 
   let hasContent = $derived(docs?.length > 0);
   let expanded = $state({});
@@ -15,7 +16,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Documentation" count={docs.length} bind:open {id} {source}>
+  <CollapsibleSection title="Documentation" count={docs.length} bind:open {id}>
     {#each docs as d, i}
       <div class="detail-card">
         <div class="detail-card-header">
@@ -47,6 +48,8 @@
     {/each}
   </CollapsibleSection>
   <DocModal doc={modalDoc} onClose={() => { modalDoc = null; }} />
+{:else}
+  <SectionState title="Documentation" bind:open {id} />
 {/if}
 
 <style>

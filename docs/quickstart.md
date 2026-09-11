@@ -304,6 +304,6 @@ survive, both outside this directory:
 | Consume contracts for deployment | [For Platform Engineers](platform-engineers.md) |
 | See contracts for real services | [Examples](examples/index.md) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more) |
 | Integrate with CI/CD | [GitHub Actions](github-actions.md) |
-| Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph |
+| Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph, or [`pacto tui`](platform-engineers.md#the-terminal-ui) to stay in the terminal |
 | Runtime compliance in Kubernetes | [Kubernetes Operator](integrations/kubernetes/overview.md) |
 | Build a generation plugin | [Plugin Development](plugins.md) |

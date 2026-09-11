@@ -6,10 +6,14 @@ import (
 	"testing"
 
 	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 )
 
-func TestResolveDigest(t *testing.T) {
+func TestResolvePinned(t *testing.T) {
+	bundle := &contract.Bundle{Contract: &contract.Contract{
+		Service: contract.Service{Name: "auth", Version: "1.2.0"}}}
+
 	t.Run("success", func(t *testing.T) {
 		store := &testutil.MockBundleStore{
 			ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
@@ -18,16 +22,44 @@ func TestResolveDigest(t *testing.T) {
 			ResolveFn: func(_ context.Context, ref string) (string, error) {
 				return "sha256:" + ref, nil
 			},
+			PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) { return bundle, nil },
 		}
-		ref, digest, err := resolveDigest(context.Background(), store, "ghcr.io/acme/auth", "^1.0.0")
+		p, err := resolvePinned(context.Background(), store, "ghcr.io/acme/auth", "^1.0.0")
 		if err != nil {
-			t.Fatalf("resolveDigest: %v", err)
+			t.Fatalf("resolvePinned: %v", err)
 		}
-		if ref != "ghcr.io/acme/auth:1.2.0" {
-			t.Errorf("resolvedRef = %q, want ghcr.io/acme/auth:1.2.0", ref)
+		if p.Ref != "ghcr.io/acme/auth:1.2.0" {
+			t.Errorf("resolvedRef = %q, want ghcr.io/acme/auth:1.2.0", p.Ref)
 		}
-		if digest != "sha256:ghcr.io/acme/auth:1.2.0" {
-			t.Errorf("digest = %q", digest)
+		if p.Digest != "sha256:ghcr.io/acme/auth:1.2.0" {
+			t.Errorf("digest = %q", p.Digest)
+		}
+		if p.Bundle != bundle {
+			t.Error("the bundle the digest was taken from was not returned")
+		}
+	})
+
+	// The whole point of the helper: the bytes it returns and the digest it
+	// reports come from one call, so a store cannot hand back a digest for an
+	// artifact it never downloaded.
+	t.Run("the digest names the bytes that were fetched", func(t *testing.T) {
+		var pinnedRef string
+		store := &testutil.MockBundleStore{
+			ResolveFn: func(_ context.Context, _ string) (string, error) { return "sha256:abc", nil },
+			PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+				pinnedRef = ref
+				return bundle, nil
+			},
+		}
+		p, err := resolvePinned(context.Background(), store, "ghcr.io/acme/auth:1.2.0", "")
+		if err != nil {
+			t.Fatalf("resolvePinned: %v", err)
+		}
+		if pinnedRef != "ghcr.io/acme/auth@sha256:abc" {
+			t.Errorf("pulled %q, want the digest-pinned reference", pinnedRef)
+		}
+		if p.Digest != "sha256:abc" {
+			t.Errorf("digest = %q, want sha256:abc", p.Digest)
 		}
 	})
 
@@ -37,24 +69,29 @@ func TestResolveDigest(t *testing.T) {
 				return nil, fmt.Errorf("list tags failed")
 			},
 		}
-		_, _, err := resolveDigest(context.Background(), store, "ghcr.io/acme/auth", "^1.0.0")
+		_, err := resolvePinned(context.Background(), store, "ghcr.io/acme/auth", "^1.0.0")
 		if err == nil {
 			t.Error("expected error when ListTags fails")
 		}
 	})
 
-	t.Run("Resolve error", func(t *testing.T) {
+	// A registry that will not say what a tag points at still yields real bytes
+	// under no claimed digest, so only a failed PULL fails the helper.
+	t.Run("Pull error", func(t *testing.T) {
 		store := &testutil.MockBundleStore{
 			ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
 				return []string{"1.0.0"}, nil
 			},
-			ResolveFn: func(_ context.Context, ref string) (string, error) {
+			ResolveFn: func(_ context.Context, _ string) (string, error) {
 				return "", fmt.Errorf("resolve digest failed")
 			},
+			PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+				return nil, fmt.Errorf("pull failed")
+			},
 		}
-		_, _, err := resolveDigest(context.Background(), store, "ghcr.io/acme/auth", "^1.0.0")
+		_, err := resolvePinned(context.Background(), store, "ghcr.io/acme/auth", "^1.0.0")
 		if err == nil {
-			t.Error("expected error when Resolve fails")
+			t.Error("expected error when Pull fails")
 		}
 	})
 }

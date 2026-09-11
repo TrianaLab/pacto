@@ -1,11 +1,12 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
 
-  let { runtimeDiff = [], open = $bindable(false), id = '', source = '' } = $props();
+  let { runtimeDiff = [], open = $bindable(false), id = '' } = $props();
 </script>
 
 {#if runtimeDiff?.length > 0}
-  <CollapsibleSection title="Contract vs Runtime" bind:open {id} {source}>
+  <CollapsibleSection title="Contract vs Runtime" bind:open {id}>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Field</th><th>Declared</th><th>Observed</th><th>Status</th></tr></thead>
@@ -27,6 +28,8 @@
       </table>
     </div>
   </CollapsibleSection>
+{:else}
+  <SectionState title="Contract vs Runtime" bind:open {id} />
 {/if}
 
 <style>

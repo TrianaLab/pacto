@@ -29,7 +29,7 @@ func stubImpactTraces(res *impact.Result, err error, seen *impact.Options, seenT
 
 func TestImpactHandler_TracesReachProvider(t *testing.T) {
 	var seenTraces string
-	callHandler(t, impactHandler(stubImpactTraces(&impact.Result{}, nil, nil, &seenTraces)), map[string]any{
+	callHandler(t, impactTool(), impactHandler(stubImpactTraces(&impact.Result{}, nil, nil, &seenTraces)), map[string]any{
 		"old_ref": "a", "new_ref": "b", "traces": "/tmp/traces.json",
 	})
 	if seenTraces != "/tmp/traces.json" {
@@ -47,7 +47,7 @@ func TestImpactHandler_Success(t *testing.T) {
 		},
 	}
 	var seen impact.Options
-	res := callHandler(t, impactHandler(stubImpact(want, nil, &seen)), map[string]any{
+	res := callHandler(t, impactTool(), impactHandler(stubImpact(want, nil, &seen)), map[string]any{
 		"old_ref": "oci://x/svc:1.0.0", "new_ref": "oci://x/svc:2.0.0", "include_observed": true,
 	})
 	var out impact.Result
@@ -64,7 +64,7 @@ func TestImpactHandler_Success(t *testing.T) {
 }
 
 func TestImpactHandler_Error(t *testing.T) {
-	res := callHandler(t, impactHandler(stubImpact(nil, errors.New("old revision: boom"), nil)), map[string]any{
+	res := callHandler(t, impactTool(), impactHandler(stubImpact(nil, errors.New("old revision: boom"), nil)), map[string]any{
 		"old_ref": "bad", "new_ref": "bad",
 	})
 	if !res.IsError {

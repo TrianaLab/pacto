@@ -5,11 +5,6 @@
       "description": "OCI bundle cache directory (default: ~/.cache/pacto/oci)",
       "type": "string"
     },
-    "PACTO_DASHBOARD_DIAGNOSTICS": {
-      "default": false,
-      "description": "Enable source diagnostics panel",
-      "type": "boolean"
-    },
     "PACTO_DASHBOARD_HOST": {
       "default": "127.0.0.1",
       "description": "Bind address for the server",
@@ -55,7 +50,6 @@
   "required": [
     "PACTO_DASHBOARD_HOST",
     "PACTO_DASHBOARD_PORT",
-    "PACTO_DASHBOARD_DIAGNOSTICS",
     "PACTO_NO_CACHE",
     "PACTO_NO_UPDATE_CHECK"
   ],

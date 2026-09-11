@@ -58,47 +58,83 @@ type BundlePuller interface {
 	ListTags(ctx context.Context, repo string) ([]string, error)
 }
 
-// depFetcher resolves dependency contracts from both OCI and local sources.
-// It uses the baseDir of the root contract to resolve relative local paths.
+// depFetcher resolves dependency contracts from both OCI and local sources. A
+// relative local reference is resolved against the directory of the contract
+// that DECLARED it, not the root's -- see [depFetcher.FetchFrom].
 type depFetcher struct {
-	store   BundlePuller
+	store BundlePuller
+	// baseDir is where the ROOT contract's own references resolve from: its
+	// absolute directory, or [graph.OCIBase] when the root came from a registry.
 	baseDir string
 }
 
 // newDepFetcher creates a ContractFetcher that can resolve both OCI and local
 // dependency references. baseRef is the path/ref of the root contract.
 func (s *Service) newDepFetcher(baseRef string) graph.ContractFetcher {
-	base := ""
-	if !isOCIRef(baseRef) {
-		abs, err := filepath.Abs(baseRef)
-		if err == nil {
-			base = abs
-		}
-	}
-	return &depFetcher{store: s.BundleStore, baseDir: base}
+	return &depFetcher{store: s.BundleStore, baseDir: rootBase(baseRef)}
 }
 
+// RootBase implements [graph.OriginContractFetcher].
+func (f *depFetcher) RootBase() string { return f.baseDir }
+
+// Fetch implements [graph.ContractFetcher] by resolving dep as if the ROOT had
+// declared it. The resolver never takes this path -- it prefers FetchFrom -- but
+// the narrower port is still part of the published interface, so it keeps the
+// one meaning it can express.
 func (f *depFetcher) Fetch(ctx context.Context, dep contract.Dependency) (*contract.Bundle, error) {
+	b, _, err := f.FetchFrom(ctx, f.baseDir, dep)
+	return b, err
+}
+
+// FetchFrom implements [graph.OriginContractFetcher]. base is where the contract
+// that declared dep resolves its references from; the returned base is where the
+// FETCHED bundle resolves its own: its directory for a local bundle,
+// [graph.OCIBase] for one pulled from a registry.
+func (f *depFetcher) FetchFrom(ctx context.Context, base string, dep contract.Dependency) (*contract.Bundle, string, error) {
 	parsed := graph.ParseDependencyRef(dep.Ref)
 	if parsed.IsLocal() {
-		logging.LoggerFromContext(ctx).Debug("fetching local dependency", "ref", dep.Ref)
-		return f.fetchLocal(parsed)
+		logging.LoggerFromContext(ctx).Debug("fetching local dependency", "ref", dep.Ref, "base", base)
+		dir, err := depLocalDir(parsed.Location, base)
+		if err != nil {
+			return nil, "", err
+		}
+		b, err := loadLocalBundle(dir)
+		if err != nil {
+			return nil, "", err
+		}
+		return b, dir, nil
 	}
 	if f.store == nil {
-		return nil, fmt.Errorf("OCI store not configured (cannot fetch %s)", dep.Ref)
+		return nil, "", fmt.Errorf("OCI store not configured (cannot fetch %s)", dep.Ref)
 	}
 	logging.LoggerFromContext(ctx).Debug("fetching OCI dependency", "ref", dep.Ref, "compatibility", dep.Compatibility)
 	location, err := oci.ResolveRef(ctx, f.store, parsed.Location, dep.Compatibility)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return f.store.Pull(ctx, location)
+	b, err := f.store.Pull(ctx, location)
+	if err != nil {
+		return nil, "", err
+	}
+	return b, graph.OCIBase, nil
 }
 
-func (f *depFetcher) fetchLocal(ref graph.DependencyRef) (*contract.Bundle, error) {
-	path := ref.Location
-	if !filepath.IsAbs(path) && f.baseDir != "" {
-		path = filepath.Join(f.baseDir, path)
+// depLocalDir decides which directory a local reference means. A reference
+// declared by a registry bundle means none: honouring it would let a remote
+// contract choose which local files Pacto reads.
+//
+// Every walk that follows a local reference out of a contract comes through
+// here -- the dependency graph, the lock builder's reference closure and policy
+// resolution -- so the three cannot disagree about which directory a "./..."
+// means or about which of them a remote contract is allowed to name. The
+// catalog resolver applies the same rule in catalogLocalDir, in the terms its
+// own port reports failures in.
+func depLocalDir(path, base string) (string, error) {
+	if base == graph.OCIBase {
+		return "", fmt.Errorf("a local reference declared inside a registry bundle cannot be resolved: %s", path)
 	}
-	return loadLocalBundle(path)
+	if filepath.IsAbs(path) || base == "" {
+		return path, nil
+	}
+	return filepath.Join(base, path), nil
 }

@@ -152,12 +152,18 @@ e2e-otel: test-acceptance-local
 # and liveness are different properties and a merged suite proves neither.
 test-browser:
 	$(MAKE) -C examples/demo build
+# The legacy non-Fleet views ship in the same bundle but no live host serves them:
+# their only host is the offline `pacto doc --format html` export. The suite audits
+# them there, on a second origin, so build one.
+	$(MAKE) -C examples/demo doc-export
 # The engine smoke rides the build this target already paid for. Until now it ran
 # only in the post-merge docs workflow: source_embed_test.go covers the same
 # fixtures under a required job, but nothing on a PR ran smoke.mjs itself, so a
 # fixture republish that updated the Go test and missed the smoke went green and
-# turned main red on the way out. Before Playwright, because a broken engine makes
-# the browser failures downstream noise.
+# turned main red on the way out. The fixture tripwire is smoke.mjs's fleet impact
+# check -- `impact <old>→<new> is BREAKING` -- which fails the moment a republish
+# stops the two compared revisions from differing incompatibly. Before Playwright,
+# because a broken engine makes the browser failures downstream noise.
 	$(MAKE) -C examples/demo smoke
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e
 e2e-dashboard-wasm: test-browser

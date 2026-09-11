@@ -172,9 +172,15 @@ func printFleetSnapshot(cmd *cobra.Command, snap *fleet.FleetSnapshot, format st
 		for _, s := range snap.Sources {
 			_, _ = fmt.Fprintf(w, "  %s (%s): %s revs=%d targets=%d\n", s.ID, s.Kind, s.Status, s.RevisionCount, s.TargetCount)
 		}
-		for _, l := range snap.Limitations {
-			_, _ = fmt.Fprintf(w, "  limitation [%s] %s\n", l.Code, l.Message)
-		}
+		// The snapshot carries its completeness inline rather than as a fleet.Meta,
+		// so wrap it to reuse the shared partial-answer warning: every other fleet
+		// printer puts that on STDERR, and a CI step redirecting stdout must not
+		// read a partial snapshot as a clean run.
+		warnPartial(cmd, fleet.Meta{
+			Completeness: snap.Completeness,
+			AsOf:         snap.GeneratedAt,
+			Limitations:  snap.Limitations,
+		})
 		return nil
 	}, nil)
 }

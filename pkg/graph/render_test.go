@@ -236,6 +236,32 @@ func TestRenderTreeColoredIdentityMatchesPlain(t *testing.T) {
 	}
 }
 
+func TestRenderTree_EmptyVersionOmitsSeparator(t *testing.T) {
+	// Root with empty version should not render "@"
+	r := &Result{Root: &Node{Name: "svc", Version: ""}}
+	got := RenderTree(r)
+	if got != "svc\n" {
+		t.Errorf("expected 'svc\\n', got %q", got)
+	}
+	// Child with empty version should not render "@"
+	r = &Result{
+		Root: &Node{
+			Name:    "parent",
+			Version: "1.0.0",
+			Dependencies: []Edge{
+				{Ref: "child", Node: &Node{Name: "child", Version: ""}},
+			},
+		},
+	}
+	got = RenderTree(r)
+	if !strings.Contains(got, "└─ child\n") {
+		t.Errorf("expected child without @, got:\n%s", got)
+	}
+	if strings.Contains(got, "child@") {
+		t.Errorf("child should not have @ separator, got:\n%s", got)
+	}
+}
+
 func TestRenderTreeColoredAppliesColors(t *testing.T) {
 	wrap := func(tag string) func(string) string {
 		return func(s string) string { return "<" + tag + ">" + s + "</" + tag + ">" }

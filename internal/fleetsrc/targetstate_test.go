@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -221,18 +222,71 @@ func TestTargetStateFileSource_TooManyTargets(t *testing.T) {
 }
 
 func TestStateFixtureToState(t *testing.T) {
-	cases := map[string]fleet.SourceStatus{
-		"available":   fleet.SourceAvailable,
-		"stale":       fleet.SourceStale,
-		"partial":     fleet.SourcePartial,
-		"unavailable": fleet.SourceUnavailable,
-		"weird":       fleet.SourceAvailable, // unknown → available fallback
-		"":            fleet.SourceAvailable,
+	// wantSync is whether the built state may carry a LastSuccessfulSync stamped from
+	// the build clock. Only available and partial may: stale and unavailable each
+	// assert the last GOOD read was not this one, so a sync stamped now would
+	// contradict the status sitting in the same struct.
+	cases := map[string]struct {
+		want     fleet.SourceStatus
+		wantSync bool
+	}{
+		"available":   {fleet.SourceAvailable, true},
+		"stale":       {fleet.SourceStale, false},
+		"partial":     {fleet.SourcePartial, true},
+		"unavailable": {fleet.SourceUnavailable, false},
+		"weird":       {fleet.SourceAvailable, true}, // unknown → available fallback
+		"":            {fleet.SourceAvailable, true},
 	}
-	for status, want := range cases {
-		if got := (stateFixture{Status: status}).toState().Status; got != want {
-			t.Errorf("toState(%q) = %q, want %q", status, got, want)
-		}
+	at := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
+	for status, tc := range cases {
+		want := tc.want
+		t.Run(status, func(t *testing.T) {
+			col := &fleet.Collection{State: (stateFixture{Status: status}).toState()}
+			src := &staticSource{id: "ts", kind: "target-state", col: col}
+			snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return at }}, src)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if len(snap.Sources) != 1 {
+				t.Fatalf("sources = %d, want 1", len(snap.Sources))
+			}
+			got := snap.Sources[0]
+			if got.Status != want {
+				t.Errorf("status = %q, want %q", got.Status, want)
+			}
+			// Whatever health it declares, the READ happened, so every declared state
+			// carries the read time as ObservedAt. Whether that read SUCCEEDED is
+			// exactly what the status says, so LastSuccessfulSync follows the status.
+			if got.ObservedAt == nil || !got.ObservedAt.Equal(at) {
+				t.Errorf("ObservedAt = %v, want the read time %v", got.ObservedAt, at)
+			}
+			switch {
+			case tc.wantSync && (got.LastSuccessfulSync == nil || !got.LastSuccessfulSync.Equal(at)):
+				t.Errorf("LastSuccessfulSync = %v, want %v for a %q source", got.LastSuccessfulSync, at, want)
+			case !tc.wantSync && got.LastSuccessfulSync != nil:
+				t.Errorf("a %q source must not claim a successful sync, got %v", want, got.LastSuccessfulSync)
+			}
+		})
+	}
+}
+
+// A fixture that DECLARES a source state takes fleet.Build's declared-state
+// branch, which copies the state verbatim and stamps nothing. Saying "available"
+// therefore cost the source both freshness timestamps, and the snapshot reported
+// a source it had just read as one that had never synced. Same defect as the
+// evidence source's, one file over.
+func TestTargetStateFileSource_DeclaredStateKeepsItsFreshness(t *testing.T) {
+	path := writeFixture(t, "targets.yaml", validFixture)
+	col, err := NewTargetStateFileSource("target-state", path).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	st := buildOneSourceState(t, &staticSource{id: "target-state", kind: "target-state", col: col})
+	if st.Status != fleet.SourceAvailable {
+		t.Errorf("status = %q, want the declared available", st.Status)
+	}
+	if st.LastSuccessfulSync == nil || st.ObservedAt == nil {
+		t.Errorf("a source that just read its fixture has synced: state = %+v, want both timestamps set", st)
 	}
 }
 

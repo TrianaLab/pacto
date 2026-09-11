@@ -76,7 +76,10 @@ func diffAsyncAPISection(prefix, noun string, old, new map[string]any) []Change 
 			})
 			continue
 		}
-		changes = append(changes, diffJSON(fmt.Sprintf("%s[%s]", prefix, name), old[name], newVal)...)
+		// dirUnknown: a channel is published by one service and subscribed by
+		// another, so the document cannot say which side a `required` entry
+		// constrains. Both readings stay breaking.
+		changes = append(changes, diffJSON(dirUnknown, fmt.Sprintf("%s[%s]", prefix, name), old[name], newVal)...)
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(new)) {

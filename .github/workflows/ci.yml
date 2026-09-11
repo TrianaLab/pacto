@@ -52,6 +52,11 @@ jobs:
               # the fixtures and the host that serve it are inputs to this leg. A
               # demo-only PR used to skip it entirely and land untested.
               - 'examples/demo/**'
+              # The leg also builds an offline `pacto doc --format html` export and
+              # audits the retained non-Fleet views on it -- that export is their
+              # only host. So the exporter and its CLI wiring are inputs too.
+              - 'pkg/doc/**'
+              - 'internal/cli/doc.go'
             kubernetes:
               - 'integrations/kubernetes/**'
               - 'go.work'

@@ -37,10 +37,10 @@ index.html ─► assets/*          the dashboard's Svelte UI, rebuilt with base
                                      ▼
                                 app.wasm: httptest → Pacto's Huma handlers
                                      │
-                                EmbedSource  (dashboard.DataSource over //go:embed bundles)
+                                EmbedSource  (contract index over //go:embed bundles)
 ```
 
-- `source_embed.go` — indexes the embedded bundles and implements `dashboard.DataSource`.
+- `source_embed.go` — indexes the embedded bundles by service name and version.
 - `source_fleet.go` — builds the operational graph the product UI reads: the embedded
   revisions plus five sources, so the demo shows a real estate rather than a clean
   one. A registry (what was declared), a cluster collector (what is running), a

@@ -1,7 +1,8 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
 
-  let { validation, conditions = [], open = $bindable(false), id = '', source = '' } = $props();
+  let { validation, conditions = [], open = $bindable(false), id = '' } = $props();
 
   // Only render when there are issues to show. Conditions live in Overview, so
   // they must not make this (errors/warnings-only) section render empty.
@@ -12,7 +13,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Validation" bind:open {id} {source}>
+  <CollapsibleSection title="Validation" bind:open {id}>
     {#if validation?.errors?.length > 0}
       <div class="subsection">
         <h3 style="color:var(--c-err)">Errors</h3>
@@ -34,6 +35,8 @@
       </div>
     {/if}
   </CollapsibleSection>
+{:else}
+  <SectionState title="Validation" bind:open {id} />
 {/if}
 
 <style>

@@ -244,7 +244,7 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 
 	var resolver validation.BundleResolver
 	if store != nil {
-		resolver = &bundleResolverAdapter{svc: &Service{BundleStore: store}}
+		resolver = (&Service{BundleStore: store}).PolicyResolver(dir)
 	}
 	result := validation.ValidateWithResolver(ctx, bundle.Contract, bundle.RawYAML, bundle.FS, resolver)
 	if !result.IsValid() {
@@ -259,6 +259,30 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 // isOCIRef reports whether ref uses the oci:// scheme.
 func isOCIRef(ref string) bool {
 	return graph.ParseDependencyRef(ref).IsOCI()
+}
+
+// rootBase is where the ROOT contract loaded from ref resolves its own relative
+// references from: its absolute directory, or [graph.OCIBase] when it came from
+// a registry.
+//
+// One function because one answer. The dependency fetcher, the lock builder's
+// reference closure and policy resolution each walk a different closure out of
+// the same root, and a root that is "a registry bundle" to one of them and "the
+// working directory" to another is how a local reference declared inside a
+// remote contract gets honoured by whichever walk spelled the sentinel
+// differently. [graph.OCIBase] is never a valid absolute path, so the two cases
+// can never be confused.
+func rootBase(ref string) string {
+	if isOCIRef(ref) {
+		return graph.OCIBase
+	}
+	// Only reachable if the process has no working directory; the relative ref is
+	// still the right base to join onto in that case.
+	base := ref
+	if abs, err := filepath.Abs(ref); err == nil {
+		base = abs
+	}
+	return base
 }
 
 // extractBundleFS writes all files from a bundle FS to the given directory.

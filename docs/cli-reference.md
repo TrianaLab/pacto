@@ -120,8 +120,8 @@ pacto completion [flags]
 
 ## `pacto dashboard`
 
-Launches an operational dashboard that aggregates data from all
-available sources (local filesystem, Kubernetes, OCI registries).
+Launches an operational dashboard over the fleet snapshot: the same
+operational graph the CLI's `pacto fleet` commands query, served as a web UI.
 
 The dashboard is the exploration and observability layer of the Pacto system.
 It visualizes the same contracts the CLI manages and the operator verifies,
@@ -134,24 +134,18 @@ Each positional argument is a pacto source reference:
 
 When no arguments are given, sources are auto-detected:
   - local: enabled if pacto.yaml is found in the working directory
-  - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
-  - oci:   auto-discovered from K8s status.contract.resolvedRef, or via PACTO_DASHBOARD_REPO env var
+  - cache: enabled if the OCI bundle cache (~/.cache/pacto/oci) holds bundles
+  - k8s:   enabled if a kubeconfig or in-cluster config resolves
+  - oci:   from the positional arguments, the PACTO_DASHBOARD_REPO env var, or
+           the status.contract.resolvedRef of the cluster's Pacto resources
 
-Materialized bundles on disk (~/.cache/pacto/oci) are used internally by the
-OCI source to enrich version data (hash, classification, timestamps) without
-appearing as a separate source. The --no-cache flag skips pre-existing cache
-at startup but still allows same-session materialization (e.g. fetch-all-versions).
+When running alongside the Kubernetes operator, OCI repositories are
+automatically discovered from the status.contract.resolvedRef fields of Pacto
+CRD resources, on every refresh rather than once at startup. That gives a hybrid
+view: runtime truth from the operator combined with contract truth from OCI.
 
-When running alongside the Kubernetes operator, OCI repositories are automatically
-discovered from the status.contract.resolvedRef fields of Pacto CRD resources. This provides full
-contract bundles, version history, interfaces, and diffs — without needing
-explicit OCI arguments. The result is a hybrid view: runtime truth from the
-operator combined with contract truth from OCI.
-
-Services are grouped by name across sources and merged using priority rules:
-  - Kubernetes for runtime state (contract status, checks, endpoints)
-  - OCI for contract content and version history
-  - Local for in-progress contract changes
+Every source contributes to one snapshot, rebuilt in the background, and each
+answer carries the as-of time and the completeness of the sources behind it.
 
 ```
 pacto dashboard [sources...] [flags]
@@ -183,7 +177,6 @@ pacto dashboard [sources...] [flags]
 
 ```
       --cors-origin string         explicit cross-origin allowed to call the API (default: same-origin only)
-      --diagnostics                enable source diagnostics panel in the dashboard UI
   -h, --help                       help for dashboard
       --host string                bind address for the dashboard server (default "127.0.0.1")
       --namespace string           Kubernetes namespace (empty = all namespaces)
@@ -192,7 +185,7 @@ pacto dashboard [sources...] [flags]
       --traces stringArray         OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
-It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached), and `--diagnostics` to expose the `/api/debug/*` endpoints.
+It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).
 
 For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Dashboard architecture](dashboard-architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).
 
@@ -261,7 +254,7 @@ pacto doc [dir | oci://ref] [flags]
   # Serve on a custom port
   pacto doc my-service --serve --port 9090
 
-  # Launch an interactive API explorer (Scalar UI)
+  # Launch an interactive API explorer (Swagger UI)
   pacto doc my-service --ui swagger
 
   # Select a specific interface
@@ -284,7 +277,7 @@ pacto doc [dir | oci://ref] [flags]
       --serve                serve the offline dashboard-grade documentation site over a local HTTP server
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
       --target stringArray   target server URL for try-it-out requests; supports interface=url mapping (used with --ui)
-      --ui string            UI type for interactive API explorer (e.g. swagger)
+      --ui string            UI type for the interactive API explorer (one of: swagger)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
@@ -452,6 +445,7 @@ pacto fleet [flags]
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
       --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
       --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
@@ -675,15 +669,21 @@ pacto impact <old> <new> [flags]
 **Flags:**
 
 ```
+      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --freshness duration         mark target evidence older than this as stale (0 disables)
   -h, --help                       help for impact
       --include-observed           let observed (runtime) relationships raise consumer confidence
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --new-set stringArray        set a value on the new contract (e.g. --new-set service.version=2.0.0)
       --new-values stringArray     values file to merge into the new contract (can be repeated)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --old-set stringArray        set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray     values file to merge into the old contract (can be repeated)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets (repeatable)
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
       --traces string              OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
 ```
 
@@ -836,6 +836,8 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server instead exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so a registry tag that moves later does not change the session. Roots that do not resolve stay visible as partial knowledge. Discovery is not authorization and nothing in the catalog executes.
 
+With --fleet, the server instead exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags — --local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose that snapshot and are read in --fleet mode only.
+
 A bundle reference, --root and --fleet select different servers and cannot be combined.
 
 ```
@@ -868,19 +870,19 @@ pacto mcp [bundle-ref] [flags]
       --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
       --auth stringArray           credential for a security scheme as name=value (repeatable)
       --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --cache                      include the local OCI cache as offline baseline revisions (--fleet)
-      --evidence-url stringArray   base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)
+      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --fleet                      expose read-only operational-graph (fleet) query tools
-      --freshness duration         mark target evidence older than this as stale (--fleet)
+      --freshness duration         mark target evidence older than this as stale (0 disables)
   -h, --help                       help for mcp
-      --k8s                        include live Pacto CRs from the current Kubernetes cluster (--fleet)
-      --local stringArray          local bundle root(s) for --fleet (repeatable) (default [.])
-      --namespace string           namespace for --k8s (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision for --fleet (repeatable)
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --port int                   port for HTTP transport (default 8585)
       --root stringArray           contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges for --fleet (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
   -t, --transport string           transport type: stdio or http (default "stdio")
 ```
 
@@ -1045,6 +1047,47 @@ If the artifact already exists in the registry, `pacto push` prints a warning an
 
 ---
 
+## `pacto tui`
+
+Opens a full-screen terminal UI over the same fleet snapshot `pacto fleet` queries. Navigate services, revisions, targets, owners and sources, then run pacto's verbs against whatever is selected — the selection becomes the argument, so you never type a path.
+
+Read verbs run in-process against the loaded snapshot. Write verbs shell out to this same binary so they own the terminal, and every one of them asks for confirmation first. Pass --read-only to hide the write verbs entirely.
+
+Requires an interactive terminal. In a pipeline or CI, use the plain commands.
+
+```
+pacto tui [flags]
+```
+
+**Examples:**
+
+```
+  # Browse the local fleet
+  pacto tui --local .
+
+  # Browse a live cluster plus the local bundles, without write verbs
+  pacto tui --local . --k8s --read-only
+```
+
+**Flags:**
+
+```
+      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --freshness duration         mark target evidence older than this as stale (0 disables)
+  -h, --help                       help for tui
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
+      --read-only                  hide every write verb
+      --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+```
+
+---
+
 ## `pacto update`
 
 Downloads and installs the specified version of pacto. If no version is given, updates to the latest release.
@@ -1185,7 +1228,6 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_HOST` | `--host` | Bind address (default: `127.0.0.1`) |
 | `PACTO_DASHBOARD_PORT` | `--port` | HTTP port (default: `3000`) |
 | `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
-| `PACTO_DASHBOARD_DIAGNOSTICS` | `--diagnostics` | Boolean. Expose the `/api/debug/*` endpoints and the source diagnostics panel |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH` |

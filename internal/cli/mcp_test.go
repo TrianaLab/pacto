@@ -110,7 +110,7 @@ func TestMCPCommand_UnknownTransportBeforeBuild(t *testing.T) {
 }
 
 func TestRunMCPServer_UnknownTransport(t *testing.T) {
-	server := pactomcp.NewServer(app.NewService(nil, nil), "test")
+	server := pactomcp.NewServer(app.NewService(nil, nil).PolicyResolver, "test")
 	var stderr bytes.Buffer
 
 	err := runMCPServer(context.Background(), server, "bogus", 0, &stderr)
@@ -267,7 +267,7 @@ func TestMCPCommand_RunE_HTTP(t *testing.T) {
 
 func TestRunMCPServer_HTTP(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	server := pactomcp.NewServer(app.NewService(nil, nil), "test")
+	server := pactomcp.NewServer(app.NewService(nil, nil).PolicyResolver, "test")
 	var stderr bytes.Buffer
 
 	cancel()
@@ -285,7 +285,7 @@ func TestRunMCPServer_HTTP(t *testing.T) {
 func TestRunMCPServer_StdioMessage(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	server := pactomcp.NewServer(app.NewService(nil, nil), "test")
+	server := pactomcp.NewServer(app.NewService(nil, nil).PolicyResolver, "test")
 	var stderr bytes.Buffer
 
 	_ = runMCPServer(ctx, server, "stdio", 0, &stderr)
@@ -297,7 +297,7 @@ func TestRunMCPServer_StdioMessage(t *testing.T) {
 }
 
 func TestRunMCPServer_InvalidPort(t *testing.T) {
-	server := pactomcp.NewServer(app.NewService(nil, nil), "test")
+	server := pactomcp.NewServer(app.NewService(nil, nil).PolicyResolver, "test")
 	var stderr bytes.Buffer
 
 	err := runMCPServer(context.Background(), server, "http", -1, &stderr)
@@ -307,7 +307,7 @@ func TestRunMCPServer_InvalidPort(t *testing.T) {
 }
 
 func TestServeHTTP_ContextCancel(t *testing.T) {
-	server := pactomcp.NewServer(app.NewService(nil, nil), "test")
+	server := pactomcp.NewServer(app.NewService(nil, nil).PolicyResolver, "test")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -353,7 +353,7 @@ func TestServeHTTP_ContextCancel(t *testing.T) {
 }
 
 func TestServeHTTP_ListenerClosed(t *testing.T) {
-	server := pactomcp.NewServer(app.NewService(nil, nil), "test")
+	server := pactomcp.NewServer(app.NewService(nil, nil).PolicyResolver, "test")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -366,18 +366,6 @@ func TestServeHTTP_ListenerClosed(t *testing.T) {
 	err = serveHTTP(context.Background(), server, ln)
 	if err == nil {
 		t.Error("expected error for closed listener")
-	}
-}
-
-func TestMCPRegistersTracesForFleetMode(t *testing.T) {
-	cmd := newMCPCommand(nil, "v")
-	f := cmd.Flags().Lookup("traces")
-	if f == nil {
-		t.Fatal("mcp has no --traces flag: fleetOptions reads it, so --fleet " +
-			"silently drops observed edges and no agent can ever see provenance=observed")
-	}
-	if f.Value.Type() != "stringArray" {
-		t.Errorf("--traces type = %q, want stringArray to match pacto fleet", f.Value.Type())
 	}
 }
 

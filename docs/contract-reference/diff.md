@@ -46,11 +46,18 @@ Interfaces are keyed by `name`. The `type` enum is `openapi`/`asyncapi`/`grpc`, 
 |-------|--------|----------------|
 | `configurations[]` | Added | NON_BREAKING |
 | `configurations[]` | Removed | **BREAKING** |
+| `configurations[].schema` | Added | POTENTIAL_BREAKING |
 | `configurations[].schema` | Modified | POTENTIAL_BREAKING |
+| `configurations[].schema` | Removed | **BREAKING** |
 | `configurations[].ref` | Added | NON_BREAKING |
 | `configurations[].ref` | Modified | POTENTIAL_BREAKING |
 | `configurations[].ref` | Removed | **BREAKING** |
 | `configurations[].values.*` | Added / Modified / Removed | NON_BREAKING |
+
+Dropping a `schema` is `BREAKING`: the configuration a consumer supplies stops
+being validated against anything. Introducing one where there was none is
+`POTENTIAL_BREAKING` rather than safe, because a configuration nothing checked
+before can newly fail validation.
 
 Inline configuration `values` are the provider's own defaults, not part of the
 consumer-facing contract surface, so value changes are diffed key by key (e.g.
@@ -62,10 +69,14 @@ consumer-facing contract surface, so value changes are diffed key by key (e.g.
 |-------|--------|----------------|
 | `policies[]` | Added | NON_BREAKING |
 | `policies[]` | Removed | POTENTIAL_BREAKING |
-| `policies[].schema` | Modified | POTENTIAL_BREAKING |
+| `policies[].schema` | Added / Modified / Removed | POTENTIAL_BREAKING |
 | `policies[].ref` | Added | NON_BREAKING |
 | `policies[].ref` | Modified | POTENTIAL_BREAKING |
 | `policies[].ref` | Removed | POTENTIAL_BREAKING |
+
+Introducing a policy `schema` where there was none is `POTENTIAL_BREAKING` for
+the same reason it is on a configuration: a policy nothing validated before can
+newly fail against it.
 
 ## Workload and state
 
@@ -147,7 +158,6 @@ Parameters are identified by `name` + `in` (location: query, path, header, cooki
 |-------|--------|----------------|
 | `openapi.request-body` | Added | POTENTIAL_BREAKING |
 | `openapi.request-body` | Removed | POTENTIAL_BREAKING |
-| `openapi.request-body` | Modified | POTENTIAL_BREAKING |
 
 ### Responses
 
@@ -155,14 +165,36 @@ Parameters are identified by `name` + `in` (location: query, path, header, cooki
 |-------|--------|----------------|
 | `openapi.responses` | Added | NON_BREAKING |
 | `openapi.responses` | Removed | **BREAKING** |
-| `openapi.responses` | Modified | POTENTIAL_BREAKING |
+
+Neither table has a Modified row. A request body or a status code present on
+both sides is never reported as one opaque modification: it is deep-diffed field
+by field and each inner difference is classified by the [JSON Schema
+rules](#json-schema-configuration-policy-schemas) below, so there is no such
+change for a Modified rule to answer.
+
+Which side of the exchange the body belongs to changes the verdict, because a
+`required` entry means the opposite thing on each side:
+
+| Where | Change | Classification | Why |
+|-------|--------|----------------|-----|
+| request body | `required` field added | **BREAKING** | existing callers omit it |
+| request body | `required` field removed | NON_BREAKING | the caller's obligation relaxed |
+| response | `required` field added | NON_BREAKING | a stronger guarantee to the reader |
+| response | `required` field removed | **BREAKING** | a guarantee consumers read is withdrawn |
+| response | property removed | **BREAKING** | data a consumer could read is gone |
+
+A property removed from a response is `BREAKING` whether or not it was listed in
+`required` — most response schemas have no `required` array at all, and deleting
+a field consumers read is the commonest way a REST provider breaks them. Every
+other inner difference (a property added, a type or constraint changed) is
+`POTENTIAL_BREAKING`.
 
 Change paths use a hierarchical format that pinpoints the exact location, for example:
 
 ```
 openapi.paths[/users].methods[GET].parameters[filter:query]
-openapi.paths[/users].methods[POST].request-body
-openapi.paths[/users].methods[GET].responses[200]
+openapi.paths[/users].methods[POST].request-body.content.application/json.schema.required[email]
+openapi.paths[/users].methods[GET].responses[200].content.application/json.schema.properties.email
 ```
 
 ## AsyncAPI
@@ -248,6 +280,20 @@ Schema files referenced by `configurations[].schema`, `policies[].schema`, or th
 | `schema.properties.*` | Modified | POTENTIAL_BREAKING |
 | `schema.required` | Added / Removed | **BREAKING** |
 | `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
+
+The same recursive comparison classifies OpenAPI request bodies and responses,
+AsyncAPI payloads and these schema files, but not identically: a `required`
+entry is a promise in one direction and an obligation in the other, so the
+verdict depends on which side supplies the data.
+
+- **OpenAPI request bodies and responses** carry a known direction and use the
+  mirrored table under [Responses](#responses) above.
+- **Configuration schemas, policy schemas and AsyncAPI payloads** do not. A
+  configuration schema constrains a value the platform supplies; an AsyncAPI
+  channel is published by one service and subscribed by another. With no
+  direction to read, both `required` transitions take the conservative answer
+  and stay `BREAKING`, and a removed property is `POTENTIAL_BREAKING` like any
+  other structural difference.
 
 ## Readiness
 

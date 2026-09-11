@@ -78,14 +78,15 @@ func buildFleetQuery(t *testing.T) *fleet.Query {
 	return fleet.NewQuery(snap)
 }
 
-// callHandler invokes a fleet handler with the given args and returns the result.
-func callHandler(t *testing.T, h mcpsdk.ToolHandler, args map[string]any) *mcpsdk.CallToolResult {
+// callHandler registers one tool on a bare server and calls it through a real
+// client session. Calling the handler function directly would bypass the SDK's
+// schema validation, which is the layer that turns a wrong-typed argument into
+// an error instead of a zero value, so the tests would not exercise it.
+func callHandler[In any](t *testing.T, tool *mcpsdk.Tool, h mcpsdk.ToolHandlerFor[In, any], args map[string]any) *mcpsdk.CallToolResult {
 	t.Helper()
-	res, err := h(context.Background(), makeRequest(t, args))
-	if err != nil {
-		t.Fatalf("handler returned transport error: %v", err)
-	}
-	return res
+	server := newBareServer("test", "")
+	mcpsdk.AddTool(server, tool, h)
+	return callToolOn(t, server, tool.Name, args)
 }
 
 // decode parses a (non-error) handler result's JSON text into v.
@@ -101,7 +102,7 @@ func decode(t *testing.T, res *mcpsdk.CallToolResult, v any) {
 
 func TestFleetSearchHandler(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetSearchHandler(q), map[string]any{"limit": 1})
+	res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"limit": 1})
 	var out fleet.SearchResult
 	decode(t, res, &out)
 	if out.Count > 1 {
@@ -118,17 +119,22 @@ func TestFleetSearchHandler(t *testing.T) {
 	}
 }
 
+// TestFleetSearchHandler_InvalidFilter covers what the declared schema cannot:
+// "integer" admits -1, and only the query knows a limit must be non-negative.
+// A wrong TYPE is now rejected before the handler (see
+// TestFleetTools_WrongTypedArgumentIsAnError); a wrong VALUE of the right type
+// still has to come back as a visible error rather than a silent default.
 func TestFleetSearchHandler_InvalidFilter(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetSearchHandler(q), map[string]any{"status": "Bogus"})
+	res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"limit": -1})
 	if !res.IsError {
-		t.Error("expected an error result for an invalid status filter")
+		t.Error("expected an error result for a negative limit")
 	}
 }
 
 func TestFleetGetHandler_Service(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetGetHandler(q), map[string]any{"service": "orders"})
+	res := callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{"service": "orders"})
 	var out fleet.ServiceView
 	decode(t, res, &out)
 	if out.Service == nil || out.Service.Name != "orders" {
@@ -148,7 +154,7 @@ func TestFleetGetHandler_Service(t *testing.T) {
 
 func TestFleetGetHandler_Target(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetGetHandler(q), map[string]any{"target": "prod/k8s/orders"})
+	res := callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{"target": "prod/k8s/orders"})
 	var out fleet.TargetView
 	decode(t, res, &out)
 	if out.Target == nil || out.Target.Name != "orders" {
@@ -161,7 +167,7 @@ func TestFleetGetHandler_Target(t *testing.T) {
 
 func TestFleetGetHandler_Neither(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetGetHandler(q), map[string]any{})
+	res := callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{})
 	if !res.IsError {
 		t.Error("expected error when neither service nor target is provided")
 	}
@@ -169,7 +175,7 @@ func TestFleetGetHandler_Neither(t *testing.T) {
 
 func TestFleetGetHandler_TargetNotFound(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetGetHandler(q), map[string]any{"target": "ghost"})
+	res := callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{"target": "ghost"})
 	if !res.IsError {
 		t.Error("expected error result for unknown target")
 	}
@@ -177,7 +183,7 @@ func TestFleetGetHandler_TargetNotFound(t *testing.T) {
 
 func TestFleetGetHandler_ServiceNotFound(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetGetHandler(q), map[string]any{"service": "ghost"})
+	res := callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{"service": "ghost"})
 	if !res.IsError {
 		t.Error("expected error result for unknown service")
 	}
@@ -185,7 +191,7 @@ func TestFleetGetHandler_ServiceNotFound(t *testing.T) {
 
 func TestFleetGraphHandler(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetGraphHandler(q), map[string]any{"service": "orders", "transitive": true})
+	res := callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{"service": "orders", "transitive": true})
 	var out fleet.GraphResult
 	decode(t, res, &out)
 	if out.Root != "orders" {
@@ -204,7 +210,7 @@ func TestFleetGraphHandler(t *testing.T) {
 
 func TestFleetGraphHandler_Dependents(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetGraphHandler(q), map[string]any{"service": "payments", "direction": "dependents"})
+	res := callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{"service": "payments", "direction": "dependents"})
 	var out fleet.GraphResult
 	decode(t, res, &out)
 	if out.Direction != fleet.DirectionDependents {
@@ -214,7 +220,7 @@ func TestFleetGraphHandler_Dependents(t *testing.T) {
 
 func TestFleetGraphHandler_NotFound(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetGraphHandler(q), map[string]any{"service": "ghost"})
+	res := callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{"service": "ghost"})
 	if !res.IsError {
 		t.Error("expected error result for unknown graph root")
 	}
@@ -222,7 +228,7 @@ func TestFleetGraphHandler_NotFound(t *testing.T) {
 
 func TestFleetStatusHandler(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetStatusHandler(q), map[string]any{"needs_attention": true})
+	res := callHandler(t, fleetStatusTool(), fleetStatusHandler(q), map[string]any{"needs_attention": true})
 	var out fleet.StatusResult
 	decode(t, res, &out)
 	if len(out.Items) == 0 {
@@ -239,7 +245,7 @@ func TestFleetStatusHandler(t *testing.T) {
 
 func TestFleetExplainHandler(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetExplainHandler(q), map[string]any{"subject": "orders"})
+	res := callHandler(t, fleetExplainTool(), fleetExplainHandler(q), map[string]any{"subject": "orders"})
 	var out fleet.ExplainResult
 	decode(t, res, &out)
 	if out.Subject != "orders" || out.Kind != "service" {
@@ -252,19 +258,9 @@ func TestFleetExplainHandler(t *testing.T) {
 
 func TestFleetExplainHandler_NotFound(t *testing.T) {
 	q := buildFleetQuery(t)
-	res := callHandler(t, fleetExplainHandler(q), map[string]any{"subject": "ghost"})
+	res := callHandler(t, fleetExplainTool(), fleetExplainHandler(q), map[string]any{"subject": "ghost"})
 	if !res.IsError {
 		t.Error("expected error result for unknown explain subject")
-	}
-}
-
-func TestIntOrZero(t *testing.T) {
-	if intOrZero(nil) != 0 {
-		t.Error("intOrZero(nil) should be 0")
-	}
-	five := 5
-	if intOrZero(&five) != 5 {
-		t.Error("intOrZero(&5) should be 5")
 	}
 }
 
@@ -275,7 +271,7 @@ func TestIntOrZero(t *testing.T) {
 func connectFleetServer(t *testing.T, q *fleet.Query, provideImpact impactProvider) *mcpsdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	server := NewFleetServer("test", q, provideImpact)
+	server := NewFleetServer("test", q, provideImpact, nil)
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "c", Version: "1"}, nil)
 	t1, t2 := mcpsdk.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, t1, nil); err != nil {
@@ -347,13 +343,13 @@ func TestSafety_ReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Exercise every handler, including read paths that build derived views.
-	_ = callHandler(t, fleetSearchHandler(q), map[string]any{})
-	_ = callHandler(t, fleetGetHandler(q), map[string]any{"service": "orders"})
-	_ = callHandler(t, fleetGetHandler(q), map[string]any{"target": "prod/k8s/orders"})
-	_ = callHandler(t, fleetGraphHandler(q), map[string]any{"service": "orders", "transitive": true})
-	_ = callHandler(t, fleetGraphHandler(q), map[string]any{"service": "payments", "direction": "dependents"})
-	_ = callHandler(t, fleetStatusHandler(q), map[string]any{"needs_attention": true})
-	_ = callHandler(t, fleetExplainHandler(q), map[string]any{"subject": "orders"})
+	_ = callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{})
+	_ = callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{"service": "orders"})
+	_ = callHandler(t, fleetGetTool(), fleetGetHandler(q), map[string]any{"target": "prod/k8s/orders"})
+	_ = callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{"service": "orders", "transitive": true})
+	_ = callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{"service": "payments", "direction": "dependents"})
+	_ = callHandler(t, fleetStatusTool(), fleetStatusHandler(q), map[string]any{"needs_attention": true})
+	_ = callHandler(t, fleetExplainTool(), fleetExplainHandler(q), map[string]any{"subject": "orders"})
 
 	after, err := json.Marshal(q.Snapshot())
 	if err != nil {
@@ -380,7 +376,7 @@ func TestSafety_NoSecretLeakage(t *testing.T) {
 	}
 	// Confirm it stays sanitized through a handler's meta.sources JSON.
 	q := fleet.NewQuery(snap)
-	res := callHandler(t, fleetSearchHandler(q), map[string]any{})
+	res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{})
 	if strings.Contains(resultText(t, res), secret) {
 		t.Error("handler output leaked the secret")
 	}
@@ -404,7 +400,7 @@ func TestSafety_BoundedResults(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	q := fleet.NewQuery(snap)
-	res := callHandler(t, fleetSearchHandler(q), map[string]any{"limit": 100000})
+	res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"limit": 100000})
 	var out fleet.SearchResult
 	decode(t, res, &out)
 	if out.Count > fleet.MaxSearchLimit {
@@ -433,7 +429,7 @@ func TestSafety_CyclicGraph(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	q := fleet.NewQuery(snap)
-	res := callHandler(t, fleetGraphHandler(q), map[string]any{"service": "a", "transitive": true})
+	res := callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{"service": "a", "transitive": true})
 	var out fleet.GraphResult
 	decode(t, res, &out)
 	if len(out.Cycles) == 0 {
@@ -445,7 +441,7 @@ func TestSafety_CyclicGraph(t *testing.T) {
 func TestSafety_QueryTextIsData(t *testing.T) {
 	q := buildFleetQuery(t)
 	for _, text := range []string{"$(rm -rf /)", "../../etc/passwd", "; DROP TABLE services;--"} {
-		res := callHandler(t, fleetSearchHandler(q), map[string]any{"text": text})
+		res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"text": text})
 		var out fleet.SearchResult
 		decode(t, res, &out)
 		if out.Count != 0 {
@@ -472,10 +468,7 @@ func TestFleetSearch_StatusEnumIsTheWholeVocabulary(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a status property")
 	}
-	got, ok := status["enum"].([]string)
-	if !ok {
-		t.Fatalf("expected a string enum, got %T", status["enum"])
-	}
+	got := enumStrings(t, status)
 	if want := fleet.CanonicalStatuses(); !slices.Equal(got, want) {
 		t.Errorf("status enum = %v, want the canonical vocabulary %v", got, want)
 	}
@@ -486,4 +479,40 @@ func TestFleetSearch_StatusEnumIsTheWholeVocabulary(t *testing.T) {
 			t.Errorf("enum advertises %q, which the fleet does not accept", s)
 		}
 	}
+}
+
+// TestFleetTools_WrongTypedArgumentIsAnError pins that the declared schema is
+// enforced, not advisory. Each of these used to decode to the zero value and be
+// read as "the caller did not ask for this", so the tool answered a different
+// question than the one it was given and said nothing about it.
+func TestFleetTools_WrongTypedArgumentIsAnError(t *testing.T) {
+	q := buildFleetQuery(t)
+
+	t.Run("max_depth as a string", func(t *testing.T) {
+		// "3" became 0, which the traversal reads as unlimited: a caller bounding
+		// a graph walk got an unbounded one.
+		res := callHandler(t, fleetGraphTool(), fleetGraphHandler(q), map[string]any{
+			"service": "orders", "transitive": true, "max_depth": "3",
+		})
+		if !res.IsError {
+			t.Errorf("got %s, want an error result", resultText(t, res))
+		}
+	})
+
+	t.Run("limit as a string", func(t *testing.T) {
+		// "50" became 0, silently replaced by the default page size.
+		res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"limit": "50"})
+		if !res.IsError {
+			t.Errorf("got %s, want an error result", resultText(t, res))
+		}
+	})
+
+	t.Run("status as a number", func(t *testing.T) {
+		// 42 became "", dropping the filter and returning the whole fleet as if
+		// every service matched.
+		res := callHandler(t, fleetSearchTool(), fleetSearchHandler(q), map[string]any{"status": 42})
+		if !res.IsError {
+			t.Errorf("got %s, want an error result", resultText(t, res))
+		}
+	})
 }

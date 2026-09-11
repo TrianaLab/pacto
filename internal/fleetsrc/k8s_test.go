@@ -12,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
 
 // fakeK8sClient is a fake k8sclient.K8sClient driving the source's Collect path.
@@ -174,6 +175,45 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	}
 }
 
+// The operator derives the readiness assessment in-cluster and publishes it as
+// status.readiness. The decoder here did not read it, so TargetRecord.Readiness
+// was permanently nil and a Kubernetes target of a contract that DOES declare
+// readiness rendered identically to one that declares none.
+func TestK8sSource_Collect_Readiness(t *testing.T) {
+	list := `{"items":[{"metadata":{"name":"payments-prod","namespace":"prod"},"status":{
+	  "readiness":{
+	    "score":90,"minScore":80,"passing":true,"totalWeight":40,"earnedWeight":36,
+	    "expires":"2027-01-31","expired":false,"daysRemaining":120,
+	    "doneCount":3,"partialCount":1,"notDoneCount":1,"deferredCount":2,
+	    "claims":[{"id":"runbook","type":"url","category":"operations","status":"done",
+	      "evidence":"https://runbooks/payments","description":"on-call runbook",
+	      "weight":10,"earnedWeight":10,"excluded":false}]
+	  }
+	}}]}`
+	s := NewK8sSource("prod-cluster", &fakeK8sClient{
+		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+		listData: []byte(list),
+	}, "")
+	col, err := s.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	days := 120
+	want := &readiness.Result{
+		Score: 90, MinScore: 80, Passing: true, TotalWeight: 40, EarnedWeight: 36,
+		Expires: "2027-01-31", DaysRemaining: &days,
+		DoneCount: 3, PartialCount: 1, NotDoneCount: 1, DeferredCount: 2,
+		Checks: []readiness.CheckResult{{
+			ID: "runbook", Type: "url", Category: "operations", Status: "done",
+			Evidence: "https://runbooks/payments", Description: "on-call runbook",
+			Weight: 10, EarnedWeight: 10,
+		}},
+	}
+	if !reflect.DeepEqual(col.Targets[0].Readiness, want) {
+		t.Errorf("readiness mismapped:\n got %+v\nwant %+v", col.Targets[0].Readiness, want)
+	}
+}
+
 func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 	// No contract block, no coverage, no findings, no timestamp: service falls
 	// back to the CR name and optional fields stay zero.
@@ -192,6 +232,92 @@ func TestK8sSource_Collect_MinimalItem(t *testing.T) {
 	}
 	if tg.ResolvedRef != "" || tg.Digest != "" || tg.Coverage != nil || tg.ReconciledAt != nil || tg.Findings != nil {
 		t.Errorf("expected zero optional fields, got %+v", tg)
+	}
+}
+
+func TestContractRefs_NoCRD(t *testing.T) {
+	// An absent CRD is a readable cluster that declares nothing, not a failure.
+	refs, err := ContractRefs(context.Background(), &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: false}}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(refs) != 0 {
+		t.Errorf("refs = %v, want none", refs)
+	}
+}
+
+func TestContractRefs_DiscoverError(t *testing.T) {
+	_, err := ContractRefs(context.Background(), &fakeK8sClient{discErr: errors.New("unreachable")}, "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestContractRefs_NoCRs(t *testing.T) {
+	fake := &fakeK8sClient{
+		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+		listData: []byte(`{"items":[]}`),
+	}
+	refs, err := ContractRefs(context.Background(), fake, "team-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(refs) != 0 {
+		t.Errorf("refs = %v, want none", refs)
+	}
+	if fake.gotNS != "team-a" {
+		t.Errorf("namespace = %q, want team-a", fake.gotNS)
+	}
+}
+
+// TestContractRefs_RefsAndRepos pins what the fleet gets to see: every running
+// ref plus the repository behind it, so a pinned digest still resolves to the
+// published baseline it was pinned from. Two CRs sharing a repository contribute
+// it once, and a CR the operator has not resolved yet contributes nothing.
+func TestContractRefs_RefsAndRepos(t *testing.T) {
+	list := `{"items":[
+	  {"metadata":{"name":"tagged"},"status":{"contract":{"resolvedRef":"ghcr.io/x/payments:1.2.0"}}},
+	  {"metadata":{"name":"pinned"},"status":{"contract":{"resolvedRef":"ghcr.io/x/payments:1.3.0@sha256:abcd"}}},
+	  {"metadata":{"name":"bare"},"status":{"contract":{"resolvedRef":"ghcr.io/x/orders"}}},
+	  {"metadata":{"name":"ported"},"status":{"contract":{"resolvedRef":"localhost:5000/dev/svc:2.0.0"}}},
+	  {"metadata":{"name":"unresolved"},"status":{"contract":{"resolvedRef":""}}},
+	  {"metadata":{"name":"nocontract"},"status":{"contractStatus":"Unknown"}}
+	]}`
+	refs, err := ContractRefs(context.Background(), &fakeK8sClient{
+		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
+		listData: []byte(list),
+	}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{
+		"ghcr.io/x/orders",                     // bare repo: already a repository
+		"ghcr.io/x/payments",                   // shared by the tagged and the pinned CR, once
+		"ghcr.io/x/payments:1.2.0",             //
+		"ghcr.io/x/payments:1.3.0@sha256:abcd", //
+		"localhost:5000/dev/svc",               // the registry port is not a tag
+		"localhost:5000/dev/svc:2.0.0",         //
+	}
+	if !slices.Equal(refs, want) {
+		t.Errorf("refs =\n %v\nwant\n %v", refs, want)
+	}
+}
+
+func TestRepoFromRef(t *testing.T) {
+	// Parity with the dashboard helper this replaced: digest first, then a tag
+	// only when the ':' is past the last '/'.
+	for ref, want := range map[string]string{
+		"ghcr.io/x/payments:1.2.0@sha256:abcd": "ghcr.io/x/payments",
+		"ghcr.io/x/payments@sha256:abcd":       "ghcr.io/x/payments",
+		"ghcr.io/x/payments:1.2.0":             "ghcr.io/x/payments",
+		"ghcr.io/x/payments":                   "ghcr.io/x/payments",
+		"localhost:5000/dev/svc":               "localhost:5000/dev/svc",
+		"@sha256:abcd":                         "@sha256", // a leading '@' is not a digest separator
+		"":                                     "",
+	} {
+		if got := repoFromRef(ref); got != want {
+			t.Errorf("repoFromRef(%q) = %q, want %q", ref, got, want)
+		}
 	}
 }
 

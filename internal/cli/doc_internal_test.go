@@ -44,12 +44,13 @@ func TestDocCommand_BuildExportError(t *testing.T) {
 	}
 }
 
+// TestValidateDocFlags walks the whole truth table of the one rule left in
+// validateDocFlags. The three mutual exclusions it used to also enforce are now
+// a cobra flag group, exercised through Execute in completion_test.go.
 func TestValidateDocFlags(t *testing.T) {
 	tests := []struct {
 		name    string
-		serve   bool
 		ui      string
-		output  string
 		iface   string
 		wantErr string
 	}{
@@ -57,39 +58,13 @@ func TestValidateDocFlags(t *testing.T) {
 			name: "all empty is valid",
 		},
 		{
-			name:  "serve alone is valid",
-			serve: true,
-		},
-		{
 			name: "ui alone is valid",
 			ui:   "swagger",
-		},
-		{
-			name:   "output alone is valid",
-			output: "/tmp/out",
 		},
 		{
 			name:  "ui with interface is valid",
 			ui:    "swagger",
 			iface: "api",
-		},
-		{
-			name:    "serve and ui are mutually exclusive",
-			serve:   true,
-			ui:      "swagger",
-			wantErr: "--serve and --ui are mutually exclusive",
-		},
-		{
-			name:    "serve and output are mutually exclusive",
-			serve:   true,
-			output:  "/tmp/out",
-			wantErr: "--serve/--ui and --output are mutually exclusive",
-		},
-		{
-			name:    "ui and output are mutually exclusive",
-			ui:      "swagger",
-			output:  "/tmp/out",
-			wantErr: "--serve/--ui and --output are mutually exclusive",
 		},
 		{
 			name:    "interface requires ui",
@@ -100,7 +75,7 @@ func TestValidateDocFlags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDocFlags(tt.serve, tt.ui, tt.output, tt.iface)
+			err := validateDocFlags(tt.ui, tt.iface)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)

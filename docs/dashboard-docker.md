@@ -55,7 +55,6 @@ make docker-run
 | `PACTO_DASHBOARD_PORT` | HTTP server port | `3000` |
 | `PACTO_DASHBOARD_NAMESPACE` | Kubernetes namespace filter (empty = all) | `""` |
 | `PACTO_DASHBOARD_REPO` | Comma-separated OCI repositories to scan | `""` |
-| `PACTO_DASHBOARD_DIAGNOSTICS` | Enable source diagnostics panel (`true`) | `false` |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | Trusted cross-origin allowed to call the API | `""` (same-origin only) |
 | `PACTO_DASHBOARD_TRACES` | Offline OTLP/JSON trace exports to fold observed dependencies from. **Space-separated** list of paths | `""` |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | The same input with a stable identity per file: **space-separated** `NAME=PATH` entries, where `NAME` is the Data Source name the API and UI show | `""` |
@@ -66,7 +65,7 @@ make docker-run
 | `PACTO_REGISTRY_PASSWORD` | Registry authentication password | `""` |
 | `PACTO_REGISTRY_TOKEN` | Registry authentication token | `""` |
 
-Each `PACTO_DASHBOARD_*` variable maps to the corresponding CLI flag: `--host`, `--port`, `--namespace`, `--diagnostics`, `--cors-origin`, `--traces` and `--trace-source`. OCI repositories can be passed as `oci://` positional arguments on the CLI; in the container, use the comma-separated `PACTO_DASHBOARD_REPO` env var instead.
+Each `PACTO_DASHBOARD_*` variable maps to the corresponding CLI flag: `--host`, `--port`, `--namespace`, `--cors-origin`, `--traces` and `--trace-source`. OCI repositories can be passed as `oci://` positional arguments on the CLI; in the container, use the comma-separated `PACTO_DASHBOARD_REPO` env var instead.
 
 The two trace variables are the container's only way to feed observed dependencies into the operational graph as [named observation sources](observation-sources.md#named-observation-sources): Pacto ships no OpenTelemetry (OTLP) receiver, so observed evidence arrives as offline trace exports you mount into the container. Watch the separator — these two take a **space-separated** list, unlike the comma-separated `PACTO_DASHBOARD_REPO`; a comma-joined value is read as one path, and a path that does not resolve leaves that Data Source reported as unavailable. Under Kubernetes the operator-managed dashboard sets `PACTO_DASHBOARD_TRACE_SOURCES` for you from `dashboard.observation.sources`, so configure it there instead — see [offline trace sources](integrations/kubernetes/installation.md#offline-trace-sources-for-the-dashboard).
 

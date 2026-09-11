@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -38,14 +39,162 @@ func TestMergeRevision_FillsEmptyAndUnionsSources(t *testing.T) {
 	}
 }
 
-func TestMergeRevision_ContentConflict(t *testing.T) {
-	// Same content-addressed key but different derived content digests means two
-	// sources pinned the same identity to different contract bodies.
-	existing := &ContractRevision{Key: "svc@v1", Source: "a", Sources: []string{"a"}, content: "sha256:a"}
-	add := &ContractRevision{Key: "svc@v1", Source: "b", content: "sha256:b"}
+// Two sources may pin one immutable digest and still ship different pacto.lock
+// content. Taking whichever arrived first would let source completion order decide
+// which bundle a declared dependency resolves to, so the lock is dropped and the
+// drop is sticky against a third, agreeing contributor.
+func TestMergeRevision_LockConflictDropsAndSticks(t *testing.T) {
+	existing := &ContractRevision{Key: "svc@sha256:x", Source: "a", Sources: []string{"a"},
+		Lock: &lock.Lock{LockVersion: 2, Root: lock.RootInfo{Name: "svc", Version: "1.0.0"}}}
+	add := &ContractRevision{Key: "svc@sha256:x", Source: "b",
+		Lock: &lock.Lock{LockVersion: 2, Root: lock.RootInfo{Name: "svc", Version: "2.0.0"}}}
 	lims := mergeRevision(existing, add)
-	if len(lims) != 1 || lims[0].Code != LimitationRevisionConflict {
-		t.Errorf("content disagreement should report REVISION_CONTENT_CONFLICT, got %v", lims)
+	if len(lims) != 1 || lims[0].Code != LimitationRevisionLockConflict {
+		t.Fatalf("lock disagreement should report REVISION_LOCK_CONFLICT, got %v", lims)
+	}
+	if existing.Lock != nil {
+		t.Errorf("a contested lock must be dropped, not resolved by arrival order: %+v", existing.Lock)
+	}
+	third := &ContractRevision{Key: "svc@sha256:x", Source: "c", Lock: add.Lock}
+	if lims := mergeRevision(existing, third); lims != nil {
+		t.Errorf("the conflict is already reported; a third contributor must not re-report it: %v", lims)
+	}
+	if existing.Lock != nil {
+		t.Errorf("a third contributor agreeing with one side must not reinstate contested pins: %+v", existing.Lock)
+	}
+}
+
+// Two contributions of the same lock are agreement, not a conflict. Two locks
+// that record the same resolutions but name different producing CLI versions are
+// agreement too: pacto.Version is provenance, and calling it a disagreement would
+// discard every pin the revision has and degrade all of its declared dependencies
+// and references to unresolved. A dependency pinned to a different digest is the
+// real thing.
+func TestMergeRevision_LockAgreementIgnoresProvenance(t *testing.T) {
+	mk := func(cliVersion, depDigest string) *lock.Lock {
+		return &lock.Lock{
+			LockVersion:  lock.CurrentLockVersion,
+			Pacto:        lock.PactoInfo{Version: cliVersion},
+			Root:         lock.RootInfo{Name: "svc", Version: "1.0.0"},
+			Dependencies: []lock.Entry{{Name: "dep", Source: "oci", Digest: depDigest}},
+		}
+	}
+	rev := func(src string, l *lock.Lock) *ContractRevision {
+		return &ContractRevision{Key: "svc@sha256:x", Source: src, Sources: []string{src}, Lock: l}
+	}
+
+	agree := rev("a", mk("3.2.0", "sha256:dep"))
+	if lims := mergeRevision(agree, rev("b", mk("3.2.1", "sha256:dep"))); lims != nil {
+		t.Errorf("only the producing CLI version differs; that is not a disagreement: %v", lims)
+	}
+	if agree.Lock == nil {
+		t.Error("agreed pins must survive a Pacto version bump between contributors")
+	}
+
+	conflict := rev("a", mk("3.2.0", "sha256:dep"))
+	lims := mergeRevision(conflict, rev("b", mk("3.2.0", "sha256:other")))
+	if len(lims) != 1 || lims[0].Code != LimitationRevisionLockConflict {
+		t.Fatalf("a disagreeing dependency pin is a real conflict, got %v", lims)
+	}
+	if conflict.Lock != nil {
+		t.Errorf("a contested lock must be dropped: %+v", conflict.Lock)
+	}
+}
+
+// A discarded lock must not read as "there was never a lock". lockReference
+// returns nil either way, so without a carried reason the reference detail tells
+// the operator that pacto.lock recorded no resolution — and they re-run
+// `pacto lock`, regenerate identical pins and see nothing change.
+func TestRefResolution_DiscardedLockNamesTheConflict(t *testing.T) {
+	c := &contract.Contract{
+		PactoVersion:   "2.0",
+		Service:        contract.Service{Name: "checkout", Version: "1.0.0", Owner: contract.Owner{Team: "t"}},
+		Configurations: []contract.Configuration{{Name: "settlement", Ref: "oci://ghcr.io/acme/shared:1.0.0", Required: true}},
+	}
+	src := func(id, digest string) Source {
+		return NewMemorySource(id, "oci", &Collection{Revisions: []RawRevision{{
+			Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}},
+			Domain: "d", Digest: "sha256:checkout",
+			Lock: &lock.Lock{LockVersion: lock.CurrentLockVersion,
+				Root: lock.RootInfo{Name: "checkout", Version: "1.0.0"},
+				References: []lock.Reference{{
+					Kind: contract.ReferenceKindConfig, Name: "settlement", Source: "oci",
+					Ref: "oci://ghcr.io/acme/shared:1.0.0", Version: "1.0.0", Digest: digest,
+				}}},
+		}}})
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		src("a", refDigest("shared-a")), src("b", refDigest("shared-b")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reason string
+	for _, rel := range snap.Relationships {
+		if rel.Type == RelationshipConfigRef && rel.To == "settlement" {
+			reason = rel.Reason
+		}
+	}
+	if !strings.Contains(reason, "disagreeing pacto.lock") {
+		t.Errorf("the reference must say its pins were discarded over a conflict, got %q", reason)
+	}
+}
+
+// A dependency edge resolves by NAME, so a contested lock leaves it resolved but
+// silently un-pinned: no LockedDigest, no ResolvedRevision and — before this — no
+// reason either, which is indistinguishable from a revision that ships no
+// pacto.lock at all. The winner of a lock disagreement is "neither", and it is
+// "neither" in both contribution orders; the edge has to say so.
+func TestDepResolution_DiscardedLockNamesTheConflict(t *testing.T) {
+	checkout := &contract.Contract{
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "checkout", Version: "1.0.0", Owner: contract.Owner{Team: "t"}},
+		Dependencies: []contract.Dependency{{Name: "ledger", Ref: "oci://x/ledger", Required: true, Compatibility: "^1.0.0"}},
+	}
+	ledger := &contract.Contract{
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: "ledger", Version: "1.0.0", Owner: contract.Owner{Team: "t"}},
+	}
+	ledgerSrc := NewMemorySource("ledger", "oci", &Collection{Revisions: []RawRevision{{
+		Bundle: &contract.Bundle{Contract: ledger, FS: fstest.MapFS{}},
+		Domain: "d", Digest: "sha256:ledger",
+	}}})
+	src := func(id, depDigest string) Source {
+		return NewMemorySource(id, "oci", &Collection{Revisions: []RawRevision{{
+			Bundle: &contract.Bundle{Contract: checkout, FS: fstest.MapFS{}},
+			Domain: "d", Digest: "sha256:checkout",
+			Lock: &lock.Lock{LockVersion: lock.CurrentLockVersion,
+				Root:         lock.RootInfo{Name: "checkout", Version: "1.0.0"},
+				Dependencies: []lock.Entry{{Name: "ledger", Source: "oci", Ref: "oci://x/ledger", Version: "1.0.0", Digest: depDigest}},
+			},
+		}}})
+	}
+	// "sha256:ledger" is the digest of a revision the snapshot actually holds, so a
+	// first-lock-wins tiebreak would produce a confident pin at ledger@sha256:ledger
+	// in one contribution order and a dangling one in the other.
+	a, b := src("a", "sha256:ledger"), src("b", "sha256:other-ledger")
+	for _, order := range [][]Source{{ledgerSrc, a, b}, {ledgerSrc, b, a}} {
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, order...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got *Relationship
+		for i := range snap.Relationships {
+			if rel := &snap.Relationships[i]; rel.Type == RelationshipDependency && rel.To == "ledger" {
+				got = rel
+			}
+		}
+		if got == nil {
+			t.Fatalf("%s first: the dependency edge is missing", order[1].ID())
+		}
+		if !got.Resolved || got.ToService != NewServiceKeyDomain("d", "ledger") {
+			t.Errorf("%s first: a contested lock must not unresolve a name-resolved dependency: %+v", order[1].ID(), got)
+		}
+		if got.LockedDigest != "" || got.LockedVersion != "" || got.ResolvedRevision != "" {
+			t.Errorf("%s first: neither side of a contested lock may pin the edge: %+v", order[1].ID(), got)
+		}
+		if !strings.Contains(got.Reason, "disagreeing pacto.lock") {
+			t.Errorf("%s first: the edge must say its pins were discarded over a conflict, got %q", order[1].ID(), got.Reason)
+		}
 	}
 }
 

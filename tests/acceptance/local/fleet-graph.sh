@@ -23,6 +23,13 @@ assert_contains() {
     echo "--- output ---"; echo "$1"; fail "$3"
   fi
 }
+assert_absent() {
+  if grep -Fq "$2" <<<"$1"; then
+    echo "--- output ---"; echo "$1"; fail "$3"
+  else
+    pass "$3"
+  fi
+}
 
 echo "== build pacto =="
 go build -o "$BIN" "$ROOT/cmd/pacto"
@@ -85,6 +92,35 @@ echo "== 1. assemble the graph from local contracts =="
 OUT="$("$BIN" fleet search --local "$WORK/ws")"
 assert_contains "$OUT" "web" "web is in the graph"
 assert_contains "$OUT" "payments" "payments is in the graph"
+
+echo "== 1b. a directory the OS refuses is a gap, not an empty fleet =="
+# A local scan meets directories it may not open -- a macOS home directory refuses
+# a hundred TCC-guarded paths, a shared checkout has another user's build output.
+# Aborting the walk there reported the whole source UNAVAILABLE and answered "0 of
+# 0 services" while every readable bundle sat further down, which is what `pacto
+# tui` did from a home directory. The refusal must degrade the answer, never empty
+# it. Named to sort FIRST, so the walk hits it before either contract: that
+# ordering is the whole bug, and a locked directory visited last would pass even
+# with the abort restored.
+mkdir -p "$WORK/ws/aa-locked"
+chmod 000 "$WORK/ws/aa-locked"
+if [ "$(id -u)" = "0" ]; then
+  # root reads a 0000 directory regardless, so there is no refusal to observe and
+  # the assertions below would be vacuous. Say so instead of passing silently.
+  echo "  SKIP: running as root, a mode-000 directory is still readable"
+  chmod 755 "$WORK/ws/aa-locked"
+else
+  POUT="$("$BIN" fleet search --local "$WORK/ws" 2>&1)"
+  chmod 755 "$WORK/ws/aa-locked"
+  assert_contains "$POUT" "2 of 2 service(s)" "both contracts are still found past the refused directory"
+  assert_contains "$POUT" "[SOURCE_PARTIAL] could not read aa-locked" "the refusal is reported as a gap"
+  assert_absent "$POUT" "SOURCE_UNAVAILABLE" "one refused directory does not make the source unavailable"
+  # The limitation is the same text an agent reads over MCP, so it names the
+  # directory relative to the scan root rather than echoing the caller's absolute
+  # path back at them.
+  assert_absent "$POUT" "$WORK/ws/aa-locked" "the gap names the directory relative to the scan root"
+fi
+rmdir "$WORK/ws/aa-locked"
 
 echo "== 2. sign, ingest and surface external evidence as a target =="
 # A remote producer must reference an IMMUTABLE oci digest, not a local path.

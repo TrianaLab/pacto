@@ -1,21 +1,29 @@
-// Package doc generates Markdown documentation from a dashboard service snapshot
-// and serves it as rendered HTML. The generated docs include an at-a-glance
-// summary, a runtime & operations table, a Mermaid architecture diagram,
-// interface and endpoint tables, configuration and policy tables, the dependency
-// graph and readiness, SBOM and lockfile sections. The snapshot
-// (dashboard.ServiceDetails) is the single source of truth already used by the
-// dashboard, so the doc and the UI stay in lock-step.
+// Package doc generates Markdown documentation from a contract-view service
+// snapshot and serves it as rendered HTML. The generated docs include an
+// at-a-glance summary, a runtime & operations table, a Mermaid architecture
+// diagram, interface and endpoint tables, configuration and policy tables, the
+// dependency graph and readiness, SBOM and lockfile sections. The snapshot
+// ([contractview.ServiceDetails]) is the single source of truth the dashboard UI
+// renders too, so the doc and the UI stay in lock-step.
+//
+// This is a renderer, not a server's client: it reads pkg/contractview, a leaf
+// with no HTTP and no Huma in it. The one remaining edge to pkg/dashboard is
+// [dashboard.EmbeddedUI] in [BuildStaticExport], which hands back the built UI
+// byte tree. Dropping that edge means moving pkg/dashboard/ui/ under its own
+// package, which is pinned by the frontend's Vite outDir, ci.mk's ui-drift gate
+// and the ui-rebuild-commit workflow — a coordinated change, not a local one.
 package doc
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/contractview"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 )
 
@@ -44,7 +52,7 @@ func (n *sectionNumberer) Next(depth int) string {
 // gr (may be nil) drives the Mermaid architecture diagram and the per-dependency
 // snapshots via the existing graph-walk helpers; when it is nil the diagram is
 // built from the snapshot alone.
-func Generate(d *dashboard.ServiceDetails, gr *graph.Result) (string, error) {
+func Generate(d *contractview.ServiceDetails, gr *graph.Result) (string, error) {
 	var b strings.Builder
 	num := &sectionNumberer{}
 
@@ -73,11 +81,11 @@ func Generate(d *dashboard.ServiceDetails, gr *graph.Result) (string, error) {
 
 // ── presence + at-a-glance + TOC ──────────────────────────────────────
 
-func hasSBOM(d *dashboard.ServiceDetails) bool {
+func hasSBOM(d *contractview.ServiceDetails) bool {
 	return d.SBOM != nil && len(d.SBOM.Packages) > 0
 }
 
-func hasLock(d *dashboard.ServiceDetails) bool {
+func hasLock(d *contractview.ServiceDetails) bool {
 	return d.Lock != nil && d.Lock.Present
 }
 
@@ -86,7 +94,7 @@ func hasLock(d *dashboard.ServiceDetails) bool {
 // same order (each guarded by the same presence predicate) so num.Next(1)
 // produces exactly these numbers — keeping the TOC anchors in sync with the
 // body without a second numberer.
-func sectionTitles(d *dashboard.ServiceDetails) []string {
+func sectionTitles(d *contractview.ServiceDetails) []string {
 	var titles []string
 	if d.Workload != "" || d.State != nil || len(d.Capabilities) > 0 {
 		titles = append(titles, "Runtime & operations")
@@ -119,7 +127,7 @@ func sectionTitles(d *dashboard.ServiceDetails) []string {
 	return titles
 }
 
-func writeSnapshotSummary(b *strings.Builder, d *dashboard.ServiceDetails) {
+func writeSnapshotSummary(b *strings.Builder, d *contractview.ServiceDetails) {
 	fmt.Fprintf(b, "**%s** `v%s`", d.Name, d.Version)
 	if d.ContractStatus != "" {
 		fmt.Fprintf(b, " · status `%s`", d.ContractStatus)
@@ -158,7 +166,7 @@ func headingAnchor(s string) string {
 	return a
 }
 
-func writeTableOfContents(b *strings.Builder, d *dashboard.ServiceDetails) {
+func writeTableOfContents(b *strings.Builder, d *contractview.ServiceDetails) {
 	fmt.Fprintln(b, "## Table of Contents")
 	fmt.Fprintln(b)
 	for i, title := range sectionTitles(d) {
@@ -170,7 +178,7 @@ func writeTableOfContents(b *strings.Builder, d *dashboard.ServiceDetails) {
 
 // ── 1 Runtime & operations ────────────────────────────────────────────
 
-func writeRuntimeOps(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writeRuntimeOps(b *strings.Builder, d *contractview.ServiceDetails, num *sectionNumberer) {
 	if d.Workload == "" && d.State == nil && len(d.Capabilities) == 0 {
 		return
 	}
@@ -180,7 +188,7 @@ func writeRuntimeOps(b *strings.Builder, d *dashboard.ServiceDetails, num *secti
 
 // writeRuntimeTable emits the v2 runtime Property/Value table body. Shared
 // by the root section and the per-dependency detail.
-func writeRuntimeTable(b *strings.Builder, d *dashboard.ServiceDetails) {
+func writeRuntimeTable(b *strings.Builder, d *contractview.ServiceDetails) {
 	fmt.Fprintln(b, "| Property | Value |")
 	fmt.Fprintln(b, "|----------|-------|")
 	writeKV(b, "Workload", d.Workload)
@@ -210,7 +218,7 @@ func writeKV(b *strings.Builder, k, v string) {
 
 // ── 2 Architecture (Mermaid) ──────────────────────────────────────────
 
-func writeMermaidDiagram(b *strings.Builder, gr *graph.Result, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writeMermaidDiagram(b *strings.Builder, gr *graph.Result, d *contractview.ServiceDetails, num *sectionNumberer) {
 	root := rootContract(gr, d)
 
 	fmt.Fprintf(b, "## %s. Architecture\n\n", num.Next(1))
@@ -238,7 +246,7 @@ func writeMermaidDiagram(b *strings.Builder, gr *graph.Result, d *dashboard.Serv
 // rootContract returns the root contract for the diagram: the resolved graph
 // root when present, otherwise a minimal contract reconstructed from the
 // snapshot so the single-service fallback reuses the same subgraph renderers.
-func rootContract(gr *graph.Result, d *dashboard.ServiceDetails) *contract.Contract {
+func rootContract(gr *graph.Result, d *contractview.ServiceDetails) *contract.Contract {
 	if gr != nil && gr.Root != nil && gr.Root.Contract != nil {
 		return gr.Root.Contract
 	}
@@ -247,7 +255,7 @@ func rootContract(gr *graph.Result, d *dashboard.ServiceDetails) *contract.Contr
 
 // contractFromDetails rebuilds the subset of a v2 contract the Mermaid diagram
 // needs (identity, interfaces, dependencies, state, workload, capabilities) from a snapshot.
-func contractFromDetails(d *dashboard.ServiceDetails) *contract.Contract {
+func contractFromDetails(d *contractview.ServiceDetails) *contract.Contract {
 	c := &contract.Contract{
 		Service:  contract.Service{Name: d.Name, Version: d.Version},
 		Workload: d.Workload,
@@ -324,7 +332,13 @@ func writeDependencyEdges(b *strings.Builder, c *contract.Contract, gr *graph.Re
 	fmt.Fprintln(b)
 	svcID := sanitizeMermaidID(c.Service.Name)
 	for _, dep := range c.Dependencies {
-		name := depName(dep.Ref)
+		// The declared name is the identity every other section of the document
+		// uses, so the diagram must agree with them; deriving a label from the
+		// ref is only for snapshots assembled outside schema validation.
+		name := dep.Name
+		if name == "" {
+			name = depName(dep.Ref)
+		}
 		depID := "dep_" + sanitizeMermaidID(name)
 		if dep.Required {
 			fmt.Fprintf(b, "  %s -->|\"required · %s\"| %s[\"%s\"]\n", svcID, dep.Compatibility, depID, name)
@@ -423,25 +437,27 @@ func sanitizeMermaidID(s string) string {
 	return nonAlphanumeric.ReplaceAllString(s, "")
 }
 
+// depName derives a Mermaid node label from a dependency reference.
+// contract.ParseOCIReference owns the tag boundary because it is the only split
+// that applies the last-slash guard: stripping at the last colon read the
+// "oci://" scheme as a tag separator, so every untagged dependency collapsed
+// into one node labelled "oci". Refs the parser rejects (a bare name, a
+// non-canonical digest) fall back to the ref itself rather than a second
+// hand-rolled split.
 func depName(ref string) string {
-	// Strip tag or digest suffix
-	name := ref
-	if i := strings.LastIndex(name, "@"); i != -1 {
-		name = name[:i]
+	body := strings.TrimPrefix(ref, "oci://")
+	if i := strings.Index(body, "@"); i != -1 {
+		body = body[:i]
 	}
-	if i := strings.LastIndex(name, ":"); i != -1 {
-		name = name[:i]
+	if r, err := contract.ParseOCIReference(body); err == nil {
+		return path.Base(r.Repository)
 	}
-	// Extract last path component
-	if i := strings.LastIndex(name, "/"); i != -1 {
-		name = name[i+1:]
-	}
-	return name
+	return body
 }
 
 // ── 3 Interfaces ──────────────────────────────────────────────────────
 
-func writeInterfaces(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writeInterfaces(b *strings.Builder, d *contractview.ServiceDetails, num *sectionNumberer) {
 	if len(d.Interfaces) == 0 {
 		return
 	}
@@ -461,7 +477,7 @@ func writeInterfaces(b *strings.Builder, d *dashboard.ServiceDetails, num *secti
 	}
 }
 
-func writeInterfaceTable(b *strings.Builder, ifaces []dashboard.InterfaceInfo) {
+func writeInterfaceTable(b *strings.Builder, ifaces []contractview.InterfaceInfo) {
 	fmt.Fprintln(b, "| Name | Type | Visibility |")
 	fmt.Fprintln(b, "|------|------|------------|")
 	for _, i := range ifaces {
@@ -489,7 +505,7 @@ func interfaceHeadingByType(t, name string) string {
 
 // ── 4 Configuration ───────────────────────────────────────────────────
 
-func writeConfiguration(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writeConfiguration(b *strings.Builder, d *contractview.ServiceDetails, num *sectionNumberer) {
 	if len(d.Configurations) == 0 {
 		return
 	}
@@ -500,7 +516,7 @@ func writeConfiguration(b *strings.Builder, d *dashboard.ServiceDetails, num *se
 // writeConfigList renders each configuration scope: a remote reference, a
 // resolved values table, or a "no properties" note. Multi-scope configs are
 // labelled by name. Shared by the root section and the per-dependency detail.
-func writeConfigList(b *strings.Builder, configs []dashboard.ConfigurationInfo) {
+func writeConfigList(b *strings.Builder, configs []contractview.ConfigurationInfo) {
 	multi := len(configs) > 1
 	for _, cfg := range configs {
 		if multi {
@@ -530,7 +546,7 @@ func writeConfigList(b *strings.Builder, configs []dashboard.ConfigurationInfo) 
 
 // ── 5 Policies ────────────────────────────────────────────────────────
 
-func writePolicies(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writePolicies(b *strings.Builder, d *contractview.ServiceDetails, num *sectionNumberer) {
 	if len(d.Policies) == 0 {
 		return
 	}
@@ -549,7 +565,7 @@ func writePolicies(b *strings.Builder, d *dashboard.ServiceDetails, num *section
 
 // ── 6 Dependencies ────────────────────────────────────────────────────
 
-func writeDependencies(b *strings.Builder, d *dashboard.ServiceDetails, gr *graph.Result, num *sectionNumberer) {
+func writeDependencies(b *strings.Builder, d *contractview.ServiceDetails, gr *graph.Result, num *sectionNumberer) {
 	if len(d.Dependencies) == 0 {
 		return
 	}
@@ -560,7 +576,7 @@ func writeDependencies(b *strings.Builder, d *dashboard.ServiceDetails, gr *grap
 	}
 }
 
-func writeDependencyTable(b *strings.Builder, deps []dashboard.DependencyInfo) {
+func writeDependencyTable(b *strings.Builder, deps []contractview.DependencyInfo) {
 	fmt.Fprintln(b, "| Name | Reference | Compatibility | Required | Locked version | Locked digest | Drift |")
 	fmt.Fprintln(b, "|------|-----------|---------------|----------|----------------|---------------|-------|")
 	for _, dep := range deps {
@@ -602,7 +618,7 @@ func collectFlatDependencyNodes(gr *graph.Result) []*graph.Node {
 // the resolved graph node via the same ServiceDetails mapping the dashboard
 // uses, so the detail matches the dashboard's view of that dependency.
 func writeDependencyDetail(b *strings.Builder, node *graph.Node) {
-	nd := dashboard.ServiceDetailsFromBundle(&contract.Bundle{Contract: node.Contract, FS: node.FS}, "local")
+	nd := contractview.ServiceDetailsFromBundle(&contract.Bundle{Contract: node.Contract, FS: node.FS}, "local")
 	fmt.Fprintf(b, "<details>\n<summary><strong>%s</strong> <code>v%s</code></summary>\n\n", nd.Name, nd.Version)
 	if nd.Workload != "" || nd.State != nil || len(nd.Capabilities) > 0 {
 		fmt.Fprintln(b, "**Runtime**")
@@ -630,7 +646,7 @@ func writeDependencyDetail(b *strings.Builder, node *graph.Node) {
 
 // ── 7 Readiness ───────────────────────────────────────────────────────
 
-func writeReadiness(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writeReadiness(b *strings.Builder, d *contractview.ServiceDetails, num *sectionNumberer) {
 	if d.Readiness == nil {
 		return
 	}
@@ -670,7 +686,7 @@ func writeReadiness(b *strings.Builder, d *dashboard.ServiceDetails, num *sectio
 
 // ── 8 SBOM ────────────────────────────────────────────────────────────
 
-func writeSBOM(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writeSBOM(b *strings.Builder, d *contractview.ServiceDetails, num *sectionNumberer) {
 	if !hasSBOM(d) {
 		return
 	}
@@ -686,7 +702,7 @@ func writeSBOM(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumb
 
 // ── 9 Lockfile ────────────────────────────────────────────────────────
 
-func writeLockfile(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writeLockfile(b *strings.Builder, d *contractview.ServiceDetails, num *sectionNumberer) {
 	if !hasLock(d) {
 		return
 	}
@@ -714,7 +730,7 @@ func writeLockfile(b *strings.Builder, d *dashboard.ServiceDetails, num *section
 
 // ── 10 Documentation ──────────────────────────────────────────────────
 
-func writeBundleDocs(b *strings.Builder, d *dashboard.ServiceDetails, num *sectionNumberer) {
+func writeBundleDocs(b *strings.Builder, d *contractview.ServiceDetails, num *sectionNumberer) {
 	if len(d.Docs) == 0 {
 		return
 	}
@@ -732,7 +748,7 @@ func writeBundleDocs(b *strings.Builder, d *dashboard.ServiceDetails, num *secti
 
 // ── metadata footer ────────────────────────────────────────────────────
 
-func writeMetadataFooter(b *strings.Builder, d *dashboard.ServiceDetails) {
+func writeMetadataFooter(b *strings.Builder, d *contractview.ServiceDetails) {
 	if len(d.Metadata) == 0 {
 		return
 	}

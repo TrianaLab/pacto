@@ -1093,29 +1093,6 @@ func TestServeEvidenceOnListener_ServeError(t *testing.T) {
 	}
 }
 
-func TestServeEvidence_ListenAndCancel(t *testing.T) {
-	f := serveTestFixtures(t)
-	svc := &Service{}
-
-	// Invalid port -> listen error.
-	opts := f.serveOptions()
-	opts.Port = -1
-	if err := svc.ServeEvidence(context.Background(), opts); err == nil {
-		t.Error("expected listen error for invalid port")
-	}
-
-	// OS-assigned port, cancelled context -> graceful nil.
-	opts.Port = 0
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- svc.ServeEvidence(ctx, opts) }()
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-	if err := <-done; err != nil {
-		t.Errorf("ServeEvidence = %v, want nil on cancel", err)
-	}
-}
-
 // Configuration is validated before the server listens, so a misconfigured
 // Evidence Server fails to start rather than accepting evidence it cannot store.
 func TestBuildEvidenceHost_Errors(t *testing.T) {

@@ -1,11 +1,7 @@
 package cli
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -13,11 +9,7 @@ import (
 	"golang.org/x/term"
 )
 
-var (
-	readPasswordFn      = func(fd int) ([]byte, error) { return term.ReadPassword(fd) }
-	jsonMarshalIndentFn = json.MarshalIndent
-	chmodFn             = os.Chmod
-)
+var readPasswordFn = func(fd int) ([]byte, error) { return term.ReadPassword(fd) }
 
 func newLoginCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -45,7 +37,11 @@ func newLoginCommand() *cobra.Command {
 				password = string(pw)
 			}
 
-			if err := writePactoConfig(registry, username, password); err != nil {
+			// pkg/oci owns the credential file: it is the same file the keychain
+			// reads, and its writer fails closed on a config it cannot read or
+			// parse, so a transient error can never rewrite the file from scratch
+			// and delete every other registry's credential.
+			if err := oci.SetCredential(registry, username, password); err != nil {
 				return err
 			}
 
@@ -58,57 +54,4 @@ func newLoginCommand() *cobra.Command {
 	cmd.Flags().StringP("password", "p", "", "registry password")
 
 	return cmd
-}
-
-// writePactoConfig writes credentials to ~/.config/pacto/config.json.
-func writePactoConfig(registry, username, password string) error {
-	configPath, err := oci.PactoConfigPath()
-	if err != nil {
-		return fmt.Errorf("failed to determine config path: %w", err)
-	}
-
-	configDir := filepath.Dir(configPath)
-
-	var cfg oci.PactoConfig
-
-	data, err := os.ReadFile(configPath)
-	if err == nil {
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return fmt.Errorf("failed to parse existing %s: %w", configPath, err)
-		}
-	}
-
-	if cfg.Auths == nil {
-		cfg.Auths = make(map[string]oci.PactoAuth)
-	}
-
-	// Base64-encode "username:password" per Docker convention.
-	encoded := encodeAuth(username, password)
-	cfg.Auths[registry] = oci.PactoAuth{Auth: encoded}
-
-	out, err := jsonMarshalIndentFn(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return fmt.Errorf("failed to create %s: %w", configDir, err)
-	}
-
-	if err := os.WriteFile(configPath, out, 0600); err != nil {
-		return fmt.Errorf("failed to write %s: %w", configPath, err)
-	}
-
-	// WriteFile only applies the 0600 mode when it CREATES the file; an existing
-	// config keeps its prior (possibly world-readable) permissions. Enforce 0600
-	// explicitly so stored credentials are never left readable by other users.
-	if err := chmodFn(configPath, 0600); err != nil {
-		return fmt.Errorf("failed to secure %s: %w", configPath, err)
-	}
-
-	return nil
-}
-
-func encodeAuth(username, password string) string {
-	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 }

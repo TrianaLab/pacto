@@ -10,27 +10,32 @@ import (
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/internal/testutil"
 )
 
-// callTool connects an MCP client to the server and calls the named tool.
-func callTool(t *testing.T, svc *app.Service, toolName string, args map[string]any) *mcpsdk.CallToolResult {
+// callTool calls the named authoring tool with no policy resolver wired.
+func callTool(t *testing.T, toolName string, args map[string]any) *mcpsdk.CallToolResult {
+	t.Helper()
+	return callToolOn(t, NewServer(nil, "test"), toolName, args)
+}
+
+// callToolOn connects an MCP client to server and calls the named tool. Going
+// through a real session is what puts the SDK's schema validation in the path,
+// so a test can observe the error a wrong-typed argument produces.
+func callToolOn(t *testing.T, server *mcpsdk.Server, toolName string, args map[string]any) *mcpsdk.CallToolResult {
 	t.Helper()
 	ctx := context.Background()
-	server := NewServer(svc, "test")
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test-client", Version: "1.0"}, nil)
 
 	t1, t2 := mcpsdk.NewInMemoryTransports()
-	_, err := server.Connect(ctx, t1, nil)
-	if err != nil {
+	if _, err := server.Connect(ctx, t1, nil); err != nil {
 		t.Fatalf("server connect: %v", err)
 	}
 	session, err := client.Connect(ctx, t2, nil)
 	if err != nil {
 		t.Fatalf("client connect: %v", err)
 	}
-	defer func() { _ = session.Close() }()
+	t.Cleanup(func() { _ = session.Close() })
 
 	result, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      toolName,
@@ -40,6 +45,23 @@ func callTool(t *testing.T, svc *app.Service, toolName string, args map[string]a
 		t.Fatalf("CallTool(%s) error: %v", toolName, err)
 	}
 	return result
+}
+
+// enumStrings reads a declared property's enum values, skipping the null that an
+// optional argument carries so a caller may send an explicit null.
+func enumStrings(t *testing.T, prop map[string]any) []string {
+	t.Helper()
+	vals, ok := prop["enum"].([]any)
+	if !ok {
+		t.Fatalf("expected an enum slice, got %T", prop["enum"])
+	}
+	var out []string
+	for _, v := range vals {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // resultText extracts the text content from a CallToolResult.
@@ -56,10 +78,9 @@ func resultText(t *testing.T, result *mcpsdk.CallToolResult) string {
 }
 
 func TestCreateTool(t *testing.T) {
-	svc := app.NewService(nil, nil)
 
 	t.Run("minimal dry run", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":    "payments",
 			"dry_run": true,
 		})
@@ -77,7 +98,7 @@ func TestCreateTool(t *testing.T) {
 	})
 
 	t.Run("with description inference", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":        "order-api",
 			"description": "REST API backed by postgres",
 			"dry_run":     true,
@@ -92,7 +113,7 @@ func TestCreateTool(t *testing.T) {
 	})
 
 	t.Run("with explicit interfaces", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":       "grpc-svc",
 			"interfaces": `[{"name":"grpc-api","type":"grpc"}]`,
 			"dry_run":    true,
@@ -104,7 +125,7 @@ func TestCreateTool(t *testing.T) {
 	})
 
 	t.Run("with stateful runtime", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":                  "db-svc",
 			"stores_data":           true,
 			"data_survives_restart": true,
@@ -119,7 +140,7 @@ func TestCreateTool(t *testing.T) {
 	t.Run("writes files when not dry run", func(t *testing.T) {
 		dir := t.TempDir()
 		outPath := filepath.Join(dir, "my-svc")
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":       "my-svc",
 			"path":       outPath,
 			"interfaces": `[{"name":"http-api","type":"openapi"}]`,
@@ -141,7 +162,7 @@ func TestCreateTool(t *testing.T) {
 	})
 
 	t.Run("missing name", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{})
+		result := callTool(t, "pacto_create", map[string]any{})
 		if !result.IsError {
 			t.Error("expected IsError for missing name")
 		}
@@ -149,10 +170,9 @@ func TestCreateTool(t *testing.T) {
 }
 
 func TestCreateToolErrors(t *testing.T) {
-	svc := app.NewService(nil, nil)
 
 	t.Run("invalid interfaces JSON", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":       "bad",
 			"interfaces": "not-json",
 		})
@@ -162,7 +182,7 @@ func TestCreateToolErrors(t *testing.T) {
 	})
 
 	t.Run("invalid dependencies JSON", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":         "bad",
 			"dependencies": "not-json",
 		})
@@ -172,7 +192,7 @@ func TestCreateToolErrors(t *testing.T) {
 	})
 
 	t.Run("invalid config_properties JSON", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":              "bad",
 			"config_properties": "not-json",
 		})
@@ -182,7 +202,7 @@ func TestCreateToolErrors(t *testing.T) {
 	})
 
 	t.Run("invalid metadata JSON", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":     "bad",
 			"metadata": "not-json",
 		})
@@ -193,11 +213,11 @@ func TestCreateToolErrors(t *testing.T) {
 
 	t.Run("create internal error", func(t *testing.T) {
 		orig := yamlMarshalFn
-		defer func() { yamlMarshalFn = orig }()
+		t.Cleanup(func() { yamlMarshalFn = orig })
 		yamlMarshalFn = func(v any) ([]byte, error) {
 			return nil, fmt.Errorf("injected marshal error")
 		}
-		result := callTool(t, svc, "pacto_create", map[string]any{
+		result := callTool(t, "pacto_create", map[string]any{
 			"name":    "test",
 			"dry_run": true,
 		})
@@ -208,11 +228,10 @@ func TestCreateToolErrors(t *testing.T) {
 }
 
 func TestEditTool(t *testing.T) {
-	svc := app.NewService(nil, nil)
 
 	t.Run("change version", func(t *testing.T) {
 		dir := testutil.WriteTestBundle(t)
-		result := callTool(t, svc, "pacto_edit", map[string]any{
+		result := callTool(t, "pacto_edit", map[string]any{
 			"path":    dir,
 			"version": "2.0.0",
 		})
@@ -234,7 +253,7 @@ func TestEditTool(t *testing.T) {
 		// Read original content
 		original, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
 
-		result := callTool(t, svc, "pacto_edit", map[string]any{
+		result := callTool(t, "pacto_edit", map[string]any{
 			"path":    dir,
 			"version": "9.9.9",
 			"dry_run": true,
@@ -252,7 +271,7 @@ func TestEditTool(t *testing.T) {
 
 	t.Run("add interface", func(t *testing.T) {
 		dir := testutil.WriteTestBundle(t)
-		result := callTool(t, svc, "pacto_edit", map[string]any{
+		result := callTool(t, "pacto_edit", map[string]any{
 			"path":           dir,
 			"add_interfaces": `[{"name":"events","type":"asyncapi"}]`,
 		})
@@ -263,7 +282,7 @@ func TestEditTool(t *testing.T) {
 	})
 
 	t.Run("invalid path", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_edit", map[string]any{
+		result := callTool(t, "pacto_edit", map[string]any{
 			"path":    "/nonexistent-test-path",
 			"version": "1.0.0",
 		})
@@ -273,7 +292,7 @@ func TestEditTool(t *testing.T) {
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_edit", map[string]any{
+		result := callTool(t, "pacto_edit", map[string]any{
 			"add_interfaces": "not-json",
 		})
 		if !result.IsError {
@@ -283,11 +302,10 @@ func TestEditTool(t *testing.T) {
 }
 
 func TestCheckTool(t *testing.T) {
-	svc := app.NewService(nil, nil)
 
 	t.Run("valid contract", func(t *testing.T) {
 		dir := testutil.WriteTestBundle(t)
-		result := callTool(t, svc, "pacto_check", map[string]any{"path": dir})
+		result := callTool(t, "pacto_check", map[string]any{"path": dir})
 		text := resultText(t, result)
 		var parsed CheckResult
 		if err := json.Unmarshal([]byte(text), &parsed); err != nil {
@@ -302,17 +320,77 @@ func TestCheckTool(t *testing.T) {
 	})
 
 	t.Run("invalid path", func(t *testing.T) {
-		result := callTool(t, svc, "pacto_check", map[string]any{"path": "/nonexistent"})
+		result := callTool(t, "pacto_check", map[string]any{"path": "/nonexistent"})
 		if !result.IsError {
 			t.Error("expected IsError for invalid path")
 		}
 	})
 }
 
-func TestSchemaTool(t *testing.T) {
-	svc := app.NewService(nil, nil)
+// TestSchemaTool_AcceptsAnUndeclaredArgument scopes additionalProperties:false to
+// tools that actually declare properties. pacto_schema declares none, so there is
+// no argument name to misremember and nothing to catch — while real MCP clients
+// send a dummy argument to zero-argument tools, which closing the schema turned
+// into a hard error on every single call.
+func TestSchemaTool_AcceptsAnUndeclaredArgument(t *testing.T) {
+	result := callTool(t, "pacto_schema", map[string]any{"random_string": "x"})
+	if result.IsError {
+		t.Fatalf("a zero-argument tool rejected a dummy argument: %s", resultText(t, result))
+	}
+	if !strings.Contains(resultText(t, result), "pactoVersion") {
+		t.Errorf("expected the schema back, got: %.200s", resultText(t, result))
+	}
+}
 
-	result := callTool(t, svc, "pacto_schema", map[string]any{})
+// TestOptionalArgument_ExplicitNullMeansAbsent covers the null an LLM caller
+// routinely emits for an optional field it is not using. Declared as a bare
+// "string" the null was a type error that failed the whole call, so the version
+// bump the caller did ask for was never applied.
+func TestOptionalArgument_ExplicitNullMeansAbsent(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	result := callTool(t, "pacto_edit", map[string]any{
+		"path": dir, "name": nil, "version": "3.0.0",
+	})
+	if result.IsError {
+		t.Fatalf("an explicit null for an optional argument failed the call: %s", resultText(t, result))
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml")); err != nil {
+		t.Fatalf("read contract: %v", err)
+	} else if !strings.Contains(string(data), "3.0.0") {
+		t.Errorf("the edit the caller asked for was not applied:\n%s", data)
+	}
+}
+
+// TestOptionalEnumArgument_ExplicitNullMeansAbsent is the same case for an
+// optional argument with an enum: allowing null in the type but not in the enum
+// leaves the exact bug in place.
+func TestOptionalEnumArgument_ExplicitNullMeansAbsent(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	result := callTool(t, "pacto_edit", map[string]any{
+		"path": dir, "workload": nil, "version": "3.1.0",
+	})
+	if result.IsError {
+		t.Fatalf("an explicit null for an optional enum argument failed the call: %s", resultText(t, result))
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml")); err != nil {
+		t.Fatalf("read contract: %v", err)
+	} else if !strings.Contains(string(data), "3.1.0") {
+		t.Errorf("the edit the caller asked for was not applied:\n%s", data)
+	}
+}
+
+// TestRequiredArgument_ExplicitNullIsRejected is the other half of the ruling:
+// for a required argument "not provided" is the error, so null stays one.
+func TestRequiredArgument_ExplicitNullIsRejected(t *testing.T) {
+	result := callTool(t, "pacto_create", map[string]any{"name": nil, "dry_run": true})
+	if !result.IsError {
+		t.Errorf("null for a required argument was accepted: %s", resultText(t, result))
+	}
+}
+
+func TestSchemaTool(t *testing.T) {
+
+	result := callTool(t, "pacto_schema", map[string]any{})
 	if result.IsError {
 		t.Fatal("expected no error from pacto_schema")
 	}
@@ -399,61 +477,4 @@ func TestInputSchemaNoRequired(t *testing.T) {
 	if _, ok := schema["required"]; ok {
 		t.Error("expected no required field when nil")
 	}
-}
-
-func TestParseInputIntPtr(t *testing.T) {
-	t.Run("valid int", func(t *testing.T) {
-		req := makeRequest(t, map[string]any{"replicas": 3})
-		got := parseInputIntPtr(req, "replicas")
-		if got == nil || *got != 3 {
-			t.Errorf("expected 3, got %v", got)
-		}
-	})
-
-	t.Run("missing field", func(t *testing.T) {
-		req := makeRequest(t, map[string]any{})
-		got := parseInputIntPtr(req, "replicas")
-		if got != nil {
-			t.Errorf("expected nil, got %v", got)
-		}
-	})
-
-	t.Run("non-number", func(t *testing.T) {
-		req := makeRequest(t, map[string]any{"replicas": "abc"})
-		got := parseInputIntPtr(req, "replicas")
-		if got != nil {
-			t.Errorf("expected nil for non-number, got %v", got)
-		}
-	})
-
-	t.Run("nil args", func(t *testing.T) {
-		req := &mcpsdk.CallToolRequest{}
-		got := parseInputIntPtr(req, "replicas")
-		if got != nil {
-			t.Errorf("expected nil for nil args")
-		}
-	})
-}
-
-func TestParseInputHasField(t *testing.T) {
-	t.Run("has field", func(t *testing.T) {
-		req := makeRequest(t, map[string]any{"stores_data": true})
-		if !parseInputHasField(req, "stores_data") {
-			t.Error("expected true")
-		}
-	})
-
-	t.Run("missing field", func(t *testing.T) {
-		req := makeRequest(t, map[string]any{})
-		if parseInputHasField(req, "stores_data") {
-			t.Error("expected false")
-		}
-	})
-
-	t.Run("nil args", func(t *testing.T) {
-		req := &mcpsdk.CallToolRequest{}
-		if parseInputHasField(req, "stores_data") {
-			t.Error("expected false for nil args")
-		}
-	})
 }

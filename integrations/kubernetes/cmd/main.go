@@ -301,7 +301,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.PactoReconciler{
+	pactoReconciler := &controller.PactoReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
@@ -311,8 +311,17 @@ func main() {
 		EnableMetricsObservation:          enableMetricsObservation,
 		EnableProbing:                     enableProbing,
 		EnableInterfaceNameMatchDiscovery: enableInterfaceNameMatchDiscovery,
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
+		os.Exit(1)
+	}
+
+	// Tag mirroring runs on its own ticker rather than inside Reconcile: it costs a
+	// registry ListTags plus a Load per tag, and Reconcile fires on every write to
+	// every watched workload.
+	if err := mgr.Add(&controller.RevisionMirror{Reconciler: pactoReconciler}); err != nil {
+		setupLog.Error(err, "Failed to add revision mirror")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

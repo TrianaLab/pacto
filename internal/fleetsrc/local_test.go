@@ -3,9 +3,11 @@ package fleetsrc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -103,15 +105,80 @@ func hasLimitation(ls []fleet.Limitation, code string) bool {
 	return false
 }
 
-func TestRelPathSafe(t *testing.T) {
-	root := t.TempDir()
-	p := filepath.Join(root, "svc", "pacto.yaml")
-	if got := relPathSafe(root, p); got != filepath.Join("svc", "pacto.yaml") {
-		t.Errorf("relative = %q, want svc/pacto.yaml", got)
+// TestLocalSourceKeepsScanningPastAnUnreadableDir is the whole reason
+// [unreadableDirs] exists: a scan rooted at a home directory meets a directory
+// the operating system will not open long before it meets the bundles, and
+// aborting there answered "no services" for a machine full of them.
+func TestLocalSourceKeepsScanningPastAnUnreadableDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("a refused directory is not reproducible as root")
 	}
-	// An absolute root with a relative path cannot be made relative → base fallback.
-	if got := relPathSafe("/abs/root", "svc/pacto.yaml"); got != "svc/pacto.yaml" {
-		t.Errorf("fallback = %q, want svc/pacto.yaml", got)
+	root := t.TempDir()
+	writeBundle(t, filepath.Join(root, "svc-a"), "svc-a")
+	// Sorts before svc-a, so the walk meets it first and any abort would take
+	// the readable bundle with it.
+	blocked := filepath.Join(root, "locked")
+	writeBundle(t, filepath.Join(blocked, "svc-hidden"), "svc-hidden")
+	if err := os.Chmod(blocked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o755) })
+
+	col, err := NewLocalSource("", root).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %d, want the one readable bundle", len(col.Revisions))
+	}
+	if len(col.Limitations) != 1 {
+		t.Fatalf("limitations = %+v, want exactly one", col.Limitations)
+	}
+	lim := col.Limitations[0]
+	if lim.Code != fleet.LimitationSourcePartial || lim.Source != "local" {
+		t.Errorf("limitation = %+v, want SOURCE_PARTIAL from local", lim)
+	}
+	// The gap has to name the directory it is about, and name it relative to the
+	// root rather than echoing the caller's absolute path back at them.
+	if !strings.Contains(lim.Message, "locked") || strings.Contains(lim.Message, root) {
+		t.Errorf("message %q should name locked relative to the root", lim.Message)
+	}
+}
+
+// TestLocalSourceSummarisesManyUnreadableDirs: a home directory refuses around a
+// hundred privacy-guarded paths, and a limitation each would bury the gaps a
+// reader can act on.
+func TestLocalSourceSummarisesManyUnreadableDirs(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("a refused directory is not reproducible as root")
+	}
+	root := t.TempDir()
+	writeBundle(t, filepath.Join(root, "zz-svc"), "zz-svc")
+	const blocked = maxUnreadableNotes + 2
+	for i := range blocked {
+		dir := filepath.Join(root, fmt.Sprintf("locked-%02d", i))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	}
+
+	col, err := NewLocalSource("", root).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Revisions) != 1 {
+		t.Fatalf("revisions = %d, want the one readable bundle", len(col.Revisions))
+	}
+	if len(col.Limitations) != maxUnreadableNotes+1 {
+		t.Fatalf("limitations = %d, want %d named plus one summary", len(col.Limitations), maxUnreadableNotes+1)
+	}
+	last := col.Limitations[len(col.Limitations)-1].Message
+	if !strings.Contains(last, fmt.Sprintf("%d directories could not be read", blocked)) {
+		t.Errorf("summary = %q, want the total %d", last, blocked)
 	}
 }
 
@@ -184,5 +251,47 @@ func TestLoadRevision_ParseError(t *testing.T) {
 	}
 	if _, err := loadRevision(dir); err == nil {
 		t.Error("expected an error for an unparseable contract")
+	}
+}
+
+func TestLoadRevision_IgnoreFileError(t *testing.T) {
+	dir := t.TempDir()
+	writeBundle(t, dir, "svc")
+	// A directory where the ignore file should be: it exists, so Load does not
+	// take the not-exist path, and reading it fails. A permission bit would not
+	// do -- CI runs as root, where every mode is readable.
+	if err := os.Mkdir(filepath.Join(dir, ".pactoignore"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadRevision(dir)
+	if err == nil || !strings.Contains(err.Error(), ".pactoignore") {
+		t.Fatalf("err = %v, want one naming .pactoignore", err)
+	}
+}
+
+// TestLoadRevision_DigestIgnoresUnpackagedFiles is the reason the FS is
+// ignore-filtered. A content digest claims two bundles ARE the same bundle, and
+// the lockfile, the catalog and a pushed artifact all hash the packaged file
+// set. Hashing the raw directory instead would make one developer's .DS_Store
+// into a second revision of one service at one version -- a content conflict
+// reported against a fleet where nothing changed.
+func TestLoadRevision_DigestIgnoresUnpackagedFiles(t *testing.T) {
+	clean, littered := t.TempDir(), t.TempDir()
+	writeBundle(t, clean, "svc")
+	writeBundle(t, littered, "svc")
+	if err := os.WriteFile(filepath.Join(littered, ".DS_Store"), []byte("finder"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := loadRevision(clean)
+	if err != nil {
+		t.Fatalf("loadRevision(clean): %v", err)
+	}
+	b, err := loadRevision(littered)
+	if err != nil {
+		t.Fatalf("loadRevision(littered): %v", err)
+	}
+	if a.Digest == "" || a.Digest != b.Digest {
+		t.Errorf("digests %q and %q differ; an unpackaged file changed a bundle's identity", a.Digest, b.Digest)
 	}
 }

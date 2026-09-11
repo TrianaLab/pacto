@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,6 +34,10 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 			"plus their dependency closure, resolved once at startup and then frozen, so a registry " +
 			"tag that moves later does not change the session. Roots that do not resolve stay visible " +
 			"as partial knowledge. Discovery is not authorization and nothing in the catalog executes.\n\n" +
+			"With --fleet, the server instead exposes the read-only operational-graph query tools " +
+			"over one snapshot. The shared fleet source flags — --local, --target-state, " +
+			"--evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose " +
+			"that snapshot and are read in --fleet mode only.\n\n" +
 			"A bundle reference, --root and --fleet select different servers and cannot be combined.",
 		Example: `  # Start MCP server over stdio (default)
   pacto mcp
@@ -65,21 +70,18 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 	}
 
 	cmd.Flags().StringP("transport", "t", "stdio", "transport type: stdio or http")
+	_ = cmd.RegisterFlagCompletionFunc("transport", staticCompletions(mcpTransports...))
 	cmd.Flags().Int("port", 8585, "port for HTTP transport")
 	cmd.Flags().String("base-url", "", "base URL for live invocation (overrides the OpenAPI servers[] URL)")
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
+	// Declared before the shared set so this spelling wins: here --root selects a
+	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
-	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) for --fleet (repeatable)")
-	cmd.Flags().StringArray("target-state", nil, "offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)")
-	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges for --fleet (repeatable)")
-	cmd.Flags().StringArray("evidence-url", nil, "base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)")
-	cmd.Flags().StringArray("oci", nil, "registry reference to include as a published-baseline revision for --fleet (repeatable)")
-	cmd.Flags().Bool("cache", false, "include the local OCI cache as offline baseline revisions (--fleet)")
-	cmd.Flags().Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster (--fleet)")
-	cmd.Flags().String("namespace", "", "namespace for --k8s (empty = all namespaces)")
-	cmd.Flags().Duration("freshness", 0, "mark target evidence older than this as stale (--fleet)")
+	// The rest are the fleet source flags, from the one declaration `pacto fleet`
+	// uses, and they apply in --fleet mode only.
+	addFleetSourceFlags(cmd.Flags())
 
 	return cmd
 }
@@ -110,11 +112,11 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 		if err != nil {
 			return nil, err
 		}
-		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc)), nil
+		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc.PolicyResolver), nil
 	case len(args) > 0:
 		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
-	return pactomcp.NewServer(svc, version), nil
+	return pactomcp.NewServer(svc.PolicyResolver, version), nil
 }
 
 // checkMCPMode rejects an invocation that selects more than one server. The
@@ -138,12 +140,15 @@ func checkMCPMode(hasBundle, hasRoots, fleetMode bool) error {
 	return nil
 }
 
+// mcpTransports is the closed --transport vocabulary. checkMCPTransport
+// validates against it and shell completion offers it, so the two cannot drift.
+var mcpTransports = []string{"stdio", "http"}
+
 // checkMCPTransport rejects an unknown -t value. Falling back to stdio would
 // hand the client a transport it never asked for and report success doing it,
 // so a typo has to fail before anything is resolved or served.
 func checkMCPTransport(transport string) error {
-	switch transport {
-	case "stdio", "http":
+	if slices.Contains(mcpTransports, transport) {
 		return nil
 	}
 	return fmt.Errorf("unsupported transport %q: only \"stdio\" and \"http\" are supported", transport)
@@ -193,6 +198,7 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 		BaseURL:     baseURL,
 		Creds:       creds,
 		AllowWrites: allowWrites,
+		Resolver:    svc.PolicyResolver,
 	}
 	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
 }

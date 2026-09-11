@@ -37,6 +37,10 @@ const (
 	ProductSeverityError   ProductSeverity = ProductSeverity(finding.SeverityError)
 	ProductSeverityWarning ProductSeverity = ProductSeverity(finding.SeverityWarning)
 	ProductSeverityInfo    ProductSeverity = ProductSeverity(finding.SeverityInfo)
+	// ProductSeverityUnknown mirrors [finding.SeverityUnknown].
+	//
+	// Deprecated: no production code in Pacto uses this constant; it exists only
+	// for same-package tests. Removed at v4.
 	ProductSeverityUnknown ProductSeverity = ProductSeverity(finding.SeverityUnknown)
 )
 
@@ -166,11 +170,6 @@ type AttributedFindingsPreview struct {
 	Count     int                 `json:"count"`
 	Truncated bool                `json:"truncated"`
 	Items     []AttributedFinding `json:"items"`
-}
-
-func attributedFindingsPreview(fs []AttributedFinding) AttributedFindingsPreview {
-	it, total, trunc := boundSlice(fs, MaxDetailPreview)
-	return AttributedFindingsPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
 }
 
 // LimitationsPreview is a bounded preview of limitations belonging to the
@@ -325,17 +324,12 @@ type AttentionPreview struct {
 	Items     []AttentionItem `json:"items"`
 }
 
-func attentionPreview(items []AttentionItem) AttentionPreview {
-	it, total, trunc := boundSlice(items, MaxDetailPreview)
-	return AttentionPreview{Total: total, Count: len(it), Truncated: trunc, Items: it}
-}
-
 // attentionPreviewFromList builds a bounded attention preview from an ALREADY
 // offset-paged AttentionList, preserving the TRUE matched total and truncation.
-// Building a preview from a paged result's Items alone would double-truncate: the
-// preview's Total would be the page size (never the real match count) and its
-// Truncated would be false even when more items matched. This carries the list's
-// own Total and Truncated so the preview reports the true total.
+// It is the ONLY way to build an AttentionPreview: taking boundSlice over a paged
+// result's Items alone double-truncates, reporting the page size as the total and
+// Truncated=false even when more items matched. This carries the list's own Total
+// and Truncated so the preview reports the true total.
 func attentionPreviewFromList(l *AttentionList) AttentionPreview {
 	it, _, capTrunc := boundSlice(l.Items, MaxDetailPreview)
 	return AttentionPreview{Total: l.Total, Count: len(it), Truncated: l.Truncated || capTrunc, Items: it}

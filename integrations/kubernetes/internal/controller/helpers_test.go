@@ -64,11 +64,15 @@ func newReconciler(objs ...client.Object) *PactoReconciler {
 	if len(objs) > 0 {
 		cb = cb.WithObjects(objs...)
 	}
+	c := cb.Build()
 	return &PactoReconciler{
-		Client:   cb.Build(),
-		Scheme:   s,
-		Recorder: record.NewFakeRecorder(20),
-		Loader:   &mockLoader{},
+		Client: c,
+		// The fake client has no cache, so it doubles as the uncached reader that
+		// SetupWithManager wires to mgr.GetAPIReader() in production.
+		APIReader: c,
+		Scheme:    s,
+		Recorder:  record.NewFakeRecorder(20),
+		Loader:    &mockLoader{},
 	}
 }
 

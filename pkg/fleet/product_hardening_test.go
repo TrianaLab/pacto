@@ -139,7 +139,6 @@ func TestPreviews_BoundAboveEveryMaximum(t *testing.T) {
 	over := MaxDetailPreview + 5
 	refs := make([]EntityRef, over)
 	fs := make([]finding.Finding, over)
-	afs := make([]AttributedFinding, over)
 	lims := make([]Limitation, over)
 	alims := make([]AttributedLimitation, over)
 	evs := make([]EvidenceItem, over)
@@ -147,7 +146,6 @@ func TestPreviews_BoundAboveEveryMaximum(t *testing.T) {
 	tools := make([]ToolSummary, over)
 	docs := make([]DocRef, over)
 	strs := make([]string, over)
-	attn := make([]AttentionItem, over)
 	checkDetail := func(name string, total, count int, trunc bool) {
 		if total != over || count != MaxDetailPreview || !trunc {
 			t.Errorf("%s: total=%d count=%d trunc=%v, want total=%d count=%d trunc=true", name, total, count, trunc, over, MaxDetailPreview)
@@ -157,8 +155,6 @@ func TestPreviews_BoundAboveEveryMaximum(t *testing.T) {
 	checkDetail("refPreview", rp.Total, rp.Count, rp.Truncated)
 	fp := findingsPreview(fs)
 	checkDetail("findingsPreview", fp.Total, fp.Count, fp.Truncated)
-	afp := attributedFindingsPreview(afs)
-	checkDetail("attributedFindingsPreview", afp.Total, afp.Count, afp.Truncated)
 	lp := limitationsPreview(lims)
 	checkDetail("limitationsPreview", lp.Total, lp.Count, lp.Truncated)
 	alp := attributedLimitationsPreview(alims)
@@ -176,8 +172,6 @@ func TestPreviews_BoundAboveEveryMaximum(t *testing.T) {
 	checkDetail("docsPreview", dp.Total, dp.Count, dp.Truncated)
 	sp := stringsPreview(strs)
 	checkDetail("stringsPreview", sp.Total, sp.Count, sp.Truncated)
-	ap := attentionPreview(attn)
-	checkDetail("attentionPreview", ap.Total, ap.Count, ap.Truncated)
 
 	// The neighborhood edge previews have their own caps.
 	claims := make([]DeclaredClaim, MaxEdgeDeclaredClaims+3)

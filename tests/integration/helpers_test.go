@@ -76,6 +76,17 @@ func newTestRegistry(t *testing.T) *testRegistry {
 	}
 }
 
+// testStore returns the bundle store the CLI should run against, wrapped the
+// same way cmd/pacto wraps it. Without the CachedStore the suite would exercise
+// a store production never builds, and --no-cache would have nothing to disable.
+// A nil registry means no store at all, which is its own tested case.
+func testStore(reg *testRegistry) oci.BundleStore {
+	if reg == nil {
+		return nil
+	}
+	return oci.NewCachedStore(reg.client)
+}
+
 // runCommand executes a pacto CLI command with the default test version.
 func runCommand(t *testing.T, reg *testRegistry, args ...string) (string, error) {
 	t.Helper()
@@ -86,12 +97,7 @@ func runCommand(t *testing.T, reg *testRegistry, args ...string) (string, error)
 func runCommandWithVersion(t *testing.T, reg *testRegistry, version string, args ...string) (string, error) {
 	t.Helper()
 
-	var store oci.BundleStore
-	if reg != nil {
-		store = reg.client
-	}
-
-	svc := app.NewService(store, &plugin.SubprocessRunner{})
+	svc := app.NewService(testStore(reg), &plugin.SubprocessRunner{})
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: version})
 
 	var out bytes.Buffer
@@ -108,12 +114,7 @@ func runCommandWithVersion(t *testing.T, reg *testRegistry, version string, args
 func runCommandWithCancelledCtx(t *testing.T, reg *testRegistry, args ...string) (string, error) {
 	t.Helper()
 
-	var store oci.BundleStore
-	if reg != nil {
-		store = reg.client
-	}
-
-	svc := app.NewService(store, &plugin.SubprocessRunner{})
+	svc := app.NewService(testStore(reg), &plugin.SubprocessRunner{})
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test-e2e"})
 
 	var out bytes.Buffer

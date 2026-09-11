@@ -814,6 +814,10 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
         "Typed conclusions from the engine, grouped by severity family. Family 1 (confirmed "
         "violations, `RuntimeDrift`/`error`) requires conclusive contradicting evidence; family 2 "
         "(`Inconclusive`/`unknown`) captures evidence that could not confirm or refute. "
+        "A code appearing under two severities carries the required-ness axis: it is an error "
+        "when the contract declares the assertion it reports on `required`, and a warning when "
+        "that assertion is optional, because an optional assertion cannot make a contract "
+        "non-compliant. "
         "Generated from `pkg/finding/codes.go`.\n"
     )
     by_sev: dict[str, list[tuple[str, str]]] = {}

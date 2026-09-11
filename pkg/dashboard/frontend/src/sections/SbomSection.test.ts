@@ -19,9 +19,11 @@ describe('SbomSection', () => {
     unmount(c);
   });
 
-  it('renders nothing when sbom is null', () => {
+  it('says so when sbom is null, rather than disappearing', () => {
     const c = mount(SbomSection, { target, props: { open: true, sbom: null } });
-    expect(target.querySelector('.section')).toBeNull();
+    expect(target.querySelector('.section')).not.toBeNull();
+    expect(target.textContent).toContain('SBOM');
+    expect(target.textContent).toContain('None declared');
     unmount(c);
   });
 });

@@ -9,6 +9,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v3/pkg/semver"
 )
 
 func TestHasExplicitTag(t *testing.T) {
@@ -106,6 +107,33 @@ func TestBestTag(t *testing.T) {
 				t.Errorf("BestTag() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestBestTag_AgreesWithSemverLatest is the counterexample for BestTag owning a
+// second answer to "which tags are versions and which is highest". The local
+// implementation it replaced sorted ASCENDING and took the last element, where
+// [semver.Filter] sorts DESCENDING and takes the first — for two tags of equal
+// precedence those are different elements, so a repository whose tags are
+// spelled both ways had one "latest" for the resolver and another for the
+// dashboard, and a service appeared to be perpetually behind its own release.
+//
+// Every case here is a tie the two conventions break in opposite directions; the
+// unambiguous cases in TestBestTag cannot tell the implementations apart.
+func TestBestTag_AgreesWithSemverLatest(t *testing.T) {
+	for _, tags := range [][]string{
+		{"v1.0.0", "1.0.0"},
+		{"1.0.0+first", "1.0.0+second"},
+		{"2.0.0", "v2.0.0", "1.9.0"},
+		{"latest", "3.1.0", "v3.1.0", "main"},
+	} {
+		got, err := oci.BestTag(tags, "")
+		if err != nil {
+			t.Fatalf("BestTag(%v): %v", tags, err)
+		}
+		if want := semver.Latest(tags); got != want {
+			t.Errorf("BestTag(%v) = %q but semver.Latest = %q: one repository, two answers", tags, got, want)
+		}
 	}
 }
 

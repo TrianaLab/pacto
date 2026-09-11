@@ -352,7 +352,7 @@ func TestAuthoringAndFleetServersExposeNoCatalogSurface(t *testing.T) {
 	t.Parallel()
 	for name, server := range map[string]*mcpsdk.Server{
 		"authoring": NewServer(nil, "v-test"),
-		"fleet":     NewFleetServer("v-test", buildFleetQuery(t), nil),
+		"fleet":     NewFleetServer("v-test", buildFleetQuery(t), nil, nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -757,6 +757,11 @@ func TestCatalogRevisionToolRejectsSomethingThatIsNotAContentIdentity(t *testing
 		"a tag is not a digest":    {"name": "shared", "scheme": "oci", "digest": "1.0.0"},
 		"an unknown scheme":        {"name": "shared", "scheme": "tag", "digest": catDigest("x")},
 		"a missing content digest": {"name": "shared", "scheme": "oci"},
+		// required is enforced, not advisory. A call with no name used to look up
+		// the empty identity and answer {"found": false, "completeness": "complete"} —
+		// an authoritative "that revision is not in the catalog" for a question
+		// nobody asked.
+		"a missing service name": {"scheme": "oci", "digest": catDigest("x")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

@@ -11,8 +11,8 @@ Impact is framework-independent (`pkg/impact`). It consumes the pure diff engine
 OCI, dashboard, MCP or HTTP code. The same analysis therefore backs the CLI, an
 MCP tool and the dashboard, and given the same snapshot every one of them returns
 the identical answer. What differs between the three is where the snapshot may
-come from: the CLI takes offline sources only ([which sources, exactly](#cli)), while the MCP
-server and the dashboard can also be pointed at a registry or a cluster.
+come from: the CLI takes contract sources only ([which sources, exactly](#cli)), while the MCP
+server and the dashboard can also be pointed at a cluster or a live fleet.
 `impact` is the name of the CLI command, the MCP tool and the Go package; in the
 dashboard the same analysis is presented as the **Change analysis** workspace,
 alongside the semantic diff it composes with.
@@ -116,14 +116,21 @@ pacto impact <old> <new> --local .
 
 `<old>` and `<new>` are the two revisions to compare — bundle paths or refs.
 
-`pacto impact` builds its snapshot from **offline sources only** — `--local`
-(repeatable, defaults to `.`), `--target-state` and `--traces`. It takes a subset
-of the source flags [`pacto fleet`](operational-graph.md) accepts: there is no
-`--k8s`, `--oci`, `--cache` or `--evidence-url` here, and passing one fails with
-`unknown flag`. To analyse a fleet you do not have on disk, pull those bundles
-first with [`pacto pull`](cli-reference.md#pacto-pull) and point `--local` at the
-directory. The two revisions being compared are separate from the fleet snapshot
-and *may* be `oci://` references.
+`pacto impact` takes a subset of the source flags
+[`pacto fleet`](operational-graph.md) accepts: `--local` (repeatable, defaults
+to `.`), `--root`, `--target-state` and `--traces`. There is no `--k8s`,
+`--oci`, `--cache` or `--evidence-url` here, and passing one fails with
+`unknown flag` — **no live fleet, no cluster and no registry catalogue.** To
+analyse a fleet you do not have on disk, pull those bundles first with
+[`pacto pull`](cli-reference.md#pacto-pull) and point `--local` at the
+directory.
+
+The one source that can reach the network is `--root`, and only where you point
+it at one: it follows a bundle's declarations, so a root that depends on
+`oci://ghcr.io/acme/payments:2.1.0` resolves that reference rather than leaving
+a dangling edge. Point `--root` at local paths whose closure is also local and
+the whole analysis stays offline. The two revisions being compared are separate
+from the fleet snapshot and *may* be `oci://` references either way.
 
 Turn on runtime corroboration with `--include-observed`, or supply an OTLP/JSON
 trace export with `--traces` (which implies it) so observed traffic raises
@@ -190,7 +197,7 @@ That JSON carries `schemaVersion: pacto.dev/impact/v1` — the compatibility
 contract to branch on before reading any other field.
 The file `--target-state` expects is documented under
 [target-state fixtures](operational-graph.md#what-a-target-state-fixture-looks-like);
-`pacto impact` accepts no live sources, so on a laptop that file is the only way
+`pacto impact` accepts no source that observes where things run, so that file is the only way
 to make the exit code mean anything.
 
 ---

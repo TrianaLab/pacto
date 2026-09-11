@@ -168,8 +168,7 @@ func (p *countingProxy) ListTags(ctx context.Context, repo string) ([]string, er
 func useTempCacheDir(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	old := oci.SetUserHomeDirFn(func() (string, error) { return dir, nil })
-	t.Cleanup(func() { oci.SetUserHomeDirFn(old) })
+	t.Setenv("HOME", dir)
 }
 
 // ── CACHE MATRIX ─────────────────────────────────────────────────────────────

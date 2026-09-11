@@ -55,10 +55,14 @@ describe('CapabilitiesSection', () => {
     unmount(c);
   });
 
-  it('renders nothing when there are no capabilities or skills', () => {
+  // A section that vanishes when empty is indistinguishable from one the page
+  // failed to load, and the in-page contents list offers it either way. So the
+  // heading stays and says what it found.
+  it('says so when there are no capabilities or skills, rather than disappearing', () => {
     const c = mount(CapabilitiesSection, { target, props: { open: true, capabilities: [], skills: [] } });
-    expect(target.querySelector('.section')).toBeNull();
-    expect(target.textContent?.trim()).toBe('');
+    expect(target.querySelector('.section')).not.toBeNull();
+    expect(target.textContent).toContain('Agent Capabilities');
+    expect(target.textContent).toContain('None declared');
     unmount(c);
   });
 });

@@ -608,7 +608,7 @@ func TestLoginCommand_WriteConfigError(t *testing.T) {
 
 	err := root.Execute()
 	if err == nil {
-		t.Error("expected error when writePactoConfig fails")
+		t.Error("expected error when the credential file cannot be written")
 	}
 }
 
@@ -767,19 +767,30 @@ func TestDocCommand_HTMLOutput_WriteError(t *testing.T) {
 	}
 }
 
+// assertFlagsMutuallyExclusive checks cobra's flag-group error. doc's three
+// exclusions are a MarkFlagsMutuallyExclusive group now, so the wording is
+// cobra's: "...are set none of the others can be; [a b] were all set". Only the
+// tail after the semicolon names the flags that clashed — the group list before
+// it always names all three, so asserting against the whole message would pass
+// no matter which pair was rejected.
+func assertFlagsMutuallyExclusive(t *testing.T, err error, a, b string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected an error when --%s and --%s are both set", a, b)
+	}
+	_, clashed, ok := strings.Cut(err.Error(), "; ")
+	if !ok || !strings.Contains(clashed, a) || !strings.Contains(clashed, b) {
+		t.Errorf("expected a mutual-exclusion error naming --%s and --%s, got: %v", a, b, err)
+	}
+}
+
 func TestDocCommand_ServeMutuallyExclusive(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--serve", "--output", "/tmp/out", bundleDir})
 
-	err := root.Execute()
-	if err == nil {
-		t.Error("expected error when --serve and --output are both set")
-	}
-	if !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Errorf("expected mutually exclusive error, got: %v", err)
-	}
+	assertFlagsMutuallyExclusive(t, root.Execute(), "serve", "output")
 }
 
 func TestDocCommand_UISwaggerFlag(t *testing.T) {
@@ -854,13 +865,7 @@ func TestDocCommand_UIServeMutuallyExclusive(t *testing.T) {
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--serve", bundleDir})
 
-	err := root.Execute()
-	if err == nil {
-		t.Error("expected error when --ui and --serve are both set")
-	}
-	if !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Errorf("expected mutually exclusive error, got: %v", err)
-	}
+	assertFlagsMutuallyExclusive(t, root.Execute(), "ui", "serve")
 }
 
 func TestDocCommand_UIOutputMutuallyExclusive(t *testing.T) {
@@ -869,13 +874,7 @@ func TestDocCommand_UIOutputMutuallyExclusive(t *testing.T) {
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"doc", "--ui", "swagger", "--output", "/tmp/out", bundleDir})
 
-	err := root.Execute()
-	if err == nil {
-		t.Error("expected error when --ui and --output are both set")
-	}
-	if !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Errorf("expected mutually exclusive error, got: %v", err)
-	}
+	assertFlagsMutuallyExclusive(t, root.Execute(), "ui", "output")
 }
 
 func TestDocCommand_UINoSpecs(t *testing.T) {
@@ -984,18 +983,25 @@ func TestNoCacheFlag(t *testing.T) {
 	}
 }
 
-func TestNoCacheFlag_NotApplicable(t *testing.T) {
+// A store that cannot disable its cache makes --no-cache a lie: the command
+// would run against the very cache the caller excluded and report success. It
+// fails instead.
+func TestNoCacheFlag_StoreCannotDisableItsCache(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 
-	// Plain MockBundleStore without DisableCache — should not panic.
 	svc := app.NewService(&testutil.MockBundleStore{}, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"validate", "--no-cache", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
+	root.SetErr(&out)
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("validate --no-cache failed: %v", err)
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("validate --no-cache succeeded against a store with no cache to disable")
+	}
+	if !strings.Contains(err.Error(), "--no-cache") {
+		t.Errorf("error = %v, want it to name the flag it could not honour", err)
 	}
 }
 

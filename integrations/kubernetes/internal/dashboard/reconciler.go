@@ -16,12 +16,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/credentials"
 )
 
@@ -29,11 +28,19 @@ import (
 type Reconciler struct {
 	client.Client
 
-	// APIReader performs uncached reads straight against the API server. cleanup()
-	// uses it so disabling the dashboard never starts a cluster-scoped informer
-	// (ClusterRole/ClusterRoleBinding/ServiceAccount) whose list/watch the chart
-	// only grants when the dashboard is enabled. A cached read would block cache
-	// sync and crashloop the manager. Falls back to the cached client when unset.
+	// APIReader performs uncached reads straight against the API server. Required.
+	//
+	// cleanup() uses it so disabling the dashboard never starts a cluster-scoped
+	// informer (ClusterRole/ClusterRoleBinding/ServiceAccount) whose list/watch the
+	// chart only grants when the dashboard is enabled. A cached read would block
+	// cache sync and crashloop the manager.
+	//
+	// EVERY Secret read goes through it too (INV-5, see PactoReconciler). A typed
+	// Get on the embedded cached client lazily starts a corev1.Secret informer, and
+	// the chart grants secrets list/watch cluster-scoped, so one such Get parks
+	// every in-scope Secret's .Data in the operator's heap. It is also the only
+	// form the teardown RBAC permits: the always-on grant for the managed secret is
+	// get + delete by resourceName, with no list/watch to build an informer from.
 	APIReader client.Reader
 
 	Scheme *runtime.Scheme
@@ -44,14 +51,6 @@ type Reconciler struct {
 	tickInterval time.Duration
 }
 
-// reader returns the uncached API reader when wired, else the cached client.
-func (r *Reconciler) reader() client.Reader {
-	if r.APIReader != nil {
-		return r.APIReader
-	}
-	return r.Client
-}
-
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
@@ -59,103 +58,53 @@ func (r *Reconciler) reader() client.Reader {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile ensures dashboard resources match the desired state.
+// Sync ensures dashboard resources match the desired state.
 // When the feature is enabled, it creates/updates all dashboard resources.
 // When disabled, it cleans up any resources it previously created.
-func (r *Reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) Sync(ctx context.Context) error {
 	log := logf.FromContext(ctx).WithName("dashboard")
 
 	if !r.Config.Enabled {
 		log.V(1).Info("Dashboard feature disabled, cleaning up resources")
-		if err := r.cleanup(ctx); err != nil {
-			log.Error(err, "Failed to clean up dashboard resources")
-			return ctrl.Result{RequeueAfter: time.Minute}, err
-		}
-		return ctrl.Result{}, nil
+		return r.cleanup(ctx)
 	}
 
 	log.Info("Reconciling dashboard resources", "image", r.Config.Image, "namespace", r.Config.Namespace)
 
-	if err := r.ensureNamespace(ctx); err != nil {
-		return ctrl.Result{}, fmt.Errorf("namespace: %w", err)
+	if err := component.EnsureNamespace(ctx, r.Client, r.Config.Namespace, Labels()); err != nil {
+		return fmt.Errorf("namespace: %w", err)
 	}
 	if err := r.reconcileServiceAccount(ctx); err != nil {
-		return ctrl.Result{}, fmt.Errorf("service account: %w", err)
+		return fmt.Errorf("service account: %w", err)
 	}
 	if err := r.reconcileClusterRole(ctx); err != nil {
-		return ctrl.Result{}, fmt.Errorf("cluster role: %w", err)
+		return fmt.Errorf("cluster role: %w", err)
 	}
 	if err := r.reconcileClusterRoleBinding(ctx); err != nil {
-		return ctrl.Result{}, fmt.Errorf("cluster role binding: %w", err)
+		return fmt.Errorf("cluster role binding: %w", err)
 	}
 	if err := r.reconcileOCICredentials(ctx); err != nil {
-		return ctrl.Result{}, fmt.Errorf("oci credentials: %w", err)
+		return fmt.Errorf("oci credentials: %w", err)
 	}
 	if err := r.reconcileDeployment(ctx); err != nil {
-		return ctrl.Result{}, fmt.Errorf("deployment: %w", err)
+		return fmt.Errorf("deployment: %w", err)
 	}
 	if err := r.reconcileService(ctx); err != nil {
-		return ctrl.Result{}, fmt.Errorf("service: %w", err)
+		return fmt.Errorf("service: %w", err)
 	}
 
 	log.Info("Dashboard resources reconciled successfully")
-	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	return nil
 }
 
-// Start runs the initial reconciliation when the manager starts.
-// This implements the manager.Runnable interface.
+// Start implements manager.Runnable.
 func (r *Reconciler) Start(ctx context.Context) error {
-	log := logf.FromContext(ctx).WithName("dashboard")
-	log.Info("Starting dashboard reconciler",
+	logf.FromContext(ctx).WithName("dashboard").Info("Starting dashboard reconciler",
 		"enabled", r.Config.Enabled,
 		"image", r.Config.Image,
 		"namespace", r.Config.Namespace,
 	)
-
-	// Run initial reconciliation
-	if _, err := r.Reconcile(ctx, ctrl.Request{}); err != nil {
-		return fmt.Errorf("initial dashboard reconciliation failed: %w", err)
-	}
-
-	// If enabled, run periodic reconciliation
-	if r.Config.Enabled {
-		interval := r.tickInterval
-		if interval == 0 {
-			interval = 5 * time.Minute
-		}
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-ticker.C:
-				if _, err := r.Reconcile(ctx, ctrl.Request{}); err != nil {
-					log.Error(err, "Periodic dashboard reconciliation failed")
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func (r *Reconciler) ensureNamespace(ctx context.Context) error {
-	ns := &corev1.Namespace{}
-	err := r.Get(ctx, client.ObjectKey{Name: r.Config.Namespace}, ns)
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return err
-	}
-	ns = &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   r.Config.Namespace,
-			Labels: Labels(),
-		},
-	}
-	return r.Create(ctx, ns)
+	return component.Run(ctx, "dashboard", r.Config.Enabled, r.tickInterval, r.Sync)
 }
 
 func (r *Reconciler) reconcileServiceAccount(ctx context.Context) error {
@@ -173,6 +122,8 @@ func (r *Reconciler) reconcileClusterRoleBinding(ctx context.Context) error {
 // reconcileOCICredentials reads the configured OCI secrets, merges their credentials,
 // and creates/updates a managed dockerconfigjson secret for the dashboard pod.
 // If no OCI secrets are configured, it cleans up any previously-created managed secret.
+// Both reads go through APIReader; see the field comment for why a cached one is a
+// cluster-wide INV-5 violation.
 func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 	log := logf.FromContext(ctx).WithName("dashboard")
 	secretNames := r.Config.EffectiveOCISecrets()
@@ -180,7 +131,7 @@ func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 	if len(secretNames) == 0 {
 		// Clean up managed secret if it exists
 		existing := &corev1.Secret{}
-		err := r.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: ManagedSecretName}, existing)
+		err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: ManagedSecretName}, existing)
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
@@ -194,7 +145,7 @@ func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 	var sources []*corev1.Secret
 	for _, name := range secretNames {
 		secret := &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: name}, secret); err != nil {
+		if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: r.Config.Namespace, Name: name}, secret); err != nil {
 			log.Error(err, "Failed to read OCI secret", "secret", name)
 			return fmt.Errorf("reading OCI secret %q: %w", name, err)
 		}
@@ -218,52 +169,18 @@ func (r *Reconciler) reconcileService(ctx context.Context) error {
 	return r.Apply(ctx, serviceAC(r.Config), client.FieldOwner(FieldManager), client.ForceOwnership)
 }
 
-// cleanup deletes all dashboard resources owned by the operator.
+// cleanup deletes all dashboard resources owned by the operator, in reverse
+// order of creation.
 func (r *Reconciler) cleanup(ctx context.Context) error {
-	log := logf.FromContext(ctx).WithName("dashboard")
-
-	// Delete in reverse order of creation
-	resources := []struct {
-		name string
-		obj  client.Object
-		key  client.ObjectKey
-	}{
-		{"Service", &corev1.Service{}, client.ObjectKey{Namespace: r.Config.Namespace, Name: Name}},
-		{"Deployment", &appsv1.Deployment{}, client.ObjectKey{Namespace: r.Config.Namespace, Name: Name}},
-		{"Secret", &corev1.Secret{}, client.ObjectKey{Namespace: r.Config.Namespace, Name: ManagedSecretName}},
-		{"ClusterRoleBinding", &rbacv1.ClusterRoleBinding{}, client.ObjectKey{Name: Name}},
-		{"ClusterRole", &rbacv1.ClusterRole{}, client.ObjectKey{Name: Name}},
-		{"ServiceAccount", &corev1.ServiceAccount{}, client.ObjectKey{Namespace: r.Config.Namespace, Name: Name}},
-	}
-
-	for _, res := range resources {
-		if err := r.reader().Get(ctx, res.key, res.obj); err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			if apierrors.IsForbidden(err) {
-				// The dashboard was never enabled, so the operator was never
-				// granted RBAC for this resource — there is nothing it created to
-				// clean up. Skip rather than failing (and crashlooping) the manager.
-				log.V(1).Info("Skipping cleanup; permission not granted (dashboard likely never enabled)",
-					"kind", res.name, "name", res.key.Name)
-				continue
-			}
-			return fmt.Errorf("failed to get %s: %w", res.name, err)
-		}
-
-		// Only delete resources that have our management labels
-		labels := res.obj.GetLabels()
-		if labels[LabelManagedBy] != ManagedByValue || labels[LabelComponent] != ComponentValue {
-			log.V(1).Info("Skipping resource not managed by us", "kind", res.name, "name", res.key.Name)
-			continue
-		}
-
-		if err := r.Delete(ctx, res.obj, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to delete %s: %w", res.name, err)
-		}
-		log.Info("Deleted dashboard resource", "kind", res.name, "name", res.key.Name)
-	}
-
-	return nil
+	ns := r.Config.Namespace
+	return component.Prune(ctx, "dashboard", r.APIReader, r.Client,
+		map[string]string{LabelManagedBy: ManagedByValue, LabelComponent: ComponentValue},
+		[]component.Resource{
+			{Kind: "Service", Obj: &corev1.Service{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},
+			{Kind: "Deployment", Obj: &appsv1.Deployment{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},
+			{Kind: "Secret", Obj: &corev1.Secret{}, Key: client.ObjectKey{Namespace: ns, Name: ManagedSecretName}},
+			{Kind: "ClusterRoleBinding", Obj: &rbacv1.ClusterRoleBinding{}, Key: client.ObjectKey{Name: Name}},
+			{Kind: "ClusterRole", Obj: &rbacv1.ClusterRole{}, Key: client.ObjectKey{Name: Name}},
+			{Kind: "ServiceAccount", Obj: &corev1.ServiceAccount{}, Key: client.ObjectKey{Namespace: ns, Name: Name}},
+		})
 }

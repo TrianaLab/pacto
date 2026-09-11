@@ -60,6 +60,10 @@ func ParseFromFS(fsys fs.FS) (*Document, error) {
 
 // HasSBOM reports whether the bundle filesystem contains an SBOM directory
 // with at least one recognized SBOM file.
+//
+// Deprecated: call [ParseFromFS] and check for a nil Document, which answers
+// the same question without walking the directory twice. Nothing in Pacto
+// calls this. Removed at v4.
 func HasSBOM(fsys fs.FS) bool {
 	if fsys == nil {
 		return false
@@ -69,6 +73,12 @@ func HasSBOM(fsys fs.FS) bool {
 		return false
 	}
 	for _, entry := range entries {
+		// Skip directories, as ParseFromFS does. Without this a directory named
+		// deps.spdx.json answers true here and nil there, so the two disagree on
+		// the one question the deprecation note says they answer alike.
+		if entry.IsDir() {
+			continue
+		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".spdx.json") || strings.HasSuffix(name, ".cdx.json") {
 			return true

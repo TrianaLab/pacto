@@ -74,33 +74,22 @@ func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			err = printImpactResult(cmd, result, format)
 			// Fail closed: a breaking change landing on a live, incompatible
 			// consumer is a release blocker (mirrors `pacto diff`).
-			if err == nil && result.Classification == "BREAKING" && hasIncompatibleActiveConsumer(result) {
+			if err == nil && result.ReleaseBlocking() {
 				err = fmt.Errorf("breaking changes affect active consumers")
 			}
 			return err
 		},
 	}
 
-	// Fleet source flags (mirrors `pacto fleet`).
-	cmd.Flags().StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
-	cmd.Flags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets (repeatable)")
-	cmd.Flags().Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
 	cmd.Flags().Bool("include-observed", false, "let observed (runtime) relationships raise consumer confidence")
+	// Declared before the shared set so this narrowing wins: impact takes ONE
+	// trace document and reads it itself (see divergentFleetFlagTypes).
 	cmd.Flags().String("traces", "", "OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)")
+	// Every other fleet source flag, from the one declaration `pacto fleet` uses.
+	addFleetSourceFlags(cmd.Flags())
 	addDiffOverrideFlags(cmd)
 
 	return cmd
-}
-
-// hasIncompatibleActiveConsumer reports whether any affected consumer both
-// declares an incompatible range and is actually deployed (has active targets).
-func hasIncompatibleActiveConsumer(r *impact.Result) bool {
-	for _, c := range r.Consumers {
-		if c.CompatibilityVerdict == impact.CompatibilityIncompatible && len(c.Targets) > 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // printImpactResult renders an impact result as text or JSON.

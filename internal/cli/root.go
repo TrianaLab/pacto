@@ -11,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/internal/update"
 	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 const outputFormatKey = "output-format"
@@ -36,6 +37,10 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.PersistentFlags().Bool("no-cache", false, "disable OCI bundle cache")
 	root.PersistentFlags().Bool("no-anim", false, "disable animations")
 	root.PersistentFlags().BoolP("verbose", "v", false, "enable verbose output")
+
+	// A closed vocabulary the code already owns, so declaring it costs nothing
+	// at runtime and turns empty completion into real completion.
+	_ = root.RegisterFlagCompletionFunc(outputFormatKey, staticCompletions(outputFormats...))
 
 	// Bind to Viper
 	_ = v.BindPFlag("config", root.PersistentFlags().Lookup("config"))
@@ -79,7 +84,19 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 		}
 
 		if v.GetBool("no-cache") {
-			if toggler, ok := svc.BundleStore.(interface{ DisableCache() }); ok {
+			// Materialize the resolved decision back onto the flag: viper also
+			// answers from PACTO_NO_CACHE and the config file, and everything
+			// downstream (fleetOptions) reads the flag, so this keeps one answer.
+			_ = cmd.Flags().Set("no-cache", "true")
+			// A nil store reads nothing, so there is no cache that could answer
+			// in the registry's place and nothing to disable.
+			if svc.BundleStore != nil {
+				toggler, ok := svc.BundleStore.(oci.CacheDisabler)
+				if !ok {
+					// Silently proceeding would run the whole command against the very
+					// cache the caller asked it to ignore, and report success.
+					return fmt.Errorf("--no-cache: this bundle store has no cache to disable")
+				}
 				toggler.DisableCache()
 			}
 		}
@@ -94,13 +111,16 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 				defer func() {
 					if r := recover(); r != nil {
 						lg.Debug("update check panicked", "panic", r)
-						updateResultCh <- nil
+						sendUpdate(updateResultCh, nil)
 					}
 				}()
-				updateResultCh <- checkForUpdateFn(info.Version)
+				sendUpdate(updateResultCh, checkForUpdateFn(info.Version))
 			}()
 		} else {
-			updateResultCh <- nil
+			// Non-blocking: cobra skips PersistentPostRunE when RunE errors, so
+			// the buffer can still hold a value from a previous failed Execute.
+			// Dropping the nil is correct — it only means "no update to report".
+			sendUpdate(updateResultCh, nil)
 		}
 
 		return nil
@@ -139,12 +159,24 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.AddCommand(newLoginCommand())
 	root.AddCommand(newLogoutCommand())
 	root.AddCommand(newVersionCommand(info, v))
-	root.AddCommand(newUpdateCommand(info.Version))
+	root.AddCommand(newUpdateCommand(info.Version, update.New()))
 	root.AddCommand(newMCPCommand(svc, info.Version))
 	root.AddCommand(newDashboardCommand(svc, v, info.Version))
+	root.AddCommand(newTUICommand(svc, v))
 
 	attachBanner(root)
 	return root
+}
+
+// sendUpdate posts an update-check result without ever blocking. The channel is
+// drained by PersistentPostRunE, which cobra skips when RunE errors, so a stale
+// value can still be sitting in the buffer. Dropping a result is harmless: the
+// notice is advisory.
+func sendUpdate(ch chan<- *update.CheckResult, r *update.CheckResult) {
+	select {
+	case ch <- r:
+	default:
+	}
 }
 
 // attachBanner prints the colored logo above the root command's help on a TTY.

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -33,7 +34,7 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
   # Serve on a custom port
   pacto doc my-service --serve --port 9090
 
-  # Launch an interactive API explorer (Scalar UI)
+  # Launch an interactive API explorer (Swagger UI)
   pacto doc my-service --ui swagger
 
   # Select a specific interface
@@ -55,7 +56,7 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			port, _ := cmd.Flags().GetInt("port")
 			targets, _ := cmd.Flags().GetStringArray("target")
 
-			if err := validateDocFlags(serve, ui, output, iface); err != nil {
+			if err := validateDocFlags(ui, iface); err != nil {
 				return err
 			}
 
@@ -109,19 +110,35 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 
 	cmd.Flags().StringP("output", "o", "", "output directory for generated Markdown; a NAME.html value writes a static documentation site to a NAME/ directory instead")
 	cmd.Flags().Bool("serve", false, "serve the offline dashboard-grade documentation site over a local HTTP server")
-	cmd.Flags().String("ui", "", "UI type for interactive API explorer (e.g. swagger)")
+	// "e.g. swagger" advertised an open set that does not exist: serveUI accepts
+	// docUIs and nothing else. Derived from the same slice as the completion and
+	// the rejection message, so the three cannot drift.
+	cmd.Flags().String("ui", "", fmt.Sprintf("UI type for the interactive API explorer (one of: %s)", strings.Join(docUIs, ", ")))
 	cmd.Flags().String("interface", "", "interface name to display (used with --ui)")
 	cmd.Flags().Int("port", 8484, "port for the documentation server (used with --serve or --ui)")
 	cmd.Flags().StringArray("target", nil, "target server URL for try-it-out requests; supports interface=url mapping (used with --ui)")
+
+	// A closed vocabulary the code already owns, so declaring it costs nothing
+	// at runtime and turns empty completion into real completion.
+	_ = cmd.RegisterFlagCompletionFunc("ui", staticCompletions(docUIs...))
+
+	// --serve, --ui and -o each select a different delivery, so at most one can
+	// be asked for. Cobra tests whether the flag was CHANGED, not its value, so
+	// this also rejects an explicit --serve=false alongside -o.
+	cmd.MarkFlagsMutuallyExclusive("serve", "ui", "output")
 
 	addOverrideFlags(cmd)
 
 	return cmd
 }
 
+// docUIs is the closed --ui vocabulary. serveUI accepts exactly these and shell
+// completion offers exactly these, so the two cannot drift.
+var docUIs = []string{"swagger"}
+
 func serveUI(cmd *cobra.Command, result *app.DocResult, ui, iface string, port int, targets []string) error {
-	if ui != "swagger" {
-		return fmt.Errorf("unsupported UI type %q: only \"swagger\" is supported", ui)
+	if !slices.Contains(docUIs, ui) {
+		return fmt.Errorf("unsupported UI type %q: only %s is supported", ui, `"`+strings.Join(docUIs, `", "`)+`"`)
 	}
 
 	specs := doc.CollectSwaggerSpecs(result.Bundle.Contract.Interfaces)
@@ -155,13 +172,10 @@ func serveUI(cmd *cobra.Command, result *app.DocResult, ui, iface string, port i
 	})
 }
 
-func validateDocFlags(serve bool, ui, output, iface string) error {
-	if serve && ui != "" {
-		return fmt.Errorf("--serve and --ui are mutually exclusive")
-	}
-	if (serve || ui != "") && output != "" {
-		return fmt.Errorf("--serve/--ui and --output are mutually exclusive")
-	}
+// validateDocFlags carries the one doc-flag rule cobra has no primitive for.
+// The three mutual exclusions it used to hand-roll are now a single
+// MarkFlagsMutuallyExclusive group; a "requires" relation has no equivalent.
+func validateDocFlags(ui, iface string) error {
 	if iface != "" && ui == "" {
 		return fmt.Errorf("--interface requires --ui")
 	}

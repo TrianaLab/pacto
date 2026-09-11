@@ -212,7 +212,9 @@ func (t targetFixture) toRaw() fleet.RawTarget {
 }
 
 // toState maps a fixture state to a source state. An explicit status lets a demo
-// model a stale, partial or unavailable environment without a live source.
+// model a stale, partial or unavailable environment without a live source. No
+// timestamps are stamped here; fleet.Build stamps them using BuildOptions.Now so
+// tests can pin the clock.
 func (s stateFixture) toState() *fleet.SourceState {
 	status := fleet.SourceStatus(s.Status)
 	switch status {

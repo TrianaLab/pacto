@@ -79,15 +79,13 @@ func (s *CacheSource) Kind() string { return "cache" }
 // baseline revision. An absent cache directory yields an empty collection
 // (nothing cached), not an error.
 func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	gens, err := cachedGenerations(s.cacheDir)
+	unreadable := unreadableDirs{source: s.id, root: s.cacheDir}
+	gens, err := cachedGenerations(ctx, s.cacheDir, &unreadable)
 	if err != nil {
 		return nil, err
 	}
-	col := &fleet.Collection{}
+	col := &fleet.Collection{Limitations: unreadable.limitations()}
 	for _, g := range gens {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		// An entry the walk could SEE and the read could not resolve to one whole
 		// generation is a gap in the baseline, and a partial baseline that says so
 		// is not the same thing as an empty one.
@@ -132,14 +130,11 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 			})
 			continue
 		}
-		// A cached entry may have answered this resolution, and an entry that states
-		// its own reference states what these bytes ARE — reference, domain and all.
-		// The caller's spelling can be an alias the cache resolved through; the
-		// record came back from the generation that actually served the bytes.
-		if rec.Ref != "" {
-			ref = rec.Ref
-			concrete = strings.TrimPrefix(rec.Ref, "oci://")
-		}
+		// The reference is the caller's, deliberately: [oci.Resolver.ResolvePinned]
+		// reports only a digest on this path, because a cache entry that states any
+		// OTHER reference is a miss there rather than an answer. A branch here for
+		// "the record named a different reference" restated that rule as its
+		// opposite and could never run.
 		col.Revisions = append(col.Revisions, revisionOf(ref, concrete, rec, bundle))
 	}
 	return col, nil
@@ -241,7 +236,9 @@ type cachedGeneration struct {
 
 // cachedGenerations walks the cache directory and reads every entry it finds
 // into one whole generation each. An absent cache directory is not an error:
-// nothing has been pulled yet.
+// nothing has been pulled yet, and neither is an entry the walk cannot open —
+// unreadable collects those so the caller can report them as gaps rather than
+// answer that the cache is empty.
 //
 // The walk DISCOVERS entry directories and does nothing else. It does not decide
 // what an entry holds, and it does not hand a reference onward for someone to
@@ -263,7 +260,7 @@ type cachedGeneration struct {
 // <cacheDir>/<repo...>/<tag>/bundle.tar.gz read as <repo...>:<tag> — which is
 // approximate, because a path spells a registry port and a tag with the same
 // characters it spells itself with. Results are sorted for deterministic output.
-func cachedGenerations(cacheDir string) ([]cachedGeneration, error) {
+func cachedGenerations(ctx context.Context, cacheDir string, unreadable *unreadableDirs) ([]cachedGeneration, error) {
 	if _, err := os.Stat(cacheDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -274,10 +271,20 @@ func cachedGenerations(cacheDir string) ([]cachedGeneration, error) {
 	seen := map[string]bool{}
 	err := fsWalkDir(cacheDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			// A cache directory is shared, and one entry it will not open is not a
+			// reason to report that nothing was ever pulled. Run pacto once under
+			// sudo and the root-owned entries refuse every later read; aborting
+			// here emptied the entire offline baseline instead of the handful of
+			// entries actually out of reach.
+			return unreadable.note(path, walkErr)
 		}
 		if d.IsDir() || d.Name() != oci.CachedBundleFile {
 			return nil
+		}
+		// Cancellation belongs HERE, not after the walk: the cost is the gunzip and
+		// untar below, once per entry in a cache that can hold thousands.
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		bundle, rec, ok := oci.ReadCacheEntry(filepath.Dir(path))
 		ref := rec.Ref

@@ -1,9 +1,10 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
   import { serviceUrl } from '../lib/router.ts';
   import { shortDigest } from '../lib/format.ts';
 
-  let { configs = [], open = $bindable(false), id = '', source = '' } = $props();
+  let { configs = [], open = $bindable(false), id = '' } = $props();
 
   let hasContent = $derived(configs?.length > 0);
   let expanded = $state({});
@@ -22,7 +23,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Configurations" count={configs.length} bind:open {id} {source}>
+  <CollapsibleSection title="Configurations" count={configs.length} bind:open {id}>
     {#each configs as config, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={hasDetails(config)} onclick={() => hasDetails(config) && toggle(i)}>
@@ -80,7 +81,9 @@
             {/if}
             {#if config.secretKeys?.length > 0}
               <div class="detail-card-sub-section">
-                <h4>Secret Keys</h4>
+                <!-- h3, not h4: the section title is an h2 and nothing between it and
+                     here is a heading, so h4 skipped a level. -->
+                <h3>Secret Keys</h3>
                 <table class="detail-card-table">
                   <thead><tr><th>Key</th><th>Type</th></tr></thead>
                   <tbody>
@@ -96,6 +99,8 @@
       </div>
     {/each}
   </CollapsibleSection>
+{:else}
+  <SectionState title="Configurations" bind:open {id} />
 {/if}
 
 <style>
@@ -164,5 +169,5 @@
   .detail-card-table { font-size: var(--text-sm); }
   .detail-card-table th { font-size: var(--text-xs); }
   .detail-card-sub-section { margin-top: var(--sp-3); }
-  .detail-card-sub-section h4 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
+  .detail-card-sub-section h3 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
 </style>

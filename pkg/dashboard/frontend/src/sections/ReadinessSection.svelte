@@ -1,12 +1,13 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
   import MarkdownView from '../MarkdownView.svelte';
   import DocModal from '../DocModal.svelte';
   import RevisionHistory from './RevisionHistory.svelte';
   import { readinessGateClass, readinessGateTip, checkStatusClass, checkStatusLabel, assessmentCountdownLabel } from '../lib/format.ts';
   import { formatDate } from '../lib/dateFormat.ts';
 
-  let { readiness = null, docs = [], open = $bindable(false), id = '', source = '' } = $props();
+  let { readiness = null, docs = [], open = $bindable(false), id = '' } = $props();
 
   let hasContent = $derived(!!readiness && (readiness.checks?.length ?? 0) > 0);
   let expanded = $state({});
@@ -30,7 +31,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Readiness" count={readiness.checks.length} bind:open {id} {source}>
+  <CollapsibleSection title="Readiness" count={readiness.checks.length} bind:open {id}>
     <div class="readiness-summary">
       <!-- Score colored by the GATE (passing), not the absolute value, with a ✓
            when it clears minScore — so passing vs below-gate is obvious. -->
@@ -141,6 +142,8 @@
     <RevisionHistory revisions={readiness.revisions || []} />
   </CollapsibleSection>
   <DocModal doc={modalDoc} onClose={() => { modalDoc = null; }} />
+{:else}
+  <SectionState title="Readiness" bind:open {id} />
 {/if}
 
 <style>

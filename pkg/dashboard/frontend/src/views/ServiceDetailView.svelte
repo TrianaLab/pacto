@@ -45,7 +45,6 @@
   import ReadinessSection from '../sections/ReadinessSection.svelte';
   import DocsSection from '../sections/DocsSection.svelte';
   import SbomSection from '../sections/SbomSection.svelte';
-  import SectionState from '../sections/SectionState.svelte';
   import SourcesPanel from '../sections/SourcesPanel.svelte';
   import ValidationSection from '../sections/ValidationSection.svelte';
   import RuntimeDiffSection from '../sections/RuntimeDiffSection.svelte';
@@ -64,36 +63,24 @@
   let versionsError = $state(false);
   let depsError = $state(false);
 
-  // Stable, ordered domain sections. `key` maps into detail.sectionMeta so each
-  // section reports present / empty / not_applicable / unavailable consistently.
+  // Stable, ordered domain sections — the contents list and the page body render
+  // the same eleven, in this order. Each section decides for itself whether it
+  // has content and shows a placeholder when it does not, so this list needs no
+  // per-section state of its own.
   const DOMAIN_SECTIONS = [
-    { id: 'interfaces', label: 'Interfaces', key: 'interfaces' },
-    { id: 'capabilities', label: 'Agent Capabilities', key: 'capabilities' },
-    { id: 'dependencies', label: 'Dependencies', key: 'dependencies' },
-    { id: 'config', label: 'Configurations', key: 'configurations' },
-    { id: 'policy', label: 'Policies', key: 'policies' },
-    { id: 'readiness', label: 'Readiness', key: 'readiness' },
-    { id: 'docs', label: 'Documentation', key: 'docs' },
-    { id: 'sbom', label: 'SBOM', key: 'sbom' },
-    { id: 'validation', label: 'Validation', key: 'validation' },
-    { id: 'runtimeDiff', label: 'Contract vs Runtime', key: 'runtimeDiff' },
-    { id: 'observed', label: 'Observed Runtime', key: 'observedRuntime' },
+    { id: 'interfaces', label: 'Interfaces' },
+    { id: 'capabilities', label: 'Agent Capabilities' },
+    { id: 'dependencies', label: 'Dependencies' },
+    { id: 'config', label: 'Configurations' },
+    { id: 'policy', label: 'Policies' },
+    { id: 'readiness', label: 'Readiness' },
+    { id: 'docs', label: 'Documentation' },
+    { id: 'sbom', label: 'SBOM' },
+    { id: 'validation', label: 'Validation' },
+    { id: 'runtimeDiff', label: 'Contract vs Runtime' },
+    { id: 'observed', label: 'Observed Runtime' },
   ];
 
-  function sectionState(key) {
-    return detail?.sectionMeta?.[key] ?? { state: 'present' };
-  }
-  function isPresent(key) {
-    return sectionState(key).state === 'present';
-  }
-  // Dependencies has extra client-side inputs (dependents/cross-refs) beyond the
-  // contract's own deps, so its presence is computed across all three.
-  let hasDependencyData = $derived(
-    isPresent('dependencies') ||
-    (dependents?.length > 0) ||
-    (crossRefs?.references?.length > 0) ||
-    (crossRefs?.referencedBy?.length > 0),
-  );
   let graphData = $state(null);
   let resolving = $state(false);
   let resolveError = $state(null);
@@ -316,11 +303,15 @@
   });
 </script>
 
+<!-- h1 in each of these branches, not h3: they REPLACE the whole detail page, so the
+     heading in the box is the only heading the page has. An h3 alone left the page with
+     no h1 at all (WCAG 1.3.1, axe page-has-heading-one) -- the failure is invisible from
+     inside the component, because the h1 it is standing in for is in a sibling branch. -->
 {#if resolving}
-  <div class="state-box"><div class="spinner"></div><h3>Resolving remote dependency...</h3></div>
+  <div class="state-box"><div class="spinner"></div><h1>Resolving remote dependency...</h1></div>
 {:else if resolveError}
   <div class="state-box">
-    <h3>{resolveError.title}</h3>
+    <h1>{resolveError.title}</h1>
     <p>{resolveError.message}</p>
     <code>{resolveError.ref}</code>
     <a href="#/" class="btn" style="margin-top:12px">Back to overview</a>
@@ -336,7 +327,7 @@
   </div>
 {:else if error}
   <div class="state-box">
-    <h3>Service not found</h3>
+    <h1>Service not found</h1>
     <p>{error}</p>
     <a href="#/" class="btn" style="margin-top:12px">Back to overview</a>
   </div>
@@ -390,9 +381,6 @@
     </div>
     <div class="detail-meta">
       {#if detail.version}<span class="pill">{detail.version}</span>{/if}
-      {#if detail.sectionMeta?.version?.overriddenBy === 'k8s'}
-        <span class="pill pill-override" data-tip="Effective deployed version from the cluster — differs from the contract-declared version">via cluster</span>
-      {/if}
       {#if detail.contractStatus !== 'Reference'}
         {#if detail.versionPolicy}
           <span class="pill pill-policy {versionPolicyClass(detail.versionPolicy)}" data-tip={detail.resolvedRef || ''}>{versionPolicyLabel(detail.versionPolicy)}</span>
@@ -408,9 +396,6 @@
         <SourceDot source={src} />
       {/each}
       <span class="text-2 owner-link">owner: <OwnerLink owner={detail.owner} /></span>
-      {#if detail.sectionMeta?.owner?.overriddenBy === 'k8s'}
-        <span class="pill pill-override" data-tip="Owner from the cluster — differs from the contract-declared owner">via cluster</span>
-      {/if}
       {#if ownerIsStructured(detail.owner) && detail.owner.dri}
           <span class="text-3">dri: {detail.owner.dri}</span>
         {/if}
@@ -503,80 +488,36 @@
 
   <SourcesPanel id="section-sources" {name} bind:open={openSections.sources} />
 
-  {#if isPresent('interfaces')}
-    <InterfacesSection id="section-interfaces" interfaces={detail.interfaces || []} source={sectionState('interfaces').source} bind:open={openSections.interfaces} />
-  {:else}
-    <SectionState id="section-interfaces" title="Interfaces" meta={sectionState('interfaces')} bind:open={openSections.interfaces} />
-  {/if}
+  <!-- Every domain section renders: each one knows whether it has content and
+       falls back to a "None declared" placeholder, so the contents list above
+       never offers a heading that is not on the page. -->
+  <InterfacesSection id="section-interfaces" interfaces={detail.interfaces || []} bind:open={openSections.interfaces} />
 
-  {#if isPresent('capabilities')}
-    <CapabilitiesSection id="section-capabilities" capabilities={detail.capabilities || []} skills={detail.skills || []} source={sectionState('capabilities').source} bind:open={openSections.capabilities} />
-  {:else}
-    <SectionState id="section-capabilities" title="Agent Capabilities" meta={sectionState('capabilities')} bind:open={openSections.capabilities} />
-  {/if}
+  <CapabilitiesSection id="section-capabilities" capabilities={detail.capabilities || []} skills={detail.skills || []} bind:open={openSections.capabilities} />
 
-  {#if hasDependencyData}
-    <DependenciesSection
-      id="section-dependencies"
-      {name} {services} {graphData} {dependents} {crossRefs} {isHistorical} {depsError}
-      dependencies={detail.dependencies || []}
-      source={sectionState('dependencies').source}
-      onRetry={load}
-      bind:open={openSections.dependencies}
-    />
-  {:else}
-    <SectionState id="section-dependencies" title="Dependencies"
-      meta={depsError ? { state: 'unavailable', reason: 'could not load dependents / references' } : sectionState('dependencies')}
-      onRetry={depsError ? load : null} bind:open={openSections.dependencies} />
-  {/if}
+  <DependenciesSection
+    id="section-dependencies"
+    {name} {services} {graphData} {dependents} {crossRefs} {isHistorical} {depsError}
+    dependencies={detail.dependencies || []}
+    onRetry={load}
+    bind:open={openSections.dependencies}
+  />
 
-  {#if isPresent('configurations')}
-    <ConfigSection id="section-config" configs={detail.configurations || []} source={sectionState('configurations').source} bind:open={openSections.config} />
-  {:else}
-    <SectionState id="section-config" title="Configurations" meta={sectionState('configurations')} bind:open={openSections.config} />
-  {/if}
+  <ConfigSection id="section-config" configs={detail.configurations || []} bind:open={openSections.config} />
 
-  {#if isPresent('policies')}
-    <PolicySection id="section-policy" policies={detail.policies || []} source={sectionState('policies').source} bind:open={openSections.policy} />
-  {:else}
-    <SectionState id="section-policy" title="Policies" meta={sectionState('policies')} bind:open={openSections.policy} />
-  {/if}
+  <PolicySection id="section-policy" policies={detail.policies || []} bind:open={openSections.policy} />
 
-  {#if isPresent('readiness')}
-    <ReadinessSection id="section-readiness" readiness={detail.readiness} docs={detail.docs || []} source={sectionState('readiness').source} bind:open={openSections.readiness} />
-  {:else}
-    <SectionState id="section-readiness" title="Readiness" meta={sectionState('readiness')} bind:open={openSections.readiness} />
-  {/if}
+  <ReadinessSection id="section-readiness" readiness={detail.readiness} docs={detail.docs || []} bind:open={openSections.readiness} />
 
-  {#if isPresent('docs')}
-    <DocsSection id="section-docs" docs={detail.docs || []} referencedPaths={referencedDocPaths(detail.readiness)} source={sectionState('docs').source} bind:open={openSections.docs} />
-  {:else}
-    <SectionState id="section-docs" title="Documentation" meta={sectionState('docs')} bind:open={openSections.docs} />
-  {/if}
+  <DocsSection id="section-docs" docs={detail.docs || []} referencedPaths={referencedDocPaths(detail.readiness)} bind:open={openSections.docs} />
 
-  {#if isPresent('sbom')}
-    <SbomSection id="section-sbom" sbom={detail.sbom} source={sectionState('sbom').source} bind:open={openSections.sbom} />
-  {:else}
-    <SectionState id="section-sbom" title="SBOM" meta={sectionState('sbom')} bind:open={openSections.sbom} />
-  {/if}
+  <SbomSection id="section-sbom" sbom={detail.sbom} bind:open={openSections.sbom} />
 
-  {#if isPresent('validation')}
-    <ValidationSection id="section-validation" validation={detail.validation} conditions={detail.conditions || []} source={sectionState('validation').source} bind:open={openSections.validation} />
-  {:else}
-    <SectionState id="section-validation" title="Validation" meta={sectionState('validation')} bind:open={openSections.validation} />
-  {/if}
+  <ValidationSection id="section-validation" validation={detail.validation} conditions={detail.conditions || []} bind:open={openSections.validation} />
 
-  {#if isPresent('runtimeDiff')}
-    <RuntimeDiffSection id="section-runtimeDiff" runtimeDiff={detail.runtimeDiff || []} source={sectionState('runtimeDiff').source} bind:open={openSections.runtimeDiff} />
-  {:else}
-    <SectionState id="section-runtimeDiff" title="Contract vs Runtime" meta={sectionState('runtimeDiff')} bind:open={openSections.runtimeDiff} />
-  {/if}
+  <RuntimeDiffSection id="section-runtimeDiff" runtimeDiff={detail.runtimeDiff || []} bind:open={openSections.runtimeDiff} />
 
-  {#if isPresent('observedRuntime')}
-    <ObservedRuntimeSection id="section-observed" observed={detail.observedRuntime} source={sectionState('observedRuntime').source} bind:open={openSections.observed} />
-  {:else}
-    <SectionState id="section-observed" title="Observed Runtime" meta={sectionState('observedRuntime')} bind:open={openSections.observed} />
-  {/if}
+  <ObservedRuntimeSection id="section-observed" observed={detail.observedRuntime} bind:open={openSections.observed} />
 
   <!-- Version History -->
   {#if versionsError}
@@ -812,10 +753,6 @@
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
-  .pill-override {
-    background: var(--c-info-bg); color: var(--c-info);
-    font-size: var(--text-xs); font-weight: 500;
-  }
   .badge-link { border: 0; cursor: pointer; font-family: inherit; }
   .owner-link { text-decoration: none; }
   .owner-link:hover { text-decoration: underline; color: var(--c-text); }

@@ -16,9 +16,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func newScheme() *runtime.Scheme {
@@ -34,10 +35,14 @@ func newReconciler(cfg Config, objs ...client.Object) *Reconciler {
 	if len(objs) > 0 {
 		builder = builder.WithObjects(objs...)
 	}
+	c := builder.Build()
 	return &Reconciler{
-		Client: builder.Build(),
-		Scheme: scheme,
-		Config: cfg,
+		Client: c,
+		// The fake client is uncached, so it doubles as the APIReader that
+		// cmd/main.go wires to mgr.GetAPIReader() in production.
+		APIReader: c,
+		Scheme:    scheme,
+		Config:    cfg,
 	}
 }
 
@@ -68,12 +73,9 @@ func TestReconcile_Disabled_NoResources(t *testing.T) {
 	r := newReconciler(Config{Enabled: false, Namespace: "test-ns"})
 	ctx := context.Background()
 
-	result, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
 	}
 }
 
@@ -84,14 +86,10 @@ func TestReconcile_Enabled_AppliesDeploymentServiceAndNoPVC(t *testing.T) {
 	r := newReconciler(enabledCfg())
 	ctx := context.Background()
 
-	result, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter == 0 {
-		t.Error("expected requeue when enabled")
-	}
-
 	assertExists(t, r.Client, ctx, &appsv1.Deployment{}, Name)
 	assertExists(t, r.Client, ctx, &corev1.Service{}, Name)
 
@@ -110,7 +108,7 @@ func TestReconcile_Enabled_ExistingNamespace(t *testing.T) {
 	r := newReconciler(enabledCfg(), ns)
 	ctx := context.Background()
 
-	if _, err := r.Reconcile(ctx, ctrl.Request{}); err != nil {
+	if err := r.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertExists(t, r.Client, ctx, &appsv1.Deployment{}, Name)
@@ -125,7 +123,7 @@ func TestReconcile_DisabledAfterEnabled_RemovesEverything(t *testing.T) {
 	r := newReconciler(cfg, managedDeployment("test-ns"), managedService("test-ns"))
 	ctx := context.Background()
 
-	if _, err := r.Reconcile(ctx, ctrl.Request{}); err != nil {
+	if err := r.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -148,7 +146,7 @@ func TestReconcile_Cleanup_SkipsUnmanaged(t *testing.T) {
 	r := newReconciler(cfg, unmanaged)
 	ctx := context.Background()
 
-	if _, err := r.Reconcile(ctx, ctrl.Request{}); err != nil {
+	if err := r.Sync(ctx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Unmanaged service must survive.
@@ -157,24 +155,22 @@ func TestReconcile_Cleanup_SkipsUnmanaged(t *testing.T) {
 
 func TestReconcile_Cleanup_NoResources_NotFoundSkipped(t *testing.T) {
 	r := newReconciler(Config{Enabled: false, Namespace: "test-ns"})
-	if _, err := r.Reconcile(context.Background(), ctrl.Request{}); err != nil {
+	if err := r.Sync(context.Background()); err != nil {
 		t.Fatalf("cleanup with no resources should not error: %v", err)
 	}
 }
 
-func TestReader(t *testing.T) {
-	scheme := newScheme()
-	cached := fake.NewClientBuilder().WithScheme(scheme).Build()
-	// Without APIReader, reader() falls back to the cached client.
-	r := &Reconciler{Client: cached, Scheme: scheme}
-	if r.reader() != client.Reader(cached) {
-		t.Error("expected reader() to fall back to cached client")
+// A sub-component is registered with mgr.Add as a plain manager.Runnable, so no
+// controller-runtime machinery ever calls it or reads a ctrl.Result back from it.
+// Wearing the reconcile.Reconciler shape anyway advertises a requeue policy that
+// nothing honours.
+func TestReconciler_IsRunnableNotReconciler(t *testing.T) {
+	var r any = &Reconciler{}
+	if _, ok := r.(manager.Runnable); !ok {
+		t.Error("must implement manager.Runnable: cmd/main.go registers it with mgr.Add")
 	}
-	// With APIReader set, reader() returns it.
-	uncached := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r.APIReader = uncached
-	if r.reader() != client.Reader(uncached) {
-		t.Error("expected reader() to return APIReader")
+	if _, ok := r.(reconcile.Reconciler); ok {
+		t.Error("implements reconcile.Reconciler, but nothing reads the ctrl.Result it returns")
 	}
 }
 

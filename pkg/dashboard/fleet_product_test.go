@@ -233,8 +233,11 @@ func TestProductImpactPost(t *testing.T) {
 		t.Fatalf("revisions must be present: %+v", out)
 	}
 	// gotOld/gotNew are the digest-pinned refs the provider received.
-	if !fleet.IsDigestPinnedRef(gotOld) || !fleet.IsDigestPinnedRef(gotNew) {
-		t.Errorf("provider must receive digest-pinned refs, got %q / %q", gotOld, gotNew)
+	if _, _, err := fleet.ParseCanonicalOCIRef(gotOld); err != nil {
+		t.Errorf("provider must receive a digest-pinned old ref, got %q: %v", gotOld, err)
+	}
+	if _, _, err := fleet.ParseCanonicalOCIRef(gotNew); err != nil {
+		t.Errorf("provider must receive a digest-pinned new ref, got %q: %v", gotNew, err)
 	}
 	assertImpactShapeAndNavigable(t, out)
 }

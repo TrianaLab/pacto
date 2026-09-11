@@ -8,12 +8,12 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/contractview"
 )
 
 func TestBuildStaticExport(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{
 			Name:    "svc",
 			Version: "1.0.0",
 		},
@@ -38,14 +38,14 @@ func TestBuildStaticExport(t *testing.T) {
 }
 
 func TestBuildStaticExport_HappyPath(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{
 			Name:    "test-service",
 			Version: "2.0.0",
 		},
 	}
-	g := &dashboard.GlobalGraph{
-		Nodes: []dashboard.GraphNodeData{
+	g := &contractview.GlobalGraph{
+		Nodes: []contractview.GraphNodeData{
 			{ID: "test-service", ServiceName: "test-service", Version: "2.0.0", Status: "Compliant"},
 		},
 	}
@@ -114,8 +114,8 @@ func TestBuildStaticExport_HappyPath(t *testing.T) {
 }
 
 func TestBuildStaticExport_MissingIndexHTML(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
 	}
 
 	mockFS := fstest.MapFS{
@@ -135,8 +135,8 @@ func TestBuildStaticExport_MissingIndexHTML(t *testing.T) {
 }
 
 func TestBuildStaticExport_FSReadError(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
 	}
 
 	errFS := &errorFS{err: errors.New("read failed")}
@@ -151,8 +151,8 @@ func TestBuildStaticExport_FSReadError(t *testing.T) {
 }
 
 func TestBuildStaticExport_ReadFileError(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
 	}
 
 	// FS with a file that exists but cannot be read

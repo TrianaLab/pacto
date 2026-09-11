@@ -1,8 +1,32 @@
 // Package diff compares two versioned contracts and classifies each change as
-// non-breaking, potentially breaking, or breaking to downstream consumers. A
-// deterministic rule table drives classification across service identity,
-// interfaces, configuration, policies, dependencies, runtime, and embedded
-// OpenAPI and SBOM artifacts, so the same change always classifies the same way.
+// non-breaking, potentially breaking, or breaking to downstream consumers.
+//
+// Two classifiers share that work, because they key on different things and
+// neither can do the other's job. Named contract elements — a field, an
+// interface, a policy, an OpenAPI path or method, an AsyncAPI channel, an rpc —
+// are looked up in the deterministic (path, change type) rule table in
+// classification.go, so the same structural change always classifies the same
+// way. Everything the recursive JSON walk reaches — a request body, a response,
+// a JSON Schema, an event payload — is classified by classifySchemaChange in
+// schema.go from the shape of its JSON path, because those paths are open-ended
+// and cannot be enumerated in advance. That classifier also takes the walk's
+// direction, because the same edit is not the same news on both sides: a
+// required field added to a request is a new obligation on the caller, added to
+// a response it is a stronger guarantee to the reader.
+//
+// The boundary is the reason the rule table has no Modified row for anything the
+// walk descends into: an element present on both sides is deep-diffed, so the
+// table is never asked. Adding such a row changes nothing and reads as if it
+// does. SBOM artifacts are diffed separately and are informational only.
+//
+// Two sites adjust a classifier's answer in place, so the table alone does not
+// decide severity for openapi.parameters or for a configuration's values.
+// diffParameters (openapi.go) escalates to Breaking when a parameter arrives
+// required or turns required, because the table cannot see the parameter's own
+// required flag. diffConfigValues (interfaces.go) overwrites every walk result
+// with NonBreaking, because inline values are the provider's own defaults rather
+// than consumer-facing surface. Tuning either of those two table rows without
+// reading its call site will look like it did nothing.
 package diff
 
 import (

@@ -130,6 +130,9 @@ func NewFailingSource(id, kind string, err error) *MemorySource {
 
 // WithCollectFunc overrides Collect with a custom function (e.g. to honor
 // context cancellation in tests). The function receives the request context.
+//
+// Deprecated: no production code in Pacto uses this method; it exists only for
+// same-package tests. Removed at v4.
 func (s *MemorySource) WithCollectFunc(fn func(ctx context.Context) (*Collection, error)) *MemorySource {
 	s.collect = fn
 	return s

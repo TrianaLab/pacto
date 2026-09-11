@@ -143,6 +143,40 @@ func TestTargetMerge_EvaluationDoesNotOverrideDigest_OrderIndependent(t *testing
 	}
 }
 
+// A label disagreement between two sources is symmetric by construction: neither
+// dropped a record, neither delivered one invalid, and which of them arrived
+// second is decided by declaration order alone. Blaming that one would emit
+// SOURCE_PARTIAL ("source B returned a partial result") about a source that
+// returned everything, and flip the whole snapshot — and therefore every MCP, CLI
+// and dashboard answer — to "incomplete knowledge". The conflict itself is still
+// reported, at snapshot level where it belongs.
+func TestTargetMerge_LabelConflict_LeavesBothSourcesAvailable(t *testing.T) {
+	src := func(id, tier string) Source {
+		return NewMemorySource(id, "k8s", &Collection{
+			Targets: []RawTarget{{Scope: "prod", Kind: "k8s", Name: "api", Service: "api",
+				Compliance: StatusCompliant, Labels: map[string]string{"tier": tier}}},
+		})
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src("a", "gold"), src("b", "silver"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLim(snap.Limitations, LimitationTargetFieldConflict) {
+		t.Errorf("the disagreement must stay visible, got %+v", snap.Limitations)
+	}
+	for _, st := range snap.Sources {
+		if st.Status != SourceAvailable {
+			t.Errorf("a cross-source conflict must not attribute partiality to %q: %+v", st.ID, st)
+		}
+	}
+	if snap.Completeness != CompletenessComplete {
+		t.Errorf("both sources returned everything, want complete, got %q", snap.Completeness)
+	}
+	if hasLim(snap.Limitations, LimitationSourcePartial) {
+		t.Errorf("no source returned a partial result: %+v", snap.Limitations)
+	}
+}
+
 func hasLim(ls []Limitation, code string) bool {
 	for _, l := range ls {
 		if l.Code == code {

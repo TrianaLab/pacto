@@ -99,6 +99,57 @@ func (r *SubprocessRunner) Run(ctx context.Context, name string, req GenerateReq
 	return &resp, nil
 }
 
+// Find resolves name to the pacto-plugin-<name> binary Run would execute. It is
+// exported for callers that ask a human to approve running a plugin: PATH is
+// searched before ~/.config/pacto/plugins/, so the name alone does not say
+// which binary is about to run and a confirmation showing only the name cannot
+// be checked against anything.
+func Find(name string) (string, error) { return findPlugin(name) }
+
+// InstalledPlugin is a plugin binary the runner can execute.
+type InstalledPlugin struct {
+	// Name is the plugin name as it appears in a contract, without the
+	// pacto-plugin- prefix; it is what Find takes.
+	Name string
+	// Path is the binary Find would resolve Name to.
+	Path string
+}
+
+// Installed lists every plugin the runner can execute, in Find's resolution
+// order: $PATH first, then ~/.config/pacto/plugins/. A plugin present in both
+// appears once, pointing at the copy that would actually run. Callers that
+// rewrite plugin binaries must go through this rather than guess a directory:
+// updating a copy the runner would never execute silently leaves the live
+// plugin at the old version while reporting success.
+func Installed() []InstalledPlugin {
+	var out []InstalledPlugin
+	seen := map[string]bool{}
+	scan := func(dir string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name, ok := strings.CutPrefix(strings.TrimSuffix(e.Name(), ".exe"), "pacto-plugin-")
+			if !ok || name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, InstalledPlugin{Name: name, Path: filepath.Join(dir, e.Name())})
+		}
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		scan(dir)
+	}
+	if configDir, err := pactoConfigDir(); err == nil {
+		scan(filepath.Join(configDir, "plugins"))
+	}
+	return out
+}
+
 // findPlugin locates a pacto-plugin-<name> binary in PATH or the user plugin directory.
 func findPlugin(name string) (string, error) {
 	binaryName := "pacto-plugin-" + name

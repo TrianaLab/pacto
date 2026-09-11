@@ -151,63 +151,63 @@ func TestCompare_IncludesReadiness(t *testing.T) {
 	}
 }
 
-func TestIntPtrChanged_BothNil(t *testing.T) {
-	if intPtrChanged(nil, nil) {
-		t.Error("expected false for both nil")
+func TestPtrChanged(t *testing.T) {
+	a, b, same := 10, 20, 10
+	tests := []struct {
+		name     string
+		old, new *int
+		want     bool
+	}{
+		{"both absent", nil, nil, false},
+		{"appeared", nil, &a, true},
+		{"disappeared", &a, nil, true},
+		{"different values", &a, &b, true},
+		{"equal values", &a, &same, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ptrChanged(tt.old, tt.new); got != tt.want {
+				t.Errorf("ptrChanged = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestIntPtrChanged_OneNil(t *testing.T) {
-	v := 10
-	if !intPtrChanged(nil, &v) {
-		t.Error("expected true when old is nil")
-	}
-	if !intPtrChanged(&v, nil) {
-		t.Error("expected true when new is nil")
-	}
-}
-
-func TestIntPtrChanged_BothNonNil(t *testing.T) {
+func TestPtrChangeType(t *testing.T) {
 	a, b := 10, 20
-	if !intPtrChanged(&a, &b) {
-		t.Error("expected true for different values")
+	tests := []struct {
+		name     string
+		old, new *int
+		want     ChangeType
+	}{
+		{"appeared", nil, &a, Added},
+		{"disappeared", &a, nil, Removed},
+		{"retuned", &a, &b, Modified},
 	}
-	c := 10
-	if intPtrChanged(&a, &c) {
-		t.Error("expected false for same values")
-	}
-}
-
-func TestIntPtrChangeType_Added(t *testing.T) {
-	v := 10
-	if intPtrChangeType(nil, &v) != Added {
-		t.Error("expected Added")
-	}
-}
-
-func TestIntPtrChangeType_Removed(t *testing.T) {
-	v := 10
-	if intPtrChangeType(&v, nil) != Removed {
-		t.Error("expected Removed")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ptrChangeType(tt.old, tt.new); got != tt.want {
+				t.Errorf("ptrChangeType = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestIntPtrChangeType_Modified(t *testing.T) {
-	a, b := 10, 20
-	if intPtrChangeType(&a, &b) != Modified {
-		t.Error("expected Modified")
+// ptrVal is instantiated for both int and float64, so both are exercised here:
+// a wrong zero value for either would silently mislabel an absent field.
+func TestPtrVal(t *testing.T) {
+	if got := ptrVal[int](nil); got != 0 {
+		t.Errorf("ptrVal[int](nil) = %d, want 0", got)
 	}
-}
-
-func TestIntPtrVal_Nil(t *testing.T) {
-	if intPtrVal(nil) != 0 {
-		t.Error("expected 0 for nil")
+	if got := ptrVal[float64](nil); got != 0 {
+		t.Errorf("ptrVal[float64](nil) = %v, want 0", got)
 	}
-}
-
-func TestIntPtrVal_NonNil(t *testing.T) {
 	v := 42
-	if intPtrVal(&v) != 42 {
-		t.Error("expected 42")
+	if got := ptrVal(&v); got != 42 {
+		t.Errorf("ptrVal(&42) = %d, want 42", got)
+	}
+	f := 0.5
+	if got := ptrVal(&f); got != 0.5 {
+		t.Errorf("ptrVal(&0.5) = %v, want 0.5", got)
 	}
 }

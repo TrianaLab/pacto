@@ -2,7 +2,10 @@ package impact
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -306,6 +309,56 @@ func TestAnalyzeServiceNotInFleet(t *testing.T) {
 	}
 }
 
+// TestAnalyzeBlastRadiusTruncated drives the dependents traversal past
+// fleet.MaxGraphNodes. The consumer list is then a deterministic prefix, so an
+// answer calling itself complete lets ReleaseBlocking() clear a release on the
+// strength of whichever consumers happened to sort first.
+func TestAnalyzeBlastRadiusTruncated(t *testing.T) {
+	revs := []fleet.RawRevision{{Bundle: mkBundle(svcContract("auth-service", "1.0.0", contract.Owner{}))}}
+	for i := 0; i <= fleet.MaxGraphNodes; i++ {
+		revs = append(revs, fleet.RawRevision{Bundle: mkBundle(svcContract(
+			fmt.Sprintf("consumer-%04d", i), "1.0.0", contract.Owner{},
+			contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Compatibility: "^1.0.0"}))})
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory",
+		&fleet.Collection{Revisions: revs}))
+	if err != nil {
+		t.Fatalf("fleet.Build: %v", err)
+	}
+
+	old := svcContract("auth-service", "1.0.0", contract.Owner{})
+	old.Interfaces = []contract.Interface{{Name: "auth-api", Type: contract.InterfaceTypeGRPC, Ref: "auth.proto"}}
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{}) // interface removed -> BREAKING
+	res := Analyze(context.Background(), old, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{})
+
+	if len(res.Consumers) != fleet.MaxGraphNodes {
+		t.Fatalf("expected the traversal to stop at the %d-node cap, got %d consumers", fleet.MaxGraphNodes, len(res.Consumers))
+	}
+	if res.Completeness != fleet.CompletenessPartial {
+		t.Errorf("Completeness = %q, want %q — a capped blast radius is a prefix, not the whole of it",
+			res.Completeness, fleet.CompletenessPartial)
+	}
+	// The snapshot alone carries one limitation per revision, well past the
+	// envelope cap, so the analysis's own entry survives only because it is kept
+	// ahead of the snapshot's. Without that it is the first thing discarded on
+	// exactly the fleets big enough to truncate a graph.
+	if !res.LimitationsTruncated {
+		t.Fatalf("expected the envelope to be capped, got %d limitations", len(res.Limitations))
+	}
+	found := false
+	for _, l := range res.Limitations {
+		if l.Code == "GRAPH_TRUNCATED" {
+			found = true
+			if !strings.Contains(l.Message, strconv.Itoa(fleet.MaxGraphNodes)) {
+				t.Errorf("limitation must name the cap that was hit: %q", l.Message)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a GRAPH_TRUNCATED limitation to survive the envelope cap, got %+v", res.Limitations)
+	}
+}
+
 func TestConsumerImpactServiceAbsent(t *testing.T) {
 	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{}}
 	node := consumerNode{key: fleet.NewServiceKey("ghost"), name: "ghost", depth: 2, path: []fleet.ServiceKey{"auth-service", "ghost"}}
@@ -518,5 +571,61 @@ func TestAnalyze_BoundsTheLimitationsEnvelope(t *testing.T) {
 		if !res.LimitationsTruncated {
 			t.Errorf("%s: a bounded envelope must report that it was truncated", svc)
 		}
+	}
+}
+
+func TestReleaseBlocking(t *testing.T) {
+	tests := []struct {
+		name string
+		r    *Result
+		want bool
+	}{
+		{
+			name: "not breaking",
+			r: &Result{
+				Classification: "NON_BREAKING",
+				Consumers: []AffectedConsumer{
+					{CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/Deployment/svc"}},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "breaking but no incompatible consumers",
+			r: &Result{
+				Classification: "BREAKING",
+				Consumers: []AffectedConsumer{
+					{CompatibilityVerdict: CompatibilityCompatible, Targets: []string{"prod/Deployment/svc"}},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "breaking with incompatible but targetless consumer",
+			r: &Result{
+				Classification: "BREAKING",
+				Consumers: []AffectedConsumer{
+					{CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{}},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "breaking with incompatible active consumer",
+			r: &Result{
+				Classification: "BREAKING",
+				Consumers: []AffectedConsumer{
+					{CompatibilityVerdict: CompatibilityIncompatible, Targets: []string{"prod/Deployment/svc"}},
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.r.ReleaseBlocking(); got != tt.want {
+				t.Errorf("ReleaseBlocking() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

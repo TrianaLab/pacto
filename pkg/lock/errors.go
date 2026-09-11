@@ -5,31 +5,53 @@ import "fmt"
 // DriftError: a locked OCI digest no longer matches the current resolution.
 type DriftError struct{ Name, Locked, Current string }
 
+// Code returns the machine-readable LOCK_DIGEST_MISMATCH code. It is the one place the
+// code is written: Error renders it, and callers read it back with errors.As
+// instead of splitting the rendered message apart.
+func (e *DriftError) Code() string { return "LOCK_DIGEST_MISMATCH" }
+
 // Error formats a LOCK_DIGEST_MISMATCH message naming the locked and current digests.
 func (e *DriftError) Error() string {
-	return fmt.Sprintf("LOCK_DIGEST_MISMATCH: %s locked at %s but resolves to %s; run `pacto lock --update` to re-pin", e.Name, e.Locked, e.Current)
+	return fmt.Sprintf("%s: %s locked at %s but resolves to %s; run `pacto lock --update` to re-pin", e.Code(), e.Name, e.Locked, e.Current)
 }
 
 // LocalDriftError: a local dependency's content hash changed.
 type LocalDriftError struct{ Name, Locked, Current string }
 
+// Code returns the machine-readable LOCK_LOCAL_DRIFT code. It is the one place the
+// code is written: Error renders it, and callers read it back with errors.As
+// instead of splitting the rendered message apart.
+func (e *LocalDriftError) Code() string { return "LOCK_LOCAL_DRIFT" }
+
 // Error formats a LOCK_LOCAL_DRIFT message for the changed local dependency.
 func (e *LocalDriftError) Error() string {
-	return fmt.Sprintf("LOCK_LOCAL_DRIFT: local dependency %s content changed since lock; run `pacto lock --update`", e.Name)
+	return fmt.Sprintf("%s: local dependency %s content changed since lock; run `pacto lock --update`", e.Code(), e.Name)
 }
 
 // StaleError: pacto.yaml and pacto.lock disagree on which deps/refs exist.
 type StaleError struct{ Detail string }
 
+// Code returns the machine-readable LOCK_STALE code. It is the one place the
+// code is written: Error renders it, and callers read it back with errors.As
+// instead of splitting the rendered message apart.
+func (e *StaleError) Code() string { return "LOCK_STALE" }
+
 // Error formats a LOCK_STALE message describing the pacto.yaml/pacto.lock mismatch.
-func (e *StaleError) Error() string { return fmt.Sprintf("LOCK_STALE: %s; run `pacto lock`", e.Detail) }
+func (e *StaleError) Error() string {
+	return fmt.Sprintf("%s: %s; run `pacto lock`", e.Code(), e.Detail)
+}
 
 // ConflictError: the closure requires a service at two incompatible versions.
 type ConflictError struct{ Service string }
 
+// Code returns the machine-readable LOCK_CONFLICT code. It is the one place the
+// code is written: Error renders it, and callers read it back with errors.As
+// instead of splitting the rendered message apart.
+func (e *ConflictError) Code() string { return "LOCK_CONFLICT" }
+
 // Error formats a LOCK_CONFLICT message naming the service required at conflicting versions.
 func (e *ConflictError) Error() string {
-	return fmt.Sprintf("LOCK_CONFLICT: %s required at conflicting versions", e.Service)
+	return fmt.Sprintf("%s: %s required at conflicting versions", e.Code(), e.Service)
 }
 
 // UnresolvedError: a ref could not be resolved while building the lock.
@@ -38,9 +60,14 @@ type UnresolvedError struct {
 	Reason string
 }
 
+// Code returns the machine-readable LOCK_UNRESOLVED code. It is the one place the
+// code is written: Error renders it, and callers read it back with errors.As
+// instead of splitting the rendered message apart.
+func (e *UnresolvedError) Code() string { return "LOCK_UNRESOLVED" }
+
 // Error formats a LOCK_UNRESOLVED message with the ref and the reason it failed.
 func (e *UnresolvedError) Error() string {
-	return fmt.Sprintf("LOCK_UNRESOLVED: cannot resolve %s: %s", e.Ref, e.Reason)
+	return fmt.Sprintf("%s: cannot resolve %s: %s", e.Code(), e.Ref, e.Reason)
 }
 
 // DuplicateDeclarationError: one contract declares the same configuration or
@@ -56,10 +83,15 @@ func (e *UnresolvedError) Error() string {
 // declared one.
 type DuplicateDeclarationError struct{ Occurrence Occurrence }
 
+// Code returns the machine-readable LOCK_DUPLICATE_DECLARATION code. It is the one place the
+// code is written: Error renders it, and callers read it back with errors.As
+// instead of splitting the rendered message apart.
+func (e *DuplicateDeclarationError) Code() string { return "LOCK_DUPLICATE_DECLARATION" }
+
 // Error formats a LOCK_DUPLICATE_DECLARATION message naming the repeated declaration.
 func (e *DuplicateDeclarationError) Error() string {
-	return fmt.Sprintf("LOCK_DUPLICATE_DECLARATION: %s more than once; a name is unique within its kind in one contract, and a lock has no way to tell two declarations of it apart",
-		e.Occurrence)
+	return fmt.Sprintf("%s: %s more than once; a name is unique within its kind in one contract, and a lock has no way to tell two declarations of it apart",
+		e.Code(), e.Occurrence)
 }
 
 // AmbiguousError: one reference occurrence would have to hold two different
@@ -78,16 +110,26 @@ type AmbiguousError struct {
 	First, Second string
 }
 
+// Code returns the machine-readable LOCK_AMBIGUOUS_REFERENCE code. It is the one place the
+// code is written: Error renders it, and callers read it back with errors.As
+// instead of splitting the rendered message apart.
+func (e *AmbiguousError) Code() string { return "LOCK_AMBIGUOUS_REFERENCE" }
+
 // Error formats a LOCK_AMBIGUOUS_REFERENCE message naming the occurrence and both resolutions.
 func (e *AmbiguousError) Error() string {
-	return fmt.Sprintf("LOCK_AMBIGUOUS_REFERENCE: %s resolves to both %s and %s; a lock records one resolution per declared reference, so these cannot both be pinned",
-		e.Occurrence, e.First, e.Second)
+	return fmt.Sprintf("%s: %s resolves to both %s and %s; a lock records one resolution per declared reference, so these cannot both be pinned",
+		e.Code(), e.Occurrence, e.First, e.Second)
 }
 
 // MissingError: a lock was required (e.g. --check) but none exists.
 type MissingError struct{ Path string }
 
+// Code returns the machine-readable LOCK_MISSING code. It is the one place the
+// code is written: Error renders it, and callers read it back with errors.As
+// instead of splitting the rendered message apart.
+func (e *MissingError) Code() string { return "LOCK_MISSING" }
+
 // Error formats a LOCK_MISSING message naming the lock path that was not found.
 func (e *MissingError) Error() string {
-	return fmt.Sprintf("LOCK_MISSING: no %s found", e.Path)
+	return fmt.Sprintf("%s: no %s found", e.Code(), e.Path)
 }

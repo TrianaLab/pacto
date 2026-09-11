@@ -364,7 +364,7 @@ func TestNewDiffFetcher_LocalRef(t *testing.T) {
 func TestLocalOverrideFetcher_FallbackToInner(t *testing.T) {
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
-	inner := svc.newDepFetcher("oci://ghcr.io/acme/svc:1.0.0")
+	inner := svc.newDepFetcher("oci://ghcr.io/acme/svc:1.0.0").(*depFetcher)
 	f := &localOverrideFetcher{inner: inner, parentDir: t.TempDir()}
 	dep := contract.Dependency{Name: "child-svc", Ref: "oci://ghcr.io/acme/child-svc:1.0.0", Compatibility: "^1.0.0"}
 	bundle, err := f.Fetch(context.Background(), dep)
@@ -381,7 +381,7 @@ func TestLocalOverrideFetcher_LocalDep(t *testing.T) {
 	bundleDir := writeTestBundle(t)
 	parentDir := filepath.Dir(bundleDir)
 	svc := NewService(nil, nil)
-	inner := svc.newDepFetcher(parentDir)
+	inner := svc.newDepFetcher(parentDir).(*depFetcher)
 	f := &localOverrideFetcher{inner: inner, parentDir: parentDir}
 	dep := contract.Dependency{Name: "local-dep", Ref: filepath.Base(bundleDir), Compatibility: "^1.0.0"}
 	bundle, err := f.Fetch(context.Background(), dep)

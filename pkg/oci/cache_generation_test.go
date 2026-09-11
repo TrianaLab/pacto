@@ -10,7 +10,6 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/internal/cachehook"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
@@ -78,9 +77,9 @@ func installGeneration(t *testing.T, ctx context.Context, ref, digest string) {
 // the window a competing writer commits in — for the next n reads.
 func atBarrier(t *testing.T, n int, fn func()) {
 	t.Helper()
-	old := cachehook.AfterBundleRead
-	t.Cleanup(func() { cachehook.AfterBundleRead = old })
-	cachehook.AfterBundleRead = func() {
+	old := afterBundleRead
+	t.Cleanup(func() { afterBundleRead = old })
+	afterBundleRead = func() {
 		if n == 0 {
 			return
 		}

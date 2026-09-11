@@ -884,6 +884,77 @@ func TestFormatChangeValues(t *testing.T) {
 	}
 }
 
+// TestPrintDiffMarkdownTable_EscapesContractControlledCells: the markdown diff
+// is the CI PR-comment format a reviewer reads to judge whether a change is
+// breaking. Every cell but the classification is contract-controlled, so a
+// regex like ^(prod|staging)$ splits the row into extra columns and a backtick
+// terminates the code span — either way the reviewer reads a mangled table.
+func TestPrintDiffMarkdownTable_EscapesContractControlledCells(t *testing.T) {
+	var buf bytes.Buffer
+	printDiffMarkdownTable(&buf, []diff.Change{{
+		Classification: diff.Breaking,
+		Path:           "config.pattern|x",
+		Type:           diff.Modified,
+		Reason:         "pattern `a` -> `b|c`",
+		OldValue:       "^(prod|staging)$",
+		NewValue:       "`backtick`",
+	}})
+
+	var row string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(line, "config.pattern") {
+			row = line
+		}
+	}
+	if row == "" {
+		t.Fatalf("no data row rendered:\n%s", buf.String())
+	}
+	// Six cells means seven unescaped pipes: the leading one, five separators
+	// and the trailing one.
+	if cols := strings.Count(row, "|") - strings.Count(row, "\\|"); cols != 7 {
+		t.Errorf("row has %d unescaped pipes, want 7 (the cell contents split the row):\n%s", cols, row)
+	}
+	if strings.Contains(row, "`backtick`") {
+		t.Errorf("a backtick in a value terminates the code span:\n%s", row)
+	}
+	if strings.Contains(row, "pattern `a`") {
+		t.Errorf("a backtick in the reason terminates the code span:\n%s", row)
+	}
+}
+
+// TestPrintSBOMChangeRows_EscapesContractControlledCells: the SBOM table rides
+// in the same PR comment and its cells come from the same contract-controlled
+// bundle, so a package name or field holding a pipe splits the row exactly the
+// way a diff path does.
+func TestPrintSBOMChangeRows_EscapesContractControlledCells(t *testing.T) {
+	var buf bytes.Buffer
+	printSBOMChangeRows(&buf, []sbom.Change{{
+		Package:  "pkg:generic/a|b",
+		Type:     sbom.PackageModified,
+		Field:    "license|expr",
+		OldValue: "MIT OR Apache-2.0",
+		NewValue: "`GPL`",
+	}})
+
+	var row string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(line, "pkg:generic") {
+			row = line
+		}
+	}
+	if row == "" {
+		t.Fatalf("no data row rendered:\n%s", buf.String())
+	}
+	// Five cells means six unescaped pipes: the leading one, four separators and
+	// the trailing one.
+	if cols := strings.Count(row, "|") - strings.Count(row, "\\|"); cols != 6 {
+		t.Errorf("row has %d unescaped pipes, want 6 (the cell contents split the row):\n%s", cols, row)
+	}
+	if strings.Contains(row, "`GPL`") {
+		t.Errorf("a backtick in a value terminates the code span:\n%s", row)
+	}
+}
+
 func TestFormatMDValue(t *testing.T) {
 	if got := formatMDValue(nil); got != "" {
 		t.Errorf("expected empty for nil, got %q", got)

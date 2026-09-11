@@ -284,3 +284,28 @@ func TestEvaluate_ServiceScopedMatchByServiceName(t *testing.T) {
 		t.Fatalf("k8s-target subject must NOT match c.Service.Name: fs=%v cov=%+v", fs, cov)
 	}
 }
+
+// The registry owns a finding's category, not the call site. Every code that
+// reaches evalAssertion today happens to be RuntimeDrift, so a hardcoded literal
+// there looks right until the first drift code that is not — at which point the
+// finding carries a category the registry disagrees with. Driving evalAssertion
+// with a non-RuntimeDrift code is how that stays caught.
+func TestEvalAssertion_CategoryComesFromTheRegistry(t *testing.T) {
+	var findings []finding.Finding
+	var cov Coverage
+	set := es(evidence.NewCapabilityObserved(sr("capability", "health"), true, prov()))
+
+	evalAssertion(&findings, &cov, set, finding.EvidenceRef{}, evidence.CapabilityObserved,
+		"capability", "health", "capabilities[0]", true,
+		func(evidence.Observation) (bool, finding.Code, string) {
+			// Registry row: {Inconclusive, Unknown}, deliberately not RuntimeDrift.
+			return true, finding.CodeEvidenceInsufficient, "contradicted"
+		})
+
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding, got %v", findings)
+	}
+	if findings[0].Category != finding.CategoryInconclusive {
+		t.Errorf("Category = %q, want the registry's %q", findings[0].Category, finding.CategoryInconclusive)
+	}
+}

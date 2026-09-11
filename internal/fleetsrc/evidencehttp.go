@@ -7,21 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/strictjson"
 )
-
-// evidenceTargetsPath is the read-only projection an Evidence Server exposes.
-const evidenceTargetsPath = "/api/evidence/v1/targets"
-
-// evidenceSchemaVersion is the read-only evidence-source DTO wire model this
-// consumer understands. A server advertising a different schema is treated as
-// unavailable rather than silently misread — the version is the compatibility
-// contract, not a hint. It mirrors evidenceingest.TargetsSchemaVersion; the two
-// packages are wired only over the wire, so the constant is duplicated rather
-// than importing across the internal/pkg boundary.
-const evidenceSchemaVersion = "pacto.dev/evidence-source/v2"
 
 // maxEvidenceBodyBytes bounds the response body an evidence source reads, so a
 // misbehaving or hostile server cannot exhaust memory. The server already caps
@@ -56,38 +45,6 @@ func (s *EvidenceHTTPSource) ID() string { return s.id }
 // Kind implements [fleet.Source].
 func (s *EvidenceHTTPSource) Kind() string { return "evidence-http" }
 
-// evidenceTargetsResponse mirrors the server's versioned /targets DTO EXACTLY:
-// the response is strictly decoded (unknown fields rejected), so any field the
-// server adds bumps the schema version, which this consumer rejects rather than
-// silently dropping. Every field a faithful fleet target needs — full findings,
-// contract linkage, freshness, provenance and store health — is carried, so an
-// external target is not a lossy summary.
-type evidenceTargetsResponse struct {
-	SchemaVersion string    `json:"schemaVersion"`
-	GeneratedAt   time.Time `json:"generatedAt"`
-	Health        struct {
-		Status           string `json:"status"`
-		Subjects         int    `json:"subjects"`
-		FailedSubjects   int    `json:"failedSubjects"`
-		InvalidArtifacts int    `json:"invalidArtifacts"`
-	} `json:"health"`
-	Truncated bool `json:"truncated"`
-	Targets   []struct {
-		Subject       string            `json:"subject"`
-		Service       string            `json:"service"`
-		Domain        string            `json:"domain"`
-		Digest        string            `json:"digest"`
-		Producer      string            `json:"producer"`
-		ProducerKeyID string            `json:"producerKeyId"`
-		Compliance    string            `json:"compliance"`
-		Coverage      fleet.Coverage    `json:"coverage"`
-		Findings      []finding.Finding `json:"findings"`
-		ContractRef   string            `json:"contractRef"`
-		EvidenceAt    time.Time         `json:"evidenceAt"`
-		AcceptedAt    time.Time         `json:"acceptedAt"`
-	} `json:"targets"`
-}
-
 // Collect GETs the server's read-only targets projection and maps each into an
 // external fleet target. Any transport, status or decode failure is returned so
 // the source is recorded as unavailable rather than empty — including the 503 a
@@ -95,7 +52,7 @@ type evidenceTargetsResponse struct {
 // or truncated server yields a SourcePartial collection (usable targets kept,
 // the limitation surfaced), never a silently-healthy-looking empty one.
 func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, error) {
-	url := s.baseURL + evidenceTargetsPath
+	url := s.baseURL + evidenceingest.TargetsPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -108,13 +65,20 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("evidence source %s returned HTTP %d", url, resp.StatusCode)
 	}
-	var body evidenceTargetsResponse
+	// The server's own DTO type, not a hand-kept mirror of it: the two copies had
+	// already drifted to different Coverage types for the same JSON, and a strict
+	// decode (unknown fields rejected) turns any further drift into a hard failure
+	// at a consumer that has no way to know what it dropped. The boundary the old
+	// comment cited does not exist -- internal may import pkg, and internal/app
+	// already imports this package -- and only this direction is importable, since
+	// pkg/evidenceingest may not reach internal.
+	var body evidenceingest.TargetsResponse
 	// Strict: reject unknown fields AND trailing data, bounded by the LimitReader.
 	if err := strictjson.Decode(io.LimitReader(resp.Body, maxEvidenceBodyBytes), &body); err != nil {
 		return nil, err
 	}
-	if body.SchemaVersion != evidenceSchemaVersion {
-		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q", url, body.SchemaVersion, evidenceSchemaVersion)
+	if body.SchemaVersion != evidenceingest.TargetsSchemaVersion {
+		return nil, fmt.Errorf("evidence source %s speaks schema %q, want %q", url, body.SchemaVersion, evidenceingest.TargetsSchemaVersion)
 	}
 
 	col := &fleet.Collection{}
@@ -128,7 +92,8 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 			})
 			continue
 		}
-		evidenceAt, acceptedAt, coverage := t.EvidenceAt, t.AcceptedAt, t.Coverage
+		evidenceAt, acceptedAt := t.EvidenceAt, t.AcceptedAt
+		coverage := fleet.Coverage{Evaluated: t.Coverage.Evaluated, Required: t.Coverage.Required}
 		// Name is the operational target (subject); Service/Domain/Digest are the
 		// RESOLVED logical identity the server derived from the ContractRef — used
 		// as-is, never inferred from Subject, so the target links to the correct
@@ -155,10 +120,15 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	}
 
 	// An unreadable subject, an invalid published artifact or a truncated response
-	// means the contribution is incomplete: mark the source partial so downstream
+	// means the contribution is incomplete: surface the limitation so downstream
 	// answers carry the honesty rather than presenting a full-looking graph.
+	//
+	// The limitation is the WHOLE mechanism: [fleet.Build] already downgrades a
+	// source with collection limitations to partial, so a source never has to
+	// declare its own health to report a degraded read. Saying it through the
+	// limitation keeps the health verdict in one place instead of splitting it
+	// between the source and the builder.
 	if degraded, msg := evidenceDegraded(body); degraded {
-		col.State = &fleet.SourceState{Status: fleet.SourcePartial}
 		col.Limitations = append(col.Limitations, fleet.Limitation{
 			Code: fleet.LimitationSourcePartial, Source: s.id, Message: msg,
 		})
@@ -171,15 +141,17 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 // artifact or truncated body counts. The counts are read independently of the
 // status so a server that reports them without downgrading its own status still
 // makes the consumer honest.
-func evidenceDegraded(body evidenceTargetsResponse) (bool, string) {
+//
+// The prose comes from [evidenceingest.SourceHealth.Reason], the server's own
+// summary of its own health block. A second phrasing here had already drifted
+// from it -- it had no wording for unreadable subjects AND invalid artifacts
+// together, and reported only the first. Truncation is the one thing Reason
+// cannot say, because it is a property of the response, not of the store read.
+func evidenceDegraded(body evidenceingest.TargetsResponse) (bool, string) {
+	h := body.Health
 	switch {
-	case body.Health.FailedSubjects > 0:
-		return true, fmt.Sprintf("evidence store could not read %d of %d contract subject(s)",
-			body.Health.FailedSubjects, body.Health.Subjects)
-	case body.Health.InvalidArtifacts > 0:
-		return true, fmt.Sprintf("evidence store reported %d invalid evidence artifact(s)", body.Health.InvalidArtifacts)
-	case body.Health.Status != "" && body.Health.Status != "ready":
-		return true, fmt.Sprintf("evidence store health %q", body.Health.Status)
+	case h.FailedSubjects > 0 || h.InvalidArtifacts > 0 || (h.Status != "" && h.Status != evidenceingest.HealthReady):
+		return true, h.Reason()
 	case body.Truncated:
 		return true, "evidence source response was truncated"
 	}

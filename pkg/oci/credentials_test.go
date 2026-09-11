@@ -248,13 +248,41 @@ func TestPactoConfigPath_XDG(t *testing.T) {
 
 func TestPactoConfigPath_HomeDirError(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
-	old := oci.ExportedUserHomeDirFn()
-	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
-	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
+	t.Setenv("HOME", "")
 
 	_, err := oci.PactoConfigPath()
 	if err == nil {
 		t.Error("expected error when UserHomeDir fails")
+	}
+}
+
+// TestUserHomeDirFn_SeamAndEnvAgree is the claim every call site migrated off
+// [oci.SetUserHomeDirFn] rests on: redirecting the seam and setting HOME name the
+// same directory, so t.Setenv is a replacement and not merely a different answer.
+// The seam stays exported until v4, so the equivalence stays asserted until then.
+func TestUserHomeDirFn_SeamAndEnvAgree(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", dir)
+
+	viaEnv, err := oci.PactoConfigDir()
+	if err != nil {
+		t.Fatalf("PactoConfigDir() via HOME: %v", err)
+	}
+
+	prev := oci.SetUserHomeDirFn(func() (string, error) { return dir, nil })
+	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(prev) })
+	t.Setenv("HOME", filepath.Join(dir, "somewhere-else"))
+
+	viaSeam, err := oci.PactoConfigDir()
+	if err != nil {
+		t.Fatalf("PactoConfigDir() via seam: %v", err)
+	}
+	if viaSeam != viaEnv {
+		t.Errorf("seam resolved %q, HOME resolved %q", viaSeam, viaEnv)
+	}
+	if got, _ := oci.ExportedUserHomeDirFn()(); got != dir {
+		t.Errorf("ExportedUserHomeDirFn() reports %q, want the installed %q", got, dir)
 	}
 }
 
@@ -373,9 +401,7 @@ func TestPactoConfigKeychain_InvalidJSON(t *testing.T) {
 
 func TestPactoConfigKeychain_HomeDirError(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
-	old := oci.ExportedUserHomeDirFn()
-	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
-	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
+	t.Setenv("HOME", "")
 
 	kc := oci.NewKeychain(oci.CredentialOptions{})
 	reg, _ := name.NewRegistry("example.com", name.Insecure)

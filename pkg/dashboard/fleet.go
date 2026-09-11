@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -334,20 +335,139 @@ func (s *Server) fleetImpact(ctx context.Context, in *fleetImpactInput) (*fleetI
 }
 
 // impactHTTPError maps an impact provider error to an HTTP status: a bad/incompatible
-// reference is the caller's fault (422), a missing artifact is 404, and everything
-// else (registry auth/reachability, fleet snapshot build) is a transient upstream
-// condition (503) rather than a bug in the request.
+// reference is the caller's fault (422), a missing artifact is 404, a rejected
+// credential is non-retryable (403), registry network issues and fleet snapshot
+// build failures are transient (503), and anything else falls through to 503.
 func impactHTTPError(err error) error {
 	var invalidRef *oci.InvalidRefError
 	var invalidBundle *oci.InvalidBundleError
 	var noMatch *oci.NoMatchingVersionError
 	var notFound *oci.ArtifactNotFoundError
+	var authErr *oci.AuthenticationError
+	var unreachable *oci.RegistryUnreachableError
 	switch {
 	case errors.As(err, &invalidRef), errors.As(err, &noMatch), errors.As(err, &invalidBundle):
 		return huma.Error422UnprocessableEntity(err.Error())
 	case errors.As(err, &notFound):
 		return huma.Error404NotFound(err.Error())
+	case errors.As(err, &authErr):
+		return huma.Error403Forbidden(err.Error())
+	case errors.As(err, &unreachable):
+		return huma.Error503ServiceUnavailable("impact analysis unavailable", err)
 	default:
 		return huma.Error503ServiceUnavailable("impact analysis unavailable", err)
 	}
+}
+
+// SourceInfo describes a detected data source and its availability. It is a
+// live-host shape, not a contract-view one: only /api/sources emits it, and the
+// offline static export has no sources to report.
+type SourceInfo struct {
+	Type    string `json:"type"` // "k8s", "oci", "local"
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason,omitempty"` // why enabled/disabled
+}
+
+// sourcesFromFleet projects a snapshot's source health onto the legacy
+// /api/sources shape the frontend nav polls on every host. It reads the source
+// states rather than the per-source entity detail: this renders a nav pill, so
+// walking every service, revision and target per source would be both the wrong
+// granularity and O(n) for a status dot.
+//
+// One pill per KIND, in first-appearance order: SourceInfo has no id, and the nav
+// renders one pill per type, so two sources of a kind would otherwise emit two
+// indistinguishable pills and the broken one could mask the working one.
+func sourcesFromFleet(q *fleet.Query) []SourceInfo {
+	if q == nil {
+		return []SourceInfo{}
+	}
+	// SnapshotForSerialization hands back the snapshot itself. ProductMeta would
+	// JSON round-trip every source AND every limitation to be read for four source
+	// kinds, then cap the sources at MaxMetaSources -- and /api/sources is polled
+	// every two seconds while the fleet is still discovering.
+	states := q.SnapshotForSerialization().Sources
+	order := make([]string, 0, len(states))
+	byKind := make(map[string][]fleet.SourceState, len(states))
+	for _, st := range states {
+		// Group on the pill name, not the raw kind: a snapshot carrying both
+		// "kubernetes" and "k8s" would otherwise emit the two indistinguishable
+		// pills this aggregation exists to prevent.
+		kind := pillType(st.Kind)
+		if _, seen := byKind[kind]; !seen {
+			order = append(order, kind)
+		}
+		byKind[kind] = append(byKind[kind], st)
+	}
+	out := make([]SourceInfo, 0, len(order))
+	for _, kind := range order {
+		out = append(out, sourceInfoForKind(kind, byKind[kind]))
+	}
+	return out
+}
+
+// pillType names a fleet source kind the way the frontend's lookup tables do. A
+// pill's colour (.source-dot-<type>, styles/components.css) and its accessible
+// description (SOURCE_DESCRIPTIONS, lib/format.ts) are both keyed on
+// k8s/oci/local/cache, so the fleet's "kubernetes" kind goes out under the name
+// those tables know. An unmapped kind is not blank -- SourceDot falls back to the
+// kind's first letter -- but it loses its colour and its description.
+func pillType(kind string) string {
+	if kind == "kubernetes" {
+		return "k8s"
+	}
+	return kind
+}
+
+// sourceInfoForKind collapses every source of one kind into that kind's single
+// pill: enabled when any one of them is usable, with a reason that never lies by
+// omission about the ones that are not.
+func sourceInfoForKind(kind string, group []fleet.SourceState) SourceInfo {
+	info := SourceInfo{Type: kind}
+	var revisions, targets, degraded int
+	for _, st := range group {
+		revisions += st.RevisionCount
+		targets += st.TargetCount
+		if st.Status != fleet.SourceUnavailable {
+			info.Enabled = true
+		}
+		if st.Status != fleet.SourceAvailable {
+			degraded++
+		}
+	}
+	if len(group) == 1 {
+		info.Reason = sourceStateReason(group[0])
+		return info
+	}
+	info.Reason = fmt.Sprintf("%d sources, %d revisions, %d targets", len(group), revisions, targets)
+	if degraded > 0 {
+		info.Reason = fmt.Sprintf("%d sources, %d degraded, %d revisions, %d targets", len(group), degraded, revisions, targets)
+	}
+	return info
+}
+
+// sourceStateReason says what one source contributed, or why it did not, in the
+// register detect.go uses for the same field. It is never empty: an unavailable
+// source with no sanitized message still gets a plain statement.
+func sourceStateReason(st fleet.SourceState) string {
+	msg := ""
+	if st.Error != nil {
+		msg = st.Error.Message
+	}
+	if st.Status == fleet.SourceUnavailable {
+		if msg == "" {
+			return "source unavailable"
+		}
+		return msg
+	}
+	counts := fmt.Sprintf("%d revisions, %d targets", st.RevisionCount, st.TargetCount)
+	if st.Status == fleet.SourceAvailable {
+		return counts
+	}
+	// ponytail: partial/stale report the status word plus whichever evidence exists.
+	// LastSuccessfulSync would date a stale source; add it when a pill tooltip is
+	// actually asked to answer "how old".
+	if msg == "" {
+		return string(st.Status) + ", " + counts
+	}
+	return string(st.Status) + ": " + msg
 }

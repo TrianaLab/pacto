@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -130,6 +131,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		}
 	}
 
+	boundTargetLabels(snap)
 	linkTargets(snap)
 	aggregateServices(snap)
 	buildRelationships(snap)
@@ -208,13 +210,27 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		col = &Collection{}
 	}
 	revCount, targetCount := 0, 0
+	// recordProblems collects the limitations that say THIS source failed to deliver
+	// a record: one it dropped outright, or one it delivered invalid. That is what
+	// downgrades the source below, and the dropped-revision half used to be excluded
+	// — which inverted the severity, since a target KEPT after normalizing one bad
+	// enum marked its source partial while a revision dropped outright left the
+	// source reporting available and complete.
+	//
+	// A cross-source MERGE conflict is deliberately not in here. Two sources
+	// disagreeing about one label of one target is symmetric by construction:
+	// neither returned a partial result, and blaming whichever happened to be
+	// declared second would attribute partiality by ingestion order. Those
+	// limitations are still reported at snapshot level, where they belong to the
+	// disagreement rather than to a source.
+	var recordProblems []Limitation
 	for _, raw := range col.Revisions {
 		rev, lims := revisionFrom(raw, src.ID(), now)
 		if rev == nil {
 			// A nil revision may still carry a limitation stating why it was omitted
 			// (e.g. no immutable digest and unhashable content); record it so the
 			// omission is honest rather than silent.
-			snap.Limitations = append(snap.Limitations, lims...)
+			recordProblems = append(recordProblems, lims...)
 			continue
 		}
 		if existing := snap.Revisions[rev.Key]; existing != nil {
@@ -224,15 +240,16 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		} else {
 			snap.Revisions[rev.Key] = rev
 			// The identity-unresolved limitation is a property of the revision, so
-			// record it only when the revision first enters the snapshot.
+			// record it only when the revision first enters the snapshot. It is not a
+			// record problem: the revision was read whole and is queryable, it just
+			// carries a derived content identity instead of a registry digest.
 			snap.Limitations = append(snap.Limitations, lims...)
 		}
 		revCount++
 	}
-	var recordInvalid []Limitation
 	for _, raw := range col.Targets {
 		tgt, invalid := targetFrom(raw, src.ID(), now, window)
-		recordInvalid = append(recordInvalid, invalid...)
+		recordProblems = append(recordProblems, invalid...)
 		if existing := snap.Targets[tgt.Key]; existing != nil {
 			// Same target contributed by another source (e.g. platform inventory
 			// + operator evaluation): merge by field ownership and freshness.
@@ -247,23 +264,20 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	// values normalized at ingestion) are recorded on the target AND at the snapshot
 	// level, and mark the source partial.
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
-	snap.Limitations = append(snap.Limitations, recordInvalid...)
-	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordInvalid) > 0)
+	snap.Limitations = append(snap.Limitations, recordProblems...)
+	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
 }
 
 // mergeRevision folds a later contribution of the same immutable revision into
 // the existing record: it unions provenance and fills empty complementary
-// projections (lock, validation, tools, skills, docs, readiness). It never lets
-// source order pick a winner. Because keys are content-addressed, a same-key
-// collision whose derived content digests disagree means two sources pinned the
-// same identity to different contract bodies — reported as a content conflict.
+// projections (validation, tools, skills, readiness). It never lets source order
+// pick a winner. The two projections backed by bytes the snapshot does not own —
+// documents and the lock — are not fill-the-empty-side: they get the stricter
+// treatment in mergeRevisionDocs and mergeRevisionLock.
 func mergeRevision(existing, add *ContractRevision) []Limitation {
 	existing.Sources = appendUnique(existing.Sources, add.Source)
-	if existing.Lock == nil {
-		existing.Lock = add.Lock
-	}
 	if existing.Readiness == nil {
 		existing.Readiness = add.Readiness
 	}
@@ -279,16 +293,65 @@ func mergeRevision(existing, add *ContractRevision) []Limitation {
 		existing.Skills = add.Skills
 	}
 	lims := mergeRevisionDocs(existing, add)
+	lims = append(lims, mergeRevisionLock(existing, add)...)
 	if existing.ResolvedRef == "" {
 		existing.ResolvedRef = add.ResolvedRef
 	}
-	if existing.content != add.content {
-		lims = append(lims, Limitation{
-			Code: LimitationRevisionConflict, Source: add.Source,
-			Message: "sources disagree on the content of revision " + string(existing.Key),
-		})
-	}
 	return lims
+}
+
+// mergeRevisionLock folds a second contributor's pacto.lock into the revision.
+//
+// A lock is not a complementary projection: linkReferences and resolveDepRevision
+// read it to decide which bundle a declared dependency or reference actually
+// resolves to, so filling the empty side is only safe while the two contributors
+// AGREE. Two sources may legitimately pin one immutable digest and still ship
+// different lock bytes: the digest is the revision's identity, so a locally
+// regenerated pacto.lock beside a registry copy of the same revision reaches this
+// merge as two locks on one key. Taking whichever arrived first would let source
+// completion order change the resolved graph edges under one unchanged
+// SnapshotID, which computeSnapshotID cannot detect because both orders hash the
+// same snapshot fields.
+//
+// So a disagreement drops the lock entirely and says why: no pins is an honest
+// "not established", whereas a coin-flip between two locks is a confident wrong
+// answer. The conflict is sticky for the same reason the document conflict is —
+// a third, agreeing contributor must not be able to talk us back into serving one
+// side of a real disagreement.
+func mergeRevisionLock(existing, add *ContractRevision) []Limitation {
+	switch {
+	case add.Lock == nil || existing.lockConflict != "":
+		return nil
+	case existing.Lock == nil:
+		existing.Lock = add.Lock
+		return nil
+	case sameResolutions(existing.Lock, add.Lock):
+		return nil
+	}
+	existing.Lock = nil
+	existing.lockConflict = "two sources contributed this revision with disagreeing pacto.lock " +
+		"resolutions, so the pins it recorded were discarded rather than picked by arrival order"
+	return []Limitation{{
+		Code: LimitationRevisionLockConflict, Source: add.Source,
+		Message: "sources disagree on the pacto.lock of revision " + string(existing.Key) +
+			"; its recorded resolutions are not used to resolve dependencies or references",
+	}}
+}
+
+// sameResolutions reports whether two locks record the same resolutions.
+//
+// It compares what the lock RESOLVED — its entries, plus the root identity and
+// schema version lockReference reads to decide which entries answer for this
+// revision — and deliberately not Pacto, which records only the CLI version that
+// produced the lock. Two contributors that regenerated byte-identical pins on
+// consecutive Pacto releases have not disagreed about anything, and treating that
+// as a conflict would discard every pin the revision has and degrade all of its
+// declared dependencies and references to unresolved. Same discipline as
+// sameDocSet, which compares path plus content digest and nothing else.
+func sameResolutions(a, b *lock.Lock) bool {
+	x, y := *a, *b
+	x.Pacto, y.Pacto = lock.PactoInfo{}, lock.PactoInfo{}
+	return reflect.DeepEqual(x, y)
 }
 
 // mergeRevisionDocs folds a second contributor's documents into the revision.
@@ -508,10 +571,41 @@ func sourceStateFor(src Source, col *Collection, now time.Time, revCount, target
 		status, invalid := canonicalSourceStatus(st.Status)
 		// A source that emitted invalid records is not healthy; downgrade an
 		// available/valid declared status to partial (never upgrade a worse one).
-		if recordProblems && status == SourceAvailable {
+		// col.Limitations counts for the same reason recordProblems does, and it is
+		// checked here as well as in the derived branch below: a source that declares
+		// its own state is exactly the source most likely to have shipped
+		// collection-level limitations alongside it, and taking the declared
+		// "available" at face value while its own limitations say otherwise let a
+		// self-describing source out-rank its own evidence.
+		if (recordProblems || len(col.Limitations) > 0) && status == SourceAvailable {
 			status = SourcePartial
 		}
 		st.Status = status
+		// Fill the freshness timestamps the source left unset, from the pinnable
+		// BuildOptions.Now clock. The read that produced this state happened now, so a
+		// declared state with no timestamps must not reach the snapshot looking like a
+		// source nothing has looked at -- that is what used to force a source to choose
+		// between declaring "partial" and keeping its own freshness.
+		//
+		// Only what is UNSET is filled. A source that declares stale and dates its last
+		// successful sync an hour ago is stating the one fact "stale" carries;
+		// overwriting it with now would erase the staleness and contradict the status
+		// in the same struct.
+		//
+		// ObservedAt is filled for ANY status: the read happened now whatever it found.
+		// LastSuccessfulSync is filled only for the two statuses that may claim a sync.
+		// Stale and unavailable each ASSERT that the last GOOD read was not now, so
+		// stamping the build clock there would make the state contradict its own status
+		// -- and would disagree with unavailableState, which stamps neither field for
+		// the same status on the error path. The canonicalized-and-downgraded status is
+		// what decides, never the status as supplied.
+		t := now
+		if st.LastSuccessfulSync == nil && (status == SourceAvailable || status == SourcePartial) {
+			st.LastSuccessfulSync = &t
+		}
+		if st.ObservedAt == nil {
+			st.ObservedAt = &t
+		}
 		var lims []Limitation
 		if invalid {
 			lims = append(lims, Limitation{
@@ -582,7 +676,6 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	// content, even if one's local FS holds regenerated/cache artifacts. Only when
 	// there is no immutable digest do we derive a full-bundle content identity.
 	contentID := raw.Digest
-	content := raw.Digest
 	if raw.Digest == "" {
 		cd, err := contentDigest(b)
 		if err != nil {
@@ -595,7 +688,6 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 			}}
 		}
 		contentID = cd
-		content = cd
 		lims = append(lims, Limitation{
 			Code: LimitationRevisionUnresolved, Source: source,
 			Message: "revision " + c.Service.Name + " has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference",
@@ -618,15 +710,32 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 		Sources:   []string{source},
 		FetchedAt: copyTime(raw.FetchedAt),
 		bundle:    b,
-		content:   content,
 		// The contract's free-form metadata map is author-controlled and can be
 		// arbitrarily wide, so it is bounded HERE, once, at the source boundary.
 		Metadata: runtimePreview(c.Metadata),
+		// Each configuration scope carries an author-controlled Values map that is
+		// bounded the same way and for the same reason. It is precomputed here rather
+		// than in revisionDetail so one contract with many wide scopes cannot multiply
+		// the cost of every revision-detail request; the query joins reference
+		// resolutions onto a copy of this projection.
+		configurations: configurationsPreview(c.Configurations),
 	}
 	// Owner references the cloned contract so it never aliases source memory.
 	rev.Owner = rev.Contract.Service.Owner
-	if b.RawYAML != nil {
-		res := validation.Validate(c, b.RawYAML, b.FS)
+	// Validation needs the contract DOCUMENT, and RawYAML holds it only for a local
+	// read -- every bundle fetched from a registry carries the same document in its
+	// FS and nowhere else, so keying off RawYAML alone left every fetched revision
+	// silently unvalidated. Bundle.Raw asks both places.
+	//
+	// A Raw error means the document genuinely cannot be read: the bundle carries a
+	// parsed contract with no FS to read it back from (a runtime-only or
+	// contract-only record), or its FS has no readable pacto.yaml. There is nothing
+	// to validate, so the revision stays validated=false -- the honest "never
+	// validated" state consumers already distinguish from "validated and invalid".
+	// It is not a limitation: a source that ships a parsed contract rather than a
+	// document is a normal source, not a degraded one.
+	if raw, err := b.Raw(); err == nil {
+		res := validation.Validate(c, raw, b.FS)
 		rev.Valid = res.IsValid()
 		rev.Validation = res.Findings()
 		rev.validated = true
@@ -987,6 +1096,19 @@ const (
 	revisionMatchInconsistent = "inconsistent"
 )
 
+// boundTargetLabels precomputes each target's bounded label projection. It is a
+// pass of its own rather than part of targetFrom because mergeTargetLabels keeps
+// unioning Labels while collections are still being ingested: bounding at
+// construction would select the bounded key set from a half-merged map, so which
+// labels a reader sees would depend on source order. Running once after ingestion
+// also keeps the O(labels * bound) selection off the request path, which is the
+// point of bounding at the source boundary at all.
+func boundTargetLabels(snap *FleetSnapshot) {
+	for _, t := range snap.Targets {
+		t.labels = labelsPreview(t.Labels)
+	}
+}
+
 // linkTargets associates each target with a revision and records how the link
 // was made. An ambiguous mutable match links to nothing and surfaces a
 // REVISION_LINK_AMBIGUOUS limitation, so a guess is never presented as fact.
@@ -1027,8 +1149,13 @@ func linkTargets(snap *FleetSnapshot) {
 	}
 }
 
-// matchRevision computes a target's REVISION-MATCH CERTAINTY: which contract
-// revision it corresponds to and how confidently. This is a DIFFERENT question from
+// matchRevisionIn computes a target's REVISION-MATCH CERTAINTY against a pre-grouped
+// candidate set (the sorted revision keys of the target's own service, from
+// [revisionKeysByService]): which contract revision the target corresponds to and how
+// confidently. The grouping is a parameter because the link pass groups the whole
+// fleet once and reuses it for every target.
+//
+// This is a DIFFERENT question from
 // whether that content is resolver-retrievable ([ClassifyContentIdentity] /
 // RevisionIdentity.Retrievable). It reuses the content-identity classifier only as an
 // input -- to derive the canonical content digest and to reject a self-contradictory
@@ -1043,14 +1170,6 @@ func linkTargets(snap *FleetSnapshot) {
 // limitation. A match by mutable resolved-ref or version suffix is INFERRED, and only
 // when UNIQUE; two or more candidates are AMBIGUOUS and yield no link. Revisions are
 // visited in sorted key order for a deterministic result.
-func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
-	return matchRevisionIn(snap, revisionKeysByService(snap)[t.ServiceKey], t)
-}
-
-// matchRevisionIn is matchRevision against a pre-grouped candidate set: the sorted
-// revision keys of the target's own service. Callers matching a whole fleet group
-// once and reuse the groups; a caller matching a single target lets matchRevision
-// derive them.
 func matchRevisionIn(snap *FleetSnapshot, keys []RevisionKey, t *TargetRecord) (RevisionKey, string) {
 	id := ClassifyContentIdentity(t.ResolvedRef, t.Digest)
 	// A contradictory (digest-mismatch) or malformed OCI identity is never exact, and
@@ -1620,6 +1739,18 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], toSvc)
 			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.ServiceKey)
 			rel.ResolvedRevision = resolveDepRevision(snap, toSvc, rel.LockedDigest)
+			// A contested lock reaches this edge exactly as a missing one does — nil —
+			// so the pin is absent either way and only the reason distinguishes them.
+			// mergeRevisionLock deterministically discards BOTH sides of a lock
+			// disagreement: the winner is "neither", identically in either contribution
+			// order, which is the property an arrival-order (or any label-based)
+			// tiebreak would have broken by naming one of two real bundles at random.
+			// Without the carried reason this renders as a resolved dependency that
+			// simply has no lockfile, and the reader re-runs `pacto lock`, regenerates
+			// identical pins and sees nothing change. Empty when the revision genuinely
+			// carries no lock, and never set on an unresolved edge, whose headline
+			// problem is that it names no service at all.
+			rel.Reason = rev.lockConflict
 		}
 		out = append(out, rel)
 	}
@@ -1692,7 +1823,10 @@ func resolveDepService(snap *FleetSnapshot, fromDomain string, dep contract.Depe
 func lockReference(rev *ContractRevision, ref contract.ReferenceRef) (*lock.Reference, string) {
 	l := rev.Lock
 	if l == nil {
-		return nil, ""
+		// A discarded lock is not the same as no lock. Saying nothing here would tell
+		// the operator that pacto.lock recorded no resolution, so they would re-run
+		// `pacto lock`, regenerate identical pins and see nothing change.
+		return nil, rev.lockConflict
 	}
 	// A lock describes exactly one root contract, and "declared by the root" is
 	// only meaningful about that one. A lock that names a DIFFERENT contract was
@@ -1909,6 +2043,21 @@ func sortSnapshot(snap *FleetSnapshot) {
 	// it so a merged target serializes identically regardless of source order.
 	for _, t := range snap.Targets {
 		sort.Strings(t.Sources)
+	}
+	// Same for a revision, and Source goes with it. A revision is immutable content
+	// keyed by its digest, so two sources that contribute it have contributed the
+	// same thing and neither is a more authoritative "source of record" than the
+	// other. Both fields used to be arrival-ordered — Sources kept appendUnique
+	// order and Source stayed first-contributor-wins — so Build(a,b) and Build(b,a)
+	// serialized differently from identical inputs. computeSnapshotID hashes that
+	// serialization, so the order-independence this snapshot's identity is supposed
+	// to carry did not hold. Taking the lexicographically first contributor makes
+	// the tie deterministic instead of leaving it to goroutine bookkeeping.
+	for _, r := range snap.Revisions {
+		sort.Strings(r.Sources)
+		if len(r.Sources) > 0 {
+			r.Source = r.Sources[0]
+		}
 	}
 	for k := range snap.reverseDeps {
 		sortKeys(snap.reverseDeps[k])

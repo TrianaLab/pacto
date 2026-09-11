@@ -126,8 +126,16 @@ func TestProductImpact_RefreshRaceRejected(t *testing.T) {
 	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: snapID, FromRevisionKey: from, ToRevisionKey: from}, http.StatusConflict, nil)
 }
 
-// An exact OCI digest ref analyzes successfully with SnapshotMatch=true and no
-// mutable-content limitation.
+// An exact OCI digest ref analyzes successfully with SnapshotMatch=true and a
+// complete answer -- no limitations at all.
+//
+// The check used to scan for REVISION_CONTENT_MUTABLE, a code nothing emits any
+// more, over a list this fixture leaves empty: two ways of asserting nothing. The
+// live code for the same claim is REVISION_IDENTITY_UNRESOLVED, which fleet.Build
+// raises for a revision whose identity is not digest-derived -- so if this
+// fixture ever drifts to a tag, the count moves off zero and this fails. Any
+// OTHER limitation family surfacing here is also worth a look, which is why the
+// assertion is on the whole list rather than on one code.
 func TestProductImpact_ExactDigestSucceeds(t *testing.T) {
 	q := twoDomainDashboardQuery(t) // revisions carry digest-pinned ResolvedRefs
 	snapID := q.SnapshotID()
@@ -140,10 +148,8 @@ func TestProductImpact_ExactDigestSucceeds(t *testing.T) {
 	if !out.SnapshotMatch {
 		t.Error("an exact digest revision must report SnapshotMatch=true")
 	}
-	for _, l := range out.Limitations.Items {
-		if l.Code == fleet.LimitationRevisionContentMutable {
-			t.Errorf("an exact OCI digest must not carry a mutable-content limitation: %+v", out.Limitations)
-		}
+	if out.Limitations.Total != 0 {
+		t.Errorf("an exact OCI digest must analyze without limitations, got %+v", out.Limitations)
 	}
 }
 

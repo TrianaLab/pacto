@@ -37,15 +37,26 @@ const (
 	// distinct from a malformed one: validity is undetermined, not False.
 	ReasonContractUnavailable = "Unavailable"
 
-	ReasonFound    = "Found"
+	ReasonFound = "Found"
+
+	// Deprecated: no reconciler path emits this reason. It is reserved for API
+	// compatibility and will be removed in v6.
 	ReasonNotFound = "NotFound"
 
-	ReasonPortsMatch   = "AllPortsMatch"
+	// Deprecated: no reconciler path emits this reason. It is reserved for API
+	// compatibility and will be removed in v6.
+	ReasonPortsMatch = "AllPortsMatch"
+	// Deprecated: no reconciler path emits this reason. It is reserved for API
+	// compatibility and will be removed in v6.
 	ReasonMissingPorts = "MissingPorts"
 
 	ReasonReferenceOnly = "ReferenceOnly"
 
 	// Endpoint probe reasons.
+	//
+	// Deprecated: the probe outcome is reported as evidence, not as a condition
+	// reason, so no reconciler path emits any of these. They are reserved for API
+	// compatibility and will be removed in v6.
 	ReasonEndpointOK               = "OK"
 	ReasonEndpointConnectionError  = "ConnectionFailed"
 	ReasonEndpointInvalidStatus    = "InvalidStatusCode"
@@ -55,6 +66,10 @@ const (
 	ReasonEndpointInterfaceMissing = "InterfaceNotFound"
 
 	// Runtime reconciliation reasons.
+	//
+	// Deprecated: runtime reconciliation reports per-dimension findings, not these
+	// reasons, so no reconciler path emits any of them. They are reserved for API
+	// compatibility and will be removed in v6.
 	ReasonMatch    = "Match"
 	ReasonMismatch = "Mismatch"
 	ReasonMissing  = "Missing"
@@ -91,6 +106,10 @@ const (
 )
 
 // Severity levels for runtime reconciliation checks.
+//
+// Deprecated: severity is carried by finding.Severity on the engine findings the
+// operator copies into status, so nothing emits these. They are reserved for API
+// compatibility and will be removed in v6.
 const (
 	SeverityError   = "error"
 	SeverityWarning = "warning"
@@ -107,7 +126,7 @@ const (
 	ContractStatusInvalid = "Invalid"
 	// ContractStatusNotEvaluated is a reserved enum value that the operator does not currently emit:
 	// no reconciler path assigns it. A valid, targeted contract with no runtime evidence yields
-	// SeverityUnknown findings and resolves to ContractStatusUnknown (see summarizeFindings), not
+	// SeverityUnknown findings and resolves to ContractStatusUnknown (see validation.DeriveStatus), not
 	// NotEvaluated. The value exists for CRD and metrics parity with the engine dashboard, which uses
 	// it for offline OCI or local sources that were never runtime-evaluated.
 	ContractStatusNotEvaluated = "NotEvaluated"

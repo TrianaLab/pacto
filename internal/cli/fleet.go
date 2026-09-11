@@ -2,13 +2,16 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -26,15 +29,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"as-of time and completeness.",
 	}
 	// Source flags are shared by every subcommand.
-	cmd.PersistentFlags().StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
-	cmd.PersistentFlags().StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
-	cmd.PersistentFlags().StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
-	cmd.PersistentFlags().StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
-	cmd.PersistentFlags().StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
-	cmd.PersistentFlags().Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
-	cmd.PersistentFlags().Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
-	cmd.PersistentFlags().String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
-	cmd.PersistentFlags().Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	addFleetSourceFlags(cmd.PersistentFlags())
 
 	cmd.AddCommand(newFleetSearchCommand(svc, v))
 	cmd.AddCommand(newFleetGetCommand(svc, v))
@@ -46,24 +41,106 @@ func newFleetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	return cmd
 }
 
-// fleetOptions reads the shared source flags into app.FleetOptions.
+// addFleetSourceFlags declares the shared fleet source flags on f. Callers pass
+// cmd.PersistentFlags() when subcommands must inherit them (pacto fleet) and
+// cmd.Flags() otherwise (pacto tui, pacto impact, pacto mcp).
+//
+// A flag the caller already declared wins: AddFlagSet ignores a name that is
+// present, which is how a command keeps a deliberately narrowed spelling (`pacto
+// impact --traces` takes one document and reads it itself) or its own help text
+// (`pacto mcp --root` selects a catalog, not a snapshot closure) without having
+// to restate the other nine.
+func addFleetSourceFlags(f *pflag.FlagSet) {
+	shared := pflag.NewFlagSet("fleet-source", pflag.ContinueOnError)
+	shared.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
+	shared.StringArray("root", nil, "contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)")
+	shared.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)")
+	shared.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
+	shared.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
+	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
+	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
+	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
+	shared.String("namespace", "", "namespace to read Pacto CRs from with --k8s (empty = all namespaces)")
+	shared.Duration("freshness", 0, "mark target evidence older than this as stale (0 disables)")
+	f.AddFlagSet(shared)
+}
+
+// fleetFlagNames lists the shared fleet source flags declared by
+// newFleetCommand, in declaration order. It is the single list any other
+// command copies from when it wants the same source surface.
+func fleetFlagNames() []string {
+	return []string{
+		"local", "root", "target-state", "evidence-url", "traces", "oci",
+		"cache", "k8s", "namespace", "freshness",
+	}
+}
+
+// fleetSourceArgs renders the source flags the caller actually set back into
+// argv. Visit walks only flags with Changed set, so a default contributes
+// nothing and the line stays as short as what the reader typed. It exists so
+// the TUI can hand a reader a fleet query that resolves the same snapshot the
+// screen is showing, rather than one rebuilt from the defaults.
+func fleetSourceArgs(cmd *cobra.Command) []string {
+	var out []string
+	cmd.Flags().Visit(func(f *pflag.Flag) {
+		if !slices.Contains(fleetFlagNames(), f.Name) {
+			return
+		}
+		// A repeatable flag holds every value at once, so one --name=value per
+		// element; taking Value.String() would emit pflag's "[a,b]" rendering and
+		// lose every element after the first.
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			for _, v := range sv.GetSlice() {
+				out = append(out, "--"+f.Name+"="+v)
+			}
+			return
+		}
+		// --name=value rather than two tokens: it is unambiguous for a bool, where
+		// a bare --k8s would swallow the positional that follows it.
+		out = append(out, "--"+f.Name+"="+f.Value.String())
+	})
+	return out
+}
+
+// fleetOptions reads the shared source flags into app.FleetOptions. Lookup
+// errors are deliberately discarded: a command may declare a narrower subset of
+// fleetFlagNames (pacto impact does), and an undeclared flag correctly
+// contributes its zero value rather than failing the command.
+//
+// Discarding the error also swallows a TYPE mismatch, which is the sharper
+// edge: a command that declares a shared flag name with a different type parses
+// the user's value happily and then contributes nothing here, silently. Two
+// commands do that on purpose (`pacto impact` and `pacto fleet reconcile` each
+// take a single --traces document and read it themselves), and
+// TestSharedFleetFlagTypesAreConsistent fails any third one that appears.
 func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	local, _ := cmd.Flags().GetStringArray("local")
+	// --root is also `pacto mcp`'s catalog-server selector, where it is mutually
+	// exclusive with --fleet, so reading it here never picks up a value the mcp
+	// fleet path could have set.
+	roots, _ := cmd.Flags().GetStringArray("root")
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
 	evidenceURLs, _ := cmd.Flags().GetStringArray("evidence-url")
 	traceFiles, _ := cmd.Flags().GetStringArray("traces")
 	ociRefs, _ := cmd.Flags().GetStringArray("oci")
 	includeCache, _ := cmd.Flags().GetBool("cache")
+	// --no-cache is the root's "ignore the disk cache" switch, and the bundle
+	// store already honours it. A snapshot that kept the cache source would
+	// answer from exactly the stale bundles the reader excluded while the OCI
+	// source re-pulls. The root materializes an env- or config-set value back
+	// onto the flag, so this one read covers all three.
+	noCache, _ := cmd.Flags().GetBool("no-cache")
 	includeK8s, _ := cmd.Flags().GetBool("k8s")
 	namespace, _ := cmd.Flags().GetString("namespace")
 	freshness, _ := cmd.Flags().GetDuration("freshness")
 	return app.FleetOptions{
 		LocalRoots:         local,
+		CatalogRoots:       roots,
 		TargetStateFiles:   targetState,
 		EvidenceURLs:       evidenceURLs,
 		ObservationSources: app.TraceFileSources(traceFiles),
 		OCIRefs:            ociRefs,
-		IncludeCache:       includeCache,
+		IncludeCache:       includeCache && !noCache,
 		IncludeK8s:         includeK8s,
 		K8sNamespace:       namespace,
 		FreshnessWindow:    freshness,
@@ -97,6 +174,10 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "search [text]",
 		Short: "Search logical services in the fleet",
 		Args:  cobra.MaximumNArgs(1),
+		// Free text matched against the fleet, never a path — the same reason its
+		// three siblings give. Without this the shell falls back to filenames and
+		// offers the working directory as if it were a search term.
+		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
@@ -128,6 +209,16 @@ func newFleetSearchCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().String("scope", "", "correlate to a target with this scope")
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d, capped at %d)", fleet.DefaultSearchLimit, fleet.MaxSearchLimit))
 	cmd.Flags().Int("offset", 0, "result offset for paging")
+
+	// Three closed vocabularies the code already owns, so declaring them costs
+	// nothing at runtime and turns empty completion into real completion. The
+	// remaining string filters (--owner, --source, --scope, --label) take values
+	// that come from the fleet data, not from a vocabulary, so guessing at them
+	// would be worse than offering nothing.
+	_ = cmd.RegisterFlagCompletionFunc("status", staticCompletions(fleet.CanonicalStatuses()...))
+	_ = cmd.RegisterFlagCompletionFunc("compliance", staticCompletions(fleet.CanonicalStatuses()...))
+	_ = cmd.RegisterFlagCompletionFunc("workload", staticCompletions(
+		contract.WorkloadService, contract.WorkloadJob, contract.WorkloadScheduled))
 	return cmd
 }
 
@@ -172,6 +263,11 @@ func newFleetGetCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "get [service]",
 		Short: "Inspect a logical service or an operational target",
 		Args:  cobra.MaximumNArgs(1),
+		// A service key comes from the snapshot, and building one at tab time would
+		// reach k8s, a registry or the disk cache while the reader holds tab. No
+		// candidates is the honest answer; falling back to filenames is not, because
+		// this positional is never a path.
+		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
@@ -208,6 +304,9 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"name to aggregate across its revisions, or --revision/--target to root " +
 			"an exact revision (never 'latest').",
 		Args: cobra.MaximumNArgs(1),
+		// Same as `fleet get`: the candidates live in a snapshot too expensive to
+		// build at the prompt, and this positional is never a path.
+		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {
@@ -233,6 +332,11 @@ func newFleetGraphCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd.Flags().Int("max-depth", 0, "maximum transitive depth (0 = unlimited)")
 	cmd.Flags().String("revision", "", "root an exact contract revision key")
 	cmd.Flags().String("target", "", "root the revision linked to this target key or name")
+
+	// fleet.DirectionBoth exists but validateDirection rejects it, so offering it
+	// would complete to a value the query errors on.
+	_ = cmd.RegisterFlagCompletionFunc("direction", staticCompletions(
+		string(fleet.DirectionDependencies), string(fleet.DirectionDependents)))
 	return cmd
 }
 
@@ -297,6 +401,9 @@ func newFleetExplainCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Use:   "explain <subject>",
 		Short: "Explain the deterministic reasons for a service or target state",
 		Args:  cobra.ExactArgs(1),
+		// Same as `fleet get`: the subject resolves to a service or a target, both
+		// of which only a snapshot knows, and neither of which is ever a path.
+		ValidArgsFunction: noCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
 			if err != nil {

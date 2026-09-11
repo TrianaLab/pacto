@@ -16,6 +16,13 @@ type ResolveMode int
 
 const (
 	// LocalOnly restricts resolution to the local disk cache.
+	//
+	// Deprecated: no production caller remains — the fleet OCI source moved to a
+	// resolver that also knows how to dial, so "offline" is now a decision the
+	// caller makes about which sources to include rather than a resolver mode.
+	// Use [RemoteAllowed] with a [CachedStore]. Removed at v4 along with
+	// [CachedStore.PullCached], [CachedStore.PullCachedPinned] and
+	// [ReadCachedRef], which exist to serve it.
 	LocalOnly ResolveMode = iota
 	// RemoteAllowed permits fetching from the OCI registry on cache miss.
 	RemoteAllowed
@@ -157,6 +164,9 @@ func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mo
 // ListVersions returns all semver tags available for the given OCI repo reference.
 // The ref should be untagged (e.g. "ghcr.io/org/svc-pacto"). Non-semver tags are
 // excluded. Results are sorted descending (latest first).
+//
+// Deprecated: no production code in Pacto uses this method since the dashboard
+// stopped resolving versions itself. Removed at v4.
 func (r *Resolver) ListVersions(ctx context.Context, ref string) ([]string, error) {
 	ref = strings.TrimPrefix(ref, "oci://")
 	tags, err := r.store.ListTags(ctx, ref)
@@ -169,6 +179,9 @@ func (r *Resolver) ListVersions(ctx context.Context, ref string) ([]string, erro
 // FetchAllVersions lists all semver tags for the given OCI repo reference and
 // pulls each one, ensuring they are cached by the underlying BundleStore.
 // Returns the version list sorted descending (latest first).
+//
+// Deprecated: no production code in Pacto uses this method since the dashboard
+// stopped fetching all versions. Removed at v4.
 func (r *Resolver) FetchAllVersions(ctx context.Context, ref string) ([]string, error) {
 	ref = strings.TrimPrefix(ref, "oci://")
 	tags, err := r.store.ListTags(ctx, ref)
@@ -250,7 +263,7 @@ func localBundle(ref string, bundle *contract.Bundle, rec CachedRef) (*contract.
 }
 
 func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {
-	bundle, digest, err := pullPinned(ctx, r.store, ref)
+	bundle, digest, err := PullPinned(ctx, r.store, ref)
 	if err != nil {
 		if typed := classifyPullError(err); typed != nil {
 			return nil, CachedRef{}, typed
@@ -273,10 +286,17 @@ type pinnedPuller interface {
 	PullPinned(ctx context.Context, ref string) (*contract.Bundle, string, error)
 }
 
-// pullPinned pulls ref and reports the digest of the artifact that answered. A
+// PullPinned pulls ref and reports the digest of the artifact that answered. A
 // store that can bind the two itself (and cache the result) is asked to; any
-// other store is pinned generically.
-func pullPinned(ctx context.Context, store BundleStore, ref string) (*contract.Bundle, string, error) {
+// other store is pinned generically by [resolveAndPull].
+//
+// This is the only supported way to learn what a [BundleStore] just handed you.
+// Calling Resolve and Pull separately is TWO observations of a mutable tag, and
+// against a [CachedStore] it is not even a race: Resolve always reaches the
+// registry while Pull may serve a generation cached under repo:tag, so a warm
+// cache plus a re-pushed tag pairs the new digest with the old bundle every
+// time.
+func PullPinned(ctx context.Context, store BundleStore, ref string) (*contract.Bundle, string, error) {
 	if pp, ok := store.(pinnedPuller); ok {
 		return pp.PullPinned(ctx, ref)
 	}

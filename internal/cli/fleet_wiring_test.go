@@ -13,9 +13,9 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/internal/testutil"
 	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
@@ -137,21 +137,13 @@ func TestImpactProviderForFleet(t *testing.T) {
 func TestDashboardFleetOptions(t *testing.T) {
 	// Unset (empty) env → no evidence source added, unconfigured stays disabled.
 	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
-	// No sources -> disabled.
-	if _, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{}); ok {
-		t.Error("expected fleet disabled with no sources")
+	// Nothing detected -> nothing configured, and configuredSources says so.
+	if got := configuredSources(dashboardFleetOptions("", nil, "", nil, dashboardSources{})); len(got) != 0 {
+		t.Errorf("configuredSources with nothing detected = %v, want none", got)
 	}
 	// Every source active.
-	dr := &dashboard.DetectResult{
-		Local: &dashboard.LocalSource{},
-		OCI:   &dashboard.OCISource{},
-		Cache: &dashboard.CacheSource{},
-		K8s:   &dashboard.K8sSource{},
-	}
-	fopts, ok := dashboardFleetOptions("./svc", []string{"ghcr.io/x/a"}, "prod", nil, dr)
-	if !ok {
-		t.Fatal("expected fleet enabled")
-	}
+	det := dashboardSources{local: true, cache: true, cluster: &fakeClusterClient{}}
+	fopts := dashboardFleetOptions("./svc", []string{"ghcr.io/x/a"}, "prod", nil, det)
 	if len(fopts.LocalRoots) != 1 || fopts.LocalRoots[0] != "./svc" {
 		t.Errorf("LocalRoots = %v", fopts.LocalRoots)
 	}
@@ -164,18 +156,26 @@ func TestDashboardFleetOptions(t *testing.T) {
 	if len(fopts.EvidenceURLs) != 0 {
 		t.Errorf("expected no evidence URLs with env unset, got %v", fopts.EvidenceURLs)
 	}
+	want := []string{"local", "oci", "cache", "k8s"}
+	if got := configuredSources(fopts); !slices.Equal(got, want) {
+		t.Errorf("configuredSources = %v, want %v", got, want)
+	}
+	// A detected local root the caller cannot name is not a local source.
+	if got := dashboardFleetOptions("", nil, "", nil, dashboardSources{local: true}); len(got.LocalRoots) != 0 {
+		t.Errorf("LocalRoots = %v, want none without a directory", got.LocalRoots)
+	}
 }
 
 // TestDashboardFleetOptions_EvidenceURL proves the operator-wired env var adds a
-// read-only evidence source and enables the fleet even with no other source.
+// read-only evidence source even when nothing else was detected.
 func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
 	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "http://evidence.internal:8080")
-	fopts, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{})
-	if !ok {
-		t.Fatal("expected fleet enabled by the evidence env var alone")
-	}
+	fopts := dashboardFleetOptions("", nil, "", nil, dashboardSources{})
 	if len(fopts.EvidenceURLs) != 1 || fopts.EvidenceURLs[0] != "http://evidence.internal:8080" {
 		t.Errorf("EvidenceURLs = %v", fopts.EvidenceURLs)
+	}
+	if got := configuredSources(fopts); !slices.Equal(got, []string{"evidence"}) {
+		t.Errorf("configuredSources = %v, want [evidence]", got)
 	}
 }
 
@@ -190,10 +190,7 @@ func TestDashboardFleetOptions_EvidenceURL(t *testing.T) {
 // in the one deployment that consumes an Evidence Server.
 func TestDashboardFleetOptions_EvaluatesFreshness(t *testing.T) {
 	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "http://evidence.internal:8080")
-	fopts, ok := dashboardFleetOptions("", nil, "", nil, &dashboard.DetectResult{})
-	if !ok {
-		t.Fatal("expected fleet enabled by the evidence env var alone")
-	}
+	fopts := dashboardFleetOptions("", nil, "", nil, dashboardSources{})
 	if fopts.FreshnessWindow != fleet.RecentEvidenceWindow {
 		t.Errorf("FreshnessWindow = %v, want the product recency horizon %v",
 			fopts.FreshnessWindow, fleet.RecentEvidenceWindow)
@@ -210,9 +207,9 @@ func TestDashboardFleetOptions_Traces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observationSources: %v", err)
 	}
-	fopts, ok := dashboardFleetOptions("", nil, "", obs, &dashboard.DetectResult{})
-	if !ok {
-		t.Fatal("expected fleet enabled by trace files alone")
+	fopts := dashboardFleetOptions("", nil, "", obs, dashboardSources{})
+	if got := configuredSources(fopts); !slices.Equal(got, []string{"observation"}) {
+		t.Errorf("configuredSources = %v, want [observation]", got)
 	}
 	want := []app.ObservationSourceSpec{
 		{ID: "observation-1", Path: "/tmp/a.json"},
@@ -378,14 +375,71 @@ func TestManagerFleetProvider(t *testing.T) {
 	}
 }
 
-// TestClusterContractRefs proves the callback exists only when a cluster was
-// detected: with no Kubernetes source there is nothing to ask.
-func TestClusterContractRefs(t *testing.T) {
-	if got := clusterContractRefs(&dashboard.DetectResult{}); got != nil {
-		t.Error("expected no callback without a Kubernetes source")
+// fakeClusterClient is a k8sclient.K8sClient the cluster-discovery tests drive
+// directly: listJSON is the CR list the operator would have written, and listErr
+// stands in for a cluster that cannot be read.
+type fakeClusterClient struct {
+	listJSON string
+	listErr  error
+}
+
+func (c *fakeClusterClient) Probe(context.Context) error { return nil }
+func (c *fakeClusterClient) DiscoverCRD(context.Context) (*k8sclient.CRDDiscovery, error) {
+	return &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"}, nil
+}
+func (c *fakeClusterClient) ListJSON(context.Context, string, string) ([]byte, error) {
+	if c.listErr != nil {
+		return nil, c.listErr
 	}
-	if got := clusterContractRefs(&dashboard.DetectResult{K8s: &dashboard.K8sSource{}}); got == nil {
-		t.Error("expected a callback when a Kubernetes source was detected")
+	return []byte(c.listJSON), nil
+}
+func (c *fakeClusterClient) CountResources(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
+// TestClusterContractRefs proves the callback exists only when a cluster client
+// was built, and that an unreadable cluster DEGRADES to no references rather
+// than failing the refresh: the Kubernetes source reports its own unavailability,
+// and failing here would take the local, OCI and cache baselines down with it.
+func TestClusterContractRefs(t *testing.T) {
+	if got := clusterContractRefs(nil, ""); got != nil {
+		t.Error("expected no callback without a cluster client")
+	}
+	unreadable := clusterContractRefs(&fakeClusterClient{listErr: errors.New("cluster unreachable")}, "")
+	if unreadable == nil {
+		t.Fatal("expected a callback when a cluster client was built")
+	}
+	if got := unreadable(context.Background()); got != nil {
+		t.Errorf("an unreadable cluster contributed %v, want no references", got)
+	}
+}
+
+// TestClusterContractRefs_ExactRefsPrecedeTheirRepository is the ordering
+// counterexample. [fleetsrc.ContractRefs] emits both the exact ref a target runs
+// and the repository that ref names, sorted ASCENDING — and a bare repository is
+// a prefix of its own tagged form, so it sorts first. Both fold into one revision
+// key and the merge keeps the FIRST arrival's requested ref, so ascending order
+// records every pinned target as having requested a bare repository. The exact
+// ref has to arrive first.
+func TestClusterContractRefs_ExactRefsPrecedeTheirRepository(t *testing.T) {
+	client := &fakeClusterClient{listJSON: `{"items":[
+		{"metadata":{"name":"orders","namespace":"prod"},
+		 "status":{"contract":{"serviceName":"orders","resolvedRef":"reg.svc:5000/demo/orders:1.0.0"}}},
+		{"metadata":{"name":"checkout","namespace":"prod"},
+		 "status":{"contract":{"serviceName":"checkout","resolvedRef":"reg.svc:5000/demo/checkout@sha256:abc"}}}
+	]}`}
+	got := clusterContractRefs(client, "")(context.Background())
+	for exact, repo := range map[string]string{
+		"reg.svc:5000/demo/orders:1.0.0":        "reg.svc:5000/demo/orders",
+		"reg.svc:5000/demo/checkout@sha256:abc": "reg.svc:5000/demo/checkout",
+	} {
+		at, repoAt := slices.Index(got, exact), slices.Index(got, repo)
+		if at < 0 || repoAt < 0 {
+			t.Fatalf("expected both %q and %q in %v", exact, repo, got)
+		}
+		if at > repoAt {
+			t.Errorf("%q must precede its repository %q in %v", exact, repo, got)
+		}
 	}
 }
 

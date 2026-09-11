@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // errorTransport is an http.RoundTripper that always returns a connection error.
@@ -83,17 +81,14 @@ func startGitHubServer(t *testing.T, latestTag string) *httptest.Server {
 	return server
 }
 
-// overrideGitHubAPI redirects API calls to the given httptest server.
-func overrideGitHubAPI(t *testing.T, server *httptest.Server) {
-	t.Helper()
-	origClient := httpClient
-	origURL := githubAPIBaseURL
-	httpClient = server.Client()
-	githubAPIBaseURL = server.URL
-	t.Cleanup(func() {
-		httpClient = origClient
-		githubAPIBaseURL = origURL
-	})
+// testUpdater returns an Updater whose every endpoint points at server.
+func testUpdater(server *httptest.Server) *Updater {
+	u := New()
+	u.APIBaseURL = server.URL
+	u.DownloadBaseURL = server.URL
+	u.Client = server.Client()
+	u.DownloadClient = server.Client()
+	return u
 }
 
 func TestCheckForUpdate_DevVersion(t *testing.T) {
@@ -126,9 +121,8 @@ func TestCheckForUpdate_StaleCacheFetchesFromGitHub(t *testing.T) {
 	writeStaleCache(t, tmpDir, "v1.0.0")
 
 	server := startGitHubServer(t, "v3.0.0")
-	overrideGitHubAPI(t, server)
 
-	result := CheckForUpdate("v1.0.0")
+	result := testUpdater(server).CheckForUpdate("v1.0.0")
 	if result == nil {
 		t.Fatal("expected update result, got nil")
 	}
@@ -155,9 +149,8 @@ func TestCheckForUpdate_NoCacheFetchesFromGitHub(t *testing.T) {
 	// No cache file written
 
 	server := startGitHubServer(t, "v2.0.0")
-	overrideGitHubAPI(t, server)
 
-	result := CheckForUpdate("v1.0.0")
+	result := testUpdater(server).CheckForUpdate("v1.0.0")
 	if result == nil {
 		t.Fatal("expected update result, got nil")
 	}
@@ -191,9 +184,8 @@ func TestCheckForUpdate_NetworkErrorReturnsNil(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
 
-	if result := CheckForUpdate("v1.0.0"); result != nil {
+	if result := testUpdater(server).CheckForUpdate("v1.0.0"); result != nil {
 		t.Errorf("expected nil on network error, got %+v", result)
 	}
 }
@@ -209,9 +201,8 @@ func TestCheckForUpdate_InvalidLatestSemver(t *testing.T) {
 
 func TestFetchLatestVersion(t *testing.T) {
 	server := startGitHubServer(t, "v1.5.0")
-	overrideGitHubAPI(t, server)
 
-	version, err := fetchLatestVersion()
+	version, err := testUpdater(server).fetchLatestVersion()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -225,9 +216,8 @@ func TestFetchLatestVersion_NonOKStatus(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
 
-	_, err := fetchLatestVersion()
+	_, err := testUpdater(server).fetchLatestVersion()
 	if err == nil {
 		t.Fatal("expected error for non-200 status")
 	}
@@ -238,9 +228,8 @@ func TestFetchLatestVersion_EmptyTagName(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(githubRelease{TagName: ""})
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
 
-	_, err := fetchLatestVersion()
+	_, err := testUpdater(server).fetchLatestVersion()
 	if err == nil {
 		t.Fatal("expected error for empty tag_name")
 	}
@@ -251,9 +240,8 @@ func TestFetchLatestVersion_InvalidJSON(t *testing.T) {
 		_, _ = w.Write([]byte("not json"))
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
 
-	_, err := fetchLatestVersion()
+	_, err := testUpdater(server).fetchLatestVersion()
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -294,25 +282,6 @@ func TestWriteCache_CreatesDir(t *testing.T) {
 	}
 }
 
-func TestWriteCacheAfterUpdate(t *testing.T) {
-	tmpDir := setupTestEnv(t)
-
-	WriteCacheAfterUpdate("v2.0.0")
-
-	data, err := os.ReadFile(filepath.Join(tmpDir, "pacto", cacheFileName))
-	if err != nil {
-		t.Fatalf("cache file not written: %v", err)
-	}
-
-	var c cache
-	if err := json.Unmarshal(data, &c); err != nil {
-		t.Fatal(err)
-	}
-	if c.LatestVersion != "v2.0.0" {
-		t.Errorf("expected cached version v2.0.0, got %s", c.LatestVersion)
-	}
-}
-
 func TestReadCache_InvalidJSON(t *testing.T) {
 	tmpDir := setupTestEnv(t)
 	if err := os.WriteFile(filepath.Join(tmpDir, "pacto", cacheFileName), []byte("{bad"), 0600); err != nil {
@@ -339,45 +308,9 @@ func TestCachePath(t *testing.T) {
 	}
 }
 
-func TestSetTestOverrides(t *testing.T) {
-	origClient, origAPI, origDownload := httpClient, githubAPIBaseURL, githubDownloadURL
-
-	cleanup := SetTestOverrides(nil, "", "", nil)
-	defer cleanup()
-
-	// nil/empty values should not change anything
-	if httpClient != origClient {
-		t.Error("nil client should not change httpClient")
-	}
-	if githubAPIBaseURL != origAPI {
-		t.Error("empty apiBaseURL should not change githubAPIBaseURL")
-	}
-	if githubDownloadURL != origDownload {
-		t.Error("empty downloadBaseURL should not change githubDownloadURL")
-	}
-
-	// Non-nil/non-empty values should override
-	customClient := &http.Client{}
-	cleanup2 := SetTestOverrides(customClient, "http://api.test", "http://dl.test", func() (string, error) { return "/test", nil })
-	defer cleanup2()
-
-	if httpClient != customClient {
-		t.Error("expected httpClient to be overridden")
-	}
-	if githubAPIBaseURL != "http://api.test" {
-		t.Errorf("expected api URL override, got %s", githubAPIBaseURL)
-	}
-	if githubDownloadURL != "http://dl.test" {
-		t.Errorf("expected download URL override, got %s", githubDownloadURL)
-	}
-}
-
 func TestCachePath_ConfigDirError(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
-	old := oci.SetUserHomeDirFn(func() (string, error) {
-		return "", fmt.Errorf("no home dir")
-	})
-	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
+	t.Setenv("HOME", "") // no XDG dir and no home: there is nowhere to put a cache
 
 	if p := cachePath(); p != "" {
 		t.Errorf("expected empty path, got %s", p)
@@ -386,10 +319,7 @@ func TestCachePath_ConfigDirError(t *testing.T) {
 
 func TestReadCache_NoCachePath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
-	old := oci.SetUserHomeDirFn(func() (string, error) {
-		return "", fmt.Errorf("no home dir")
-	})
-	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
+	t.Setenv("HOME", "")
 
 	c, path := readCache()
 	if c != nil {
@@ -401,33 +331,30 @@ func TestReadCache_NoCachePath(t *testing.T) {
 }
 
 func TestFetchLatestVersion_InvalidURL(t *testing.T) {
-	origURL := githubAPIBaseURL
-	githubAPIBaseURL = string([]byte{0x7f})
-	defer func() { githubAPIBaseURL = origURL }()
+	u := New()
+	u.APIBaseURL = string([]byte{0x7f})
 
-	_, err := fetchLatestVersion()
+	_, err := u.fetchLatestVersion()
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
 }
 
 func TestFetchLatestVersion_TransportError(t *testing.T) {
-	origClient := httpClient
-	httpClient = &http.Client{Transport: &errorTransport{}}
-	defer func() { httpClient = origClient }()
+	u := New()
+	u.Client = &http.Client{Transport: &errorTransport{}}
 
-	_, err := fetchLatestVersion()
+	_, err := u.fetchLatestVersion()
 	if err == nil {
 		t.Fatal("expected error for transport failure")
 	}
 }
 
 func TestFetchLatestVersion_ReadBodyError(t *testing.T) {
-	origClient := httpClient
-	httpClient = &http.Client{Transport: &errorBodyTransport{}}
-	defer func() { httpClient = origClient }()
+	u := New()
+	u.Client = &http.Client{Transport: &errorBodyTransport{}}
 
-	_, err := fetchLatestVersion()
+	_, err := u.fetchLatestVersion()
 	if err == nil {
 		t.Fatal("expected error for body read failure")
 	}

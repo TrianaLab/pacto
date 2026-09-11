@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -27,10 +28,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/google/go-containerregistry/pkg/authn"
+	"gopkg.in/yaml.v3"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/credentials"
@@ -53,6 +56,14 @@ type ContractLoader interface {
 // PactoReconciler reconciles a Pacto object.
 type PactoReconciler struct {
 	client.Client
+	// APIReader reads straight from the API server, bypassing the manager's cache.
+	// SetupWithManager wires it; only the pull Secret is read through it, so a Secret's
+	// values are never held in an informer store (INV-5).
+	//
+	// INV-5 is module-wide, not controller-local: the dashboard reconciler reads its
+	// OCI Secrets through its own APIReader for the same reason, and a typed Get on
+	// EITHER cached client is enough to break it cluster-wide.
+	APIReader                         client.Reader
 	Scheme                            *runtime.Scheme
 	Recorder                          record.EventRecorder
 	Loader                            ContractLoader
@@ -131,22 +142,18 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	// 4b. Apply configuration overrides (if specified)
-	effectiveContract := loadResult.Contract
-	var overriddenKeys map[string][]string
-	if pacto.Spec.Overrides != nil {
-		var overrideErr error
-		effectiveContract, overriddenKeys, overrideErr = applyConfigurationOverrides(loadResult.Contract, pacto.Spec.Overrides)
-		if overrideErr != nil {
-			return r.failReconciliation(ctx, pacto, fmt.Sprintf("override error: %s", overrideErr.Error()),
-				&pactov1alpha1.ValidationResult{
-					Valid:  false,
-					Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.overrides", Message: overrideErr.Error()}},
-				}, prevContractStatus, pactov1alpha1.ContractStatusInvalid)
-		}
+	effectiveLR, overriddenKeys, overrideErr := applyOverrides(loadResult, pacto.Spec.Overrides)
+	if overrideErr != nil {
+		return r.failReconciliation(ctx, pacto, fmt.Sprintf("override error: %s", overrideErr.Error()),
+			&pactov1alpha1.ValidationResult{
+				Valid:  false,
+				Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.overrides", Message: overrideErr.Error()}},
+			}, prevContractStatus, pactov1alpha1.ContractStatusInvalid)
 	}
+	effectiveContract := effectiveLR.Contract
 
-	// 5. Structural + cross-field + semantic validation (on effective contract)
-	contractResult := validation.Validate(effectiveContract, loadResult.RawYAML, loadResult.BundleFS)
+	// 5. Structural + cross-field + policy validation (on effective contract)
+	contractResult := validation.Validate(effectiveContract, effectiveLR.RawYAML, effectiveLR.BundleFS)
 	pacto.Status.Validation = mapValidationResult(contractResult)
 
 	if len(contractResult.Errors) > 0 {
@@ -160,8 +167,6 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 6. Populate contract-derived status fields (from effective contract)
 	pacto.Status.ContractVersion = effectiveContract.Service.Version
-	effectiveLR := *loadResult
-	effectiveLR.Contract = effectiveContract
 	r.populateContractStatus(pacto, &effectiveLR)
 
 	// Mark overridden keys in configuration status
@@ -183,11 +188,10 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		pacto.Status.CurrentRevision = revisionName
 	}
 
-	if ociRef != "" && !strings.Contains(ociRef, "@") {
-		if syncErr := r.syncAllRevisions(ctx, pacto, ociRef, ociAuth); syncErr != nil {
-			log.Error(syncErr, "Failed to sync all revisions")
-		}
-	}
+	// Mirroring every registry tag into a PactoRevision is NOT a step of this
+	// reconcile: it costs one ListTags plus one Load per tag, and Reconcile is
+	// re-entered on every write to every watched workload. RevisionMirror runs it
+	// on its own ticker instead.
 
 	// 8. Reference-only: skip runtime validation
 	if pacto.IsReference() {
@@ -318,16 +322,19 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		pacto.Status.Findings = append(pacto.Status.Findings, findingStatus)
 	}
 
-	// 14. Copy EvaluationCoverage (metadata; never affects ContractStatus)
+	// 14. Copy EvaluationCoverage. Reported metadata: the engine charges a required
+	//     assertion and emits its Unknown finding in the same branch, so a coverage
+	//     gap never outranks what the findings already say.
 	pacto.Status.EvaluationCoverage = &pactov1alpha1.EvaluationCoverage{
 		Evaluated: int32(cov.Evaluated),
 		Required:  int32(cov.Required),
 	}
 
-	// 15. Compute summary + final contract status from findings (4-state ladder)
-	summary, status := summarizeFindings(allFindings)
+	// 15. Count the findings; rank them with the SHARED ladder. Deriving it here too is
+	//     what made one contract read Warning in kubectl and Compliant in the dashboard.
+	summary := summarizeFindings(allFindings)
 	pacto.Status.Summary = &summary
-	pacto.Status.ContractStatus = status
+	pacto.Status.ContractStatus = validation.DeriveStatus(allFindings, cov)
 
 	return r.finishReconciliation(ctx, pacto, prevContractStatus)
 }
@@ -413,12 +420,18 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 }
 
 // classifyLoadError maps OCI load errors to Invalid vs Unknown (spec section 9.8).
+// Only the transient obtain-failures are enumerated; everything else — malformed ref,
+// corrupt bundle, unsatisfiable constraint, any error pkg/oci grows later — is Invalid.
+// Listing the Invalid side too was a second closed enumeration the compiler could not
+// check, so a new transient type would have missed BOTH arms and still read Invalid.
 func classifyLoadError(err error) string {
-	if errorsAsAny(err, &oci.RegistryUnreachableError{}, &oci.AuthenticationError{}, &oci.ArtifactNotFoundError{}) {
-		return pactov1alpha1.ContractStatusUnknown // transient obtain-failure
-	}
-	if errorsAsAny(err, &oci.InvalidRefError{}, &oci.InvalidBundleError{}, &oci.NoMatchingVersionError{}) {
-		return pactov1alpha1.ContractStatusInvalid // malformed artifact
+	var (
+		unreachable *oci.RegistryUnreachableError
+		unauthed    *oci.AuthenticationError
+		notFound    *oci.ArtifactNotFoundError
+	)
+	if errors.As(err, &unreachable) || errors.As(err, &unauthed) || errors.As(err, &notFound) {
+		return pactov1alpha1.ContractStatusUnknown
 	}
 	return pactov1alpha1.ContractStatusInvalid // fail-closed
 }
@@ -490,46 +503,6 @@ func declaredWindowKeys(c *contract.Contract) map[string]bool {
 		keys["configuration/"+cfg.Name] = true
 	}
 	return keys
-}
-
-// errorsAsAny checks if err matches any of the target types using errors.As.
-// ponytail: generic type-match helper for classifyLoadError; expands per error type.
-func errorsAsAny(err error, targets ...error) bool {
-	for _, target := range targets {
-		switch target.(type) {
-		case *oci.RegistryUnreachableError:
-			var t *oci.RegistryUnreachableError
-			if errors.As(err, &t) {
-				return true
-			}
-		case *oci.AuthenticationError:
-			var t *oci.AuthenticationError
-			if errors.As(err, &t) {
-				return true
-			}
-		case *oci.ArtifactNotFoundError:
-			var t *oci.ArtifactNotFoundError
-			if errors.As(err, &t) {
-				return true
-			}
-		case *oci.InvalidRefError:
-			var t *oci.InvalidRefError
-			if errors.As(err, &t) {
-				return true
-			}
-		case *oci.InvalidBundleError:
-			var t *oci.InvalidBundleError
-			if errors.As(err, &t) {
-				return true
-			}
-		case *oci.NoMatchingVersionError:
-			var t *oci.NoMatchingVersionError
-			if errors.As(err, &t) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // contractStatusDegraded reports whether a contract status is one a promotion gate
@@ -834,6 +807,129 @@ func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.
 	return &effective, overriddenKeys, nil
 }
 
+// applyOverrides returns the load result the rest of the reconcile should use: the
+// contract with spec.overrides merged into BOTH halves -- the parsed struct and the
+// bytes -- or an error if either half cannot be produced.
+//
+// Both halves, because the two are read by different consumers and the loader does not
+// guarantee they came from the same place: the OCI path takes Contract from the bundle
+// and RawYAML from the bundle FS, and can leave the bytes empty entirely. Merging only
+// the struct is what let an override reach the status while validation still read the
+// original document.
+func applyOverrides(loadResult *loader.LoadResult, overrides *pactov1alpha1.ContractOverrides) (loader.LoadResult, map[string][]string, error) {
+	effective := *loadResult
+	if overrides == nil || len(overrides.Configurations) == 0 {
+		return effective, nil, nil
+	}
+	merged, keys, err := applyConfigurationOverrides(loadResult.Contract, overrides)
+	if err != nil {
+		return effective, nil, err
+	}
+	// Validation layers 1 and 3 read the BYTES, not the struct, so the merged contract
+	// has to reach them as bytes -- otherwise policy enforcement never sees
+	// spec.overrides and an override that violates a policy still reports
+	// ContractValid=True.
+	mergedYAML, err := patchConfigurationValues(loadResult.RawYAML, overrides)
+	if err != nil {
+		return effective, nil, err
+	}
+	effective.Contract, effective.RawYAML = merged, mergedYAML
+	return effective, keys, nil
+}
+
+// patchConfigurationValues rewrites ONLY the overridden configuration values inside
+// the loader's own YAML document and returns the result. Every other byte -- every
+// unrelated key, every explicitly-empty value -- survives exactly as the file wrote it.
+//
+// The obvious alternative, re-marshalling the merged struct, is a fail-open:
+// contract.Configuration tags Schema, Ref and Values `omitempty`, so a key that was
+// present-but-empty in the file (`values: {}` beside a `ref:`, say) disappears from
+// the round trip and layer 1 stops seeing the structural violation it was written to
+// catch. A bare `overrides: {}` on the CR was enough to turn Invalid into valid, and
+// the GitOps promotion gate reads that verdict.
+//
+// Every failure here is an error, never a fall back to the unpatched bytes: bytes
+// that do not carry the override are exactly the state the audit reported.
+func patchConfigurationValues(raw []byte, overrides *pactov1alpha1.ContractOverrides) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("re-reading the contract document: %w", err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return nil, errors.New("contract document is empty")
+	}
+	configs := mappingValue(doc.Content[0], "configurations")
+	if configs == nil || configs.Kind != yaml.SequenceNode {
+		return nil, errors.New("contract declares no configurations to override")
+	}
+
+	for _, ov := range overrides.Configurations {
+		entry := configurationNamed(configs, ov.Name)
+		if entry == nil {
+			return nil, fmt.Errorf("configuration %q not found in the contract document", ov.Name)
+		}
+		values := mappingValue(entry, "values")
+		switch {
+		case values == nil:
+			values = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			entry.Content = append(entry.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "values"}, values)
+		case values.Tag == "!!null":
+			// `values:` with nothing under it. The override is what gives it content.
+			values.Kind, values.Tag, values.Value, values.Style = yaml.MappingNode, "!!map", "", 0
+		case values.Kind != yaml.MappingNode:
+			return nil, fmt.Errorf("configuration %q declares a non-mapping values block", ov.Name)
+		}
+		// Sorted so the patched document is byte-identical run to run; Go map order
+		// would otherwise reshuffle newly inserted keys on every reconcile.
+		for _, k := range slices.Sorted(maps.Keys(ov.Values)) {
+			setMappingValue(values, k, ov.Values[k])
+		}
+	}
+	return yaml.Marshal(&doc)
+}
+
+// mappingValue returns the value node for key in a mapping node, or nil. A yaml.v3
+// mapping stores Content as alternating key, value pairs.
+func mappingValue(n *yaml.Node, key string) *yaml.Node {
+	if n == nil || n.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value == key {
+			return n.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// setMappingValue sets key to a string scalar, replacing any existing value. The
+// override CRD types values as map[string]string, and applyConfigurationOverrides
+// merges those same strings into the struct, so both halves agree on the type: a
+// numeric-looking override is a string in the document exactly as it is in the
+// struct, and a schema expecting a number rejects both.
+func setMappingValue(mapping *yaml.Node, key, value string) {
+	scalar := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			mapping.Content[i+1] = scalar
+			return
+		}
+	}
+	mapping.Content = append(mapping.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, scalar)
+}
+
+// configurationNamed returns the configurations[] entry whose name is name, or nil.
+func configurationNamed(configs *yaml.Node, name string) *yaml.Node {
+	for _, entry := range configs.Content {
+		if n := mappingValue(entry, "name"); n != nil && n.Value == name {
+			return entry
+		}
+	}
+	return nil
+}
+
 // --- Helpers ---
 
 func mapValidationResult(vr validation.ValidationResult) *pactov1alpha1.ValidationResult {
@@ -851,10 +947,9 @@ func mapValidationResult(vr validation.ValidationResult) *pactov1alpha1.Validati
 	return result
 }
 
-// summarizeFindings counts findings by severity and derives the overall contract status using the
-// 4-state ladder (spec section 1.4): Error -> NonCompliant, Unknown -> Unknown, Warning -> Warning, else Compliant.
-// Runtime findings only; Invalid is set by the pre-findings structural gate.
-func summarizeFindings(findings []finding.Finding) (pactov1alpha1.Summary, string) {
+// summarizeFindings counts findings by severity. It does NOT rank them: the compliance
+// ladder has one producer, validation.DeriveStatus (spec section 1.4).
+func summarizeFindings(findings []finding.Finding) pactov1alpha1.Summary {
 	var summary pactov1alpha1.Summary
 	for _, f := range findings {
 		switch f.Severity {
@@ -868,16 +963,7 @@ func summarizeFindings(findings []finding.Finding) (pactov1alpha1.Summary, strin
 			summary.InfoCount++
 		}
 	}
-	switch {
-	case summary.ErrorCount > 0:
-		return summary, pactov1alpha1.ContractStatusNonCompliant
-	case summary.UnknownCount > 0:
-		return summary, pactov1alpha1.ContractStatusUnknown
-	case summary.WarningCount > 0:
-		return summary, pactov1alpha1.ContractStatusWarning
-	default:
-		return summary, pactov1alpha1.ContractStatusCompliant
-	}
+	return summary
 }
 
 func formatValidationErrors(validationErrors []contract.ValidationError) string {
@@ -1009,6 +1095,41 @@ func shortDigest(d string) string {
 	return d
 }
 
+// revisionsBySourceRef indexes this Pacto's revisions by spec.source.oci. A force-push
+// leaves TWO revisions on the same ref, so the newest wins: comparing the registry against
+// the superseded one would re-raise TagOverwritten on every reconcile.
+// ponytail: creationTimestamp ordering, ties go to List order. Revisions are created
+// seconds apart, so a tie needs a same-second double force-push to even be observable.
+func (r *PactoReconciler) revisionsBySourceRef(ctx context.Context, pacto *pactov1alpha1.Pacto) (map[string]*pactov1alpha1.PactoRevision, error) {
+	revList := &pactov1alpha1.PactoRevisionList{}
+	if err := r.List(ctx, revList,
+		client.InNamespace(pacto.Namespace),
+		client.MatchingLabels{pactov1alpha1.LabelPactoName: pacto.Name},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list revisions: %w", err)
+	}
+
+	byRef := make(map[string]*pactov1alpha1.PactoRevision, len(revList.Items))
+	for i := range revList.Items {
+		rev := &revList.Items[i]
+		// An inline revision has an empty ref; taggedRef never is, so it is simply never hit.
+		ref := rev.Spec.Source.OCI
+		if cur, ok := byRef[ref]; ok && rev.CreationTimestamp.Before(&cur.CreationTimestamp) {
+			continue
+		}
+		byRef[ref] = rev
+	}
+	return byRef, nil
+}
+
+// syncAllRevisions mirrors every registry tag of baseRef into a PactoRevision and
+// raises TagOverwritten when a tag's digest moved. Called by RevisionMirror, never
+// from Reconcile.
+//
+// A per-tag failure does not abort the pass -- one unreadable tag must not stop the
+// rest being mirrored -- but it is no longer swallowed into a V(1) line either: the
+// failures are joined into the returned error, and RevisionMirror turns that into
+// the same event vocabulary the main load path uses.
 func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1alpha1.Pacto, baseRef string, ociAuth *authn.AuthConfig) error {
 	log := logf.FromContext(ctx)
 
@@ -1017,6 +1138,16 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 		return fmt.Errorf("failed to list tags: %w", err)
 	}
 
+	// Index the existing revisions by the ref ensureRevision actually WRITES
+	// (spec.source.oci). Keying on the version label instead compared a registry tag
+	// against service.version from inside the contract, so the everyday "v1.2.0" tag on
+	// a "1.2.0" version never matched and the force-push check below never ran.
+	byRef, err := r.revisionsBySourceRef(ctx, pacto)
+	if err != nil {
+		return err
+	}
+
+	var failures []error
 	for _, tag := range tags {
 		taggedRef := strings.TrimPrefix(baseRef, "oci://")
 		if idx := strings.LastIndex(taggedRef, ":"); idx > strings.LastIndex(taggedRef, "/") {
@@ -1024,22 +1155,9 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 		}
 		taggedRef = taggedRef + ":" + tag
 
-		revList := &pactov1alpha1.PactoRevisionList{}
-		if listErr := r.List(ctx, revList,
-			client.InNamespace(pacto.Namespace),
-			client.MatchingLabels{
-				pactov1alpha1.LabelPactoName:       pacto.Name,
-				pactov1alpha1.LabelRevisionVersion: tag,
-			},
-		); listErr != nil {
-			log.V(1).Info("Failed to list revisions for tag", "tag", tag, "error", listErr)
-			continue
-		}
-
 		// If a revision exists for this tag, check whether the digest still matches.
 		// A mismatch means the tag was force-pushed (overwritten) on the registry.
-		if len(revList.Items) > 0 {
-			existing := revList.Items[0]
+		if existing, ok := byRef[taggedRef]; ok {
 			storedDigest := existing.Spec.Source.Digest
 			if storedDigest == "" {
 				// Revision predates digest tracking — skip drift check.
@@ -1048,7 +1166,7 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 
 			loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
 			if loadErr != nil {
-				log.V(1).Info("Skipping digest check: failed to load", "tag", tag, "error", loadErr)
+				failures = append(failures, fmt.Errorf("digest check for tag %s: %w", tag, loadErr))
 				continue
 			}
 
@@ -1066,7 +1184,7 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 
 			revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
 			if revErr != nil {
-				log.V(1).Info("Failed to create revision for force-pushed tag", "tag", tag, "error", revErr)
+				failures = append(failures, fmt.Errorf("revision for force-pushed tag %s: %w", tag, revErr))
 				continue
 			}
 			log.Info("Created new revision for force-pushed tag", "tag", tag, "revision", revName)
@@ -1075,28 +1193,31 @@ func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1al
 
 		loadResult, loadErr := r.Loader.Load(ctx, taggedRef, "", ociAuth)
 		if loadErr != nil {
-			log.V(1).Info("Skipping tag: failed to load", "tag", tag, "error", loadErr)
+			failures = append(failures, fmt.Errorf("tag %s: %w", tag, loadErr))
 			continue
 		}
 
 		revName, revErr := r.ensureRevision(ctx, pacto, loadResult)
 		if revErr != nil {
-			log.V(1).Info("Skipping tag: failed to create revision", "tag", tag, "error", revErr)
+			failures = append(failures, fmt.Errorf("revision for tag %s: %w", tag, revErr))
 			continue
 		}
 		log.V(1).Info("Synced revision for tag", "tag", tag, "revision", revName)
 	}
 
-	return nil
+	return errors.Join(failures...)
 }
 
 // resolveOCIAuth reads a Secret and extracts OCI registry credentials.
 // Supports opaque secrets (token or username+password) and kubernetes.io/dockerconfigjson secrets.
 // For dockerconfigjson secrets, the registry is extracted from the OCI reference to select the
 // matching auth entry.
+// The read goes through APIReader (uncached, straight to the API server): a typed Get on
+// the manager's client would lazily start the very Secret informer the metadata-only watch
+// exists to avoid.
 func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretName, ociRef string) (*authn.AuthConfig, error) {
 	secret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
+	if err := r.APIReader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret); err != nil {
 		return nil, fmt.Errorf("secret %q not found: %w", secretName, err)
 	}
 
@@ -1106,11 +1227,15 @@ func (r *PactoReconciler) resolveOCIAuth(ctx context.Context, namespace, secretN
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.APIReader = mgr.GetAPIReader()
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&pactov1alpha1.Pacto{}).
 		Owns(&pactov1alpha1.PactoRevision{}).
 		Watches(&corev1.Service{}, enqueueForTarget(mgr.GetClient())).
-		Watches(&corev1.Secret{}, enqueueForPullSecret(mgr.GetClient())).
+		// Metadata-only: the mapper reads name/namespace, and a typed watch would park
+		// every Secret's .Data in the informer store, breaking INV-5 cluster-wide before
+		// the observer's careful metadata-only reads ever run.
+		Watches(&corev1.Secret{}, enqueueForPullSecret(mgr.GetClient()), builder.OnlyMetadata).
 		Watches(&appsv1.Deployment{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.StatefulSet{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.ReplicaSet{}, enqueueForTarget(mgr.GetClient())).

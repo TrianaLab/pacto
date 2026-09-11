@@ -14,6 +14,26 @@ const (
 	SeverityUnknown Severity = "unknown" // required assertion could not be evaluated
 )
 
+// The compliance ladder's rungs, worst first. Untyped so every producer can use
+// them against its own string-kind status field: pkg/fleet's Status* and the
+// operator's ContractStatus* are the same strings and are ranked against each
+// other, so a rename on one side silently sorts wrong on the other.
+//
+// pkg/finding is where they live because it is the one package all three producers
+// may import — the engine's import allowlist (pkg/validation/boundary_test.go)
+// admits contract, evidence, finding and graph, so pkg/validation cannot reach
+// pkg/fleet, and neither may reach the operator.
+//
+// Only the rungs a finding set can be ranked onto are declared here. Invalid,
+// Reference and NotEvaluated are decided before any finding exists and belong to
+// whichever producer decides them, until one moves here.
+const (
+	StatusNonCompliant = "NonCompliant"
+	StatusUnknown      = "Unknown"
+	StatusWarning      = "Warning"
+	StatusCompliant    = "Compliant"
+)
+
 // Code is a stable, specific finding identifier (e.g. STATELESS_PERSISTENT_CONFLICT).
 type Code string
 
@@ -21,6 +41,11 @@ type Code string
 type Category string
 
 const (
+	// Deprecated: no code maps to this category. The interface shape rules that
+	// used it (INVALID_INTERFACE_TYPE, INTERFACE_REF_REQUIRED) moved into the
+	// structural JSON Schema, which reports SCHEMA_VIOLATION; a missing or
+	// unparseable spec file is CategoryInvalidFile. Nothing can produce it, so do
+	// not write a consumer case for it. Removed at v4.
 	CategoryInterfaceMismatch      Category = "InterfaceMismatch"
 	CategoryStateMismatch          Category = "StateMismatch"
 	CategoryPolicyViolation        Category = "PolicyViolation"

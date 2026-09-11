@@ -1,9 +1,10 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
   import MarkdownView from '../MarkdownView.svelte';
   import { methodClass } from '../lib/format.ts';
 
-  let { capabilities = [], skills = [], open = $bindable(false), id = '', source = '' } = $props();
+  let { capabilities = [], skills = [], open = $bindable(false), id = '' } = $props();
 
   let count = $derived((capabilities?.length || 0) + (skills?.length || 0));
   let hasContent = $derived(count > 0);
@@ -15,7 +16,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Agent Capabilities" {count} bind:open {id} {source}>
+  <CollapsibleSection title="Agent Capabilities" {count} bind:open {id}>
     {#if capabilities?.length > 0}
       <div class="table-wrap">
       <table class="cap-table">
@@ -41,7 +42,10 @@
 
     {#if skills?.length > 0}
       <div class="skills">
-        <h4>Skills</h4>
+        <!-- h3: the section title is an h2, so the first level inside a section body
+             is h3. h4 only read as legal while an earlier section happened to supply
+             the missing h3. -->
+        <h3>Skills</h3>
         {#each skills as skill, i}
           <div class="detail-card">
             <button type="button" class="detail-card-header" onclick={() => toggleSkill(i)}>
@@ -61,6 +65,8 @@
       </div>
     {/if}
   </CollapsibleSection>
+{:else}
+  <SectionState title="Agent Capabilities" bind:open {id} />
 {/if}
 
 <style>
@@ -70,7 +76,7 @@
   .muted { color: var(--c-text-2); }
 
   .skills { margin-top: var(--sp-3); }
-  .skills h4 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
+  .skills h3 { margin-bottom: var(--sp-2); font-size: var(--text-sm); font-weight: 600; }
 
   .detail-card {
     border: 1px solid var(--c-border);

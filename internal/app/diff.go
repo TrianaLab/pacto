@@ -126,11 +126,13 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 func (s *Service) newDiffFetcher(ref string) graph.ContractFetcher {
 	inner := s.newDepFetcher(ref)
 	df := inner.(*depFetcher)
-	if df.baseDir == "" {
+	// A root that came from a registry has no local sibling directory to prefer,
+	// and neither does one whose path would not resolve to an absolute directory.
+	if !filepath.IsAbs(df.baseDir) {
 		return inner
 	}
 	return &localOverrideFetcher{
-		inner:     inner,
+		inner:     df,
 		parentDir: filepath.Dir(df.baseDir),
 	}
 }
@@ -141,11 +143,24 @@ func (s *Service) newDiffFetcher(ref string) graph.ContractFetcher {
 // oci://registry/em-runtime-governance, it checks for
 // /repo/pactos/em-runtime-governance/pacto.yaml before pulling from OCI.
 type localOverrideFetcher struct {
-	inner     graph.ContractFetcher
+	inner     *depFetcher
 	parentDir string
 }
 
+// RootBase implements [graph.OriginContractFetcher] by deferring to the wrapped
+// fetcher: overriding a dependency with a local sibling does not move the root.
+func (f *localOverrideFetcher) RootBase() string { return f.inner.RootBase() }
+
 func (f *localOverrideFetcher) Fetch(ctx context.Context, dep contract.Dependency) (*contract.Bundle, error) {
+	b, _, err := f.FetchFrom(ctx, f.RootBase(), dep)
+	return b, err
+}
+
+// FetchFrom implements [graph.OriginContractFetcher]. An overridden dependency
+// reports the sibling directory it was read from as its base, so ITS relative
+// references resolve against the local copy the diff is actually comparing --
+// not against the registry bundle they were substituted for.
+func (f *localOverrideFetcher) FetchFrom(ctx context.Context, base string, dep contract.Dependency) (*contract.Bundle, string, error) {
 	parsed := graph.ParseDependencyRef(dep.Ref)
 	if parsed.IsOCI() {
 		name := ociRefName(parsed.Location)
@@ -153,10 +168,10 @@ func (f *localOverrideFetcher) Fetch(ctx context.Context, dep contract.Dependenc
 		bundle, err := loadLocalBundle(localPath)
 		if err == nil {
 			logging.LoggerFromContext(ctx).Debug("using local override for dependency", "ref", dep.Ref, "path", localPath)
-			return bundle, nil
+			return bundle, localPath, nil
 		}
 	}
-	return f.inner.Fetch(ctx, dep)
+	return f.inner.FetchFrom(ctx, base, dep)
 }
 
 // ociRefName extracts the last path segment from an OCI location,

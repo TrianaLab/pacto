@@ -332,20 +332,24 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter) bool {
 }
 
 // matchOwnershipState reports whether a SERVICE reference is in the requested
-// ownership state. Any other kind never matches, so an ownership filter on a mixed
-// query narrows to services rather than silently letting revisions through.
+// ownership state, bucketing it by the SAME rule [OwnershipTally.add] uses so a
+// filtered list and the distribution above it always agree. Any other kind never
+// matches, so an ownership filter on a mixed query narrows to services rather than
+// silently letting revisions through.
 func (q *Query) matchOwnershipState(r EntityRef, want string) bool {
 	if r.Kind != KindService {
 		return false
 	}
 	n, _ := q.ownershipState(q.snap.Services[ServiceKey(r.Key)])
-	switch n {
-	case 0:
-		return want == OwnershipUnowned
-	case 1:
-		return want == OwnershipConsistent
+	var t OwnershipTally
+	t.add(n)
+	switch want {
+	case OwnershipUnowned:
+		return t.Unowned == 1
+	case OwnershipConsistent:
+		return t.Consistent == 1
 	default:
-		return want == OwnershipConflicting
+		return t.Conflicting == 1
 	}
 }
 

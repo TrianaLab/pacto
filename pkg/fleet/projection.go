@@ -366,7 +366,7 @@ func (q *Query) targetNeighborhood(kind EntityKind, key string, bp boundedParams
 		// specific revision's declared dependencies to this concrete target, so no
 		// dependency edges are drawn from the target. The limitation says why.
 		extraLimits = append(extraLimits, Limitation{
-			Code:    "TARGET_REVISION_UNRESOLVED",
+			Code:    LimitationTargetRevisionUnresolved,
 			Message: "The revision this deployment runs is not authoritatively known, so its declared dependencies are not attributed to this target. Open the logical service to see revision-level dependencies.",
 		})
 	}
@@ -383,7 +383,7 @@ func (q *Query) targetNeighborhood(kind EntityKind, key string, bp boundedParams
 	// correct place to inspect logical dependents.
 	if bp.dir == DirectionDependents || bp.dir == DirectionBoth {
 		extraLimits = append(extraLimits, Limitation{
-			Code:    "DEPENDENTS_LOGICAL_SERVICE_SCOPED",
+			Code:    LimitationDependentsServiceScoped,
 			Message: "Inbound dependencies are known only at logical-service scope: Pacto does not observe which logical consumers route to this specific deployment. Switch to the service perspective to inspect this service's dependents.",
 		})
 	}
@@ -466,7 +466,7 @@ func revisionObservedLimitation(views []KnowledgeView) LimitationsPreview {
 		return limitationsPreview(nil)
 	}
 	return limitationsPreview([]Limitation{{
-		Code:    "OBSERVED_NOT_REVISION_SCOPED",
+		Code:    LimitationObservedNotRevisionScoped,
 		Message: "Runtime observation is recorded per service, not per revision, so observed traffic is not attributed to a specific revision edge; each edge reports the service-scoped corroboration instead.",
 	}})
 }
@@ -478,7 +478,7 @@ func targetLimitations(views []KnowledgeView, extra []Limitation) LimitationsPre
 	out := append([]Limitation{}, extra...)
 	if viewsInclude(views, ViewObserved) || viewsInclude(views, ViewDifferences) {
 		out = append(out, Limitation{
-			Code:    "OBSERVED_NOT_TARGET_SCOPED",
+			Code:    LimitationObservedNotTargetScoped,
 			Message: "Runtime observation establishes service-to-service traffic, not which concrete provider target served it, so no target-to-target dependency edge is drawn and no edge is attributed to this specific deployment.",
 		})
 	}

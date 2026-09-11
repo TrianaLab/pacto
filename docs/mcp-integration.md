@@ -114,10 +114,13 @@ pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
 `--local`, `--oci`, `--k8s`, `--cache`, `--evidence-url`, `--target-state`,
-`--traces`, `--namespace` and `--freshness` are all accepted — every `pacto fleet`
-source is available as a server flag; the
+`--traces`, `--namespace` and `--freshness` are all accepted, and the
 [`pacto mcp` reference](cli-reference.md#pacto-mcp) lists them with their
-defaults. `pacto_impact` still accepts a per-call `traces` argument, and that one
+defaults. The one `pacto fleet` source flag that does *not* carry over is
+`--root`: on `pacto mcp` it selects the catalog server described above, so it
+cannot be combined with `--fleet`. An agent that wants a dependency closure gets
+it from the catalog server; the fleet tools discover from the sources listed
+here. `pacto_impact` still accepts a per-call `traces` argument, and that one
 reads a path off the local filesystem — see the table below. See
 [The Pacto Operational Graph](operational-graph.md) for the read model these tools
 query and the query semantics they expose.

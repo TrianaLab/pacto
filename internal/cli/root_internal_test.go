@@ -2,8 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v3/internal/app"
@@ -15,7 +18,7 @@ func TestNewRootCommand_PanicRecovery(t *testing.T) {
 	checkForUpdateFn = func(string) *update.CheckResult {
 		panic("injected panic for test")
 	}
-	defer func() { checkForUpdateFn = old }()
+	t.Cleanup(func() { checkForUpdateFn = old })
 
 	t.Setenv("PACTO_NO_UPDATE_CHECK", "")
 
@@ -117,5 +120,40 @@ func TestBannerStaticWhenAnimDisabled(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "service contracts") {
 		t.Fatalf("expected full banner, got %q", buf.String())
+	}
+}
+
+func TestRootSecondExecuteAfterErrorDoesNotDeadlock(t *testing.T) {
+	t.Setenv("PACTO_NO_UPDATE_CHECK", "1")
+	root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "dev"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+
+	// Add a test command that fails in RunE (after PreRun succeeds and fills the channel).
+	failCmd := &cobra.Command{
+		Use: "fail-test",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("intentional failure")
+		},
+	}
+	root.AddCommand(failCmd)
+
+	// First run fails in RunE, so cobra skips PersistentPostRunE and nothing drains
+	// the update channel.
+	root.SetArgs([]string{"fail-test"})
+	if err := root.Execute(); err == nil {
+		t.Fatal("want an error from the fail-test command")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		root.SetArgs([]string{"version"})
+		_ = root.Execute()
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second Execute deadlocked on the update channel")
 	}
 }

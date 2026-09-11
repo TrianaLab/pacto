@@ -114,6 +114,13 @@ type spinner struct {
 // format is not "text" or stderr is not a terminal, so JSON output, pipes and
 // CI logs stay clean.
 func startSpinner(cmd *cobra.Command, format, label string) *spinner {
+	return startSpinnerLabel(cmd, format, func() string { return label })
+}
+
+// startSpinnerLabel is the one spinner constructor: it re-renders label() on
+// every tick, so a fixed caption and a live count (startSpinnerCounted) are the
+// same animation with a different expression.
+func startSpinnerLabel(cmd *cobra.Command, format string, label func() string) *spinner {
 	w := cmd.ErrOrStderr()
 	if format != "text" || !isTerminal(w) || !animationsEnabled(cmd) {
 		return &spinner{}
@@ -124,12 +131,12 @@ func startSpinner(cmd *cobra.Command, format, label string) *spinner {
 		stop:  make(chan struct{}),
 		done:  make(chan struct{}),
 	}
-	writeFrame(w, frameGlyph(0, s.color), label) // first frame synchronously
+	writeFrame(w, frameGlyph(0, s.color), label()) // first frame synchronously
 	go s.run(label)
 	return s
 }
 
-func (s *spinner) run(label string) {
+func (s *spinner) run(label func() string) {
 	defer close(s.done)
 	t := time.NewTicker(spinnerInterval)
 	defer t.Stop()
@@ -140,7 +147,7 @@ func (s *spinner) run(label string) {
 			return
 		case <-t.C:
 			i = (i + 1) % len(spinnerFrames)
-			writeFrame(s.w, frameGlyph(i, s.color), label)
+			writeFrame(s.w, frameGlyph(i, s.color), label())
 		}
 	}
 }

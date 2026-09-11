@@ -29,8 +29,6 @@ type K8sClient interface {
 	DiscoverCRD(ctx context.Context) (*CRDDiscovery, error)
 	// ListJSON returns the raw JSON of all Pacto CRD resources.
 	ListJSON(ctx context.Context, resource, namespace string) ([]byte, error)
-	// GetJSON returns the raw JSON of a single Pacto CRD resource by name.
-	GetJSON(ctx context.Context, resource, namespace, name string) ([]byte, error)
 	// CountResources returns the number of Pacto CRD resources.
 	CountResources(ctx context.Context, resource, namespace string) (int, error)
 }
@@ -104,13 +102,21 @@ func NewGoClient() (K8sClient, error) {
 func buildK8sConfig() (*rest.Config, error) {
 	// Try in-cluster config first.
 	config, err := inClusterConfigFunc()
-	if err == nil {
-		return config, nil
+	if err != nil {
+		// Fall back to kubeconfig.
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+		configOverrides := &clientcmd.ConfigOverrides{}
+		config, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
+		if err != nil {
+			return nil, err
+		}
 	}
-	// Fall back to kubeconfig.
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	configOverrides := &clientcmd.ConfigOverrides{}
-	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides).ClientConfig()
+	// Server deprecation warnings go to klog, which writes to stderr directly and
+	// so escapes every writer the caller controls. Nothing here reads them, and
+	// under a full-screen TUI they corrupt the frame. Suppress per config rather
+	// than mutating the client-go process global.
+	config.WarningHandlerWithContext = rest.NoWarnings{}
+	return config, nil
 }
 
 func (c *k8sGoClient) Probe(ctx context.Context) error {
@@ -192,15 +198,6 @@ func (c *k8sGoClient) ListJSON(ctx context.Context, resource, namespace string) 
 		return nil, err
 	}
 	return json.Marshal(list)
-}
-
-func (c *k8sGoClient) GetJSON(ctx context.Context, resource, namespace, name string) ([]byte, error) {
-	gvr := c.gvr(resource)
-	obj, err := c.dynamic.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(obj)
 }
 
 func (c *k8sGoClient) CountResources(ctx context.Context, resource, namespace string) (int, error) {

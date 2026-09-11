@@ -155,6 +155,9 @@ func NewTargetKey(scope, kind, name string) TargetKey {
 // not CANONICALLY encoded — an invalid escape (e.g. a bare "%", "%2G") or a
 // non-canonical one (e.g. lowercase "%2f") is rejected rather than silently
 // mis-decoded, so only keys [NewTargetKey] could have produced round-trip.
+//
+// Deprecated: no production code in Pacto uses this function; it exists only for
+// same-package tests. Removed at v4.
 func ParseTargetKey(k TargetKey) (scope, kind, name string, ok bool) {
 	parts := strings.Split(string(k), "/")
 	if len(parts) != 3 {
@@ -289,7 +292,6 @@ const (
 	LimitationSourceRecordInvalid = "SOURCE_RECORD_INVALID"
 	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
 	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionConflict    = "REVISION_CONTENT_CONFLICT"
 	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
@@ -297,14 +299,14 @@ const (
 	// whichever one served would make the revision's documents depend on source
 	// ordering — so the revision's documents become unreadable and say why.
 	LimitationRevisionDocConflict = "REVISION_DOCUMENT_CONFLICT"
-	// LimitationRevisionContentMutable: a revision was resolved through a MUTABLE
-	// reference (a tag or local path) rather than an immutable digest, so its
-	// content may differ from what the snapshot captured. Snapshot parity is not
-	// claimed for it.
-	LimitationRevisionContentMutable = "REVISION_CONTENT_MUTABLE"
-	LimitationTargetRefConflict      = "TARGET_REFERENCE_CONFLICT"
-	LimitationTargetFieldConflict    = "TARGET_FIELD_CONFLICT"
-	LimitationOwnerConflict          = "OWNER_CONFLICT"
+	// LimitationRevisionLockConflict: two sources contributed the same immutable
+	// revision but disagree about its pacto.lock. The lock decides which bundle a
+	// declared dependency or reference resolves to, so it is dropped rather than
+	// picked by arrival order.
+	LimitationRevisionLockConflict = "REVISION_LOCK_CONFLICT"
+	LimitationTargetRefConflict    = "TARGET_REFERENCE_CONFLICT"
+	LimitationTargetFieldConflict  = "TARGET_FIELD_CONFLICT"
+	LimitationOwnerConflict        = "OWNER_CONFLICT"
 	// LimitationObservedIdentityUnresolved: a runtime-observed endpoint name could
 	// not be mapped to exactly one domain-qualified fleet service.
 	LimitationObservedIdentityUnresolved = "OBSERVED_IDENTITY_UNRESOLVED"
@@ -312,6 +314,39 @@ const (
 	// parsed. The revision therefore carries no SBOM summary, and that absence must
 	// NOT be read as "this revision declares no software inventory".
 	LimitationSBOMUnreadable = "SBOM_UNREADABLE"
+	// The four projection-scope codes below state what a graph perspective cannot
+	// know. They belong here rather than at their emit sites because an agent is
+	// told to branch on Code, and a code it can only learn by reading Go source is
+	// not part of the vocabulary this const block promises.
+	//
+	// LimitationTargetRevisionUnresolved: the revision a deployment runs is not
+	// authoritatively known, so that revision's declared dependencies are not
+	// attributed to the target.
+	LimitationTargetRevisionUnresolved = "TARGET_REVISION_UNRESOLVED"
+	// LimitationDependentsServiceScoped: inbound dependencies are known only at
+	// logical-service scope; Pacto does not observe which consumers routed to one
+	// concrete deployment.
+	LimitationDependentsServiceScoped = "DEPENDENTS_LOGICAL_SERVICE_SCOPED"
+	// LimitationObservedNotRevisionScoped: runtime observation is recorded per
+	// service, so it is never attributed to a specific revision edge.
+	LimitationObservedNotRevisionScoped = "OBSERVED_NOT_REVISION_SCOPED"
+	// LimitationObservedNotTargetScoped: runtime observation establishes
+	// service-to-service traffic, not which concrete provider target served it.
+	LimitationObservedNotTargetScoped = "OBSERVED_NOT_TARGET_SCOPED"
+
+	// Deprecated: nothing emits REVISION_CONTENT_CONFLICT any more. It reported two
+	// sources pinning one revision key to different contract bodies, which a
+	// content-addressed key makes impossible; the disagreements that are real are
+	// reported as LimitationRevisionDocConflict and LimitationRevisionLockConflict.
+	// The name is kept so a v3 consumer that branches on it still compiles.
+	// Removed at v4.
+	LimitationRevisionConflict = "REVISION_CONTENT_CONFLICT"
+	// Deprecated: nothing emits REVISION_CONTENT_MUTABLE any more. A revision
+	// resolved through a tag or a local path is reported as
+	// LimitationRevisionUnresolved instead, which says the same thing about its
+	// identity at the point the identity is derived. The name is kept so a v3
+	// consumer that branches on it still compiles. Removed at v4.
+	LimitationRevisionContentMutable = "REVISION_CONTENT_MUTABLE"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -432,10 +467,15 @@ type ContractRevision struct {
 	// SBOM summarizes the bundle's software inventory when it ships a readable one.
 	// Nil means no SBOM was read; a LimitationSBOMUnreadable distinguishes "the
 	// bundle has none" from "the bundle has one we could not parse".
-	SBOM      *SBOMSummary `json:"sbom,omitempty"`
-	Source    string       `json:"source"`
-	Sources   []string     `json:"sources,omitempty"`
-	FetchedAt *time.Time   `json:"fetchedAt,omitempty"`
+	SBOM *SBOMSummary `json:"sbom,omitempty"`
+	// Sources lists every source that contributed this revision, sorted. Source is
+	// the first of them, so it is stable rather than a record of which source
+	// happened to finish first: a revision is immutable content keyed by its
+	// digest, so co-contributors have contributed the same thing and none of them
+	// is the authoritative one. Read Sources when the question is provenance.
+	Source    string     `json:"source"`
+	Sources   []string   `json:"sources,omitempty"`
+	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
 
 	// bundle carries the parsed bundle used during Build (to derive tools, skills,
 	// docs and validation) and afterwards as the read-only backing store for lazy
@@ -455,15 +495,27 @@ type ContractRevision struct {
 	// LimitationRevisionDocConflict, and turns every document read into an explicit
 	// unavailable rather than an arbitrary, order-dependent winner.
 	docConflict string
-	// validated records that this revision had raw YAML and was run through the
-	// validator at build time. Stored so status queries never dereference the
-	// build-only bundle after Build.
+	// validated records that this revision's contract document was readable and
+	// was run through the validator at build time. Stored so status queries never
+	// dereference the build-only bundle after Build.
 	validated bool
-	// content is the digest derived from the declared contract body at Build time.
-	// It is the revision's true content identity, used to raise a content conflict
-	// when two sources claim the same key (e.g. the same source-pinned digest) but
-	// disagree on the contract body. Never serialized.
-	content string
+	// lockConflict, when non-empty, is why this revision has no lock: two sources
+	// contributed it with disagreeing pacto.lock resolutions, so Lock was dropped
+	// (see mergeRevisionLock). Like docConflict it carries a reason rather than a
+	// flag, because lockReference reaches a nil lock either way and an operator
+	// told only "no pins recorded" would re-run `pacto lock`, regenerate the same
+	// pins and see nothing change. It also makes the drop sticky: a third
+	// contributor that happens to agree with one side must not reinstate pins the
+	// fleet has already reported as contested.
+	lockConflict string
+	// configurations is the bounded projection of Contract.Configurations, built
+	// ONCE here at the source boundary. Each scope's values map is author-controlled
+	// and arbitrarily wide, and selecting its bounded key set is O(width * bound);
+	// paying that per revision-detail request would let one wide contract multiply
+	// the cost of every unauthenticated GET by its scope count. Reference
+	// resolutions are joined onto a copy at query time because they are a property
+	// of the snapshot's relationships, not of the contract.
+	configurations ConfigurationsPreview
 }
 
 // SBOMSummary is the bounded projection of a bundle's SBOM: enough to answer
@@ -539,6 +591,11 @@ type TargetRecord struct {
 	// order can never silently pick an identity.
 	Quarantined bool         `json:"quarantined,omitempty"`
 	Limitations []Limitation `json:"limitations,omitempty"`
+	// labels is the bounded projection of Labels, computed once by boundTargetLabels
+	// after ingestion. Labels itself has to stay a raw map because TargetQuery filters
+	// on it, so this is the only way the detail path can honor the same
+	// bound-once-at-Build rule ObservedRuntime already follows.
+	labels RuntimePreview
 }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
@@ -651,12 +708,18 @@ type FleetSnapshot struct {
 
 // ObservedDependents returns the services observed calling the given service at
 // runtime (the observed-edge reverse index), separate from declared dependents.
+//
+// Deprecated: no production code in Pacto uses this method; it exists only for
+// same-package tests. Removed at v4.
 func (s *FleetSnapshot) ObservedDependents(key ServiceKey) []ServiceKey {
 	return append([]ServiceKey(nil), s.observedReverse[key]...)
 }
 
 // ObservedDependencies returns the services the given service was observed calling
 // at runtime (the observed-edge forward index), separate from declared ones.
+//
+// Deprecated: no production code in Pacto uses this method; it exists only for
+// same-package tests. Removed at v4.
 func (s *FleetSnapshot) ObservedDependencies(key ServiceKey) []ServiceKey {
 	return append([]ServiceKey(nil), s.observedForward[key]...)
 }

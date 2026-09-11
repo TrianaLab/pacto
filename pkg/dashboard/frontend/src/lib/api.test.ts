@@ -77,13 +77,13 @@ describe('legacy endpoint serialization (generated client owns the URL)', () => 
     expect(q.get('to_version')).toBe('');
   });
 
-  it('POSTs resolve with a JSON body', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
-    await api.resolve('ghcr.io/org/svc:1.0.0', 'strict');
+  it('POSTs fleet impact with a JSON body', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ meta: { schemaVersion: PRODUCT_SCHEMA_VERSION } }));
+    await api.fleetImpactByIdentity({ snapshotId: 's1', fromRevisionKey: 'a', toRevisionKey: 'b' });
     const req = requestFor();
     expect(req.method).toBe('POST');
     expect(req.headers.get('content-type')).toContain('application/json');
-    expect(await req.clone().json()).toEqual({ ref: 'ghcr.io/org/svc:1.0.0', compatibility: 'strict' });
+    expect(await req.clone().json()).toEqual({ snapshotId: 's1', fromRevisionKey: 'a', toRevisionKey: 'b' });
   });
 
   it('POSTs refresh and returns the generated status body', async () => {
@@ -287,7 +287,7 @@ describe('error handling', () => {
 
   it('extracts detail from a JSON error body', async () => {
     mockFetch.mockResolvedValue(new Response(JSON.stringify({ detail: 'invalid ref' }), { status: 422, headers: { 'content-type': 'application/json' } }));
-    await expect(api.resolve('bad-ref')).rejects.toThrow('invalid ref');
+    await expect(api.service('bad-ref')).rejects.toThrow('invalid ref');
   });
 
   it('extracts title from a JSON error body', async () => {
@@ -297,6 +297,12 @@ describe('error handling', () => {
 });
 
 describe('static / WASM transport seam (request-semantic fixtures)', () => {
+  // The only body-bearing POST the facade exposes, so it is what proves a fixture
+  // is matched on its request BODY and not merely on method + path.
+  const impactBody = (from: string) => ({ snapshotId: 's1', fromRevisionKey: from, toRevisionKey: 'z' });
+  const impactResponse = (from: string) => ({ meta: { schemaVersion: PRODUCT_SCHEMA_VERSION }, service: from });
+  const impactFor = (from: string) => api.fleetImpactByIdentity(impactBody(from));
+
   function setStatic(routes: unknown[]) {
     (globalThis as unknown as { __PACTO_STATIC__: unknown }).__PACTO_STATIC__ = { routes, service: 'svc' };
   }
@@ -321,20 +327,20 @@ describe('static / WASM transport seam (request-semantic fixtures)', () => {
   });
 
   it('does not match a fixture when the HTTP method differs', async () => {
-    // A GET fixture must not answer the POST /api/resolve operation.
-    setStatic([{ method: 'GET', path: '/api/resolve', response: { ok: true } }]);
-    await expect(api.resolve('ref')).rejects.toBeInstanceOf(ApiError);
+    // A GET fixture must not answer the POST /api/fleet/impact operation.
+    setStatic([{ method: 'GET', path: '/api/fleet/impact', response: { ok: true } }]);
+    await expect(impactFor('a')).rejects.toBeInstanceOf(ApiError);
   });
 
   it('distinguishes body-sensitive fixtures by request body', async () => {
     setStatic([
-      { method: 'POST', path: '/api/resolve', body: { ref: 'a' }, response: { picked: 'a' } },
-      { method: 'POST', path: '/api/resolve', body: { ref: 'b' }, response: { picked: 'b' } },
+      { method: 'POST', path: '/api/fleet/impact', body: impactBody('a'), response: impactResponse('a') },
+      { method: 'POST', path: '/api/fleet/impact', body: impactBody('b'), response: impactResponse('b') },
     ]);
-    expect(await api.resolve('a')).toEqual({ picked: 'a' });
-    expect(await api.resolve('b')).toEqual({ picked: 'b' });
+    expect(await impactFor('a')).toEqual(impactResponse('a'));
+    expect(await impactFor('b')).toEqual(impactResponse('b'));
     // A body no fixture represents fails honestly rather than matching either.
-    await expect(api.resolve('c')).rejects.toBeInstanceOf(ApiError);
+    await expect(impactFor('c')).rejects.toBeInstanceOf(ApiError);
   });
 
   it('fails honestly on an unknown product route (no misleading 200 + null)', async () => {
@@ -345,7 +351,7 @@ describe('static / WASM transport seam (request-semantic fixtures)', () => {
 
   it('fails honestly on an unknown legacy route', async () => {
     setStatic([{ method: 'GET', path: '/api/services/svc', response: { name: 'svc' } }]);
-    await expect(api.debugSources()).rejects.toBeInstanceOf(ApiError);
+    await expect(api.serviceSources('svc')).rejects.toBeInstanceOf(ApiError);
   });
 
   it('serves the pacto doc single-service offline route set', async () => {

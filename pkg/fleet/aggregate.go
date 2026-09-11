@@ -182,6 +182,21 @@ type OwnershipTally struct {
 	Unowned     int `json:"unowned"`
 }
 
+// add buckets one service by the number of DISTINCT canonical owners its revisions
+// claim. It is the only place 0/1/many is turned into a bucket: the overview
+// partition, the entity aggregate and the ownership search filter all call it, so
+// a filtered list can never disagree with the distribution printed above it.
+func (o *OwnershipTally) add(distinctOwners int) {
+	switch distinctOwners {
+	case 0:
+		o.Unowned++
+	case 1:
+		o.Consistent++
+	default:
+		o.Conflicting++
+	}
+}
+
 // Total is the population the tally covers.
 func (o OwnershipTally) Total() int { return o.Consistent + o.Conflicting + o.Unowned }
 
@@ -356,14 +371,7 @@ func (q *Query) ownershipState(s *ServiceRecord) (distinctOwners int, ownerKey s
 // partition uses.
 func (q *Query) addOwnership(o *OwnershipTally, s *ServiceRecord) string {
 	n, key := q.ownershipState(s)
-	switch n {
-	case 0:
-		o.Unowned++
-	case 1:
-		o.Consistent++
-	default:
-		o.Conflicting++
-	}
+	o.add(n)
 	return key
 }
 
@@ -386,27 +394,25 @@ func (q *Query) aggregate(refs []EntityRef) EntityAggregate {
 			for _, k := range claims.keys {
 				present[k] = true
 			}
-			switch n := claims.len(); {
-			case n == 0:
-				agg.Ownership.Unowned++
-			case n > 1:
-				agg.Ownership.Conflicting++
-			default:
-				agg.Ownership.Consistent++
-				key := claims.soleKey()
-				if key == "" {
+			agg.Ownership.add(claims.len())
+			// Only a consistently owned service can rank, and only under a canonical
+			// key. soleKey is empty both for a conflicted service and for one owned by
+			// contacts alone, so the ranking is guarded by the bucket, not by the key.
+			if claims.len() == 1 {
+				switch key := claims.soleKey(); key {
+				case "":
 					// Consistently owned by an owner with no canonical identity. Counted
 					// here so the ranking's omission is stated rather than lost.
 					agg.UnidentifiedOwnership++
-					break
+				default:
+					c := byOwner[key]
+					if c == nil {
+						c = newOwnerCount(key)
+						byOwner[key] = c
+					}
+					c.Services++
+					c.Targets += len(s.Targets)
 				}
-				c := byOwner[key]
-				if c == nil {
-					c = newOwnerCount(key)
-					byOwner[key] = c
-				}
-				c.Services++
-				c.Targets += len(s.Targets)
 			}
 		case KindRevision:
 			agg.Revisions++

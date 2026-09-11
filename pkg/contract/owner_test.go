@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"slices"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -106,6 +107,26 @@ func TestOwner_EqualNormalizesDuplicateContacts(t *testing.T) {
 	withPurpose := OwnerContact{Type: "email", Value: "ops@acme.com", Purpose: "escalation"}
 	if (Owner{Contacts: []OwnerContact{mail, mail}}).Equal(Owner{Contacts: []OwnerContact{mail, withPurpose}}) {
 		t.Fatal("purpose distinguishes two contact points")
+	}
+}
+
+// ContactSet is the normalized form Equal compares and every owner preview
+// renders, so the order it promises is part of the declaration rather than an
+// implementation detail: type first, then value, then purpose. Equal only ever
+// asks whether two sets match, so it never pins the ordering itself — this does.
+func TestOwner_ContactSetOrdersByTypeThenValueThenPurpose(t *testing.T) {
+	chat := OwnerContact{Type: "chat", Value: "#ops"}
+	ops := OwnerContact{Type: "email", Value: "ops@acme.com"}
+	opsEscalation := OwnerContact{Type: "email", Value: "ops@acme.com", Purpose: "escalation"}
+	pager := OwnerContact{Type: "email", Value: "pager@acme.com"}
+
+	o := Owner{Contacts: []OwnerContact{pager, opsEscalation, chat, ops, pager}}
+	want := []OwnerContact{chat, ops, opsEscalation, pager}
+	if got := o.ContactSet(); !slices.Equal(got, want) {
+		t.Errorf("ContactSet() = %+v, want %+v", got, want)
+	}
+	if got := (Owner{}).ContactSet(); len(got) != 0 {
+		t.Errorf("ContactSet() on an owner with no contacts = %+v, want empty", got)
 	}
 }
 

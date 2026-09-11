@@ -12,150 +12,10 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
-func TestEncodeAuth(t *testing.T) {
-	encoded := encodeAuth("user", "pass")
-	// base64("user:pass") = "dXNlcjpwYXNz"
-	if encoded != "dXNlcjpwYXNz" {
-		t.Errorf("expected dXNlcjpwYXNz, got %s", encoded)
-	}
-}
-
-func TestWritePactoConfig_NewFile(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	configPath := filepath.Join(dir, ".config", "pacto", "config.json")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("expected config file: %v", err)
-	}
-
-	var cfg oci.PactoConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-
-	auth, ok := cfg.Auths["ghcr.io"]
-	if !ok {
-		t.Fatal("expected ghcr.io auth entry")
-	}
-	if auth.Auth != encodeAuth("user", "pass") {
-		t.Errorf("expected encoded auth, got %s", auth.Auth)
-	}
-}
-
-func TestWritePactoConfig_MergeExisting(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	pactoDir := filepath.Join(dir, ".config", "pacto")
-	if err := os.MkdirAll(pactoDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-
-	// Write initial config with one registry
-	initial := oci.PactoConfig{
-		Auths: map[string]oci.PactoAuth{
-			"docker.io": {Auth: "existing"},
-		},
-	}
-	data, _ := json.MarshalIndent(initial, "", "  ")
-	if err := os.WriteFile(filepath.Join(pactoDir, "config.json"), data, 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Add a second registry
-	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Read and verify both exist
-	result, err := os.ReadFile(filepath.Join(pactoDir, "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var cfg oci.PactoConfig
-	if err := json.Unmarshal(result, &cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, ok := cfg.Auths["docker.io"]; !ok {
-		t.Error("expected docker.io to still exist")
-	}
-	if _, ok := cfg.Auths["ghcr.io"]; !ok {
-		t.Error("expected ghcr.io to be added")
-	}
-}
-
-func TestWritePactoConfig_ReadOnlyHome(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-	// Make home read-only so config dir cannot be created
-	if err := os.Chmod(dir, 0555); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0755) })
-
-	err := writePactoConfig("ghcr.io", "user", "pass")
-	if err == nil {
-		t.Error("expected error when home directory is read-only")
-	}
-}
-
-func TestWritePactoConfig_WriteFileError(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	// Pre-create config dir, then make it read-only.
-	pactoDir := filepath.Join(dir, ".config", "pacto")
-	if err := os.MkdirAll(pactoDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(pactoDir, 0555); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(pactoDir, 0755) })
-
-	err := writePactoConfig("ghcr.io", "user", "pass")
-	if err == nil {
-		t.Error("expected error when WriteFile fails on read-only config dir")
-	}
-}
-
-func TestWritePactoConfig_InvalidExistingJSON(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	pactoDir := filepath.Join(dir, ".config", "pacto")
-	if err := os.MkdirAll(pactoDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-
-	// Write invalid JSON
-	if err := os.WriteFile(filepath.Join(pactoDir, "config.json"), []byte("{invalid"), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	err := writePactoConfig("ghcr.io", "user", "pass")
-	if err == nil {
-		t.Error("expected error for invalid existing JSON")
-	}
-}
-
 func TestLoginCommand_ReadPasswordError(t *testing.T) {
 	old := readPasswordFn
 	readPasswordFn = func(int) ([]byte, error) { return nil, fmt.Errorf("read failed") }
-	defer func() { readPasswordFn = old }()
+	t.Cleanup(func() { readPasswordFn = old })
 
 	cmd := newLoginCommand()
 	cmd.SetOut(&bytes.Buffer{})
@@ -170,7 +30,7 @@ func TestLoginCommand_ReadPasswordError(t *testing.T) {
 func TestLoginCommand_ReadPasswordSuccess(t *testing.T) {
 	old := readPasswordFn
 	readPasswordFn = func(int) ([]byte, error) { return []byte("secret"), nil }
-	defer func() { readPasswordFn = old }()
+	t.Cleanup(func() { readPasswordFn = old })
 
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -186,59 +46,16 @@ func TestLoginCommand_ReadPasswordSuccess(t *testing.T) {
 	}
 }
 
-func TestWritePactoConfig_PactoConfigPathError(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-	old := oci.ExportedUserHomeDirFn()
-	oci.SetUserHomeDirFn(func() (string, error) { return "", fmt.Errorf("no home") })
-	t.Cleanup(func() { _ = oci.SetUserHomeDirFn(old) })
-
-	err := writePactoConfig("ghcr.io", "user", "pass")
-	if err == nil {
-		t.Error("expected error when PactoConfigPath fails")
-	}
-}
-
-func TestReadPasswordFn_Default(t *testing.T) {
-	// Exercise the default readPasswordFn (which wraps term.ReadPassword).
-	// Using an invalid fd ensures it returns an error without needing a real terminal.
-	_, err := readPasswordFn(-1)
-	if err == nil {
-		t.Error("expected error from readPasswordFn with invalid fd")
-	}
-}
-
-func TestWritePactoConfig_MarshalError(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	old := jsonMarshalIndentFn
-	jsonMarshalIndentFn = func(any, string, string) ([]byte, error) {
-		return nil, fmt.Errorf("marshal failed")
-	}
-	defer func() { jsonMarshalIndentFn = old }()
-
-	err := writePactoConfig("ghcr.io", "user", "pass")
-	if err == nil {
-		t.Error("expected error when MarshalIndent fails")
-	}
-}
-
-func TestWritePactoConfig_XDGConfigHome(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-
-	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	configPath := filepath.Join(dir, "pacto", "config.json")
-	if _, err := os.Stat(configPath); err != nil {
-		t.Fatalf("expected config file at %s: %v", configPath, err)
-	}
-}
-
-func TestWritePactoConfig_TightensExistingPerms(t *testing.T) {
+// TestLoginCommand_KeepsOtherRegistriesWhenTheConfigCannotBeRead is the
+// counterexample for the data-loss bug: a login that cannot READ the existing
+// credential file must not go on to write one from scratch, because that
+// rewrite deletes every other registry's stored credential while the command
+// reports success.
+//
+// The config is write-only (0200), which is the mode that separates the two
+// behaviours: the read fails the way a transient EACCES does, and the write a
+// fail-open login would then make SUCCEEDS.
+func TestLoginCommand_KeepsOtherRegistriesWhenTheConfigCannotBeRead(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -248,38 +65,51 @@ func TestWritePactoConfig_TightensExistingPerms(t *testing.T) {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(pactoDir, "config.json")
-	// Pre-existing config with world-readable perms — WriteFile alone would keep them.
-	if err := os.WriteFile(configPath, []byte(`{"auths":{}}`), 0644); err != nil {
+	data, _ := json.Marshal(oci.PactoConfig{Auths: map[string]oci.PactoAuth{
+		"docker.io": {Auth: "keep-me"},
+	}})
+	if err := os.WriteFile(configPath, data, 0200); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(configPath, 0200); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(configPath, 0600) })
 
-	if err := writePactoConfig("ghcr.io", "user", "pass"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	cmd := newLoginCommand()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"ghcr.io", "--username", "user", "--password", "pass"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Error("login reported success over a credential file it could not read")
+	}
+	if strings.Contains(out.String(), "Login succeeded") {
+		t.Errorf("login printed success, got: %s", out.String())
 	}
 
-	info, err := os.Stat(configPath)
+	if err := os.Chmod(configPath, 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
-		t.Errorf("expected config perms 0600, got %o", perm)
+	var cfg oci.PactoConfig
+	if err := json.Unmarshal(result, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Auths["docker.io"].Auth; got != "keep-me" {
+		t.Errorf("docker.io = %q, want keep-me: a config that could not be read must not be rewritten", got)
 	}
 }
 
-func TestWritePactoConfig_ChmodError(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	orig := chmodFn
-	chmodFn = func(string, os.FileMode) error { return fmt.Errorf("chmod failed") }
-	t.Cleanup(func() { chmodFn = orig })
-
-	err := writePactoConfig("ghcr.io", "user", "pass")
+func TestReadPasswordFn_Default(t *testing.T) {
+	// Exercise the default readPasswordFn (which wraps term.ReadPassword).
+	// Using an invalid fd ensures it returns an error without needing a real terminal.
+	_, err := readPasswordFn(-1)
 	if err == nil {
-		t.Fatal("expected error when chmod fails")
-	}
-	if !strings.Contains(err.Error(), "failed to secure") {
-		t.Errorf("expected wrapped chmod error, got: %v", err)
+		t.Error("expected error from readPasswordFn with invalid fd")
 	}
 }

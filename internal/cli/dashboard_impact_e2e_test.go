@@ -128,9 +128,8 @@ func singleRevKey(t *testing.T, snap *fleet.FleetSnapshot) string {
 // backed by the given manager (fleet query) and service (real provider).
 func serveImpact(t *testing.T, mgr *fleet.Manager, svc *app.Service, fleetOverride func(context.Context) (*fleet.Query, error)) string {
 	t.Helper()
-	resolved := dashboard.BuildResolvedSource(map[string]dashboard.DataSource{})
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
-	srv := dashboard.NewResolvedServer(resolved, ui, []dashboard.SourceInfo{}, nil)
+	srv := dashboard.NewServer(ui)
 	if fleetOverride != nil {
 		srv.SetFleetProvider(fleetOverride)
 	} else {

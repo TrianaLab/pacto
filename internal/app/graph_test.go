@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v3/internal/testutil"
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/graph"
 )
 
 func TestGraph_Local(t *testing.T) {
@@ -311,11 +313,39 @@ capabilities:
 	}
 }
 
-func TestNewDepFetcher_OCIBaseRef(t *testing.T) {
+// A root pulled from a registry has no directory, so a relative reference it
+// declares must fail closed. Resolving it against the process working directory
+// -- which is what an empty base does -- would let a remote contract choose
+// which local files Pacto reads.
+func TestNewDepFetcher_OCIBaseRefRefusesLocalRefs(t *testing.T) {
 	svc := NewService(nil, nil)
-	fetcher := svc.newDepFetcher("oci://ghcr.io/acme/svc:1.0.0")
-	df := fetcher.(*depFetcher)
-	if df.baseDir != "" {
-		t.Errorf("expected empty baseDir for OCI ref, got %q", df.baseDir)
+	df := svc.newDepFetcher("oci://ghcr.io/acme/svc:1.0.0").(*depFetcher)
+
+	if df.RootBase() != graph.OCIBase {
+		t.Errorf("RootBase() = %q, want %q", df.RootBase(), graph.OCIBase)
+	}
+	_, err := df.Fetch(context.Background(), contract.Dependency{Ref: "./sibling"})
+	if err == nil {
+		t.Fatal("a registry root resolved a relative reference; it must fail closed")
+	}
+	if !strings.Contains(err.Error(), "registry bundle") {
+		t.Errorf("error = %v, want it to name the registry-bundle rule", err)
+	}
+}
+
+// The child base a fetch reports is what its OWN references resolve against: a
+// local bundle reports its directory, so `./b` declared one level down joins
+// onto that directory rather than the root's.
+func TestDepFetcher_FetchFromReportsTheFetchedBundlesBase(t *testing.T) {
+	bundleDir := writeTestBundle(t)
+	svc := NewService(nil, nil)
+	df := svc.newDepFetcher(filepath.Dir(bundleDir)).(*depFetcher)
+
+	_, base, err := df.FetchFrom(context.Background(), filepath.Dir(bundleDir), contract.Dependency{Ref: filepath.Base(bundleDir)})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if base != bundleDir {
+		t.Errorf("child base = %q, want the fetched bundle's own directory %q", base, bundleDir)
 	}
 }

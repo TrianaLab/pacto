@@ -162,6 +162,45 @@ func TestDiffConfiguration_SchemaChanged(t *testing.T) {
 	}
 }
 
+// A configuration that drops its schema stops constraining anything a consumer
+// relied on, so the empty-string transition must reach Removed (Breaking) rather
+// than collapsing into Modified. The mirror is not the safe change it looks
+// like: a schema introduced where there was none can fail an existing
+// configuration that nothing validated before, so it is POTENTIAL_BREAKING.
+func TestDiffConfiguration_SchemaTransitions(t *testing.T) {
+	tests := []struct {
+		name         string
+		oldSchema    string
+		newSchema    string
+		wantType     ChangeType
+		wantClassify Classification
+	}{
+		{"dropped", "config/app.json", "", Removed, Breaking},
+		{"introduced", "", "config/app.json", Added, PotentialBreaking},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := minimalContract()
+			old.Configurations = []contract.Configuration{{Name: "app", Schema: tt.oldSchema, Ref: "oci://ghcr.io/acme/config:1.0.0"}}
+			new := minimalContract()
+			new.Configurations = []contract.Configuration{{Name: "app", Schema: tt.newSchema, Ref: "oci://ghcr.io/acme/config:1.0.0"}}
+
+			found := false
+			for _, c := range diffConfiguration(old, new, nil, nil) {
+				if c.Path == "configurations.schema" {
+					found = true
+					if c.Type != tt.wantType || c.Classification != tt.wantClassify {
+						t.Errorf("got %s/%s, want %s/%s", c.Type, c.Classification, tt.wantType, tt.wantClassify)
+					}
+				}
+			}
+			if !found {
+				t.Error("expected a configurations.schema change")
+			}
+		})
+	}
+}
+
 func TestDiffConfiguration_RefChanged(t *testing.T) {
 	old := minimalContract()
 	old.Configurations = []contract.Configuration{
@@ -412,6 +451,43 @@ func TestDiffPolicy_SchemaChanged(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected policies.schema Modified change")
+	}
+}
+
+// The same empty-string transitions as TestDiffConfiguration_SchemaTransitions,
+// on the policy side. Introducing a policy schema is not free: a consumer whose
+// policy nothing validated before can newly fail against it.
+func TestDiffPolicy_SchemaTransitions(t *testing.T) {
+	tests := []struct {
+		name         string
+		oldSchema    string
+		newSchema    string
+		wantType     ChangeType
+		wantClassify Classification
+	}{
+		{"dropped", "policy/schema.json", "", Removed, PotentialBreaking},
+		{"introduced", "", "policy/schema.json", Added, PotentialBreaking},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := minimalContract()
+			old.Policies = []contract.Policy{{Name: "org", Schema: tt.oldSchema, Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+			new := minimalContract()
+			new.Policies = []contract.Policy{{Name: "org", Schema: tt.newSchema, Ref: "oci://ghcr.io/acme/policy:1.0.0"}}
+
+			found := false
+			for _, c := range diffPolicy(old, new, nil, nil) {
+				if c.Path == "policies.schema" {
+					found = true
+					if c.Type != tt.wantType || c.Classification != tt.wantClassify {
+						t.Errorf("got %s/%s, want %s/%s", c.Type, c.Classification, tt.wantType, tt.wantClassify)
+					}
+				}
+			}
+			if !found {
+				t.Error("expected a policies.schema change")
+			}
+		})
 	}
 }
 

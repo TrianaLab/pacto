@@ -1,13 +1,14 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
 
-  let { sbom = null, open = $bindable(false), id = '', source = '' } = $props();
+  let { sbom = null, open = $bindable(false), id = '' } = $props();
   let packages = $derived(sbom?.packages ?? []);
   let hasContent = $derived(packages.length > 0);
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="SBOM" count={packages.length} bind:open {id} {source}>
+  <CollapsibleSection title="SBOM" count={packages.length} bind:open {id}>
     <p class="sbom-format">Format <code>{sbom.format}</code> · {packages.length} packages</p>
     <div class="table-wrap">
     <table class="sbom-table">
@@ -25,6 +26,8 @@
     </table>
     </div>
   </CollapsibleSection>
+{:else}
+  <SectionState title="SBOM" bind:open {id} />
 {/if}
 
 <style>

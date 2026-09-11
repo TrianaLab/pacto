@@ -2,10 +2,12 @@ package fleetsrc
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -138,14 +140,74 @@ func TestEvidenceHTTPSource_Collect_Degraded(t *testing.T) {
 			if len(col.Targets) != 1 {
 				t.Errorf("degraded source should still keep usable targets, got %d", len(col.Targets))
 			}
-			if col.State == nil || col.State.Status != fleet.SourcePartial {
-				t.Errorf("degraded source must be SourcePartial: %+v", col.State)
-			}
 			if !hasLimitationCode(col.Limitations, fleet.LimitationSourcePartial) {
 				t.Errorf("degraded source must surface SOURCE_PARTIAL: %+v", col.Limitations)
 			}
+			// The snapshot is what consumers read, so assert the state THERE rather
+			// than the collection field that produces it: a degraded source is partial
+			// AND it just answered, so it still has both freshness timestamps.
+			st := buildOneSourceState(t, &staticSource{id: "evidence-http", kind: "evidence-http", col: col})
+			if st.Status != fleet.SourcePartial {
+				t.Errorf("degraded source must be SourcePartial: %+v", st)
+			}
+			if st.LastSuccessfulSync == nil || st.ObservedAt == nil {
+				t.Errorf("a source that just answered has synced: state = %+v, want both timestamps set", st)
+			}
 		})
 	}
+}
+
+// The consumer reports the server's OWN summary of the server's own health, not
+// a second phrasing of it. A store that could neither read some subjects nor
+// parse some artifacts says both; the mirrored copy here had drifted to a switch
+// that returned on the first count and silently dropped the other, so a consumer
+// was told about one half of a two-part failure.
+func TestEvidenceHTTPSource_Collect_DegradedReasonIsTheServersOwn(t *testing.T) {
+	health := evidenceingest.SourceHealth{Status: "partial", Subjects: 4, FailedSubjects: 1, InvalidArtifacts: 2}
+	payload, err := json.Marshal(evidenceingest.TargetsResponse{
+		SchemaVersion: evidenceingest.TargetsSchemaVersion,
+		Health:        health,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := serveJSON(t, string(payload))
+	defer srv.Close()
+	col, err := NewEvidenceHTTPSource("evidence-http", srv.URL).Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(col.Limitations) != 1 {
+		t.Fatalf("want one SOURCE_PARTIAL limitation, got %+v", col.Limitations)
+	}
+	if got := col.Limitations[0].Message; got != health.Reason() {
+		t.Errorf("limitation message = %q, want the server's own reason %q", got, health.Reason())
+	}
+}
+
+// staticSource replays an already-collected collection through [fleet.Build], so
+// a test can assert the SourceState the snapshot actually carries.
+type staticSource struct {
+	id, kind string
+	col      *fleet.Collection
+}
+
+func (s *staticSource) ID() string   { return s.id }
+func (s *staticSource) Kind() string { return s.kind }
+func (s *staticSource) Collect(context.Context) (*fleet.Collection, error) {
+	return s.col, nil
+}
+
+func buildOneSourceState(t *testing.T, src fleet.Source) fleet.SourceState {
+	t.Helper()
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(snap.Sources) != 1 {
+		t.Fatalf("sources = %d, want 1", len(snap.Sources))
+	}
+	return snap.Sources[0]
 }
 
 func hasLimitationCode(ls []fleet.Limitation, code string) bool {

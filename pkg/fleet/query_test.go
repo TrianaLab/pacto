@@ -870,6 +870,67 @@ func TestStatus_NeedsAttentionAndOrderAndLimit(t *testing.T) {
 	}
 }
 
+// Status is a projection of the product attention backlog, so every item it emits
+// must exist in that backlog with the same entity, code and reason. The two used to
+// be derived separately and had drifted: Status called an unresolved dependency a
+// "relationship" named by an arrow-joined pseudo-edge (an entity no other endpoint
+// resolves) and counted observed edges the backlog excludes.
+//
+// Two unresolved dependencies of ONE service also share a Kind, a Name and a Code,
+// so this is what pins the reason tiebreak that keeps a truncated list stable. The
+// two are declared by DIFFERENT revisions on purpose: snapshot relationships are
+// sorted by revision and then by dependency name, so declaring both in one revision
+// would hand Status a list already in reason order and the tiebreak could be deleted
+// with the assertion still passing. Declaring the alphabetically later dependency on
+// the lower-keyed revision feeds Status the reverse order, so only the comparator can
+// produce the expected one.
+func TestStatus_ProjectsTheAttentionBacklog(t *testing.T) {
+	alpha := func(version, dep string) *contract.Contract {
+		return &contract.Contract{
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: "alpha", Version: version},
+			Dependencies: []contract.Dependency{{Name: dep, Ref: "oci://x/" + dep, Required: true, Compatibility: "^1.0.0"}},
+		}
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{
+			{Bundle: &contract.Bundle{Contract: alpha("1.0.0", "zeta"), FS: fstest.MapFS{}}, Digest: "sha256:alpha-1"},
+			{Bundle: &contract.Bundle{Contract: alpha("2.0.0", "aleph"), FS: fstest.MapFS{}}, Digest: "sha256:alpha-2"},
+		}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+
+	backlog := map[StatusItem]bool{}
+	for _, it := range q.collectAttention() {
+		backlog[StatusItem{Kind: string(it.Entity.Kind), Name: it.Entity.Key, Code: it.Code, Reason: it.Reason}] = true
+	}
+	items := q.Status(StatusQuery{NeedsAttention: true}).Items
+	for _, it := range items {
+		if !backlog[it] {
+			t.Errorf("status item is absent from the attention backlog: %+v", it)
+		}
+	}
+
+	var unresolved []StatusItem
+	for _, it := range items {
+		if it.Code == "UNRESOLVED_DEPENDENCY" {
+			unresolved = append(unresolved, it)
+		}
+	}
+	if len(unresolved) != 2 {
+		t.Fatalf("both unresolved dependencies must be reported, got %+v", items)
+	}
+	if unresolved[0].Kind != string(KindService) || unresolved[0].Name != "alpha" {
+		t.Errorf("an unresolved dependency belongs to the declaring service, got %+v", unresolved[0])
+	}
+	// Same kind, same name, same code: the reason is the only remaining order.
+	if unresolved[0].Reason >= unresolved[1].Reason {
+		t.Errorf("ties must order by reason, got %q then %q", unresolved[0].Reason, unresolved[1].Reason)
+	}
+}
+
 func hasCode(items []StatusItem, code string) bool {
 	for _, it := range items {
 		if it.Code == code {

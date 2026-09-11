@@ -7,6 +7,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/internal/fleetsrc"
 	"github.com/trianalab/pacto/v3/pkg/catalog"
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/lock"
 	"github.com/trianalab/pacto/v3/pkg/oci"
@@ -18,7 +19,12 @@ import (
 // directory of its choosing, so a local reference declared inside a registry
 // bundle fails closed here exactly as it does in the lock builder. A local base
 // is always an absolute path, so the two can never be confused.
-const catalogOCIBase = "oci://"
+//
+// It is [graph.OCIBase] rather than its own literal because the graph resolver
+// draws the same distinction over the same values: two sentinels meaning "came
+// from a registry" could drift apart, and the fail-closed branch that reads them
+// would then disagree between the catalog and the dependency fetcher.
+const catalogOCIBase = graph.OCIBase
 
 // CatalogResolver adapts this service to pkg/catalog's Resolver port.
 //
@@ -30,12 +36,41 @@ const catalogOCIBase = "oci://"
 // and a lockfile cannot disagree about what a reference resolves to.
 func (s *Service) CatalogResolver() catalog.Resolver { return catalogResolver{svc: s} }
 
-type catalogResolver struct{ svc *Service }
+// recordingCatalogResolver is [Service.CatalogResolver] with a side channel:
+// every bundle it loads is kept in rec, keyed by the content identity the
+// catalog will know it as.
+//
+// The catalog drops the bundle on purpose — it models identity, provenance and
+// topology, and holding contract bodies would make a frozen session as large as
+// the closure it describes. A fleet snapshot needs the opposite: interfaces,
+// schemas, readiness and validation all read the bundle. Recording during the
+// one resolution the walk already performs is what lets both be true without a
+// second registry pull or disk read per revision, and guarantees the fleet sees
+// exactly the bytes the catalog took the identity from.
+func (s *Service) recordingCatalogResolver(rec *bundleRecorder) catalog.Resolver {
+	return catalogResolver{svc: s, rec: rec}
+}
+
+type catalogResolver struct {
+	svc *Service
+	rec *bundleRecorder
+}
 
 func (r catalogResolver) Resolve(ctx context.Context, req catalog.ResolveRequest) (catalog.Resolution, error) {
+	res, b, err := r.resolve(ctx, req)
+	if err != nil {
+		return catalog.Resolution{}, err
+	}
+	r.rec.record(res.Content, b)
+	return res, nil
+}
+
+// resolve is Resolve without the recording, returning the bundle the resolution
+// came out of alongside the projection the catalog keeps.
+func (r catalogResolver) resolve(ctx context.Context, req catalog.ResolveRequest) (catalog.Resolution, *contract.Bundle, error) {
 	parsed := graph.ParseDependencyRef(req.Ref)
 	if parsed.Location == "" {
-		return catalog.Resolution{}, catalogErr(catalog.ReasonInvalidReference, "the reference names nothing")
+		return catalog.Resolution{}, nil, catalogErr(catalog.ReasonInvalidReference, "the reference names nothing")
 	}
 	if parsed.IsOCI() {
 		return r.remote(ctx, parsed.Location, req.Constraint)
@@ -47,21 +82,21 @@ func (r catalogResolver) Resolve(ctx context.Context, req catalog.ResolveRequest
 // hash over the bundle's whole file set, not its path or its declared version:
 // two directories claiming the same service and version but holding different
 // bytes are two revisions, and only a content hash says so.
-func catalogLocal(path, base string) (catalog.Resolution, error) {
+func catalogLocal(path, base string) (catalog.Resolution, *contract.Bundle, error) {
 	dir, err := catalogLocalDir(path, base)
 	if err != nil {
-		return catalog.Resolution{}, err
+		return catalog.Resolution{}, nil, err
 	}
 	if _, _, err := resolveLocalPath(dir); err != nil {
-		return catalog.Resolution{}, catalogErr(catalog.ReasonNotFound, "no contract bundle at the referenced path")
+		return catalog.Resolution{}, nil, catalogErr(catalog.ReasonNotFound, "no contract bundle at the referenced path")
 	}
 	b, err := loadLocalBundle(dir)
 	if err != nil {
-		return catalog.Resolution{}, catalogErr(catalog.ReasonInvalidContract, "the contract bundle at the referenced path could not be read")
+		return catalog.Resolution{}, nil, catalogErr(catalog.ReasonInvalidContract, "the contract bundle at the referenced path could not be read")
 	}
 	h, err := lock.HashFS(b.FS)
 	if err != nil {
-		return catalog.Resolution{}, catalogErr(catalog.ReasonInvalidContract, "the contract bundle at the referenced path could not be hashed")
+		return catalog.Resolution{}, nil, catalogErr(catalog.ReasonInvalidContract, "the contract bundle at the referenced path could not be hashed")
 	}
 	// Base is the resolved absolute directory rather than the content hash: two
 	// byte-identical bundle directories still resolve their own relative
@@ -71,7 +106,7 @@ func catalogLocal(path, base string) (catalog.Resolution, error) {
 		Contract: b.Contract,
 		Content:  catalog.ContentID{Scheme: catalog.SchemeLocal, Digest: h},
 		Base:     dir,
-	}, nil
+	}, b, nil
 }
 
 // catalogLocalDir decides which directory a local reference means. A reference
@@ -99,25 +134,21 @@ func catalogLocalDir(path, base string) (string, error) {
 // remote pins a registry reference to the digest it currently names. That digest
 // is the identity; the tag that led to it is provenance, and the catalog keeps
 // both apart.
-func (r catalogResolver) remote(ctx context.Context, location, constraint string) (catalog.Resolution, error) {
+func (r catalogResolver) remote(ctx context.Context, location, constraint string) (catalog.Resolution, *contract.Bundle, error) {
 	if err := r.svc.requireBundleStore(); err != nil {
-		return catalog.Resolution{}, catalogErr(catalog.ReasonUnavailable, "no registry client is configured")
+		return catalog.Resolution{}, nil, catalogErr(catalog.ReasonUnavailable, "no registry client is configured")
 	}
-	resolvedRef, dgst, err := resolveDigest(ctx, r.svc.BundleStore, location, constraint)
+	p, err := resolvePinned(ctx, r.svc.BundleStore, location, constraint)
 	if err != nil {
-		return catalog.Resolution{}, catalogFailure(err)
-	}
-	b, err := r.svc.BundleStore.Pull(ctx, resolvedRef)
-	if err != nil {
-		return catalog.Resolution{}, catalogFailure(err)
+		return catalog.Resolution{}, nil, catalogFailure(err)
 	}
 	return catalog.Resolution{
-		Contract:    b.Contract,
+		Contract:    p.Bundle.Contract,
 		Domain:      fleetsrc.OciDomain(location),
-		Content:     catalog.ContentID{Scheme: catalog.SchemeOCI, Digest: dgst},
-		ResolvedRef: oci.PinRefToDigest(resolvedRef, dgst),
+		Content:     catalog.ContentID{Scheme: catalog.SchemeOCI, Digest: p.Digest},
+		ResolvedRef: oci.PinRefToDigest(p.Ref, p.Digest),
 		Base:        catalogOCIBase,
-	}, nil
+	}, p.Bundle, nil
 }
 
 // catalogFailure reduces a resolution failure to a category. The underlying
