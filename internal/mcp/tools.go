@@ -197,9 +197,9 @@ type checkArgs struct {
 	Path string `json:"path"`
 }
 
-func checkHandler(resolver validation.BundleResolver) mcpsdk.ToolHandlerFor[checkArgs, any] {
+func checkHandler(resolverFor PolicyResolverFor) mcpsdk.ToolHandlerFor[checkArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args checkArgs) (*mcpsdk.CallToolResult, any, error) {
-		result, err := Check(ctx, resolver, args.Path)
+		result, err := Check(ctx, resolverFor, args.Path)
 		if err != nil {
 			return nil, nil, err
 		}

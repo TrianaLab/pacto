@@ -71,14 +71,7 @@ type depFetcher struct {
 // newDepFetcher creates a ContractFetcher that can resolve both OCI and local
 // dependency references. baseRef is the path/ref of the root contract.
 func (s *Service) newDepFetcher(baseRef string) graph.ContractFetcher {
-	base := graph.OCIBase
-	if !isOCIRef(baseRef) {
-		base = ""
-		if abs, err := filepath.Abs(baseRef); err == nil {
-			base = abs
-		}
-	}
-	return &depFetcher{store: s.BundleStore, baseDir: base}
+	return &depFetcher{store: s.BundleStore, baseDir: rootBase(baseRef)}
 }
 
 // RootBase implements [graph.OriginContractFetcher].
@@ -128,8 +121,14 @@ func (f *depFetcher) FetchFrom(ctx context.Context, base string, dep contract.De
 
 // depLocalDir decides which directory a local reference means. A reference
 // declared by a registry bundle means none: honouring it would let a remote
-// contract choose which local files Pacto reads. This is the same rule the
-// catalog resolver applies in catalogLocalDir, for the same reason.
+// contract choose which local files Pacto reads.
+//
+// Every walk that follows a local reference out of a contract comes through
+// here -- the dependency graph, the lock builder's reference closure and policy
+// resolution -- so the three cannot disagree about which directory a "./..."
+// means or about which of them a remote contract is allowed to name. The
+// catalog resolver applies the same rule in catalogLocalDir, in the terms its
+// own port reports failures in.
 func depLocalDir(path, base string) (string, error) {
 	if base == graph.OCIBase {
 		return "", fmt.Errorf("a local reference declared inside a registry bundle cannot be resolved: %s", path)

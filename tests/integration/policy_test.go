@@ -293,10 +293,23 @@ state:
 	assertContains(t, output, "FILE_NOT_FOUND")
 }
 
+// TestPushRejectsLocalPolicyRef pins the rejection itself, not merely "push
+// failed". The referenced policy bundle really exists next to the service, so
+// validation resolves and satisfies it; the push must still fail, and it must
+// fail because publishing a bundle whose policy lives on the publisher's disk
+// produces an artifact nobody else can validate.
 func TestPushRejectsLocalPolicyRef(t *testing.T) {
 	t.Parallel()
 	reg := newTestRegistry(t)
-	dir := filepath.Join(t.TempDir(), "local-policy-svc")
+	root := t.TempDir()
+
+	writeBundleDirWithPolicy(t, filepath.Join(root, "platform-policy"), `pactoVersion: "2.0"
+service:
+  name: platform-policy
+  version: 1.0.0
+`, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["service"]}`)
+
+	dir := filepath.Join(root, "local-policy-svc")
 	contractYAML := `pactoVersion: "2.0"
 service:
   name: local-policy-svc
@@ -321,10 +334,17 @@ state:
 		"openapi.yaml": fmt.Sprintf(openapiTemplate, "local-policy-svc", "1.0.0"),
 	})
 
-	_, err := runCommand(t, reg, "push", "oci://"+reg.host+"/local-policy-svc:1.0.0", "-p", bundlePath)
-	if err == nil {
-		t.Fatal("expected push to reject local policy ref")
+	// The bundle validates on its own, so the failure below cannot be an
+	// unresolved ref standing in for the rejection under test.
+	if out, err := runCommand(t, reg, "validate", bundlePath); err != nil {
+		t.Fatalf("validate failed before the push under test: %v\noutput: %s", err, out)
 	}
+
+	out, err := runCommand(t, reg, "push", "oci://"+reg.host+"/local-policy-svc:1.0.0", "-p", bundlePath)
+	if err == nil {
+		t.Fatalf("expected push to reject local policy ref, output: %s", out)
+	}
+	assertContains(t, out+err.Error(), "local policy ref detected")
 }
 
 func TestPolicyOCIRefSuccess(t *testing.T) {

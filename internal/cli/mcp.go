@@ -112,11 +112,11 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 		if err != nil {
 			return nil, err
 		}
-		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc), nil
+		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc.PolicyResolver), nil
 	case len(args) > 0:
 		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
-	return pactomcp.NewServer(svc, version), nil
+	return pactomcp.NewServer(svc.PolicyResolver, version), nil
 }
 
 // checkMCPMode rejects an invocation that selects more than one server. The
@@ -198,7 +198,7 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 		BaseURL:     baseURL,
 		Creds:       creds,
 		AllowWrites: allowWrites,
-		Resolver:    svc,
+		Resolver:    svc.PolicyResolver,
 	}
 	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
 }

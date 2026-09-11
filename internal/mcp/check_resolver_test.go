@@ -12,6 +12,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/internal/testutil"
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 // stubPolicyResolver answers every ref with the same bundle, or the same error.
@@ -19,11 +20,20 @@ type stubPolicyResolver struct {
 	bundle *contract.Bundle
 	err    error
 	refs   []string
+	roots  []string
 }
 
 func (r *stubPolicyResolver) ResolveBundle(_ context.Context, ref string) (*contract.Bundle, error) {
 	r.refs = append(r.refs, ref)
 	return r.bundle, r.err
+}
+
+// forRoot makes the stub a PolicyResolverFor, recording which root it was built
+// for. The root is the whole reason the tool takes a factory rather than a
+// resolver, so a test that never looks at it cannot see the factory work.
+func (r *stubPolicyResolver) forRoot(root string) validation.BundleResolver {
+	r.roots = append(r.roots, root)
+	return r
 }
 
 // bundleWithPolicyRef writes a contract whose only policy is a ref, which is the
@@ -50,7 +60,7 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 
 	t.Run("a ref the resolver cannot fetch is invalid", func(t *testing.T) {
 		r := &stubPolicyResolver{err: errors.New("not found")}
-		res, err := Check(context.Background(), r, dir)
+		res, err := Check(context.Background(), r.forRoot, dir)
 		if err != nil {
 			t.Fatalf("Check: %v", err)
 		}
@@ -60,6 +70,11 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 		assertCode(t, res, "POLICY_REF_UNRESOLVED")
 		if len(r.refs) != 1 || r.refs[0] != "oci://ghcr.io/acme/platform-policy:1.0.0" {
 			t.Errorf("resolver saw %v, want the declared ref exactly once", r.refs)
+		}
+		// The bundle being checked, not the directory the server was started in:
+		// a relative policies[].ref means "next to the contract that wrote it".
+		if len(r.roots) != 1 || r.roots[0] != dir {
+			t.Errorf("resolver built for %v, want [%s]", r.roots, dir)
 		}
 	})
 
@@ -78,7 +93,7 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 		r := &stubPolicyResolver{bundle: &contract.Bundle{FS: fstest.MapFS{
 			"policy/schema.json": {Data: []byte(`{"required":["metadata"]}`)},
 		}}}
-		res, err := Check(context.Background(), r, dir)
+		res, err := Check(context.Background(), r.forRoot, dir)
 		if err != nil {
 			t.Fatalf("Check: %v", err)
 		}
@@ -94,7 +109,7 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 func TestCheckTool_UsesTheWiredResolver(t *testing.T) {
 	dir := bundleWithPolicyRef(t)
 	r := &stubPolicyResolver{err: errors.New("registry unreachable")}
-	res := callToolOn(t, NewServer(r, "test"), "pacto_check", map[string]any{"path": dir})
+	res := callToolOn(t, NewServer(r.forRoot, "test"), "pacto_check", map[string]any{"path": dir})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", resultText(t, res))
 	}

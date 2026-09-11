@@ -17,20 +17,31 @@ const baseInstructions = "Pacto is an operational contract format for cloud-nati
 	"and get actionable improvement suggestions. Call pacto_schema first if you " +
 	"need the full JSON Schema reference."
 
+// PolicyResolverFor supplies the resolver for ONE checked bundle: root is the
+// directory that bundle was read from, and the resolver it returns resolves that
+// bundle's policies[].ref entries relative to it.
+//
+// It is a factory rather than a single resolver because one server answers
+// pacto_check for many bundles, and a relative ref means "next to the contract
+// that wrote it". A server-wide resolver would read every "./platform-policy"
+// from the directory Pacto happened to be started in, which is how pacto_check
+// and `pacto validate` come to disagree about the same contract.
+type PolicyResolverFor func(root string) validation.BundleResolver
+
 // NewServer creates a new MCP server with all Pacto authoring tools registered.
 //
-// resolver resolves a policies[].ref to the bundle it names. Like impactProvider
-// it is supplied by the command layer, so this package depends on the validation
-// port and never on OCI, Kubernetes or the app service. Wiring it is what makes
-// pacto_check answer with the same recursive policy resolution `pacto validate`
-// runs; without it the tool would call the weaker local-only validator and tell
-// an agent a contract is valid that CI then rejects.
+// resolverFor resolves a policies[].ref to the bundle it names. Like
+// impactProvider it is supplied by the command layer, so this package depends on
+// the validation port and never on OCI, Kubernetes or the app service. Wiring it
+// is what makes pacto_check answer with the same recursive policy resolution
+// `pacto validate` runs; without it the tool would call the weaker local-only
+// validator and tell an agent a contract is valid that CI then rejects.
 //
-// A nil resolver is not a downgrade: validation fails a ref-based policy closed
-// with POLICY_REF_UNRESOLVED, so the agent is told the contract cannot be
+// A nil resolverFor is not a downgrade: validation fails a ref-based policy
+// closed with POLICY_REF_UNRESOLVED, so the agent is told the contract cannot be
 // confirmed valid rather than told it is.
-func NewServer(resolver validation.BundleResolver, version string) *mcpsdk.Server {
-	return newServer(version, baseInstructions, resolver)
+func NewServer(resolverFor PolicyResolverFor, version string) *mcpsdk.Server {
+	return newServer(version, baseInstructions, resolverFor)
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose
@@ -45,9 +56,9 @@ func newBareServer(version, instructions string) *mcpsdk.Server {
 }
 
 // newServer builds a server with the given instructions and the authoring tools.
-func newServer(version, instructions string, resolver validation.BundleResolver) *mcpsdk.Server {
+func newServer(version, instructions string, resolverFor PolicyResolverFor) *mcpsdk.Server {
 	server := newBareServer(version, instructions)
-	registerTools(server, resolver)
+	registerTools(server, resolverFor)
 	return server
 }
 
@@ -59,10 +70,10 @@ func newServer(version, instructions string, resolver validation.BundleResolver)
 // typed struct. The raw form does neither, so `{"max_depth":"3"}` used to decode
 // to nothing and be read as the 0 that means "unlimited" — the caller asked to
 // bound a traversal and got an unbounded one.
-func registerTools(server *mcpsdk.Server, resolver validation.BundleResolver) {
+func registerTools(server *mcpsdk.Server, resolverFor PolicyResolverFor) {
 	mcpsdk.AddTool(server, createTool(), createHandler())
 	mcpsdk.AddTool(server, editTool(), editHandler())
-	mcpsdk.AddTool(server, checkTool(), checkHandler(resolver))
+	mcpsdk.AddTool(server, checkTool(), checkHandler(resolverFor))
 	mcpsdk.AddTool(server, schemaTool(), schemaHandler())
 }
 

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"path/filepath"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
@@ -60,28 +59,13 @@ func (s *Service) buildLock(ctx context.Context, ref string, bundle *contract.Bu
 
 	// References are pinned transitively: a referenced config/policy bundle may
 	// itself reference further configs/policies, all of which must be pinned.
-	refs, err := s.buildReferenceClosure(ctx, bundle.Contract, referenceBaseDir(ref))
+	refs, err := s.buildReferenceClosure(ctx, bundle.Contract, rootBase(ref))
 	if err != nil {
 		return nil, err
 	}
 	l.References = refs
 
 	return l, nil
-}
-
-// referenceBaseDir returns the directory against which the root contract's
-// local references are resolved. OCI roots have no filesystem base (""); local
-// roots resolve relative to their own directory (the supplied ref). The base is
-// only joined onto relative local refs, so a relative root path stays valid.
-func referenceBaseDir(ref string) string {
-	if isOCIRef(ref) {
-		return ""
-	}
-	base := ref
-	if abs, err := filepath.Abs(ref); err == nil {
-		base = abs
-	}
-	return base
 }
 
 // buildReferenceClosure pins the full transitive config/policy reference closure:
@@ -198,19 +182,18 @@ type refResolution struct {
 }
 
 // resolveReference pins one reference and returns the referenced bundle's
-// contract (for recursion), its base dir ("" for OCI) and its resolved identity.
-// Any resolve/pull/hash/load failure yields *lock.UnresolvedError (fail closed).
+// contract (for recursion), the base its own references resolve from
+// ([graph.OCIBase] for a registry bundle, so a local reference declared inside
+// one fails closed) and its resolved identity. Any resolve/pull/hash/load
+// failure yields *lock.UnresolvedError (fail closed).
 func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef, dir string) (refResolution, error) {
 	var r lock.Reference
 	parsed := graph.ParseDependencyRef(d.Ref)
 
 	if parsed.IsLocal() {
-		if dir == "" {
-			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: "local reference inside an OCI bundle cannot be resolved"}
-		}
-		path := parsed.Location
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(dir, path)
+		path, err := depLocalDir(parsed.Location, dir)
+		if err != nil {
+			return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 		}
 		b, err := loadLocalBundle(path)
 		if err != nil {
@@ -237,7 +220,7 @@ func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef,
 	r.Ref = d.Ref
 	r.Digest = p.Digest
 	r.Version = p.Bundle.Contract.Service.Version
-	return refResolution{entry: r, child: p.Bundle.Contract, childDir: "", identity: "oci:" + p.Digest}, nil
+	return refResolution{entry: r, child: p.Bundle.Contract, childDir: graph.OCIBase, identity: "oci:" + p.Digest}, nil
 }
 
 // entryFromEdge builds a dependency lock entry from a resolved graph node,

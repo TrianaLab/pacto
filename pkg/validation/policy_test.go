@@ -692,3 +692,115 @@ func TestCompilePolicySchema_CompileError(t *testing.T) {
 		t.Error("expected error for schema with unresolved $ref")
 	}
 }
+
+// originResolver implements OriginBundleResolver, keying each answer on the
+// {base, ref} pair rather than on the ref text alone -- which is what the wider
+// port exists to express.
+type originResolver struct {
+	root    string
+	bundles map[string]*contract.Bundle
+	childOf map[string]string
+	seen    []string
+}
+
+func (r *originResolver) RootBase() string { return r.root }
+
+func (r *originResolver) ResolveBundle(ctx context.Context, ref string) (*contract.Bundle, error) {
+	b, _, err := r.ResolveBundleFrom(ctx, r.root, ref)
+	return b, err
+}
+
+func (r *originResolver) ResolveBundleFrom(_ context.Context, base, ref string) (*contract.Bundle, string, error) {
+	key := base + "\x00" + ref
+	r.seen = append(r.seen, key)
+	b, ok := r.bundles[key]
+	if !ok {
+		return nil, "", fmt.Errorf("bundle not found: %s from %s", ref, base)
+	}
+	return b, r.childOf[key], nil
+}
+
+// TestResolvePoliciesWithResolver_OriginPortCarriesTheDeclarer pins the reason
+// the wider port exists: the same ref text declared by two different contracts
+// names two different bundles. A resolver told only the text reads both from
+// wherever the process happens to be, and a chain keyed on the text alone
+// reports the second hop as a cycle it is not.
+func TestResolvePoliciesWithResolver_OriginPortCarriesTheDeclarer(t *testing.T) {
+	c := &contract.Contract{Policies: []contract.Policy{{Name: "ext", Ref: "./p"}}}
+	inner := &contract.Bundle{FS: fstest.MapFS{
+		"policy/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object","required":["service"]}`)},
+	}}
+	outer := &contract.Bundle{
+		Contract: &contract.Contract{Policies: []contract.Policy{{Name: "ext2", Ref: "./p"}}},
+		FS:       fstest.MapFS{},
+	}
+	r := &originResolver{
+		root: "/a",
+		bundles: map[string]*contract.Bundle{
+			"/a\x00./p":   outer,
+			"/a/p\x00./p": inner,
+		},
+		childOf: map[string]string{"/a\x00./p": "/a/p"},
+	}
+
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, r)
+	if !result.IsValid() {
+		t.Fatalf("expected no errors, got %+v", result.Errors)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("expected 1 resolved policy, got %d", len(policies))
+	}
+	want := []string{"/a\x00./p", "/a/p\x00./p"}
+	if len(r.seen) != len(want) || r.seen[0] != want[0] || r.seen[1] != want[1] {
+		t.Errorf("resolver saw %q, want %q", r.seen, want)
+	}
+}
+
+// TestResolvePoliciesWithResolver_OriginCycle keeps the cycle guard honest under
+// the wider port: a link that reappears with the SAME base is a real loop.
+func TestResolvePoliciesWithResolver_OriginCycle(t *testing.T) {
+	c := &contract.Contract{Policies: []contract.Policy{{Name: "ext", Ref: "./p"}}}
+	self := &contract.Bundle{
+		Contract: &contract.Contract{Policies: []contract.Policy{{Name: "ext2", Ref: "./p"}}},
+		FS:       fstest.MapFS{},
+	}
+	r := &originResolver{
+		root:    "/a",
+		bundles: map[string]*contract.Bundle{"/a\x00./p": self},
+		childOf: map[string]string{"/a\x00./p": "/a"},
+	}
+
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, r)
+	if result.IsValid() {
+		t.Fatal("expected a cycle error")
+	}
+	if result.Errors[0].Code != "POLICY_REF_CYCLE" {
+		t.Errorf("code = %q, want POLICY_REF_CYCLE", result.Errors[0].Code)
+	}
+	// The chain is rendered as the ref texts a human wrote, not the machine
+	// paths that make each link an identity.
+	if !strings.Contains(result.Errors[0].Message, "[./p ./p]") {
+		t.Errorf("message = %q, want the declared chain", result.Errors[0].Message)
+	}
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
+	}
+}
+
+// TestResolvePoliciesWithResolver_OriginResolverError pins that a failure from
+// the wider port is reported the same way the narrow one's is: fail closed.
+func TestResolvePoliciesWithResolver_OriginResolverError(t *testing.T) {
+	c := &contract.Contract{Policies: []contract.Policy{{Name: "ext", Ref: "./nowhere"}}}
+	r := &originResolver{root: "/a"}
+
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, r)
+	if result.IsValid() {
+		t.Fatal("expected an error")
+	}
+	if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+		t.Errorf("code = %q, want POLICY_REF_UNRESOLVED", result.Errors[0].Code)
+	}
+	if len(policies) != 0 {
+		t.Errorf("expected no policies, got %d", len(policies))
+	}
+}

@@ -9,7 +9,10 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/trianalab/pacto/v3/internal/testutil"
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 func TestValidate_LocalValid(t *testing.T) {
@@ -296,4 +299,90 @@ func TestBundleResolverAdapter(t *testing.T) {
 	if bundle == nil {
 		t.Fatal("expected non-nil bundle")
 	}
+}
+
+// TestPolicyResolver_RootBase pins the two answers rootBase can give, through
+// the constructor the validate path actually calls.
+func TestPolicyResolver_RootBase(t *testing.T) {
+	svc := NewService(&mockBundleStore{}, nil)
+
+	dir := testutil.WriteTestBundle(t)
+	local, ok := svc.PolicyResolver(dir).(validation.OriginBundleResolver)
+	if !ok {
+		t.Fatal("PolicyResolver must satisfy OriginBundleResolver, or every ref silently resolves from the working directory")
+	}
+	want, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := local.RootBase(); got != want {
+		t.Errorf("RootBase() = %q, want %q", got, want)
+	}
+
+	remote := svc.PolicyResolver("oci://ghcr.io/acme/svc:1.0.0").(validation.OriginBundleResolver)
+	if got := remote.RootBase(); got != graph.OCIBase {
+		t.Errorf("RootBase() = %q, want %q for a registry root", got, graph.OCIBase)
+	}
+}
+
+// TestBundleResolverAdapter_ResolveBundleFrom covers what the wider port is for:
+// a relative ref means "next to the contract that declared it", and a contract
+// that came out of a registry may not name a local directory at all.
+func TestBundleResolverAdapter_ResolveBundleFrom(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	dir := filepath.Join(root, "policy-bundle")
+	writeBundle(t, dir, "policy-bundle", "1.0.0", "")
+
+	svc := NewService(&mockBundleStore{}, nil)
+	adapter := svc.PolicyResolver(root).(validation.OriginBundleResolver)
+
+	t.Run("a relative ref resolves against the declarer, not the process", func(t *testing.T) {
+		b, childBase, err := adapter.ResolveBundleFrom(ctx, root, "file://./policy-bundle")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if b.Contract.Service.Name != "policy-bundle" {
+			t.Errorf("name = %q, want policy-bundle", b.Contract.Service.Name)
+		}
+		if childBase != dir {
+			t.Errorf("child base = %q, want %q", childBase, dir)
+		}
+	})
+
+	t.Run("a local ref declared by a registry bundle fails closed", func(t *testing.T) {
+		_, _, err := adapter.ResolveBundleFrom(ctx, graph.OCIBase, "file://./policy-bundle")
+		if err == nil {
+			t.Fatal("expected an error: a remote contract must not choose a local directory")
+		}
+		if !strings.Contains(err.Error(), "registry bundle") {
+			t.Errorf("error = %v, want it to name the registry origin", err)
+		}
+	})
+
+	t.Run("a local ref that does not exist is an error", func(t *testing.T) {
+		if _, _, err := adapter.ResolveBundleFrom(ctx, root, "file://./nowhere"); err == nil {
+			t.Fatal("expected an error for a missing bundle")
+		}
+	})
+
+	t.Run("an OCI ref reports the registry as the child base", func(t *testing.T) {
+		b, childBase, err := adapter.ResolveBundleFrom(ctx, root, "oci://ghcr.io/acme/svc:1.0.0")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if b == nil {
+			t.Fatal("expected a bundle")
+		}
+		if childBase != graph.OCIBase {
+			t.Errorf("child base = %q, want %q", childBase, graph.OCIBase)
+		}
+	})
+
+	t.Run("an OCI failure propagates", func(t *testing.T) {
+		broken := NewService(nil, nil).PolicyResolver(root).(validation.OriginBundleResolver)
+		if _, _, err := broken.ResolveBundleFrom(ctx, root, "oci://ghcr.io/acme/svc:1.0.0"); err == nil {
+			t.Fatal("expected an error with no bundle store")
+		}
+	})
 }

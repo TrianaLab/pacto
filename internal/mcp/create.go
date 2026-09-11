@@ -777,10 +777,18 @@ func applyMetadataEdits(m map[string]any, set map[string]any, remove []string) [
 // local-only validator used by pack and push downgrades an unresolvable
 // policies[].ref to a warning, which is exactly the disagreement that let a loop
 // terminate on a contract the pipeline then rejected.
-func Check(ctx context.Context, resolver validation.BundleResolver, path string) (*CheckResult, error) {
+func Check(ctx context.Context, resolverFor PolicyResolverFor, path string) (*CheckResult, error) {
 	dir := path
 	if dir == "" {
 		dir = "."
+	}
+
+	// Built from dir, not from the process working directory: a relative
+	// policies[].ref means "next to the contract that declared it", and the
+	// contract being checked is the one in dir.
+	var resolver validation.BundleResolver
+	if resolverFor != nil {
+		resolver = resolverFor(dir)
 	}
 
 	pactoPath := filepath.Join(dir, "pacto.yaml")

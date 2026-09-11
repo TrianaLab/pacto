@@ -13,7 +13,6 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 	"github.com/trianalab/pacto/v3/pkg/skills"
-	"github.com/trianalab/pacto/v3/pkg/validation"
 )
 
 // CapabilityOptions configures capability-tool registration for a bundle.
@@ -25,7 +24,7 @@ type CapabilityOptions struct {
 	// Resolver is passed through to the authoring tools this server also
 	// registers, so pacto_check here runs the same recursive policy resolution
 	// `pacto validate` runs. See NewServer.
-	Resolver validation.BundleResolver
+	Resolver PolicyResolverFor
 }
 
 // NewCapabilityServer builds an MCP server that exposes both the authoring tools
