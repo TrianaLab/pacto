@@ -878,7 +878,7 @@ func TestDocsFromContract_ReadsSortedTitlesIgnoresNonMd(t *testing.T) {
 func TestDocsFromContract_PerDocTruncation(t *testing.T) {
 	old := maxDocBytes
 	maxDocBytes = 5
-	defer func() { maxDocBytes = old }()
+	t.Cleanup(func() { maxDocBytes = old })
 	fsys := fstest.MapFS{"docs/big.md": &fstest.MapFile{Data: []byte("0123456789")}}
 	got := docsFromContract(fsys)
 	if len(got) != 1 || !got[0].Truncated || got[0].Content != "01234" {
@@ -889,7 +889,7 @@ func TestDocsFromContract_PerDocTruncation(t *testing.T) {
 func TestDocsFromContract_CountCap(t *testing.T) {
 	old := maxDocCount
 	maxDocCount = 1
-	defer func() { maxDocCount = old }()
+	t.Cleanup(func() { maxDocCount = old })
 	fsys := fstest.MapFS{
 		"docs/a.md": &fstest.MapFile{Data: []byte("# A")},
 		"docs/b.md": &fstest.MapFile{Data: []byte("# B")},
@@ -902,7 +902,7 @@ func TestDocsFromContract_CountCap(t *testing.T) {
 func TestDocsFromContract_TotalCap(t *testing.T) {
 	old := maxTotalDocBytes
 	maxTotalDocBytes = 6
-	defer func() { maxTotalDocBytes = old }()
+	t.Cleanup(func() { maxTotalDocBytes = old })
 	fsys := fstest.MapFS{
 		"docs/a.md": &fstest.MapFile{Data: []byte("aaaa")},
 		"docs/b.md": &fstest.MapFile{Data: []byte("bbbb")},
