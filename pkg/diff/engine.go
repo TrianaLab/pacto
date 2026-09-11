@@ -18,6 +18,15 @@
 // walk descends into: an element present on both sides is deep-diffed, so the
 // table is never asked. Adding such a row changes nothing and reads as if it
 // does. SBOM artifacts are diffed separately and are informational only.
+//
+// Two sites adjust a classifier's answer in place, so the table alone does not
+// decide severity for openapi.parameters or for a configuration's values.
+// diffParameters (openapi.go) escalates to Breaking when a parameter arrives
+// required or turns required, because the table cannot see the parameter's own
+// required flag. diffConfigValues (interfaces.go) overwrites every walk result
+// with NonBreaking, because inline values are the provider's own defaults rather
+// than consumer-facing surface. Tuning either of those two table rows without
+// reading its call site will look like it did nothing.
 package diff
 
 import (

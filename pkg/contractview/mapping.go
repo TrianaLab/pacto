@@ -53,9 +53,14 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	svc.Readiness = readinessFromContract(c, docPathSet(svc.Docs))
 	svc.Metadata = metadataFromContract(c)
 
-	// Validation
-	if bundle.RawYAML != nil {
-		result := validation.Validate(c, bundle.RawYAML, bundle.FS)
+	// Validation. Ask the bundle for the document rather than reading RawYAML:
+	// a bundle fetched from a registry carries it in FS only, and reading the
+	// field directly is what left every `pacto doc` dependency Unknown.
+	// This is a rendering path, so an unreadable document is not fatal -- the
+	// service keeps StatusUnknown from ServiceFromContract and the export still
+	// renders, rather than the whole page failing over one bad bundle.
+	if raw, rawErr := bundle.Raw(); rawErr == nil {
+		result := validation.Validate(c, raw, bundle.FS)
 		svc.Validation = validationInfoFromResult(result)
 		if result.IsValid() {
 			// Valid offline/OCI/local bundle with no runtime evaluation is NotEvaluated,

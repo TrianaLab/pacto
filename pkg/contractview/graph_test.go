@@ -1,7 +1,9 @@
 package contractview
 
 import (
+	"bytes"
 	"testing"
+	"testing/fstest"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	depgraph "github.com/trianalab/pacto/v3/pkg/graph"
@@ -245,63 +247,19 @@ func TestBuildGlobalGraph_EmptyRefSkipped(t *testing.T) {
 	}
 }
 
-func TestBuildRefAliases_Empty(t *testing.T) {
-	aliases := buildRefAliases(nil)
-	if len(aliases) != 0 {
-		t.Errorf("expected 0 aliases, got %d", len(aliases))
-	}
-}
-
-func TestBuildRefAliases_WithImageAndChart(t *testing.T) {
-	index := map[string]*ServiceDetails{
-		"my-svc": {
-			Service: Service{Name: "my-svc"},
-		},
-		"nil-svc": nil,
-	}
-	aliases := buildRefAliases(index)
-	// No ImageRef/ChartRef fields in v2 model
-	if len(aliases) != 0 {
-		t.Errorf("expected 0 aliases, got %d", len(aliases))
-	}
-}
-
-func TestBuildRefAliases_SameNameNoAlias(t *testing.T) {
-	index := map[string]*ServiceDetails{
-		"api": {
-			Service: Service{Name: "api"},
-		},
-	}
-	aliases := buildRefAliases(index)
-	if len(aliases) != 0 {
-		t.Errorf("expected 0 aliases when ref name equals service name, got %d", len(aliases))
-	}
-}
-
 func TestResolveServiceName_DirectMatch(t *testing.T) {
 	index := map[string]*ServiceDetails{
 		"my-svc": {Service: Service{Name: "my-svc"}},
 	}
-	got := resolveServiceName("my-svc", index, nil)
+	got := resolveServiceName("my-svc", index)
 	if got != "my-svc" {
 		t.Errorf("expected 'my-svc', got %q", got)
 	}
 }
 
-func TestResolveServiceName_ViaAlias(t *testing.T) {
-	index := map[string]*ServiceDetails{
-		"my-svc": {Service: Service{Name: "my-svc"}},
-	}
-	aliases := map[string]string{"my-svc-image": "my-svc"}
-	got := resolveServiceName("my-svc-image", index, aliases)
-	if got != "my-svc" {
-		t.Errorf("expected 'my-svc' via alias, got %q", got)
-	}
-}
-
 func TestResolveServiceName_NoMatch(t *testing.T) {
 	index := map[string]*ServiceDetails{}
-	got := resolveServiceName("unknown", index, nil)
+	got := resolveServiceName("unknown", index)
 	if got != "unknown" {
 		t.Errorf("expected 'unknown' (passthrough), got %q", got)
 	}
@@ -311,7 +269,7 @@ func TestResolveServiceName_PactoSuffix(t *testing.T) {
 	index := map[string]*ServiceDetails{
 		"payment-gateway": {Service: Service{Name: "payment-gateway"}},
 	}
-	got := resolveServiceName("payment-gateway-pacto", index, nil)
+	got := resolveServiceName("payment-gateway-pacto", index)
 	if got != "payment-gateway" {
 		t.Errorf("expected 'payment-gateway' via -pacto suffix strip, got %q", got)
 	}
@@ -319,7 +277,7 @@ func TestResolveServiceName_PactoSuffix(t *testing.T) {
 
 func TestResolveServiceName_PactoSuffix_NoMatch(t *testing.T) {
 	index := map[string]*ServiceDetails{}
-	got := resolveServiceName("unknown-pacto", index, nil)
+	got := resolveServiceName("unknown-pacto", index)
 	if got != "unknown-pacto" {
 		t.Errorf("expected 'unknown-pacto' (passthrough), got %q", got)
 	}
@@ -550,15 +508,24 @@ func TestGlobalGraphFromResult_RootOnly(t *testing.T) {
 	}
 }
 
+// TestGlobalGraphFromResult_RootWithDep also pins the dependency node's status:
+// a fetched dependency carries its document in FS (never RawYAML), so it must be
+// validated through the FS and render its real status rather than Unknown.
 func TestGlobalGraphFromResult_RootWithDep(t *testing.T) {
 	root := &ServiceDetails{
 		Service:      Service{Name: "root-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
 		Dependencies: []DependencyInfo{{Ref: "dep-svc", Required: true, Compatibility: "^2.0.0"}},
 	}
+	depYAML := []byte("pactoVersion: \"2.0\"\nservice:\n  name: dep-svc\n  version: 2.0.0\nworkload: service\n")
+	depContract, err := contract.Parse(bytes.NewReader(depYAML))
+	if err != nil {
+		t.Fatal(err)
+	}
 	depNode := &depgraph.Node{
 		Name:     "dep-svc",
 		Version:  "2.0.0",
-		Contract: &contract.Contract{Service: contract.Service{Name: "dep-svc", Version: "2.0.0"}},
+		Contract: depContract,
+		FS:       fstest.MapFS{"pacto.yaml": {Data: depYAML}},
 	}
 	gr := &depgraph.Result{Root: &depgraph.Node{
 		Name:         "root-svc",
@@ -589,6 +556,46 @@ func TestGlobalGraphFromResult_RootWithDep(t *testing.T) {
 	}
 	if !rootNode.Edges[0].Resolved {
 		t.Error("expected root->dep edge to be resolved")
+	}
+
+	var depNodeData *GraphNodeData
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == "dep-svc" {
+			depNodeData = &g.Nodes[i]
+		}
+	}
+	if depNodeData == nil {
+		t.Fatal("dep-svc node not found")
+	}
+	if depNodeData.Status != string(StatusNotEvaluated) {
+		t.Errorf("expected dep status %q derived from the bundle FS, got %q", StatusNotEvaluated, depNodeData.Status)
+	}
+}
+
+// TestGlobalGraphFromResult_DepWithoutFS proves the rendering ruling: a
+// dependency whose document cannot be read (no RawYAML, no FS) stays Unknown
+// instead of failing the whole export.
+func TestGlobalGraphFromResult_DepWithoutFS(t *testing.T) {
+	root := &ServiceDetails{
+		Service:      Service{Name: "root-svc", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		Dependencies: []DependencyInfo{{Ref: "dep-svc"}},
+	}
+	gr := &depgraph.Result{Root: &depgraph.Node{
+		Name:     "root-svc",
+		Version:  "1.0.0",
+		Contract: &contract.Contract{Service: contract.Service{Name: "root-svc", Version: "1.0.0"}},
+		Dependencies: []depgraph.Edge{{Ref: "dep-svc", Node: &depgraph.Node{
+			Name:     "dep-svc",
+			Version:  "2.0.0",
+			Contract: &contract.Contract{Service: contract.Service{Name: "dep-svc", Version: "2.0.0"}},
+		}}},
+	}}
+
+	g := GlobalGraphFromResult(gr, root)
+	for _, n := range g.Nodes {
+		if n.ID == "dep-svc" && n.Status != string(StatusUnknown) {
+			t.Errorf("expected dep status Unknown without a readable document, got %q", n.Status)
+		}
 	}
 }
 

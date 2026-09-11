@@ -15,7 +15,7 @@ import (
 // names?" -- content retrievability / immutable resolver identity. It does NOT
 // answer "which fleet revision does this target correspond to, and how confidently?"
 // -- that is revision-match certainty (exact / inferred / ambiguous / unresolved),
-// computed by matchRevision in build.go and surfaced as a target's LinkState.
+// computed by matchRevisionIn in build.go and surfaced as a target's LinkState.
 //
 // The two dimensions are genuinely orthogonal. A runtime source (the k8s operator)
 // can report a trusted content digest with no canonical oci://...@digest reference,
@@ -167,7 +167,7 @@ func classifyOCIRef(ref string) (repository string, dgst digest.Digest, class Id
 // recorded content digest (may be empty). It reuses [classifyOCIRef] for the
 // ref-only validation and then cross-checks the recorded digest. It answers ONLY
 // whether the content is resolver-retrievable, never how confidently the target is
-// matched to a fleet revision (that is matchRevision / LinkState).
+// matched to a fleet revision (that is matchRevisionIn / LinkState).
 func ClassifyContentIdentity(resolvedRef, recordedDigest string) ContentIdentity {
 	repo, dgst, class := classifyOCIRef(resolvedRef)
 	if class != IdentityExact {
@@ -215,6 +215,12 @@ func ParseCanonicalOCIRef(ref string) (repository string, dgst digest.Digest, er
 // cross-check a recorded content digest; callers that judge retrievable snapshot
 // content must use [ClassifyContentIdentity] so retrievability means the same thing
 // everywhere.
+//
+// Deprecated: use [ParseCanonicalOCIRef] and test its error, which answers the same
+// ref-only question and also says WHY a ref fails it; use [ClassifyContentIdentity]
+// instead whenever a recorded content digest exists to cross-check, since a ref that
+// is digest-pinned but contradicts the recorded digest is not retrievable content.
+// Removed at v4.
 func IsDigestPinnedRef(ref string) bool {
 	_, _, err := ParseCanonicalOCIRef(ref)
 	return err == nil

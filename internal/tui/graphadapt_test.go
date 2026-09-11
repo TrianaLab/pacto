@@ -221,7 +221,7 @@ func TestNeighborhoodToTreeMarksOutsideNodesAsError(t *testing.T) {
 	if e.Error == "" {
 		t.Fatal("an edge to an outside node must carry an error message")
 	}
-	out := graph.RenderTree(r)
+	out := graph.RenderTreeColored(r, graph.TreeColors{})
 	if !strings.Contains(out, "outside the requested neighborhood") {
 		t.Fatalf("the rendered tree must show the gap:\n%s", out)
 	}
@@ -264,7 +264,7 @@ func TestNeighborhoodToTreeDoesNotMarkServicesAsLocal(t *testing.T) {
 		Edges: []fleet.NeighborhoodEdge{nbEdge("a", "b")},
 	}
 	r := neighborhoodToTree(n)
-	out := graph.RenderTree(r)
+	out := graph.RenderTreeColored(r, graph.TreeColors{})
 	if strings.Contains(out, "[local]") {
 		t.Fatalf("service nodes must not render as [local]:\n%s", out)
 	}

@@ -60,13 +60,6 @@ type GlobalGraph struct {
 	Nodes []GraphNodeData `json:"nodes"`
 }
 
-// buildRefAliases builds a mapping from OCI repo names to contract service names.
-// With v2, image/chart fields are removed, so this returns an empty map.
-// The fallback stripPactoSuffix heuristic handles the common "-pacto" OCI suffix.
-func buildRefAliases(index map[string]*ServiceDetails) map[string]string {
-	return make(map[string]string)
-}
-
 // stripPactoSuffix removes the conventional "-pacto" suffix from OCI repo names.
 func stripPactoSuffix(name string) (string, bool) {
 	stripped := strings.TrimSuffix(name, "-pacto")
@@ -74,14 +67,11 @@ func stripPactoSuffix(name string) (string, bool) {
 }
 
 // resolveServiceName resolves a ref-extracted name to an actual service name
-// using the index and alias map. As a fallback, strips the common "-pacto"
-// suffix from OCI repo names (e.g. "payment-gateway-pacto" → "payment-gateway").
-func resolveServiceName(name string, index map[string]*ServiceDetails, aliases map[string]string) string {
+// using the index. As a fallback, strips the common "-pacto" suffix from OCI
+// repo names (e.g. "payment-gateway-pacto" → "payment-gateway").
+func resolveServiceName(name string, index map[string]*ServiceDetails) string {
 	if _, ok := index[name]; ok {
 		return name
-	}
-	if resolved, ok := aliases[name]; ok {
-		return resolved
 	}
 	if stripped, ok := stripPactoSuffix(name); ok {
 		if _, exists := index[stripped]; exists {
@@ -100,7 +90,6 @@ type unresolvedReasonFunc func(depRef string) string
 // for unresolved nodes so the UI can distinguish auth failures from missing repos, etc.
 func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reasonFn unresolvedReasonFunc) *GlobalGraph {
 	graph := &GlobalGraph{}
-	aliases := buildRefAliases(index)
 
 	// Track which names we've added as nodes.
 	nodeSet := make(map[string]bool)
@@ -118,7 +107,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 		if details != nil {
 			// Dependency edges
 			for _, dep := range details.Dependencies {
-				depName := resolveServiceName(extractServiceNameFromRef(dep.Ref), index, aliases)
+				depName := resolveServiceName(extractServiceNameFromRef(dep.Ref), index)
 				_, resolved := index[depName]
 				node.Edges = append(node.Edges, GraphEdgeData{
 					TargetID:      depName,
@@ -149,7 +138,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 				if ref == "" {
 					return
 				}
-				refName := resolveServiceName(extractServiceNameFromRef(ref), index, aliases)
+				refName := resolveServiceName(extractServiceNameFromRef(ref), index)
 				if refName == svc.Name {
 					return // skip self-references
 				}
@@ -201,8 +190,9 @@ func unresolvedReason(depRef string, reasonFn unresolvedReasonFunc) string {
 // GlobalGraphFromResult builds the flat D3 GlobalGraph (as served at /api/graph)
 // from a resolved dependency graph, for the offline single-service doc export.
 // root is the already-built snapshot for gr.Root (carries real status + lock pins);
-// dependency nodes are built from their resolved contracts (status Unknown, since a
-// fetched dependency node carries no RawYAML to validate).
+// dependency nodes are built from their resolved contracts and validated through
+// the bundle FS, so they carry a real status. A node the resolver could not fetch
+// a contract for stays Unknown.
 func GlobalGraphFromResult(gr *depgraph.Result, root *ServiceDetails) *GlobalGraph {
 	if gr == nil || gr.Root == nil {
 		return &GlobalGraph{}

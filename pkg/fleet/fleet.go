@@ -467,10 +467,15 @@ type ContractRevision struct {
 	// SBOM summarizes the bundle's software inventory when it ships a readable one.
 	// Nil means no SBOM was read; a LimitationSBOMUnreadable distinguishes "the
 	// bundle has none" from "the bundle has one we could not parse".
-	SBOM      *SBOMSummary `json:"sbom,omitempty"`
-	Source    string       `json:"source"`
-	Sources   []string     `json:"sources,omitempty"`
-	FetchedAt *time.Time   `json:"fetchedAt,omitempty"`
+	SBOM *SBOMSummary `json:"sbom,omitempty"`
+	// Sources lists every source that contributed this revision, sorted. Source is
+	// the first of them, so it is stable rather than a record of which source
+	// happened to finish first: a revision is immutable content keyed by its
+	// digest, so co-contributors have contributed the same thing and none of them
+	// is the authoritative one. Read Sources when the question is provenance.
+	Source    string     `json:"source"`
+	Sources   []string   `json:"sources,omitempty"`
+	FetchedAt *time.Time `json:"fetchedAt,omitempty"`
 
 	// bundle carries the parsed bundle used during Build (to derive tools, skills,
 	// docs and validation) and afterwards as the read-only backing store for lazy
@@ -490,9 +495,9 @@ type ContractRevision struct {
 	// LimitationRevisionDocConflict, and turns every document read into an explicit
 	// unavailable rather than an arbitrary, order-dependent winner.
 	docConflict string
-	// validated records that this revision had raw YAML and was run through the
-	// validator at build time. Stored so status queries never dereference the
-	// build-only bundle after Build.
+	// validated records that this revision's contract document was readable and
+	// was run through the validator at build time. Stored so status queries never
+	// dereference the build-only bundle after Build.
 	validated bool
 	// lockConflict, when non-empty, is why this revision has no lock: two sources
 	// contributed it with disagreeing pacto.lock resolutions, so Lock was dropped

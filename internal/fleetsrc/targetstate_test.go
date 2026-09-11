@@ -222,16 +222,24 @@ func TestTargetStateFileSource_TooManyTargets(t *testing.T) {
 }
 
 func TestStateFixtureToState(t *testing.T) {
-	cases := map[string]fleet.SourceStatus{
-		"available":   fleet.SourceAvailable,
-		"stale":       fleet.SourceStale,
-		"partial":     fleet.SourcePartial,
-		"unavailable": fleet.SourceUnavailable,
-		"weird":       fleet.SourceAvailable, // unknown → available fallback
-		"":            fleet.SourceAvailable,
+	// wantSync is whether the built state may carry a LastSuccessfulSync stamped from
+	// the build clock. Only available and partial may: stale and unavailable each
+	// assert the last GOOD read was not this one, so a sync stamped now would
+	// contradict the status sitting in the same struct.
+	cases := map[string]struct {
+		want     fleet.SourceStatus
+		wantSync bool
+	}{
+		"available":   {fleet.SourceAvailable, true},
+		"stale":       {fleet.SourceStale, false},
+		"partial":     {fleet.SourcePartial, true},
+		"unavailable": {fleet.SourceUnavailable, false},
+		"weird":       {fleet.SourceAvailable, true}, // unknown → available fallback
+		"":            {fleet.SourceAvailable, true},
 	}
 	at := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
-	for status, want := range cases {
+	for status, tc := range cases {
+		want := tc.want
 		t.Run(status, func(t *testing.T) {
 			col := &fleet.Collection{State: (stateFixture{Status: status}).toState()}
 			src := &staticSource{id: "ts", kind: "target-state", col: col}
@@ -246,10 +254,17 @@ func TestStateFixtureToState(t *testing.T) {
 			if got.Status != want {
 				t.Errorf("status = %q, want %q", got.Status, want)
 			}
-			// Whatever health it declares, the read that produced it succeeded, so
-			// every declared state carries the read time stamped by fleet.Build.
-			if got.LastSuccessfulSync == nil || !got.LastSuccessfulSync.Equal(at) || got.ObservedAt == nil || !got.ObservedAt.Equal(at) {
-				t.Errorf("state = %+v, want both timestamps at %v", got, at)
+			// Whatever health it declares, the READ happened, so every declared state
+			// carries the read time as ObservedAt. Whether that read SUCCEEDED is
+			// exactly what the status says, so LastSuccessfulSync follows the status.
+			if got.ObservedAt == nil || !got.ObservedAt.Equal(at) {
+				t.Errorf("ObservedAt = %v, want the read time %v", got.ObservedAt, at)
+			}
+			switch {
+			case tc.wantSync && (got.LastSuccessfulSync == nil || !got.LastSuccessfulSync.Equal(at)):
+				t.Errorf("LastSuccessfulSync = %v, want %v for a %q source", got.LastSuccessfulSync, at, want)
+			case !tc.wantSync && got.LastSuccessfulSync != nil:
+				t.Errorf("a %q source must not claim a successful sync, got %v", want, got.LastSuccessfulSync)
 			}
 		})
 	}

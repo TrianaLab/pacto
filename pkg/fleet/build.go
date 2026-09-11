@@ -584,15 +584,23 @@ func sourceStateFor(src Source, col *Collection, now time.Time, revCount, target
 		// Fill the freshness timestamps the source left unset, from the pinnable
 		// BuildOptions.Now clock. The read that produced this state happened now, so a
 		// declared state with no timestamps must not reach the snapshot looking like a
-		// source that has never synced -- that is what used to force a source to choose
+		// source nothing has looked at -- that is what used to force a source to choose
 		// between declaring "partial" and keeping its own freshness.
 		//
 		// Only what is UNSET is filled. A source that declares stale and dates its last
 		// successful sync an hour ago is stating the one fact "stale" carries;
 		// overwriting it with now would erase the staleness and contradict the status
 		// in the same struct.
+		//
+		// ObservedAt is filled for ANY status: the read happened now whatever it found.
+		// LastSuccessfulSync is filled only for the two statuses that may claim a sync.
+		// Stale and unavailable each ASSERT that the last GOOD read was not now, so
+		// stamping the build clock there would make the state contradict its own status
+		// -- and would disagree with unavailableState, which stamps neither field for
+		// the same status on the error path. The canonicalized-and-downgraded status is
+		// what decides, never the status as supplied.
 		t := now
-		if st.LastSuccessfulSync == nil {
+		if st.LastSuccessfulSync == nil && (status == SourceAvailable || status == SourcePartial) {
 			st.LastSuccessfulSync = &t
 		}
 		if st.ObservedAt == nil {
@@ -714,8 +722,20 @@ func revisionFrom(raw RawRevision, source string, now time.Time) (*ContractRevis
 	}
 	// Owner references the cloned contract so it never aliases source memory.
 	rev.Owner = rev.Contract.Service.Owner
-	if b.RawYAML != nil {
-		res := validation.Validate(c, b.RawYAML, b.FS)
+	// Validation needs the contract DOCUMENT, and RawYAML holds it only for a local
+	// read -- every bundle fetched from a registry carries the same document in its
+	// FS and nowhere else, so keying off RawYAML alone left every fetched revision
+	// silently unvalidated. Bundle.Raw asks both places.
+	//
+	// A Raw error means the document genuinely cannot be read: the bundle carries a
+	// parsed contract with no FS to read it back from (a runtime-only or
+	// contract-only record), or its FS has no readable pacto.yaml. There is nothing
+	// to validate, so the revision stays validated=false -- the honest "never
+	// validated" state consumers already distinguish from "validated and invalid".
+	// It is not a limitation: a source that ships a parsed contract rather than a
+	// document is a normal source, not a degraded one.
+	if raw, err := b.Raw(); err == nil {
+		res := validation.Validate(c, raw, b.FS)
 		rev.Valid = res.IsValid()
 		rev.Validation = res.Findings()
 		rev.validated = true
@@ -1129,8 +1149,13 @@ func linkTargets(snap *FleetSnapshot) {
 	}
 }
 
-// matchRevision computes a target's REVISION-MATCH CERTAINTY: which contract
-// revision it corresponds to and how confidently. This is a DIFFERENT question from
+// matchRevisionIn computes a target's REVISION-MATCH CERTAINTY against a pre-grouped
+// candidate set (the sorted revision keys of the target's own service, from
+// [revisionKeysByService]): which contract revision the target corresponds to and how
+// confidently. The grouping is a parameter because the link pass groups the whole
+// fleet once and reuses it for every target.
+//
+// This is a DIFFERENT question from
 // whether that content is resolver-retrievable ([ClassifyContentIdentity] /
 // RevisionIdentity.Retrievable). It reuses the content-identity classifier only as an
 // input -- to derive the canonical content digest and to reject a self-contradictory
@@ -1145,14 +1170,6 @@ func linkTargets(snap *FleetSnapshot) {
 // limitation. A match by mutable resolved-ref or version suffix is INFERRED, and only
 // when UNIQUE; two or more candidates are AMBIGUOUS and yield no link. Revisions are
 // visited in sorted key order for a deterministic result.
-func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
-	return matchRevisionIn(snap, revisionKeysByService(snap)[t.ServiceKey], t)
-}
-
-// matchRevisionIn is matchRevision against a pre-grouped candidate set: the sorted
-// revision keys of the target's own service. Callers matching a whole fleet group
-// once and reuse the groups; a caller matching a single target lets matchRevision
-// derive them.
 func matchRevisionIn(snap *FleetSnapshot, keys []RevisionKey, t *TargetRecord) (RevisionKey, string) {
 	id := ClassifyContentIdentity(t.ResolvedRef, t.Digest)
 	// A contradictory (digest-mismatch) or malformed OCI identity is never exact, and
@@ -2026,6 +2043,21 @@ func sortSnapshot(snap *FleetSnapshot) {
 	// it so a merged target serializes identically regardless of source order.
 	for _, t := range snap.Targets {
 		sort.Strings(t.Sources)
+	}
+	// Same for a revision, and Source goes with it. A revision is immutable content
+	// keyed by its digest, so two sources that contribute it have contributed the
+	// same thing and neither is a more authoritative "source of record" than the
+	// other. Both fields used to be arrival-ordered — Sources kept appendUnique
+	// order and Source stayed first-contributor-wins — so Build(a,b) and Build(b,a)
+	// serialized differently from identical inputs. computeSnapshotID hashes that
+	// serialization, so the order-independence this snapshot's identity is supposed
+	// to carry did not hold. Taking the lexicographically first contributor makes
+	// the tie deterministic instead of leaving it to goroutine bookkeeping.
+	for _, r := range snap.Revisions {
+		sort.Strings(r.Sources)
+		if len(r.Sources) > 0 {
+			r.Source = r.Sources[0]
+		}
 	}
 	for k := range snap.reverseDeps {
 		sortKeys(snap.reverseDeps[k])

@@ -132,6 +132,27 @@ func TestSourceStateFor_SuppliedState_KeepsDeclaredTimestamps(t *testing.T) {
 	}
 }
 
+// A source that declares itself unavailable (or stale) with no timestamps gets the
+// read time and NOT a successful sync: both statuses assert the last good read was
+// not now. Stamping one would have the state contradict its own status, and would
+// disagree with unavailableState, which stamps neither field for the same status.
+func TestSourceStateFor_SuppliedState_UnhealthyClaimsNoSync(t *testing.T) {
+	src := NewMemorySource("edge", "k8s", nil)
+	now := fixedNow()
+	for _, status := range []SourceStatus{SourceUnavailable, SourceStale} {
+		t.Run(string(status), func(t *testing.T) {
+			col := &Collection{State: &SourceState{Status: status}}
+			st, _ := sourceStateFor(src, col, now, 0, 0, false)
+			if st.LastSuccessfulSync != nil {
+				t.Errorf("a %s source must not claim a successful sync, got %v", status, st.LastSuccessfulSync)
+			}
+			if st.ObservedAt == nil || !st.ObservedAt.Equal(now) {
+				t.Errorf("ObservedAt = %v, want the read time %v", st.ObservedAt, now)
+			}
+		})
+	}
+}
+
 func TestUnavailableState(t *testing.T) {
 	src := NewMemorySource("oci", "registry", nil)
 	st := unavailableState(src, errors.New("401 unauthorized token=abc"))
@@ -638,6 +659,14 @@ func TestTargetFrom_WindowDisabled(t *testing.T) {
 
 // -------------------- matchRevision / linkTargets --------------------
 
+// matchRevision derives the candidate grouping for a single target and matches it.
+// Production groups the whole fleet once (linkTargets) and never matches one target
+// on its own, so this convenience lives with the tests that want it rather than in
+// build.go, where it read as a production entry point nothing entered by.
+func matchRevision(snap *FleetSnapshot, t *TargetRecord) (RevisionKey, string) {
+	return matchRevisionIn(snap, revisionKeysByService(snap)[t.ServiceKey], t)
+}
+
 func TestMatchRevision(t *testing.T) {
 	svcKey := NewServiceKey("svc")
 	snap := &FleetSnapshot{Revisions: map[RevisionKey]*ContractRevision{
@@ -1045,6 +1074,40 @@ func TestBuild_SnapshotIDDeterministic(t *testing.T) {
 	}
 	if other.SnapshotID == first.SnapshotID {
 		t.Error("distinct fleets should have distinct snapshot ids")
+	}
+}
+
+func TestBuild_SnapshotIDPermutationInvariant(t *testing.T) {
+	// Two sources contribute the SAME immutable revision. The snapshot's content
+	// identity must not depend on which of them Build was handed first, and the
+	// source names are chosen so arrival order and lexical order disagree.
+	mk := func(order ...string) *FleetSnapshot {
+		t.Helper()
+		srcs := make([]Source, len(order))
+		for i, id := range order {
+			srcs[i] = NewMemorySource(id, "local", &Collection{
+				Revisions: []RawRevision{{Bundle: validLeafBundle(t), Digest: "sha256:leaf"}},
+			})
+		}
+		snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, srcs...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	forward, reverse := mk("zeta", "alpha"), mk("alpha", "zeta")
+	if forward.SnapshotID != reverse.SnapshotID {
+		t.Errorf("SnapshotID depends on source order: %q != %q", forward.SnapshotID, reverse.SnapshotID)
+	}
+	for _, snap := range []*FleetSnapshot{forward, reverse} {
+		for _, r := range snap.Revisions {
+			if r.Source != "alpha" {
+				t.Errorf("revision Source = %q, want the lexically first contributor", r.Source)
+			}
+			if len(r.Sources) != 2 || r.Sources[0] != "alpha" || r.Sources[1] != "zeta" {
+				t.Errorf("revision Sources = %v, want sorted [alpha zeta]", r.Sources)
+			}
+		}
 	}
 }
 

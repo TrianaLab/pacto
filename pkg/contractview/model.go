@@ -243,28 +243,71 @@ type ServiceDetails struct {
 	// RuntimeDiff is the semantic contract-vs-runtime comparison.
 	RuntimeDiff []RuntimeDiffRow `json:"runtimeDiff,omitempty"`
 
-	// Endpoints surfaced from runtime (k8s).
+	// Endpoints carried the health and metrics endpoints the operator had
+	// probed, with the status code and latency it saw.
+	//
+	// Deprecated: nothing populates this. Its only writer was the dashboard's
+	// Kubernetes source, which read the probe results off the Pacto CRD status
+	// and went with the ingestion stack. The offline export, which is the only
+	// surviving producer of a ServiceDetails, never populated it. Endpoint
+	// health is a fleet observation now. Removed at v4.
 	Endpoints []EndpointStatus `json:"endpoints,omitempty"`
 
-	// Conditions from operator CRD status.
+	// Conditions carried the operator's reconciliation conditions, one per
+	// contract assertion, and fed both the compliance score and the checks
+	// summary.
+	//
+	// Deprecated: nothing populates this. Its only writer was the dashboard's
+	// Kubernetes source, which copied status.conditions off the Pacto CRD and
+	// went with the ingestion stack. ServiceDetailsFromBundle still reads it
+	// when it computes Compliance, but from a bundle it is always empty, so
+	// every contract the offline export renders scores against zero
+	// conditions. Removed at v4.
 	Conditions []Condition `json:"conditions,omitempty"`
 
 	// Insights are computed diagnostic messages (critical, warning, info).
 	Insights []Insight `json:"insights,omitempty"`
 
-	// ChecksSummary from operator (passed/total checks).
+	// ChecksSummary carried the operator's passed/total check counts for the
+	// list view's compact checks badge.
+	//
+	// Deprecated: nothing populates this. Its only writer was the dashboard's
+	// Kubernetes source, which derived the counts from the CRD conditions and
+	// went with the ingestion stack. The offline export, which is the only
+	// surviving producer of a ServiceDetails, never populated it. Removed at v4.
 	ChecksSummary *ChecksSummary `json:"checksSummary,omitempty"`
 
-	// Kubernetes-specific fields, populated only by k8s source.
+	// Resources reported whether the Kubernetes Service and workload the
+	// contract names actually exist.
+	//
+	// Deprecated: nothing populates this. Its only writer was the dashboard's
+	// Kubernetes source, which read the CRD's resource status and went with the
+	// ingestion stack. GenerateInsights still consults it, so the two
+	// missing-resource insights it can raise are unreachable from a bundle.
+	// Removed at v4.
 	Resources *ResourcesInfo `json:"resources,omitempty"`
-	Ports     *PortsInfo     `json:"ports,omitempty"`
+
+	// Ports reported the declared-versus-observed port comparison the operator
+	// made against the live Service.
+	//
+	// Deprecated: nothing populates this. Its only writer was the dashboard's
+	// Kubernetes source, which read the CRD's port status and went with the
+	// ingestion stack. GenerateInsights still consults it, so the missing and
+	// unexpected port insights are unreachable from a bundle. Removed at v4.
+	Ports *PortsInfo `json:"ports,omitempty"`
 
 	LastUpdated      *time.Time `json:"lastUpdated,omitempty"`
 	LastReconciledAt string     `json:"lastReconciledAt,omitempty"`
 
-	// RuntimeEvaluated is true only when a Kubernetes runtime overlay was applied
-	// (the operator actually observed this service). When false, the view is
-	// "definition only" — runtime status/sections cannot be asserted.
+	// RuntimeEvaluated was true only when a Kubernetes runtime overlay had been
+	// applied — that is, when the operator had actually observed this service —
+	// so the UI could tell a definition-only view from an evaluated one.
+	//
+	// Deprecated: nothing populates this. Its only writer was the dashboard's
+	// multi-source merge, which set it as it laid a Kubernetes overlay over a
+	// contract, and it went with the ingestion stack. The offline export, which
+	// is the only surviving producer of a ServiceDetails, is definition-only by
+	// construction. Removed at v4.
 	RuntimeEvaluated bool `json:"runtimeEvaluated,omitempty"`
 
 	// SectionMeta described, per section id, why a section was shown or absent
@@ -600,6 +643,11 @@ type Insight struct {
 }
 
 // ChecksSummary holds pass/fail check counts.
+//
+// Deprecated: describes [ServiceDetails.ChecksSummary], which nothing
+// populates. The dashboard's Kubernetes source was the only thing that ever
+// built one, from the operator's CRD conditions, and it went with the
+// ingestion stack. Removed at v4.
 type ChecksSummary struct {
 	Total  int `json:"total"`
 	Passed int `json:"passed"`

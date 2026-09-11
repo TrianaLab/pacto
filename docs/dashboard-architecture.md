@@ -143,7 +143,7 @@ The dashboard builds two graph representations:
 
 **Per-service graph** (`buildGraph()`) -- a recursive `DependencyGraph` with `GraphNode` and `GraphEdge`, used for tree visualization of a single service's dependency chain. Includes cycle detection.
 
-Both graphs use **ref-alias mapping** (`buildRefAliases()`) to resolve OCI repository names (e.g., `my-service-pacto`) to contract service names (e.g., `my-service`), based on `imageRef` and `chartRef` fields from the service index.
+Both graphs resolve a ref-extracted name to a contract service name (`resolveServiceName()`): a direct hit in the service index, otherwise the conventional `-pacto` OCI repository suffix is stripped and retried (e.g. `my-service-pacto` resolves to `my-service`).
 
 `computeBlastRadius()` performs a breadth-first search on the reverse dependency graph (required deps only) to count how many services would be transitively affected if a given service breaks.
 

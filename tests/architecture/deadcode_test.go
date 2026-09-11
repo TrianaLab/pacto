@@ -1,11 +1,3 @@
-//go:build deadcodegate
-
-// This gate is being written while the audit-remediation clusters are still
-// landing, and it is red until every one of them has. The build tag keeps it
-// out of `go test ./tests/architecture/...` in the meantime, so a shared tree
-// does not hand every other agent a failure that is not theirs. Remove the tag
-// once the last cluster lands and the allowlist below describes the final tree.
-
 package architecture
 
 import (
@@ -49,8 +41,14 @@ import (
 // the test as loudly as a missing one: an exemption that has stopped applying
 // is how the next real instance hides.
 var deadCodeAllowlist = map[string]string{
-	// The rest is filled in when the tag comes off. Every entry is
-	// "<pkg>.<Symbol>": reason.
+	// Every entry is "<pkg>.<Symbol>": reason.
+
+	"internal/tui.VerbCommands": "the TUI's verb-to-command table, read by " +
+		"internal/cli/tui_coverage_test.go to prove that every registered CLI command is " +
+		"either reachable from the TUI or deliberately classified as excluded. That is an " +
+		"assertion about two packages, so it cannot be written inside either one's production " +
+		"code, and deleting the table to satisfy this gate would delete the coverage proof " +
+		"with it",
 
 	"pkg/contract.PolicyTargetContract":     schemaVocabulary,
 	"pkg/contract.CategoryArchitecture":     schemaVocabulary,

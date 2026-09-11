@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"io/fs"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
@@ -58,18 +57,11 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 		}, nil
 	}
 
-	// Determine raw YAML for structural validation.
-	var rawYAML []byte
-	if bundle.RawYAML != nil {
-		rawYAML = bundle.RawYAML
-	} else if bundle.FS != nil {
-		var readErr error
-		rawYAML, readErr = fs.ReadFile(bundle.FS, DefaultContractPath)
-		if readErr != nil {
-			return nil, readErr
-		}
-	} else {
-		return nil, fmt.Errorf("bundle has no raw YAML or filesystem")
+	// Raw YAML for structural validation. Unreadable is fatal here: unlike the
+	// rendering path, validation cannot report a verdict on a document it never saw.
+	rawYAML, err := bundle.Raw()
+	if err != nil {
+		return nil, err
 	}
 
 	logging.LoggerFromContext(ctx).Debug("running validation", "ref", ref)

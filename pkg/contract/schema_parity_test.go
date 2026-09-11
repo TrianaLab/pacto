@@ -208,36 +208,38 @@ func goVocabularies(t *testing.T, root string) map[string][]string {
 			if !ok || g.Tok != token.CONST || !g.Lparen.IsValid() || len(g.Specs) == 0 {
 				continue
 			}
-			// names is nil the moment any member is not `Name = "literal"`,
-			// which means the block is not a vocabulary and is skipped whole.
-			var names, vals []string
-			for _, s := range g.Specs {
-				sp, ok := s.(*ast.ValueSpec)
-				if !ok || len(sp.Names) != 1 || len(sp.Values) != 1 {
-					names = nil
-					break
-				}
-				lit, ok := sp.Values[0].(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					names = nil
-					break
-				}
-				v, uerr := strconv.Unquote(lit.Value)
-				if uerr != nil {
-					names = nil
-					break
-				}
-				names = append(names, sp.Names[0].Name)
-				vals = append(vals, v)
+			if names, vals := constVocabulary(g); names != nil {
+				k := vocabKey(vals)
+				out[k] = append(out[k], names...)
 			}
-			if names == nil {
-				continue
-			}
-			k := vocabKey(vals)
-			out[k] = append(out[k], names...)
 		}
 	}
 	return out
+}
+
+// constVocabulary reads one parenthesized const block as a vocabulary: its
+// member names and the string values they spell. It returns nil the moment any
+// member is not `Name = "literal"`, because a block mixing literals with
+// anything else is not a vocabulary and must be skipped whole rather than
+// half-read.
+func constVocabulary(g *ast.GenDecl) (names, vals []string) {
+	for _, s := range g.Specs {
+		sp, ok := s.(*ast.ValueSpec)
+		if !ok || len(sp.Names) != 1 || len(sp.Values) != 1 {
+			return nil, nil
+		}
+		lit, ok := sp.Values[0].(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return nil, nil
+		}
+		v, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			return nil, nil
+		}
+		names = append(names, sp.Names[0].Name)
+		vals = append(vals, v)
+	}
+	return names, vals
 }
 
 // vocabulariesWithoutSchemaEnum are Go const blocks that deliberately have no

@@ -335,19 +335,25 @@ func (s *Server) fleetImpact(ctx context.Context, in *fleetImpactInput) (*fleetI
 }
 
 // impactHTTPError maps an impact provider error to an HTTP status: a bad/incompatible
-// reference is the caller's fault (422), a missing artifact is 404, and everything
-// else (registry auth/reachability, fleet snapshot build) is a transient upstream
-// condition (503) rather than a bug in the request.
+// reference is the caller's fault (422), a missing artifact is 404, a rejected
+// credential is non-retryable (403), registry network issues and fleet snapshot
+// build failures are transient (503), and anything else falls through to 503.
 func impactHTTPError(err error) error {
 	var invalidRef *oci.InvalidRefError
 	var invalidBundle *oci.InvalidBundleError
 	var noMatch *oci.NoMatchingVersionError
 	var notFound *oci.ArtifactNotFoundError
+	var authErr *oci.AuthenticationError
+	var unreachable *oci.RegistryUnreachableError
 	switch {
 	case errors.As(err, &invalidRef), errors.As(err, &noMatch), errors.As(err, &invalidBundle):
 		return huma.Error422UnprocessableEntity(err.Error())
 	case errors.As(err, &notFound):
 		return huma.Error404NotFound(err.Error())
+	case errors.As(err, &authErr):
+		return huma.Error403Forbidden(err.Error())
+	case errors.As(err, &unreachable):
+		return huma.Error503ServiceUnavailable("impact analysis unavailable", err)
 	default:
 		return huma.Error503ServiceUnavailable("impact analysis unavailable", err)
 	}

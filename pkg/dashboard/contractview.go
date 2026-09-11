@@ -1,8 +1,14 @@
 package dashboard
 
 import (
+	"context"
+	"fmt"
+	"io/fs"
+	"strings"
+
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/contractview"
+	"github.com/trianalab/pacto/v3/pkg/diff"
 	depgraph "github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/lock"
 )
@@ -71,7 +77,9 @@ type GraphNode = contractview.GraphNode
 type GraphEdge = contractview.GraphEdge
 type Condition = contractview.Condition
 type Insight = contractview.Insight
-type ChecksSummary = contractview.ChecksSummary
+
+// Deprecated: describes [ServiceDetails.ChecksSummary], which nothing populates. Removed at v4.
+type ChecksSummary = contractview.ChecksSummary //nolint:staticcheck // SA1019: the v3 re-export of a type that is itself deprecated.
 type ServiceListEntry = contractview.ServiceListEntry
 
 // ── Vocabularies ─────────────────────────────────────────────────────
@@ -193,4 +201,196 @@ func LookupValidation(conditionType string) ValidationCatalogEntry {
 // Deprecated: use [contractview.ApplyLock]. Removed at v4.
 func ApplyLock(svc *ServiceDetails, l *lock.Lock) {
 	contractview.ApplyLock(svc, l)
+}
+
+// ── Mappers with no caller left (inert) ──────────────────────────────
+//
+// Four pure mapping functions the dashboard's per-source handlers used to
+// call. They are not part of the multi-source ingestion stack that was
+// removed — they never touched a source, a registry or a cluster, they only
+// reshaped a value another package had already produced — but their only
+// callers lived in it, so they came out with it. They have no successor in
+// pkg/contractview: the fleet API answers the same questions from its own
+// snapshot and does not reshape these types.
+//
+// They are restored unchanged because pkg/dashboard is a released v3 package
+// and every type in their signatures is still here.
+
+// ComputeDiff runs the diff engine over two bundles and returns the dashboard's
+// DiffResult, tagged with the two refs being compared.
+//
+// Deprecated: the dashboard serves version comparisons from the fleet API now,
+// which diffs revisions it already holds, and nothing in Pacto calls this. It
+// is kept so v3 importers still compile. Call [diff.Compare] directly for the
+// engine result. Removed at v4.
+func ComputeDiff(ctx context.Context, from, to Ref, oldBundle, newBundle *contract.Bundle) *DiffResult {
+	var oldFS, newFS fs.FS
+	if oldBundle.FS != nil {
+		oldFS = oldBundle.FS
+	}
+	if newBundle.FS != nil {
+		newFS = newBundle.FS
+	}
+	r := diff.Compare(ctx, oldBundle.Contract, newBundle.Contract, oldFS, newFS)
+	return DiffResultFromEngine(from, to, r)
+}
+
+// DiffResultFromEngine maps the diff engine's Result onto the dashboard
+// DiffResult, flattening the engine's typed enums to their wire strings.
+//
+// Deprecated: its only caller was [ComputeDiff] and the per-source diff
+// handlers that called it, all of which went when the fleet took over version
+// comparison. Nothing in Pacto calls it. It is kept so v3 importers still
+// compile. Removed at v4.
+func DiffResultFromEngine(from, to Ref, r *diff.Result) *DiffResult {
+	dr := &DiffResult{
+		From:           from,
+		To:             to,
+		Classification: r.Classification.String(),
+	}
+	for _, c := range r.Changes {
+		dr.Changes = append(dr.Changes, DiffChange{
+			Path:           c.Path,
+			Type:           c.Type.String(),
+			OldValue:       c.OldValue,
+			NewValue:       c.NewValue,
+			Classification: c.Classification.String(),
+			Reason:         c.Reason,
+		})
+	}
+	return dr
+}
+
+// GraphFromResult maps the graph resolver's Result onto the nested
+// DependencyGraph the service page used to draw a dependency tree.
+//
+// Deprecated: the dashboard draws dependencies from the flat D3 shape
+// [contractview.GlobalGraphFromResult] produces, and nothing in Pacto calls
+// this. It is kept so v3 importers still compile. Removed at v4.
+func GraphFromResult(r *depgraph.Result) *DependencyGraph {
+	if r == nil || r.Root == nil {
+		return nil
+	}
+	g := &DependencyGraph{
+		Root:   mapGraphNode(r.Root),
+		Cycles: r.Cycles,
+	}
+	for _, c := range r.Conflicts {
+		g.Conflicts = append(g.Conflicts, fmt.Sprintf("%s: %v", c.Name, c.Versions))
+	}
+	return g
+}
+
+func mapGraphNode(n *depgraph.Node) *GraphNode {
+	if n == nil {
+		return nil
+	}
+	gn := &GraphNode{
+		Name:    n.Name,
+		Version: n.Version,
+		Ref:     n.Ref,
+	}
+	for _, e := range n.Dependencies {
+		ge := GraphEdge{
+			Ref:           e.Ref,
+			Required:      e.Required,
+			Compatibility: e.Compatibility,
+			Error:         e.Error,
+			Shared:        e.Shared,
+			Node:          mapGraphNode(e.Node),
+		}
+		gn.Dependencies = append(gn.Dependencies, ge)
+	}
+	return gn
+}
+
+// ComputeRuntimeDiff builds the semantic contract-vs-runtime comparison rows:
+// declared workload type against the observed Kubernetes kind, declared state
+// model against the storage the operator actually saw.
+//
+// Deprecated: its caller was the Kubernetes source, which fed
+// [ServiceDetails.RuntimeDiff] on the service page; the fleet API reports
+// contract-vs-runtime agreement from its target state instead, and nothing in
+// Pacto calls this. It is kept so v3 importers still compile. Removed at v4.
+func ComputeRuntimeDiff(workload string, state *StateInfo, observed *ObservedRuntime) []RuntimeDiffRow {
+	if state == nil && observed == nil {
+		return nil
+	}
+
+	var rows []RuntimeDiffRow
+	obs := observed
+	if obs == nil {
+		obs = &ObservedRuntime{}
+	}
+
+	rows = append(rows, diffRow(
+		"Workload Type",
+		"workload",
+		mapWorkloadToDeclared(workload),
+		obs.WorkloadKind,
+	))
+
+	declaredState := ""
+	if state != nil {
+		declaredState = state.Type
+	}
+	rows = append(rows, diffRow(
+		"State / Storage",
+		"state.type",
+		declaredState,
+		storageState(obs),
+	))
+
+	return rows
+}
+
+func diffRow(field, path, declared, observed string) RuntimeDiffRow {
+	var status string
+	switch {
+	case declared == "" || observed == "":
+		status = "skipped"
+	case strings.EqualFold(declared, observed):
+		status = "match"
+	default:
+		status = "mismatch"
+	}
+	return RuntimeDiffRow{
+		Field:         field,
+		ContractPath:  path,
+		DeclaredValue: declared,
+		ObservedValue: observed,
+		Status:        status,
+	}
+}
+
+// mapWorkloadToDeclared converts a contract workload type (service, job,
+// scheduled) to the Kubernetes kind that would be expected.
+func mapWorkloadToDeclared(workload string) string {
+	switch strings.ToLower(workload) {
+	case "service":
+		return "Deployment"
+	case "job":
+		return "Job"
+	case "scheduled":
+		return "CronJob"
+	default:
+		return workload
+	}
+}
+
+func storageState(obs *ObservedRuntime) string {
+	if obs == nil {
+		return ""
+	}
+	parts := []string{}
+	if obs.HasPVC != nil && *obs.HasPVC {
+		parts = append(parts, "PVC")
+	}
+	if obs.HasEmptyDir != nil && *obs.HasEmptyDir {
+		parts = append(parts, "emptyDir")
+	}
+	if len(parts) == 0 {
+		return "stateless"
+	}
+	return strings.Join(parts, ", ")
 }

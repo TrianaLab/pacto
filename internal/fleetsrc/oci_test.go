@@ -116,8 +116,8 @@ func TestOCISource_Collect(t *testing.T) {
 	}
 	// The pinned ResolvedRef must satisfy the strict immutable-identity invariant,
 	// so an OCI-originated revision is always resolver-compatible exact content.
-	if !fleet.IsDigestPinnedRef(col.Revisions[0].ResolvedRef) {
-		t.Errorf("revision a ResolvedRef %q must be a canonical immutable OCI ref", col.Revisions[0].ResolvedRef)
+	if _, _, err := fleet.ParseCanonicalOCIRef(col.Revisions[0].ResolvedRef); err != nil {
+		t.Errorf("revision a ResolvedRef %q must be a canonical immutable OCI ref: %v", col.Revisions[0].ResolvedRef, err)
 	}
 	if col.Revisions[1].Digest != "" { // b's digest lookup failed -> empty, still a revision
 		t.Errorf("revision b digest = %q, want empty", col.Revisions[1].Digest)
@@ -192,8 +192,8 @@ func TestPinRefToDigest(t *testing.T) {
 			t.Errorf("pinRefToDigest(%q,%q) = %q, want %q", c.ref, c.digest, got, c.want)
 		}
 		// The canonical result must be accepted by the strict immutable-identity parser.
-		if !fleet.IsDigestPinnedRef(got) {
-			t.Errorf("pinRefToDigest(%q,%q) = %q is not a canonical immutable OCI ref", c.ref, c.digest, got)
+		if _, _, err := fleet.ParseCanonicalOCIRef(got); err != nil {
+			t.Errorf("pinRefToDigest(%q,%q) = %q is not a canonical immutable OCI ref: %v", c.ref, c.digest, got, err)
 		}
 	}
 }
@@ -221,8 +221,8 @@ func TestPinRefToDigest_ResolverParseCompatible(t *testing.T) {
 			t.Errorf("canonical ref %q (location %q) is rejected by the production name parser: %v", canonical, location, err)
 		}
 		// And the fleet strict parser agrees it is canonical immutable content.
-		if !fleet.IsDigestPinnedRef(canonical) {
-			t.Errorf("canonical ref %q rejected by fleet.IsDigestPinnedRef", canonical)
+		if _, _, err := fleet.ParseCanonicalOCIRef(canonical); err != nil {
+			t.Errorf("canonical ref %q rejected by fleet.ParseCanonicalOCIRef: %v", canonical, err)
 		}
 	}
 }

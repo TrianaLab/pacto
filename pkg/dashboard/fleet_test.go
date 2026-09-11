@@ -323,6 +323,8 @@ func TestFleetImpactEndpoint_ErrorMapping(t *testing.T) {
 		{"no matching version → 422", &oci.NoMatchingVersionError{Ref: "r", Constraint: "^9", Err: fmt.Errorf("none")}, http.StatusUnprocessableEntity},
 		{"invalid bundle → 422", &oci.InvalidBundleError{Ref: "r", Err: fmt.Errorf("bad")}, http.StatusUnprocessableEntity},
 		{"artifact not found → 404", &oci.ArtifactNotFoundError{Ref: "r"}, http.StatusNotFound},
+		{"authentication error → 403", &oci.AuthenticationError{Ref: "reg/repo", Err: fmt.Errorf("denied")}, http.StatusForbidden},
+		{"registry unreachable → 503", &oci.RegistryUnreachableError{Ref: "reg/repo", Err: fmt.Errorf("timeout")}, http.StatusServiceUnavailable},
 		{"other → 503", fmt.Errorf("build fleet snapshot: down"), http.StatusServiceUnavailable},
 	}
 	for _, tc := range cases {

@@ -32,6 +32,8 @@ func nameVersion(name, version string, col TreeColors) string {
 
 // RenderTree renders the dependency graph as a tree-style string
 // similar to the Unix tree command.
+//
+// Deprecated: use [RenderTreeColored] with a zero TreeColors. Removed at v4.
 func RenderTree(r *Result) string {
 	return RenderTreeColored(r, TreeColors{})
 }
