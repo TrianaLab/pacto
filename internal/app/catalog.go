@@ -138,21 +138,17 @@ func (r catalogResolver) remote(ctx context.Context, location, constraint string
 	if err := r.svc.requireBundleStore(); err != nil {
 		return catalog.Resolution{}, nil, catalogErr(catalog.ReasonUnavailable, "no registry client is configured")
 	}
-	resolvedRef, dgst, err := resolveDigest(ctx, r.svc.BundleStore, location, constraint)
-	if err != nil {
-		return catalog.Resolution{}, nil, catalogFailure(err)
-	}
-	b, err := r.svc.BundleStore.Pull(ctx, resolvedRef)
+	p, err := resolvePinned(ctx, r.svc.BundleStore, location, constraint)
 	if err != nil {
 		return catalog.Resolution{}, nil, catalogFailure(err)
 	}
 	return catalog.Resolution{
-		Contract:    b.Contract,
+		Contract:    p.Bundle.Contract,
 		Domain:      fleetsrc.OciDomain(location),
-		Content:     catalog.ContentID{Scheme: catalog.SchemeOCI, Digest: dgst},
-		ResolvedRef: oci.PinRefToDigest(resolvedRef, dgst),
+		Content:     catalog.ContentID{Scheme: catalog.SchemeOCI, Digest: p.Digest},
+		ResolvedRef: oci.PinRefToDigest(p.Ref, p.Digest),
 		Base:        catalogOCIBase,
-	}, b, nil
+	}, p.Bundle, nil
 }
 
 // catalogFailure reduces a resolution failure to a category. The underlying

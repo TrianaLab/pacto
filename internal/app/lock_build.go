@@ -229,19 +229,15 @@ func (s *Service) resolveReference(ctx context.Context, d contract.ReferenceRef,
 		return refResolution{entry: r, child: b.Contract, childDir: path, identity: "local:" + path}, nil
 	}
 
-	resolvedRef, digest, err := resolveDigest(ctx, s.BundleStore, parsed.Location, "")
-	if err != nil {
-		return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
-	}
-	b, err := s.BundleStore.Pull(ctx, resolvedRef)
+	p, err := resolvePinned(ctx, s.BundleStore, parsed.Location, "")
 	if err != nil {
 		return refResolution{}, &lock.UnresolvedError{Ref: d.Ref, Reason: err.Error()}
 	}
 	r.Source = "oci"
 	r.Ref = d.Ref
-	r.Digest = digest
-	r.Version = b.Contract.Service.Version
-	return refResolution{entry: r, child: b.Contract, childDir: "", identity: "oci:" + digest}, nil
+	r.Digest = p.Digest
+	r.Version = p.Bundle.Contract.Service.Version
+	return refResolution{entry: r, child: p.Bundle.Contract, childDir: "", identity: "oci:" + p.Digest}, nil
 }
 
 // entryFromEdge builds a dependency lock entry from a resolved graph node,
@@ -271,11 +267,16 @@ func (s *Service) entryFromEdge(ctx context.Context, e graph.Edge, n *graph.Node
 
 	entry.Source = "oci"
 	entry.Ref = e.Ref
-	_, digest, err := resolveDigest(ctx, s.BundleStore, parsed.Location, e.Compatibility)
+	p, err := resolvePinned(ctx, s.BundleStore, parsed.Location, e.Compatibility)
 	if err != nil {
 		return lock.Entry{}, &lock.UnresolvedError{Ref: e.Ref, Reason: err.Error()}
 	}
-	entry.Digest = digest
+	entry.Digest = p.Digest
+	// The version is taken from the artifact the digest names, not from the graph
+	// node: the two are the same pull in every real run (the store memoizes by
+	// ref), and reading both off one observation is what keeps them the same when
+	// it is not.
+	entry.Version = p.Bundle.Contract.Service.Version
 	return entry, nil
 }
 

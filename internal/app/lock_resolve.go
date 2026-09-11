@@ -2,23 +2,50 @@ package app
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
-// resolveDigest resolves a bare OCI location under a constraint to a concrete
-// repo:tag and its current manifest digest.
-func resolveDigest(ctx context.Context, store oci.BundleStore, location, constraint string) (string, string, error) {
-	resolvedRef, err := oci.ResolveRef(ctx, store, location, constraint)
+// pinned is ONE observation of a registry artifact: the concrete repo:tag a
+// constraint selected, the bundle that answered and the manifest digest of the
+// artifact those exact bytes came from.
+type pinned struct {
+	Ref    string
+	Bundle *contract.Bundle
+	Digest string
+}
+
+// resolvePinned resolves a bare OCI location under a constraint and reads the
+// bundle and its digest as one observation.
+//
+// Asking a store what a tag points at and separately downloading that tag are
+// two observations of a MUTABLE name, and against a cached store they are not
+// even racing: Resolve always reaches the registry while Pull may serve a
+// generation cached under repo:tag, so a warm cache plus a re-pushed tag pairs
+// the new digest with the old bundle deterministically. A lock built that way
+// records an identity for bytes nobody read, and `pacto lock --check` then
+// certifies it clean. [oci.PullPinned] binds the two, so what the lock and the
+// catalog record is what they actually read.
+func resolvePinned(ctx context.Context, store oci.BundleStore, location, constraint string) (pinned, error) {
+	ref, err := oci.ResolveRef(ctx, store, location, constraint)
 	if err != nil {
-		return "", "", err
+		return pinned{}, err
 	}
-	digest, err := store.Resolve(ctx, resolvedRef)
+	b, digest, err := oci.PullPinned(ctx, store, ref)
 	if err != nil {
-		return "", "", err
+		return pinned{}, err
 	}
-	return resolvedRef, digest, nil
+	if digest == "" {
+		// [oci.PullPinned] reports real bytes under no claimed digest when the
+		// registry would not say what the tag points at -- the honest answer for a
+		// caller that only wants content. Both callers here are pinning something
+		// permanent, so an unknown identity is a failure, not an empty field.
+		return pinned{}, fmt.Errorf("the registry would not say what %s points at", ref)
+	}
+	return pinned{Ref: ref, Bundle: b, Digest: digest}, nil
 }
 
 // walkClosure visits each unique node in the resolved graph exactly once

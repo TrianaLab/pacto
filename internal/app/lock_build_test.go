@@ -65,18 +65,34 @@ func TestBuildLockCapturesDigest(t *testing.T) {
 // TestBuildLockDependsOn covers transitive deps and dependsOn population.
 func TestBuildLockDependsOn(t *testing.T) {
 	// root -> auth -> db. auth's lock entry lists db in dependsOn.
+	//
+	// The digests are real-shaped because the lock builder pins before it pulls:
+	// it fetches `<repo>@<digest>`, not the tag, so a mock that answers only the
+	// tag would never be asked for the bytes it pins.
+	digests := map[string]string{
+		"ghcr.io/acme/auth:1.0.0": "sha256:" + strings.Repeat("a", 64),
+		"ghcr.io/acme/db:2.0.0":   "sha256:" + strings.Repeat("d", 64),
+	}
 	store := &testutil.MockBundleStore{
-		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
+		ResolveFn: func(_ context.Context, ref string) (string, error) {
+			d, ok := digests[ref]
+			if !ok {
+				return "", fmt.Errorf("unexpected ref %q", ref)
+			}
+			return d, nil
+		},
+		// The graph fetches the tag and the lock builder fetches the digest it
+		// pinned, so both spellings of a repo answer with the same bundle.
 		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
-			switch ref {
-			case "ghcr.io/acme/auth:1.0.0":
+			switch {
+			case strings.HasPrefix(ref, "ghcr.io/acme/auth"):
 				return &contract.Bundle{Contract: &contract.Contract{
 					Service: contract.Service{Name: "auth", Version: "1.0.0"},
 					Dependencies: []contract.Dependency{
 						{Name: "db", Ref: "oci://ghcr.io/acme/db:2.0.0", Compatibility: "^2.0.0", Required: true},
 					},
 				}}, nil
-			case "ghcr.io/acme/db:2.0.0":
+			case strings.HasPrefix(ref, "ghcr.io/acme/db"):
 				return &contract.Bundle{Contract: &contract.Contract{
 					Service: contract.Service{Name: "db", Version: "2.0.0"},
 				}}, nil

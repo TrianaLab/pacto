@@ -263,7 +263,7 @@ func localBundle(ref string, bundle *contract.Bundle, rec CachedRef) (*contract.
 }
 
 func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {
-	bundle, digest, err := pullPinned(ctx, r.store, ref)
+	bundle, digest, err := PullPinned(ctx, r.store, ref)
 	if err != nil {
 		if typed := classifyPullError(err); typed != nil {
 			return nil, CachedRef{}, typed
@@ -286,10 +286,17 @@ type pinnedPuller interface {
 	PullPinned(ctx context.Context, ref string) (*contract.Bundle, string, error)
 }
 
-// pullPinned pulls ref and reports the digest of the artifact that answered. A
+// PullPinned pulls ref and reports the digest of the artifact that answered. A
 // store that can bind the two itself (and cache the result) is asked to; any
-// other store is pinned generically.
-func pullPinned(ctx context.Context, store BundleStore, ref string) (*contract.Bundle, string, error) {
+// other store is pinned generically by [resolveAndPull].
+//
+// This is the only supported way to learn what a [BundleStore] just handed you.
+// Calling Resolve and Pull separately is TWO observations of a mutable tag, and
+// against a [CachedStore] it is not even a race: Resolve always reaches the
+// registry while Pull may serve a generation cached under repo:tag, so a warm
+// cache plus a re-pushed tag pairs the new digest with the old bundle every
+// time.
+func PullPinned(ctx context.Context, store BundleStore, ref string) (*contract.Bundle, string, error) {
 	if pp, ok := store.(pinnedPuller); ok {
 		return pp.PullPinned(ctx, ref)
 	}
