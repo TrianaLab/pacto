@@ -21,13 +21,13 @@ Every `docker run` on this page publishes to `127.0.0.1` on purpose: the image s
 # Run with OCI registry sources
 docker run -p 127.0.0.1:3000:3000 \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a,ghcr.io/org/svc-b \
-  ghcr.io/trianalab/pacto/dashboard:3.2.9
+  ghcr.io/trianalab/pacto/dashboard:3.3.0
 
 # Run with registry authentication
 docker run -p 127.0.0.1:3000:3000 \
   -e PACTO_DASHBOARD_REPO=ghcr.io/org/svc-a \
   -e PACTO_REGISTRY_TOKEN=ghp_xxx \
-  ghcr.io/trianalab/pacto/dashboard:3.2.9
+  ghcr.io/trianalab/pacto/dashboard:3.3.0
 ```
 
 ## Local Development
@@ -100,7 +100,7 @@ To enable the Kubernetes data source, mount a kubeconfig:
 docker run -p 127.0.0.1:3000:3000 \
   -v ~/.kube/config:/home/pacto/.kube/config:ro \
   -e PACTO_DASHBOARD_NAMESPACE=production \
-  ghcr.io/trianalab/pacto/dashboard:3.2.9
+  ghcr.io/trianalab/pacto/dashboard:3.3.0
 ```
 
 When running inside a Kubernetes cluster, the in-cluster config is used automatically (no mount needed).
@@ -112,7 +112,7 @@ To scan a local contract directory:
 ```bash
 docker run -p 127.0.0.1:3000:3000 \
   -v /path/to/contracts:/data:ro \
-  ghcr.io/trianalab/pacto/dashboard:3.2.9 \
+  ghcr.io/trianalab/pacto/dashboard:3.3.0 \
   dashboard /data
 ```
 
@@ -176,7 +176,7 @@ spec:
     spec:
       containers:
         - name: dashboard
-          image: ghcr.io/trianalab/pacto/dashboard:3.2.9
+          image: ghcr.io/trianalab/pacto/dashboard:3.3.0
           ports:
             - containerPort: 3000
           env:

@@ -1,5 +1,456 @@
 # @pacto/core
 
+## 3.3.0
+
+### Minor Changes
+
+- 771574b: Add `--root` to `pacto fleet`, `pacto tui` and `pacto impact`: a contract root
+  whose whole dependency **closure** joins the snapshot.
+  
+  Every other definition source stops at what someone remembered to list. `--local`
+  scans a directory and finds the bundles that happen to be in it; `--oci` pulls
+  exactly the references you typed. So a bundle declaring a dependency on
+  `oci://ghcr.io/acme/payments:2.1.0` left a dangling edge unless you also passed
+  that reference yourself — and the graph reported a service with no dependents
+  when the truth was that nobody had looked.
+  
+  `--root` resolves the root you name and then follows its declarations,
+  transitively, the way `pacto mcp --root` already did. It is the same discovery
+  through the same resolver, so a catalog session and a fleet snapshot cannot
+  disagree about what a reference means. Roots and dependencies that fail to
+  resolve stay visible as limitations rather than vanishing, so a short closure is
+  never served as a whole one.
+  
+  ```bash
+  pacto fleet graph payments --root ./orders          # follows orders' declarations
+  pacto tui --root oci://ghcr.io/acme/platform:1.4.0  # the whole platform closure
+  ```
+  
+  On `pacto mcp`, `--root` keeps its existing meaning — it selects the read-only
+  catalog server, and stays mutually exclusive with `--fleet`.
+  
+  Fixes a related identity bug this exposed: `--local` hashed the raw directory
+  while the lockfile, the catalog and a pushed artifact all hash the *packaged*
+  file set. One developer's stray `.DS_Store` was therefore enough to make the same
+  bundle look like two different revisions of one service at one version — a
+  content conflict reported against a fleet where nothing had changed. Local
+  revisions now hash the `.pactoignore`-filtered file set, like everywhere else.
+- 771574b: Fix two ways a fleet snapshot could report itself healthier than it was, and
+  report a contested lockfile instead of silently dropping its pins.
+  
+  A source that dropped or invalidated a record used to keep saying it was
+  `available`, and the snapshot kept calling itself `complete`. The two halves of
+  one collection were graded differently: a deployment target kept after one bad
+  enum value was normalized marked its source partial, while a revision discarded
+  outright — no immutable digest and a bundle that could not be hashed — left the
+  source looking fully read, even as the snapshot's own limitations said a record
+  was missing. Both now count. If a source could not deliver a record, every
+  answer drawn from it carries the incomplete-knowledge envelope that fact
+  deserves, so an absent service is never read as proof the service does not
+  exist.
+  
+  Two sources that disagree about one revision's `pacto.lock` are now reported
+  with a new `REVISION_LOCK_CONFLICT` limitation. A lock decides which bundle a
+  declared dependency or reference actually resolves to, and the same revision can
+  reach a snapshot from a registry and from a working copy with different lock
+  bytes. Serving whichever arrived first would let source completion order change
+  the resolved graph under an unchanged snapshot ID, so the pins are discarded —
+  and the reference detail now says they were discarded because contributors
+  disagreed, rather than reporting that the lockfile recorded no resolution at
+  all. That distinction matters: the old wording sent operators off to re-run
+  `pacto lock`, regenerate identical pins and watch nothing change. Locks are
+  compared on the resolutions they record, so two contributors who produced
+  byte-identical pins on different Pacto releases still agree.
+  
+  Two limitation codes are deprecated and no longer emitted by anything.
+  `REVISION_CONTENT_CONFLICT` described two sources pinning one revision key to
+  different contract bodies, which a content-addressed key rules out; the real
+  disagreements it stood for are `REVISION_DOCUMENT_CONFLICT` and the new
+  `REVISION_LOCK_CONFLICT`. `REVISION_CONTENT_MUTABLE` described a revision
+  resolved through a tag or a path, which `REVISION_IDENTITY_UNRESOLVED` already
+  says at the point the identity is derived. Both Go constants remain exported
+  through v3 so existing code keeps compiling, and both are removed at v4.
+- 771574b: Stop a warm OCI cache from answering for a registry it has not checked, and make
+  `--no-cache` mean the same thing everywhere.
+  
+  **A cached tag is revalidated before it is served.** A digest names its own bytes,
+  so an entry written under one can never go stale. A tag is mutable: the disk entry
+  records what the tag pointed at when some earlier process wrote it, and re-pushing
+  the tag left the cache handing back the old artifact under the new name. That is
+  worse than stale — it is what disarmed `pacto lock`, whose whole job is to notice
+  a dependency's bytes changing under a fixed reference. A developer with a warm
+  cache got "no drift" on a dependency that had been republished.
+  
+  `PullPinned` now resolves the tag's current digest before serving a disk entry.
+  It costs one manifest lookup and re-downloads nothing when the tag has not moved.
+  A registry that cannot be reached is not evidence that it did, so the entry is
+  still served and an offline reader keeps reading the cache. Only the disk leg
+  asks: an in-memory hit was put there by this same process, which already observed
+  the registry for that reference, so one command still resolves one tag to one
+  artifact. `pacto pull --local-only` and the other offline readers are untouched
+  and still never contact a registry.
+  
+  **`--no-cache` now reaches the fleet sources, and says so when it cannot help.**
+  The flag was read straight off the command line by `pacto fleet`, `pacto tui` and
+  `pacto impact`, so setting it through `PACTO_NO_CACHE` or through `no-cache: true`
+  in the config file disabled the bundle store's cache but left the cached-bundle
+  fleet source running — the disk cache the caller asked to ignore still contributed
+  services to the snapshot. The resolved decision is now written back onto the flag,
+  so all three spellings mean one thing.
+  
+  And a bundle store with no cache to disable is now an error rather than a silent
+  no-op. Proceeding quietly ran the whole command against the very cache the caller
+  asked it to ignore, and reported success.
+- 771574b: Resolve a dependency from the contract that declared it, grade every interface
+  difference from one table, and stop `pacto login` from failing open.
+  
+  **Relative dependency references now resolve against their declarer.** The graph
+  resolver built one base directory from the root and used it at every depth, so
+  `./b` written by a bundle one level down pointed at the root's sibling rather
+  than at its own. A root pulled from a registry got no directory at all, so its
+  relative references resolved against the process working directory — a remote
+  contract choosing which local files Pacto reads. A local reference declared
+  inside a registry bundle now fails closed, under the same rule the catalog
+  resolver already applied. `graph.OriginContractFetcher` is the additive port that
+  carries the declaring origin; a plain `ContractFetcher` still resolves exactly
+  the graph it always did.
+  
+  Node identity moves with it. Two contracts in different directories can both
+  declare `./shared` and mean different bundles, and two can declare one registry
+  reference under `^1.0.0` and `^2.0.0` and mean different versions. The visited
+  map is keyed on the declaring base, the reference and the constraint, so those no
+  longer collapse into a single node with the second declaration discarded.
+  
+  **`pacto login` no longer fails open on a config it cannot read.** It treated an
+  unreadable credentials file as an empty one and rewrote from a zero value, so a
+  transient permission or I/O error deleted every other stored credential and
+  reported success. `pacto logout` failed closed on the identical condition and
+  skipped the chmod login applied. Both go through `oci.SetCredential` and
+  `oci.RemoveCredential` now — new writers beside the reader that already owned the
+  format — with one error policy and one chmod.
+  
+  **A lock entry pins a digest to the bytes it names.** Building an entry asked the
+  store what a tag pointed at and separately downloaded that tag. Those are two
+  observations, and a warm cache plus a re-pushed tag made them disagree
+  deterministically, after which `pacto lock --check` certified the result clean.
+  The lock builder and the catalog resolver both take the bundle and its digest
+  from one `oci.PullPinned` call now. An artifact whose identity the registry will
+  not state is recorded as unresolved rather than pinned to an empty digest.
+  
+  **A lock error reports its own code.** The machine-readable code CI and the
+  operator branch on was derived by splitting the rendered message at its first
+  colon, so a file-read failure produced codes like `open /home/me/svc/pacto` and a
+  YAML parser's prose produced whatever it happened to say. Every `pkg/lock` error
+  type has a `Code()` method, `Error()` renders it, and anything carrying no code
+  is `LOCK_ERROR`.
+  
+  **Responses are deep-diffed, and every classification resolves through one
+  table.** Request bodies were walked field by field while responses were not, so a
+  status code present on both sides reported one opaque `POTENTIAL_BREAKING` no
+  matter what changed inside it. Classification itself was written in three places
+  and the copies had drifted, and `.schema` was hardcoded as a modification, which
+  made the added and removed rules for that field unreachable — dropping a schema
+  graded as if it had merely been edited. Two invariants are pinned by tests:
+  removing part of a thing never grades worse than removing the whole thing, and a
+  schema reached through an `example` is documentation rather than the payload's
+  field set. `docs/contract-reference/diff.md` gains the rows that could not fire
+  and loses the two that never described real behaviour.
+  
+  **Every MCP tool call is validated against its declared schema.** The SDK
+  documents that as the caller's job and nothing did it, so a declared schema was
+  decoration: `{"max_depth":"3"}` — a string where the schema says integer, which
+  models emit constantly — decoded to 0, and `pkg/fleet` reads 0 as unbounded, so a
+  caller asking to bound a traversal got an unbounded one. `required` was equally
+  advisory. Every tool registers through the typed generic form now,
+  bundle-derived capability tools included, and a schema that will not resolve is
+  registered as a visible unavailable tool rather than dropped or left to panic the
+  server. `pacto_check` runs the resolving validator the CLI runs, so an agent
+  looping until it reports valid can no longer terminate on a contract CI rejects.
+  
+  **A registry's tag list is no longer memoized for the life of the process.**
+  `ListTags` cached a mutable registry fact forever, six lines below a `Resolve`
+  that documents why it deliberately does not. A dashboard rediscovers on a loop,
+  so every pass after the first answered from the first observation: a release
+  published after startup stayed invisible, and `/api/versions` with `fetch:true`
+  pulled nothing while reporting success. The memo expires on half the rediscovery
+  interval, so an entry written just after one pass cannot survive the next.
+  
+  **Smaller, and visible from outside:** snapshot limitations print to stderr
+  rather than stdout, so a partial answer no longer contaminates piped output;
+  markdown table cells built from contract-controlled strings are escaped, so a
+  pipe in a config pattern no longer breaks the table around it; and `fleet.Build`
+  fills the freshness timestamps a source's own declared state left unset, so a
+  source that reports its health no longer reaches the snapshot looking like it
+  never synced.
+  
+  Additive API: `oci.CacheLocator`, `oci.CacheDisabler` and `oci.CacheObserver`
+  name the three capabilities a bundle store may extend `BundleStore` with. They
+  were anonymous interface assertions, so a store that missed one silently did
+  nothing — which is how `--no-cache` came to be accepted and ignored. Also
+  `oci.PullPinned`, `oci.SetCredential`, `oci.RemoveCredential` and
+  `graph.OriginContractFetcher`.
+  
+  Exported symbols left with no production caller are marked `Deprecated` with
+  their replacement and `Removed at v4` rather than deleted, because v3 is
+  published and this ships as a minor: `sbom.HasSBOM`, `oci.SetUserHomeDirFn`, the
+  `LocalOnly` resolver surface, the standalone sidecar reader and the ingestion
+  store's own `fleet.Source` adapter among them.
+  
+  Keeping them means keeping them honest, so two that had drifted from the code
+  they now defer to are repaired rather than left to rot behind the marker:
+  
+  - `sbom.HasSBOM` skips directories, as `ParseFromFS` already did. A directory
+    named `deps.spdx.json` used to make it answer true where `ParseFromFS` answers
+    nil, which is precisely the question its deprecation note says the two settle
+    the same way.
+  - The ingestion store's `fleet.Source` adapter drops a record whose compliance is
+    outside the canonical vocabulary and raises `SOURCE_RECORD_INVALID`, matching
+    the live evidence source. It used to copy the status straight through, so the
+    two disagreed about the same record and an uninterpretable one entered the
+    graph as though it had been understood.
+- 771574b: Retire the dashboard's second ingestion stack, and make the static export and the
+  published API document tell the truth about what they answer.
+  
+  The dashboard used to run two independent ways of turning references into services
+  in one process: the original `DataSource` stack (`source_local.go`,
+  `source_oci.go`, `source_cache.go`, `source_k8s.go`, `detect.go`, its own cache and
+  its own multi-source resolver) and the operational graph in `pkg/fleet`, reached
+  through `SetFleetProvider`. They disagreed about freshness, about partiality and
+  about what "this source is available" means, and only one of them carried the
+  completeness envelope every fleet answer is supposed to carry. The `DataSource`
+  stack is gone. Every source the dashboard serves — local, OCI, cached, Kubernetes
+  and observation — now arrives through `pkg/fleet`, so `/api/sources` reports the
+  same health the fleet reports and an incomplete read is never rendered as an empty
+  one.
+  
+  The contract-view types the static export and `pacto doc` render moved out to
+  **`pkg/contractview`**, a leaf with no HTTP and no Huma in it. `pkg/dashboard`
+  keeps every released name as an alias, so existing imports compile unchanged.
+  
+  **Breaking, and deliberate: the whole `pkg/dashboard` multi-source surface is
+  removed.** Everything else in this release is additive, so this ships as a minor
+  with the break called out here rather than held for v4. A shim is not possible
+  for any of it: these names have no successor inside `pkg/dashboard` to forward
+  to. What replaced them lives in `internal/fleetsrc`, behind `pkg/fleet`, and is
+  reached through `SetFleetProvider`. A wrapper that accepted a `DataSource` and
+  ignored it would turn a compile error into a dashboard that silently serves
+  nothing, which is the worse failure.
+  
+  ```go
+  // before
+  srv := dashboard.NewServer(src, dashboard.EmbeddedUI())
+  
+  // after
+  srv := dashboard.NewServer(dashboard.EmbeddedUI())
+  srv.SetFleetProvider(func(ctx context.Context) (*fleet.Query, error) { ... })
+  ```
+  
+  The full list, so nobody discovers it at compile time:
+  
+  - Constructors: `NewServer` loses its `DataSource` parameter, `NewResolvedServer`
+    is removed.
+  - `Server` methods: `SetResolver`, `SetCacheDir`, `SetCacheSource`,
+    `SetOCISource`, `SetK8sRedetect`, `SetLazyEnrich`, `RefreshCacheSources`,
+    `UpdateSourceInfo`, `WaitForVersionEnrich`. Source wiring, cache wiring and the
+    enrichment handshake are all the fleet's job now.
+  - The source interface and its implementations, with their methods:
+    `DataSource`, `LocalSource`, `OCISource`, `K8sSource`, `K8sClient`,
+    `CRDDiscovery`, `CacheSource`, `ResolvedSource`, and the constructors
+    `NewLocalSource`,
+    `NewOCISource`, `NewK8sSource`, `NewCacheSource`, `NewResolvedSource`,
+    `BuildResolvedSource`, plus `ContractRefProviderFromSource` and
+    `RepoProviderFromSource`.
+  - The source-local cache: `Cache`, `CachedDataSource`, `NewMemoryCache`,
+    `NewCachedDataSource`. The fleet snapshot is the cache now.
+  - Detection: `DetectSources`, `RedetectK8s`, `CurrentKubeContext`,
+    `DetectOptions`, `DetectResult`, and the diagnostics types
+    `SourceDiagnostics`, `LocalDiagnostics`, `OCIDiagnostics`, `K8sDiagnostics`,
+    `CacheDiagnostics`.
+  - `ClassifyVersions` and `BundlePair`, which classified versions for a stack
+    that no longer produces them.
+  
+  **`pacto dashboard --diagnostics` is removed**, with the `PACTO_DASHBOARD_DIAGNOSTICS`
+  environment variable and the `DashboardConfig.Diagnostics` field behind it. The flag
+  existed to register `/api/debug/sources` and `/api/debug/services`, which reported on
+  the source stack; both endpoints went with it. The field is the one removal here from
+  a type that survives, and it is not kept as an inert bool on purpose: `DashboardConfig`
+  is published as a JSON Schema, so a retained field would advertise a diagnostics panel
+  that no longer exists. `/api/sources` now carries the fleet's own health and
+  completeness, which is what the panel was reading for. Scripts passing the flag will
+  fail with an unknown-flag error rather than silently changing behaviour.
+  
+  `CRDDiscovery` in the list above is a re-export of an `internal/k8sclient` type, and
+  it goes for a second reason beyond its stack: `pkg/dashboard` is now gated k8s-free by
+  `tests/architecture/boundary_test.go`, so keeping the alias would pull client-go back
+  into a package that must stay consumable without it.
+  
+  If you were importing any of these, you were driving the dashboard's private
+  ingestion. Build a `fleet.Query` and hand it to `SetFleetProvider` instead; that
+  is the same data with a completeness envelope attached.
+  
+  Everything else that moved kept its name. `ApplyLock`, `AggregatedService`,
+  `SourceInfo`, `ServiceNameInput`, `ComputeDiff`, `DiffResultFromEngine`,
+  `GraphFromResult` and `ComputeRuntimeDiff` are all still exported from
+  `pkg/dashboard` with their v3 signatures, the last four marked deprecated
+  because nothing in Pacto calls them any more.
+  
+  `ServiceDetails.SectionMeta` and the `Section*` vocabulary around it are
+  deprecated. Their two writers went with the ingestion stack and the field has had
+  no producer since; it is `omitempty`, so it is simply absent on the wire. The names
+  stay through v3 and are removed at v4.
+  
+  **`get-service-graph` is removed from the published OpenAPI document.** Nothing
+  answered it: the live host serves `/api/fleet/services/{name}/graph` and the
+  offline export serves the global `/api/graph`. The generated TypeScript client's
+  `serviceGraph` facade had no callers and goes with the operation. Three operations
+  that the document listed and the export could not answer — a specific version, the
+  per-source breakdown and a same-version diff — now have real fixtures instead, so
+  the offline single-service app no longer meets a 501 on a call it makes itself.
+  
+  **Behaviour change in `pacto doc`.** Every service page now renders all eleven
+  domain sections; an empty one says "None declared" instead of vanishing. The
+  contents rail always listed all eleven, and the presence map it consulted had no
+  writer, so it was offering jump targets that scrolled nowhere.
+  
+  Also in `pacto doc`: a dependency's display name is derived by parsing the
+  reference rather than by scanning it for the last colon. A reference carrying a
+  registry port rendered as `localhost`, and one with no tag at all rendered as
+  `oci` — both now render the repository's last path component, like every other
+  reference already did.
+- 771574b: Add `pacto tui`, a full-screen terminal front-end over the CLI.
+  
+  `pacto dashboard` answers "what is the fleet doing" in a browser and only reads.
+  `pacto tui` answers it in the terminal you are already in, and it also writes —
+  because the point of a front-end over the CLI is that you do not have to leave it
+  to run the command. It takes the same source flags as `pacto fleet` and navigates
+  the same snapshot: services, revisions, targets, owners and sources, opening on
+  the Services tab. Whatever row is highlighted becomes the argument, so you never
+  type a path.
+  
+  Read verbs run in-process against the loaded snapshot — validate, explain, fleet
+  explain, lock check, diff, impact and the neighborhood graph. Write verbs — push,
+  pull, lock update and generate — shell out to this same binary so they own the
+  terminal, and each names what it is about to change before it waits for a `y`:
+  the directory a pull will overwrite, the resolved plugin binary and the output
+  directory a generate will write. A successful write reloads the snapshot rather
+  than leaving a confidently stale list on screen. `--read-only` hides the four
+  write verbs entirely rather than refusing them at the last moment, and `y` copies
+  the equivalent `pacto` command — shell-quoted, so a contract value carrying a
+  space or a semicolon pastes as one argument — for anything the TUI does not
+  offer.
+  
+  Building it made a gap in shell completion obvious: the closed vocabularies the
+  code already owned were never declared to cobra. Seven flags now complete from
+  their real source of truth — `--status` and `--compliance` from
+  `fleet.CanonicalStatuses()`, `--workload` from the `contract.Workload*` constants,
+  and `--direction`, `--ui`, `--transport` and `--output-format` from the values
+  their own validators accept — and the four `pacto fleet` positionals no longer
+  offer filenames for arguments that are never paths.
+  
+  **One behaviour change comes with that, and a script can trip over it.** `pacto
+  doc`'s three mutual-exclusion checks are now
+  `cmd.MarkFlagsMutuallyExclusive("serve", "ui", "output")` instead of hand-rolled
+  value comparisons. Cobra tests whether a flag was *set*, not what it was set to,
+  so all three of these now error where they used to be accepted:
+  
+  ```
+  pacto doc --serve=false -o out.md
+  pacto doc --ui= -o /tmp/o.md .
+  pacto doc -o "" --serve .
+  ```
+  
+  Nothing in the repo relied on any of those spellings. The one check cobra has no
+  primitive for — `--interface` requires `--ui` — stays hand-rolled. `--ui`'s help
+  string now names the closed set it enforces instead of advertising an open one.
+- 771574b: Resolve every policy reference from the contract that declared it, and fail closed
+  when the referenced schema cannot be read.
+  
+  **Relative references now resolve against their declarer, not the working
+  directory.** A `ref:` written in a bundle three hops down the dependency chain was
+  resolved from wherever `pacto` happened to be invoked, so the same contract
+  validated differently depending on which directory you ran the command in. Worse,
+  a contract pulled from a registry could name a local directory and have Pacto read
+  a policy schema out of the invoking machine's filesystem. Resolution now carries
+  the declaring origin: a reference reached from a registry bundle can only ever
+  resolve to another registry bundle, and a local reference resolves relative to the
+  contract file that wrote it.
+  
+  `validation.OriginBundleResolver` is the new port — `RootBase()` plus
+  `ResolveBundleFrom(base, ref)` — mirroring `graph.OriginContractFetcher`. The
+  widening is additive: `ResolveBundleFrom` is discovered at runtime, so
+  `ValidateWithResolver` and `ResolvePoliciesWithResolver` keep their signatures and
+  an existing `BundleResolver` implementation behaves exactly as it did. Cycle
+  detection keys on the pair (declaring base, reference text) rather than the text
+  alone, so a diamond in the reference graph is no longer misreported as a cycle.
+  
+  **A referenced bundle whose policy schema cannot be read is now an error.** Three
+  conditions — an unreadable schema file, one that is not JSON and one that does not
+  compile — returned `nil` and dropped the policy silently whenever the referenced
+  bundle declared `policies[]`, while the sibling branch raised
+  `POLICY_REF_UNRESOLVED` on exactly the same three. A platform bundle shipped
+  without its declared schema therefore made every consumer's `pacto validate` and
+  `pacto push` pass with zero policies enforced. All three now raise
+  `POLICY_REF_UNRESOLVED`.
+  
+  **A contract that used to pass may now fail.** That is the point: it was passing
+  because nothing was being enforced. If `pacto validate` starts reporting
+  `POLICY_REF_UNRESOLVED` against a bundle that was green before, the referenced
+  bundle is not shipping the schema its own `policies[]` block promises.
+  
+  **`service.version` must be a single safe path component.** `pacto pack`
+  interpolates it straight into its output filename, so a version carrying a path
+  separator or naming the parent directory let a contract authored in a pull request
+  write its archive outside the build root. The pattern lands in the JSON Schema
+  rather than in the pack command because every consumer runs the schema — a guard
+  in `pack` alone would leave the operator, the dashboard and the MCP server open.
+  Every shape semver produces still passes, prerelease and build metadata included,
+  and so does a plain label like `latest`.
+
+### Patch Changes
+
+- 771574b: Give the dashboard a real document outline: a collapsible section's title is now
+  a heading, not just a button.
+  
+  Every accordion on a service page — Overview, Interfaces, Dependencies,
+  Configurations, Policies, Readiness and the rest — rendered its title as a bare
+  `<button>`. Visually that reads as a section title; to a screen reader it was a
+  control with no structural meaning, so the page went straight from its `<h1>` to
+  the `<h3>`s buried inside a section body. Users who navigate by heading got a
+  flat list of subsection names with nothing to say which section each belonged
+  to, and the skipped level is a WCAG 1.3.1 failure. The toggle is now wrapped in
+  an `<h2>`, the WAI-ARIA accordion pattern, so the outline reads h1 → section →
+  subsection. Nothing moves on screen.
+  
+  Three heading levels that were only legal by accident are corrected with it:
+  "Skills" and "Secret Keys" were `<h4>`s that read as valid only when some earlier
+  section happened to supply the missing `<h3>`, and the empty services list titled
+  itself `<h3>` directly under the page `<h1>`. A service page that fails to load —
+  "Service not found", a failed remote resolve — now titles itself with an `<h1>`
+  rather than leaving the page with no top-level heading at all.
+  
+  The route sweep that should have caught these was auditing an error state: it
+  reached the non-Fleet views by telling the browser the host had no fleet, but the
+  host it said that to answers no contract-view request, so every page under audit
+  was a failed fetch. It now runs against a real `pacto doc --format html` export,
+  which is the only place those views are served.
+- 771574b: Fix a bundle scan reporting no services because one directory refused to open.
+  
+  Both filesystem-walking fleet sources aborted the whole walk on the first read
+  error and marked themselves unavailable. For `--local` that meant `pacto tui`,
+  `pacto fleet` and `pacto impact` answered "0 services" from a home directory:
+  the walk reaches TCC-guarded paths like `~/Library/Accounts` within
+  milliseconds, long before it reaches any contract, and gave up there. The same
+  scan now finds 64 services on the machine this was found on. For `--cache` the
+  same abort emptied the entire offline baseline when a single cache entry was
+  unreadable, which is what one `sudo pacto pull` leaves behind.
+  
+  A refused directory is a gap, not a verdict. Both sources now record it as a
+  `SOURCE_PARTIAL` limitation naming the path relative to the scan root, then step
+  over it, exactly as an unparseable bundle already was. Past ten of them the rest
+  are summarised as a count, so a home directory's hundred-odd privacy directories
+  cannot bury the gaps a reader can act on. The walk root itself remains the one
+  fatal case: nothing was read, so there is no partial answer to report.
+
 ## 3.2.9
 
 ### Patch Changes
