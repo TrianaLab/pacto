@@ -487,10 +487,65 @@ func (c *CachedStore) writeCacheEntry(dir string, rec CachedRef, bundle *contrac
 	}
 	// A directory rename cannot overwrite a directory, so the old entry goes
 	// first. Absence is coherent; a new bundle beside a stale sidecar is not. A
-	// RemoveAll that fails needs no report of its own: the rename then fails and
-	// says so, and what survives is the coherent entry that was already there.
-	_ = os.RemoveAll(dir)
-	return os.Rename(staging, dir)
+	// RemoveAll that fails needs no report of its own: the rename below fails
+	// and says so, and what survives is the coherent entry that was already
+	// there.
+	//
+	// Nothing serializes two pulls of the same ref, and a mutex would not help
+	// if it did -- the other pull is usually a second `pacto` process sharing
+	// one cache directory. They aim at the SAME entry, both clear it, one lands
+	// its rename, and the loser's fails onto the winner's fresh entry:
+	// ENOTEMPTY on Linux, EEXIST on macOS. Neither errno is worth matching on.
+	// Ask the filesystem what is there instead, because what is there is the
+	// entry this call set out to write, put down whole by somebody else.
+	// Reporting that as a failure reports a cache write that succeeded -- and
+	// the caller LOGS the report, so a healthy concurrent pull told the user
+	// its cache was broken. It surfaced in tests/integration, whose runner
+	// gives the command one buffer for both streams: the warning landed in
+	// front of a `pacto diff --output json` payload and the parse failed. The
+	// CLI logs to stderr, so no real invocation's JSON was ever polluted -- the
+	// warning itself was the defect.
+	//
+	// Both observations race in turn: a third committer's RemoveAll can empty
+	// the directory between the failed rename and the look. So this retries. A
+	// lost round means some other committer finished a whole entry, which is
+	// progress no matter who made it, and the committers are finite -- the loop
+	// is a bound on an event that is already converging, not a spin.
+	//
+	// If two pulls disagree about the bytes (a mutable tag moved between them)
+	// the winner's survive. Last writer wins is what a mutable tag already
+	// means, and every reader still sees one whole entry or none.
+	var commitErr error
+	for range commitAttempts {
+		_ = os.RemoveAll(dir)
+		if commitErr = os.Rename(staging, dir); commitErr == nil {
+			return nil
+		}
+		if entryIsCommitted(dir) {
+			return nil
+		}
+	}
+	return commitErr
+}
+
+// commitAttempts bounds the retry in [CachedStore.writeCacheEntry]. Losing a
+// round needs two separate races to land inside two adjacent syscalls, so the
+// bound is about terminating on a genuinely stuck destination -- one this
+// process cannot empty, say -- rather than about how many writers there are.
+const commitAttempts = 5
+
+// entryIsCommitted reports whether dir holds both files of a whole entry. Only
+// the single rename in [CachedStore.writeCacheEntry] ever puts them there
+// together, so finding both regular files means some committer finished: there
+// is no half-written state this can mistake for a complete one.
+func entryIsCommitted(dir string) bool {
+	for _, f := range []string{CachedBundleFile, CachedRefFile} {
+		st, err := os.Stat(filepath.Join(dir, f))
+		if err != nil || !st.Mode().IsRegular() {
+			return false
+		}
+	}
+	return true
 }
 
 // stageCacheEntry writes both files of an entry into an uncommitted directory.
