@@ -265,6 +265,107 @@ func TestWriteCacheEntry_FailedCommitsAreReported(t *testing.T) {
 	})
 }
 
+// Nothing serializes two pulls of the same ref -- in the case that produced
+// this test they were parallel `pacto` invocations sharing one cache dir. They
+// commit to the same entry directory, one rename wins, and every loser used to
+// come back with `rename ...: directory not empty` for a cache write that had
+// in fact just been made by somebody else. The caller logs that, so a healthy
+// concurrent pull told the user its cache was broken -- and in tests/integration,
+// whose runner hands the command one buffer for both streams, the warning landed
+// in front of a `pacto diff --output json` payload and the parse failed.
+func TestWriteCacheEntry_ConcurrentCommitsOfTheSameEntryAllSucceed(t *testing.T) {
+	root := t.TempDir()
+	c := &CachedStore{cacheDir: filepath.Join(root, "oci")}
+	dir := filepath.Join(c.cacheDir, "_v2", "reg%3A5000", "demo", "svc", "1.0.0")
+	rec := CachedRef{Ref: "reg:5000/demo/svc:1.0.0", Digest: "sha256:aaa"}
+
+	const writers = 24
+	start := make(chan struct{})
+	errs := make([]error, writers)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs[i] = c.writeCacheEntry(dir, rec, markedBundle())
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("concurrent commit %d reported a failure for an entry that was written: %v", i, err)
+		}
+	}
+	if !entryIsCommitted(dir) {
+		t.Error("after 24 concurrent commits the entry is not on disk")
+	}
+}
+
+// The race above is tolerated by asking what is on disk, not by ignoring the
+// rename error -- so a commit that fails for any OTHER reason must still say so.
+func TestWriteCacheEntry_ALostRenameIsOnlyForgivenWhenTheEntryIsThere(t *testing.T) {
+	rec := CachedRef{Ref: "reg:5000/demo/svc:1.0.0", Digest: "sha256:aaa"}
+
+	// A directory the process cannot empty stands in for the winner's entry: the
+	// RemoveAll leaves it, so the rename hits an occupied destination exactly as
+	// it does when another committer got there first.
+	occupied := func(t *testing.T, contents map[string]string) (*CachedStore, string) {
+		t.Helper()
+		root := t.TempDir()
+		c := &CachedStore{cacheDir: filepath.Join(root, "oci")}
+		dir := filepath.Join(c.cacheDir, "svc", "1.0.0")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for name, body := range contents {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+		return c, dir
+	}
+
+	t.Run("a whole entry is already there", func(t *testing.T) {
+		c, dir := occupied(t, map[string]string{CachedBundleFile: "tgz", CachedRefFile: "{}"})
+		if err := c.writeCacheEntry(dir, rec, markedBundle()); err != nil {
+			t.Errorf("a commit that lost to a finished one reported %v, want success", err)
+		}
+	})
+
+	t.Run("what is there is not an entry", func(t *testing.T) {
+		c, dir := occupied(t, map[string]string{"stray": "x"})
+		if err := c.writeCacheEntry(dir, rec, markedBundle()); err == nil {
+			t.Error("a commit blocked by something that is not a cache entry reported success")
+		}
+	})
+
+	t.Run("the bundle is a directory wearing an entry's name", func(t *testing.T) {
+		root := t.TempDir()
+		c := &CachedStore{cacheDir: filepath.Join(root, "oci")}
+		dir := filepath.Join(c.cacheDir, "svc", "1.0.0")
+		if err := os.MkdirAll(filepath.Join(dir, CachedBundleFile), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, CachedRefFile), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+		if err := c.writeCacheEntry(dir, rec, markedBundle()); err == nil {
+			t.Error("a directory named bundle.tar.gz was accepted as a committed entry")
+		}
+	})
+}
+
 func TestPinRefToDigest_DropsWhateverTheRefAlreadyPins(t *testing.T) {
 	for _, tc := range []struct{ ref, want string }{
 		{"localhost:5000/demo/svc:1.0.0", "localhost:5000/demo/svc@sha256:new"},
