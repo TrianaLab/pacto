@@ -415,9 +415,10 @@ func (s *Service) EvidenceResolver() evidenceingest.ContractResolver {
 	return contractResolver{svc: s}
 }
 
-// ServeOptions configures the evidence ingestion host.
+// ServeOptions configures the evidence ingestion host. It carries no address:
+// where to bind is the CLI's decision, made once in internal/cli/evidence.go
+// from --listen-address and --port, and handed over as a ready listener.
 type ServeOptions struct {
-	Port      int      // listen port for ServeEvidence (0 = OS-assigned)
 	TrustPath string   // a public-key file or a directory of <keyId>.pub files
 	Subjects  []string // exact oci://…@sha256:… contract revisions evidence is stored on
 	Producers []string // trusted producer ids advertised on GET /producers
@@ -470,17 +471,6 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 	handler.Routes(mux)
 	return mux, nil
-}
-
-// ServeEvidence assembles the ingestion host, listens on opts.Port and serves
-// until ctx is cancelled. It is the port-based convenience over
-// ServeEvidenceOnListener.
-func (s *Service) ServeEvidence(ctx context.Context, opts ServeOptions) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", opts.Port))
-	if err != nil {
-		return err
-	}
-	return s.ServeEvidenceOnListener(ctx, ln, opts)
 }
 
 // ServeEvidenceOnListener serves the ingestion host on an existing listener until
