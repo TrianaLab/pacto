@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,22 @@ func TestMain(m *testing.M) {
 	// No test asserts on the update notification; the `update` command itself is
 	// exercised directly (TestUpdateCommand), unaffected by this.
 	os.Setenv("PACTO_NO_UPDATE_CHECK", "1")
+
+	// Pin the Go build cache to wherever the toolchain already keeps it, BEFORE
+	// the redirect below. On Linux GOCACHE defaults to $XDG_CACHE_HOME/go-build,
+	// so redirecting one silently redirects the other, and the tests that shell
+	// out to `go build` would each compile the whole dependency tree from cold,
+	// three of them at once. That is invisible on macOS, where the default lives
+	// under ~/Library/Caches and the redirect cannot reach it, and it timed the
+	// package out on CI.
+	if os.Getenv("GOCACHE") == "" {
+		out, err := exec.Command("go", "env", "GOCACHE").Output()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to read GOCACHE: %v\n", err)
+			os.Exit(1)
+		}
+		os.Setenv("GOCACHE", strings.TrimSpace(string(out)))
+	}
 
 	// Give the suite its own OCI cache. The CLI wraps every registry client in a
 	// CachedStore, exactly as cmd/pacto does, so without this the tests would
