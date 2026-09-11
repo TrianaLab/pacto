@@ -62,6 +62,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # docs-generate shells out to `go run ./cmd/pacto --help`. This job is
+      # pre-tag, so a failure here is cheap, but the gate is uniform across
+      # release.yml rather than carrying an exception nobody would maintain.
+      - name: Warm the module cache (retried)
+        run: bash release/scripts/retry.sh go mod download
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
@@ -458,6 +463,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # publish-demo-bundles.sh runs `go run ./publishbundles` twice, after the
+      # tag is already pushed. Same reason as the `release` job above.
+      - name: Warm the module cache (retried)
+        run: bash release/scripts/retry.sh go mod download
       - name: Install ORAS
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Log in to GHCR
@@ -532,6 +541,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # `go run ./tests/acceptance/scenario/project` projects the application
+      # this job publishes, after the tag is pushed. Same reason as `release`.
+      - name: Warm the module cache (retried)
+        run: bash release/scripts/retry.sh go mod download
       - name: Install Docker Compose (it publishes this unit)
         uses: docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2 # v2.3.0
         with:
@@ -900,6 +913,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # This job compiles Go twice — the WASM demo, and the CLI that
+      # gen_demo_transcripts.sh records the docs transcripts with — and it runs
+      # after the tag is pushed. Same reason as the `release` job.
+      - name: Warm the module cache (retried)
+        run: bash release/scripts/retry.sh go mod download
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
@@ -952,6 +970,21 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+      # Warm the module cache through a retry before anything compiles.
+      #
+      # `go build` fetches every module it does not already have, one network
+      # round trip each, and retries none of them. setup-go's cache usually
+      # covers that, but a cache miss (evicted, or a go.sum that moved) turns
+      # this job's `go build` into ~97 bare fetches. This job runs AFTER
+      # core-tag has pushed the git tag, so a single dropped connection here
+      # leaves the tag published and the GitHub Release without its binaries —
+      # which is exactly how 3.3.0 half-shipped. The fetch is idempotent and
+      # near-free on a cache hit, so it costs nothing to make it the only
+      # unretried-network-in-the-publish-window that cannot happen.
+      #
+      # Held by TestEveryReleaseJobThatCompilesGoWarmsTheCacheFirst.
+      - name: Warm the module cache (retried)
+        run: bash release/scripts/retry.sh go mod download
       - name: Install syft
         uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
       - name: Build reproducible binaries + checksums + SBOM
