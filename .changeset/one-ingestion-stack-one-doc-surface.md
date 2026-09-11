@@ -49,7 +49,8 @@ The full list, so nobody discovers it at compile time:
   enrichment handshake are all the fleet's job now.
 - The source interface and its implementations, with their methods:
   `DataSource`, `LocalSource`, `OCISource`, `K8sSource`, `K8sClient`,
-  `CacheSource`, `ResolvedSource`, and the constructors `NewLocalSource`,
+  `CRDDiscovery`, `CacheSource`, `ResolvedSource`, and the constructors
+  `NewLocalSource`,
   `NewOCISource`, `NewK8sSource`, `NewCacheSource`, `NewResolvedSource`,
   `BuildResolvedSource`, plus `ContractRefProviderFromSource` and
   `RepoProviderFromSource`.
@@ -61,6 +62,21 @@ The full list, so nobody discovers it at compile time:
   `CacheDiagnostics`.
 - `ClassifyVersions` and `BundlePair`, which classified versions for a stack
   that no longer produces them.
+
+**`pacto dashboard --diagnostics` is removed**, with the `PACTO_DASHBOARD_DIAGNOSTICS`
+environment variable and the `DashboardConfig.Diagnostics` field behind it. The flag
+existed to register `/api/debug/sources` and `/api/debug/services`, which reported on
+the source stack; both endpoints went with it. The field is the one removal here from
+a type that survives, and it is not kept as an inert bool on purpose: `DashboardConfig`
+is published as a JSON Schema, so a retained field would advertise a diagnostics panel
+that no longer exists. `/api/sources` now carries the fleet's own health and
+completeness, which is what the panel was reading for. Scripts passing the flag will
+fail with an unknown-flag error rather than silently changing behaviour.
+
+`CRDDiscovery` in the list above is a re-export of an `internal/k8sclient` type, and
+it goes for a second reason beyond its stack: `pkg/dashboard` is now gated k8s-free by
+`tests/architecture/boundary_test.go`, so keeping the alias would pull client-go back
+into a package that must stay consumable without it.
 
 If you were importing any of these, you were driving the dashboard's private
 ingestion. Build a `fleet.Query` and hand it to `SetFleetProvider` instead; that

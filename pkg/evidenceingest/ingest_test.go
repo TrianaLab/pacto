@@ -421,7 +421,7 @@ func TestSource_CollectUnavailable(t *testing.T) {
 }
 
 func TestSource_CollectPartial(t *testing.T) {
-	rec := Record{Envelope: evidenceenvelope.Envelope{
+	rec := Record{Compliance: finding.StatusCompliant, Envelope: evidenceenvelope.Envelope{
 		ID: "e1", Producer: evidenceenvelope.Producer{ID: "env-a"},
 		EvidenceSet: evidence.EvidenceSet{Subject: evidence.SubjectRef{Kind: "service", Name: "payments"}},
 	}}
@@ -447,6 +447,32 @@ func TestSource_CollectPartial(t *testing.T) {
 	}
 	if !strings.Contains(col.Limitations[0].Message, "1 of 2 contract subjects unreadable") {
 		t.Errorf("limitation should carry the store's own reason, got %q", col.Limitations[0].Message)
+	}
+}
+
+// A record whose compliance is outside the canonical vocabulary is kept out of
+// the graph and surfaced, which is what the live evidence source does with the
+// same input. Acceptance always derives the status, so only a corrupted or
+// hand-built record reaches this, and dropping it silently would read as "no
+// such target" rather than "this target could not be interpreted".
+func TestSource_CollectRejectsUninterpretableCompliance(t *testing.T) {
+	rec := Record{Compliance: "definitely-not-a-status", Envelope: evidenceenvelope.Envelope{
+		ID: "e1", Producer: evidenceenvelope.Producer{ID: "env-a"},
+		EvidenceSet: evidence.EvidenceSet{Subject: evidence.SubjectRef{Kind: "service", Name: "payments"}},
+	}}
+	src := NewSource("s", healthStore{recs: []Record{rec}, health: SourceHealth{Status: HealthReady, Subjects: 1}})
+	col, err := src.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("an uninterpretable record is a limitation, not an error: %v", err)
+	}
+	if len(col.Targets) != 0 {
+		t.Errorf("targets = %+v, want none: the one record cannot be interpreted", col.Targets)
+	}
+	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid {
+		t.Fatalf("limitations = %+v, want one SOURCE_RECORD_INVALID", col.Limitations)
+	}
+	if !strings.Contains(col.Limitations[0].Message, "payments") {
+		t.Errorf("limitation should name the target, got %q", col.Limitations[0].Message)
 	}
 }
 

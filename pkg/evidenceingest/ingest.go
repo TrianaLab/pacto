@@ -413,6 +413,17 @@ func (s *Source) Collect(ctx context.Context) (*fleet.Collection, error) {
 	}
 	for _, rec := range res.Records {
 		env := rec.Envelope
+		if !fleet.ValidStatus(rec.Compliance) {
+			// Same rule the live source applies: a status this consumer cannot
+			// interpret is kept out of the graph but surfaced, so a bad record is
+			// never confused with none. Without it this deprecated source and its
+			// replacement disagree about the same record.
+			col.Limitations = append(col.Limitations, fleet.Limitation{
+				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
+				Message: fmt.Sprintf("evidence target %q reported unknown compliance status", env.EvidenceSet.Subject.Name),
+			})
+			continue
+		}
 		at := env.EvidenceSet.ObservedAt
 		col.Targets = append(col.Targets, fleet.RawTarget{
 			Scope: env.Producer.ID,

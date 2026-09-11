@@ -99,6 +99,16 @@ const (
 	ComplianceUnknown   = contractview.ComplianceUnknown
 )
 
+// The version-policy vocabulary, re-exported for v3 importers.
+//
+// Deprecated: nothing writes [ServiceDetails.VersionPolicy] any more, so no
+// reader will see these; see [contractview.VersionPolicyTracking]. Removed at v4.
+const (
+	VersionPolicyTracking     = contractview.VersionPolicyTracking
+	VersionPolicyPinnedTag    = contractview.VersionPolicyPinnedTag
+	VersionPolicyPinnedDigest = contractview.VersionPolicyPinnedDigest
+)
+
 // ── Per-section availability (inert) ─────────────────────────────────
 //
 // SectionInfo and the Section* vocabularies describe [ServiceDetails.SectionMeta],

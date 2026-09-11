@@ -179,6 +179,16 @@ type Service struct {
 	Sources        []string       `json:"sources,omitempty"` // all sources this service appears in
 }
 
+// The values [ServiceDetails.VersionPolicy] takes. The field itself is deprecated
+// and currently has no writer, but the frontend still maps these exact strings, so
+// they stay the one spelling of the vocabulary rather than a comment above the
+// field and a literal in TypeScript.
+const (
+	VersionPolicyTracking     = "tracking"      // follows latest (no explicit pin)
+	VersionPolicyPinnedTag    = "pinned-tag"    // pinned to a specific semver tag
+	VersionPolicyPinnedDigest = "pinned-digest" // pinned to an immutable digest
+)
+
 // ServiceDetails contains all information for the service detail view.
 type ServiceDetails struct {
 	Service
@@ -191,7 +201,11 @@ type ServiceDetails struct {
 	CurrentRevision string `json:"currentRevision,omitempty"`
 
 	// Version tracking: derived from resolvedRef and version history.
-	VersionPolicy   string `json:"versionPolicy,omitempty"`   // "tracking", "pinned-tag", "pinned-digest"
+	//
+	// Deprecated: the three fields below have had no writer since the dashboard's
+	// version-tracking stack was removed. They are omitempty, so they are simply
+	// absent on the wire. The names stay through v3 and are removed at v4.
+	VersionPolicy   string `json:"versionPolicy,omitempty"`   // one of VersionPolicyTracking, VersionPolicyPinnedTag, VersionPolicyPinnedDigest
 	LatestAvailable string `json:"latestAvailable,omitempty"` // highest semver from version history
 	UpdateAvailable bool   `json:"updateAvailable,omitempty"` // true when latestAvailable > version
 
@@ -547,7 +561,10 @@ type Version struct {
 type Ref struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
-	// Source is optional; defaults to the active data source.
+	// Deprecated: nothing reads this. It used to name which data source to
+	// resolve the ref against, and that routing went with the source stack. It
+	// stays because it is in the published OpenAPI document and is omitempty, so
+	// an old client that still sends it is not rejected. Removed at v4.
 	Source string `json:"source,omitempty"`
 }
 

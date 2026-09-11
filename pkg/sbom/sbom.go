@@ -73,6 +73,12 @@ func HasSBOM(fsys fs.FS) bool {
 		return false
 	}
 	for _, entry := range entries {
+		// Skip directories, as ParseFromFS does. Without this a directory named
+		// deps.spdx.json answers true here and nil there, so the two disagree on
+		// the one question the deprecation note says they answer alike.
+		if entry.IsDir() {
+			continue
+		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".spdx.json") || strings.HasSuffix(name, ".cdx.json") {
 			return true

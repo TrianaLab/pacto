@@ -96,3 +96,16 @@ their replacement and `Removed at v4` rather than deleted, because v3 is
 published and this ships as a minor: `sbom.HasSBOM`, `oci.SetUserHomeDirFn`, the
 `LocalOnly` resolver surface, the standalone sidecar reader and the ingestion
 store's own `fleet.Source` adapter among them.
+
+Keeping them means keeping them honest, so two that had drifted from the code
+they now defer to are repaired rather than left to rot behind the marker:
+
+- `sbom.HasSBOM` skips directories, as `ParseFromFS` already did. A directory
+  named `deps.spdx.json` used to make it answer true where `ParseFromFS` answers
+  nil, which is precisely the question its deprecation note says the two settle
+  the same way.
+- The ingestion store's `fleet.Source` adapter drops a record whose compliance is
+  outside the canonical vocabulary and raises `SOURCE_RECORD_INVALID`, matching
+  the live evidence source. It used to copy the status straight through, so the
+  two disagreed about the same record and an uninterpretable one entered the
+  graph as though it had been understood.
