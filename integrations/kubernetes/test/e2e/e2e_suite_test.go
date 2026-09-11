@@ -11,9 +11,9 @@ See LICENSE file in the project root for full license text.
 // Package e2e holds the Pacto 2.0 END-TO-END ACCEPTANCE MATRIX (spec section 12). Every case drives the
 // REAL operator pipeline against an envtest control plane: a Pacto CR plus its Kubernetes fixtures are
 // created, the controller's Reconcile runs (collector -> evidence -> validation.Evaluate -> Findings +
-// Coverage -> CR status), and the resulting status is asserted and then fed through the real dashboard
-// mapping (pkg/dashboard source_k8s -> ComputeCompliance). Active health/metrics probes are genuine HTTP
-// GETs against an httptest.Server; only the TCP dial target of the in-cluster Service authority is
+// Coverage -> CR status), and the resulting status is asserted against the engine's own public vocabulary
+// (pkg/fleet), so a rename on either side of the module boundary fails here. Active health/metrics probes
+// are genuine HTTP GETs against an httptest.Server; only the TCP dial target of the in-cluster Service is
 // redirected to the test server (exactly what kube DNS/kube-proxy would do in a real cluster), so the
 // prober is never stubbed away.
 package e2e
@@ -55,7 +55,6 @@ import (
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
 )
 
 var (
@@ -675,49 +674,4 @@ func requireCoverage(t *testing.T, p *pactov1alpha1.Pacto, evaluated, required i
 	if c.Evaluated != evaluated || c.Required != required {
 		t.Fatalf("evaluationCoverage = {%d,%d}, want {%d,%d}", c.Evaluated, c.Required, evaluated, required)
 	}
-}
-
-// --- dashboard feed ---------------------------------------------------------
-
-// dashClient is a dashboard.K8sClient that serves a fixed set of Pacto CRs, so the REAL source_k8s
-// mapping (serviceFromK8sStatus -> NormalizeContractStatus -> ComputeCompliance) runs over operator output.
-type dashClient struct {
-	listJSON []byte
-	byName   map[string][]byte
-}
-
-func newDashClient(t *testing.T, pactos ...*pactov1alpha1.Pacto) dashClient {
-	t.Helper()
-	items := make([]json.RawMessage, 0, len(pactos))
-	byName := make(map[string][]byte, len(pactos))
-	for _, p := range pactos {
-		b, err := json.Marshal(p)
-		if err != nil {
-			t.Fatalf("marshal pacto: %v", err)
-		}
-		items = append(items, b)
-		byName[p.Name] = b
-	}
-	list, err := json.Marshal(struct {
-		Items []json.RawMessage `json:"items"`
-	}{Items: items})
-	if err != nil {
-		t.Fatalf("marshal list: %v", err)
-	}
-	return dashClient{listJSON: list, byName: byName}
-}
-
-func (d dashClient) Probe(context.Context) error { return nil }
-func (d dashClient) DiscoverCRD(context.Context) (*dashboard.CRDDiscovery, error) {
-	return &dashboard.CRDDiscovery{Found: true, Group: "pacto.trianalab.io", Version: "v1alpha1", ResourceName: "pactos"}, nil
-}
-func (d dashClient) ListJSON(context.Context, string, string) ([]byte, error) { return d.listJSON, nil }
-func (d dashClient) GetJSON(_ context.Context, _, _, name string) ([]byte, error) {
-	if b, ok := d.byName[name]; ok {
-		return b, nil
-	}
-	return nil, fmt.Errorf("not found: %s", name)
-}
-func (d dashClient) CountResources(context.Context, string, string) (int, error) {
-	return len(d.byName), nil
 }

@@ -20,12 +20,11 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -1378,49 +1377,51 @@ func TestLoadFailures(t *testing.T) {
 }
 
 // =====================================================================================
-// dashboard consumption: per-service mapping (source_k8s -> ComputeCompliance)
+// fleet consumption: the operator's status vocabulary
 // =====================================================================================
 
-func TestDashboardPerServiceMapping(t *testing.T) {
-	// Reconcile real CRs of each evaluated state, then feed them through the REAL dashboard k8s source
-	// (all-namespaces mode, so lookup is by contract service name).
-	compliant := reconcileWorkloadCompliant(t)
-	unknown := reconcileExtensionUnknown(t)
-	nonCompliant := reconcilePersistenceNonCompliant(t)
-	invalid := reconcileInvalid(t)
-	reference := reconcileReference(t)
-
+// The fleet consumes the operator's verdict verbatim -- the engine's Kubernetes source
+// copies status.contractStatus straight into fleet.RawTarget.Compliance and never
+// re-derives it. That makes the vocabulary the whole cross-module contract: a status the
+// fleet does not name lands in fleet.ComplianceTally.Other and disappears from every
+// consumer that reads the tally.
+//
+// Comparing a reconciled status against the operator's OWN constant would prove nothing,
+// because both halves would drift together. These compare a REAL reconciled status
+// against the engine's public constant, so renaming either side fails here.
+func TestReconciledStatusIsNamedByTheFleet(t *testing.T) {
 	cases := []struct {
-		name string
-		cr   *pactov1alpha1.Pacto
-		want dashboard.ComplianceStatus
+		name      string
+		reconcile func(*testing.T) *pactov1alpha1.Pacto
+		want      string
 	}{
-		{"compliant_to_OK", compliant, dashboard.ComplianceOK},
-		{"unknown_to_UNKNOWN", unknown, dashboard.ComplianceUnknown},
-		{"noncompliant_to_ERROR", nonCompliant, dashboard.ComplianceError},
-		{"invalid_to_ERROR", invalid, dashboard.ComplianceError},
-		{"reference_to_REFERENCE", reference, dashboard.ComplianceReference},
+		{"compliant", reconcileWorkloadCompliant, fleet.StatusCompliant},
+		{"unknown", reconcileExtensionUnknown, fleet.StatusUnknown},
+		{"noncompliant", reconcilePersistenceNonCompliant, fleet.StatusNonCompliant},
+		{"invalid", reconcileInvalid, fleet.StatusInvalid},
+		{"reference", reconcileReference, fleet.StatusReference},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			src := dashboard.NewK8sSource(newDashClient(t, tc.cr), "", "pactos")
-			// Invalid short-circuits with a nil status.contract; the dashboard resolves such a CR by its
-			// metadata.name, so look it up by CR name and exercise that real fallback. Every other case
-			// carries a contract and is looked up by its service name.
-			lookup := tc.cr.Name
-			if tc.cr.Status.Contract != nil {
-				lookup = tc.cr.Status.Contract.ServiceName
-			}
-			d, err := src.GetService(testCtx, lookup)
-			if err != nil {
-				t.Fatalf("dashboard GetService: %v", err)
-			}
-			if d.Compliance == nil || d.Compliance.Status != tc.want {
-				t.Fatalf("dashboard compliance = %+v, want status %q (contractStatus %q)",
-					d.Compliance, tc.want, d.ContractStatus)
+			if got := tc.reconcile(t).Status.ContractStatus; got != tc.want {
+				t.Fatalf("reconciled contractStatus = %q, want the fleet's %q", got, tc.want)
 			}
 		})
 	}
+
+	// The two states no reconcile can reach still have to agree across the boundary.
+	// Warning needs warning-only findings, and NotEvaluated is reserved for engine
+	// sources that were never runtime-evaluated (see the ContractStatus doc comments).
+	t.Run("reserved_states", func(t *testing.T) {
+		for _, tc := range []struct{ operator, engine string }{
+			{pactov1alpha1.ContractStatusWarning, fleet.StatusWarning},
+			{pactov1alpha1.ContractStatusNotEvaluated, fleet.StatusNotEvaluated},
+		} {
+			if tc.operator != tc.engine {
+				t.Errorf("operator status %q is not the fleet's %q", tc.operator, tc.engine)
+			}
+		}
+	})
 }
 
 func reconcileWorkloadCompliant(t *testing.T) *pactov1alpha1.Pacto {
@@ -1462,8 +1463,8 @@ func reconcileInvalid(t *testing.T) *pactov1alpha1.Pacto {
 		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
 	})
 	// Invalid short-circuits before populateContractStatus, so status.contract stays nil. Do NOT hand-patch
-	// it: TestDashboardPerServiceMapping looks this case up by CR name so the dashboard's REAL nil-Contract
-	// metadata.name fallback (getPacto: r.Metadata.Name == name) is exercised end to end.
+	// it: a consumer with no status.contract to read falls back to metadata.name, and this is the only
+	// fixture that produces that shape.
 	return reconcile(t, "inv", ns, reconcileOpts{}).pacto
 }
 
@@ -1474,166 +1475,4 @@ func reconcileReference(t *testing.T) *pactov1alpha1.Pacto {
 		// no target -> reference-only
 	})
 	return reconcile(t, "ref", ns, reconcileOpts{}).pacto
-}
-
-// =====================================================================================
-// dashboard fleet math (B-2)
-// =====================================================================================
-
-// SOURCE OF TRUTH: the authoritative B-2 denominator guard lives in the engine frontend at
-// pkg/dashboard/frontend/src/lib/format.test.ts (exercising aggregateByOwner's compliancePercent) — that
-// vitest owns the fleet-% reducer. This e2e does NOT re-derive that logic as a contract; its job is to prove
-// the OPERATOR emits the raw per-status counts that FEED the reducer, by driving the REAL source_k8s status
-// mapping (serviceFromK8sStatus -> NormalizeContractStatus) over a fleet. fleetPercent below is only a local
-// restatement of the section 1.5 denominator so those per-status counts can be asserted end to end; treat
-// format.test.ts, not this helper, as the definition of the numbers.
-
-func syntheticPacto(name, status string) *pactov1alpha1.Pacto {
-	return &pactov1alpha1.Pacto{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "fleet"},
-		Status: pactov1alpha1.PactoStatus{
-			ContractStatus: status,
-			Contract:       &pactov1alpha1.ContractInfo{ServiceName: name, Version: "1.0.0"},
-		},
-	}
-}
-
-// fleetPercent applies the section 1.5 denominator over dashboard-mapped statuses:
-//
-//	denominator = Compliant + NonCompliant + Warning + Unknown + Invalid (Reference/NotEvaluated excluded)
-//	numerator   = Compliant
-func fleetPercent(services []dashboard.Service) (pct float64, assessed, needsAttention, unknown int) {
-	var compliant, nonCompliant, warning, invalid int
-	for _, s := range services {
-		switch s.ContractStatus {
-		case dashboard.StatusCompliant:
-			compliant++
-		case dashboard.StatusNonCompliant:
-			nonCompliant++
-		case dashboard.StatusWarning:
-			warning++
-		case dashboard.StatusUnknown:
-			unknown++
-		case dashboard.StatusInvalid:
-			invalid++
-			// StatusReference and StatusNotEvaluated are excluded from the denominator.
-		}
-	}
-	assessed = compliant + nonCompliant + warning + unknown + invalid
-	needsAttention = nonCompliant + warning + invalid // Unknown is NOT needsAttention
-	if assessed == 0 {
-		return -1, 0, needsAttention, unknown // N/A sentinel
-	}
-	return float64(compliant) / float64(assessed) * 100, assessed, needsAttention, unknown
-}
-
-func fleetServices(t *testing.T, pactos ...*pactov1alpha1.Pacto) []dashboard.Service {
-	t.Helper()
-	src := dashboard.NewK8sSource(newDashClient(t, pactos...), "fleet", "pactos")
-	services, err := src.ListServices(testCtx)
-	if err != nil {
-		t.Fatalf("dashboard ListServices: %v", err)
-	}
-	return services
-}
-
-func TestDashboardFleetMath(t *testing.T) {
-	t.Run("one_compliant_99_unknown_is_1_percent", func(t *testing.T) {
-		var fleet []*pactov1alpha1.Pacto
-		fleet = append(fleet, syntheticPacto("svc-0", pactov1alpha1.ContractStatusCompliant))
-		for i := 1; i < 100; i++ {
-			fleet = append(fleet, syntheticPacto(fmt.Sprintf("svc-%d", i), pactov1alpha1.ContractStatusUnknown))
-		}
-		pct, assessed, needsAttention, unknown := fleetPercent(fleetServices(t, fleet...))
-		if pct != 1 {
-			t.Fatalf("compliancePercent = %v, want 1 (NOT 100)", pct)
-		}
-		if assessed != 100 || unknown != 99 {
-			t.Fatalf("assessed=%d unknown=%d, want 100/99", assessed, unknown)
-		}
-		if needsAttention != 0 {
-			t.Fatalf("needsAttention = %d, want 0 (Unknown is not needsAttention)", needsAttention)
-		}
-	})
-
-	t.Run("all_unknown_is_0_percent_not_NA", func(t *testing.T) {
-		var fleet []*pactov1alpha1.Pacto
-		for i := 0; i < 10; i++ {
-			fleet = append(fleet, syntheticPacto(fmt.Sprintf("svc-%d", i), pactov1alpha1.ContractStatusUnknown))
-		}
-		pct, assessed, _, _ := fleetPercent(fleetServices(t, fleet...))
-		if pct != 0 {
-			t.Fatalf("all-Unknown compliancePercent = %v, want 0 (NOT N/A)", pct)
-		}
-		if assessed != 10 {
-			t.Fatalf("assessed = %d, want 10", assessed)
-		}
-	})
-
-	t.Run("reference_and_notEvaluated_excluded", func(t *testing.T) {
-		fleet := []*pactov1alpha1.Pacto{
-			syntheticPacto("c", pactov1alpha1.ContractStatusCompliant),
-			syntheticPacto("r", pactov1alpha1.ContractStatusReference),
-			syntheticPacto("n", pactov1alpha1.ContractStatusNotEvaluated),
-		}
-		pct, assessed, _, _ := fleetPercent(fleetServices(t, fleet...))
-		if assessed != 1 || pct != 100 {
-			t.Fatalf("assessed=%d pct=%v, want 1/100 (Reference+NotEvaluated excluded)", assessed, pct)
-		}
-	})
-
-	t.Run("invalid_counts_in_denominator_and_needsAttention", func(t *testing.T) {
-		fleet := []*pactov1alpha1.Pacto{
-			syntheticPacto("c", pactov1alpha1.ContractStatusCompliant),
-			syntheticPacto("i", pactov1alpha1.ContractStatusInvalid),
-		}
-		pct, assessed, needsAttention, _ := fleetPercent(fleetServices(t, fleet...))
-		if assessed != 2 || pct != 50 || needsAttention != 1 {
-			t.Fatalf("assessed=%d pct=%v needsAttention=%d, want 2/50/1", assessed, pct, needsAttention)
-		}
-	})
-
-	t.Run("secondary_conclusive_metric_distinguishes_failure_from_uncertainty", func(t *testing.T) {
-		fleet := []*pactov1alpha1.Pacto{
-			syntheticPacto("c", pactov1alpha1.ContractStatusCompliant),
-			syntheticPacto("nc", pactov1alpha1.ContractStatusNonCompliant),
-			syntheticPacto("w", pactov1alpha1.ContractStatusWarning),
-			syntheticPacto("u1", pactov1alpha1.ContractStatusUnknown),
-			syntheticPacto("u2", pactov1alpha1.ContractStatusUnknown),
-		}
-		services := fleetServices(t, fleet...)
-		pct, assessed, _, unknown := fleetPercent(services)
-		if assessed != 5 || pct != 20 || unknown != 2 {
-			t.Fatalf("assessed=%d pct=%v unknown=%d, want 5/20/2", assessed, pct, unknown)
-		}
-		// runtimeEvaluated = compliant+warning+nonCompliant+unknown; conclusive = compliant+warning+nonCompliant.
-		var compliant, warning, nonCompliant int
-		for _, s := range services {
-			switch s.ContractStatus {
-			case dashboard.StatusCompliant:
-				compliant++
-			case dashboard.StatusWarning:
-				warning++
-			case dashboard.StatusNonCompliant:
-				nonCompliant++
-			}
-		}
-		runtimeEvaluated := compliant + warning + nonCompliant + unknown
-		conclusive := compliant + warning + nonCompliant
-		if runtimeEvaluated != 5 || conclusive != 3 {
-			t.Fatalf("runtimeEvaluated=%d conclusive=%d, want 5/3", runtimeEvaluated, conclusive)
-		}
-	})
-
-	t.Run("unknown_service_is_not_a_pass_per_service", func(t *testing.T) {
-		u := syntheticPacto("only-unknown", pactov1alpha1.ContractStatusUnknown)
-		src := dashboard.NewK8sSource(newDashClient(t, u), "fleet", "pactos")
-		d, err := src.GetService(testCtx, "only-unknown")
-		if err != nil {
-			t.Fatalf("GetService: %v", err)
-		}
-		if d.Compliance == nil || d.Compliance.Status != dashboard.ComplianceUnknown {
-			t.Fatalf("Unknown service mapped to %+v, want ComplianceUnknown (must not read as a pass)", d.Compliance)
-		}
-	})
 }
