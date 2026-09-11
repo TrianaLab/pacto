@@ -2,6 +2,7 @@ package oci_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -270,9 +271,10 @@ func TestResolverPinned_CarriesTheBindingTheStoreMade(t *testing.T) {
 	}
 }
 
-// A cache hit must report the identity RECORDED at pull time. Re-deriving it
-// would mean asking a registry the offline reader cannot reach — and asking a
-// tag that has since moved.
+// A cache hit reports the identity RECORDED with the bytes, never one re-derived
+// beside them. What that entry is WORTH depends on which store answered, and the
+// two legs are not the same claim: memory holds an observation THIS process made,
+// while disk holds one an earlier process made and a re-push has since voided.
 func TestCachedStore_PullPinnedCacheHitReportsTheRecordedDigest(t *testing.T) {
 	useTempCacheHome(t)
 	const ref = "localhost:5000/demo/checkout:1.0.0"
@@ -285,24 +287,126 @@ func TestCachedStore_PullPinnedCacheHitReportsTheRecordedDigest(t *testing.T) {
 		t.Fatalf("PullPinned() error: %v", err)
 	}
 
-	for _, tc := range []struct {
-		name  string
-		store *oci.CachedStore
-	}{
-		{"memory hit", warm},
-		{"disk hit", oci.NewCachedStore(inner)},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			bundle, got, err := tc.store.PullPinned(ctx, ref)
-			if err != nil {
-				t.Fatalf("PullPinned() error: %v", err)
-			}
-			if got != digest {
-				t.Errorf("digest = %q, want the recorded %q", got, digest)
-			}
-			if name := bundle.Contract.Service.Name; name != got {
-				t.Errorf("served %q under digest %q", name, got)
-			}
-		})
+	// One command sees ONE answer for one tag. Re-observing per lookup would let
+	// a single graph walk resolve the same dependency to two different artifacts.
+	t.Run("memory hit", func(t *testing.T) {
+		bundle, got, err := warm.PullPinned(ctx, ref)
+		if err != nil {
+			t.Fatalf("PullPinned() error: %v", err)
+		}
+		if got != digest {
+			t.Errorf("digest = %q, want the recorded %q", got, digest)
+		}
+		if name := bundle.Contract.Service.Name; name != got {
+			t.Errorf("served %q under digest %q", name, got)
+		}
+	})
+
+	// The disk entry predates this process. Serving it for a tag that has moved
+	// is what made `pacto lock` report no drift against re-pushed bytes: the
+	// check asks for the dependency's current content and the cache answers with
+	// the content the lock was written from, so the two always agree.
+	t.Run("disk hit whose tag moved", func(t *testing.T) {
+		bundle, got, err := oci.NewCachedStore(inner).PullPinned(ctx, ref)
+		if err != nil {
+			t.Fatalf("PullPinned() error: %v", err)
+		}
+		if got == digest {
+			t.Errorf("digest = %q: the tag was re-pushed, so the recorded identity is no longer what it points at", got)
+		}
+		if name := bundle.Contract.Service.Name; name != got {
+			t.Errorf("served %q under digest %q", name, got)
+		}
+	})
+}
+
+// absentRegistry is a registry that is not there. Any call fails, so a test that
+// still gets an answer proves the cache produced it without the network.
+type absentRegistry struct{}
+
+func (absentRegistry) Push(context.Context, string, *contract.Bundle) (string, error) {
+	return "", errors.New("no registry")
+}
+func (absentRegistry) Resolve(context.Context, string) (string, error) {
+	return "", errors.New("no registry")
+}
+func (absentRegistry) ListTags(context.Context, string) ([]string, error) {
+	return nil, errors.New("no registry")
+}
+func (absentRegistry) Pull(context.Context, string) (*contract.Bundle, error) {
+	return nil, errors.New("no registry")
+}
+
+// Revalidation exists to catch a re-push, not to defeat the cache: a tag that
+// has not moved is served from disk, costing one manifest resolve and no
+// re-download.
+func TestCachedStore_PullPinnedServesADiskEntryWhoseTagHeldStill(t *testing.T) {
+	useTempCacheHome(t)
+	const ref = "localhost:5000/demo/checkout:1.0.0"
+	ctx := context.Background()
+
+	inner := &countingStore{bundle: markedBundle("checkout")}
+	if _, _, err := oci.NewCachedStore(inner).PullPinned(ctx, ref); err != nil {
+		t.Fatalf("cold PullPinned() error: %v", err)
+	}
+	pulls := inner.pullCount.Load()
+
+	bundle, got, err := oci.NewCachedStore(inner).PullPinned(ctx, ref)
+	if err != nil {
+		t.Fatalf("warm PullPinned() error: %v", err)
+	}
+	if inner.pullCount.Load() != pulls {
+		t.Errorf("the disk hit re-downloaded the bundle (%d pulls, want %d)", inner.pullCount.Load(), pulls)
+	}
+	if name := bundle.Contract.Service.Name; name != "checkout" {
+		t.Errorf("served %q, want the cached %q", name, "checkout")
+	}
+	if got == "" {
+		t.Error("a served disk entry reported no digest")
+	}
+}
+
+// A digest-pinned reference names its own bytes, so no entry written under it
+// can go stale and the registry is never asked — which is also what keeps the
+// digest-pinned re-pull that a moved tag triggers from recursing.
+func TestCachedStore_PullPinnedDoesNotRevalidateADigestPinnedRef(t *testing.T) {
+	useTempCacheHome(t)
+	const ref = "localhost:5000/demo/checkout@sha256:" +
+		"1111111111111111111111111111111111111111111111111111111111111111"
+	ctx := context.Background()
+
+	inner := &countingStore{bundle: markedBundle("checkout")}
+	if _, _, err := oci.NewCachedStore(inner).PullPinned(ctx, ref); err != nil {
+		t.Fatalf("cold PullPinned() error: %v", err)
+	}
+
+	// A registry that is not there: reaching for it at all is the failure.
+	bundle, _, err := oci.NewCachedStore(absentRegistry{}).PullPinned(ctx, ref)
+	if err != nil {
+		t.Fatalf("PullPinned() error: %v", err)
+	}
+	if name := bundle.Contract.Service.Name; name != "checkout" {
+		t.Errorf("served %q, want the cached %q", name, "checkout")
+	}
+}
+
+// A registry that cannot be reached is not evidence that the tag moved. The
+// offline reader keeps reading the cache, which is what the cache is for.
+func TestCachedStore_PullPinnedServesADiskEntryWhenTheRegistryIsUnreachable(t *testing.T) {
+	useTempCacheHome(t)
+	const ref = "localhost:5000/demo/checkout:1.0.0"
+	ctx := context.Background()
+
+	if _, _, err := oci.NewCachedStore(&countingStore{bundle: markedBundle("checkout")}).
+		PullPinned(ctx, ref); err != nil {
+		t.Fatalf("cold PullPinned() error: %v", err)
+	}
+
+	bundle, _, err := oci.NewCachedStore(absentRegistry{}).PullPinned(ctx, ref)
+	if err != nil {
+		t.Fatalf("PullPinned() error: %v — an unreachable registry emptied the cache", err)
+	}
+	if name := bundle.Contract.Service.Name; name != "checkout" {
+		t.Errorf("served %q, want the cached %q", name, "checkout")
 	}
 }

@@ -42,5 +42,17 @@ func TestMain(m *testing.M) {
 	// exercised directly (TestUpdateCommand), unaffected by this.
 	os.Setenv("PACTO_NO_UPDATE_CHECK", "1")
 
+	// Give the suite its own OCI cache. The CLI wraps every registry client in a
+	// CachedStore, exactly as cmd/pacto does, so without this the tests would
+	// read and write the developer's real ~/.cache/pacto/oci. Set before m.Run,
+	// so it is already in place for every t.Parallel() test.
+	tmpCache, err := os.MkdirTemp("", "pacto-e2e-cache-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create temp cache dir: %v\n", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(tmpCache)
+	os.Setenv("XDG_CACHE_HOME", tmpCache)
+
 	os.Exit(m.Run())
 }

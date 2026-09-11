@@ -55,8 +55,8 @@ func TestDashboardCommand(t *testing.T) {
 		// source detection should still have printed to stderr.
 		_ = err
 
+		assertContains(t, output, "Sources:")
 		assertContains(t, output, "local")
-		assertContains(t, output, "enabled")
 	})
 
 	t.Run("hidden subdir does not activate local source", func(t *testing.T) {
@@ -93,12 +93,14 @@ func TestDashboardCommand(t *testing.T) {
 		// With local (hidden-only bundle), k8s (invalid kubeconfig), oci (no ref)
 		// and cache (--no-cache) all unavailable, detection must report no sources
 		// rather than activating local off the hidden bundle.
-		output, err := runCommandWithCancelledCtx(t, nil, "dashboard", "--no-cache")
+		_, err := runCommandWithCancelledCtx(t, nil, "dashboard", "--no-cache")
 		if err == nil {
 			t.Fatal("expected error: a pacto.yaml in a hidden subdir must not activate any source")
 		}
-		assertContains(t, output, "local")
-		assertContains(t, output, "no pacto.yaml found")
+		// The reason travels in the error, which is the only thing a caller sees
+		// when detection finds nothing to serve.
+		assertContains(t, err.Error(), "no data sources detected")
+		assertContains(t, err.Error(), "no pacto.yaml in")
 	})
 
 	t.Run("custom port flag", func(t *testing.T) {

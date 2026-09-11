@@ -88,13 +88,17 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 			// answers from PACTO_NO_CACHE and the config file, and everything
 			// downstream (fleetOptions) reads the flag, so this keeps one answer.
 			_ = cmd.Flags().Set("no-cache", "true")
-			toggler, ok := svc.BundleStore.(oci.CacheDisabler)
-			if !ok {
-				// Silently proceeding would run the whole command against the very
-				// cache the caller asked it to ignore, and report success.
-				return fmt.Errorf("--no-cache: this bundle store has no cache to disable")
+			// A nil store reads nothing, so there is no cache that could answer
+			// in the registry's place and nothing to disable.
+			if svc.BundleStore != nil {
+				toggler, ok := svc.BundleStore.(oci.CacheDisabler)
+				if !ok {
+					// Silently proceeding would run the whole command against the very
+					// cache the caller asked it to ignore, and report success.
+					return fmt.Errorf("--no-cache: this bundle store has no cache to disable")
+				}
+				toggler.DisableCache()
 			}
-			toggler.DisableCache()
 		}
 
 		// Carry the --no-anim decision on the command context (per-invocation),

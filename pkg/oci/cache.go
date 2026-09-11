@@ -244,23 +244,41 @@ func (c *CachedStore) Materialized() bool { return c.materialized.Load() }
 // that states NOTHING (written before the sidecar existed) contradicts nothing
 // and is served with no identity, as it always was.
 func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
-	bundle, rec, ok := c.cachedEntry(ctx, ref)
-	if !ok {
-		return nil, CachedRef{}, false
+	bundle, rec, _, ok := c.cachedEntryFrom(ctx, ref)
+	return bundle, rec, ok
+}
+
+// cacheLeg names which store answered a lookup. It is not decoration: a memory
+// hit was put there by THIS process, which already observed the registry for it,
+// while a disk hit is an observation some earlier process made and may predate a
+// re-push (see [CachedStore.tagUnmoved]).
+type cacheLeg int
+
+const (
+	legNone cacheLeg = iota
+	legMemory
+	legDisk
+)
+
+// cachedEntryFrom is [CachedStore.pullCached] plus the leg that answered.
+func (c *CachedStore) cachedEntryFrom(ctx context.Context, ref string) (*contract.Bundle, CachedRef, cacheLeg, bool) {
+	bundle, rec, leg := c.cachedEntry(ctx, ref)
+	if leg == legNone {
+		return nil, CachedRef{}, legNone, false
 	}
 	if rec.Ref != "" && rec.Ref != ref {
 		logging.LoggerFromContext(ctx).Debug("cache entry names another reference",
 			"ref", ref, "entry", rec.Ref)
-		return nil, CachedRef{}, false
+		return nil, CachedRef{}, legNone, false
 	}
-	return bundle, rec, true
+	return bundle, rec, leg, true
 }
 
 // cachedEntry finds what the cache holds under ref — memory first, then disk —
 // without judging whether it is ref's. Both legs return the pair the entry
 // itself supplied, so [CachedStore.pullCached] can apply ONE rule to both and a
 // warm read can never answer differently from the cold read that filled it.
-func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
+func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bundle, CachedRef, cacheLeg) {
 	// 1. In-memory cache (fastest). The pair is copied out under the mutex: a
 	// concurrent storePull rewrites the entry in place.
 	c.pullMu.Lock()
@@ -270,13 +288,13 @@ func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bu
 		bundle, rec := e.bundle, e.rec
 		c.pullMu.Unlock()
 		logging.LoggerFromContext(ctx).Debug("cache hit (memory)", "ref", ref)
-		return bundle, rec, true
+		return bundle, rec, legMemory
 	}
 	c.pullMu.Unlock()
 
 	// 2. Disk cache (skipped when --no-cache / DisableCache is active).
 	if c.cacheDir == "" || c.skipDiskReads.Load() {
-		return nil, CachedRef{}, false
+		return nil, CachedRef{}, legNone
 	}
 	for _, dir := range c.entryDirs(ref) {
 		if bundle, rec, ok := ReadCacheEntry(dir); ok {
@@ -284,10 +302,10 @@ func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bu
 			// The sidecar was committed with these exact bytes, so it is the
 			// identity of what was just loaded, not a fresh guess about a tag.
 			c.storePull(ref, bundle, rec)
-			return bundle, rec, true
+			return bundle, rec, legDisk
 		}
 	}
-	return nil, CachedRef{}, false
+	return nil, CachedRef{}, legNone
 }
 
 // Pull returns the bundle for ref, checking the in-memory cache, then the disk
@@ -308,7 +326,7 @@ func (c *CachedStore) Pull(ctx context.Context, ref string) (*contract.Bundle, e
 // entry is called. A cache hit reports the digest RECORDED at pull time, so the
 // answer never depends on where the tag points now.
 func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bundle, string, error) {
-	if bundle, rec, ok := c.pullCached(ctx, ref); ok {
+	if bundle, rec, leg, ok := c.cachedEntryFrom(ctx, ref); ok && (leg == legMemory || c.tagUnmoved(ctx, ref, rec.Digest)) {
 		return bundle, rec.Digest, nil
 	}
 
@@ -336,6 +354,45 @@ func (c *CachedStore) PullPinned(ctx context.Context, ref string) (*contract.Bun
 	}
 
 	return bundle, digest, nil
+}
+
+// tagUnmoved reports whether a DISK entry recorded under ref may still be served
+// as ref's current content.
+//
+// A digest-pinned reference names its own bytes, so no entry written under it
+// can go stale and nothing is asked. A TAG is mutable: the entry records what
+// the tag pointed at when some earlier process wrote it, and re-pushing the tag
+// leaves the cache handing back the old artifact under the new name. That is not
+// only stale — it is what disarms `pacto lock`, whose entire job is to notice a
+// dependency's bytes changing under a fixed ref. A cache that quietly answered
+// for the registry made the drift check report "no drift" on tampered content.
+//
+// Revalidating costs one manifest HEAD ([CachedStore.Resolve] is never memoized)
+// and re-downloads nothing when the tag has not moved. A registry that cannot be
+// reached is not evidence that it did move, so the entry is served: an offline
+// reader keeps reading the cache, which is what the cache is for. An entry that
+// records no digest can be checked against nothing, so an online caller re-pulls
+// it and the write-back gives it an identity for next time.
+//
+// Only the disk leg asks. A memory hit was put there by THIS process, which
+// already observed the registry for that ref, and one command should see one
+// answer for one tag rather than a different artifact per lookup.
+func (c *CachedStore) tagUnmoved(ctx context.Context, ref, cached string) bool {
+	if digestFromRef(ref) != "" {
+		return true
+	}
+	current, err := c.inner.Resolve(ctx, ref)
+	if err != nil || current == "" {
+		logging.LoggerFromContext(ctx).Debug("could not revalidate cached tag, serving the cached bundle",
+			"ref", ref, "error", err)
+		return true
+	}
+	if current == cached {
+		return true
+	}
+	logging.LoggerFromContext(ctx).Debug("cached tag has moved, re-pulling",
+		"ref", ref, "cached", cached, "current", current)
+	return false
 }
 
 // CachedRefFile is the sidecar written beside every cached bundle.
