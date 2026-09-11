@@ -41,7 +41,7 @@ perl -i -pe "s{github.com/trianalab/pacto/v3 v[0-9][0-9.]*}{github.com/trianalab
 cd "$WORK/op"
 export GIT_CONFIG_GLOBAL="$TMPGIT" GIT_CONFIG_SYSTEM=/dev/null GOWORK=off GOFLAGS=-mod=mod \
        GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' GOMODCACHE="$(mktemp -d)"
-echo "go mod download (external, GOWORK=off)..."; go mod download github.com/trianalab/pacto/v3
+echo "go mod download (external, GOWORK=off)..."; bash "$ROOT"/release/scripts/retry.sh go mod download github.com/trianalab/pacto/v3
 echo "go build ./... (standalone operator, no go.work, no replace)..."
 go build ./... && go build -o /dev/null ./cmd
 echo "STANDALONE-VERIFY OK: operator module builds against published core v${NEXT}, GOWORK=off, replace=0"

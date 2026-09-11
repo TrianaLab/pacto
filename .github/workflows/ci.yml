@@ -165,8 +165,9 @@ jobs:
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Install helm-docs
         # go install verifies the module checksum via GOSUMDB — no unchecksummed
-        # curl | tar of a release tarball.
-        run: go install github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
+        # curl | tar of a release tarball. It is also ~20 module fetches with no
+        # retry of its own, so it goes through release/scripts/retry.sh.
+        run: bash release/scripts/retry.sh go install github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
       - run: make ci-integration-kubernetes
 
   ci-e2e-envtest:
@@ -260,7 +261,7 @@ jobs:
       - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-')
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
       - name: Install kind (checksum-verified via GOSUMDB)
-        run: go install sigs.k8s.io/kind@v0.30.0
+        run: bash release/scripts/retry.sh go install sigs.k8s.io/kind@v0.30.0
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - run: make test-acceptance-kind-${{ matrix.scenario }}

@@ -415,6 +415,172 @@ func TestTheReleasePathNeverCompilesThirdPartyToolingFromSource(t *testing.T) {
 	}
 }
 
+// goFetchRE is a Go command whose work is network round trips against
+// proxy.golang.org — one per module in the graph it resolves.
+var goFetchRE = regexp.MustCompile(`\bgo (?:mod download|install)\b`)
+
+// quotedShellStringRE is a shell string literal. `go install …` inside one is a
+// hint printed at a human ("crane is required. Install it: go install …"), not a
+// command anything runs.
+var quotedShellStringRE = regexp.MustCompile(`"[^"]*"|'[^']*'`)
+
+// retryWrapperRE is the two shapes a wrapped fetch takes: release/scripts/retry.sh
+// where the script is reachable, and the inline `retry` shell function the
+// Dockerfiles define because it is not.
+var retryWrapperRE = regexp.MustCompile(`(?:^|[\s;&|(/])retry(?:\.sh)?\s`)
+
+// retryLoopRE is the open-coded loop used where there is neither a script nor a
+// function to call — the root Dockerfile's RUN and the operator Makefile's
+// go-install-tool define.
+var retryLoopRE = regexp.MustCompile(`for attempt in 1 2 3 4 5`)
+
+// classifyGoFetch reads one command list and reports whether it fetches Go
+// modules over the network, and if so whether the fetch is retried.
+func classifyGoFetch(cmd string) (fetches, retried bool) {
+	bare := quotedShellStringRE.ReplaceAllString(cmd, "")
+	if !goFetchRE.MatchString(bare) {
+		return false, false
+	}
+	return true, retryWrapperRE.MatchString(bare) || retryLoopRE.MatchString(bare)
+}
+
+// ciFetchSurfaces is every file whose shell CI runs and that could reach the
+// module proxy. Globbed rather than listed so a new workflow, action or release
+// script is covered the day it lands.
+func ciFetchSurfaces(t *testing.T, root string) []string {
+	t.Helper()
+	var out []string
+	for _, pat := range [][]string{
+		{".github", "workflows", "*.yml"},
+		{".github", "actions", "*", "action.yml"},
+		{"release", "scripts", "*.sh"},
+		{"release", "orchestrator", "*.sh"},
+		{"tests", "acceptance", "*", "*.sh"},
+		{"Dockerfile"},
+		{"Makefile"},
+		{"ci.mk"},
+		{"integrations", "kubernetes", "Dockerfile"},
+		{"integrations", "kubernetes", "Makefile"},
+		{"integrations", "kubernetes", "ci.mk"},
+	} {
+		matches, err := filepath.Glob(filepath.Join(append([]string{root}, pat...)...))
+		if err != nil {
+			t.Fatalf("glob %v: %v", pat, err)
+		}
+		out = append(out, matches...)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// TestEveryGoNetworkFetchInCIRetries is the rule 2026-09-11 bought.
+//
+// The go command retries nothing. `go mod download` and `go install` are one
+// network round trip per module against proxy.golang.org, and a single 5xx, a
+// dropped HTTP/2 stream or a stalled connection fails the whole step. In one
+// afternoon that took out three separate things on a tree nobody had touched:
+// release run 34613593980 died fetching a module zip for crane AFTER the tags
+// were pushed, half-shipping 3.3.0/5.4.0; `ci-e2e-kind (observation)` died in
+// the operator image build; and `ci-e2e-compose` died at the root Dockerfile's
+// `RUN go mod download`. Three failures, one cause, zero retries anywhere.
+//
+// The npm half of the same problem was solved long ago — ci.mk passes
+// --fetch-retries=5 to `npm ci`. This is the Go half, and it is a gate rather
+// than a habit because the sites are spread across two Dockerfiles, three
+// makefiles, four workflows and a release script, and the next one gets added by
+// someone who never read this file.
+//
+// Retrying is the right shape for CI specifically. A publish job is different:
+// there the rule is stronger — do not compile third-party source at all, see
+// TestTheReleasePathNeverCompilesThirdPartyToolingFromSource — because a retry
+// that eventually gives up still leaves an irreversible half-publish behind.
+//
+// Two ceilings, stated so nobody trusts this further than it reaches. Continued
+// lines are joined, so the unit is one shell command list, not one source line:
+// a RUN that retried one fetch and not a second would pass. And `go build`,
+// `go test` and `go run` download modules too; they are out of scope because
+// every CI job that runs them runs a retried `go mod download` first, which
+// leaves the cache warm.
+func TestEveryGoNetworkFetchInCIRetries(t *testing.T) {
+	root := repoRoot(t)
+
+	found := 0
+	for _, path := range ciFetchSurfaces(t, root) {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatalf("rel %s: %v", path, err)
+		}
+		for _, cmd := range commandLines(string(b)) {
+			// `@#` is a make recipe comment; commandLines only knows the bare form.
+			if strings.HasPrefix(strings.TrimSpace(cmd), "@#") {
+				continue
+			}
+			fetches, retried := classifyGoFetch(cmd)
+			if !fetches {
+				continue
+			}
+			found++
+			if retried {
+				continue
+			}
+			t.Errorf("%s fetches Go modules without a retry: %s\n"+
+				"Wrap it in release/scripts/retry.sh, or — where that path is not reachable, as in the two Dockerfiles and the standalone operator module — use the same 5-attempt loop inline. "+
+				"Unretried, one dropped connection to proxy.golang.org fails the step, and on the release path it half-ships.", rel, elide(cmd))
+		}
+	}
+	// Every known site plus a little slack. A refactor that quietly stops
+	// matching would otherwise leave this green while checking nothing.
+	if found < 10 {
+		t.Errorf("only %d Go module fetches found across the CI surfaces — there are at least 10; the scan stopped matching and this gate is now vacuous", found)
+	}
+}
+
+// elide keeps a failure message readable when the offending command is a joined
+// multi-line RUN.
+func elide(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 160 {
+		return s[:160] + "…"
+	}
+	return s
+}
+
+// TestTheRetryGateBitesOnABareFetch proves the classifier above can fail, and
+// fails on the exact three lines that broke on 2026-09-11 rather than on a
+// strawman. Without it, a regex that quietly stopped matching would leave the
+// gate green forever.
+func TestTheRetryGateBitesOnABareFetch(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		cmd              string
+		fetches, retried bool
+	}{
+		{"the root Dockerfile as it failed", "RUN go mod download", true, false},
+		{"the operator Dockerfile as it failed", "go work sync && go mod download all", true, false},
+		{"the release path as it failed", "go install github.com/google/go-containerregistry/cmd/crane@v0.20.2", true, false},
+		{"wrapped in the shared script", "bash release/scripts/retry.sh go mod download", true, true},
+		{"wrapped in the inline function", "retry go mod download all", true, true},
+		{"wrapped in the inline function with env", "retry env GOWORK=off go mod download", true, true},
+		{"wrapped in the inline loop", "for attempt in 1 2 3 4 5; do if go mod download; then break; fi; done", true, true},
+		{"a hint printed at a human", `echo "crane is required. Install it: go install github.com/google/go-containerregistry/cmd/crane@latest"`, false, false},
+		{"not a fetch at all", "go build ./...", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fetches, retried := classifyGoFetch(tc.cmd)
+			if fetches != tc.fetches {
+				t.Errorf("classifyGoFetch(%q) fetches = %v, want %v", tc.cmd, fetches, tc.fetches)
+			}
+			if retried != tc.retried {
+				t.Errorf("classifyGoFetch(%q) retried = %v, want %v", tc.cmd, retried, tc.retried)
+			}
+		})
+	}
+}
+
 // TestTheToolingGateBitesWhenAnInstallStepIsDeleted proves the rule above can
 // actually fail, on the exact edit that caused the incident: delete demo-compose's
 // ORAS install and the job still reads the ledger, so ORAS must still be reported
