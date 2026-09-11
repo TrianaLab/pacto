@@ -7,7 +7,7 @@ pacto impact examples/demo/bundles/payments-service/v1.2.1 examples/demo/bundles
 ```console
 Impact: payments-service 1.2.1 -> 2.0.1
 Classification: BREAKING
-Breaking changes: 11
+Breaking changes: 10
 Potentially breaking changes: 15
 Affected consumers (4):
   api-gateway                  direct     confidence=contractual  compat=incompatible owner=platform-foundations
