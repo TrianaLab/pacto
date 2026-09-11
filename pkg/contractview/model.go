@@ -561,10 +561,10 @@ type Version struct {
 type Ref struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
-	// Deprecated: nothing reads this. It used to name which data source to
-	// resolve the ref against, and that routing went with the source stack. It
-	// stays because it is in the published OpenAPI document and is omitempty, so
-	// an old client that still sends it is not rejected. Removed at v4.
+	// Source records which data source the ref came from. Nothing routes on it
+	// any more -- that was the source stack's job -- but the offline export still
+	// stamps it and it is in the published OpenAPI document, so it stays as a
+	// label rather than an instruction.
 	Source string `json:"source,omitempty"`
 }
 
