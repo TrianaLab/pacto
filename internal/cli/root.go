@@ -11,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/internal/update"
 	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 const outputFormatKey = "output-format"
@@ -87,9 +88,13 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 			// answers from PACTO_NO_CACHE and the config file, and everything
 			// downstream (fleetOptions) reads the flag, so this keeps one answer.
 			_ = cmd.Flags().Set("no-cache", "true")
-			if toggler, ok := svc.BundleStore.(interface{ DisableCache() }); ok {
-				toggler.DisableCache()
+			toggler, ok := svc.BundleStore.(oci.CacheDisabler)
+			if !ok {
+				// Silently proceeding would run the whole command against the very
+				// cache the caller asked it to ignore, and report success.
+				return fmt.Errorf("--no-cache: this bundle store has no cache to disable")
 			}
+			toggler.DisableCache()
 		}
 
 		// Carry the --no-anim decision on the command context (per-invocation),

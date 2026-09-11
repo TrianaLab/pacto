@@ -98,7 +98,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// Resolve cacheDir from the BundleStore when not explicitly set, so the
 			// disk cache the store actually writes is the one detection looks at.
 			if cacheDir == "" {
-				if cs, ok := svc.BundleStore.(interface{ CacheDir() string }); ok {
+				if cs, ok := svc.BundleStore.(oci.CacheLocator); ok {
 					cacheDir = cs.CacheDir()
 				}
 			}
@@ -439,7 +439,7 @@ func (c cacheLifecycle) contributes() bool {
 // during this process. A store that cannot say has not filled anything this
 // process can claim.
 func cacheMaterialization(store oci.BundleStore) func() bool {
-	if m, ok := store.(interface{ Materialized() bool }); ok {
+	if m, ok := store.(oci.CacheObserver); ok {
 		return m.Materialized
 	}
 	return func() bool { return false }

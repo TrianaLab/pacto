@@ -983,18 +983,25 @@ func TestNoCacheFlag(t *testing.T) {
 	}
 }
 
-func TestNoCacheFlag_NotApplicable(t *testing.T) {
+// A store that cannot disable its cache makes --no-cache a lie: the command
+// would run against the very cache the caller excluded and report success. It
+// fails instead.
+func TestNoCacheFlag_StoreCannotDisableItsCache(t *testing.T) {
 	bundleDir := testutil.WriteTestBundle(t)
 
-	// Plain MockBundleStore without DisableCache — should not panic.
 	svc := app.NewService(&testutil.MockBundleStore{}, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"validate", "--no-cache", bundleDir})
 	var out bytes.Buffer
 	root.SetOut(&out)
+	root.SetErr(&out)
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("validate --no-cache failed: %v", err)
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("validate --no-cache succeeded against a store with no cache to disable")
+	}
+	if !strings.Contains(err.Error(), "--no-cache") {
+		t.Errorf("error = %v, want it to name the flag it could not honour", err)
 	}
 }
 

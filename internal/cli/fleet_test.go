@@ -13,6 +13,7 @@ import (
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/internal/cli"
 	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // writeFleetFixture builds a local bundle root plus an evidence file exercising
@@ -179,8 +180,16 @@ state:
 // execFleet runs the pacto CLI with args and returns stdout, stderr and error.
 func execFleet(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
+	return execFleetStore(t, nil, args...)
+}
+
+// execFleetStore runs a fleet command against a specific bundle store. The plain
+// fleet tests need none, but --no-cache refuses a store with no cache to
+// disable, so the tests that pass it supply one that has.
+func execFleetStore(t *testing.T, store oci.BundleStore, args ...string) (string, string, error) {
+	t.Helper()
 	t.Setenv("PACTO_NO_UPDATE_CHECK", "1")
-	svc := app.NewService(nil, nil)
+	svc := app.NewService(store, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs(args)
 	var out, errb bytes.Buffer
@@ -599,7 +608,7 @@ func TestFleetSnapshotNoCacheDropsTheCacheSource(t *testing.T) {
 		t.Fatalf("expected a cache source with --cache alone:\n%s", out)
 	}
 
-	out, _, err = execFleet(t, "fleet", "snapshot", "--local", local, "--cache", "--no-cache")
+	out, _, err = execFleetStore(t, &cacheableStore{}, "fleet", "snapshot", "--local", local, "--cache", "--no-cache")
 	if err != nil {
 		t.Fatalf("snapshot --cache --no-cache: %v", err)
 	}
@@ -613,7 +622,7 @@ func TestFleetSnapshotNoCacheDropsTheCacheSource(t *testing.T) {
 // path has to see the resolved decision, not just the typed flag.
 func TestFleetSnapshotNoCacheFromEnv(t *testing.T) {
 	t.Setenv("PACTO_NO_CACHE", "1")
-	out, _, err := execFleet(t, "fleet", "snapshot", "--local", t.TempDir(), "--cache")
+	out, _, err := execFleetStore(t, &cacheableStore{}, "fleet", "snapshot", "--local", t.TempDir(), "--cache")
 	if err != nil {
 		t.Fatalf("snapshot --cache: %v", err)
 	}

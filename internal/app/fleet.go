@@ -11,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v3/internal/fleetsrc"
 	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
 // errNoBundleStore marks an OCI or cache source configured without a store.
@@ -19,7 +20,7 @@ var errNoBundleStore = errors.New("no bundle store configured (registry credenti
 // bundleStoreCacheDir returns the store's on-disk cache directory when it
 // exposes one, else "" (the cache source then finds nothing).
 func bundleStoreCacheDir(store any) string {
-	if cs, ok := store.(interface{ CacheDir() string }); ok {
+	if cs, ok := store.(oci.CacheLocator); ok {
 		return cs.CacheDir()
 	}
 	return ""

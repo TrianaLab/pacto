@@ -20,6 +20,34 @@ type BundleStore interface {
 	ListTags(ctx context.Context, repo string) ([]string, error)
 }
 
+// A [BundleStore] that keeps a disk cache answers three further questions, each
+// declared here as its own interface so a caller asks for exactly the one it
+// needs.
+//
+// They are named rather than asserted inline at the call site because they are
+// a real part of the contract between Pacto and its store: undeclared, they are
+// side agreements discoverable only by grep, and a fake satisfying
+// [BundleStore] alone silently disables the behaviour the caller was written
+// for. [CachedStore] implements all three.
+type (
+	// CacheLocator reports where on disk the store keeps its cache, so a caller
+	// that reads those entries directly looks at the directory the store writes.
+	CacheLocator interface{ CacheDir() string }
+	// CacheDisabler turns off disk READS. Writes continue, so bundles fetched
+	// during the session are still cached for the rest of it.
+	CacheDisabler interface{ DisableCache() }
+	// CacheObserver reports whether THIS process has written cache entries -- the
+	// fact a pod starting with an empty cache cannot learn from inspecting disk
+	// once at startup.
+	CacheObserver interface{ Materialized() bool }
+)
+
+var (
+	_ CacheLocator  = (*CachedStore)(nil)
+	_ CacheDisabler = (*CachedStore)(nil)
+	_ CacheObserver = (*CachedStore)(nil)
+)
+
 // ClientOption configures the OCI Client.
 type ClientOption func(*Client)
 
