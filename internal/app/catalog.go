@@ -19,7 +19,12 @@ import (
 // directory of its choosing, so a local reference declared inside a registry
 // bundle fails closed here exactly as it does in the lock builder. A local base
 // is always an absolute path, so the two can never be confused.
-const catalogOCIBase = "oci://"
+//
+// It is [graph.OCIBase] rather than its own literal because the graph resolver
+// draws the same distinction over the same values: two sentinels meaning "came
+// from a registry" could drift apart, and the fail-closed branch that reads them
+// would then disagree between the catalog and the dependency fetcher.
+const catalogOCIBase = graph.OCIBase
 
 // CatalogResolver adapts this service to pkg/catalog's Resolver port.
 //

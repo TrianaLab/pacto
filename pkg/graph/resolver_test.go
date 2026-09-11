@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,6 +60,13 @@ func (f *blockingFetcher) Fetch(ctx context.Context, dep contract.Dependency) (*
 }
 
 func (f *blockingFetcher) release() { close(f.barrier) }
+
+// fetchOf is fetchPort's fetch half, for the tests that build a resolver
+// directly instead of going through ResolveWithOptions.
+func fetchOf(f ContractFetcher) func(context.Context, string, contract.Dependency) (*contract.Bundle, string, error) {
+	fetch, _ := fetchPort(f)
+	return fetch
+}
 
 func TestResolve_NoDependencies(t *testing.T) {
 	c := &contract.Contract{
@@ -844,20 +852,21 @@ func TestResolveEdge_PendingWaitGetsError(t *testing.T) {
 	// from the already-closed channel, finds nil in visited, and
 	// reads the error from the errors map.
 	r := &resolver{
-		fetcher: &mockFetcher{},
-		visited: map[string]*Node{},
-		errors:  map[string]string{},
-		pending: map[string]chan struct{}{},
+		fetch:   fetchOf(&mockFetcher{}),
+		visited: map[depKey]*Node{},
+		errors:  map[depKey]string{},
+		pending: map[depKey]chan struct{}{},
 	}
 
 	ref := "oci://registry.io/fail:1.0.0"
+	key := depKey{Ref: ref, Constraint: "^1.0.0"}
 	ch := make(chan struct{})
 	close(ch) // pre-close so <-ch returns immediately
-	r.pending[ref] = ch
-	r.errors[ref] = "upstream failure"
+	r.pending[key] = ch
+	r.errors[key] = "upstream failure"
 
 	dep := contract.Dependency{Ref: ref, Required: true, Compatibility: "^1.0.0"}
-	edge := r.resolveEdge(context.Background(), dep, []string{"root"})
+	edge := r.resolveEdge(context.Background(), dep, "", []string{"root"})
 
 	if !edge.Shared {
 		t.Error("expected edge to be marked as shared")
@@ -875,27 +884,28 @@ func TestResolveEdge_PendingWaitGetsSuccess(t *testing.T) {
 	// (so the visited short-circuit at line 143 is skipped), IS in pending,
 	// and becomes available in visited after the channel is closed.
 	r := &resolver{
-		fetcher: &mockFetcher{},
-		visited: map[string]*Node{},
-		errors:  map[string]string{},
-		pending: map[string]chan struct{}{},
+		fetch:   fetchOf(&mockFetcher{}),
+		visited: map[depKey]*Node{},
+		errors:  map[depKey]string{},
+		pending: map[depKey]chan struct{}{},
 	}
 
 	ref := "oci://registry.io/svc-b:1.0.0"
+	key := depKey{Ref: ref, Constraint: "^1.0.0"}
 	ch := make(chan struct{})
-	r.pending[ref] = ch
+	r.pending[key] = ch
 
 	// A goroutine simulates another resolver adding the node to visited
 	// and then closing the pending channel (as the real code does).
 	go func() {
 		r.mu.Lock()
-		r.visited[ref] = &Node{Name: "svc-b", Version: "1.0.0", Ref: ref}
+		r.visited[key] = &Node{Name: "svc-b", Version: "1.0.0", Ref: ref}
 		r.mu.Unlock()
 		close(ch)
 	}()
 
 	dep := contract.Dependency{Ref: ref, Required: true, Compatibility: "^1.0.0"}
-	edge := r.resolveEdge(context.Background(), dep, []string{"root"})
+	edge := r.resolveEdge(context.Background(), dep, "", []string{"root"})
 
 	if !edge.Shared {
 		t.Error("expected edge to be marked as shared")
@@ -916,19 +926,20 @@ func TestResolveEdge_PendingWaitNoResult(t *testing.T) {
 	// visited nor errors populated. Should produce a descriptive error
 	// rather than silently returning an empty edge.
 	r := &resolver{
-		fetcher: &mockFetcher{},
-		visited: map[string]*Node{},
-		errors:  map[string]string{},
-		pending: map[string]chan struct{}{},
+		fetch:   fetchOf(&mockFetcher{}),
+		visited: map[depKey]*Node{},
+		errors:  map[depKey]string{},
+		pending: map[depKey]chan struct{}{},
 	}
 
 	ref := "oci://registry.io/orphan:1.0.0"
+	key := depKey{Ref: ref, Constraint: "^1.0.0"}
 	ch := make(chan struct{})
 	close(ch)
-	r.pending[ref] = ch
+	r.pending[key] = ch
 
 	dep := contract.Dependency{Ref: ref, Required: true, Compatibility: "^1.0.0"}
-	edge := r.resolveEdge(context.Background(), dep, []string{"root"})
+	edge := r.resolveEdge(context.Background(), dep, "", []string{"root"})
 
 	if !edge.Shared {
 		t.Error("expected edge to be marked as shared")
@@ -1201,5 +1212,132 @@ func TestResolveWithOptions_OnlyReferences(t *testing.T) {
 		if edge.Type != EdgeReference {
 			t.Errorf("expected reference edge, got type %q for ref %q", edge.Type, edge.Ref)
 		}
+	}
+}
+
+// originFetcher resolves a dependency the way a directory tree does: a relative
+// ref is joined onto the base of the contract that DECLARED it, and the bundle it
+// hands back reports its own location as the base its children resolve against.
+type originFetcher struct {
+	mu        sync.Mutex
+	root      string                        // where the root contract's own refs resolve from
+	contracts map[string]*contract.Contract // keyed by resolved location
+	seen      []string                      // resolved locations, in fetch order
+}
+
+func (f *originFetcher) RootBase() string { return f.root }
+
+func (f *originFetcher) Fetch(ctx context.Context, dep contract.Dependency) (*contract.Bundle, error) {
+	b, _, err := f.FetchFrom(ctx, f.root, dep)
+	return b, err
+}
+
+func (f *originFetcher) FetchFrom(_ context.Context, base string, dep contract.Dependency) (*contract.Bundle, string, error) {
+	loc := path.Join(base, dep.Ref)
+	f.mu.Lock()
+	f.seen = append(f.seen, loc)
+	c, ok := f.contracts[loc]
+	f.mu.Unlock()
+	if !ok {
+		return nil, "", fmt.Errorf("not found: %s", loc)
+	}
+	return &contract.Bundle{Contract: c}, loc, nil
+}
+
+func leaf(name string, deps ...contract.Dependency) *contract.Contract {
+	return &contract.Contract{
+		Service:      contract.Service{Name: name, Version: "1.0.0"},
+		Dependencies: deps,
+	}
+}
+
+// A relative reference has to mean the same thing wherever it is written, and the
+// only thing that makes that true is the DECLARING contract's base. Resolving
+// every depth against the root's base instead makes `./b`, declared by a bundle
+// one directory down, silently point at the root's sibling.
+func TestResolveWithOptions_RelativeRefResolvesAgainstItsDeclarer(t *testing.T) {
+	f := &originFetcher{root: "svc", contracts: map[string]*contract.Contract{
+		"svc/a":   leaf("svc-a", contract.Dependency{Ref: "./b", Required: true}),
+		"svc/a/b": leaf("svc-b"),
+	}}
+	root := leaf("root", contract.Dependency{Ref: "./a", Required: true})
+
+	res := ResolveWithOptions(context.Background(), root, f, ResolveOptions{})
+
+	a := res.Root.Dependencies[0].Node
+	if a == nil {
+		t.Fatalf("./a unresolved: %s", res.Root.Dependencies[0].Error)
+	}
+	if a.Dependencies[0].Node == nil {
+		t.Fatalf("./b unresolved from svc/a: %s", a.Dependencies[0].Error)
+	}
+	if got := a.Dependencies[0].Node.Name; got != "svc-b" {
+		t.Errorf("./b resolved to %q, want svc-b", got)
+	}
+	want := []string{"svc/a", "svc/a/b"}
+	if fmt.Sprint(f.seen) != fmt.Sprint(want) {
+		t.Errorf("fetched %v, want %v -- ./b must join onto its declarer's base", f.seen, want)
+	}
+}
+
+// Two contracts in different directories can both declare `./shared` and mean
+// different bundles. Keying the node map on the ref text alone collapses them
+// into one and discards the second declaration.
+func TestResolveWithOptions_SameRefDifferentBaseAreDistinctNodes(t *testing.T) {
+	f := &originFetcher{contracts: map[string]*contract.Contract{
+		"x":        leaf("svc-x", contract.Dependency{Ref: "./shared", Required: true}),
+		"y":        leaf("svc-y", contract.Dependency{Ref: "./shared", Required: true}),
+		"x/shared": leaf("shared-x"),
+		"y/shared": leaf("shared-y"),
+	}}
+	root := leaf("root",
+		contract.Dependency{Ref: "x", Required: true},
+		contract.Dependency{Ref: "y", Required: true},
+	)
+
+	res := ResolveWithOptions(context.Background(), root, f, ResolveOptions{})
+
+	for i, want := range []string{"shared-x", "shared-y"} {
+		parent := res.Root.Dependencies[i].Node
+		if parent == nil {
+			t.Fatalf("dep %d unresolved: %s", i, res.Root.Dependencies[i].Error)
+		}
+		edge := parent.Dependencies[0]
+		if edge.Shared {
+			t.Errorf("%s: ./shared was deduped against the other branch's node", parent.Name)
+		}
+		if edge.Node == nil {
+			t.Fatalf("%s: ./shared unresolved: %s", parent.Name, edge.Error)
+		}
+		if edge.Node.Name != want {
+			t.Errorf("%s: ./shared resolved to %q, want %q", parent.Name, edge.Node.Name, want)
+		}
+	}
+}
+
+// Same base, same ref, different constraint is also two declarations, not one:
+// the second is what a `^2.0.0` consumer asked for, and deduping it away hides
+// the version conflict the graph exists to surface.
+func TestResolveWithOptions_SameRefDifferentConstraintAreDistinctNodes(t *testing.T) {
+	f := &originFetcher{contracts: map[string]*contract.Contract{
+		"a": leaf("svc-a"),
+	}}
+	root := leaf("root",
+		contract.Dependency{Ref: "a", Required: true, Compatibility: "^1.0.0"},
+		contract.Dependency{Ref: "a", Required: true, Compatibility: "^2.0.0"},
+	)
+
+	res := ResolveWithOptions(context.Background(), root, f, ResolveOptions{})
+
+	for i, e := range res.Root.Dependencies {
+		if e.Shared {
+			t.Errorf("dep %d (%s): deduped against the other constraint", i, e.Compatibility)
+		}
+		if e.Node == nil {
+			t.Fatalf("dep %d (%s) unresolved: %s", i, e.Compatibility, e.Error)
+		}
+	}
+	if len(f.seen) != 2 {
+		t.Errorf("fetched %v, want both constraints resolved separately", f.seen)
 	}
 }
