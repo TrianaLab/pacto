@@ -89,15 +89,6 @@ func registerOfflineOperations(api huma.API) {
 	}, offline[struct{}, getGlobalGraphOutput])
 
 	huma.Register(api, huma.Operation{
-		OperationID: "get-service-graph",
-		Method:      http.MethodGet,
-		Path:        "/api/services/{name}/graph",
-		Summary:     "Get service dependency graph",
-		Description: "Returns the dependency graph centered on a specific service." + offlineDoc,
-		Tags:        []string{"Graph"},
-	}, offline[ServiceNameInput, getServiceGraphOutput])
-
-	huma.Register(api, huma.Operation{
 		OperationID: "get-service-dependents",
 		Method:      http.MethodGet,
 		Path:        "/api/services/{name}/dependents",
@@ -159,10 +150,6 @@ type getServiceSourcesOutput struct {
 
 type getGlobalGraphOutput struct {
 	Body *GlobalGraph `doc:"Global dependency graph"`
-}
-
-type getServiceGraphOutput struct {
-	Body *DependencyGraph `doc:"Service dependency graph"`
 }
 
 type getDependentsOutput struct {

@@ -408,26 +408,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/services/{name}/graph": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get service dependency graph
-         * @description Returns the dependency graph centered on a specific service. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
-         */
-        get: operations["get-service-graph"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/services/{name}/refs": {
         parameters: {
             query?: never;
@@ -761,11 +741,6 @@ export interface components {
         CrossReferences: {
             referencedBy: components["schemas"]["CrossReference"][] | null;
             references: components["schemas"]["CrossReference"][] | null;
-        };
-        DependencyGraph: {
-            conflicts?: string[] | null;
-            cycles?: (string[] | null)[] | null;
-            root: components["schemas"]["GraphNode"];
         };
         DependencyInfo: {
             compatibility?: string;
@@ -1580,17 +1555,6 @@ export interface components {
         GlobalGraph: {
             nodes: components["schemas"]["GraphNodeData"][] | null;
         };
-        GraphEdge: {
-            compatibility?: string;
-            driftStatus?: string;
-            error?: string;
-            lockedDigest?: string;
-            lockedVersion?: string;
-            node?: components["schemas"]["GraphNode"];
-            ref: string;
-            required: boolean;
-            shared?: boolean;
-        };
         GraphEdgeData: {
             compatibility?: string;
             driftStatus?: string;
@@ -1601,12 +1565,6 @@ export interface components {
             targetId: string;
             targetName: string;
             type: string;
-        };
-        GraphNode: {
-            dependencies?: components["schemas"]["GraphEdge"][] | null;
-            name: string;
-            ref?: string;
-            version: string;
         };
         GraphNodeData: {
             edges?: components["schemas"]["GraphEdgeData"][] | null;
@@ -3270,38 +3228,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DependentInfo"][] | null;
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
-                };
-            };
-        };
-    };
-    "get-service-graph": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Service name */
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DependencyGraph"];
                 };
             };
             /** @description Error */

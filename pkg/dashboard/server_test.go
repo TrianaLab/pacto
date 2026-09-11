@@ -391,7 +391,7 @@ func TestExportOpenAPI(t *testing.T) {
 		"/api/services", "/api/services/{name}", "/api/services/{name}/versions",
 		"/api/services/{name}/versions/{version}", "/api/services/{name}/sources",
 		"/api/services/{name}/dependents", "/api/services/{name}/refs",
-		"/api/services/{name}/graph", "/api/graph", "/api/diff",
+		"/api/graph", "/api/diff",
 	} {
 		if paths[p] == nil {
 			t.Errorf("expected %s in the API document", p)

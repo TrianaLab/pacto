@@ -274,8 +274,6 @@ export const api = {
   crossRefs: (name: string): Promise<GetResponse<'/api/services/{name}/refs'>> =>
     unwrap(client.GET('/api/services/{name}/refs', { params: { path: { name } } })),
   graph: (): Promise<GetResponse<'/api/graph'>> => unwrap(client.GET('/api/graph')),
-  serviceGraph: (name: string): Promise<GetResponse<'/api/services/{name}/graph'>> =>
-    unwrap(client.GET('/api/services/{name}/graph', { params: { path: { name } } })),
   diff: (fromName: string, fromVersion: string, toName: string, toVersion: string): Promise<GetResponse<'/api/diff'>> =>
     unwrap(client.GET('/api/diff', {
       params: { query: { from_name: fromName, from_version: fromVersion || '', to_name: toName, to_version: toVersion || '' } },

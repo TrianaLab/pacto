@@ -56,8 +56,8 @@ func buildStaticExport(uiFS fs.FS, d *contractview.ServiceDetails, g *contractvi
 	// app calls, so the transport matches by request semantics and an unfixtured
 	// operation fails honestly rather than returning a misleading 200 + null. The set
 	// is exactly the offline contract: the services list (empty), this service, its
-	// graph, its versions, its dependents, and its cross-references (a deliberate,
-	// EXPLICIT null - not a universal fallback).
+	// graph, its versions, a specific version, per-source breakdown, its dependents,
+	// its cross-references (a deliberate EXPLICIT null) and same-version diff (no changes).
 	routes := []map[string]any{
 		// The offline export is a NON-Fleet host: it serves the single-service legacy UI
 		// and none of the /api/fleet/* product endpoints. Declaring capabilities
@@ -69,8 +69,20 @@ func buildStaticExport(uiFS fs.FS, d *contractview.ServiceDetails, g *contractvi
 		{"method": "GET", "path": "/api/services/" + d.Name, "response": d},
 		{"method": "GET", "path": "/api/graph", "response": g},
 		{"method": "GET", "path": "/api/services/" + d.Name + "/versions", "response": []contractview.Version{{Version: d.Version, IsCurrent: true}}},
+		{"method": "GET", "path": "/api/services/" + d.Name + "/versions/" + d.Version, "response": d},
+		{"method": "GET", "path": "/api/services/" + d.Name + "/sources", "response": &contractview.AggregatedService{
+			Name:    d.Name,
+			Sources: []contractview.ServiceSourceData{{SourceType: "local", Service: d}},
+			Merged:  d,
+		}},
 		{"method": "GET", "path": "/api/services/" + d.Name + "/dependents", "response": []any{}},
 		{"method": "GET", "path": "/api/services/" + d.Name + "/refs", "response": nil},
+		{"method": "GET", "path": "/api/diff", "query": map[string]string{"from_name": d.Name, "from_version": d.Version, "to_name": d.Name, "to_version": d.Version}, "response": &contractview.DiffResult{
+			From:           contractview.Ref{Name: d.Name, Version: d.Version, Source: "local"},
+			To:             contractview.Ref{Name: d.Name, Version: d.Version, Source: "local"},
+			Classification: "NON_BREAKING",
+			Changes:        []contractview.DiffChange{},
+		}},
 	}
 	// payload holds only marshalable structs; Marshal cannot fail here.
 	payload, _ := json.Marshal(map[string]any{"service": d.Name, "routes": routes})
