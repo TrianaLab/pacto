@@ -55,7 +55,7 @@ jobs:
       # back to the published binary via pacto-actions.
       - name: Build pacto from source
         if: github.event_name != 'release'
-        run: go install ./cmd/pacto
+        run: bash release/scripts/retry.sh go install ./cmd/pacto
 
       - uses: trianalab/pacto-actions@3ae26607b3d6f33caec1213e148ba3feab571ef4 # v1.8.2
         if: github.event_name == 'release'

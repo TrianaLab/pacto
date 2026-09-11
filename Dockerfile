@@ -5,9 +5,20 @@ ARG TARGETARCH
 
 WORKDIR /src
 
-# Cache dependencies
+# Cache dependencies. `go mod download` is one network round trip per module
+# against proxy.golang.org and retries nothing itself, so a single dropped
+# connection fails the whole image build — that is what took ci-e2e-compose down
+# on 2026-09-11. release/scripts/retry.sh cannot be used here: it is not in this
+# stage's copied context. tests/release/workflow_tooling_test.go holds the inline
+# loop to the same contract.
 COPY go.mod go.sum ./
-RUN go mod download
+RUN set -eu; \
+    for attempt in 1 2 3 4 5; do \
+      if go mod download; then break; fi; \
+      if [ "$attempt" = 5 ]; then echo "go mod download failed after 5 attempts" >&2; exit 1; fi; \
+      echo "go mod download attempt $attempt failed; retrying in $((attempt * 5))s" >&2; \
+      sleep $((attempt * 5)); \
+    done
 
 # Build binary with version info
 ARG VERSION=dev

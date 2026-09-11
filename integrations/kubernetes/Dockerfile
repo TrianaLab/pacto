@@ -40,17 +40,42 @@ COPY integrations/kubernetes/go.mod integrations/kubernetes/go.sum integrations/
 COPY pkg/ pkg/
 COPY internal/ internal/
 COPY integrations/kubernetes/ integrations/kubernetes/
+# `retry` wraps the module downloads: each one is a network round trip per module
+# against proxy.golang.org, the go command retries none of them, and a single
+# dropped stream fails the image build. release/scripts/retry.sh is not reachable
+# from here — the COPY list above is this stage's whole context — so the loop is
+# inline, and tests/release/workflow_tooling_test.go holds it to the same contract.
+#
+# There is deliberately no `go work sync` in the workspace branch. It REWRITES the
+# member go.mod files from whatever source tree it can see, and the COPY list above
+# is a partial one (no cmd/, tests/ or examples/), so it drops requires those
+# directories are the only importers of. The `go build` that follows runs under the
+# default -mod=readonly and cannot put them back, turning a healthy tree into
+# "no required module provides package ...". The manifests are already correct as
+# committed; `go mod download all` needs nothing synced first.
 RUN set -eu; \
+    retry() { \
+      attempt=1; \
+      while true; do \
+        status=0; \
+        "$@" || status=$?; \
+        if [ "$status" -eq 0 ]; then return 0; fi; \
+        if [ "$attempt" -ge 5 ]; then echo "retry: '$*' failed 5 times; giving up" >&2; return "$status"; fi; \
+        echo "retry: attempt $attempt of '$*' exited $status; retrying in $((attempt * 5))s" >&2; \
+        sleep $((attempt * 5)); \
+        attempt=$((attempt + 1)); \
+      done; \
+    }; \
     LDFLAGS="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE} -X main.dashboardImage=${DASHBOARD_IMAGE}"; \
     if [ -n "${RELEASE_BUILD}" ]; then \
       echo "release build: GOWORK=off against the published pinned core"; \
       cd integrations/kubernetes; \
-      GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' go mod download; \
+      retry env GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' go mod download; \
       CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' \
         go build -ldflags "${LDFLAGS}" -o /workspace/manager ./cmd; \
     else \
       echo "workspace build: go.work resolves the local core"; \
-      go work sync && go mod download all; \
+      retry go mod download all; \
       CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
         go build -ldflags "${LDFLAGS}" -o /workspace/manager ./integrations/kubernetes/cmd; \
     fi

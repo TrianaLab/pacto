@@ -67,7 +67,7 @@ runs:
           ${{ runner.os }}-go-
 
     - name: Download dependencies
-      run: go mod download
+      run: bash release/scripts/retry.sh go mod download
       shell: bash
 
     - name: Install golangci-lint

@@ -11,13 +11,23 @@ endef
 # $1 - target path with name of binary
 # $2 - package url which can be installed
 # $3 - specific version of package
+#
+# The install retries because `go install` does not: it is one network round
+# trip per module in the tool's graph, and a single dropped one fails the CI
+# leg. The loop is inline rather than release/scripts/retry.sh because this
+# module is also consumed standalone, where the repository root is not there.
 define go-install-tool
 @[ -f "$(1)-$(3)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)" ] || { \
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
 rm -f "$(1)" ;\
-GOBIN="$(LOCALBIN)" go install $${package} ;\
+for attempt in 1 2 3 4 5; do \
+  if GOBIN="$(LOCALBIN)" go install $${package}; then break; fi ;\
+  if [ "$$attempt" = 5 ]; then echo "go install $${package} failed after 5 attempts" >&2; exit 1; fi ;\
+  echo "go install $${package} attempt $$attempt failed; retrying in $$((attempt * 5))s" >&2 ;\
+  sleep $$((attempt * 5)) ;\
+done ;\
 mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)" ;\
 } ;\
 ln -sf "$$(realpath "$(1)-$(3)")" "$(1)"
