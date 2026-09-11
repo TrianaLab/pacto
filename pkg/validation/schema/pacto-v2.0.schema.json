@@ -27,7 +27,8 @@
         "version": {
           "type": "string",
           "minLength": 1,
-          "description": "The current version of the service, typically following semantic versioning."
+          "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9._+-]*[a-zA-Z0-9])?$",
+          "description": "The current version of the service, typically following semantic versioning. It must begin and end with an alphanumeric character and may otherwise contain dots, hyphens, underscores and plus signs: every semver version qualifies, and the value stays safe as a single filesystem path component, which is where `pacto pack` interpolates it."
         },
         "owner": {
           "type": "object",

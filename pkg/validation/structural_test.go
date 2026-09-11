@@ -120,6 +120,29 @@ state:
 	}
 }
 
+// service.version is interpolated straight into `pacto pack`'s output filename,
+// so a version carrying a path separator or naming the parent directory would
+// let a PR-authored pacto.yaml write its archive outside the build root. The
+// schema is where that closes, because every consumer runs it -- a guard in the
+// pack command would leave the operator, the dashboard and the MCP server open.
+func TestValidateStructuralRaw_VersionMustBeOnePathComponent(t *testing.T) {
+	contract := func(version string) []byte {
+		return []byte("pactoVersion: \"2.0\"\nservice:\n  name: test-svc\n  version: \"" + version + "\"\n")
+	}
+	for _, version := range []string{"../../etc/cron.d/x", "..", ".", "a/b", `a\b`, "1.0.0-", "-1.0.0"} {
+		if r := ValidateStructuralRaw(contract(version)); r.IsValid() {
+			t.Errorf("version %q was accepted; it is not safe as a path component", version)
+		}
+	}
+	// Every shape semver produces stays legal, including prerelease and build
+	// metadata, and so does a plain non-semver label.
+	for _, version := range []string{"1.0.0", "1.0.0-rc.1", "1.0.0+build.5", "1.0.0-rc.1+build.5", "v1.2.3", "2", "latest"} {
+		if r := ValidateStructuralRaw(contract(version)); !r.IsValid() {
+			t.Errorf("version %q was rejected: %+v", version, r.Errors)
+		}
+	}
+}
+
 func TestValidateStructuralRaw_InvalidYAML(t *testing.T) {
 	result := ValidateStructuralRaw([]byte("\t\tinvalid:\n\t -broken"))
 	if result.IsValid() {
