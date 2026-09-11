@@ -495,12 +495,19 @@ func ciFetchSurfaces(t *testing.T, root string) []string {
 // TestTheReleasePathNeverCompilesThirdPartyToolingFromSource — because a retry
 // that eventually gives up still leaves an irreversible half-publish behind.
 //
-// Two ceilings, stated so nobody trusts this further than it reaches. Continued
+// One ceiling, stated so nobody trusts this further than it reaches. Continued
 // lines are joined, so the unit is one shell command list, not one source line:
-// a RUN that retried one fetch and not a second would pass. And `go build`,
-// `go test` and `go run` download modules too; they are out of scope because
-// every CI job that runs them runs a retried `go mod download` first, which
-// leaves the cache warm.
+// a RUN that retried one fetch and not a second would pass.
+//
+// `go build`, `go run` and `go test` fetch modules too, and this gate never sees
+// them. That used to be written here as a second ceiling that excused itself —
+// "out of scope because every CI job that runs them runs a retried `go mod
+// download` first, which leaves the cache warm". It was not true. Four
+// release.yml jobs compiled Go with no retried fetch anywhere, three of them
+// after core-tag had already pushed the git tag, which is the same half-ship
+// window this whole rule exists to close. A ceiling that claims something nobody
+// checks is worse than no ceiling, so the claim is now its own gate:
+// TestEveryReleaseJobThatCompilesGoWarmsTheCacheFirst.
 func TestEveryGoNetworkFetchInCIRetries(t *testing.T) {
 	root := repoRoot(t)
 
@@ -549,6 +556,140 @@ func elide(s string) string {
 	return s
 }
 
+// goCompileRE is a Go command that compiles, and therefore downloads whatever
+// the module cache is missing — the same unretried round trips as `go mod
+// download`, only implicit, which is why they went unnoticed.
+//
+// `go mod download` and `go install` are deliberately absent: they are
+// TestEveryGoNetworkFetchInCIRetries' subject, and a job whose only Go command
+// is one of those has nothing left to warm.
+var goCompileRE = regexp.MustCompile(`\bgo (?:build|run|test|vet|generate)\b`)
+
+// reachableShell is every line of shell a workflow job can execute: its own
+// `run` bodies, the scripts those invoke transitively, the recipes of the make
+// targets they call, and the scripts those recipes invoke. It is the same walk
+// jobNeeds does for gated CLIs, kept generic because a gate that says "this job
+// compiles Go" has to be able to say where it saw it. Keyed by that origin.
+func reachableShell(t *testing.T, job wfJob, files map[string]string, rules map[string]makeRule) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	seen := map[string]bool{}
+	var walk func(name string)
+	walk = func(name string) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		path, ok := files[name]
+		if !ok {
+			return // not one of ours: a vendored helper, or a name that only appears in prose.
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		out[name] = string(b)
+		_, scripts := toolsIn(string(b))
+		for _, s := range slices.Sorted(maps.Keys(scripts)) {
+			walk(s)
+		}
+	}
+
+	shell := job.runs()
+	out["the job's own shell"] = shell
+	_, scripts := toolsIn(shell)
+	for _, s := range slices.Sorted(maps.Keys(scripts)) {
+		walk(s)
+	}
+	for _, l := range commandLines(shell) {
+		for _, m := range makeCallRE.FindAllStringSubmatch(l, -1) {
+			recipe := recipeClosure(rules, m[1], map[string]bool{})
+			out["make "+m[1]] = recipe
+			_, mScripts := toolsIn(recipe)
+			for _, s := range slices.Sorted(maps.Keys(mScripts)) {
+				walk(s)
+			}
+		}
+	}
+	return out
+}
+
+// goCacheState reads one job's reachable shell and reports where it first
+// compiles Go (origin "" if it never does) and whether anything it reaches warms
+// the module cache through a retry.
+func goCacheState(t *testing.T, job wfJob, files map[string]string, rules map[string]makeRule) (origin, cmd string, warmed bool) {
+	t.Helper()
+	reach := reachableShell(t, job, files, rules)
+	for _, src := range slices.Sorted(maps.Keys(reach)) {
+		for _, l := range commandLines(reach[src]) {
+			bare := quotedShellStringRE.ReplaceAllString(l, "")
+			if origin == "" && goCompileRE.MatchString(bare) {
+				origin, cmd = src, l
+			}
+			if fetches, retried := classifyGoFetch(l); fetches && retried {
+				warmed = true
+			}
+		}
+	}
+	return origin, cmd, warmed
+}
+
+// TestEveryReleaseJobThatCompilesGoWarmsTheCacheFirst closes the hole the gate
+// above used to wave away in a comment.
+//
+// setup-go restores a module cache keyed on go.sum, and while that cache hits,
+// a `go build` in a release job touches the network for nothing. On a miss —
+// evicted after seven days, or a go.sum that moved, which is exactly what a
+// release commit does — the same `go build` becomes one bare fetch per module
+// in the graph, none of them retried. The `release` job's build-cli.sh alone
+// resolves ~97.
+//
+// Three of the four jobs that were in this state run AFTER core-tag has pushed
+// the git tag. A dropped connection there does not fail a release; it
+// half-ships one — tags on GitHub, no binaries on the Release, no demo bundles,
+// no published Compose application. That is run 34613593980, and it is why the
+// fix is a gate and not a habit: the next release job someone adds will compile
+// Go, and nothing about `go build` looks like network access.
+//
+// The rule is uniform across release.yml rather than carved to the post-tag
+// jobs. A pre-tag failure is cheap, but "cheap enough to leave unretried" is an
+// exception whose boundary moves every time a job is reordered, and the fix
+// costs one idempotent step that is free on a cache hit.
+//
+// Ceilings: ordering is not modelled, so a script that compiled before its own
+// retried fetch would pass (none does — every warm step here is a job-level
+// step that runs before any compile); a Go command inside a Dockerfile is not
+// on this runner's network path and is covered by the Dockerfiles' own inline
+// retry loops; and a make target assembled from a matrix expression does not
+// resolve to a recipe, so its compiles are invisible.
+func TestEveryReleaseJobThatCompilesGoWarmsTheCacheFirst(t *testing.T) {
+	root := repoRoot(t)
+	files := gateScripts(t, root)
+	rules := makeRules(t, root)
+	jobs := workflowJobs(t, root, "release.yml")
+
+	compiling := 0
+	for _, name := range slices.Sorted(maps.Keys(jobs)) {
+		origin, cmd, warmed := goCacheState(t, jobs[name], files, rules)
+		if origin == "" {
+			continue
+		}
+		compiling++
+		if warmed {
+			continue
+		}
+		t.Errorf("release.yml job %q compiles Go (%s: %s) but never warms the module cache through a retry.\n"+
+			"Add `- name: Warm the module cache (retried)` running `bash release/scripts/retry.sh go mod download` after setup-go. "+
+			"On a cache miss that `go build` is one unretried fetch per module, and in a post-tag job one dropped connection half-ships the release.",
+			name, origin, elide(cmd))
+	}
+	// The four fixed here plus the ones that already had a fetch. A refactor that
+	// stopped resolving the closure would otherwise leave this green.
+	if compiling < 4 {
+		t.Errorf("only %d release.yml jobs found compiling Go — there are at least 4; the closure stopped resolving and this gate is now vacuous", compiling)
+	}
+}
+
 // TestTheRetryGateBitesOnABareFetch proves the classifier above can fail, and
 // fails on the exact three lines that broke on 2026-09-11 rather than on a
 // strawman. Without it, a regex that quietly stopped matching would leave the
@@ -578,6 +719,39 @@ func TestTheRetryGateBitesOnABareFetch(t *testing.T) {
 				t.Errorf("classifyGoFetch(%q) retried = %v, want %v", tc.cmd, retried, tc.retried)
 			}
 		})
+	}
+}
+
+// TestTheWarmCacheGateBitesWhenTheWarmStepIsDeleted proves that gate can fail,
+// on the exact state release.yml was in until this branch: the `release` job with
+// no retried fetch, still reaching build-cli.sh's `go build`. Without this, a
+// closure that quietly stopped resolving scripts would leave the gate green while
+// checking nothing.
+func TestTheWarmCacheGateBitesWhenTheWarmStepIsDeleted(t *testing.T) {
+	root := repoRoot(t)
+	files := gateScripts(t, root)
+	rules := makeRules(t, root)
+
+	job, ok := workflowJobs(t, root, "release.yml")["release"]
+	if !ok {
+		t.Fatal("release.yml has no release job — the binary publisher was renamed; move this proof with it")
+	}
+	stripped := wfJob{}
+	for _, s := range job.Steps {
+		if fetches, retried := classifyGoFetch(s.Run); fetches && retried {
+			continue
+		}
+		stripped.Steps = append(stripped.Steps, s)
+	}
+	origin, _, warmed := goCacheState(t, stripped, files, rules)
+	if warmed {
+		t.Fatal("stripping the warm step left a retried fetch behind — the proof below would be vacuous")
+	}
+	if origin == "" {
+		t.Error("the release job without its warm step is not reported as compiling Go — but it runs build-cli.sh, which runs `go build`. The closure stopped resolving, and the gate now passes every job for free.")
+	}
+	if origin != "" && origin != "build-cli.sh" {
+		t.Errorf("the release job's Go compile is attributed to %q — it should name build-cli.sh, the script that actually runs it", origin)
 	}
 }
 

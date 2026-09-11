@@ -15,6 +15,9 @@
 #   conflict  -> the ref exists with a digest/provenance that does NOT match.
 #                Exits non-zero (3) so the caller fails closed — never an overwrite.
 #
+# A registry that cannot be READ is none of the four, and in particular is not
+# `absent`. The script exits 1 rather than guess — see digest() below.
+#
 #   verify-oci.sh <ref> [<expected-digest>] [<expect-revision> <expect-version>] \
 #                       [<expect-content-digest>]
 #
@@ -53,11 +56,65 @@ EXPECT_CONTENT="${5:-}"
 craneflags() { case "$1" in localhost*|127.0.0.1*) printf -- '--insecure';; esac; }
 # run <cmd...>: bounded so a wedged registry can never hang the release.
 run() { if command -v timeout >/dev/null 2>&1; then timeout 60 "$@"; else "$@"; fi; }
-digest() {
+# fetchDigest <ref>: the remote manifest digest, from whichever registry client
+# is on PATH. Stdout is the digest and nothing else; every diagnostic goes to
+# stderr, which digest() below captures separately — crane logs "HEAD request
+# failed, falling back on GET" to stderr on a path that still SUCCEEDS, so
+# folding the two together would hand back a warning as a digest.
+fetchDigest() {
   # shellcheck disable=SC2046  # $(craneflags) intentionally unquoted: empty => no arg.
-  if command -v crane >/dev/null 2>&1; then run crane digest $(craneflags "$1") "$1" 2>/dev/null
-  elif command -v oras  >/dev/null 2>&1; then run oras manifest fetch --descriptor "$1" 2>/dev/null | jq -r .digest
-  else docker manifest inspect "$1" >/dev/null 2>&1 && docker buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}' 2>/dev/null; fi
+  if command -v crane >/dev/null 2>&1; then run crane digest $(craneflags "$1") "$1"
+  elif command -v oras  >/dev/null 2>&1; then run oras manifest fetch --descriptor "$1" | jq -r .digest
+  else docker manifest inspect "$1" >/dev/null && docker buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}'; fi
+}
+# digest <ref> -> the remote manifest digest, or "" if the ref genuinely does not
+# exist.
+#
+# Only a real 404 yields "". Any other failure — auth, TLS, DNS, a rate limit, a
+# registry outage, the 60s timeout above — is fatal, because "" is load-bearing
+# here: it is what prints `absent`, and `absent` is what unlocks the caller's
+# push. Reporting an UNREADABLE ref as a MISSING one is precisely how a release
+# publishes over an immutable tag it merely failed to read, and how a resumed
+# unit reports itself verified against a registry that never answered. Same rule,
+# same reason and the same not-found vocabulary as ledger.sh's pull().
+#
+# Matched against the LAST line of stderr rather than all of it, which is one of
+# two places this is stricter than ledger.sh: crane's fallback warning carries
+# the HEAD's "404 Not Found" even when the GET that follows fails with a 500, and
+# scanning the whole buffer would read that pair as absent.
+#
+# The one caller assigns this to a variable with no `|| true` — `exit` inside a
+# command substitution only kills the subshell, so it is `set -e` on that
+# assignment that carries the failure out.
+
+# NOT_FOUND_RE is the vocabulary a REGISTRY uses to say a ref does not exist,
+# taken from what each client above actually prints (verified against ghcr.io,
+# for both a missing tag and a repository that never existed):
+#
+#   crane   Error: GET https://ghcr.io/v2/...: MANIFEST_UNKNOWN: manifest unknown
+#   oras    Error response from registry: failed to find "<ref>": <ref>: not found
+#   docker  manifest unknown
+#
+# It deliberately does NOT accept a bare "not found" — the other, stricter place
+# than ledger.sh. That phrase is equally how a machine says a TOOL is missing:
+# `exec: "docker-credential-desktop": executable file not found in $PATH`, which
+# oras prints as a plain `Error:` when the credential helper is unreachable and
+# which an earlier draft of this read as a 404. A missing tool reported as a
+# missing artifact is release run 32560058692 over again, and here it would
+# publish over an occupied immutable tag. oras's own `Error response from
+# registry:` prefix is the discriminator: it means the registry answered, not
+# that we failed to ask it.
+NOT_FOUND_RE='MANIFEST_UNKNOWN|NAME_UNKNOWN|manifest unknown|Error response from registry:.*not found|(^|[^0-9])404([^0-9]|$)'
+digest() {
+  local out err last rc=0
+  err="$(mktemp)"
+  out="$(fetchDigest "$1" 2>"$err")" || rc=$?
+  if [ "$rc" -eq 0 ]; then rm -f "$err"; printf '%s' "$out"; return; fi
+  last="$(grep -v '^[[:space:]]*$' "$err" | tail -1)"
+  rm -f "$err"
+  if printf '%s' "$last" | grep -qiE "$NOT_FOUND_RE"; then return; fi
+  echo "::error::registry read failed for $1 (exit $rc) — refusing to report an unreadable ref as an absent one, because absent is what publishes over it: ${last:-no output}" >&2
+  exit 1
 }
 # label <ref> <key> -> the provenance value for key ("" if unavailable/no crane).
 # Reads a docker-style config label first (images), then falls back to the OCI
@@ -94,7 +151,7 @@ content() {
          then .layers[0].digest else "" end' 2>/dev/null || printf ''
 }
 
-remote="$(digest "$REF" || true)"
+remote="$(digest "$REF")"
 if [ -z "$remote" ]; then echo absent; exit 0; fi
 if [ -n "$EXPECT" ] && [ "$remote" = "$EXPECT" ]; then echo identical; exit 0; fi
 # Crash-window adoption: nothing recorded/precomputed matched, but the artifact's
