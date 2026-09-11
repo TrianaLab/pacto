@@ -123,12 +123,11 @@ func (s *EvidenceHTTPSource) Collect(ctx context.Context) (*fleet.Collection, er
 	// means the contribution is incomplete: surface the limitation so downstream
 	// answers carry the honesty rather than presenting a full-looking graph.
 	//
-	// The limitation is the WHOLE mechanism. [fleet.Build] already downgrades a
-	// source with collection limitations to partial, and it does so on the path
-	// that also stamps LastSuccessfulSync and ObservedAt. Declaring the state here
-	// instead took the source-declared branch, which copies the state verbatim, so
-	// saying "partial" cost the source both of its freshness timestamps and a
-	// degraded server read as one that had never synced.
+	// The limitation is the WHOLE mechanism: [fleet.Build] already downgrades a
+	// source with collection limitations to partial, so a source never has to
+	// declare its own health to report a degraded read. Saying it through the
+	// limitation keeps the health verdict in one place instead of splitting it
+	// between the source and the builder.
 	if degraded, msg := evidenceDegraded(body); degraded {
 		col.Limitations = append(col.Limitations, fleet.Limitation{
 			Code: fleet.LimitationSourcePartial, Source: s.id, Message: msg,

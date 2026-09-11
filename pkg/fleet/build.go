@@ -581,6 +581,23 @@ func sourceStateFor(src Source, col *Collection, now time.Time, revCount, target
 			status = SourcePartial
 		}
 		st.Status = status
+		// Fill the freshness timestamps the source left unset, from the pinnable
+		// BuildOptions.Now clock. The read that produced this state happened now, so a
+		// declared state with no timestamps must not reach the snapshot looking like a
+		// source that has never synced -- that is what used to force a source to choose
+		// between declaring "partial" and keeping its own freshness.
+		//
+		// Only what is UNSET is filled. A source that declares stale and dates its last
+		// successful sync an hour ago is stating the one fact "stale" carries;
+		// overwriting it with now would erase the staleness and contradict the status
+		// in the same struct.
+		t := now
+		if st.LastSuccessfulSync == nil {
+			st.LastSuccessfulSync = &t
+		}
+		if st.ObservedAt == nil {
+			st.ObservedAt = &t
+		}
 		var lims []Limitation
 		if invalid {
 			lims = append(lims, Limitation{

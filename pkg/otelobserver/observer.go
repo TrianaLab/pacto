@@ -254,6 +254,10 @@ func EvidenceSets(edges []Edge, opts Options) []evidence.EvidenceSet {
 }
 
 // Observe parses OTLP/JSON traces and returns the EvidenceSets they imply.
+//
+// Deprecated: no production code in Pacto calls this convenience wrapper; callers
+// use ParseTraces, DependencyEdges and EvidenceSets directly. The operator's own
+// runtime observer has a method of the same name. Removed at v4.
 func Observe(data []byte, opts Options) ([]evidence.EvidenceSet, error) {
 	td, err := ParseTraces(data)
 	if err != nil {

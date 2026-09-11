@@ -37,6 +37,10 @@ const (
 	ProductSeverityError   ProductSeverity = ProductSeverity(finding.SeverityError)
 	ProductSeverityWarning ProductSeverity = ProductSeverity(finding.SeverityWarning)
 	ProductSeverityInfo    ProductSeverity = ProductSeverity(finding.SeverityInfo)
+	// ProductSeverityUnknown mirrors [finding.SeverityUnknown].
+	//
+	// Deprecated: no production code in Pacto uses this constant; it exists only
+	// for same-package tests. Removed at v4.
 	ProductSeverityUnknown ProductSeverity = ProductSeverity(finding.SeverityUnknown)
 )
 

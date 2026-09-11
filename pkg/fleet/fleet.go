@@ -155,6 +155,9 @@ func NewTargetKey(scope, kind, name string) TargetKey {
 // not CANONICALLY encoded — an invalid escape (e.g. a bare "%", "%2G") or a
 // non-canonical one (e.g. lowercase "%2f") is rejected rather than silently
 // mis-decoded, so only keys [NewTargetKey] could have produced round-trip.
+//
+// Deprecated: no production code in Pacto uses this function; it exists only for
+// same-package tests. Removed at v4.
 func ParseTargetKey(k TargetKey) (scope, kind, name string, ok bool) {
 	parts := strings.Split(string(k), "/")
 	if len(parts) != 3 {
@@ -700,12 +703,18 @@ type FleetSnapshot struct {
 
 // ObservedDependents returns the services observed calling the given service at
 // runtime (the observed-edge reverse index), separate from declared dependents.
+//
+// Deprecated: no production code in Pacto uses this method; it exists only for
+// same-package tests. Removed at v4.
 func (s *FleetSnapshot) ObservedDependents(key ServiceKey) []ServiceKey {
 	return append([]ServiceKey(nil), s.observedReverse[key]...)
 }
 
 // ObservedDependencies returns the services the given service was observed calling
 // at runtime (the observed-edge forward index), separate from declared ones.
+//
+// Deprecated: no production code in Pacto uses this method; it exists only for
+// same-package tests. Removed at v4.
 func (s *FleetSnapshot) ObservedDependencies(key ServiceKey) []ServiceKey {
 	return append([]ServiceKey(nil), s.observedForward[key]...)
 }

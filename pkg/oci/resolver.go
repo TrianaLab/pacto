@@ -164,6 +164,9 @@ func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mo
 // ListVersions returns all semver tags available for the given OCI repo reference.
 // The ref should be untagged (e.g. "ghcr.io/org/svc-pacto"). Non-semver tags are
 // excluded. Results are sorted descending (latest first).
+//
+// Deprecated: no production code in Pacto uses this method since the dashboard
+// stopped resolving versions itself. Removed at v4.
 func (r *Resolver) ListVersions(ctx context.Context, ref string) ([]string, error) {
 	ref = strings.TrimPrefix(ref, "oci://")
 	tags, err := r.store.ListTags(ctx, ref)
@@ -176,6 +179,9 @@ func (r *Resolver) ListVersions(ctx context.Context, ref string) ([]string, erro
 // FetchAllVersions lists all semver tags for the given OCI repo reference and
 // pulls each one, ensuring they are cached by the underlying BundleStore.
 // Returns the version list sorted descending (latest first).
+//
+// Deprecated: no production code in Pacto uses this method since the dashboard
+// stopped fetching all versions. Removed at v4.
 func (r *Resolver) FetchAllVersions(ctx context.Context, ref string) ([]string, error) {
 	ref = strings.TrimPrefix(ref, "oci://")
 	tags, err := r.store.ListTags(ctx, ref)

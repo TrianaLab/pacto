@@ -315,6 +315,9 @@ type MemoryStore struct {
 }
 
 // NewMemoryStore returns an empty in-memory store.
+//
+// Deprecated: no production code in Pacto uses this constructor; it exists only
+// for same-package tests. Removed at v4.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{seenID: map[string]bool{}, maxSeq: map[string]uint64{}, haveSeq: map[string]bool{}, recs: map[string]Record{}}
 }

@@ -232,15 +232,26 @@ func TestStateFixtureToState(t *testing.T) {
 	}
 	at := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	for status, want := range cases {
-		got := (stateFixture{Status: status}).toState(at)
-		if got.Status != want {
-			t.Errorf("toState(%q) = %q, want %q", status, got.Status, want)
-		}
-		// Whatever health it declares, the read that produced it succeeded, so
-		// every declared state carries the read time.
-		if got.LastSuccessfulSync == nil || !got.LastSuccessfulSync.Equal(at) || got.ObservedAt == nil || !got.ObservedAt.Equal(at) {
-			t.Errorf("toState(%q) = %+v, want both timestamps at %v", status, got, at)
-		}
+		t.Run(status, func(t *testing.T) {
+			col := &fleet.Collection{State: (stateFixture{Status: status}).toState()}
+			src := &staticSource{id: "ts", kind: "target-state", col: col}
+			snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return at }}, src)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if len(snap.Sources) != 1 {
+				t.Fatalf("sources = %d, want 1", len(snap.Sources))
+			}
+			got := snap.Sources[0]
+			if got.Status != want {
+				t.Errorf("status = %q, want %q", got.Status, want)
+			}
+			// Whatever health it declares, the read that produced it succeeded, so
+			// every declared state carries the read time stamped by fleet.Build.
+			if got.LastSuccessfulSync == nil || !got.LastSuccessfulSync.Equal(at) || got.ObservedAt == nil || !got.ObservedAt.Equal(at) {
+				t.Errorf("state = %+v, want both timestamps at %v", got, at)
+			}
+		})
 	}
 }
 

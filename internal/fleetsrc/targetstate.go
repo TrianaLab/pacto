@@ -84,7 +84,7 @@ func (s *TargetStateFileSource) Collect(ctx context.Context) (*fleet.Collection,
 		col.Targets = append(col.Targets, t.toRaw())
 	}
 	if doc.State != nil {
-		col.State = doc.State.toState(time.Now().UTC())
+		col.State = doc.State.toState()
 	}
 	return col, nil
 }
@@ -211,23 +211,16 @@ func (t targetFixture) toRaw() fleet.RawTarget {
 	}
 }
 
-// toState maps a fixture state to a source state, stamped with the time the
-// fixture was read. An explicit status lets a demo model a stale, partial or
-// unavailable environment without a live source.
-//
-// at is required, not optional. [fleet.Build] stamps LastSuccessfulSync and
-// ObservedAt only on the branch that DERIVES a state; a source that declares one
-// gets copied verbatim, so a declared state without timestamps reaches the
-// snapshot as a source that has never synced -- the fixture would be describing
-// an environment's health and erasing its own freshness in the same field. The
-// status the fixture declares is a statement about the environment; the read
-// that produced it still happened, at.
-func (s stateFixture) toState(at time.Time) *fleet.SourceState {
+// toState maps a fixture state to a source state. An explicit status lets a demo
+// model a stale, partial or unavailable environment without a live source. No
+// timestamps are stamped here; fleet.Build stamps them using BuildOptions.Now so
+// tests can pin the clock.
+func (s stateFixture) toState() *fleet.SourceState {
 	status := fleet.SourceStatus(s.Status)
 	switch status {
 	case fleet.SourceStale, fleet.SourcePartial, fleet.SourceUnavailable, fleet.SourceAvailable:
 	default:
 		status = fleet.SourceAvailable
 	}
-	return &fleet.SourceState{Status: status, LastSuccessfulSync: &at, ObservedAt: &at}
+	return &fleet.SourceState{Status: status}
 }

@@ -39,6 +39,9 @@ func Latest(tags []string) string {
 // LessDesc reports whether tag a should sort before tag b in descending order
 // (latest first). Valid semver sorts before invalid; two invalid tags fall back
 // to reverse-lexicographic order. Use as the less-func for sorting mixed lists.
+//
+// Deprecated: no production code in Pacto uses this function; it exists only for
+// same-package tests. Removed at v4.
 func LessDesc(a, b string) bool {
 	va, ea := semver.NewVersion(a)
 	vb, eb := semver.NewVersion(b)

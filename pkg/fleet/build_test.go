@@ -97,6 +97,41 @@ func TestSourceStateFor_SuppliedState_Preserved(t *testing.T) {
 	}
 }
 
+func TestSourceStateFor_SuppliedState_StampsTimestamps(t *testing.T) {
+	src := NewMemorySource("ts", "target-state", nil)
+	col := &Collection{State: &SourceState{Status: SourceAvailable}}
+	now := fixedNow()
+	st, _ := sourceStateFor(src, col, now, 0, 0, false)
+	if st.LastSuccessfulSync == nil || !st.LastSuccessfulSync.Equal(now) {
+		t.Errorf("LastSuccessfulSync = %v, want %v", st.LastSuccessfulSync, now)
+	}
+	if st.ObservedAt == nil || !st.ObservedAt.Equal(now) {
+		t.Errorf("ObservedAt = %v, want %v", st.ObservedAt, now)
+	}
+}
+
+// A source that declares stale AND dates its last successful sync is stating the
+// one fact "stale" carries. Stamping the build clock over it would erase the
+// staleness and contradict the status sitting in the same struct.
+func TestSourceStateFor_SuppliedState_KeepsDeclaredTimestamps(t *testing.T) {
+	src := NewMemorySource("ts", "target-state", nil)
+	now := fixedNow()
+	synced := now.Add(-time.Hour)
+	observed := now.Add(-time.Minute)
+	col := &Collection{State: &SourceState{
+		Status: SourceStale, LastSuccessfulSync: &synced, ObservedAt: &observed,
+	}}
+
+	st, _ := sourceStateFor(src, col, now, 0, 0, false)
+
+	if st.LastSuccessfulSync == nil || !st.LastSuccessfulSync.Equal(synced) {
+		t.Errorf("LastSuccessfulSync = %v, want the declared %v", st.LastSuccessfulSync, synced)
+	}
+	if st.ObservedAt == nil || !st.ObservedAt.Equal(observed) {
+		t.Errorf("ObservedAt = %v, want the declared %v", st.ObservedAt, observed)
+	}
+}
+
 func TestUnavailableState(t *testing.T) {
 	src := NewMemorySource("oci", "registry", nil)
 	st := unavailableState(src, errors.New("401 unauthorized token=abc"))
