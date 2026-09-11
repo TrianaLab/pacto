@@ -10,6 +10,7 @@ package observer
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -28,6 +29,16 @@ import (
 
 var ErrForbidden = errors.New("access forbidden")
 
+// schemaPath is what contract.Configuration.Schema actually holds: a bundle-relative
+// PATH, never inline JSON. Fixtures that declared inline JSON here hid the bug where
+// the operator json.Unmarshal'd the path itself.
+const schemaPath = "configuration/schema.json"
+
+// bundleWithSchema builds a bundle FS holding schemaPath with the given schema content.
+func bundleWithSchema(schema string) fstest.MapFS {
+	return fstest.MapFS{schemaPath: &fstest.MapFile{Data: []byte(schema)}}
+}
+
 // TestConfigurationsDim_NoBinding tests that a required configuration with no binding -> Unsupported.
 func TestConfigurationsDim_NoBinding(t *testing.T) {
 	ctx := context.Background()
@@ -37,7 +48,7 @@ func TestConfigurationsDim_NoBinding(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
@@ -70,7 +81,7 @@ func TestConfigurationsDim_SecretPresent(t *testing.T) {
 	).Build()
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "Secret", Name: "app-secret"}
 	input := CollectInput{
 		Namespace:      "default",
@@ -99,7 +110,7 @@ func TestConfigurationsDim_SecretNotFound_WithinWindow(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build() // No Secret
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "Secret", Name: "app-secret"}
 	input := CollectInput{
 		Namespace:           "default",
@@ -133,7 +144,7 @@ func TestConfigurationsDim_SecretNotFound_BeyondWindow(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build() // No Secret
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "Secret", Name: "app-secret"}
 	now := time.Now()
 	windowStart := metav1.NewTime(now.Add(-5 * time.Minute))
@@ -175,7 +186,7 @@ func TestConfigurationsDim_ConfigMapNoKeyFormat(t *testing.T) {
 	).Build()
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config"} // no Key/Format
 	input := CollectInput{
 		Namespace:      "default",
@@ -209,13 +220,12 @@ func TestConfigurationsDim_ConfigMapConforms(t *testing.T) {
 	obs := New(c)
 
 	schema := `{"type":"object","properties":{"port":{"type":"number"},"host":{"type":"string"}},"required":["port"]}`
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: schema}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
-	bundleFS := fstest.MapFS{}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:       bundleFS,
+		BundleFS:       bundleWithSchema(schema),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -251,12 +261,12 @@ func TestConfigurationsDim_ConfigMapNotConform(t *testing.T) {
 	obs := New(c)
 
 	schema := `{"type":"object","properties":{"port":{"type":"number"},"host":{"type":"string"}},"required":["port"]}`
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: schema}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(schema),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -295,12 +305,12 @@ func TestConfigurationsDim_ConfigMapKeyMissing(t *testing.T) {
 	obs := New(c)
 
 	schema := `{"type":"object","properties":{"port":{"type":"number"}},"required":["port"]}`
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: schema}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(schema),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -329,12 +339,12 @@ func TestConfigurationsDim_ConfigMapParseFail(t *testing.T) {
 	obs := New(c)
 
 	schema := `{"type":"object"}`
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: schema}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(schema),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -358,7 +368,7 @@ func TestConfigurationsDim_ConfigMapNotFound_WithinWindow(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build() // No ConfigMap
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	now := time.Now()
 	windowStart := metav1.NewTime(now.Add(-30 * time.Second)) // Within 2-minute window
@@ -391,7 +401,7 @@ func TestConfigurationsDim_ConfigMapNotFound_BeyondWindow(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build() // No ConfigMap
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	now := time.Now()
 	windowStart := metav1.NewTime(now.Add(-5 * time.Minute))
@@ -437,7 +447,7 @@ func TestConfigurationsDim_ConfigMapAPIError(t *testing.T) {
 		}).Build()
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config"}
 	input := CollectInput{
 		Namespace:      "default",
@@ -472,7 +482,7 @@ func TestConfigurationsDim_SecretAPIError(t *testing.T) {
 		}).Build()
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "Secret", Name: "app-secret"}
 	input := CollectInput{
 		Namespace:      "default",
@@ -501,7 +511,7 @@ func TestConfigurationsDim_SecretNotFound_SustainedWithinWindow(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build() // No Secret
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: "{}"}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "Secret", Name: "app-secret"}
 	now := time.Now()
 	windowStart := metav1.NewTime(now.Add(-30 * time.Second)) // Within 2-minute window
@@ -534,7 +544,7 @@ func TestConfigurationsDim_OptionalConfigNotBound(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "opt", Required: false, Schema: "{}"}
+	cfg := contract.Configuration{Name: "opt", Required: false, Schema: schemaPath}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
@@ -564,12 +574,12 @@ func TestConfigurationsDim_JSONFormat(t *testing.T) {
 	obs := New(c)
 
 	schema := `{"type":"object","properties":{"port":{"type":"number"},"host":{"type":"string"}},"required":["port"]}`
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: schema}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.json", Format: "json"}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(schema),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -639,14 +649,14 @@ func TestConfigurationsDim_MultipleConfigurations(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm1, sec).Build()
 	obs := New(c)
 
-	cfg1 := contract.Configuration{Name: "app", Required: true, Schema: `{"type":"object","properties":{"port":{"type":"number"}},"required":["port"]}`}
-	cfg2 := contract.Configuration{Name: "db", Required: true, Schema: "{}"}
+	cfg1 := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
+	cfg2 := contract.Configuration{Name: "db", Required: true, Schema: schemaPath}
 	binding1 := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	binding2 := unversioned.ConfigBinding{Configuration: "db", Kind: "Secret", Name: "db-secret"}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg1, cfg2}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(`{"type":"object","properties":{"port":{"type":"number"}},"required":["port"]}`),
 		ConfigBindings: []unversioned.ConfigBinding{binding1, binding2},
 		Now:            time.Now(),
 	}
@@ -692,13 +702,13 @@ func TestCollect_WithConfiguration(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: `{"type":"object","properties":{"port":{"type":"number"}},"required":["port"]}`}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	input := CollectInput{
 		Namespace:      "default",
 		ServiceName:    "test-service",
 		Contract:       &contract.Contract{Service: contract.Service{Name: "test"}, Configurations: []contract.Configuration{cfg}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(`{"type":"object","properties":{"port":{"type":"number"}},"required":["port"]}`),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -734,12 +744,12 @@ func TestConfigurationsDim_UnsupportedFormat(t *testing.T) {
 	obs := New(c)
 
 	schema := `{"type":"object"}`
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: schema}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.toml", Format: "toml"}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(schema),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -800,12 +810,12 @@ func TestConfigurationsDim_MalformedSchemaJSON(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 	obs := New(c)
 
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: `{"type": invalid json`}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(`{"type": invalid json`),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -834,12 +844,12 @@ func TestConfigurationsDim_InvalidSchemaCompilation(t *testing.T) {
 	obs := New(c)
 
 	// Schema that parses as JSON but fails jsonschema compilation.
-	cfg := contract.Configuration{Name: "app", Required: true, Schema: `{"type": "invalid-type"}`}
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
 	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
 	input := CollectInput{
 		Namespace:      "default",
 		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
-		BundleFS:       fstest.MapFS{},
+		BundleFS:       bundleWithSchema(`{"type": "invalid-type"}`),
 		ConfigBindings: []unversioned.ConfigBinding{binding},
 		Now:            time.Now(),
 	}
@@ -852,5 +862,48 @@ func TestConfigurationsDim_InvalidSchemaCompilation(t *testing.T) {
 	o := observations[0]
 	if o.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient (schema compilation failure), got %v", o.Outcome)
+	}
+}
+
+// TestConfigurationsDim_NoBundleFS tests an inline contract (no bundle files) -> Insufficient,
+// because the declared schema path cannot be read.
+func TestConfigurationsDim_NoBundleFS(t *testing.T) {
+	assertConfigInsufficient(t, nil)
+}
+
+// TestConfigurationsDim_SchemaNotInBundle tests a declared schema path absent from the bundle -> Insufficient.
+func TestConfigurationsDim_SchemaNotInBundle(t *testing.T) {
+	assertConfigInsufficient(t, fstest.MapFS{"pacto.yaml": &fstest.MapFile{Data: []byte("apiVersion: v1")}})
+}
+
+// assertConfigInsufficient runs the ConfigMap+schemaPath fixture against bundleFS and expects Insufficient.
+func assertConfigInsufficient(t *testing.T, bundleFS fs.FS) {
+	t.Helper()
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "app-config"},
+		Data:       map[string]string{"app.yaml": "port: 8080"},
+	}
+	obs := New(fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build())
+
+	cfg := contract.Configuration{Name: "app", Required: true, Schema: schemaPath}
+	binding := unversioned.ConfigBinding{Configuration: "app", Kind: "ConfigMap", Name: "app-config", Key: "app.yaml", Format: "yaml"}
+	input := CollectInput{
+		Namespace:      "default",
+		Contract:       &contract.Contract{Configurations: []contract.Configuration{cfg}},
+		BundleFS:       bundleFS,
+		ConfigBindings: []unversioned.ConfigBinding{binding},
+		Now:            time.Now(),
+	}
+
+	observations, _ := obs.observeConfigurationsDim(ctx, input, evidence.Provenance{Collector: "test"}, input.Now)
+
+	if len(observations) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(observations))
+	}
+	if observations[0].Outcome != evidence.Insufficient {
+		t.Errorf("expected Insufficient (schema unreadable), got %v", observations[0].Outcome)
 	}
 }

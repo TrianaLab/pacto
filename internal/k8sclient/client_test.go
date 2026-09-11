@@ -505,7 +505,7 @@ func TestK8sGoClient_GVR_DefaultVersion(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// k8sGoClient.ListJSON / GetJSON / CountResources
+// k8sGoClient.ListJSON / CountResources
 // ---------------------------------------------------------------------------
 
 func newFakeDynamicClient(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
@@ -570,30 +570,6 @@ func TestK8sGoClient_ListJSON_Error(t *testing.T) {
 	_, err := client.ListJSON(context.Background(), "pactos", "default")
 	if err == nil {
 		t.Error("expected error")
-	}
-}
-
-func TestK8sGoClient_GetJSON_Success(t *testing.T) {
-	obj := newTestPactoObject("my-svc", "default")
-	dyn := newFakeDynamicClient(obj)
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	data, err := client.GetJSON(context.Background(), "pactos", "default", "my-svc")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(data) == 0 {
-		t.Fatal("expected non-empty JSON")
-	}
-}
-
-func TestK8sGoClient_GetJSON_Error(t *testing.T) {
-	dyn := newFakeDynamicClient()
-	client := &k8sGoClient{dynamic: dyn, group: "pacto.trianalab.io", version: "v1alpha1"}
-
-	_, err := client.GetJSON(context.Background(), "pactos", "default", "nonexistent")
-	if err == nil {
-		t.Error("expected error for nonexistent resource")
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
@@ -72,6 +73,7 @@ func TestSyncAllRevisions_TagAlreadyHasRevision_NoDigest(t *testing.T) {
 		Spec: pactov1alpha1.PactoRevisionSpec{
 			Version:  "1.0.0",
 			PactoRef: "my-pacto",
+			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0"},
 		},
 	}
 
@@ -82,9 +84,67 @@ func TestSyncAllRevisions_TagAlreadyHasRevision_NoDigest(t *testing.T) {
 		},
 	}
 
+	// No stored digest: the drift check is skipped, so the loader is never called
+	// (mockLoader.Load returns "not implemented" and would surface as a create attempt).
 	err := r.syncAllRevisions(context.Background(), pacto, "oci://ghcr.io/org/svc", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestSyncAllRevisions_ForcePushedTwice_ComparesNewestRevision covers the second half of
+// finding 46's fix: a force-push leaves two revisions on the SAME ref, and the drift check
+// must compare against the newest, or TagOverwritten re-fires on every reconcile forever.
+func TestSyncAllRevisions_ForcePushedTwice_ComparesNewestRevision(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-pacto", Namespace: "default", UID: "test-uid"},
+	}
+
+	rev := func(name, digest string, ageMinutes int) *pactov1alpha1.PactoRevision {
+		return &pactov1alpha1.PactoRevision{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              name,
+				Namespace:         "default",
+				CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Duration(ageMinutes) * time.Minute)),
+				Labels:            map[string]string{pactov1alpha1.LabelPactoName: "my-pacto"},
+			},
+			Spec: pactov1alpha1.PactoRevisionSpec{
+				Version:  "1.0.0",
+				PactoRef: "my-pacto",
+				Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: digest},
+			},
+		}
+	}
+
+	// "zz-newer" sorts last so List order alone cannot pick the right one either way;
+	// only the creationTimestamp comparison can.
+	for _, objs := range [][]client.Object{
+		{pacto, rev("aa-newer", "sha256:currentdig", 1), rev("zz-older", "sha256:supersede1", 9)},
+		{pacto, rev("aa-older", "sha256:supersede1", 9), rev("zz-newer", "sha256:currentdig", 1)},
+	} {
+		recorder := record.NewFakeRecorder(20)
+		r := newReconciler(objs...)
+		r.Recorder = recorder
+		r.Loader = &mockLoader{
+			listTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.0.0"}, nil },
+			loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+				return &loader.LoadResult{
+					Contract:       &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}},
+					RawYAML:        []byte("yaml"),
+					ResolvedRef:    "ghcr.io/org/svc:1.0.0",
+					ResolvedDigest: "sha256:currentdig",
+				}, nil
+			},
+		}
+
+		if err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc", nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		select {
+		case event := <-recorder.Events:
+			t.Errorf("expected no event (registry matches the newest revision), got %s", event)
+		default:
+		}
 	}
 }
 
@@ -407,9 +467,11 @@ func TestSyncAllRevisions_RevisionListError(t *testing.T) {
 		},
 	}
 
+	// The revision index is a precondition for the whole sync, not a per-tag detail:
+	// silently continuing would recreate every revision as if none existed.
 	err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc", nil)
-	if err != nil {
-		t.Fatalf("unexpected error (should continue on list error): %v", err)
+	if err == nil || !strings.Contains(err.Error(), "failed to list revisions") {
+		t.Fatalf("expected a list error, got %v", err)
 	}
 }
 
@@ -464,7 +526,7 @@ func TestResolveOCIAuth_Token(t *testing.T) {
 		Data:       map[string][]byte{"token": []byte("ghp_mytoken123")},
 	}
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
-	r := &PactoReconciler{Client: c, Scheme: s}
+	r := &PactoReconciler{Client: c, APIReader: c, Scheme: s}
 
 	auth, err := r.resolveOCIAuth(context.Background(), "default", "my-secret", "ghcr.io/org/repo")
 	if err != nil {
@@ -482,7 +544,7 @@ func TestResolveOCIAuth_UsernamePassword(t *testing.T) {
 		Data:       map[string][]byte{"username": []byte("user"), "password": []byte("pass")},
 	}
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
-	r := &PactoReconciler{Client: c, Scheme: s}
+	r := &PactoReconciler{Client: c, APIReader: c, Scheme: s}
 
 	auth, err := r.resolveOCIAuth(context.Background(), "default", "my-secret", "ghcr.io/org/repo")
 	if err != nil {
@@ -502,7 +564,7 @@ func TestResolveOCIAuth_DockerConfigJSON(t *testing.T) {
 		Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(dockerCfg)},
 	}
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
-	r := &PactoReconciler{Client: c, Scheme: s}
+	r := &PactoReconciler{Client: c, APIReader: c, Scheme: s}
 
 	auth, err := r.resolveOCIAuth(context.Background(), "default", "docker-secret", "ghcr.io/org/repo")
 	if err != nil {
@@ -516,7 +578,7 @@ func TestResolveOCIAuth_DockerConfigJSON(t *testing.T) {
 func TestResolveOCIAuth_MissingSecret(t *testing.T) {
 	s := newScheme()
 	c := fake.NewClientBuilder().WithScheme(s).Build()
-	r := &PactoReconciler{Client: c, Scheme: s}
+	r := &PactoReconciler{Client: c, APIReader: c, Scheme: s}
 
 	_, err := r.resolveOCIAuth(context.Background(), "default", "nonexistent", "ghcr.io/org/repo")
 	if err == nil {
@@ -531,7 +593,7 @@ func TestResolveOCIAuth_InvalidKeys(t *testing.T) {
 		Data:       map[string][]byte{"something": []byte("else")},
 	}
 	c := fake.NewClientBuilder().WithScheme(s).WithObjects(secret).Build()
-	r := &PactoReconciler{Client: c, Scheme: s}
+	r := &PactoReconciler{Client: c, APIReader: c, Scheme: s}
 
 	_, err := r.resolveOCIAuth(context.Background(), "default", "bad-secret", "ghcr.io/org/repo")
 	if err == nil {
@@ -539,5 +601,58 @@ func TestResolveOCIAuth_InvalidKeys(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must contain") {
 		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+// TestSyncAllRevisions_ForcePushDetected_VPrefixedTag pins finding 46: the registry tag
+// ("v1.2.0") and the contract's service.version ("1.2.0") are different strings, so a
+// lookup keyed on the version label misses and the drift check never runs.
+func TestSyncAllRevisions_ForcePushDetected_VPrefixedTag(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-pacto", Namespace: "default", UID: "test-uid"},
+	}
+
+	existingRev := &pactov1alpha1.PactoRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pacto-1-2-0-abc",
+			Namespace: "default",
+			Labels: map[string]string{
+				pactov1alpha1.LabelPactoName:       "my-pacto",
+				pactov1alpha1.LabelRevisionVersion: "1.2.0",
+			},
+		},
+		Spec: pactov1alpha1.PactoRevisionSpec{
+			Version:  "1.2.0",
+			PactoRef: "my-pacto",
+			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:v1.2.0", Digest: "sha256:olddigest000"},
+		},
+	}
+
+	recorder := record.NewFakeRecorder(20)
+	r := newReconciler(pacto, existingRev)
+	r.Recorder = recorder
+	r.Loader = &mockLoader{
+		listTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"v1.2.0"}, nil },
+		loadFn: func(_ context.Context, _ string, _ string) (*loader.LoadResult, error) {
+			return &loader.LoadResult{
+				Contract:       &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.2.0"}},
+				RawYAML:        []byte("new-yaml"),
+				ResolvedRef:    "ghcr.io/org/svc:v1.2.0",
+				ResolvedDigest: "sha256:newdigest111",
+			}, nil
+		},
+	}
+
+	if err := r.syncAllRevisions(context.Background(), pacto, "ghcr.io/org/svc", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "TagOverwritten") {
+			t.Errorf("expected TagOverwritten event, got %s", event)
+		}
+	default:
+		t.Fatal("expected TagOverwritten event for force-pushed v-prefixed tag")
 	}
 }

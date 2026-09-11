@@ -1,9 +1,10 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
   import { serviceUrl } from '../lib/router.ts';
   import { shortDigest } from '../lib/format.ts';
 
-  let { policies = [], open = $bindable(false), id = '', source = '' } = $props();
+  let { policies = [], open = $bindable(false), id = '' } = $props();
 
   let hasContent = $derived(policies?.length > 0);
   let expanded = $state({});
@@ -18,7 +19,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Policies" count={policies.length} bind:open {id} {source}>
+  <CollapsibleSection title="Policies" count={policies.length} bind:open {id}>
     {#each policies as pol, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={pol.values?.length > 0} onclick={() => pol.values?.length > 0 && toggle(i)}>
@@ -74,6 +75,8 @@
       </div>
     {/each}
   </CollapsibleSection>
+{:else}
+  <SectionState title="Policies" bind:open {id} />
 {/if}
 
 <style>

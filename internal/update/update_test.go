@@ -43,26 +43,35 @@ func writePluginChecksums(w io.Writer, name, content string) {
 	_, _ = fmt.Fprintf(w, "%s  %s_%s_%s%s\n", sha256hex(content), name, runtimeGOOS, runtimeGOARCH, ext)
 }
 
+// updaterFor points every endpoint at server and makes execPath the binary the
+// updater believes it is running as.
+func updaterFor(server *httptest.Server, execPath string) *Updater {
+	u := testUpdater(server)
+	u.Executable = func() (string, error) { return execPath, nil }
+	return u
+}
+
 func TestBuildDownloadURL(t *testing.T) {
 	tests := []struct {
 		name, tag, goos, goarch, expected string
 	}{
 		{"linux amd64", "v1.0.0", "linux", "amd64",
-			githubDownloadURL + "/TrianaLab/pacto/releases/download/v1.0.0/pacto_linux_amd64"},
+			"/TrianaLab/pacto/releases/download/v1.0.0/pacto_linux_amd64"},
 		{"darwin arm64", "v1.2.3", "darwin", "arm64",
-			githubDownloadURL + "/TrianaLab/pacto/releases/download/v1.2.3/pacto_darwin_arm64"},
+			"/TrianaLab/pacto/releases/download/v1.2.3/pacto_darwin_arm64"},
 		{"windows amd64", "v1.0.0", "windows", "amd64",
-			githubDownloadURL + "/TrianaLab/pacto/releases/download/v1.0.0/pacto_windows_amd64.exe"},
+			"/TrianaLab/pacto/releases/download/v1.0.0/pacto_windows_amd64.exe"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			origGOOS, origGOARCH := runtimeGOOS, runtimeGOARCH
 			runtimeGOOS, runtimeGOARCH = tt.goos, tt.goarch
-			defer func() { runtimeGOOS, runtimeGOARCH = origGOOS, origGOARCH }()
+			t.Cleanup(func() { runtimeGOOS, runtimeGOARCH = origGOOS, origGOARCH })
 
-			if got := buildDownloadURL(tt.tag); got != tt.expected {
-				t.Errorf("expected %s, got %s", tt.expected, got)
+			u := New()
+			if got := u.buildDownloadURL(tt.tag); got != u.DownloadBaseURL+tt.expected {
+				t.Errorf("expected %s, got %s", u.DownloadBaseURL+tt.expected, got)
 			}
 		})
 	}
@@ -80,16 +89,16 @@ func TestValidateRelease(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
+	u := testUpdater(server)
 
 	t.Run("existing release", func(t *testing.T) {
-		if err := validateRelease("v1.0.0"); err != nil {
+		if err := u.validateRelease("v1.0.0"); err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		err := validateRelease("v99.99.99")
+		err := u.validateRelease("v99.99.99")
 		if err == nil {
 			t.Fatal("expected error for nonexistent release")
 		}
@@ -99,7 +108,7 @@ func TestValidateRelease(t *testing.T) {
 	})
 
 	t.Run("server error", func(t *testing.T) {
-		err := validateRelease("v0.0.1")
+		err := u.validateRelease("v0.0.1")
 		if err == nil {
 			t.Fatal("expected error for server error")
 		}
@@ -112,14 +121,13 @@ func TestDownloadBinary(t *testing.T) {
 		_, _ = w.Write([]byte(content))
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
 
 	tmpFile, err := os.CreateTemp(t.TempDir(), "test-binary-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := downloadBinary(server.URL+"/pacto_linux_amd64", tmpFile); err != nil {
+	if err := testUpdater(server).downloadBinary(server.URL+"/pacto_linux_amd64", tmpFile); err != nil {
 		t.Fatalf("downloadBinary failed: %v", err)
 	}
 	_ = tmpFile.Close()
@@ -138,7 +146,6 @@ func TestDownloadBinary_HTTPError(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
 
 	tmpFile, err := os.CreateTemp(t.TempDir(), "test-binary-*")
 	if err != nil {
@@ -146,7 +153,7 @@ func TestDownloadBinary_HTTPError(t *testing.T) {
 	}
 	defer func() { _ = tmpFile.Close() }()
 
-	if err := downloadBinary(server.URL+"/missing", tmpFile); err == nil {
+	if err := testUpdater(server).downloadBinary(server.URL+"/missing", tmpFile); err == nil {
 		t.Fatal("expected error for 404 response")
 	}
 }
@@ -169,11 +176,6 @@ func TestUpdate_LatestVersion(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
-
-	origDownload := githubDownloadURL
-	githubDownloadURL = server.URL
-	defer func() { githubDownloadURL = origDownload }()
 
 	// Create a fake executable
 	execDir := t.TempDir()
@@ -182,11 +184,7 @@ func TestUpdate_LatestVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return execPath, nil }
-	defer func() { osExecutable = origExec }()
-
-	result, err := Update("v1.0.0", "")
+	result, err := updaterFor(server, execPath).Update("v1.0.0", "")
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
@@ -228,11 +226,6 @@ func TestUpdate_SpecificVersion(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
-
-	origDownload := githubDownloadURL
-	githubDownloadURL = server.URL
-	defer func() { githubDownloadURL = origDownload }()
 
 	execDir := t.TempDir()
 	execPath := filepath.Join(execDir, "pacto")
@@ -240,11 +233,7 @@ func TestUpdate_SpecificVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return execPath, nil }
-	defer func() { osExecutable = origExec }()
-
-	result, err := Update("v1.0.0", "1.5.0") // without v prefix
+	result, err := updaterFor(server, execPath).Update("v1.0.0", "1.5.0") // without v prefix
 	if err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
@@ -260,9 +249,8 @@ func TestUpdate_ReleaseNotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
 
-	_, err := Update("v1.0.0", "v99.99.99")
+	_, err := testUpdater(server).Update("v1.0.0", "v99.99.99")
 	if err == nil {
 		t.Fatal("expected error for nonexistent release")
 	}
@@ -280,11 +268,6 @@ func TestUpdate_DownloadFailure(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
-
-	origDownload := githubDownloadURL
-	githubDownloadURL = server.URL
-	defer func() { githubDownloadURL = origDownload }()
 
 	execDir := t.TempDir()
 	execPath := filepath.Join(execDir, "pacto")
@@ -292,11 +275,7 @@ func TestUpdate_DownloadFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return execPath, nil }
-	defer func() { osExecutable = origExec }()
-
-	_, err := Update("v1.0.0", "v2.0.0")
+	_, err := updaterFor(server, execPath).Update("v1.0.0", "v2.0.0")
 	if err == nil {
 		t.Fatal("expected error for download failure")
 	}
@@ -315,22 +294,20 @@ func TestUpdate_FetchLatestFailure(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
 
-	_, err := Update("v1.0.0", "")
+	_, err := testUpdater(server).Update("v1.0.0", "")
 	if err == nil {
 		t.Fatal("expected error when fetching latest fails")
 	}
 }
 
 func TestDownloadAndReplace_ExecutableError(t *testing.T) {
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return "", fmt.Errorf("executable error") }
-	defer func() { osExecutable = origExec }()
+	u := New()
+	u.Executable = func() (string, error) { return "", fmt.Errorf("executable error") }
 
-	err := downloadAndReplace("http://example.com/binary", "")
+	err := u.downloadAndReplace("http://example.com/binary", "")
 	if err == nil {
-		t.Fatal("expected error from osExecutable")
+		t.Fatal("expected error from Executable")
 	}
 	if !strings.Contains(err.Error(), "failed to determine executable path") {
 		t.Errorf("unexpected error: %v", err)
@@ -338,11 +315,10 @@ func TestDownloadAndReplace_ExecutableError(t *testing.T) {
 }
 
 func TestDownloadAndReplace_EvalSymlinksError(t *testing.T) {
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return "/nonexistent/path/pacto", nil }
-	defer func() { osExecutable = origExec }()
+	u := New()
+	u.Executable = func() (string, error) { return "/nonexistent/path/pacto", nil }
 
-	err := downloadAndReplace("http://example.com/binary", "")
+	err := u.downloadAndReplace("http://example.com/binary", "")
 	if err == nil {
 		t.Fatal("expected error from EvalSymlinks")
 	}
@@ -362,11 +338,10 @@ func TestDownloadAndReplace_CreateTempError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0755) })
 
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return execPath, nil }
-	defer func() { osExecutable = origExec }()
+	u := New()
+	u.Executable = func() (string, error) { return execPath, nil }
 
-	err := downloadAndReplace("http://example.com/binary", "")
+	err := u.downloadAndReplace("http://example.com/binary", "")
 	if err == nil {
 		t.Fatal("expected error from CreateTemp in read-only directory")
 	}
@@ -378,7 +353,7 @@ func TestDownloadAndReplace_CreateTempError(t *testing.T) {
 func TestDownloadAndReplace_ChmodError(t *testing.T) {
 	origChmod := osChmod
 	osChmod = func(string, fs.FileMode) error { return fmt.Errorf("chmod error") }
-	defer func() { osChmod = origChmod }()
+	t.Cleanup(func() { osChmod = origChmod })
 
 	execDir := t.TempDir()
 	execPath := filepath.Join(execDir, "pacto")
@@ -386,16 +361,12 @@ func TestDownloadAndReplace_ChmodError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return execPath, nil }
-	defer func() { osExecutable = origExec }()
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("new-binary"))
 	}))
 	t.Cleanup(server.Close)
 
-	err := downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
+	err := updaterFor(server, execPath).downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
 	if err == nil {
 		t.Fatal("expected error from chmod")
 	}
@@ -407,7 +378,7 @@ func TestDownloadAndReplace_ChmodError(t *testing.T) {
 func TestDownloadAndReplace_RenameError(t *testing.T) {
 	origRename := osRename
 	osRename = func(string, string) error { return fmt.Errorf("rename error") }
-	defer func() { osRename = origRename }()
+	t.Cleanup(func() { osRename = origRename })
 
 	execDir := t.TempDir()
 	execPath := filepath.Join(execDir, "pacto")
@@ -415,16 +386,12 @@ func TestDownloadAndReplace_RenameError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return execPath, nil }
-	defer func() { osExecutable = origExec }()
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("new-binary"))
 	}))
 	t.Cleanup(server.Close)
 
-	err := downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
+	err := updaterFor(server, execPath).downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
 	if err == nil {
 		t.Fatal("expected error from rename")
 	}
@@ -434,22 +401,20 @@ func TestDownloadAndReplace_RenameError(t *testing.T) {
 }
 
 func TestValidateRelease_InvalidURL(t *testing.T) {
-	origURL := githubAPIBaseURL
-	githubAPIBaseURL = string([]byte{0x7f})
-	defer func() { githubAPIBaseURL = origURL }()
+	u := New()
+	u.APIBaseURL = string([]byte{0x7f})
 
-	err := validateRelease("v1.0.0")
+	err := u.validateRelease("v1.0.0")
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
 }
 
 func TestValidateRelease_TransportError(t *testing.T) {
-	origClient := httpClient
-	httpClient = &http.Client{Transport: &errorTransport{}}
-	defer func() { httpClient = origClient }()
+	u := New()
+	u.Client = &http.Client{Transport: &errorTransport{}}
 
-	err := validateRelease("v1.0.0")
+	err := u.validateRelease("v1.0.0")
 	if err == nil {
 		t.Fatal("expected error for transport failure")
 	}
@@ -460,7 +425,7 @@ func TestValidateRelease_TransportError(t *testing.T) {
 
 func TestDownloadBinary_InvalidURL(t *testing.T) {
 	var buf bytes.Buffer
-	err := downloadBinary(string([]byte{0x7f}), &buf)
+	err := New().downloadBinary(string([]byte{0x7f}), &buf)
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
@@ -470,12 +435,11 @@ func TestDownloadBinary_InvalidURL(t *testing.T) {
 }
 
 func TestDownloadBinary_TransportError(t *testing.T) {
-	origClient := downloadClient
-	downloadClient = &http.Client{Transport: &errorTransport{}}
-	defer func() { downloadClient = origClient }()
+	u := New()
+	u.DownloadClient = &http.Client{Transport: &errorTransport{}}
 
 	var buf bytes.Buffer
-	err := downloadBinary("http://example.com/binary", &buf)
+	err := u.downloadBinary("http://example.com/binary", &buf)
 	if err == nil {
 		t.Fatal("expected error for transport failure")
 	}
@@ -498,12 +462,11 @@ func (*shortBodyTransport) RoundTrip(*http.Request) (*http.Response, error) {
 }
 
 func TestDownloadBinary_ContentLengthMismatch(t *testing.T) {
-	origClient := downloadClient
-	downloadClient = &http.Client{Transport: &shortBodyTransport{}}
-	defer func() { downloadClient = origClient }()
+	u := New()
+	u.DownloadClient = &http.Client{Transport: &shortBodyTransport{}}
 
 	var buf bytes.Buffer
-	err := downloadBinary("http://example.com/binary", &buf)
+	err := u.downloadBinary("http://example.com/binary", &buf)
 	if err == nil || !strings.Contains(err.Error(), "incomplete download") {
 		t.Fatalf("expected incomplete download error, got %v", err)
 	}
@@ -550,7 +513,7 @@ func TestFetchChecksums(t *testing.T) {
 			_, _ = io.WriteString(w, "abc  pacto_linux_amd64\n")
 		}))
 		t.Cleanup(server.Close)
-		sums, err := fetchChecksums(server.URL + "/checksums.txt")
+		sums, err := testUpdater(server).fetchChecksums(server.URL + "/checksums.txt")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -564,31 +527,29 @@ func TestFetchChecksums(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		t.Cleanup(server.Close)
-		if _, err := fetchChecksums(server.URL + "/checksums.txt"); err == nil {
+		if _, err := testUpdater(server).fetchChecksums(server.URL + "/checksums.txt"); err == nil {
 			t.Fatal("expected error for 404")
 		}
 	})
 
 	t.Run("invalid url", func(t *testing.T) {
-		if _, err := fetchChecksums(string([]byte{0x7f})); err == nil {
+		if _, err := New().fetchChecksums(string([]byte{0x7f})); err == nil {
 			t.Fatal("expected error for invalid url")
 		}
 	})
 
 	t.Run("transport error", func(t *testing.T) {
-		orig := httpClient
-		httpClient = &http.Client{Transport: &errorTransport{}}
-		defer func() { httpClient = orig }()
-		if _, err := fetchChecksums("http://example.com/checksums.txt"); err == nil {
+		u := New()
+		u.Client = &http.Client{Transport: &errorTransport{}}
+		if _, err := u.fetchChecksums("http://example.com/checksums.txt"); err == nil {
 			t.Fatal("expected transport error")
 		}
 	})
 
 	t.Run("body read error", func(t *testing.T) {
-		orig := httpClient
-		httpClient = &http.Client{Transport: &errorBodyTransport{}}
-		defer func() { httpClient = orig }()
-		if _, err := fetchChecksums("http://example.com/checksums.txt"); err == nil {
+		u := New()
+		u.Client = &http.Client{Transport: &errorBodyTransport{}}
+		if _, err := u.fetchChecksums("http://example.com/checksums.txt"); err == nil {
 			t.Fatal("expected body read error")
 		}
 	})
@@ -599,7 +560,7 @@ func TestExpectedChecksum_MissingAsset(t *testing.T) {
 		_, _ = io.WriteString(w, "abc  some-other-asset\n")
 	}))
 	t.Cleanup(server.Close)
-	if _, err := expectedChecksum(server.URL+"/checksums.txt", "pacto_linux_amd64"); err == nil ||
+	if _, err := testUpdater(server).expectedChecksum(server.URL+"/checksums.txt", "pacto_linux_amd64"); err == nil ||
 		!strings.Contains(err.Error(), "no checksum published") {
 		t.Fatalf("expected missing-asset error, got %v", err)
 	}
@@ -610,7 +571,7 @@ func TestExpectedChecksum_FetchError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(server.Close)
-	if _, err := expectedChecksum(server.URL+"/checksums.txt", "x"); err == nil ||
+	if _, err := testUpdater(server).expectedChecksum(server.URL+"/checksums.txt", "x"); err == nil ||
 		!strings.Contains(err.Error(), "failed to fetch release checksums") {
 		t.Fatalf("expected fetch error, got %v", err)
 	}
@@ -631,22 +592,14 @@ func TestUpdate_ChecksumMismatch(t *testing.T) {
 		}
 	}))
 	t.Cleanup(server.Close)
-	overrideGitHubAPI(t, server)
-
-	origDownload := githubDownloadURL
-	githubDownloadURL = server.URL
-	defer func() { githubDownloadURL = origDownload }()
 
 	execDir := t.TempDir()
 	execPath := filepath.Join(execDir, "pacto")
 	if err := os.WriteFile(execPath, []byte("old"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	origExec := osExecutable
-	osExecutable = func() (string, error) { return execPath, nil }
-	defer func() { osExecutable = origExec }()
 
-	_, err := Update("v1.0.0", "v2.0.0")
+	_, err := updaterFor(server, execPath).Update("v1.0.0", "v2.0.0")
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("expected checksum mismatch error, got %v", err)
 	}
@@ -714,7 +667,7 @@ func TestDownloadBinary_WriterError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := downloadBinary(server.URL+"/binary", &errWriter{})
+	err := testUpdater(server).downloadBinary(server.URL+"/binary", &errWriter{})
 	if err == nil {
 		t.Fatal("expected error from writer")
 	}

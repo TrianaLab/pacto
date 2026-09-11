@@ -242,10 +242,13 @@ func hostileCases() []hostileCase {
 	// on each kind tab, an attention screen on each category, a graph at each
 	// direction. A state a reader can reach is a state the payload can reach.
 	return []hostileCase{
-		{"loading", func(*testing.T, *Model) screen {
-			return loadingScreen{note: hostilePayload}
+		// The loading screen carries no fleet data at all -- it renders before the
+		// first snapshot lands -- so it cannot show the payload. It is walked anyway
+		// because the walk's job is to visit every render site, and a screen left
+		// out is one nobody notices growing a fleet-derived string later.
+		{"loading", func(_ *testing.T, _ *Model) screen {
+			return loadingScreen{}
 		}, false},
-
 		{"list", func(_ *testing.T, m *Model) screen {
 			return newListScreen(m.ctx)
 		}, true},

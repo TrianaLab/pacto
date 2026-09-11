@@ -24,46 +24,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/debug/services": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Debug per-source services
-         * @description Returns per-source service breakdown for debugging.
-         */
-        get: operations["debug-services"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/debug/sources": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Debug source diagnostics
-         * @description Returns detailed diagnostic information about source detection.
-         */
-        get: operations["debug-sources"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/diff": {
         parameters: {
             query?: never;
@@ -73,7 +33,7 @@ export interface paths {
         };
         /**
          * Diff two service versions
-         * @description Compares two service versions and returns classified changes.
+         * @description Compares two service versions and returns classified changes. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-diff"];
         put?: never;
@@ -357,7 +317,7 @@ export interface paths {
         };
         /**
          * Get global dependency graph
-         * @description Returns the full dependency graph across all services.
+         * @description Returns the full dependency graph across all services. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-global-graph"];
         put?: never;
@@ -379,29 +339,9 @@ export interface paths {
         put?: never;
         /**
          * Force refresh all sources
-         * @description Invalidates all caches, re-detects k8s context changes, and forces a fresh data fetch.
+         * @description Rebuilds the fleet snapshot from every configured source.
          */
         post: operations["refresh"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Resolve a remote OCI dependency
-         * @description Lazily resolves a remote Pacto bundle from an OCI reference. Checks the local cache first, then pulls from the registry if needed. Successfully pulled artifacts are cached for future use.
-         */
-        post: operations["resolve-ref"];
         delete?: never;
         options?: never;
         head?: never;
@@ -417,7 +357,7 @@ export interface paths {
         };
         /**
          * List services
-         * @description Returns an enriched list of all services across all sources.
+         * @description Returns an enriched list of all services. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["list-services"];
         put?: never;
@@ -437,7 +377,7 @@ export interface paths {
         };
         /**
          * Get service details
-         * @description Returns full details for a single service by name.
+         * @description Returns full details for a single service by name. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-service"];
         put?: never;
@@ -457,7 +397,7 @@ export interface paths {
         };
         /**
          * Get service dependents
-         * @description Returns services that depend on the given service.
+         * @description Returns services that depend on the given service. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-service-dependents"];
         put?: never;
@@ -477,7 +417,7 @@ export interface paths {
         };
         /**
          * Get service dependency graph
-         * @description Returns the dependency graph centered on a specific service.
+         * @description Returns the dependency graph centered on a specific service. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-service-graph"];
         put?: never;
@@ -497,7 +437,7 @@ export interface paths {
         };
         /**
          * Get service cross-references
-         * @description Returns config/policy cross-references for a service.
+         * @description Returns config/policy cross-references for a service. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-service-refs"];
         put?: never;
@@ -517,7 +457,7 @@ export interface paths {
         };
         /**
          * Get service sources
-         * @description Returns per-source breakdown and merged view for a service.
+         * @description Returns per-source breakdown and merged view for a service. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-service-sources"];
         put?: never;
@@ -537,7 +477,7 @@ export interface paths {
         };
         /**
          * Get service versions
-         * @description Returns the version history for a service.
+         * @description Returns the version history for a service. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-service-versions"];
         put?: never;
@@ -557,7 +497,7 @@ export interface paths {
         };
         /**
          * Get service details at a version
-         * @description Returns full details for a specific version of a service.
+         * @description Returns full details for a specific version of a service. Answered by the offline static export (`pacto doc --format html`); a live dashboard serves /api/fleet/* instead.
          */
         get: operations["get-service-version"];
         put?: never;
@@ -577,31 +517,11 @@ export interface paths {
         };
         /**
          * Get detected sources
-         * @description Returns the list of detected data sources and their status.
+         * @description Returns the list of data sources backing the published snapshot and their status.
          */
         get: operations["get-sources"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * List available versions from OCI registry
-         * @description Queries the OCI registry for all semver tags of a given repo reference. Returns versions sorted descending (latest first).
-         */
-        post: operations["list-remote-versions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -656,16 +576,6 @@ export interface components {
             merged: components["schemas"]["ServiceDetails"];
             name: string;
             sources: components["schemas"]["ServiceSourceData"][] | null;
-        };
-        CacheDiagnostics: {
-            cacheDir: string;
-            error?: string;
-            exists: boolean;
-            ociDirExists: boolean;
-            /** Format: int64 */
-            serviceCount: number;
-            /** Format: int64 */
-            versionCount: number;
         };
         CapabilitiesOutputBody: {
             /** @description The operational-graph (fleet) endpoints are served */
@@ -851,23 +761,6 @@ export interface components {
         CrossReferences: {
             referencedBy: components["schemas"]["CrossReference"][] | null;
             references: components["schemas"]["CrossReference"][] | null;
-        };
-        DebugServiceEntry: {
-            mergedContractStatus: string;
-            mergedSource: string;
-            mergedSources: string[] | null;
-            mergedVersion: string;
-            name: string;
-            presentInSources: string[] | null;
-        };
-        DebugServicesOutputBody: {
-            aggregatedList: components["schemas"]["DebugServiceEntry"][] | null;
-            perSource: components["schemas"]["PerSourceResult"][] | null;
-        };
-        DebugSourcesOutputBody: {
-            diagnostics?: components["schemas"]["SourceDiagnostics"];
-            live?: components["schemas"]["LiveDebugInfo"];
-            sources: components["schemas"]["SourceInfo"][] | null;
         };
         DependencyGraph: {
             conflicts?: string[] | null;
@@ -1679,9 +1572,9 @@ export interface components {
             truncated: boolean;
         };
         GetSourcesOutputBody: {
-            /** @description True while OCI dependency discovery is still running */
+            /** @description True while the first snapshot is still being built */
             discovering: boolean;
-            /** @description Detected data sources */
+            /** @description Data sources backing the published snapshot */
             sources: components["schemas"]["SourceInfo"][] | null;
         };
         GlobalGraph: {
@@ -1815,46 +1708,6 @@ export interface components {
             type: string;
             visibility?: string;
         };
-        K8sDiagnostics: {
-            allNamespaces: boolean;
-            chosenVersion?: string;
-            clientConfigured: boolean;
-            clusterReachable: boolean;
-            crdExists: boolean;
-            detectedGroup?: string;
-            detectedVersions?: string[] | null;
-            error?: string;
-            kubeconfigPath?: string;
-            namespace: string;
-            /** Format: int64 */
-            resourceCount: number;
-            resourceName?: string;
-        };
-        ListRemoteVersionsInputBody: {
-            /** @description When true, pull and cache all discovered versions */
-            fetch?: boolean;
-            /**
-             * @description OCI repository reference (without tag)
-             * @example ghcr.io/org/service-pacto
-             */
-            ref: string;
-        };
-        ListRemoteVersionsOutputBody: {
-            /** @description Semver tags sorted descending */
-            versions: string[] | null;
-        };
-        LiveDebugInfo: {
-            error?: string;
-            /** Format: int64 */
-            serviceCount: number;
-            serviceNames?: string[] | null;
-        };
-        LocalDiagnostics: {
-            dir: string;
-            error?: string;
-            foundIn?: string;
-            pactoYamlFound: boolean;
-        };
         "Lock.Entry": {
             constraint?: string;
             contentHash?: string;
@@ -1930,11 +1783,6 @@ export interface components {
              */
             sourceCount: number;
         };
-        OCIDiagnostics: {
-            error?: string;
-            repos?: string[] | null;
-            storeConfigured: boolean;
-        };
         ObservedRuntime: {
             containerImages?: string[] | null;
             deploymentStrategy?: string;
@@ -1946,13 +1794,6 @@ export interface components {
             /** Format: int64 */
             terminationGracePeriodSeconds?: number;
             workloadKind?: string;
-        };
-        PerSourceResult: {
-            /** Format: int64 */
-            count: number;
-            error?: string;
-            services?: components["schemas"]["Service"][] | null;
-            sourceType: string;
         };
         PolicyInfo: {
             content?: string;
@@ -2517,18 +2358,6 @@ export interface components {
              */
             status: string;
         };
-        ResolveRefInputBody: {
-            /**
-             * @description Semver constraint for untagged refs
-             * @example ^4.0.0
-             */
-            compatibility?: string;
-            /**
-             * @description OCI reference to resolve
-             * @example ghcr.io/org/service-pacto:1.0.0
-             */
-            ref: string;
-        };
         ResourcesInfo: {
             serviceExists?: boolean;
             workloadExists?: boolean;
@@ -2560,14 +2389,6 @@ export interface components {
             reason?: string;
             source?: string;
             state: string;
-        };
-        Service: {
-            contractStatus: string;
-            name: string;
-            owner?: components["schemas"]["Contract.Owner"];
-            source: string;
-            sources?: string[] | null;
-            version: string;
         };
         ServiceDetails: {
             capabilities?: components["schemas"]["CapabilityInfo"][] | null;
@@ -2654,12 +2475,6 @@ export interface components {
         SkillInfo: {
             content?: string;
             name: string;
-        };
-        SourceDiagnostics: {
-            cache: components["schemas"]["CacheDiagnostics"];
-            k8s: components["schemas"]["K8sDiagnostics"];
-            local: components["schemas"]["LocalDiagnostics"];
-            oci: components["schemas"]["OCIDiagnostics"];
         };
         SourceInfo: {
             enabled: boolean;
@@ -2758,64 +2573,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CapabilitiesOutputBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
-                };
-            };
-        };
-    };
-    "debug-services": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DebugServicesOutputBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
-                };
-            };
-        };
-    };
-    "debug-sources": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DebugSourcesOutputBody"];
                 };
             };
             /** @description Error */
@@ -3433,39 +3190,6 @@ export interface operations {
             };
         };
     };
-    "resolve-ref": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResolveRefInputBody"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ServiceDetails"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
-                };
-            };
-        };
-    };
     "list-services": {
         parameters: {
             query?: never;
@@ -3737,39 +3461,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetSourcesOutputBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
-                };
-            };
-        };
-    };
-    "list-remote-versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ListRemoteVersionsInputBody"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListRemoteVersionsOutputBody"];
                 };
             };
             /** @description Error */

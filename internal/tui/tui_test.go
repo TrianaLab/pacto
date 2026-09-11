@@ -59,14 +59,6 @@ func TestCtrlCQuits(t *testing.T) {
 	}
 }
 
-func TestErrorMsgIsShownInTheFooter(t *testing.T) {
-	m := New(testOptions())
-	next, _ := m.Update(errMsg{err: errBoom})
-	if !strings.Contains(next.View().Content, "boom") {
-		t.Fatalf("view does not show the error:\n%s", next.View().Content)
-	}
-}
-
 func TestUpdateStatusMsg(t *testing.T) {
 	m := New(testOptions())
 	next, _ := m.Update(statusMsg{text: "test status"})
@@ -78,7 +70,7 @@ func TestUpdateStatusMsg(t *testing.T) {
 
 func TestUpdatePushMsg(t *testing.T) {
 	m := New(testOptions())
-	s := loadingScreen{note: "pushed"}
+	s := newConfirmScreen("pushed", []string{"pacto"}, func() tea.Cmd { return nil })
 	next, cmd := m.Update(pushMsg{s: s})
 	got := next.(*Model)
 	if len(got.stack) != 2 {
@@ -94,7 +86,7 @@ func TestUpdatePushMsg(t *testing.T) {
 
 func TestUpdatePopMsg(t *testing.T) {
 	m := New(testOptions())
-	m.stack = append(m.stack, loadingScreen{note: "second"})
+	m.stack = append(m.stack, loadingScreen{})
 	next, cmd := m.Update(popMsg{})
 	got := next.(*Model)
 	if len(got.stack) != 1 {
@@ -117,17 +109,14 @@ func TestUpdatePopMsgWithSingleScreen(t *testing.T) {
 	}
 }
 
+// TestUpdateDelegatesToScreen sends a message no global key claims and checks
+// that the top screen got it: the confirm screen answers n by popping itself.
 func TestUpdateDelegatesToScreen(t *testing.T) {
 	m := New(testOptions())
-	// Send a message that loadingScreen handles (depResolvedMsg)
-	next, _ := m.Update(depResolvedMsg{id: 0})
-	// The loadingScreen should have updated its note
-	ls, ok := next.(*Model).top().(loadingScreen)
-	if !ok {
-		t.Fatalf("top screen is %T, want loadingScreen", next.(*Model).top())
-	}
-	if ls.note != "resolved a dependency" {
-		t.Fatalf("note = %q, want %q", ls.note, "resolved a dependency")
+	m.stack = append(m.stack, newConfirmScreen("run", []string{"pacto"}, func() tea.Cmd { return nil }))
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	if cmd == nil {
+		t.Fatal("the top screen was not asked to handle the key")
 	}
 }
 

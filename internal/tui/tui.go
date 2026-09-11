@@ -6,7 +6,6 @@ package tui
 
 import (
 	"context"
-	"io"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,8 +25,6 @@ type Options struct {
 	SourceArgs []string
 	ReadOnly   bool   // suppress every write verb
 	Exe        string // absolute path to the pacto binary used for write verbs
-	Input      io.Reader
-	Output     io.Writer
 	// Anim enables motion. The CLI sets it from the same animationsEnabled check
 	// the spinner uses, so --no-anim, PACTO_NO_ANIM and a non-tty stdout all turn
 	// it off here too. Off is also the default for a zero Options, which is what
@@ -209,9 +206,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stack = m.stack[:len(m.stack)-1]
 		}
 		return m, m.beginTransition()
-	case errMsg:
-		m.err = msg.err
-		return m, nil
 	case statusMsg:
 		m.ctx.Status = msg.text
 		return m, nil

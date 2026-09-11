@@ -29,8 +29,6 @@ type K8sClient interface {
 	DiscoverCRD(ctx context.Context) (*CRDDiscovery, error)
 	// ListJSON returns the raw JSON of all Pacto CRD resources.
 	ListJSON(ctx context.Context, resource, namespace string) ([]byte, error)
-	// GetJSON returns the raw JSON of a single Pacto CRD resource by name.
-	GetJSON(ctx context.Context, resource, namespace, name string) ([]byte, error)
 	// CountResources returns the number of Pacto CRD resources.
 	CountResources(ctx context.Context, resource, namespace string) (int, error)
 }
@@ -200,15 +198,6 @@ func (c *k8sGoClient) ListJSON(ctx context.Context, resource, namespace string) 
 		return nil, err
 	}
 	return json.Marshal(list)
-}
-
-func (c *k8sGoClient) GetJSON(ctx context.Context, resource, namespace, name string) ([]byte, error) {
-	gvr := c.gvr(resource)
-	obj, err := c.dynamic.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(obj)
 }
 
 func (c *k8sGoClient) CountResources(ctx context.Context, resource, namespace string) (int, error) {

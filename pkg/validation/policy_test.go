@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -217,19 +218,161 @@ func TestResolvePoliciesFromBundle_RefWarning(t *testing.T) {
 	}
 }
 
-func TestResolvePoliciesFromBundle_InvalidSchemaIgnored(t *testing.T) {
-	c := &contract.Contract{
-		Policies: []contract.Policy{{Name: "sec", Schema: "policy/sec.json"}},
+// unreadableFS holds a file it will not open. It is what a root bundle carrying
+// `chmod 000 policy/schema.json` looks like: layer 2's existence check passes and
+// its content check returns silently, so layer 3 is the only thing standing between
+// the operator and a contract reported valid with zero policies enforced. The inner
+// MapFS is deliberately NOT embedded — promoting its ReadFile would route around
+// the refusal. Stat IS delegated, so layer 2's fs.Stat existence check really does
+// pass and the layer-3 hole is reached through the full pipeline, not only by
+// calling the resolver directly.
+type unreadableFS struct{ inner fstest.MapFS }
+
+func (u unreadableFS) Open(name string) (fs.File, error) {
+	if _, err := u.inner.Open(name); err != nil {
+		return nil, err
 	}
-	bundleFS := fstest.MapFS{
-		"policy/sec.json": &fstest.MapFile{Data: []byte(`not json`)},
+	return nil, fs.ErrPermission
+}
+
+func (u unreadableFS) Stat(name string) (fs.FileInfo, error) { return fs.Stat(u.inner, name) }
+
+// The ROOT bundle fails closed too. Layer 2 covers only the schema files it can
+// stat and read, and layer 3 never runs after a layer-2 failure, so everything left
+// here is a hole nothing else reports.
+func TestResolvePoliciesFromBundle_UnenforceablePolicyIsAnError(t *testing.T) {
+	cases := []struct {
+		name     string
+		pol      contract.Policy
+		bundleFS fs.FS
+	}{
+		{"schema is not valid JSON", contract.Policy{Name: "sec", Schema: "policy/sec.json"},
+			fstest.MapFS{"policy/sec.json": &fstest.MapFile{Data: []byte(`not json`)}}},
+		{"schema stats but will not read", contract.Policy{Name: "sec", Schema: "policy/sec.json"},
+			unreadableFS{fstest.MapFS{"policy/sec.json": &fstest.MapFile{Data: []byte(`{}`)}}}},
+		{"neither schema nor ref", contract.Policy{Name: "baseline"}, fstest.MapFS{}},
 	}
-	policies, result := ResolvePoliciesFromBundle(c, bundleFS)
-	if len(policies) != 0 {
-		t.Errorf("expected no policies for invalid schema, got %d", len(policies))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &contract.Contract{Policies: []contract.Policy{tc.pol}}
+			policies, result := ResolvePoliciesFromBundle(c, tc.bundleFS)
+			if len(policies) != 0 {
+				t.Errorf("expected no policies, got %d", len(policies))
+			}
+			if result.IsValid() {
+				t.Fatal("expected POLICY_REF_UNRESOLVED, got a clean result")
+			}
+			if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+				t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", result.Errors[0].Code)
+			}
+		})
 	}
+}
+
+// inlineContractYAML is the shape the operator hands Validate for
+// spec.contract.inline: a real 2.0 contract declaring a bundle-relative policy
+// schema, with no bundle to read it from (loadInline returns BundleFS: nil in
+// integrations/kubernetes/internal/loader/contract.go).
+const inlineContractYAML = `pactoVersion: "2.0"
+service:
+  name: orders
+  version: "1.0.0"
+policies:
+  - name: baseline
+    target: contract
+    schema: policy/schema.json
+`
+
+func inlineContract(t *testing.T) *contract.Contract {
+	t.Helper()
+	c, err := contract.Parse(strings.NewReader(inlineContractYAML))
+	if err != nil {
+		t.Fatalf("fixture must parse: %v", err)
+	}
+	return c
+}
+
+// The two halves of the nil-FS rule, together so nobody collapses them again.
+//
+// Half one: "there is no bundle" is a delivery mode, not an unenforced policy.
+// An inline contract has no files by construction, so layer 3 resolves nothing and
+// reports nothing. Hard-failing it would flip every inline Pacto CR's
+// ContractValid condition True -> False on operator upgrade.
+//
+// Half two: once there IS a filesystem, a schema it cannot produce is exactly the
+// silent hole layer 3 exists to close, and stays a hard POLICY_REF_UNRESOLVED.
+func TestValidate_NilBundleFS_InlineContractStaysValid(t *testing.T) {
+	c := inlineContract(t)
+
+	result := Validate(c, []byte(inlineContractYAML), nil)
 	if !result.IsValid() {
-		t.Errorf("expected no errors (invalid schema is silently skipped), got %+v", result.Errors)
+		t.Fatalf("an inline contract with no bundle must stay valid, got %+v", result.Errors)
+	}
+	// Findings() is what the operator projects into status, so check the codes there:
+	// a POLICY_REF_NOT_ENFORCED warning is enough to flip contractStatus to Warning.
+	for _, f := range result.Findings() {
+		if strings.HasPrefix(string(f.Code), "POLICY_REF_") {
+			t.Errorf("no POLICY_REF_* finding may be emitted without a bundle, got %q: %s", f.Code, f.Message)
+		}
+	}
+
+	// Same contract, same policy path, but now a bundle that holds the file and
+	// refuses to open it: fail closed.
+	withFS := Validate(c, []byte(inlineContractYAML), unreadableFS{
+		fstest.MapFS{"policy/schema.json": &fstest.MapFile{Data: []byte(`{}`)}},
+	})
+	if withFS.IsValid() {
+		t.Fatal("an unreadable schema inside a real bundle must still fail closed")
+	}
+	if withFS.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+		t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", withFS.Errors[0].Code)
+	}
+}
+
+// The resolver-based entry point takes the same nil-FS rule: an inline contract's
+// local-schema policy resolves to nothing rather than to a hard error, while its
+// ref policies still resolve through the resolver.
+func TestResolvePoliciesWithResolver_NilBundleFS_LocalSchemaIsSilent(t *testing.T) {
+	c := inlineContract(t)
+	policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, &mockBundleResolver{})
+	if len(policies) != 0 {
+		t.Errorf("expected no policies without a bundle, got %d", len(policies))
+	}
+	if !result.IsValid() || len(result.Warnings) != 0 {
+		t.Errorf("expected nothing reported, got %+v / %+v", result.Errors, result.Warnings)
+	}
+}
+
+// A contract with no policies has nothing to enforce, and no filesystem to read it
+// from is not a defect.
+//
+// The ref-only case is what makes ResolvePoliciesFromBundle's own nil-FS guard
+// load-bearing rather than a duplicate of resolveLocalPolicy's: without it the loop
+// runs and an inline contract's ref policy earns a POLICY_REF_NOT_ENFORCED warning,
+// which DeriveStatus ranks as Warning and the operator writes to
+// status.contract.status — a Compliant-to-Warning flip on upgrade.
+func TestResolvePoliciesFromBundle_NilFSReportsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		c    *contract.Contract
+	}{
+		{"no policies at all", &contract.Contract{}},
+		{"local schema policy", &contract.Contract{
+			Policies: []contract.Policy{{Name: "baseline", Schema: "policy/schema.json"}},
+		}},
+		{"ref policy", &contract.Contract{
+			Policies: []contract.Policy{{Name: "platform", Ref: "oci://ghcr.io/acme/platform:1.0.0"}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			policies, result := ResolvePoliciesFromBundle(tc.c, nil)
+			if len(policies) != 0 {
+				t.Errorf("expected no policies, got %d", len(policies))
+			}
+			if len(result.Errors) != 0 || len(result.Warnings) != 0 {
+				t.Errorf("expected nothing to report, got %+v / %+v", result.Errors, result.Warnings)
+			}
+		})
 	}
 }
 
@@ -474,6 +617,56 @@ func TestResolvePoliciesWithResolver_Diamond(t *testing.T) {
 	}
 	if len(policies) != 2 {
 		t.Fatalf("expected 2 policies (shared resolved twice), got %d", len(policies))
+	}
+}
+
+// A referenced bundle gets neither layer 1 nor layer 2 — contract.Parse does not
+// enforce the schema's policies oneOf, and cross-field validation only ever runs on
+// the root contract — so every way its policy entry can fail to name an enforceable
+// schema is only ever caught here. Dropping any of them silently would let the
+// consumer's validate and push pass with zero policies enforced.
+func TestResolvePoliciesWithResolver_ReferencedBundlePolicyUnenforceable(t *testing.T) {
+	cases := []struct {
+		name string
+		pol  contract.Policy
+		fs   fstest.MapFS
+	}{
+		{"missing file", contract.Policy{Name: "tls", Schema: "policy/tls.json"}, fstest.MapFS{}},
+		{"not json", contract.Policy{Name: "tls", Schema: "policy/tls.json"},
+			fstest.MapFS{"policy/tls.json": &fstest.MapFile{Data: []byte(`not json`)}}},
+		{"uncompilable", contract.Policy{Name: "tls", Schema: "policy/tls.json"},
+			fstest.MapFS{"policy/tls.json": &fstest.MapFile{Data: []byte(`{"type": 12345}`)}}},
+		// The published platform bundle whose policies[] entry has a name and nothing
+		// else. It matches neither the schema branch nor the ref branch, and the
+		// legacy policy/schema.json fallback is already out of reach because the
+		// bundle DOES declare policies[].
+		{"neither schema nor ref", contract.Policy{Name: "baseline"},
+			fstest.MapFS{"policy/schema.json": &fstest.MapFile{Data: []byte(`{"required": ["nope"]}`)}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &contract.Contract{
+				Policies: []contract.Policy{{Name: "platform", Ref: "oci://ghcr.io/acme/platform:1.0.0"}},
+			}
+			resolver := &mockBundleResolver{
+				bundles: map[string]*contract.Bundle{
+					"oci://ghcr.io/acme/platform:1.0.0": {
+						Contract: &contract.Contract{Policies: []contract.Policy{tc.pol}},
+						FS:       tc.fs,
+					},
+				},
+			}
+			policies, result := ResolvePoliciesWithResolver(context.Background(), c, nil, resolver)
+			if result.IsValid() {
+				t.Fatal("expected POLICY_REF_UNRESOLVED, got a clean result")
+			}
+			if result.Errors[0].Code != "POLICY_REF_UNRESOLVED" {
+				t.Errorf("expected POLICY_REF_UNRESOLVED, got %q", result.Errors[0].Code)
+			}
+			if len(policies) != 0 {
+				t.Errorf("expected no policies, got %d", len(policies))
+			}
+		})
 	}
 }
 

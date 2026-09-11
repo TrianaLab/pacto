@@ -30,7 +30,6 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateConfigurationNamesUnique(c, &result)
 	validatePolicyNamesUnique(c, &result)
 	validateDependencyNamesUnique(c, &result)
-	validateInterfaces(c, &result)
 	validateCapabilities(c, &result)
 	validateInterfaceFiles(c, bundleFS, &result)
 	validateInterfaceFileContent(c, bundleFS, &result)
@@ -39,7 +38,6 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateConfigRef(c, &result)
 	validatePolicyFields(c, bundleFS, &result)
 	validatePolicySchemaContent(c, bundleFS, &result)
-	validatePolicyTarget(c, &result)
 	validateDependencyRefs(c, &result)
 	validateConfigValues(c, bundleFS, &result)
 	validateStatePersistenceInvariants(c, &result)
@@ -195,41 +193,13 @@ func validateDependencyNamesUnique(c *contract.Contract, result *ValidationResul
 	}
 }
 
-// validateInterfaces validates v2 interfaces: type in enum, ref required.
-// Ref file existence is owned by validateInterfaceFiles and ref file content by
-// validateInterfaceFileContent — checking them here too emitted every interface
-// finding twice.
-func validateInterfaces(c *contract.Contract, result *ValidationResult) {
-	validTypes := map[string]bool{
-		"openapi":  true,
-		"asyncapi": true,
-		"grpc":     true,
-	}
-	for i, iface := range c.Interfaces {
-		if !validTypes[iface.Type] {
-			result.AddError(
-				fmt.Sprintf("interfaces[%d].type", i),
-				"INVALID_INTERFACE_TYPE",
-				fmt.Sprintf("interface type %q is invalid; must be openapi, asyncapi, or grpc", iface.Type),
-			)
-		}
-		if iface.Ref == "" {
-			result.AddError(
-				fmt.Sprintf("interfaces[%d].ref", i),
-				"INTERFACE_REF_REQUIRED",
-				fmt.Sprintf("interface %q requires a ref to the spec file", iface.Name),
-			)
-		}
-	}
-}
-
-// validateCapabilities validates v2 capabilities: type in enum, extension requires namespaced ref, standard types must not have ref, no duplicate standard types.
+// validateCapabilities validates the capability rules JSON Schema cannot express:
+// the binding must name a declared interface, the binding path must be SSRF-safe,
+// an extension ref must be namespaced and assertion keys must be unique. Shape
+// rules (type enum, ref presence and minLength, binding/ref exclusivity) belong to
+// the structural schema and are deliberately not duplicated here — layer 1
+// short-circuits layer 2, so a copy here could never fire.
 func validateCapabilities(c *contract.Contract, result *ValidationResult) {
-	validTypes := map[string]bool{
-		"health":    true,
-		"metrics":   true,
-		"extension": true,
-	}
 	declaredIfaces := make(map[string]bool, len(c.Interfaces))
 	for _, iface := range c.Interfaces {
 		declaredIfaces[iface.Name] = true
@@ -252,41 +222,24 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 				)
 			}
 		}
-		if !validTypes[cap.Type] {
+		if cap.Type == "extension" && (!strings.Contains(cap.Ref, "/") || !strings.Contains(strings.Split(cap.Ref, "/")[0], ".")) {
 			result.AddError(
-				fmt.Sprintf("capabilities[%d].type", i),
-				"INVALID_CAPABILITY_TYPE",
-				fmt.Sprintf("capability type %q is invalid; must be health, metrics, or extension", cap.Type),
+				fmt.Sprintf("capabilities[%d].ref", i),
+				"CAPABILITY_REF_INVALID",
+				fmt.Sprintf("extension capability ref %q must be namespaced (e.g. example.com/custom)", cap.Ref),
 			)
 		}
-		if cap.Type == "extension" {
-			if cap.Ref == "" {
-				result.AddError(
-					fmt.Sprintf("capabilities[%d].ref", i),
-					"CAPABILITY_REF_REQUIRED",
-					"extension capabilities require a namespaced ref",
-				)
-			} else if !strings.Contains(cap.Ref, "/") || !strings.Contains(strings.Split(cap.Ref, "/")[0], ".") {
-				result.AddError(
-					fmt.Sprintf("capabilities[%d].ref", i),
-					"CAPABILITY_REF_INVALID",
-					fmt.Sprintf("extension capability ref %q must be namespaced (e.g. example.com/custom)", cap.Ref),
-				)
-			}
-		}
 		// Uniqueness on the canonical assertion key (standard type OR extension ref) — one rule covering
-		// duplicate standard types, duplicate extension refs and any cross-collision. Empty key means the
-		// extension ref is missing, already flagged above.
-		if key := cap.AssertionKey(); key != "" {
-			if prev, exists := seen[key]; exists {
-				result.AddError(
-					fmt.Sprintf("capabilities[%d]", i),
-					"DUPLICATE_CAPABILITY",
-					fmt.Sprintf("duplicate capability assertion %q (already declared at capabilities[%d])", key, prev),
-				)
-			}
-			seen[key] = i
+		// duplicate standard types, duplicate extension refs and any cross-collision.
+		key := cap.AssertionKey()
+		if prev, exists := seen[key]; exists {
+			result.AddError(
+				fmt.Sprintf("capabilities[%d]", i),
+				"DUPLICATE_CAPABILITY",
+				fmt.Sprintf("duplicate capability assertion %q (already declared at capabilities[%d])", key, prev),
+			)
 		}
+		seen[key] = i
 	}
 }
 
@@ -419,19 +372,6 @@ func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 				fmt.Sprintf("dependencies[%d].compatibility", i),
 				"INVALID_COMPATIBILITY",
 				fmt.Sprintf("invalid compatibility range %q: %v", dep.Compatibility, err),
-			)
-		}
-	}
-}
-
-// validatePolicyTarget validates that policy target is supported (contract only).
-func validatePolicyTarget(c *contract.Contract, result *ValidationResult) {
-	for i, pol := range c.Policies {
-		if pol.Target != "" && pol.Target != "contract" {
-			result.AddError(
-				fmt.Sprintf("policies[%d].target", i),
-				"UNSUPPORTED_POLICY_TARGET",
-				fmt.Sprintf("policy target %q is not supported; only 'contract' is allowed", pol.Target),
 			)
 		}
 	}

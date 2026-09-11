@@ -87,14 +87,6 @@ func TestSnapshotMsgWithAnErrorSurfacesItAndStops(t *testing.T) {
 	}
 }
 
-func TestDepResolvedUpdatesTheLoadingScreen(t *testing.T) {
-	m := New(testOptions())
-	next, _ := m.Update(depResolvedMsg{id: 0})
-	if !strings.Contains(next.View().Content, "resolved") {
-		t.Fatalf("loading screen did not react to depResolvedMsg:\n%s", next.View().Content)
-	}
-}
-
 func TestLoadSnapshotSuccess(t *testing.T) {
 	root := t.TempDir()
 	bundleDir := filepath.Join(root, "test-svc")

@@ -19,6 +19,19 @@ await readyP;
 const call = (method, path, body = null) => globalThis.__pactoServe(method, path, body);
 const json = (res) => JSON.parse(res.body);
 
+// Compare dotted numeric versions so "1.9.0" sorts before "1.10.0", and return 0
+// on equality so ties are consistent. Fixture versions are plain semver-shaped
+// strings, so a non-numeric component just counts as 0 instead of throwing.
+const byVersion = (a, b) => {
+  const x = String(a.version ?? "").split(".");
+  const y = String(b.version ?? "").split(".");
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (parseInt(x[i], 10) || 0) - (parseInt(y[i], 10) || 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+};
+
 let failures = 0;
 const check = (name, cond, detail) => {
   console.log(`${cond ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
@@ -27,64 +40,18 @@ const check = (name, cond, detail) => {
 
 check("GET /health 200", call("GET", "/health").status === 200);
 
-const services = json(call("GET", "/api/services"));
-check("GET /api/services returns fleet", Array.isArray(services) && services.length >= 10, `${services.length} services`);
-check("fleet includes payments-service@2.1.1",
-  services.some((s) => s.name === "payments-service" && s.version === "2.1.1"));
-
-const graphRes = call("GET", "/api/graph");
-check("GET /api/graph 200 with content", graphRes.status === 200 && graphRes.body.length > 100, `${graphRes.body.length} bytes`);
-
-const versions = json(call("GET", "/api/services/payments-service/versions"));
-check("payments-service has 6 versions", Array.isArray(versions) && versions.length === 6, `${versions.length}`);
-// Find the breaking step by what it DOES, not by what it is numbered. A fixture
-// bundle whose bytes change has to republish under a NEW version, because the tag
-// it already published is immutable -- and when payments 1.2.0/2.0.0 became
-// 1.2.1/2.0.1 for exactly that reason, these assertions went on naming versions
-// the fixture no longer had. The list is newest-first and each entry is classified
-// against its predecessor, so every candidate step is (a BREAKING entry, the entry
-// after it); the one this asserts on is whichever of those drops /charges, which
-// also keeps a second breaking revision from stealing the match.
-let brk = null;
-let prev = null;
-let diff = {};
-for (let i = 0; i < versions.length - 1; i++) {
-  if (versions[i].classification !== "BREAKING") continue;
-  const d = json(call("GET", `/api/diff?from_name=payments-service&from_version=${versions[i + 1].version}&to_name=payments-service&to_version=${versions[i].version}`));
-  if (!(d.changes || []).some((c) => c.path === "openapi.paths[/charges]")) continue;
-  brk = versions[i];
-  prev = versions[i + 1];
-  diff = d;
-  break;
-}
-check("a payments step is BREAKING by removing /charges", !!brk, brk ? `${prev.version}->${brk.version}` : "no such step");
-check(`diff ${prev ? prev.version : "?"}->${brk ? brk.version : "?"} BREAKING`,
-  diff.classification === "BREAKING", `${diff.changes && diff.changes.length} changes`);
-
-// Every other GET endpoint the UI's api.ts calls must answer (no 500s), so no
-// dashboard view errors out in the browser.
-const n = encodeURIComponent("payments-service");
-for (const [name, path] of [
-  ["sources", "/api/sources"],
-  ["service sources", `/api/services/${n}/sources`],
-  ["dependents", `/api/services/${n}/dependents`],
-  ["cross-refs", `/api/services/${n}/refs`],
-  ["service graph", `/api/services/${n}/graph`],
-]) {
-  const res = call("GET", path);
-  check(`GET ${path} ok`, res.status === 200, `${name} status ${res.status}`);
-}
-
-// Readiness showcase: payments-service 2.1.1 declares a readiness block that
-// fails its gate (an expired ai-evals check drops the score to 70 < 80);
-// orders-service 1.2.0 declares an all-current block that passes.
-const pay = json(call("GET", "/api/services/payments-service"));
-check("payments 2.1.1 exposes readiness", pay.readiness != null);
-check("payments readiness Score 70", pay.readiness && pay.readiness.score === 70, pay.readiness && `score ${pay.readiness.score}`);
-check("payments readiness gate FAIL", pay.readiness && pay.readiness.passing === false);
-
-const ord = json(call("GET", "/api/services/orders-service"));
-check("orders 1.2.0 readiness passes", ord.readiness && ord.readiness.passing === true, ord.readiness && `score ${ord.readiness.score}`);
+// Source health is served off the fleet snapshot, so assert the CONTRACT the UI
+// reads rather than the exact source list a detector happens to produce. An empty
+// list is a FAILURE, not a pass: the nav renders one pill per source, and every
+// pill prints "type: reason", so a blank reason is a dangling colon on screen.
+const srcs = json(call("GET", "/api/sources"));
+const srcList = Array.isArray(srcs.sources) ? srcs.sources : [];
+check("GET /api/sources keeps its shape",
+  srcList.length >= 1 && typeof srcs.discovering === "boolean"
+    && srcList.every((s) => typeof s.type === "string" && s.type !== ""
+      && typeof s.enabled === "boolean"
+      && typeof s.reason === "string" && s.reason !== ""),
+  `${srcList.length} sources`);
 
 // ── Operational graph (fleet) + impact + capabilities ──
 // The demo wires SetFleetProvider/SetImpactProvider/SetObservedAvailable, so
@@ -127,7 +94,7 @@ check("fleet target detail resolves by key", tdetail.target && tdetail.target.ke
 // graph serves. The pair is named from what was actually diffed -- the label
 // used to read "1.0.0 → 2.0.0" while the code took the newest revision, so it
 // had been reporting a comparison it never ran.
-const payRevs = (detail.revisions || []).slice().sort((a, b) => (a.version < b.version ? -1 : 1));
+const payRevs = (detail.revisions || []).slice().sort(byVersion);
 // Guarded so a detail response without revisions fails as this check rather than
 // as a TypeError that takes the rest of the run down with it.
 check("payments-service detail carries revisions to compare", payRevs.length >= 2, `${payRevs.length}`);
@@ -146,6 +113,21 @@ const impObs = json(call("GET", `/api/fleet/impact?old=${encodeURIComponent(oldR
 check("include-observed surfaces the audit-log shadow consumer",
   (impObs.consumers || []).some((c) => c.service === "audit-log"),
   (impObs.consumers || []).map((c) => c.service).join(","));
+
+// Readiness showcase, read off the newest revision in the fleet service detail --
+// the same revision the service page lands on. payments-service 2.1.1 declares a
+// readiness block that fails its gate (a stale ai-evals check drops the score to
+// 70 < 80); orders-service 1.2.0 declares an all-current block that passes. The
+// revision embeds the raw readiness.Result untagged, hence the capitalised keys.
+check("payments newest revision exposes readiness", newRev.readiness != null, newRev.version);
+check("payments readiness Score 70", newRev.readiness && newRev.readiness.Score === 70, newRev.readiness && `score ${newRev.readiness.Score}`);
+check("payments readiness gate FAIL", newRev.readiness && newRev.readiness.Passing === false);
+
+const ordRevs = (json(call("GET", "/api/fleet/service?key=orders-service")).revisions || [])
+  .slice().sort(byVersion);
+const ordRev = ordRevs[ordRevs.length - 1] || {};
+check("orders newest revision readiness passes", ordRev.readiness && ordRev.readiness.Passing === true,
+  ordRev.readiness && `score ${ordRev.readiness.Score}`);
 
 // ── Product API: the demo must be RICH through the paths the product UI uses ──
 // The product UI never reads the raw snapshot above; it reads these endpoints. A

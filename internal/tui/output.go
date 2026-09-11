@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 )
@@ -43,7 +42,6 @@ type outputScreen struct {
 	running bool
 	err     error
 	done    bool
-	sp      spinner.Model
 	vp      viewport.Model
 }
 
@@ -53,10 +51,17 @@ func newOutputScreen(title string) *outputScreen {
 		id:      nextOutputID,
 		title:   title,
 		running: true,
-		sp:      spinner.New(spinner.WithSpinner(spinner.Dot)),
 		vp:      viewport.New(),
 	}
 }
+
+// animating puts the pane on the root Model's clock instead of a second one of
+// its own. It used to hold a bubbles spinner, drive it from spinner.TickMsg and
+// re-arm on every tick with no done guard, so a finished pane left on screen
+// repainted the whole joined buffer at 10 FPS forever — and did it whatever
+// --no-anim said, because the bubbles clock never sees Context.Anim. Reporting
+// what is still in flight hands both the rate and the off switch to armTick.
+func (o *outputScreen) animating(c *Context) bool { return o.running }
 
 // append adds a line, dropping the oldest when the buffer is full.
 //
@@ -92,10 +97,6 @@ func (o *outputScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
 			o.deps++
 		}
 		return o, nil
-	case spinner.TickMsg:
-		sp, cmd := o.sp.Update(msg)
-		o.sp = sp
-		return o, cmd
 	}
 	o.resize(c)
 	vp, cmd := o.vp.Update(msg)
@@ -124,17 +125,20 @@ func (o *outputScreen) content() string {
 
 func (o *outputScreen) View(c *Context) string {
 	o.resize(c)
-	return o.status() + "\n" + o.vp.View()
+	return o.status(c) + "\n" + o.vp.View()
 }
 
-func (o *outputScreen) status() string {
+func (o *outputScreen) status(c *Context) string {
 	switch {
 	case o.err != nil:
 		return errorStyle.Render("failed: " + o.err.Error())
 	case o.done:
 		return okStyle.Render("done")
 	default:
-		s := o.sp.View() + " running"
+		s := "running"
+		if c.Anim {
+			s = spinnerAt(c.Frame) + " running"
+		}
 		if o.deps > 0 {
 			s += fmt.Sprintf("  %d dependencies resolved", o.deps)
 		}

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
@@ -994,12 +995,36 @@ func TestDependencies(t *testing.T) {
 // required-configurations (B6 + B7)
 // =====================================================================================
 
-const configSchema = `{"type":"object","required":["level"],"properties":{"level":{"type":"string"}}}`
+// configurations[].schema is a bundle-relative PATH (never inline JSON), so conformance is
+// only observable when the bundle actually carries the file — as a pulled OCI bundle does.
+const (
+	configSchemaPath = "configuration/schema.json"
+	configSchemaBody = `{"type":"object","required":["level"],"properties":{"level":{"type":"string"}}}`
+)
+
+// bundleLoader delegates to the real loader and attaches the bundle files an OCI-pulled
+// contract would carry, so the config dimension can read the schema it declares.
+type bundleLoader struct{ files fstest.MapFS }
+
+func (b bundleLoader) Load(ctx context.Context, ociRef, inline string, a *authn.AuthConfig) (*loader.LoadResult, error) {
+	res, err := sharedLoader.Load(ctx, ociRef, inline, a)
+	if err != nil {
+		return nil, err
+	}
+	withBundle := *res // copy: the loader caches and hands back a shared pointer
+	withBundle.BundleFS = b.files
+	return &withBundle, nil
+}
+
+func (b bundleLoader) ListTags(ctx context.Context, repo string, a *authn.AuthConfig) ([]string, error) {
+	return sharedLoader.ListTags(ctx, repo, a)
+}
 
 func TestConfigurations(t *testing.T) {
 	cfgContract := func(required bool, schema string) string {
 		return buildContract(contractSpec{name: "app", cfgs: []cfgSpec{{name: "appcfg", required: required, schema: schema}}})
 	}
+	bundled := bundleLoader{files: fstest.MapFS{configSchemaPath: &fstest.MapFile{Data: []byte(configSchemaBody)}}}
 	bind := func(kind, name, key, format string) pactov1alpha1.TargetRef {
 		return pactov1alpha1.TargetRef{
 			ServiceName:    "main-svc",
@@ -1014,10 +1039,10 @@ func TestConfigurations(t *testing.T) {
 		const cfgValueCanary = "prod-CONFIGVALUE-LEAK-CANARY-42"
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: " + cfgValueCanary + "\n"})
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 		requireStatusExcludes(t, p, cfgValueCanary)
@@ -1029,10 +1054,10 @@ func TestConfigurations(t *testing.T) {
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
-		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failConfigMapName: "app-cm"}}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failConfigMapName: "app-cm"}, loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
 		requireFinding(t, p, "COLLECTION_FAILED")
 	})
@@ -1042,10 +1067,10 @@ func TestConfigurations(t *testing.T) {
 		// level is an int, schema requires string; a distinctive extra key must NOT surface in the finding.
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: 123\nother_key: sideValue987\n"})
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
 		f := findFinding(p, "CONFIGURATION_MISMATCH")
 		if f == nil {
@@ -1063,10 +1088,10 @@ func TestConfigurations(t *testing.T) {
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: 123\n"}) // level int, schema wants string
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(false, configSchema)}, // required: false
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(false, configSchemaPath)}, // required: false
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusWarning) // optional contradiction -> Warning, not Error
 		f := findFinding(p, "CONFIGURATION_MISMATCH")
 		if f == nil || f.Severity != "warning" {
@@ -1077,12 +1102,12 @@ func TestConfigurations(t *testing.T) {
 	t.Run("bound_configmap_missing_beyond_window_noncompliant_CONFIGURATION_ABSENT", func(t *testing.T) {
 		ns := newNamespace(t)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "missing-cm", "config.yaml", "yaml"),
 		})
-		reconcile(t, "p", ns, reconcileOpts{})
+		reconcile(t, "p", ns, reconcileOpts{loader: bundled})
 		backdateWindows(t, "p", ns)
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CONFIGURATION_ABSENT")
 	})
@@ -1092,18 +1117,18 @@ func TestConfigurations(t *testing.T) {
 		// conformant ConfigMap then resets the window and recovers to Compliant (spec section 7.7 recovery path).
 		ns := newNamespace(t)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
-		reconcile(t, "p", ns, reconcileOpts{}) // absent within window -> Unknown
+		reconcile(t, "p", ns, reconcileOpts{loader: bundled}) // absent within window -> Unknown
 		backdateWindows(t, "p", ns)
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CONFIGURATION_ABSENT")
 
 		// The bound ConfigMap appears with conformant content -> window resets and status recovers.
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
-		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p = reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
 		if len(p.Status.ObservationWindows) != 0 {
 			t.Fatalf("expected window reset after recovery, got %+v", p.Status.ObservationWindows)
@@ -1113,10 +1138,10 @@ func TestConfigurations(t *testing.T) {
 	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
 		ns := newNamespace(t)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      pactov1alpha1.TargetRef{ServiceName: "main-svc"}, // no configBindings
 		})
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
@@ -1125,10 +1150,10 @@ func TestConfigurations(t *testing.T) {
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchema)},
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "", ""), // existence-only
 		})
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 	})
@@ -1136,10 +1161,10 @@ func TestConfigurations(t *testing.T) {
 	t.Run("optional_missing_no_finding_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(false, configSchema)},
+			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(false, configSchemaPath)},
 			Target:      bind("ConfigMap", "missing-cm", "config.yaml", "yaml"),
 		})
-		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
+		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
 		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant) // optional + within-window absence -> no finding
 		if len(p.Status.Findings) != 0 {
 			t.Fatalf("optional missing configuration should surface no finding, got %v", findingCodes(p))
@@ -1167,7 +1192,7 @@ func TestSecretNoLeak(t *testing.T) {
 		// A schema is required structurally (config needs schema XOR ref); the Secret observation path is
 		// metadata-only and never reads it.
 		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
-			name: "app", cfgs: []cfgSpec{{name: "appcfg", required: true, schema: configSchema}}})},
+			name: "app", cfgs: []cfgSpec{{name: "appcfg", required: true, schema: configSchemaPath}}})},
 		Target: pactov1alpha1.TargetRef{
 			ServiceName:    "main-svc",
 			ConfigBindings: []pactov1alpha1.ConfigBinding{{Configuration: "appcfg", Kind: "Secret", Name: "creds"}},

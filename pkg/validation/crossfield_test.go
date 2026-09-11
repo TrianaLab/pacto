@@ -123,45 +123,6 @@ func TestValidateDependencyNamesUnique_Duplicate(t *testing.T) {
 	}
 }
 
-func TestValidateInterfaces_ValidTypes(t *testing.T) {
-	types := []string{"openapi", "asyncapi", "grpc"}
-	for _, typ := range types {
-		c := validV20Contract()
-		c.Interfaces = []contract.Interface{{Name: "api", Type: typ, Ref: "spec.yaml"}}
-		var result ValidationResult
-		validateInterfaces(c, &result)
-		if !result.IsValid() {
-			t.Errorf("type %q should be valid, got errors: %v", typ, result.Errors)
-		}
-	}
-}
-
-func TestValidateInterfaces_InvalidType(t *testing.T) {
-	c := validV20Contract()
-	c.Interfaces = []contract.Interface{{Name: "api", Type: "http", Ref: "spec.yaml"}}
-	var result ValidationResult
-	validateInterfaces(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid interface type")
-	}
-	if !hasErrorCode(result, "INVALID_INTERFACE_TYPE") {
-		t.Errorf("expected INVALID_INTERFACE_TYPE, got %+v", result.Errors)
-	}
-}
-
-func TestValidateInterfaces_MissingRef(t *testing.T) {
-	c := validV20Contract()
-	c.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Ref: ""}}
-	var result ValidationResult
-	validateInterfaces(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for missing ref")
-	}
-	if !hasErrorCode(result, "INTERFACE_REF_REQUIRED") {
-		t.Errorf("expected INTERFACE_REF_REQUIRED, got %+v", result.Errors)
-	}
-}
-
 func TestValidateCapabilities_BindingInterfaceUnknown(t *testing.T) {
 	c := validV20Contract()
 	c.Interfaces = []contract.Interface{{Name: "public-api", Type: "openapi", Ref: "i.json"}}
@@ -259,19 +220,6 @@ func TestValidateCapabilities_Extension_Valid(t *testing.T) {
 	}
 }
 
-func TestValidateCapabilities_Extension_MissingRef(t *testing.T) {
-	c := validV20Contract()
-	c.Capabilities = []contract.Capability{{Type: "extension"}}
-	var result ValidationResult
-	validateCapabilities(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for extension without ref")
-	}
-	if !hasErrorCode(result, "CAPABILITY_REF_REQUIRED") {
-		t.Errorf("expected CAPABILITY_REF_REQUIRED, got %+v", result.Errors)
-	}
-}
-
 func TestValidateCapabilities_Extension_InvalidRef(t *testing.T) {
 	c := validV20Contract()
 	c.Capabilities = []contract.Capability{{Type: "extension", Ref: "bad-ref"}}
@@ -298,19 +246,6 @@ func TestValidateCapabilities_DuplicateStandard(t *testing.T) {
 	}
 	if !hasErrorCode(result, "DUPLICATE_CAPABILITY") {
 		t.Errorf("expected DUPLICATE_CAPABILITY, got %+v", result.Errors)
-	}
-}
-
-func TestValidateCapabilities_InvalidType(t *testing.T) {
-	c := validV20Contract()
-	c.Capabilities = []contract.Capability{{Type: "monitoring"}}
-	var result ValidationResult
-	validateCapabilities(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for invalid capability type")
-	}
-	if !hasErrorCode(result, "INVALID_CAPABILITY_TYPE") {
-		t.Errorf("expected INVALID_CAPABILITY_TYPE, got %+v", result.Errors)
 	}
 }
 
@@ -406,8 +341,8 @@ func TestValidateInterfaceFileContent_ValidJSON(t *testing.T) {
 	}
 }
 
-// One missing interface spec must produce exactly one finding: validateInterfaces
-// used to repeat the existence check owned by validateInterfaceFiles.
+// One missing interface spec must produce exactly one finding: the interface
+// checks used to repeat the existence check owned by validateInterfaceFiles.
 func TestValidateCrossField_MissingInterfaceFileReportedOnce(t *testing.T) {
 	c := validV20Contract()
 	c.Interfaces[0].Ref = "interfaces/missing.json"
@@ -629,29 +564,6 @@ func TestValidatePolicySchemaContent_InvalidSchema(t *testing.T) {
 	}
 	if !hasErrorCode(result, "INVALID_POLICY_SCHEMA") {
 		t.Errorf("expected INVALID_POLICY_SCHEMA, got %+v", result.Errors)
-	}
-}
-
-func TestValidatePolicyTarget_Contract(t *testing.T) {
-	c := validV20Contract()
-	c.Policies = []contract.Policy{{Name: "sec", Target: "contract", Schema: "policy/sec.json"}}
-	var result ValidationResult
-	validatePolicyTarget(c, &result)
-	if !result.IsValid() {
-		t.Errorf("expected contract target to be valid, got errors: %v", result.Errors)
-	}
-}
-
-func TestValidatePolicyTarget_Unsupported(t *testing.T) {
-	c := validV20Contract()
-	c.Policies = []contract.Policy{{Name: "sec", Target: "runtime", Schema: "policy/sec.json"}}
-	var result ValidationResult
-	validatePolicyTarget(c, &result)
-	if result.IsValid() {
-		t.Error("expected error for unsupported policy target")
-	}
-	if !hasErrorCode(result, "UNSUPPORTED_POLICY_TARGET") {
-		t.Errorf("expected UNSUPPORTED_POLICY_TARGET, got %+v", result.Errors)
 	}
 }
 
@@ -1074,38 +986,29 @@ func TestValidateJSONSchemaFile_FileNotFound_Silent(t *testing.T) {
 	}
 }
 
-func TestResolveLocalPolicySchema_NilBundleFS(t *testing.T) {
-	rp := resolveLocalPolicySchema(nil, "policy/sec.json", "origin", 0)
-	if rp != nil {
-		t.Error("expected nil for nil bundleFS")
+// Every way of failing to produce an enforceable schema must be an error, not a
+// nil the caller can mistake for "no policy declared".
+func TestResolveLocalPolicySchema_UnusableSchemaIsAnError(t *testing.T) {
+	cases := []struct {
+		name       string
+		bundleFS   fs.FS
+		schemaPath string
+	}{
+		{"no schema path at all", fstest.MapFS{}, ""},
+		{"file not found", fstest.MapFS{}, "missing.json"},
+		{"invalid json", fstest.MapFS{"policy/sec.json": &fstest.MapFile{Data: []byte("not json")}}, "policy/sec.json"},
+		{"invalid schema", fstest.MapFS{"policy/sec.json": &fstest.MapFile{Data: []byte(`{"type": 12345}`)}}, "policy/sec.json"},
 	}
-}
-
-func TestResolveLocalPolicySchema_FileNotFound(t *testing.T) {
-	bundleFS := fstest.MapFS{}
-	rp := resolveLocalPolicySchema(bundleFS, "missing.json", "origin", 0)
-	if rp != nil {
-		t.Error("expected nil for missing file")
-	}
-}
-
-func TestResolveLocalPolicySchema_InvalidJSON(t *testing.T) {
-	bundleFS := fstest.MapFS{
-		"policy/sec.json": &fstest.MapFile{Data: []byte("not json")},
-	}
-	rp := resolveLocalPolicySchema(bundleFS, "policy/sec.json", "origin", 0)
-	if rp != nil {
-		t.Error("expected nil for invalid JSON")
-	}
-}
-
-func TestResolveLocalPolicySchema_InvalidSchema(t *testing.T) {
-	bundleFS := fstest.MapFS{
-		"policy/sec.json": &fstest.MapFile{Data: []byte(`{"type": 12345}`)},
-	}
-	rp := resolveLocalPolicySchema(bundleFS, "policy/sec.json", "origin", 0)
-	if rp != nil {
-		t.Error("expected nil for invalid schema")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rp, err := resolveLocalPolicySchema(tc.bundleFS, tc.schemaPath, "origin", 0)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if rp != nil {
+				t.Error("expected no resolved policy alongside the error")
+			}
+		})
 	}
 }
 

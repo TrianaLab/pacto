@@ -63,7 +63,7 @@ Precedence when summarizing findings (see `summarizeFindings` in `internal/contr
 
 ## Findings
 
-Typed conclusions from the engine, grouped by severity family. Family 1 (confirmed violations, `RuntimeDrift`/`error`) requires conclusive contradicting evidence; family 2 (`Inconclusive`/`unknown`) captures evidence that could not confirm or refute. Generated from `pkg/finding/codes.go`.
+Typed conclusions from the engine, grouped by severity family. Family 1 (confirmed violations, `RuntimeDrift`/`error`) requires conclusive contradicting evidence; family 2 (`Inconclusive`/`unknown`) captures evidence that could not confirm or refute. A code appearing under two severities carries the required-ness axis: it is an error when the contract declares the assertion it reports on `required`, and a warning when that assertion is optional, because an optional assertion cannot make a contract non-compliant. Generated from `pkg/finding/codes.go`.
 
 ### Severity `error`
 
@@ -73,7 +73,6 @@ Typed conclusions from the engine, grouped by severity family. Family 1 (confirm
 | `CAPABILITY_INTERFACE_UNKNOWN` | `InvalidCapability` |
 | `CAPABILITY_PATH_INVALID` | `InvalidCapability` |
 | `CAPABILITY_REF_INVALID` | `InvalidCapability` |
-| `CAPABILITY_REF_REQUIRED` | `InvalidCapability` |
 | `CONFIGURATION_ABSENT` | `RuntimeDrift` |
 | `CONFIGURATION_MISMATCH` | `RuntimeDrift` |
 | `CONFIG_VALUES_VALIDATION_FAILED` | `ConfigurationViolation` |
@@ -89,14 +88,11 @@ Typed conclusions from the engine, grouped by severity family. Family 1 (confirm
 | `EMPTY_READINESS_EVIDENCE` | `MissingEvidence` |
 | `FILE_NOT_FOUND` | `InvalidFile` |
 | `INTERFACE_ABSENT` | `RuntimeDrift` |
-| `INTERFACE_REF_REQUIRED` | `InterfaceMismatch` |
-| `INVALID_CAPABILITY_TYPE` | `InvalidCapability` |
 | `INVALID_COMPATIBILITY` | `InvalidDependency` |
 | `INVALID_CONFIG_JSON` | `InvalidFile` |
 | `INVALID_CONFIG_REF` | `InvalidReference` |
 | `INVALID_CONFIG_SCHEMA` | `SchemaViolation` |
 | `INVALID_INTERFACE_SPEC` | `InvalidFile` |
-| `INVALID_INTERFACE_TYPE` | `InterfaceMismatch` |
 | `INVALID_OCI_REF` | `InvalidReference` |
 | `INVALID_POLICY_JSON` | `InvalidFile` |
 | `INVALID_POLICY_REF` | `InvalidReference` |
@@ -113,7 +109,6 @@ Typed conclusions from the engine, grouped by severity family. Family 1 (confirm
 | `SCHEMA_VIOLATION` | `SchemaViolation` |
 | `STATELESS_PERSISTENT_CONFLICT` | `StateMismatch` |
 | `UNSUPPORTED_PACTO_VERSION` | `InvalidVersion` |
-| `UNSUPPORTED_POLICY_TARGET` | `PolicyViolation` |
 | `VALUES_WITHOUT_SCHEMA` | `MissingConfiguration` |
 | `WORKLOAD_MISMATCH` | `RuntimeDrift` |
 | `YAML_PARSE_ERROR` | `SchemaViolation` |
@@ -122,6 +117,9 @@ Typed conclusions from the engine, grouped by severity family. Family 1 (confirm
 
 | Code | Category |
 | --- | --- |
+| `CONFIGURATION_ABSENT` | `RuntimeDrift` |
+| `CONFIGURATION_MISMATCH` | `RuntimeDrift` |
+| `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |
 | `POLICY_REF_NOT_ENFORCED` | `UnresolvedReference` |
 | `TAG_NOT_DIGEST` | `InvalidReference` |
 

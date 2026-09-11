@@ -206,7 +206,10 @@ func reconcile(t *testing.T, name, ns string, opts reconcileOpts) reconcileResul
 	}
 	rec := record.NewFakeRecorder(500)
 	r := &controller.PactoReconciler{
-		Client:                   cl,
+		Client: cl,
+		// The envtest client is direct (no cache), so it is also the uncached reader
+		// SetupWithManager wires to mgr.GetAPIReader() in production.
+		APIReader:                cl,
 		Scheme:                   scheme.Scheme,
 		Recorder:                 rec,
 		Loader:                   ldr,

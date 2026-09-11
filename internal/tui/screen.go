@@ -29,7 +29,13 @@ func pop() tea.Cmd { return func() tea.Msg { return popMsg{} } }
 
 // loadingScreen is the initial screen: a spinner and a sweeping bar while the
 // fleet snapshot is assembled.
-type loadingScreen struct{ note string }
+//
+// It carries no state. It used to hold a progress note set from depResolvedMsg,
+// but nothing can deliver one here: the only producer is the lock verb's
+// OnDepResolved hook, which runs under an output screen pushed on top, and
+// Model.Update routes to the top screen only. This screen exists solely before
+// the first snapshot lands, which is before any verb can be dispatched.
+type loadingScreen struct{}
 
 func (l loadingScreen) Title() string { return "Loading" }
 
@@ -52,16 +58,7 @@ func (l loadingScreen) View(c *Context) string {
 		}
 		lines = append(lines, indent+faintStyle.Render(sweep(c.Frame, w)), "")
 	}
-	if l.note != "" {
-		lines = append(lines, indent+dimStyle.Render(safeText(l.note)))
-	}
 	return strings.Join(lines, "\n")
 }
 
-func (l loadingScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) {
-	if _, ok := msg.(depResolvedMsg); ok {
-		l.note = "resolved a dependency"
-		return l, nil
-	}
-	return l, nil
-}
+func (l loadingScreen) Update(c *Context, msg tea.Msg) (screen, tea.Cmd) { return l, nil }

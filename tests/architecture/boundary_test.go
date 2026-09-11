@@ -18,12 +18,25 @@ import (
 // corePackages are the platform-neutral packages that must stay k8s-free.
 //
 // This is the full set of engine packages the k8s integration consumes (its
-// v2/pkg/... import closure) minus pkg/dashboard, which legitimately embeds a
-// k8s runtime source (client-go) and so is intentionally excluded. Everything
-// here MUST remain consumable by an external collector without pulling k8s.
+// v2/pkg/... import closure). Everything here MUST remain consumable by an
+// external collector without pulling k8s.
+//
+// pkg/dashboard used to be excluded because it embedded its own client-go
+// ingestion stack. That stack is gone: the dashboard now reads a fleet snapshot
+// its caller builds, so the cluster client lives on the caller's side of the
+// seam and the dashboard is a rendering layer over the same platform-neutral
+// core as everything else here. Keeping it gated is what stops that from
+// silently reverting.
+//
+// pkg/contractview is the rendering half of that layer, split out so pkg/doc can
+// render one bundle offline without linking a server. It is gated for the same
+// reason and more strictly: it is the leaf both the dashboard and the offline
+// exporter build on, so a k8s edge here would reach every consumer of either.
 var corePackages = []string{
 	"github.com/trianalab/pacto/v3/pkg/catalog/...",
 	"github.com/trianalab/pacto/v3/pkg/contract/...",
+	"github.com/trianalab/pacto/v3/pkg/contractview/...",
+	"github.com/trianalab/pacto/v3/pkg/dashboard/...",
 	"github.com/trianalab/pacto/v3/pkg/evidence/...",
 	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope/...",
 	"github.com/trianalab/pacto/v3/pkg/evidenceingest/...",
@@ -54,8 +67,7 @@ var forbiddenPrefixes = []string{
 
 // evidenceConsumers read accepted evidence. They must reach it ONLY through the
 // Evidence Server's HTTP DTO: no registry client, no credentials, no referrers
-// enumeration of their own. pkg/dashboard is exempt from the k8s rule above but
-// not from this one, so it is gated here.
+// enumeration of their own.
 var evidenceConsumers = []string{
 	"github.com/trianalab/pacto/v3/pkg/dashboard/...",
 	"github.com/trianalab/pacto/v3/internal/fleetsrc/...",

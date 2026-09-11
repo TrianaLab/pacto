@@ -137,14 +137,10 @@ func evalAssertion(findings *[]finding.Finding, cov *Coverage, ev evidence.Evide
 	}
 	bad, code, msg := contradicted(*obs)
 	if bad {
-		sev := finding.SeverityError
-		if !required {
-			sev = finding.SeverityWarning
-		}
 		*findings = append(*findings, finding.Finding{
 			Code:         code,
-			Severity:     sev,
-			Category:     finding.CategoryRuntimeDrift,
+			Severity:     finding.SeverityFor(code, required),
+			Category:     finding.CategoryFor(code, required),
 			Subject:      finding.SubjectRef{Kind: subjectKind, Name: name},
 			ContractPath: contractPath,
 			Message:      msg,

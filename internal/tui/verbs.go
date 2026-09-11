@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -352,9 +353,9 @@ func dispatchVerb(c *Context, s screen, k tea.KeyPressMsg) (tea.Cmd, bool) {
 		// screen that carries a selection routes its keys through here — so paying
 		// for it up front billed roughly 1.9 ms to each j and k the reader pressed
 		// while scrolling.
-		sel, ok := selectionOf(c, s)
-		if !ok {
-			return status("nothing selected"), true
+		sel, err := selectionOf(c, s)
+		if err != nil {
+			return status(err.Error()), true
 		}
 		if why := v.Applies(sel); why != "" {
 			return status(v.Help + " does not apply: " + why), true
@@ -364,24 +365,36 @@ func dispatchVerb(c *Context, s screen, k tea.KeyPressMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
+// errNothingSelected is the one failure that really is an absent selection: a
+// screen that carries none, or one whose highlight is off every row.
+var errNothingSelected = errors.New("nothing selected")
+
 // selectionOf resolves the screen's highlighted entity into a runnable
-// Selection. A screen with no selection reports ok=false.
-func selectionOf(c *Context, s screen) (Selection, bool) {
+// Selection, reporting why it could not.
+//
+// A resolve failure is reported as itself rather than folded into
+// errNothingSelected. detailScreen.selected() returns true even when the lookup
+// behind the page failed, so on a screen whose body already reads "lookup
+// failed: entity not found" every verb key used to answer "nothing selected" —
+// false, unactionable and contradicted by the text under it.
+func selectionOf(c *Context, s screen) (Selection, error) {
 	sr, ok := s.(interface {
 		selected() (fleet.EntityRef, bool)
 	})
 	if !ok {
-		return Selection{}, false
+		return Selection{}, errNothingSelected
 	}
 	ref, ok := sr.selected()
 	if !ok {
-		return Selection{}, false
+		return Selection{}, errNothingSelected
 	}
 	sel, err := resolveSelection(c, ref)
 	if err != nil {
-		return Selection{}, false
+		// Worded like detail.go's body, so the footer and the page a reader is
+		// looking at name the same failure the same way.
+		return Selection{}, fmt.Errorf("lookup failed: %w", err)
 	}
-	return sel, true
+	return sel, nil
 }
 
 func status(text string) tea.Cmd {
@@ -402,14 +415,11 @@ func runRead(c *Context, title string, fn func(o *outputScreen) error) tea.Cmd {
 	o := newOutputScreen(title)
 	return tea.Sequence(
 		push(o),
-		tea.Batch(
-			o.sp.Tick,
-			func() tea.Msg {
-				err := fn(o)
-				c.Send.send(outputDoneMsg{id: o.id, err: err})
-				return nil
-			},
-		),
+		func() tea.Msg {
+			err := fn(o)
+			c.Send.send(outputDoneMsg{id: o.id, err: err})
+			return nil
+		},
 	)
 }
 

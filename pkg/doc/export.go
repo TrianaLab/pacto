@@ -6,18 +6,27 @@ import (
 	"io/fs"
 	"strings"
 
+	"github.com/trianalab/pacto/v3/pkg/contractview"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
 )
 
 // BuildStaticExport returns the embedded dashboard UI tree (path -> bytes) with
 // index.html rewritten to embed the snapshot as window.__PACTO_STATIC__, so the
 // single-service view renders offline with no backend.
-func BuildStaticExport(d *dashboard.ServiceDetails, g *dashboard.GlobalGraph) (map[string][]byte, error) {
+//
+// [dashboard.EmbeddedUI] is the ONE thing this package still takes from the
+// server package, and it is a byte tree, not behaviour. It cannot move to a leaf
+// without relocating pkg/dashboard/ui/, which is pinned from three places
+// outside this package: the frontend's Vite outDir empties it on every build,
+// ci.mk gates `git diff --exit-code pkg/dashboard/ui/`, and
+// .github/workflows/ui-rebuild-commit.yml does `rm -rf pkg/dashboard/ui`. See
+// the package doc for the shape of the eventual fix.
+func BuildStaticExport(d *contractview.ServiceDetails, g *contractview.GlobalGraph) (map[string][]byte, error) {
 	return buildStaticExport(dashboard.EmbeddedUI(), d, g)
 }
 
 // buildStaticExport is the testable inner function that accepts an injectable fs.FS.
-func buildStaticExport(uiFS fs.FS, d *dashboard.ServiceDetails, g *dashboard.GlobalGraph) (map[string][]byte, error) {
+func buildStaticExport(uiFS fs.FS, d *contractview.ServiceDetails, g *contractview.GlobalGraph) (map[string][]byte, error) {
 	out := map[string][]byte{}
 	err := fs.WalkDir(uiFS, ".", func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -59,7 +68,7 @@ func buildStaticExport(uiFS fs.FS, d *dashboard.ServiceDetails, g *dashboard.Glo
 		{"method": "GET", "path": "/api/services", "response": []any{}},
 		{"method": "GET", "path": "/api/services/" + d.Name, "response": d},
 		{"method": "GET", "path": "/api/graph", "response": g},
-		{"method": "GET", "path": "/api/services/" + d.Name + "/versions", "response": []dashboard.Version{{Version: d.Version, IsCurrent: true}}},
+		{"method": "GET", "path": "/api/services/" + d.Name + "/versions", "response": []contractview.Version{{Version: d.Version, IsCurrent: true}}},
 		{"method": "GET", "path": "/api/services/" + d.Name + "/dependents", "response": []any{}},
 		{"method": "GET", "path": "/api/services/" + d.Name + "/refs", "response": nil},
 	}

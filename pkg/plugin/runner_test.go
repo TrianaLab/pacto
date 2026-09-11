@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -203,6 +204,73 @@ func TestFindPlugin_HomeDirError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Installed tests
+// ---------------------------------------------------------------------------
+
+// Installed must agree with findPlugin about which copy of a plugin is live,
+// otherwise `pacto update` rewrites a shadowed binary and reports success.
+func TestInstalled_PATHShadowsConfigDirAndMatchesFind(t *testing.T) {
+	pathDir := t.TempDir()
+	home := t.TempDir()
+	configPlugins := filepath.Join(home, ".config", "pacto", "plugins")
+	if err := os.MkdirAll(configPlugins, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{
+		filepath.Join(pathDir, "pacto-plugin-shared"),
+		filepath.Join(configPlugins, "pacto-plugin-shared"),
+		filepath.Join(configPlugins, "pacto-plugin-configonly"),
+		filepath.Join(pathDir, "not-a-plugin"),
+		filepath.Join(pathDir, "pacto-plugin-"),
+	} {
+		if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(pathDir, "pacto-plugin-adir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", string(os.PathListSeparator)+pathDir+string(os.PathListSeparator)+filepath.Join(pathDir, "missing"))
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	got := map[string]string{}
+	for _, p := range Installed() {
+		if _, dup := got[p.Name]; dup {
+			t.Fatalf("plugin %q listed twice", p.Name)
+		}
+		got[p.Name] = p.Path
+	}
+	want := map[string]string{
+		"shared":     filepath.Join(pathDir, "pacto-plugin-shared"),
+		"configonly": filepath.Join(configPlugins, "pacto-plugin-configonly"),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Installed() = %v, want %v", got, want)
+	}
+	// The shadowed copy is the one findPlugin would execute.
+	live, err := findPlugin("shared")
+	if err != nil {
+		t.Fatalf("findPlugin: %v", err)
+	}
+	if live != got["shared"] {
+		t.Fatalf("Installed reports %q, findPlugin resolves %q", got["shared"], live)
+	}
+}
+
+func TestInstalled_HomeDirError(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	orig := userHomeDirFn
+	userHomeDirFn = func() (string, error) { return "", fmt.Errorf("no home dir") }
+	t.Cleanup(func() { userHomeDirFn = orig })
+
+	if got := Installed(); len(got) != 0 {
+		t.Fatalf("expected no plugins, got %v", got)
 	}
 }
 

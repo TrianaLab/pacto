@@ -12,9 +12,6 @@ import (
 type pushMsg struct{ s screen }
 type popMsg struct{}
 
-// errMsg carries a failure to the footer without unwinding the stack.
-type errMsg struct{ err error }
-
 // statusMsg sets the transient footer note.
 type statusMsg struct{ text string }
 

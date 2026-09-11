@@ -98,24 +98,6 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // spinnerAt returns the spinner glyph for a frame.
 func spinnerAt(frame int) string { return spinnerFrames[frame%len(spinnerFrames)] }
 
-// bar renders a proportional bar of width cells, filled cells first. It is the
-// health banner's only chart, and it is deliberately a bar rather than a
-// percentage: a fleet of three and a fleet of three hundred both read at a
-// glance, and neither invites a false precision the numbers beside it do not
-// have.
-func bar(filled, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if filled < 0 {
-		filled = 0
-	}
-	if filled > width {
-		filled = width
-	}
-	return strings.Repeat(glyphBarFull, filled) + strings.Repeat(glyphBarEmpty, width-filled)
-}
-
 // revealLines wipes body into place from the top: at p it shows the first
 // ceil(n*p) lines and blanks the rest. At p >= 1 it returns body untouched, so
 // a finished transition costs nothing and a disabled one is one branch away.

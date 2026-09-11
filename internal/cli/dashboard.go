@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v3/internal/fleetsrc"
+	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/pkg/dashboard"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/impact"
@@ -26,8 +28,8 @@ func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobr
 	cmd := &cobra.Command{
 		Use:   "dashboard [sources...]",
 		Short: "Start a local web dashboard for exploring service contracts",
-		Long: `Launches an operational dashboard that aggregates data from all
-available sources (local filesystem, Kubernetes, OCI registries).
+		Long: `Launches an operational dashboard over the fleet snapshot: the same
+operational graph the CLI's ` + "`pacto fleet`" + ` commands query, served as a web UI.
 
 The dashboard is the exploration and observability layer of the Pacto system.
 It visualizes the same contracts the CLI manages and the operator verifies,
@@ -40,24 +42,18 @@ Each positional argument is a pacto source reference:
 
 When no arguments are given, sources are auto-detected:
   - local: enabled if pacto.yaml is found in the working directory
-  - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
-  - oci:   auto-discovered from K8s status.contract.resolvedRef, or via PACTO_DASHBOARD_REPO env var
+  - cache: enabled if the OCI bundle cache (~/.cache/pacto/oci) holds bundles
+  - k8s:   enabled if a kubeconfig or in-cluster config resolves
+  - oci:   from the positional arguments, the PACTO_DASHBOARD_REPO env var, or
+           the status.contract.resolvedRef of the cluster's Pacto resources
 
-Materialized bundles on disk (~/.cache/pacto/oci) are used internally by the
-OCI source to enrich version data (hash, classification, timestamps) without
-appearing as a separate source. The --no-cache flag skips pre-existing cache
-at startup but still allows same-session materialization (e.g. fetch-all-versions).
+When running alongside the Kubernetes operator, OCI repositories are
+automatically discovered from the status.contract.resolvedRef fields of Pacto
+CRD resources, on every refresh rather than once at startup. That gives a hybrid
+view: runtime truth from the operator combined with contract truth from OCI.
 
-When running alongside the Kubernetes operator, OCI repositories are automatically
-discovered from the status.contract.resolvedRef fields of Pacto CRD resources. This provides full
-contract bundles, version history, interfaces, and diffs — without needing
-explicit OCI arguments. The result is a hybrid view: runtime truth from the
-operator combined with contract truth from OCI.
-
-Services are grouped by name across sources and merged using priority rules:
-  - Kubernetes for runtime state (contract status, checks, endpoints)
-  - OCI for contract content and version history
-  - Local for in-progress contract changes`,
+Every source contributes to one snapshot, rebuilt in the background, and each
+answer carries the as-of time and the completeness of the sources behind it.`,
 		Example: `  # Start dashboard with auto-detected sources
   pacto dashboard
 
@@ -81,7 +77,6 @@ Services are grouped by name across sources and merged using priority rules:
 			port := v.GetInt("dashboard.port")
 			namespace := v.GetString("dashboard.namespace")
 			noCache := v.GetBool("no-cache")
-			diagnostics := v.GetBool("dashboard.diagnostics")
 			corsOrigin := v.GetString("dashboard.cors-origin")
 			traces := v.GetStringSlice("dashboard.traces")
 			traceSources := v.GetStringSlice("dashboard.trace-sources")
@@ -100,145 +95,63 @@ Services are grouped by name across sources and merged using priority rules:
 			}
 
 			cacheDir := v.GetString("cache-dir")
-			// Resolve cacheDir from the BundleStore when not explicitly set,
-			// so the server can create a CacheSource on-the-fly (e.g. after
-			// fetch-all-versions with --no-cache).
+			// Resolve cacheDir from the BundleStore when not explicitly set, so the
+			// disk cache the store actually writes is the one detection looks at.
 			if cacheDir == "" {
 				if cs, ok := svc.BundleStore.(interface{ CacheDir() string }); ok {
 					cacheDir = cs.CacheDir()
 				}
 			}
 
-			// Auto-detect available sources.
-			detectResult := dashboard.DetectSources(cmd.Context(), dashboard.DetectOptions{
-				Dir:       dir,
-				Namespace: namespace,
-				Repos:     repos,
-				Store:     svc.BundleStore,
-				CacheDir:  cacheDir,
-				NoCache:   noCache,
-			})
-
-			// Try a single OCI enrichment attempt from K8s (non-blocking).
-			// If it fails, lazy enrichment retries on first API request.
-			needsLazyEnrich := tryOCIEnrichment(
-				cmd.Context(),
-				detectResult, svc.BundleStore, cacheDir, repos,
-			)
-
-			activeSources := detectResult.ActiveSources()
-			if len(activeSources) == 0 {
-				printSourceErrors(cmd, detectResult.Sources)
-				return fmt.Errorf("at least one data source must be available")
+			// A cluster the ambient configuration cannot even build a client for is
+			// not a source. Reachability is NOT probed here: an unreachable cluster
+			// is reported per refresh, as an unavailable source with a reason, which
+			// is the only place that answer stays true.
+			cluster, _ := k8sclient.NewGoClient()
+			det := dashboardSources{
+				local:   localRootHasBundle(dir),
+				cache:   !noCache && cacheHasEntries(cacheDir),
+				cluster: cluster,
 			}
 
-			printDetectedSources(cmd, deduplicateSourceInfo(detectResult.Sources))
-
-			// Wrap each source with cache (different TTLs per source type).
-			memCache := dashboard.NewMemoryCache()
-			allSources := detectResult.AllSources()
-			cachedSources := make(map[string]dashboard.DataSource, len(allSources))
-			for st, ds := range allSources {
-				ttl := cacheTTL(st)
-				cachedSources[st] = dashboard.NewCachedDataSource(ds, memCache, ttl, st+":")
+			fopts := dashboardFleetOptions(dir, repos, namespace, observation, det)
+			configured := configuredSources(fopts)
+			if len(configured) == 0 {
+				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
 			}
 
-			// Wire OCI background discovery to refresh cache sources when
-			// new services are discovered. refreshCacheSources handles
-			// on-the-fly CacheSource creation (critical for --no-cache),
-			// cache rescan, OCI wiring, and memory cache invalidation.
-			wireOCICache(detectResult)
-
-			// Build resolved source with contract + runtime separation.
-			resolved := dashboard.BuildResolvedSource(cachedSources)
-
-			// Build server with embedded UI.
-			uiFS := dashboard.EmbeddedUI()
-			var diag *dashboard.SourceDiagnostics
-			if diagnostics {
-				diag = detectResult.Diagnostics
+			// One snapshot Manager serves many requests from one coherent,
+			// atomically-refreshed view of the whole fleet, rather than rebuilding
+			// per request. The dashboard is a CONSUMER of the reusable fleet layer:
+			// graph, freshness and completeness semantics live there, once.
+			discover := clusterContractRefs(cluster, namespace)
+			cacheUse := cacheLifecycle{
+				permitted:    !noCache,
+				baseline:     fopts.IncludeCache,
+				materialized: cacheMaterialization(svc.BundleStore),
 			}
-			server := dashboard.NewResolvedServer(resolved, uiFS, detectResult.Sources, diag)
-			// Thread this command's logger into the server so request handlers and
-			// background discovery log through it (via request-context injection)
-			// rather than the process-global slog default.
+			mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
+				return svc.Fleet(ctx, withClusterContractRefs(ctx, fopts, discover, cacheUse))
+			}, fleet.ManagerOptions{})
+			go mgr.Start(cmd.Context(), fleetRefreshInterval)
+
+			server := dashboard.NewServer(dashboard.EmbeddedUI())
+			// Thread this command's logger into the server so request handlers log
+			// through it (via request-context injection) rather than the
+			// process-global slog default.
 			server.SetLogger(logging.LoggerFromContext(cmd.Context()))
-			server.UpdateSourceInfo(detectResult.Sources)
 			server.SetVersion(version)
 			server.SetListenAddr(host, port)
 			server.SetCORSOrigin(corsOrigin)
-
-			// Enable lazy resolution of remote OCI dependencies when a BundleStore is available.
-			if svc.BundleStore != nil {
-				server.SetResolver(oci.NewResolver(svc.BundleStore))
-			}
-
-			// Enable the read-only operational-graph (fleet) endpoints from every
-			// source the dashboard detected — local bundles, OCI repos, the disk
-			// cache and the live cluster — so the operational graph reflects the
-			// whole fleet, not just the local root. The dashboard becomes a
-			// CONSUMER of the reusable fleet layer rather than re-deriving graph,
-			// freshness and completeness semantics itself. A single snapshot
-			// Manager serves many requests from one coherent, atomically-refreshed
-			// snapshot instead of rebuilding per request.
-			if fopts, ok := dashboardFleetOptions(dir, repos, namespace, observation, detectResult); ok {
-				discover := clusterContractRefs(detectResult)
-				cacheUse := cacheLifecycle{
-					permitted:    !noCache,
-					baseline:     fopts.IncludeCache,
-					materialized: cacheMaterialization(svc.BundleStore),
-				}
-				mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
-					return svc.Fleet(ctx, withClusterContractRefs(ctx, fopts, discover, cacheUse))
-				}, fleet.ManagerOptions{})
-				go mgr.Start(cmd.Context(), fleetRefreshInterval)
-				server.SetFleetProvider(managerFleetProvider(mgr))
-				server.SetImpactProvider(impactProviderForFleet(svc, mgr))
-			}
-
-			// Track OCI discovery state for progressive loading in the UI.
-			if detectResult.OCI != nil {
-				server.SetOCISource(detectResult.OCI)
-			}
-
-			// Enable k8s re-detection for kubectl context switches.
-			server.SetK8sRedetect(wireK8sRedetect(namespace, memCache, dashboard.CurrentKubeContext, dashboard.RedetectK8s))
-
-			// Register cache source (if available) and memory cache for runtime
-			// refresh after resolve or fetch-all-versions operations.
-			// Always pass memCache so refreshCacheSources can invalidate stale
-			// data even when CacheSource is created on-the-fly (--no-cache).
-			server.SetCacheSource(detectResult.Cache, memCache)
-			// Always store the cache directory so fetch-all-versions can
-			// create a CacheSource on-the-fly (even with --no-cache).
-			server.SetCacheDir(cacheDir)
-
-			// Wire OCI background discovery to refreshCacheSources. This
-			// handles on-the-fly CacheSource creation (critical for --no-cache),
-			// cache rescan, OCI wiring, and memory cache invalidation — all
-			// in one callback that fires after each discovery cycle.
-			if detectResult.OCI != nil {
-				detectResult.OCI.SetOnDiscover(server.RefreshCacheSources)
-			}
-
-			// Lazy OCI enrichment: if startup retries didn't find OCI repos,
-			// register a callback so the server can retry on first API request.
-			if needsLazyEnrich {
-				server.SetLazyEnrich(wireOCIEnrichment(
-					detectResult, resolved, server, memCache,
-					svc.BundleStore, cacheDir,
-				))
-			}
+			server.SetFleetProvider(managerFleetProvider(mgr))
+			server.SetImpactProvider(impactProviderForFleet(svc, mgr))
+			server.SetFleetRefresher(mgr.Refresh)
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			var sourceNames []string
-			for st := range activeSources {
-				sourceNames = append(sourceNames, st)
-			}
 			addr := fmt.Sprintf("http://%s:%d", displayHost(host), port)
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\nPress Ctrl+C to stop\n", addr, strings.Join(sourceNames, ", "))
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\nPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "))
 
 			return server.Serve(ctx, port, host)
 		},
@@ -247,7 +160,6 @@ Services are grouped by name across sources and merged using priority rules:
 	cmd.Flags().String("host", "127.0.0.1", "bind address for the dashboard server")
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespace (empty = all namespaces)")
-	cmd.Flags().Bool("diagnostics", false, "enable source diagnostics panel in the dashboard UI")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
@@ -256,7 +168,6 @@ Services are grouped by name across sources and merged using priority rules:
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
 	_ = v.BindPFlag("dashboard.port", cmd.Flags().Lookup("port"))
 	_ = v.BindPFlag("dashboard.namespace", cmd.Flags().Lookup("namespace"))
-	_ = v.BindPFlag("dashboard.diagnostics", cmd.Flags().Lookup("diagnostics"))
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
@@ -302,161 +213,82 @@ func displayHost(host string) string {
 	return host
 }
 
-func printSourceErrors(cmd *cobra.Command, sources []dashboard.SourceInfo) {
-	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "No data sources detected:")
-	for _, s := range sources {
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s\n", s.Type, s.Reason)
-	}
+// dashboardSources is what startup detection found: which of the dashboard's
+// possible inputs exist on this machine at all. It answers whether a source is
+// worth CONFIGURING, never whether it is currently healthy — that second
+// question belongs to the refresh that asks it, and is reported per snapshot.
+type dashboardSources struct {
+	local   bool
+	cache   bool
+	cluster k8sclient.K8sClient // nil when no cluster client could be built
 }
 
-func printDetectedSources(cmd *cobra.Command, sources []dashboard.SourceInfo) {
-	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Detected sources:")
-	for _, s := range sources {
-		status := "disabled"
-		if s.Enabled {
-			status = "enabled"
-		}
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "  %s: %s (%s)\n", s.Type, status, s.Reason)
-	}
-}
-
-// cacheTTL returns the cache TTL for each source type.
-func cacheTTL(sourceType string) time.Duration {
-	switch sourceType {
-	case "k8s":
-		return 10 * time.Second // short TTL for runtime data
-	case "oci":
-		return 5 * time.Minute // longer TTL for registry data
-	case "local":
-		return 2 * time.Second // very short for local files
-	default:
-		return 30 * time.Second
-	}
-}
-
-// tryOCIEnrichment makes a single non-blocking attempt to discover OCI repos
-// from K8s. Returns true if lazy enrichment is needed (OCI not found yet).
-func tryOCIEnrichment(
-	ctx context.Context,
-	detectResult *dashboard.DetectResult,
-	store oci.BundleStore,
-	cacheDir string,
-	repos []string,
-) bool {
-	if len(repos) != 0 || store == nil {
+// localRootHasBundle reports whether dir looks like a place contracts live: a
+// pacto.yaml in the root or in one immediate, non-hidden subdirectory.
+//
+// The guard matters because dir defaults to the working directory. Configuring
+// a local source unconditionally would point the fleet's recursive walk at
+// whatever the user happened to be sitting in — $HOME, or /, where the scan
+// costs far more than the zero contracts it finds.
+func localRootHasBundle(dir string) bool {
+	if dir == "" {
 		return false
 	}
-	detectResult.EnrichFromK8s(ctx, store, cacheDir)
-	return detectResult.OCI == nil
-}
-
-// deduplicateSourceInfo keeps only the last occurrence of each source type.
-func deduplicateSourceInfo(info []dashboard.SourceInfo) []dashboard.SourceInfo {
-	seen := make(map[string]int)
-	var out []dashboard.SourceInfo
-	for _, si := range info {
-		if idx, ok := seen[si.Type]; ok {
-			out[idx] = si
-		} else {
-			seen[si.Type] = len(out)
-			out = append(out, si)
-		}
-	}
-	return out
-}
-
-// wireK8sRedetect returns a callback that recreates the k8s client from fresh
-// kubeconfig. Returns a new cached DataSource on success, or an error if k8s
-// is not available or unchanged. Uses the current kubeconfig context name to
-// detect context switches.
-func wireK8sRedetect(
-	namespace string,
-	memCache dashboard.Cache,
-	getContext func() string,
-	redetect func(ctx context.Context, result *dashboard.DetectResult, namespace string),
-) func(ctx context.Context) (dashboard.DataSource, error) {
-	var currentContext string
-	return func(ctx context.Context) (dashboard.DataSource, error) {
-		ctxName := getContext()
-		if ctxName == currentContext {
-			return nil, fmt.Errorf("no change")
-		}
-
-		result := &dashboard.DetectResult{
-			Diagnostics: &dashboard.SourceDiagnostics{},
-		}
-		redetect(ctx, result, namespace)
-		if result.K8s == nil {
-			if currentContext != "" {
-				// Context changed but k8s is now unreachable.
-				currentContext = ctxName
-				return nil, nil
-			}
-			return nil, fmt.Errorf("k8s not available")
-		}
-
-		currentContext = ctxName
-		cached := dashboard.NewCachedDataSource(result.K8s, memCache, cacheTTL("k8s"), "k8s:")
-		return cached, nil
-	}
-}
-
-// wireOCICache wires cache and K8s repo provider into OCI source when available.
-func wireOCICache(detectResult *dashboard.DetectResult) {
-	if detectResult.OCI != nil {
-		if detectResult.Cache != nil {
-			detectResult.OCI.SetCache(detectResult.Cache)
-		}
-		if detectResult.K8s != nil {
-			detectResult.OCI.SetRepoProvider(dashboard.RepoProviderFromSource(detectResult.K8s))
-		}
-	}
-}
-
-// wireOCIEnrichment returns a callback that attempts OCI discovery from K8s
-// and wires the new sources into the existing pipeline. Called lazily by the
-// server when OCI was not available at startup.
-func wireOCIEnrichment(
-	detectResult *dashboard.DetectResult,
-	resolved *dashboard.ResolvedSource,
-	server *dashboard.Server,
-	memCache dashboard.Cache,
-	store oci.BundleStore,
-	cacheDir string,
-) func(ctx context.Context) bool {
-	return func(ctx context.Context) bool {
-		detectResult.EnrichFromK8s(ctx, store, cacheDir)
-		if detectResult.OCI == nil {
-			return false
-		}
-
-		logging.LoggerFromContext(ctx).Info("lazy OCI enrichment: wiring OCI source into pipeline")
-
-		// Wrap the new OCI source with in-memory caching.
-		ociCached := dashboard.NewCachedDataSource(
-			detectResult.OCI, memCache, cacheTTL("oci"), "oci:",
-		)
-		resolved.AddContractSource("oci", ociCached)
-
-		// Wire OCI discovery callbacks to RefreshCacheSources so that
-		// on-the-fly CacheSource creation works (critical for --no-cache).
-		detectResult.OCI.SetOnDiscover(server.RefreshCacheSources)
-		server.SetOCISource(detectResult.OCI)
-
-		wireOCICache(detectResult)
-
-		// Always pass memCache so RefreshCacheSources can invalidate stale
-		// data even when CacheSource is created on-the-fly (--no-cache).
-		server.SetCacheSource(detectResult.Cache, memCache)
-
-		// Update source metadata for /api/sources.
-		server.UpdateSourceInfo(detectResult.Sources)
-
-		// Invalidate all caches so new data surfaces immediately.
-		memCache.InvalidateAll()
-
+	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
 		return true
 	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, name, "pacto.yaml")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// cacheHasEntries reports whether the OCI bundle cache holds anything, so an
+// empty cache is not published as a Data Source that answers nothing.
+func cacheHasEntries(cacheDir string) bool {
+	if cacheDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false
+		}
+		cacheDir = oci.CacheDirFor(home)
+	}
+	entries, err := os.ReadDir(cacheDir)
+	return err == nil && len(entries) > 0
+}
+
+// configuredSources names, in a stable order, the Data Sources this invocation
+// builds the fleet from. It is what the startup banner reports and what the
+// "nothing to show" check reads: a dashboard with no configured source has no
+// question it can answer, so it says so instead of serving an empty fleet.
+func configuredSources(fopts app.FleetOptions) []string {
+	var names []string
+	for _, s := range []struct {
+		name string
+		on   bool
+	}{
+		{"local", len(fopts.LocalRoots) > 0},
+		{"oci", len(fopts.OCIRefs) > 0},
+		{"cache", fopts.IncludeCache},
+		{"k8s", fopts.IncludeK8s},
+		{"observation", len(fopts.ObservationSources) > 0},
+		{"evidence", len(fopts.EvidenceURLs) > 0},
+	} {
+		if s.on {
+			names = append(names, s.name)
+		}
+	}
+	return names
 }
 
 // fleetRefreshInterval is how often the dashboard's snapshot Manager rebuilds
@@ -548,15 +380,30 @@ func observationSources(traces, named []string) ([]app.ObservationSourceSpec, er
 }
 
 // clusterContractRefs returns the callback that reads the contract references
-// the live cluster attributes to its services, or nil when no Kubernetes source
-// was detected. The source is captured once, at detection: a cluster that later
-// becomes unreadable contributes no references, which is what the callback
-// already reports.
-func clusterContractRefs(dr *dashboard.DetectResult) func(context.Context) []string {
-	if dr.K8s == nil {
+// the live cluster attributes to its services, or nil when no cluster client
+// could be built. A cluster that is configured but unreadable contributes no
+// references rather than failing the refresh: the Kubernetes source itself is
+// what reports that unavailability, with its reason, and failing here would
+// take the local, OCI and cache baselines down with it.
+//
+// The order is deliberate. [fleetsrc.ContractRefs] emits both the exact resolved
+// ref a target runs and the repository that ref names, sorted ascending — and a
+// bare repository sorts BEFORE its own tagged form because it is a prefix of it.
+// Both fold into one revision key, and the merge keeps the first arrival's
+// requested ref, so ascending order would record every pinned target as having
+// requested a bare repository. Reversing puts the exact ref first.
+func clusterContractRefs(client k8sclient.K8sClient, namespace string) func(context.Context) []string {
+	if client == nil {
 		return nil
 	}
-	return dashboard.ContractRefProviderFromSource(dr.K8s)
+	return func(ctx context.Context) []string {
+		refs, err := fleetsrc.ContractRefs(ctx, client, namespace)
+		if err != nil {
+			return nil
+		}
+		slices.Reverse(refs)
+		return refs
+	}
 }
 
 // cacheLifecycle answers one question per refresh — may the disk cache
@@ -632,9 +479,9 @@ func withClusterContractRefs(ctx context.Context, opts app.FleetOptions, discove
 }
 
 // dashboardFleetOptions builds fleet source options from everything the
-// dashboard detected, so the operational-graph endpoints span the whole fleet.
-// The second return is false when no source is active (fleet stays disabled).
-func dashboardFleetOptions(dir string, repos []string, namespace string, observation []app.ObservationSourceSpec, dr *dashboard.DetectResult) (app.FleetOptions, bool) {
+// dashboard detected, so the operational-graph endpoints span the whole fleet
+// rather than the local root alone.
+func dashboardFleetOptions(dir string, repos []string, namespace string, observation []app.ObservationSourceSpec, det dashboardSources) app.FleetOptions {
 	// Recency is one horizon per product surface, not one per code path. The
 	// overview already calls evidence older than [fleet.RecentEvidenceWindow] not
 	// recent; leaving the build's window at zero disabled staleness classification
@@ -644,10 +491,8 @@ func dashboardFleetOptions(dir string, repos []string, namespace string, observa
 	// a long-running dashboard has nobody to ask, and "never evaluated" is not a
 	// safe thing to render as fresh.
 	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow}
-	ok := false
-	if dr.Local != nil && dir != "" {
+	if det.local && dir != "" {
 		fopts.LocalRoots = []string{dir}
-		ok = true
 	}
 	// Offline OTLP/JSON trace files become observation sources, so the normal
 	// dashboard's Operational Graph, reconciliation and Impact see observed
@@ -657,27 +502,22 @@ func dashboardFleetOptions(dir string, repos []string, namespace string, observa
 	// mounting each file read-only).
 	if len(observation) > 0 {
 		fopts.ObservationSources = observation
-		ok = true
 	}
-	if dr.OCI != nil && len(repos) > 0 {
+	if len(repos) > 0 {
 		fopts.OCIRefs = repos
-		ok = true
 	}
-	if dr.Cache != nil {
+	if det.cache {
 		fopts.IncludeCache = true
-		ok = true
 	}
-	if dr.K8s != nil {
+	if det.cluster != nil {
 		fopts.IncludeK8s = true
 		fopts.K8sNamespace = namespace
-		ok = true
 	}
 	// An operator-wired dashboard learns its managed Evidence Server via env; when
 	// set, consume its read-only contribution. Unset means no evidence source
 	// (unconfigured), not an unavailable one — so add nothing.
 	if url := os.Getenv("PACTO_EVIDENCE_SOURCE_URL"); url != "" {
 		fopts.EvidenceURLs = append(fopts.EvidenceURLs, url)
-		ok = true
 	}
-	return fopts, ok
+	return fopts
 }

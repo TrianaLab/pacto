@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
 )
 
 // K8sSource is a live [fleet.Source] over Pacto CRs in a Kubernetes cluster. It
@@ -31,6 +34,51 @@ func NewK8sSource(id string, client k8sclient.K8sClient, namespace string) *K8sS
 		id = "k8s"
 	}
 	return &K8sSource{id: id, client: client, namespace: namespace}
+}
+
+// ContractRefs returns the contract references the Pacto CRs in namespace
+// (empty for all namespaces) currently name: for every CR with a non-empty
+// status.contract.resolvedRef, that exact ref AND the repository it names,
+// deduplicated and sorted.
+//
+// Both are needed, and they answer different questions. The exact ref names the
+// revision a target is RUNNING -- immutable when the operator pinned a digest,
+// and the only reference that can make a target's revision link exact rather
+// than inferred. The repository resolves to the newest PUBLISHED revision, which
+// is what makes "a newer revision exists" answerable at all. Reporting only
+// repositories drops the running revision from the graph whenever it is not also
+// the latest tag -- precisely the case an operator pins a digest to create.
+//
+// The discovery, listing and error conventions are [K8sSource.Collect]'s: a
+// cluster with no Pacto CRD installed yields no references rather than an error.
+func ContractRefs(ctx context.Context, client k8sclient.K8sClient, namespace string) ([]string, error) {
+	col, err := NewK8sSource("k8s", client, namespace).Collect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, 2*len(col.Targets))
+	for _, t := range col.Targets {
+		for _, ref := range []string{t.ResolvedRef, repoFromRef(t.ResolvedRef)} {
+			if ref != "" {
+				seen[ref] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
+}
+
+// repoFromRef strips the digest then the tag from a resolved OCI ref, leaving
+// the repository. A ':' is only a tag separator in the final path segment, so a
+// registry port (localhost:5000/svc) survives.
+func repoFromRef(ref string) string {
+	if i := strings.LastIndex(ref, "@"); i > 0 {
+		ref = ref[:i]
+	}
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[:colon]
+	}
+	return ref
 }
 
 // ID implements [fleet.Source].
@@ -106,6 +154,7 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		Digest:          digestFromRef(resolvedRef),
 		Compliance:      st.ContractStatus,
 		Findings:        findingsFromK8s(st.Findings),
+		Readiness:       st.Readiness.result(),
 		ObservedRuntime: st.ObservedRuntime,
 		EvidenceAt:      observed,
 		ReconciledAt:    observed,
@@ -190,6 +239,31 @@ type k8sStatus struct {
 	Findings           []k8sFinding   `json:"findings"`
 	ObservedRuntime    map[string]any `json:"observedRuntime"`
 	LastReconciledAt   string         `json:"lastReconciledAt"`
+	Readiness          *k8sReadiness  `json:"readiness"`
+}
+
+// k8sReadiness decodes status.readiness. The operator derives that block FROM
+// [readiness.Result] and publishes its fields under the same names, so the
+// result is embedded and decoded into directly rather than re-listing thirteen
+// fields a fourth time -- a hand-written mapping table here would be one more
+// copy to drift. Only the rename needs stating: the wire calls the per-claim
+// results "claims", the derived type calls them Checks.
+//
+// The operator publishes no partialCredit, so Result.PartialCredit stays zero:
+// the fraction a partial claim earned is not recoverable from the status, and
+// inventing the library default would assert a number the cluster never said.
+type k8sReadiness struct {
+	readiness.Result
+	Claims []readiness.CheckResult `json:"claims"`
+}
+
+func (r *k8sReadiness) result() *readiness.Result {
+	if r == nil {
+		return nil
+	}
+	res := r.Result
+	res.Checks = r.Claims
+	return &res
 }
 
 type k8sContract struct {

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
@@ -159,6 +160,70 @@ func TestReconcile_OverrideError(t *testing.T) {
 	}
 }
 
+const policyRefContract = `
+pactoVersion: "2.0"
+service:
+  name: svc
+  version: 1.0.0
+policies:
+  - name: house-rules
+    ref: oci://ghcr.io/org/rules:1.0.0
+`
+
+const policyContract = `
+pactoVersion: "2.0"
+service:
+  name: test-svc
+  version: 1.0.0
+workload: service
+configurations:
+  - name: app
+    required: true
+    schema: configuration/schema.json
+    values:
+      logLevel: info
+policies:
+  - name: house-rules
+    schema: policy/schema.json
+`
+
+// emptyValuesContract is structurally INVALID: the `broken` scope declares a ref
+// AND a values block, which the contract schema forbids. The violation hangs on
+// `values: {}` being PRESENT, which is exactly what contract.Configuration's
+// `omitempty` tag drops on a struct round trip -- so this contract is the shape
+// that catches an override path re-serializing the struct instead of the document.
+const emptyValuesContract = `
+pactoVersion: "2.0"
+service:
+  name: test-svc
+  version: 1.0.0
+workload: service
+configurations:
+  - name: broken
+    required: true
+    ref: oci://registry.example.com/config:1.0.0
+    values: {}
+  - name: app
+    required: true
+    schema: configuration/schema.json
+    values:
+      logLevel: info
+`
+
+const configContract = `
+pactoVersion: "2.0"
+service:
+  name: svc
+  version: 1.0.0
+workload: service
+configurations:
+  - name: default
+    required: true
+    schema: cfg.json
+    values:
+      db_host: local
+`
+
 // Valid overrides matching a configuration -> overridden keys marked in status (153-156).
 func TestReconcile_OverrideSuccessMarksKeys(t *testing.T) {
 	pacto := &pactov1alpha1.Pacto{
@@ -173,16 +238,20 @@ func TestReconcile_OverrideSuccessMarksKeys(t *testing.T) {
 		},
 	}
 	r := newReconciler(pacto)
+	// The struct and the bytes must be the SAME contract: the override is re-serialized
+	// and revalidated, so a mismatched pair would just fail layer 1.
 	r.Loader = &mockLoader{
 		loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
 			return &loader.LoadResult{
 				Contract: &contract.Contract{
-					Service: contract.Service{Name: "svc", Version: "1.0.0"},
+					PactoVersion: "2.0",
+					Service:      contract.Service{Name: "svc", Version: "1.0.0"},
+					Workload:     "service",
 					Configurations: []contract.Configuration{
-						{Name: "default", Schema: "cfg.json", Values: map[string]any{"db_host": "local"}},
+						{Name: "default", Required: true, Schema: "cfg.json", Values: map[string]any{"db_host": "local"}},
 					},
 				},
-				RawYAML: []byte(validContract),
+				RawYAML: []byte(configContract),
 			}, nil
 		},
 	}
@@ -197,6 +266,165 @@ func TestReconcile_OverrideSuccessMarksKeys(t *testing.T) {
 	keys := got.Status.Configurations[0].OverriddenKeys
 	if len(keys) != 1 || keys[0] != "db_host" {
 		t.Errorf("expected OverriddenKeys=[db_host], got %v", keys)
+	}
+}
+
+// An override that violates a policy must be caught: validation layers 1 and 3 read the
+// contract BYTES, so the merged contract has to be re-serialized before enforcement.
+func TestReconcile_OverrideViolatingPolicyIsInvalid(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "ov-pol", Namespace: "default", UID: "u"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: policyContract},
+			Overrides: &pactov1alpha1.ContractOverrides{
+				Configurations: []pactov1alpha1.ConfigurationOverride{
+					{Name: "app", Values: map[string]string{"logLevel": "debug"}},
+				},
+			},
+		},
+	}
+	r := newReconciler(pacto)
+	c, err := contract.Parse(strings.NewReader(policyContract))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	bundle := fstest.MapFS{
+		"configuration/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+		"policy/schema.json": &fstest.MapFile{Data: []byte(
+			`{"type":"object","properties":{"configurations":{"type":"array","items":` +
+				`{"type":"object","properties":{"values":{"type":"object","properties":{"logLevel":{"const":"info"}}}}}}}}`)},
+	}
+	r.Loader = &mockLoader{loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
+		return &loader.LoadResult{Contract: c, RawYAML: []byte(policyContract), BundleFS: bundle}, nil
+	}}
+
+	if _, err := r.Reconcile(context.Background(), reconcileReq("ov-pol", "default")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := getPacto(t, r, "ov-pol", "default")
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+		t.Fatalf("override violating a const policy must be Invalid, got %s (validation=%+v)",
+			got.Status.ContractStatus, got.Status.Validation)
+	}
+}
+
+// Applying an override must never make a structural violation disappear. The
+// verdict below feeds the GitOps promotion gate, so a fail-open here promotes a
+// contract the operator would otherwise reject.
+//
+// Re-marshalling the merged struct did exactly that: contract.Configuration tags
+// Values `omitempty`, so an untouched scope's `values: {}` vanished from the bytes
+// layer 1 reads. A bare `overrides: {}` on the CR was enough. The fix patches the
+// loader's document at the overridden paths and leaves every other byte alone.
+func TestReconcile_OverrideNeverHidesAStructuralViolation(t *testing.T) {
+	c, err := contract.Parse(strings.NewReader(emptyValuesContract))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	bundle := fstest.MapFS{
+		"configuration/schema.json": &fstest.MapFile{Data: []byte(`{"type":"object"}`)},
+	}
+
+	for _, tc := range []struct {
+		name      string
+		overrides *pactov1alpha1.ContractOverrides
+	}{
+		// The control. If this ever stops being Invalid the fixture has drifted and
+		// the two cases below prove nothing.
+		{"no overrides at all", nil},
+		{"an empty overrides block", &pactov1alpha1.ContractOverrides{}},
+		{"an override of the OTHER scope", &pactov1alpha1.ContractOverrides{
+			Configurations: []pactov1alpha1.ConfigurationOverride{
+				{Name: "app", Values: map[string]string{"logLevel": "debug"}},
+			},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pacto := &pactov1alpha1.Pacto{
+				ObjectMeta: metav1.ObjectMeta{Name: "ov-struct", Namespace: "default", UID: "u"},
+				Spec: pactov1alpha1.PactoSpec{
+					ContractRef: pactov1alpha1.ContractRef{Inline: emptyValuesContract},
+					Overrides:   tc.overrides,
+				},
+			}
+			r := newReconciler(pacto)
+			r.Loader = &mockLoader{loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
+				return &loader.LoadResult{Contract: c, RawYAML: []byte(emptyValuesContract), BundleFS: bundle}, nil
+			}}
+			if _, err := r.Reconcile(context.Background(), reconcileReq("ov-struct", "default")); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := getPacto(t, r, "ov-struct", "default")
+			if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+				t.Fatalf("a ref+values scope is structurally invalid, got %s (validation=%+v)",
+					got.Status.ContractStatus, got.Status.Validation)
+			}
+		})
+	}
+}
+
+// An override naming a scope the contract document does not carry is an error, not
+// a quiet fall back to the unpatched bytes -- unpatched bytes are the fail-open.
+func TestReconcile_OverrideOfAbsentScopeIsInvalid(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "ov-absent", Namespace: "default", UID: "u"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: policyContract},
+			Overrides: &pactov1alpha1.ContractOverrides{
+				Configurations: []pactov1alpha1.ConfigurationOverride{
+					{Name: "nope", Values: map[string]string{"logLevel": "debug"}},
+				},
+			},
+		},
+	}
+	r := newReconciler(pacto)
+	c, err := contract.Parse(strings.NewReader(policyContract))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	r.Loader = &mockLoader{loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
+		return &loader.LoadResult{Contract: c, RawYAML: []byte(policyContract), BundleFS: fstest.MapFS{}}, nil
+	}}
+	if _, err := r.Reconcile(context.Background(), reconcileReq("ov-absent", "default")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := getPacto(t, r, "ov-absent", "default")
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+		t.Fatalf("an override of an absent scope must be Invalid, got %s", got.Status.ContractStatus)
+	}
+}
+
+// The OCI loader takes Contract from the bundle and RawYAML from the bundle FS, and
+// leaves the bytes empty when that FS has no pacto.yaml. The struct merge then succeeds
+// -- the scope is right there in the contract -- while there is no document to patch.
+// The reconcile must fail closed rather than validate the original bytes and report a
+// verdict the override never reached.
+func TestReconcile_OverrideWithNoContractDocumentIsInvalid(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "ov-nodoc", Namespace: "default", UID: "u"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: configContract},
+			Overrides: &pactov1alpha1.ContractOverrides{
+				Configurations: []pactov1alpha1.ConfigurationOverride{
+					{Name: "default", Values: map[string]string{"db_host": "remote"}},
+				},
+			},
+		},
+	}
+	r := newReconciler(pacto)
+	c, err := contract.Parse(strings.NewReader(configContract))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	r.Loader = &mockLoader{loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
+		return &loader.LoadResult{Contract: c, RawYAML: nil, BundleFS: fstest.MapFS{}}, nil
+	}}
+	if _, err := r.Reconcile(context.Background(), reconcileReq("ov-nodoc", "default")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := getPacto(t, r, "ov-nodoc", "default")
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+		t.Fatalf("an override with no document to patch must be Invalid, got %s", got.Status.ContractStatus)
 	}
 }
 
@@ -478,36 +706,52 @@ func TestReconcile_FailReconciliationStatusUpdateError(t *testing.T) {
 
 // ---------- summarizeFindings ----------
 
-// The pure summarizer must count every severity and derive status accordingly.
-// pacto v2's evidence engine currently emits only warnings, so the error/info
-// counting and NonCompliant status are exercised here at the unit level.
+// The pure summarizer counts every severity. It must NOT rank them: the compliance
+// ladder has a single producer, validation.DeriveStatus, and a second copy here is
+// what let one contract read Warning in kubectl and Compliant in the dashboard.
 func TestSummarizeFindings(t *testing.T) {
-	// Mixed severities: error dominates -> NonCompliant, all counts populated.
-	summary, status := summarizeFindings([]finding.Finding{
+	summary := summarizeFindings([]finding.Finding{
 		{Severity: finding.SeverityError},
+		{Severity: finding.SeverityUnknown},
 		{Severity: finding.SeverityWarning},
 		{Severity: finding.SeverityInfo},
 	})
-	if summary.ErrorCount != 1 || summary.WarningCount != 1 || summary.InfoCount != 1 {
-		t.Errorf("expected 1/1/1 counts, got %d/%d/%d", summary.ErrorCount, summary.WarningCount, summary.InfoCount)
-	}
-	if status != pactov1alpha1.ContractStatusNonCompliant {
-		t.Errorf("expected NonCompliant with an error finding, got %s", status)
+	if summary.ErrorCount != 1 || summary.UnknownCount != 1 || summary.WarningCount != 1 || summary.InfoCount != 1 {
+		t.Errorf("expected 1/1/1/1 counts, got %+v", summary)
 	}
 
-	// Warning-only -> Warning.
-	_, status = summarizeFindings([]finding.Finding{{Severity: finding.SeverityWarning}})
-	if status != pactov1alpha1.ContractStatusWarning {
-		t.Errorf("expected Warning, got %s", status)
+	if got := summarizeFindings(nil); got != (pactov1alpha1.Summary{}) {
+		t.Errorf("expected zero counts, got %+v", got)
 	}
+}
 
-	// No findings -> Compliant.
-	summary, status = summarizeFindings(nil)
-	if status != pactov1alpha1.ContractStatusCompliant {
-		t.Errorf("expected Compliant, got %s", status)
+// A STRUCTURAL warning must reach the ranking: the shared producer requires callers to
+// pass every finding in scope, structural ones included, or a contract `pacto validate`
+// warns about would report Compliant.
+func TestReconcile_StructuralWarningRanksAsWarning(t *testing.T) {
+	pacto := &pactov1alpha1.Pacto{
+		ObjectMeta: metav1.ObjectMeta{Name: "warn", Namespace: "default", UID: "u"},
+		Spec: pactov1alpha1.PactoSpec{
+			ContractRef: pactov1alpha1.ContractRef{Inline: policyRefContract},
+			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"},
+		},
 	}
-	if summary.ErrorCount != 0 || summary.WarningCount != 0 || summary.InfoCount != 0 {
-		t.Errorf("expected zero counts, got %+v", summary)
+	r := newReconciler(pacto)
+	c, err := contract.Parse(strings.NewReader(policyRefContract))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	r.Loader = &mockLoader{loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
+		return &loader.LoadResult{Contract: c, RawYAML: []byte(policyRefContract), BundleFS: fstest.MapFS{}}, nil
+	}}
+
+	if _, err := r.Reconcile(context.Background(), reconcileReq("warn", "default")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := getPacto(t, r, "warn", "default")
+	if got.Status.ContractStatus != pactov1alpha1.ContractStatusWarning {
+		t.Fatalf("expected Warning from the structural warning, got %s (findings=%+v)",
+			got.Status.ContractStatus, got.Status.Findings)
 	}
 }
 

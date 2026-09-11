@@ -10,6 +10,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
 )
 
 func TestRenderValidateNil(t *testing.T) {
@@ -317,7 +318,13 @@ func TestRenderDiffWithGraphDiff(t *testing.T) {
 		Changes: []diff.Change{
 			{Path: "field", Type: diff.Added, Reason: "added", Classification: diff.NonBreaking},
 		},
-		GraphDiff: &graph.GraphDiff{Root: graph.DiffNode{Name: "test-svc"}},
+		GraphDiff: &graph.GraphDiff{
+			Root: graph.DiffNode{Name: "test-svc", Children: []graph.DiffNode{{
+				Name:   "dep-svc",
+				Change: &graph.GraphChange{Name: "dep-svc", ChangeType: graph.AddedNode, NewVersion: "1.0.0"},
+			}}},
+			Changes: []graph.GraphChange{{Name: "dep-svc", ChangeType: graph.AddedNode, NewVersion: "1.0.0"}},
+		},
 	}
 	got := renderDiff(r)
 	if !strings.Contains(got, "Graph changes") {
@@ -423,5 +430,90 @@ func TestRenderImpactWithBreakingChanges(t *testing.T) {
 	}
 	if !strings.Contains(got, "[direct]") {
 		t.Fatal("render should mark direct consumers")
+	}
+}
+
+// TestRenderDiffWithOnlyDependencyChanges is the reason the pane cannot test
+// len(Changes) alone: internal/app/diff.go raises the overall classification off
+// a dependency, so this exact shape — a BREAKING verdict with no change of its
+// own — is what `pacto diff` produces for a root whose dependency broke.
+func TestRenderDiffWithOnlyDependencyChanges(t *testing.T) {
+	r := &app.DiffResult{
+		OldPath:        "old.yaml",
+		NewPath:        "new.yaml",
+		Classification: "BREAKING",
+		DependencyDiffs: []app.DependencyDiff{{
+			Name:           "dep-svc",
+			Classification: "BREAKING",
+			Changes: []diff.Change{
+				{Path: "dep.field", Type: diff.Removed, Reason: "removed", Classification: diff.Breaking},
+			},
+		}},
+	}
+	got := renderDiff(r)
+	if strings.Contains(got, "No changes detected") {
+		t.Fatalf("a BREAKING verdict was reported as no changes:\n%s", got)
+	}
+	if !strings.Contains(got, "dep-svc") {
+		t.Fatalf("the dependency that caused the verdict is missing:\n%s", got)
+	}
+}
+
+// TestRenderDiffWithOnlySBOMChanges covers the channel the pane never rendered
+// on any path.
+func TestRenderDiffWithOnlySBOMChanges(t *testing.T) {
+	r := &app.DiffResult{
+		OldPath:        "old.yaml",
+		NewPath:        "new.yaml",
+		Classification: "NON_BREAKING",
+		SBOMDiff: &sbom.Result{Changes: []sbom.Change{
+			{Package: "libnew", Type: sbom.PackageAdded, Field: "package", NewValue: "1.2.3"},
+			{Package: "libgone", Type: sbom.PackageRemoved, Field: "package", OldValue: "0.9.0"},
+			{Package: "libmoved", Type: sbom.PackageModified, Field: "version", OldValue: "1.0.0", NewValue: "1.1.0"},
+		}},
+	}
+	got := renderDiff(r)
+	if strings.Contains(got, "No changes detected") {
+		t.Fatalf("an SBOM-only diff was reported as no changes:\n%s", got)
+	}
+	for _, want := range []string{"SBOM changes (3)", "libnew@1.2.3", "libgone@0.9.0", "libmoved version: 1.0.0 -> 1.1.0"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("SBOM section is missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestRenderDiffCountsDependencySBOMChanges covers the dependency whose only
+// change is in its SBOM. internal/app/diff.go records it, so a line reading
+// "(0 changes)" beside it is the same lie in miniature.
+func TestRenderDiffCountsDependencySBOMChanges(t *testing.T) {
+	r := &app.DiffResult{
+		Classification: "NON_BREAKING",
+		DependencyDiffs: []app.DependencyDiff{{
+			Name:           "dep-svc",
+			Classification: "NON_BREAKING",
+			SBOMDiff:       &sbom.Result{Changes: []sbom.Change{{Package: "libnew", Type: sbom.PackageAdded}}},
+		}},
+	}
+	got := renderDiff(r)
+	if !strings.Contains(got, "0 changes, 1 SBOM") {
+		t.Fatalf("the dependency SBOM count is missing:\n%s", got)
+	}
+}
+
+// TestRenderDiffSkipsAnEmptyGraphSection covers a GraphDiff that carries no
+// changes: pkg/graph renders nothing for it, and a "Graph changes" heading over
+// nothing is a section the reader scrolls to for no reason.
+func TestRenderDiffSkipsAnEmptyGraphSection(t *testing.T) {
+	r := &app.DiffResult{
+		Classification: "NON_BREAKING",
+		GraphDiff:      &graph.GraphDiff{Root: graph.DiffNode{Name: "test-svc"}},
+	}
+	got := renderDiff(r)
+	if strings.Contains(got, "Graph changes") {
+		t.Fatalf("an empty graph diff drew a section heading:\n%s", got)
+	}
+	if !strings.Contains(got, "No changes detected") {
+		t.Fatalf("a diff with nothing in any channel must say so:\n%s", got)
 	}
 }

@@ -1,5 +1,6 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
   import GraphPanel from '../GraphPanel.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import { reasonLabel, reasonTooltip, reasonBadgeClass, shortDigest, driftBadgeClass, driftBadgeLabel } from '../lib/format.ts';
@@ -8,11 +9,19 @@
   let {
     name, dependencies = [], dependents = [], crossRefs = null,
     graphData = null, services = [], isHistorical = false,
-    open = $bindable(true), id = '', source = '',
+    open = $bindable(true), id = '',
     depsError = false, onRetry = null,
   } = $props();
 
   let totalCount = $derived((dependencies?.length || 0) + (dependents?.length || 0));
+
+  // depsError belongs in the guard: dependents and cross-references are fetched
+  // separately, so a service that declares nothing and whose fetch failed has
+  // exactly the same shape as one that declares nothing. Only this flag tells
+  // the two apart, and the error banner lives inside the section.
+  let hasContent = $derived(
+    dependencies?.length > 0 || dependents?.length > 0 || !!crossRefs || depsError,
+  );
 
   function svcExists(svcName) {
     return services.some((s) => s.name === svcName);
@@ -26,8 +35,8 @@
   }
 </script>
 
-{#if dependencies?.length > 0 || dependents?.length > 0 || crossRefs}
-  <CollapsibleSection title="Dependencies" count={totalCount} bind:open {id} {source}>
+{#if hasContent}
+  <CollapsibleSection title="Dependencies" count={totalCount} bind:open {id}>
     {#if graphData}
       <div class="dep-graph-box">
         <GraphPanel
@@ -179,6 +188,8 @@
       </div>
     {/if}
   </CollapsibleSection>
+{:else}
+  <SectionState title="Dependencies" bind:open {id} />
 {/if}
 
 <style>

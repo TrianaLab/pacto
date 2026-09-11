@@ -1162,7 +1162,7 @@ func TestHandleHealthProbeResult_2xx_Satisfied(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background(), 8080)
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 2xx, got %s", obs.Outcome)
@@ -1202,7 +1202,7 @@ func TestHandleHealthProbeResult_3xx_Satisfied(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background(), 8080)
+	obs, _ := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 3xx, got %s", obs.Outcome)
@@ -1231,7 +1231,7 @@ func TestHandleHealthProbeResult_404_WithinWindow(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, now, nil, context.Background(), 8080)
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, now, 8080)
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for first 404, got %s", obs.Outcome)
@@ -1264,7 +1264,7 @@ func TestHandleHealthProbeResult_404_BeyondWindow(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, now, nil, context.Background(), 8080)
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, now, 8080)
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 404 beyond window, got %s", obs.Outcome)
@@ -1296,7 +1296,7 @@ func TestHandleHealthProbeResult_5xx_Insufficient(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background(), 8080)
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for 5xx, got %s", obs.Outcome)
@@ -1320,7 +1320,7 @@ func TestHandleHealthProbeResult_501_Insufficient(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, nil, context.Background(), 8080)
+	obs, _ := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for 501, got %s", obs.Outcome)
@@ -1412,7 +1412,7 @@ func TestHandleHealthProbeResult_Unreachable_TierB(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	observation, _ := handleHealthProbeResult(result, subj, "health", input, prov, input.Now, obs, context.Background(), 8080)
+	observation, _ := obs.handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
 
 	// Tier B should succeed.
 	if observation.Outcome != evidence.Observed {

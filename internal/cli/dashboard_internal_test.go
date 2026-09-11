@@ -1,20 +1,16 @@
 package cli
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
 	"github.com/trianalab/pacto/v3/pkg/oci"
 )
 
@@ -36,49 +32,63 @@ type dummyStoreWithCacheDir struct {
 
 func (d dummyStoreWithCacheDir) CacheDir() string { return d.cacheDir }
 
-func TestCacheTTL(t *testing.T) {
-	tests := []struct {
-		sourceType string
-		expected   time.Duration
-	}{
-		{"k8s", 10 * time.Second},
-		{"oci", 5 * time.Minute},
-		{"local", 2 * time.Second},
-		{"unknown", 30 * time.Second},
+// isolateHost points every ambient lookup the dashboard makes — kubeconfig,
+// home, cache — at an empty directory, so a developer's real cluster or bundle
+// cache can never turn a "nothing detected" test green by accident.
+func isolateHost(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
+	t.Setenv("PACTO_DASHBOARD_REPO", "")
+	t.Setenv("PACTO_EVIDENCE_SOURCE_URL", "")
+	return dir
+}
+
+// writeBundle writes a minimal contract so a directory reads as a local source.
+func writeBundle(t *testing.T, dir, name string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.sourceType, func(t *testing.T) {
-			got := cacheTTL(tt.sourceType)
-			if got != tt.expected {
-				t.Errorf("cacheTTL(%q) = %v, want %v", tt.sourceType, got, tt.expected)
-			}
-		})
+	body := "pactoVersion: \"2.0\"\nservice:\n  name: " + name + "\n  version: 1.0.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestNewDashboardCommand_NoSources(t *testing.T) {
-	// Isolate from host kubeconfig / cache so no real sources are found.
-	emptyDir := t.TempDir()
-	t.Setenv("PATH", emptyDir)
-	t.Setenv("HOME", emptyDir)
-	t.Setenv("XDG_CACHE_HOME", emptyDir)
-	t.Setenv("KUBECONFIG", filepath.Join(emptyDir, "nonexistent"))
-
-	svc := app.NewService(nil, nil)
-	v := viper.New()
+// runDashboard executes the command with a pre-cancelled context, so the server
+// returns immediately, and hands back what the user would have seen on stderr.
+func runDashboard(t *testing.T, svc *app.Service, v *viper.Viper, args ...string) (string, error) {
+	t.Helper()
 	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{"/nonexistent/empty/dir"})
+	cmd.SetArgs(args)
 	var errBuf bytes.Buffer
 	cmd.SetErr(&errBuf)
+	cmd.SetOut(&bytes.Buffer{})
 
-	// Use a cancelled context as safety net to prevent server from blocking.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
+	return errBuf.String(), err
+}
+
+func TestNewDashboardCommand_NoSources(t *testing.T) {
+	isolateHost(t)
+
+	stderr, err := runDashboard(t, app.NewService(nil, nil), viper.New(), "/nonexistent/empty/dir")
 	if err == nil {
-		t.Error("expected error when no data sources are detected")
+		t.Fatal("expected an error when no data sources are detected")
+	}
+	if !strings.Contains(err.Error(), "no data sources detected") {
+		t.Errorf("error = %v, want it to say no data sources were detected", err)
+	}
+	if !strings.Contains(stderr, "no data sources detected") {
+		t.Errorf("expected the reason on stderr, got:\n%s", stderr)
 	}
 }
 
@@ -86,15 +96,10 @@ func TestNewDashboardCommand_NoSources(t *testing.T) {
 // observation configuration stops the command before anything is detected or
 // served, rather than starting a dashboard that silently lacks a Data Source.
 func TestNewDashboardCommand_RejectsMalformedTraceSource(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{t.TempDir(), "--port", "0", "--trace-source", "/no/name.json"})
-	var outBuf, errBuf bytes.Buffer
-	cmd.SetOut(&outBuf)
-	cmd.SetErr(&errBuf)
+	isolateHost(t)
 
-	err := cmd.Execute()
+	_, err := runDashboard(t, app.NewService(nil, nil), viper.New(),
+		t.TempDir(), "--port", "0", "--trace-source", "/no/name.json")
 	if err == nil {
 		t.Fatal("expected the malformed --trace-source to fail startup")
 	}
@@ -104,247 +109,101 @@ func TestNewDashboardCommand_RejectsMalformedTraceSource(t *testing.T) {
 }
 
 func TestNewDashboardCommand_WithLocalSource(t *testing.T) {
+	isolateHost(t)
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
-service:
-  name: test-svc
-  version: 1.0.0
-`), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeBundle(t, dir, "test-svc")
 
-	// Prevent real K8s client creation.
-	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
+	svc := app.NewService(dummyStoreWithCacheDir{cacheDir: filepath.Join(dir, "cache")}, nil)
+	stderr, _ := runDashboard(t, svc, viper.New(), dir, "--port", "0")
 
-	svc := app.NewService(dummyStoreWithCacheDir{cacheDir: "/tmp/test-cache"}, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{dir, "--port", "0", "--diagnostics"})
-
-	var outBuf, errBuf bytes.Buffer
-	cmd.SetOut(&outBuf)
-	cmd.SetErr(&errBuf)
-
-	// Use a pre-cancelled context so the server stops immediately.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	// The server exits immediately due to cancelled context.
-	_ = cmd.Execute()
-
-	stderr := errBuf.String()
-	if !strings.Contains(stderr, "local") {
-		t.Errorf("expected stderr to mention 'local' source, got:\n%s", stderr)
-	}
-	if !strings.Contains(stderr, "enabled") {
-		t.Errorf("expected stderr to mention 'enabled', got:\n%s", stderr)
+	if !strings.Contains(stderr, "Sources: local") {
+		t.Errorf("expected the banner to report the local source, got:\n%s", stderr)
 	}
 }
 
-func TestNewDashboardCommand_WithOCISource(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
-service:
-  name: oci-wiring-svc
-  version: 1.0.0
-`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
+// TestNewDashboardCommand_WithOCIAndCache proves an explicit repository and a
+// non-empty bundle cache both reach the fleet options, and that the banner
+// names them.
+func TestNewDashboardCommand_WithOCIAndCache(t *testing.T) {
+	dir := isolateHost(t)
 	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/svc-a")
 
-	// Create a cache dir with a real bundle to exercise SetCache wiring.
-	bundlePath := filepath.Join(dir, ".cache", "pacto", "oci", "ghcr.io", "org", "cached", "1.0.0", "bundle.tar.gz")
-	writeTestBundleTarGz(t, bundlePath, `pactoVersion: "2.0"
-service:
-  name: cached-svc
-  version: 1.0.0
-`)
-	t.Setenv("HOME", dir)
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, ".cache"))
+	cacheDir := filepath.Join(dir, "cache")
+	if err := os.MkdirAll(filepath.Join(cacheDir, "_v2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
-	svc := app.NewService(dummyStore{}, nil)
+	svc := app.NewService(dummyStoreWithCacheDir{cacheDir: cacheDir}, nil)
+	stderr, _ := runDashboard(t, svc, viper.New(), dir, "--port", "0")
+
+	if !strings.Contains(stderr, "Sources: oci, cache") {
+		t.Errorf("expected the banner to report oci and cache, got:\n%s", stderr)
+	}
+}
+
+// TestNewDashboardCommand_NoCacheExcludesTheCache pins --no-cache: entries on
+// disk exist, but a cold start promises not to read them, so the cache is never
+// published as a source.
+func TestNewDashboardCommand_NoCacheExcludesTheCache(t *testing.T) {
+	dir := isolateHost(t)
+	cacheDir := filepath.Join(dir, "cache")
+	if err := os.MkdirAll(filepath.Join(cacheDir, "_v2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeBundle(t, dir, "nocache-svc")
+
 	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{dir, "--port", "0"})
+	v.Set("no-cache", true)
+	v.Set("cache-dir", cacheDir)
+	svc := app.NewService(dummyStore{}, nil)
+	stderr, _ := runDashboard(t, svc, v, dir, "--port", "0")
 
-	var errBuf bytes.Buffer
-	cmd.SetErr(&errBuf)
-	cmd.SetOut(&bytes.Buffer{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	_ = cmd.Execute()
-
-	stderr := errBuf.String()
-	if !strings.Contains(stderr, "oci: enabled") {
-		t.Errorf("expected stderr to mention 'oci: enabled', got:\n%s", stderr)
+	if strings.Contains(stderr, "cache") {
+		t.Errorf("--no-cache must not publish a cache source, got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "Sources: local") {
+		t.Errorf("expected the local source to survive --no-cache, got:\n%s", stderr)
 	}
 }
 
 func TestNewDashboardCommand_DefaultDir(t *testing.T) {
-	// When no dir arg is provided, it defaults to ".".
-	// Create a temp dir with pacto.yaml and chdir into it.
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
-service:
-  name: default-dir-svc
-  version: 1.0.0
-`), 0644); err != nil {
+	dir := isolateHost(t)
+	writeBundle(t, dir, "default-dir-svc")
+
+	orig, err := os.Getwd()
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Prevent real K8s client creation.
-	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
-
-	orig, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-	svc := app.NewService(nil, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{"--port", "0"}) // no dir arg
-
-	var errBuf bytes.Buffer
-	cmd.SetErr(&errBuf)
-	cmd.SetOut(&bytes.Buffer{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	_ = cmd.Execute()
-
-	stderr := errBuf.String()
-	if !strings.Contains(stderr, "local") {
-		t.Errorf("expected stderr to mention 'local', got:\n%s", stderr)
-	}
-}
-
-func TestNewDashboardCommand_NoSourcesDetails(t *testing.T) {
-	// Use an empty temp dir with no pacto.yaml, no kubeconfig, no OCI, no cache.
-	emptyDir := t.TempDir()
-
-	svc := app.NewService(nil, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{emptyDir})
-
-	// Ensure no K8s client can be created.
-	t.Setenv("PATH", emptyDir)
-	t.Setenv("HOME", emptyDir)
-	t.Setenv("XDG_CACHE_HOME", emptyDir)
-	t.Setenv("KUBECONFIG", filepath.Join(emptyDir, "nonexistent"))
-
-	var errBuf bytes.Buffer
-	cmd.SetErr(&errBuf)
-	cmd.SetOut(&bytes.Buffer{})
-
-	// Use a cancelled context as safety net to prevent server from blocking.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	stderr := errBuf.String()
-	if !strings.Contains(stderr, "No data sources detected") {
-		t.Errorf("expected 'No data sources detected' message, got:\n%s", stderr)
-	}
-}
-
-func TestNewDashboardCommand_RepoEnvVar(t *testing.T) {
-	emptyDir := t.TempDir()
-	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/svc-a,ghcr.io/org/svc-b")
-	t.Setenv("HOME", emptyDir)
-	t.Setenv("XDG_CACHE_HOME", emptyDir)
-	t.Setenv("KUBECONFIG", filepath.Join(emptyDir, "nonexistent"))
-
-	svc := app.NewService(dummyStore{}, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{emptyDir, "--port", "0"})
-
-	var errBuf bytes.Buffer
-	cmd.SetErr(&errBuf)
-	cmd.SetOut(&bytes.Buffer{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	_ = cmd.Execute()
-
-	stderr := errBuf.String()
-	if !strings.Contains(stderr, "oci") {
-		t.Errorf("expected stderr to mention 'oci' source when PACTO_DASHBOARD_REPO is set, got:\n%s", stderr)
+	stderr, _ := runDashboard(t, app.NewService(nil, nil), viper.New(), "--port", "0")
+	if !strings.Contains(stderr, "Sources: local") {
+		t.Errorf("expected the working directory to be detected, got:\n%s", stderr)
 	}
 }
 
 func TestNewDashboardCommand_OCIPositionalArgsOverrideEnv(t *testing.T) {
-	emptyDir := t.TempDir()
+	dir := isolateHost(t)
 	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/from-env")
-	t.Setenv("HOME", emptyDir)
-	t.Setenv("XDG_CACHE_HOME", emptyDir)
-	t.Setenv("KUBECONFIG", filepath.Join(emptyDir, "nonexistent"))
 
 	svc := app.NewService(dummyStore{}, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{emptyDir, "oci://ghcr.io/org/from-arg", "--port", "0"})
+	stderr, _ := runDashboard(t, svc, viper.New(), dir, "oci://ghcr.io/org/from-arg", "--port", "0")
 
-	var errBuf bytes.Buffer
-	cmd.SetErr(&errBuf)
-	cmd.SetOut(&bytes.Buffer{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	_ = cmd.Execute()
-
-	stderr := errBuf.String()
-	// The positional arg should be used, not the env var — both enable OCI.
-	if !strings.Contains(stderr, "oci") {
-		t.Errorf("expected stderr to mention 'oci' source, got:\n%s", stderr)
+	if !strings.Contains(stderr, "Sources: oci") {
+		t.Errorf("expected an oci source, got:\n%s", stderr)
 	}
 }
 
 func TestNewDashboardCommand_HostFlag(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
-service:
-  name: host-test
-  version: 1.0.0
-`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
+	dir := isolateHost(t)
+	writeBundle(t, dir, "host-test")
 
 	svc := app.NewService(dummyStore{}, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{dir, "--port", "0", "--host", "0.0.0.0"})
+	stderr, _ := runDashboard(t, svc, viper.New(), dir, "--port", "0", "--host", "0.0.0.0")
 
-	var errBuf bytes.Buffer
-	cmd.SetErr(&errBuf)
-	cmd.SetOut(&bytes.Buffer{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	_ = cmd.Execute()
-
-	stderr := errBuf.String()
 	// When host is 0.0.0.0, display should show 127.0.0.1 for user-friendliness.
 	if !strings.Contains(stderr, "127.0.0.1") {
 		t.Errorf("expected display address 127.0.0.1 when host is 0.0.0.0, got:\n%s", stderr)
@@ -352,11 +211,8 @@ service:
 }
 
 func TestNewDashboardCommand_DefaultFlags(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
+	cmd := newDashboardCommand(app.NewService(nil, nil), viper.New(), "test")
 
-	// Verify default flag values
 	host, _ := cmd.Flags().GetString("host")
 	if host != "127.0.0.1" {
 		t.Errorf("expected default host 127.0.0.1, got %q", host)
@@ -369,9 +225,12 @@ func TestNewDashboardCommand_DefaultFlags(t *testing.T) {
 	if ns != "" {
 		t.Errorf("expected default namespace empty, got %q", ns)
 	}
-	diag, _ := cmd.Flags().GetBool("diagnostics")
-	if diag {
-		t.Error("expected diagnostics default false")
+}
+
+func TestNewDashboardCommand_InvalidArgs(t *testing.T) {
+	isolateHost(t)
+	if _, err := runDashboard(t, app.NewService(nil, nil), viper.New(), "./a", "./b"); err == nil {
+		t.Error("expected an error for multiple local paths")
 	}
 }
 
@@ -390,6 +249,7 @@ func TestParseDashboardArgs_Empty(t *testing.T) {
 }
 
 func TestParseDashboardArgs_LocalOnly(t *testing.T) {
+	t.Setenv("PACTO_DASHBOARD_REPO", "")
 	dir, repos, err := parseDashboardArgs([]string{"./services"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -399,23 +259,6 @@ func TestParseDashboardArgs_LocalOnly(t *testing.T) {
 	}
 	if len(repos) != 0 {
 		t.Errorf("expected no repos, got %v", repos)
-	}
-}
-
-func TestParseDashboardArgs_OCIOnly(t *testing.T) {
-	t.Setenv("PACTO_DASHBOARD_REPO", "")
-	dir, repos, err := parseDashboardArgs([]string{
-		"oci://ghcr.io/org/svc-a",
-		"oci://ghcr.io/org/svc-b",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if dir != "." {
-		t.Errorf("expected default dir \".\", got %q", dir)
-	}
-	if len(repos) != 2 || repos[0] != "ghcr.io/org/svc-a" || repos[1] != "ghcr.io/org/svc-b" {
-		t.Errorf("expected 2 repos, got %v", repos)
 	}
 }
 
@@ -439,7 +282,7 @@ func TestParseDashboardArgs_Mixed(t *testing.T) {
 func TestParseDashboardArgs_MultipleLocalPaths(t *testing.T) {
 	_, _, err := parseDashboardArgs([]string{"./a", "./b"})
 	if err == nil {
-		t.Error("expected error for multiple local paths")
+		t.Fatal("expected an error for multiple local paths")
 	}
 	if !strings.Contains(err.Error(), "only one local path") {
 		t.Errorf("expected 'only one local path' error, got: %v", err)
@@ -467,431 +310,101 @@ func TestParseDashboardArgs_OCIArgsOverrideEnvVar(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(repos) != 1 || repos[0] != "ghcr.io/org/from-arg" {
-		t.Errorf("expected OCI arg to override env, got %v", repos)
-	}
-}
-
-func TestNewDashboardCommand_InvalidArgs(t *testing.T) {
-	svc := app.NewService(nil, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{"./a", "./b"})
-
-	var errBuf bytes.Buffer
-	cmd.SetErr(&errBuf)
-	cmd.SetOut(&bytes.Buffer{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Error("expected error for multiple local paths")
+		t.Errorf("expected the OCI arg to override the env var, got %v", repos)
 	}
 }
 
 func TestParseDashboardArgs_EmptyOCIRef(t *testing.T) {
 	_, _, err := parseDashboardArgs([]string{"oci://"})
 	if err == nil {
-		t.Error("expected error for empty OCI reference")
+		t.Fatal("expected an error for an empty OCI reference")
 	}
 	if !strings.Contains(err.Error(), "empty OCI reference") {
 		t.Errorf("expected 'empty OCI reference' error, got: %v", err)
 	}
 }
 
-func TestDeduplicateSourceInfo(t *testing.T) {
-	info := []dashboard.SourceInfo{
-		{Type: "oci", Enabled: false, Reason: "no repos"},
-		{Type: "local", Enabled: true, Reason: "found"},
-		{Type: "oci", Enabled: true, Reason: "discovered"},
+// TestLocalRootHasBundle pins the guard that keeps the fleet's recursive walk
+// off a directory that holds no contracts at all: dir defaults to the working
+// directory, which may be $HOME.
+func TestLocalRootHasBundle(t *testing.T) {
+	root := t.TempDir()
+	writeBundle(t, root, "root-svc")
+
+	nested := t.TempDir()
+	writeBundle(t, filepath.Join(nested, "services", "orders"), "orders")
+
+	// Only hidden, vendored and non-directory entries: nothing to walk.
+	noisy := t.TempDir()
+	writeBundle(t, filepath.Join(noisy, ".hidden"), "hidden")
+	writeBundle(t, filepath.Join(noisy, "node_modules"), "vendored")
+	writeBundle(t, filepath.Join(noisy, "vendor"), "vendored")
+	if err := os.WriteFile(filepath.Join(noisy, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	result := deduplicateSourceInfo(info)
-	if len(result) != 2 {
-		t.Fatalf("expected 2 deduplicated entries, got %d", len(result))
+
+	// A subdirectory with no contract of its own.
+	bare := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(bare, "docs"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	// OCI should have the last (updated) entry.
-	for _, si := range result {
-		if si.Type == "oci" && !si.Enabled {
-			t.Error("expected oci to be enabled (last wins)")
+
+	for _, tc := range []struct {
+		name string
+		dir  string
+		want bool
+	}{
+		{"unnamed directory", "", false},
+		{"contract in the root", root, true},
+		{"contract one level down", filepath.Join(nested, "services"), true},
+		{"only hidden and vendored contracts", noisy, false},
+		{"no contract anywhere", bare, false},
+		{"unreadable directory", filepath.Join(root, "nonexistent"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := localRootHasBundle(tc.dir); got != tc.want {
+				t.Errorf("localRootHasBundle(%q) = %v, want %v", tc.dir, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCacheHasEntries covers the three answers: an explicit cache with content,
+// an explicit cache that is absent, and the default location derived from the
+// home directory — including a host with no home to derive it from.
+func TestCacheHasEntries(t *testing.T) {
+	filled := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(filled, "_v2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := cacheHasEntries(filled); !got {
+		t.Error("a cache directory with entries must count as a source")
+	}
+	if got := cacheHasEntries(filepath.Join(filled, "nonexistent")); got {
+		t.Error("an absent cache directory must not count as a source")
+	}
+
+	t.Run("default location", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		if got := cacheHasEntries(""); got {
+			t.Error("an empty default cache must not count as a source")
 		}
-	}
-}
-
-func TestDeduplicateSourceInfo_NoDuplicates(t *testing.T) {
-	info := []dashboard.SourceInfo{
-		{Type: "local", Enabled: true, Reason: "found"},
-		{Type: "k8s", Enabled: true, Reason: "cluster reachable"},
-	}
-	result := deduplicateSourceInfo(info)
-	if len(result) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(result))
-	}
-}
-
-func TestTryOCIEnrichment_WithExplicitRepos(t *testing.T) {
-	result := tryOCIEnrichment(
-		context.Background(),
-		&dashboard.DetectResult{Diagnostics: &dashboard.SourceDiagnostics{}},
-		dummyStore{}, "", []string{"ghcr.io/org/svc"},
-	)
-	if result {
-		t.Error("expected false when explicit repos are provided")
-	}
-}
-
-func TestTryOCIEnrichment_NilStore(t *testing.T) {
-	result := tryOCIEnrichment(
-		context.Background(),
-		&dashboard.DetectResult{Diagnostics: &dashboard.SourceDiagnostics{}},
-		nil, "", nil,
-	)
-	if result {
-		t.Error("expected false when store is nil")
-	}
-}
-
-func TestTryOCIEnrichment_NoK8s(t *testing.T) {
-	result := tryOCIEnrichment(
-		context.Background(),
-		&dashboard.DetectResult{
-			Diagnostics: &dashboard.SourceDiagnostics{},
-		},
-		dummyStore{}, t.TempDir(), nil,
-	)
-	// Without K8s source, enrichment won't find OCI.
-	// Should return true (needs lazy enrichment).
-	if !result {
-		t.Error("expected true (needs lazy enrichment) without K8s source")
-	}
-}
-
-func TestWireOCIEnrichment_NoK8s(t *testing.T) {
-	detectResult := &dashboard.DetectResult{
-		Diagnostics: &dashboard.SourceDiagnostics{},
-	}
-	resolved := dashboard.BuildResolvedSource(map[string]dashboard.DataSource{})
-	srv := dashboard.NewServer(nil, nil)
-	memCache := dashboard.NewMemoryCache()
-
-	fn := wireOCIEnrichment(detectResult, resolved, srv, memCache, dummyStore{}, t.TempDir())
-
-	// Without K8s source, enrichment should fail.
-	if fn(context.Background()) {
-		t.Error("expected false when no K8s source is available")
-	}
-}
-
-// cliMockK8sClient implements dashboard.K8sClient for CLI tests.
-type cliMockK8sClient struct {
-	listJSON []byte
-}
-
-func (m *cliMockK8sClient) Probe(context.Context) error { return nil }
-func (m *cliMockK8sClient) DiscoverCRD(context.Context) (*dashboard.CRDDiscovery, error) {
-	return &dashboard.CRDDiscovery{Found: false}, nil
-}
-func (m *cliMockK8sClient) ListJSON(_ context.Context, _, _ string) ([]byte, error) {
-	return m.listJSON, nil
-}
-func (m *cliMockK8sClient) GetJSON(_ context.Context, _, _, name string) ([]byte, error) {
-	return nil, nil
-}
-func (m *cliMockK8sClient) CountResources(context.Context, string, string) (int, error) {
-	return 0, nil
-}
-
-// enrichStore implements oci.BundleStore returning predefined bundles.
-type enrichStore struct {
-	tags   []string
-	bundle *contract.Bundle
-}
-
-func (s *enrichStore) Push(context.Context, string, *contract.Bundle) (string, error) { return "", nil }
-func (s *enrichStore) Resolve(context.Context, string) (string, error)                { return "", nil }
-func (s *enrichStore) Pull(_ context.Context, _ string) (*contract.Bundle, error) {
-	if s.bundle != nil {
-		return s.bundle, nil
-	}
-	return nil, nil
-}
-func (s *enrichStore) ListTags(_ context.Context, _ string) ([]string, error) {
-	return s.tags, nil
-}
-
-// enrichStoreForCacheDir implements oci.BundleStore with CacheDir() for cache resolution.
-type enrichStoreForCacheDir struct {
-	enrichStore
-	cacheDir string
-}
-
-func (s *enrichStoreForCacheDir) CacheDir() string { return s.cacheDir }
-
-func TestTryOCIEnrichment_SucceedsOnFirstTry(t *testing.T) {
-	k8sData := `{"items": [
-		{"metadata": {"name": "svc", "namespace": "default"},
-		 "status": {"contract": {"serviceName": "svc", "resolvedRef": "ghcr.io/org/svc:1.0.0"}}}
-	]}`
-	k8sClient := &cliMockK8sClient{listJSON: []byte(k8sData)}
-	store := &enrichStore{
-		tags: []string{"1.0.0"},
-		bundle: &contract.Bundle{
-			Contract: &contract.Contract{
-				PactoVersion: "1.0",
-				Service:      contract.Service{Name: "svc", Version: "1.0.0"},
-			},
-		},
-	}
-
-	detectResult := &dashboard.DetectResult{
-		Diagnostics: &dashboard.SourceDiagnostics{},
-		K8s:         dashboard.NewK8sSource(k8sClient, "", "pactos"),
-	}
-
-	result := tryOCIEnrichment(
-		context.Background(),
-		detectResult, store, t.TempDir(), nil,
-	)
-	if result {
-		t.Error("expected false (OCI found on first try)")
-	}
-	if detectResult.OCI == nil {
-		t.Error("expected OCI source to be created")
-	}
-}
-
-// writeTestBundleTarGz creates a minimal bundle.tar.gz at the given path.
-func writeTestBundleTarGz(t *testing.T, path string, pactoYAML string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-
-	gw := gzip.NewWriter(f)
-	tw := tar.NewWriter(gw)
-	data := []byte(pactoYAML)
-	_ = tw.WriteHeader(&tar.Header{Name: "pacto.yaml", Size: int64(len(data)), Mode: 0644})
-	_, _ = tw.Write(data)
-	_ = tw.Close()
-	_ = gw.Close()
-}
-
-func TestWireOCIEnrichment_Success(t *testing.T) {
-	k8sData := `{"items": [
-		{"metadata": {"name": "svc", "namespace": "default"},
-		 "status": {"contract": {"serviceName": "svc", "resolvedRef": "ghcr.io/org/svc:1.0.0"}}}
-	]}`
-	k8sClient := &cliMockK8sClient{listJSON: []byte(k8sData)}
-	store := &enrichStore{
-		tags: []string{"1.0.0"},
-		bundle: &contract.Bundle{
-			Contract: &contract.Contract{
-				PactoVersion: "1.0",
-				Service:      contract.Service{Name: "svc", Version: "1.0.0"},
-			},
-		},
-	}
-
-	detectResult := &dashboard.DetectResult{
-		Diagnostics: &dashboard.SourceDiagnostics{},
-		K8s:         dashboard.NewK8sSource(k8sClient, "", "pactos"),
-	}
-	resolved := dashboard.BuildResolvedSource(map[string]dashboard.DataSource{})
-	srv := dashboard.NewServer(nil, nil)
-	memCache := dashboard.NewMemoryCache()
-
-	fn := wireOCIEnrichment(detectResult, resolved, srv, memCache, store, t.TempDir())
-
-	if !fn(context.Background()) {
-		t.Error("expected true when OCI enrichment succeeds")
-	}
-	if !resolved.HasSource("oci") {
-		t.Error("expected oci source to be added to resolved")
-	}
-}
-
-func TestWireK8sRedetect_NoChange(t *testing.T) {
-	contextName := "ctx-a"
-	fn := wireK8sRedetect("", dashboard.NewMemoryCache(),
-		func() string { return contextName },
-		func(_ context.Context, result *dashboard.DetectResult, _ string) {
-			result.K8s = dashboard.NewK8sSource(&cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}, "", "pactos")
-		},
-	)
-	// First call: context changes from "" to "ctx-a", k8s available → returns source.
-	ds, err := fn(context.Background())
-	if err != nil || ds == nil {
-		t.Fatalf("first call: err=%v, ds=%v", err, ds)
-	}
-
-	// Second call: context is still "ctx-a" → "no change" error.
-	_, err = fn(context.Background())
-	if err == nil || err.Error() != "no change" {
-		t.Errorf("expected 'no change' error, got %v", err)
-	}
-}
-
-func TestWireK8sRedetect_K8sNotAvailableOnFirstCall(t *testing.T) {
-	// Context changes from "" to "ctx-a" but k8s detection fails → "k8s not available".
-	fn := wireK8sRedetect("", dashboard.NewMemoryCache(),
-		func() string { return "ctx-a" },
-		func(_ context.Context, _ *dashboard.DetectResult, _ string) {
-			// Don't set result.K8s — simulates k8s being unavailable.
-		},
-	)
-	_, err := fn(context.Background())
-	if err == nil || err.Error() != "k8s not available" {
-		t.Errorf("expected 'k8s not available' error, got %v", err)
-	}
-}
-
-func TestWireK8sRedetect_ContextSwitch(t *testing.T) {
-	callCount := 0
-	contextName := "ctx-a"
-	getContext := func() string { return contextName }
-	redetect := func(_ context.Context, result *dashboard.DetectResult, _ string) {
-		callCount++
-		result.K8s = dashboard.NewK8sSource(&cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}, "", "pactos")
-	}
-
-	fn := wireK8sRedetect("default", dashboard.NewMemoryCache(), getContext, redetect)
-
-	// First call: context changes from "" to "ctx-a", k8s available → returns source.
-	ds, err := fn(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ds == nil {
-		t.Error("expected non-nil DataSource")
-	}
-
-	// Second call with same context → "no change".
-	_, err = fn(context.Background())
-	if err == nil || err.Error() != "no change" {
-		t.Errorf("expected 'no change', got %v", err)
-	}
-
-	// Third call: context switches to "ctx-b".
-	contextName = "ctx-b"
-	ds, err = fn(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error on context switch: %v", err)
-	}
-	if ds == nil {
-		t.Error("expected non-nil DataSource after context switch")
-	}
-	if callCount != 2 {
-		t.Errorf("expected redetect called 2 times, got %d", callCount)
-	}
-}
-
-func TestWireK8sRedetect_ContextSwitch_K8sUnavailable(t *testing.T) {
-	contextName := "ctx-a"
-	k8sAvailable := true
-	getContext := func() string { return contextName }
-	redetect := func(_ context.Context, result *dashboard.DetectResult, _ string) {
-		if k8sAvailable {
-			result.K8s = dashboard.NewK8sSource(&cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}, "", "pactos")
+		if err := os.MkdirAll(oci.CacheDirFor(home), 0o755); err != nil {
+			t.Fatal(err)
 		}
-	}
+		if err := os.MkdirAll(filepath.Join(oci.CacheDirFor(home), "_v2"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := cacheHasEntries(""); !got {
+			t.Error("the default cache with entries must count as a source")
+		}
+	})
 
-	fn := wireK8sRedetect("", dashboard.NewMemoryCache(), getContext, redetect)
-
-	// First call: k8s available.
-	ds, err := fn(context.Background())
-	if err != nil || ds == nil {
-		t.Fatalf("first call: err=%v, ds=%v", err, ds)
-	}
-
-	// Context switches but k8s is now unreachable → returns (nil, nil).
-	contextName = "ctx-b"
-	k8sAvailable = false
-	ds, err = fn(context.Background())
-	if err != nil {
-		t.Errorf("expected nil error when context changed but k8s unreachable, got %v", err)
-	}
-	if ds != nil {
-		t.Error("expected nil DataSource when k8s unreachable")
-	}
-}
-
-func TestCacheDirResolution_FromBundleStore(t *testing.T) {
-	// When cache-dir is not set via viper (always the case — no such flag),
-	// the dashboard should resolve it from BundleStore.CacheDir().
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(`pactoVersion: "2.0"
-service:
-  name: cachedir-test
-  version: 1.0.0
-`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
-
-	cacheDir := filepath.Join(dir, "cache")
-	store := &enrichStoreForCacheDir{cacheDir: cacheDir}
-	svc := app.NewService(store, nil)
-	v := viper.New()
-	cmd := newDashboardCommand(svc, v, "test")
-	cmd.SetArgs([]string{dir, "--port", "0"})
-
-	var errBuf bytes.Buffer
-	cmd.SetErr(&errBuf)
-	cmd.SetOut(&bytes.Buffer{})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	cmd.SetContext(ctx)
-
-	_ = cmd.Execute()
-
-	stderr := errBuf.String()
-	if !strings.Contains(stderr, "local") {
-		t.Errorf("expected stderr to mention 'local', got:\n%s", stderr)
-	}
-}
-
-func TestWireOCICache_BothPresent(t *testing.T) {
-	k8sClient := &cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}
-	cacheSource := &dashboard.CacheSource{}
-	ociSource := dashboard.NewOCISource(dummyStore{}, nil)
-
-	result := &dashboard.DetectResult{
-		K8s:   dashboard.NewK8sSource(k8sClient, "", "pactos"),
-		OCI:   ociSource,
-		Cache: cacheSource,
-	}
-
-	wireOCICache(result)
-	// No error = success. The wiring is internal and not observable.
-}
-
-func TestWireOCICache_NoK8s(t *testing.T) {
-	cacheSource := &dashboard.CacheSource{}
-	ociSource := dashboard.NewOCISource(dummyStore{}, nil)
-
-	result := &dashboard.DetectResult{
-		OCI:   ociSource,
-		Cache: cacheSource,
-	}
-
-	wireOCICache(result)
-	// No error = success.
-}
-
-func TestWireOCICache_NoOCI(t *testing.T) {
-	k8sClient := &cliMockK8sClient{listJSON: []byte(`{"items":[]}`)}
-	result := &dashboard.DetectResult{
-		K8s: dashboard.NewK8sSource(k8sClient, "", "pactos"),
-	}
-
-	wireOCICache(result)
-	// No error = success. Function should be a no-op when OCI is nil.
+	t.Run("no home directory", func(t *testing.T) {
+		t.Setenv("HOME", "")
+		if got := cacheHasEntries(""); got {
+			t.Error("a host with no resolvable home has no default cache")
+		}
+	})
 }

@@ -146,12 +146,18 @@ func statusDot(s string) string {
 
 // statusBadge renders "<dot> <words>" -- the dot for the eye, the words for a
 // reader who has not learned the colours yet and for anyone who cannot see them.
-func statusBadge(s string) string {
+// A target with no verdict gets no badge at all rather than a bare glyph.
+//
+// It takes the Context because it pulses: there used to be three of these, and
+// the one here -- the obvious name, the one the next caller reaches for -- was
+// the pre-pulse copy with no caller left, so a confirmed problem badged through
+// it sat still while the identical row on the list throbbed.
+func statusBadge(c *Context, s string) string {
 	if s == "" {
 		return ""
 	}
 	p := statusPresentationFor(s)
-	return statusStyle(s).Render(p.Glyph + " " + p.Label)
+	return pulseStyle(c, s).Render(p.Glyph + " " + p.Label)
 }
 
 // needsAttention reports whether s is a CONFIRMED bad state -- invalid, non-

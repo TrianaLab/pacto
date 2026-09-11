@@ -593,7 +593,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Validation:      findingsPreview(rev.Validation),
 		Capabilities:    capabilitiesPreview(rev.Contract.Capabilities),
 		Interfaces:      interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead),
-		Configurations:  configurationsPreview(rev.Contract.Configurations, cfgRefs),
+		Configurations:  withConfigResolutions(rev.configurations, cfgRefs),
 		Policies:        policiesPreview(rev.Contract.Policies, polRefs),
 		Workload:        rev.Contract.Workload,
 		State:           stateSummary(rev.Contract.State),
@@ -622,14 +622,16 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 	}
 	t := tv.Target
 	data := &TargetDetailData{
-		Service:      q.serviceRef(t.ServiceKey),
-		LinkState:    targetLinkState(t),
-		Scope:        t.Scope,
-		Kind:         t.Kind,
-		Compliance:   t.Compliance,
-		Coverage:     t.Coverage,
-		Findings:     findingsPreview(t.Findings),
-		Labels:       labelsPreview(t.Labels),
+		Service:    q.serviceRef(t.ServiceKey),
+		LinkState:  targetLinkState(t),
+		Scope:      t.Scope,
+		Kind:       t.Kind,
+		Compliance: t.Compliance,
+		Coverage:   t.Coverage,
+		Findings:   findingsPreview(t.Findings),
+		// Read off the snapshot record, not off t: tv.Target is a JSON clone and the
+		// bounded label projection is unexported, so it does not survive the clone.
+		Labels:       q.snap.Targets[t.Key].labels,
 		Readiness:    productReadiness(t.Readiness),
 		Sources:      stringsPreview(t.Sources),
 		Source:       t.Source,

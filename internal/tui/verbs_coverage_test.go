@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -493,9 +494,9 @@ func TestSelectionOfScreenWithoutSelected(t *testing.T) {
 	c := newLoadedContext(t)
 	s := newConfirmScreen("test", []string{"pacto"}, func() tea.Cmd { return nil })
 
-	sel, ok := selectionOf(c, s)
-	if ok {
-		t.Fatalf("selectionOf on confirmScreen returned ok=true with selection %+v", sel)
+	sel, err := selectionOf(c, s)
+	if !errors.Is(err, errNothingSelected) {
+		t.Fatalf("selectionOf on confirmScreen returned (%+v, %v), want errNothingSelected", sel, err)
 	}
 }
 
@@ -505,9 +506,9 @@ func TestSelectionOfWithNoSelection(t *testing.T) {
 	l := newListScreen(c).(*listScreen)
 	l.entities = nil
 
-	sel, ok := selectionOf(c, l)
-	if ok {
-		t.Fatalf("selectionOf on empty list returned ok=true with selection %+v", sel)
+	sel, err := selectionOf(c, l)
+	if !errors.Is(err, errNothingSelected) {
+		t.Fatalf("selectionOf on empty list returned (%+v, %v), want errNothingSelected", sel, err)
 	}
 }
 
@@ -524,9 +525,14 @@ func TestSelectionOfWithQueryError(t *testing.T) {
 		Label: "nonexistent",
 	}}
 
-	sel, ok := selectionOf(c, l)
-	if ok {
-		t.Fatalf("selectionOf with nonexistent entity returned ok=true with selection %+v", sel)
+	sel, err := selectionOf(c, l)
+	if err == nil {
+		t.Fatalf("selectionOf with nonexistent entity returned no error, selection %+v", sel)
+	}
+	// Not the absent-selection sentinel: the row IS selected, the lookup behind
+	// it is what failed, and dispatchVerb renders the difference.
+	if errors.Is(err, errNothingSelected) {
+		t.Fatalf("a failed lookup was reported as %v", err)
 	}
 }
 
@@ -534,8 +540,14 @@ func TestSelectionOfWithQueryError(t *testing.T) {
 func TestDiffColorsUsed(t *testing.T) {
 	c, bundleDir := newContextWithService(t)
 
+	// The dependency has to exist on disk: an unresolvable ref leaves the graph
+	// diff with no changes at all, and pkg/graph renders nothing for it — which is
+	// what this test is here to catch running.
+	depDir := filepath.Join(filepath.Dir(bundleDir), "dep-svc")
+	writeBundle(t, depDir, "dep-svc", "1.0.0", "")
+
 	bundleDir2 := filepath.Join(filepath.Dir(bundleDir), "test-svc-v2")
-	writeBundle(t, bundleDir2, "test-svc", "2.0.0", "dependencies:\n  - name: dep\n    ref: ./dep\n")
+	writeBundle(t, bundleDir2, "test-svc", "2.0.0", "dependencies:\n  - name: dep\n    ref: "+depDir+"\n")
 
 	res, err := c.Svc.Diff(c.Ctx, app.DiffOptions{OldPath: bundleDir, NewPath: bundleDir2})
 	if err != nil {
@@ -552,7 +564,7 @@ func TestDiffColorsUsed(t *testing.T) {
 	}
 	// The v2 bundle adds a dependency the v1 bundle does not have, so the added
 	// colouriser must have had something to colour.
-	if !strings.Contains(output, "dep") {
+	if !strings.Contains(output, "dep-svc") {
 		t.Fatalf("the added dependency is not named in the graph changes:\n%s", output)
 	}
 }
@@ -716,5 +728,28 @@ func TestDiffColorsClosures(t *testing.T) {
 	changed := colors.Changed(testString)
 	if changed == "" {
 		t.Error("Changed should not return empty string")
+	}
+}
+
+// TestDispatchVerbReportsALookupFailure covers the screen that is displaying
+// "lookup failed" in its body: answering "nothing selected" there contradicts
+// the page the reader is looking at, and names a cause that is not the cause.
+func TestDispatchVerbReportsALookupFailure(t *testing.T) {
+	c := newLoadedContext(t)
+	d := &detailScreen{ref: fleet.EntityRef{Kind: fleet.KindRevision, Key: "no-such-revision"}}
+
+	cmd, handled := dispatchVerb(c, d, tea.KeyPressMsg{Code: 'v', Text: "v"})
+	if !handled {
+		t.Fatal("v was not routed to the validate verb")
+	}
+	msg, ok := cmd().(statusMsg)
+	if !ok {
+		t.Fatalf("dispatchVerb produced %T, want statusMsg", cmd())
+	}
+	if strings.Contains(msg.text, "nothing selected") {
+		t.Fatalf("a selected row that failed to resolve reported %q", msg.text)
+	}
+	if !strings.Contains(msg.text, "lookup failed") {
+		t.Fatalf("status = %q, want it to name the lookup failure", msg.text)
 	}
 }

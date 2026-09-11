@@ -1,0 +1,527 @@
+package contractview
+
+import (
+	"io/fs"
+	"path"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/trianalab/pacto/v3/pkg/capability"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/openapi"
+	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
+	"github.com/trianalab/pacto/v3/pkg/schemax"
+	"github.com/trianalab/pacto/v3/pkg/skills"
+	"github.com/trianalab/pacto/v3/pkg/validation"
+)
+
+// timeNow is the clock used to derive readiness freshness. It is a variable so
+// tests can pin "now" for deterministic readiness status.
+var timeNow = time.Now
+
+// ServiceFromContract builds a Service summary from a parsed contract.
+func ServiceFromContract(c *contract.Contract, source string) Service {
+	return Service{
+		Name:           c.Service.Name,
+		Version:        c.Service.Version,
+		Owner:          c.Service.Owner,
+		ContractStatus: StatusUnknown,
+		Source:         source,
+	}
+}
+
+// ServiceDetailsFromBundle builds full ServiceDetails from a contract bundle.
+func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDetails {
+	c := bundle.Contract
+
+	svc := &ServiceDetails{
+		Service: ServiceFromContract(c, source),
+	}
+
+	svc.Interfaces = interfacesFromContract(c, bundle.FS)
+	svc.Configurations = configsFromContract(c, bundle.FS)
+	svc.Dependencies = depsFromContract(c)
+	svc.Workload = c.Workload
+	svc.State = stateFromContract(c)
+	svc.Capabilities = capabilitiesFromContract(c)
+	svc.Policies = policiesFromContract(c, bundle.FS)
+	svc.Tools = toolsFromContract(c, bundle.FS)
+	svc.Skills = skillsFromContract(bundle.FS)
+	svc.Docs = docsFromContract(bundle.FS)
+	svc.Readiness = readinessFromContract(c, docPathSet(svc.Docs))
+	svc.Metadata = metadataFromContract(c)
+
+	// Validation
+	if bundle.RawYAML != nil {
+		result := validation.Validate(c, bundle.RawYAML, bundle.FS)
+		svc.Validation = validationInfoFromResult(result)
+		if result.IsValid() {
+			// Valid offline/OCI/local bundle with no runtime evaluation is NotEvaluated,
+			// not Compliant (B8 fix). A reference-only contract declares no workload.
+			if c.Workload == "" {
+				svc.ContractStatus = StatusReference
+			} else {
+				svc.ContractStatus = StatusNotEvaluated
+			}
+		} else {
+			// Structurally invalid bundle.
+			svc.ContractStatus = StatusInvalid
+		}
+	}
+
+	// Compute compliance for non-k8s sources (no conditions available).
+	svc.Compliance = ComputeCompliance(svc.ContractStatus, svc.Conditions)
+
+	// Apply the embedded lockfile (pacto.lock) when the bundle FS carries one.
+	// Since the lock now ships inside the bundle for every source (local, OCI,
+	// cache), this single read surfaces pins and lights up dependency drift
+	// cluster-wide. A nil FS or absent/malformed lock leaves svc untouched.
+	if l, err := lockFromFS(bundle.FS); err == nil {
+		ApplyLock(svc, l)
+	}
+
+	if doc, err := sbom.ParseFromFS(bundle.FS); err == nil {
+		svc.SBOM = doc // nil when the bundle has no SBOM; ParseFromFS returns nil,nil then
+	}
+
+	return svc
+}
+
+// readinessFromContract derives the readiness assessment from the contract's
+// declared readiness section as of now. It returns nil when no readiness is
+// declared, so the dashboard treats readiness as an optional dimension. A check
+// whose evidence is the path of an in-bundle doc (a key in docPaths) gets DocPath
+// set so the UI can render that doc inline.
+func readinessFromContract(c *contract.Contract, docPaths map[string]bool) *ReadinessInfo {
+	eval := readiness.Evaluate(c.Readiness, timeNow())
+	if eval == nil {
+		return nil
+	}
+	info := &ReadinessInfo{
+		Score:         eval.Score,
+		MinScore:      eval.MinScore,
+		TotalWeight:   eval.TotalWeight,
+		EarnedWeight:  eval.EarnedWeight,
+		PartialCredit: eval.PartialCredit,
+		Passing:       eval.Passing,
+		Expires:       eval.Expires,
+		Expired:       eval.Expired,
+		DaysRemaining: eval.DaysRemaining,
+		DoneCount:     eval.DoneCount,
+		PartialCount:  eval.PartialCount,
+		NotDoneCount:  eval.NotDoneCount,
+		DeferredCount: eval.DeferredCount,
+	}
+	for _, ch := range eval.Checks {
+		ci := ReadinessCheckInfo{
+			ID:           ch.ID,
+			Type:         ch.Type,
+			Category:     ch.Category,
+			Status:       ch.Status,
+			Evidence:     ch.Evidence,
+			Description:  ch.Description,
+			Weight:       ch.Weight,
+			EarnedWeight: ch.EarnedWeight,
+			Excluded:     ch.Excluded,
+		}
+		if docPaths[ch.Evidence] {
+			ci.DocPath = ch.Evidence
+		}
+		info.Checks = append(info.Checks, ci)
+	}
+	// Revision history is authored, not derived: copy it straight from the contract.
+	for _, rev := range c.Readiness.History {
+		info.Revisions = append(info.Revisions, ReadinessRevisionInfo{
+			Date:        rev.Date,
+			Version:     rev.Version,
+			Author:      rev.Author,
+			Description: rev.Description,
+		})
+	}
+	return info
+}
+
+// Caps on in-bundle docs surfaced to the dashboard. Vars (not consts) so tests
+// can shrink them. The dashboard is a local read-only tool, so eager inlining
+// with these caps is acceptable.
+var (
+	maxDocBytes      = 256 * 1024  // per-doc cap before truncation
+	maxTotalDocBytes = 1024 * 1024 // total cap across all docs
+	maxDocCount      = 50          // safety cap on number of docs
+)
+
+const docsDir = "docs"
+
+// docsFromContract reads the bundle's docs/**/*.md files (sorted by path),
+// applying per-doc, total, and count caps. Missing docs/ or an unreadable file
+// is skipped rather than failing the whole service.
+func docsFromContract(fsys fs.FS) []DocInfo {
+	if fsys == nil {
+		return nil
+	}
+	var docs []DocInfo
+	total := 0
+	_ = fs.WalkDir(fsys, docsDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // docs/ absent or an unreadable subtree: skip silently
+		}
+		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+			return nil
+		}
+		if len(docs) >= maxDocCount || total >= maxTotalDocBytes {
+			return fs.SkipAll
+		}
+		data, readErr := fs.ReadFile(fsys, p)
+		if readErr != nil {
+			return nil // skip unreadable file
+		}
+		truncated := false
+		if len(data) > maxDocBytes {
+			data = data[:maxDocBytes]
+			truncated = true
+		}
+		if total+len(data) > maxTotalDocBytes {
+			data = data[:maxTotalDocBytes-total]
+			truncated = true
+		}
+		total += len(data)
+		content := string(data)
+		docs = append(docs, DocInfo{
+			Path:      p,
+			Title:     docTitle(content, p),
+			Content:   content,
+			Truncated: truncated,
+		})
+		return nil
+	})
+	return docs
+}
+
+// docTitle returns the first Markdown H1 in content, or a humanized filename.
+func docTitle(content, p string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if t, ok := strings.CutPrefix(strings.TrimSpace(line), "# "); ok {
+			return strings.TrimSpace(t)
+		}
+	}
+	name := strings.TrimSuffix(path.Base(p), path.Ext(p))
+	name = strings.ReplaceAll(name, "-", " ")
+	return strings.ReplaceAll(name, "_", " ")
+}
+
+// docPathSet builds a lookup of the doc paths present in the bundle.
+func docPathSet(docs []DocInfo) map[string]bool {
+	if len(docs) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(docs))
+	for _, d := range docs {
+		set[d.Path] = true
+	}
+	return set
+}
+
+func interfacesFromContract(c *contract.Contract, fsys fs.FS) []InterfaceInfo {
+	var out []InterfaceInfo
+	for _, iface := range c.Interfaces {
+		info := InterfaceInfo{
+			Name:            iface.Name,
+			Type:            iface.Type,
+			Visibility:      iface.Visibility,
+			HasContractFile: iface.Ref != "",
+			ContractFile:    iface.Ref,
+		}
+		if iface.Ref != "" && fsys != nil {
+			if iface.Type == contract.InterfaceTypeOpenAPI {
+				endpoints, err := openapi.ReadOpenAPIEndpoints(fsys, iface.Ref)
+				if err == nil && len(endpoints) > 0 {
+					for _, ep := range endpoints {
+						info.Endpoints = append(info.Endpoints, InterfaceEndpoint{
+							Method:  strings.ToUpper(ep.Method),
+							Path:    ep.Path,
+							Summary: ep.Summary,
+						})
+					}
+				} else {
+					if data, readErr := fs.ReadFile(fsys, iface.Ref); readErr == nil {
+						info.ContractContent = truncateContent(string(data))
+					}
+				}
+			} else {
+				if data, readErr := fs.ReadFile(fsys, iface.Ref); readErr == nil {
+					info.ContractContent = truncateContent(string(data))
+				}
+			}
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
+func capabilitiesFromContract(c *contract.Contract) []CapabilityInfo {
+	var out []CapabilityInfo
+	for _, cap := range c.Capabilities {
+		out = append(out, CapabilityInfo{
+			Type: cap.Type,
+			Ref:  cap.Ref,
+		})
+	}
+	return out
+}
+
+// toolsFromContract derives agent-invocable tool descriptors from every
+// openapi interface's operations. It surfaces all operations (mutating ones
+// flagged); the dashboard only displays them, never invokes. Interface names
+// prefix tool names when more than one openapi interface exists, matching the MCP
+// runtime. k8s-only services (nil FS) yield nothing.
+func toolsFromContract(c *contract.Contract, fsys fs.FS) []CapabilityTool {
+	if fsys == nil {
+		return nil
+	}
+	openapiIfaces := 0
+	for _, iface := range c.Interfaces {
+		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
+			openapiIfaces++
+		}
+	}
+	var out []CapabilityTool
+	for _, iface := range c.Interfaces {
+		if iface.Type != contract.InterfaceTypeOpenAPI || iface.Ref == "" {
+			continue
+		}
+		doc, err := openapi.ReadDoc(fsys, iface.Ref)
+		if err != nil {
+			continue
+		}
+		prefix := ""
+		if openapiIfaces > 1 {
+			prefix = iface.Name + "_"
+		}
+		for _, tool := range capability.BuildTools(doc, true) {
+			summary := tool.Summary
+			if summary == "" {
+				summary = tool.Description
+			}
+			out = append(out, CapabilityTool{
+				Name:     prefix + tool.Name,
+				Method:   tool.Method,
+				Path:     tool.Path,
+				Summary:  summary,
+				Mutating: tool.Mutating,
+			})
+		}
+	}
+	return out
+}
+
+// skillsFromContract reads the bundle's skills/*.md domain-knowledge documents,
+// capping content size and count like docs. skills.List returns validated
+// basenames, so skills.Read cannot fail for them; a zero-value read is harmless.
+func skillsFromContract(fsys fs.FS) []SkillInfo {
+	if fsys == nil {
+		return nil
+	}
+	names, _ := skills.List(fsys)
+	if len(names) > maxDocCount {
+		names = names[:maxDocCount]
+	}
+	out := make([]SkillInfo, 0, len(names))
+	for _, name := range names {
+		content, _ := skills.Read(fsys, name)
+		out = append(out, SkillInfo{Name: name, Content: truncateContent(content)})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func configsFromContract(c *contract.Contract, fsys fs.FS) []ConfigurationInfo {
+	if len(c.Configurations) == 0 {
+		return nil
+	}
+	var out []ConfigurationInfo
+	for _, cfg := range c.Configurations {
+		ci := ConfigurationInfo{
+			Name:      cfg.Name,
+			HasSchema: cfg.Schema != "",
+			Schema:    cfg.Schema,
+			Ref:       cfg.Ref,
+		}
+		if len(cfg.Values) > 0 {
+			ci.Values = schemax.Values(cfg.Values)
+			for k := range cfg.Values {
+				ci.ValueKeys = append(ci.ValueKeys, k)
+			}
+			sort.Strings(ci.ValueKeys)
+		} else if cfg.Schema != "" && fsys != nil {
+			ci.Values = extractSchemaProperties(fsys, cfg.Schema)
+		}
+		out = append(out, ci)
+	}
+	return out
+}
+
+func depsFromContract(c *contract.Contract) []DependencyInfo {
+	var out []DependencyInfo
+	for _, dep := range c.Dependencies {
+		out = append(out, DependencyInfo{
+			Name:          dep.Name,
+			Ref:           dep.Ref,
+			Required:      dep.Required,
+			Compatibility: dep.Compatibility,
+		})
+	}
+	return out
+}
+
+func stateFromContract(c *contract.Contract) *StateInfo {
+	if c.State == nil {
+		return nil
+	}
+	return &StateInfo{
+		Type:                  c.State.Type,
+		PersistenceScope:      c.State.Persistence.Scope,
+		PersistenceDurability: c.State.Persistence.Durability,
+		DataCriticality:       c.State.DataCriticality,
+	}
+}
+
+func policiesFromContract(c *contract.Contract, fsys fs.FS) []PolicyInfo {
+	// If the contract declares policies explicitly, use them.
+	if len(c.Policies) > 0 {
+		var out []PolicyInfo
+		for _, pol := range c.Policies {
+			pi := PolicyInfo{
+				Name:      pol.Name,
+				HasSchema: pol.Schema != "",
+				Schema:    pol.Schema,
+				Ref:       pol.Ref,
+			}
+			if pol.Ref != "" && fsys != nil {
+				enrichPolicyFromFile(&pi, fsys, pol.Ref)
+			}
+			if len(pi.Values) == 0 && pol.Schema != "" && fsys != nil {
+				pi.Values = extractSchemaProperties(fsys, pol.Schema)
+			}
+			if fsys != nil {
+				path := pol.Schema
+				if path == "" {
+					path = pol.Ref
+				}
+				if path != "" {
+					pi.Title, pi.Description = extractSchemaMeta(fsys, path)
+				}
+			}
+			out = append(out, pi)
+		}
+		return out
+	}
+
+	// Auto-detect: bundle ships policy/schema.json but contract has no policies declared.
+	if fsys == nil {
+		return nil
+	}
+	data, err := fs.ReadFile(fsys, validation.PolicySchemaPath)
+	if err != nil {
+		return nil
+	}
+	title, desc := extractSchemaMeta(fsys, validation.PolicySchemaPath)
+	pi := PolicyInfo{
+		Name:        "default",
+		HasSchema:   true,
+		Schema:      validation.PolicySchemaPath,
+		Title:       title,
+		Description: desc,
+		Content:     truncateContent(string(data)),
+		Values:      extractSchemaProperties(fsys, validation.PolicySchemaPath),
+	}
+	if len(pi.Values) == 0 {
+		pi.Values = parseContentAsValues(data, validation.PolicySchemaPath)
+	}
+	return []PolicyInfo{pi}
+}
+
+func enrichPolicyFromFile(pi *PolicyInfo, fsys fs.FS, path string) {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return
+	}
+	pi.Content = truncateContent(string(data))
+	pi.Values = extractSchemaProperties(fsys, path)
+	if len(pi.Values) == 0 {
+		pi.Values = parseContentAsValues(data, path)
+	}
+}
+
+func metadataFromContract(c *contract.Contract) map[string]string {
+	if len(c.Metadata) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(c.Metadata))
+	for k, v := range c.Metadata {
+		if s, ok := v.(string); ok {
+			m[k] = s
+		}
+	}
+	return m
+}
+
+func truncateContent(content string) string {
+	if len(content) > 10240 {
+		return content[:10240] + "\n... (truncated)"
+	}
+	return content
+}
+
+func validationInfoFromResult(r validation.ValidationResult) *ValidationInfo {
+	vi := &ValidationInfo{Valid: r.IsValid()}
+	for _, e := range r.Errors {
+		vi.Errors = append(vi.Errors, ValidationIssue{
+			Code:    e.Code,
+			Path:    e.Path,
+			Message: e.Message,
+		})
+	}
+	for _, w := range r.Warnings {
+		vi.Warnings = append(vi.Warnings, ValidationIssue{
+			Code:    w.Code,
+			Path:    w.Path,
+			Message: w.Message,
+		})
+	}
+	return vi
+}
+
+// parseContentAsValues tries to parse raw file content as YAML/JSON key-value pairs.
+func parseContentAsValues(data []byte, path string) []ConfigValue {
+	// Reuse the OpenAPI spec parser's unmarshal logic: JSON for .json, YAML otherwise.
+	spec, err := openapi.UnmarshalSpec(data, path)
+	if err != nil || len(spec) == 0 {
+		return nil
+	}
+	return schemax.Values(spec)
+}
+
+// extractSchemaMeta reads title and description from a JSON Schema file in the
+// bundle FS. Extraction itself lives in pkg/schemax so the operator produces
+// identical results from the same bundle.
+func extractSchemaMeta(fsys fs.FS, path string) (title, description string) {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return "", ""
+	}
+	return schemax.Meta(data, path)
+}
+
+// extractSchemaProperties reads a JSON Schema file from the bundle FS and
+// extracts its flattened properties (shared with the operator via pkg/schemax).
+func extractSchemaProperties(fsys fs.FS, path string) []ConfigValue {
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return nil
+	}
+	return schemax.Properties(data, path)
+}

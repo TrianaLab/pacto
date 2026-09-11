@@ -20,7 +20,6 @@ type UpdateResult struct {
 
 // Testability hooks.
 var (
-	osExecutable  = os.Executable
 	runtimeGOOS   = runtime.GOOS
 	runtimeGOARCH = runtime.GOARCH
 	osChmod       = os.Chmod
@@ -30,9 +29,9 @@ var (
 
 // Update downloads and installs the specified version of pacto.
 // If targetVersion is empty, it fetches the latest release.
-func Update(currentVersion, targetVersion string) (*UpdateResult, error) {
+func (u *Updater) Update(currentVersion, targetVersion string) (*UpdateResult, error) {
 	if targetVersion == "" {
-		latest, err := fetchLatestVersion()
+		latest, err := u.fetchLatestVersion()
 		if err != nil {
 			return nil, fmt.Errorf("failed to determine latest version: %w", err)
 		}
@@ -45,24 +44,24 @@ func Update(currentVersion, targetVersion string) (*UpdateResult, error) {
 	}
 
 	// Validate the release exists
-	if err := validateRelease(targetVersion); err != nil {
+	if err := u.validateRelease(targetVersion); err != nil {
 		return nil, err
 	}
 
 	// Fetch the published checksums so the downloaded binary can be verified
 	// before it replaces the running executable (supply-chain integrity).
-	expected, err := expectedChecksum(checksumsURL("TrianaLab/pacto", targetVersion), binaryAssetName())
+	expected, err := u.expectedChecksum(u.checksumsURL("TrianaLab/pacto", targetVersion), binaryAssetName())
 	if err != nil {
 		return nil, err
 	}
 
 	// Download, verify, and replace the binary.
-	if err := downloadAndReplace(buildDownloadURL(targetVersion), expected); err != nil {
+	if err := u.downloadAndReplace(u.buildDownloadURL(targetVersion), expected); err != nil {
 		return nil, err
 	}
 
 	// Update cache so notification isn't shown
-	WriteCacheAfterUpdate(targetVersion)
+	writeCache(cachePath(), targetVersion)
 
 	return &UpdateResult{
 		PreviousVersion: currentVersion,
@@ -72,8 +71,8 @@ func Update(currentVersion, targetVersion string) (*UpdateResult, error) {
 
 // downloadAndReplace downloads the binary, verifies it against expectedSHA256,
 // and atomically replaces the current executable.
-func downloadAndReplace(downloadURL, expectedSHA256 string) error {
-	execPath, err := osExecutable()
+func (u *Updater) downloadAndReplace(downloadURL, expectedSHA256 string) error {
+	execPath, err := u.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to determine executable path: %w", err)
 	}
@@ -82,14 +81,14 @@ func downloadAndReplace(downloadURL, expectedSHA256 string) error {
 		return fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 
-	return downloadAndInstall(downloadURL, execPath, expectedSHA256)
+	return u.downloadAndInstall(downloadURL, execPath, expectedSHA256)
 }
 
 // downloadAndInstall downloads a binary, verifies its SHA-256 against
 // expectedSHA256, and atomically replaces the file at targetPath. The integrity
 // check happens BEFORE the file is made executable or swapped in, so a
 // corrupted, truncated, or tampered download is never installed.
-func downloadAndInstall(downloadURL, targetPath, expectedSHA256 string) error {
+func (u *Updater) downloadAndInstall(downloadURL, targetPath, expectedSHA256 string) error {
 	// Download to temp file in the same directory (ensures same filesystem for atomic rename)
 	tmpFile, err := os.CreateTemp(filepath.Dir(targetPath), "pacto-update-*")
 	if err != nil {
@@ -100,7 +99,7 @@ func downloadAndInstall(downloadURL, targetPath, expectedSHA256 string) error {
 		_ = os.Remove(tmpPath) // Clean up temp file on any error
 	}()
 
-	if err := downloadBinary(downloadURL, tmpFile); err != nil {
+	if err := u.downloadBinary(downloadURL, tmpFile); err != nil {
 		_ = tmpFile.Close()
 		return err
 	}
@@ -165,14 +164,14 @@ func binaryAssetName() string {
 }
 
 // checksumsURL returns the URL of the checksums.txt asset for a release.
-func checksumsURL(repo, tag string) string {
-	return fmt.Sprintf("%s/%s/releases/download/%s/checksums.txt", githubDownloadURL, repo, tag)
+func (u *Updater) checksumsURL(repo, tag string) string {
+	return fmt.Sprintf("%s/%s/releases/download/%s/checksums.txt", u.DownloadBaseURL, repo, tag)
 }
 
 // expectedChecksum fetches the release checksums and returns the expected
 // SHA-256 for assetName, failing closed if it is absent.
-func expectedChecksum(url, assetName string) (string, error) {
-	sums, err := fetchChecksums(url)
+func (u *Updater) expectedChecksum(url, assetName string) (string, error) {
+	sums, err := u.fetchChecksums(url)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch release checksums: %w", err)
 	}
@@ -185,12 +184,12 @@ func expectedChecksum(url, assetName string) (string, error) {
 
 // fetchChecksums downloads and parses a sha256sum-format checksums file into a
 // map of asset name -> hex digest.
-func fetchChecksums(url string) (map[string]string, error) {
+func (u *Updater) fetchChecksums(url string) (map[string]string, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := httpClient.Do(req)
+	resp, err := u.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -221,15 +220,15 @@ func parseChecksums(s string) map[string]string {
 }
 
 // validateRelease checks that a release with the given tag exists on GitHub.
-func validateRelease(tag string) error {
-	url := fmt.Sprintf("%s/repos/TrianaLab/pacto/releases/tags/%s", githubAPIBaseURL, tag)
+func (u *Updater) validateRelease(tag string) error {
+	url := fmt.Sprintf("%s/repos/TrianaLab/pacto/releases/tags/%s", u.APIBaseURL, tag)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := u.Client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to check release: %w", err)
 	}
@@ -246,23 +245,23 @@ func validateRelease(tag string) error {
 }
 
 // buildDownloadURL constructs the download URL for the platform binary.
-func buildDownloadURL(tag string) string {
+func (u *Updater) buildDownloadURL(tag string) string {
 	return fmt.Sprintf(
 		"%s/TrianaLab/pacto/releases/download/%s/%s",
-		githubDownloadURL, tag, binaryAssetName(),
+		u.DownloadBaseURL, tag, binaryAssetName(),
 	)
 }
 
 // downloadBinary downloads the binary from the given URL into the writer using
 // the long-timeout download client (not the short API client), and verifies the
 // number of bytes received against Content-Length to detect truncation.
-func downloadBinary(downloadURL string, w io.Writer) error {
+func (u *Updater) downloadBinary(downloadURL string, w io.Writer) error {
 	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create download request: %w", err)
 	}
 
-	resp, err := downloadClient.Do(req)
+	resp, err := u.DownloadClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to download binary: %w", err)
 	}

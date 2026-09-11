@@ -11,9 +11,9 @@ import (
 
 // cmdMembers runs a container command — the value tea.Batch or tea.Sequence
 // hands back — and returns the commands it carries. Only the container is run
-// here: firing a leaf is what the caller is testing, and the spinner tick
-// sleeps. Both containers carry a []tea.Cmd but only BatchMsg is exported, so
-// the match is on the shape rather than on the type.
+// here: firing a leaf is what the caller is testing, and a leaf may block. Both
+// containers carry a []tea.Cmd but only BatchMsg is exported, so the match is on
+// the shape rather than on the type.
 func cmdMembers(t *testing.T, cmd tea.Cmd) []tea.Cmd {
 	t.Helper()
 	msg := cmd()
@@ -29,7 +29,7 @@ func cmdMembers(t *testing.T, cmd tea.Cmd) []tea.Cmd {
 }
 
 // readVerbPush and readVerbWorker unwrap what runRead returns, which is
-// Sequence(push, Batch(tick, worker)).
+// Sequence(push, worker).
 func readVerbPush(t *testing.T, cmd tea.Cmd) tea.Cmd {
 	t.Helper()
 	return cmdMembers(t, cmd)[0]
@@ -38,8 +38,7 @@ func readVerbPush(t *testing.T, cmd tea.Cmd) tea.Cmd {
 func readVerbWorker(t *testing.T, cmd tea.Cmd) tea.Cmd {
 	t.Helper()
 	seq := cmdMembers(t, cmd)
-	batch := cmdMembers(t, seq[len(seq)-1])
-	return batch[len(batch)-1]
+	return seq[len(seq)-1]
 }
 
 // testServiceName is the service the test fixture bundle declares.

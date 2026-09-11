@@ -18,11 +18,26 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+// A sub-component is registered with mgr.Add as a plain manager.Runnable, so no
+// controller-runtime machinery ever calls it or reads a ctrl.Result back from it.
+// Wearing the reconcile.Reconciler shape anyway advertises a requeue policy that
+// nothing honours.
+func TestReconciler_IsRunnableNotReconciler(t *testing.T) {
+	var r any = &Reconciler{}
+	if _, ok := r.(manager.Runnable); !ok {
+		t.Error("must implement manager.Runnable: cmd/main.go registers it with mgr.Add")
+	}
+	if _, ok := r.(reconcile.Reconciler); ok {
+		t.Error("implements reconcile.Reconciler, but nothing reads the ctrl.Result it returns")
+	}
+}
 
 func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
@@ -38,10 +53,14 @@ func newReconciler(cfg Config, objs ...client.Object) *Reconciler {
 	if len(objs) > 0 {
 		builder = builder.WithObjects(objs...)
 	}
+	c := builder.Build()
 	return &Reconciler{
-		Client: builder.Build(),
-		Scheme: scheme,
-		Config: cfg,
+		Client: c,
+		// The fake client is uncached, so it doubles as the APIReader that
+		// cmd/main.go wires to mgr.GetAPIReader() in production.
+		APIReader: c,
+		Scheme:    scheme,
+		Config:    cfg,
 	}
 }
 
@@ -49,14 +68,10 @@ func TestReconcile_Disabled_NoResources(t *testing.T) {
 	r := newReconciler(Config{Enabled: false, Namespace: "test-ns"})
 	ctx := context.Background()
 
-	result, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
-	}
-
 	// Verify no resources were created
 	assertResourceNotFound(t, r.Client, ctx, &appsv1.Deployment{})
 	assertResourceNotFound(t, r.Client, ctx, &corev1.Service{})
@@ -74,14 +89,10 @@ func TestReconcile_Enabled_CreatesResources(t *testing.T) {
 	r := newReconciler(cfg)
 	ctx := context.Background()
 
-	result, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter == 0 {
-		t.Error("expected requeue when enabled")
-	}
-
 	// Verify all resources exist
 	assertResourceExists(t, r.Client, ctx, client.ObjectKey{Namespace: "test-ns", Name: Name}, &corev1.ServiceAccount{})
 	assertResourceExists(t, r.Client, ctx, client.ObjectKey{Name: Name}, &rbacv1.ClusterRole{})
@@ -120,7 +131,7 @@ func TestReconcile_Enabled_UpdatesExistingResources(t *testing.T) {
 	)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,14 +164,10 @@ func TestReconcile_DisabledAfterEnabled_CleansUp(t *testing.T) {
 	// Now disable the dashboard
 	r.Config.Enabled = false
 
-	result, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected no requeue when disabled, got %v", result.RequeueAfter)
-	}
-
 	// Verify all resources were cleaned up
 	assertResourceNotFound(t, r.Client, ctx, &appsv1.Deployment{})
 	assertResourceNotFound(t, r.Client, ctx, &corev1.Service{})
@@ -187,7 +194,7 @@ func TestReconcile_Cleanup_SkipsUnmanagedResources(t *testing.T) {
 	r := newReconciler(cfg, unmanagedSvc)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -204,7 +211,7 @@ func TestReconcile_Cleanup_NoErrorWhenNoResources(t *testing.T) {
 	r := newReconciler(Config{Enabled: false, Namespace: "test-ns"})
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("cleanup with no existing resources should not error: %v", err)
 	}
@@ -238,7 +245,7 @@ func TestReconcile_PreservesExternalLabelsAndAnnotations(t *testing.T) {
 	)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -276,13 +283,13 @@ func TestReconcile_Idempotent(t *testing.T) {
 	ctx := context.Background()
 
 	// First reconcile
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("first reconcile failed: %v", err)
 	}
 
 	// Second reconcile (should be idempotent)
-	_, err = r.Reconcile(ctx, ctrl.Request{})
+	err = r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("second reconcile failed: %v", err)
 	}
@@ -342,7 +349,7 @@ func TestReconcile_OCISecret_CreatesManagedSecret(t *testing.T) {
 	r := newReconciler(cfg, srcSecret)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -381,7 +388,7 @@ func TestReconcile_OCISecrets_CreatesManagedSecret(t *testing.T) {
 	r := newReconciler(cfg, s1, s2)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -402,7 +409,7 @@ func TestReconcile_NoOCISecrets_NoManagedSecret(t *testing.T) {
 	r := newReconciler(cfg)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -433,7 +440,7 @@ func TestReconcile_NoOCISecrets_CleansUpManagedSecret(t *testing.T) {
 	r := newReconciler(cfg, oldManaged)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -455,7 +462,7 @@ func TestReconcile_OCISecret_MissingSourceSecret(t *testing.T) {
 	r := newReconciler(cfg)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err == nil {
 		t.Fatal("expected error when source secret is missing")
 	}
@@ -480,10 +487,10 @@ func TestReconcile_OCICredentials_CleanupGetError(t *testing.T) {
 			},
 		}).Build()
 
-	r := &Reconciler{Client: fakeClient, Scheme: scheme, Config: cfg}
+	r := &Reconciler{Client: fakeClient, APIReader: fakeClient, Scheme: scheme, Config: cfg}
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err == nil {
 		t.Fatal("expected error from cleanup Get failure")
 	}
@@ -507,7 +514,7 @@ func TestReconcile_OCICredentials_MergeError(t *testing.T) {
 	r := newReconciler(cfg, badSecret)
 	ctx := context.Background()
 
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err == nil {
 		t.Fatal("expected error when MergeToDockerConfigJSON fails")
 	}
@@ -541,7 +548,7 @@ func TestReconcile_Cleanup_IncludesManagedSecret(t *testing.T) {
 
 	// Disable and reconcile
 	r.Config.Enabled = false
-	_, err := r.Reconcile(ctx, ctrl.Request{})
+	err := r.Sync(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

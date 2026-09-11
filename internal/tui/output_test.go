@@ -183,18 +183,6 @@ func TestOutputResizeMinimumHeight(t *testing.T) {
 	}
 }
 
-func TestOutputHandlesSpinnerTick(t *testing.T) {
-	c := newLoadedContext(t)
-	o := newOutputScreen("Test")
-	next, cmd := o.Update(c, o.sp.Tick())
-	if next != o {
-		t.Fatal("spinner tick changed the screen")
-	}
-	if cmd == nil {
-		t.Fatal("spinner tick produced no command, want next tick")
-	}
-}
-
 func TestOutputDelegatesToViewport(t *testing.T) {
 	c := newLoadedContext(t)
 	o := newOutputScreen("Test")
@@ -222,5 +210,48 @@ func TestOutputViewBeforeUpdate(t *testing.T) {
 	}
 	if !strings.Contains(view, "running") {
 		t.Fatalf("View before any Update does not show running status:\n%s", view)
+	}
+}
+
+// TestOutputPaneStopsAnimatingWhenTheRunEnds is the whole point of routing the
+// pane through the root clock: a finished pane left on screen must schedule no
+// further frames. It used to re-arm a spinner.TickMsg unconditionally, so it
+// repainted the joined buffer at 10 FPS for as long as the reader left it up.
+func TestOutputPaneStopsAnimatingWhenTheRunEnds(t *testing.T) {
+	c := newLoadedContext(t)
+	c.Anim = true
+	o := newOutputScreen("Validate")
+	if !o.animating(c) {
+		t.Fatal("a running pane has a spinner to turn")
+	}
+	next, cmd := o.Update(c, outputDoneMsg{id: o.id})
+	if cmd != nil {
+		t.Fatalf("the pane scheduled its own frame: %T", cmd())
+	}
+	if next.(*outputScreen).animating(c) {
+		t.Fatal("a finished pane still asks for frames")
+	}
+}
+
+// TestOutputPaneObeysTheAnimationSwitch covers the second half of the same fix:
+// the spinner is drawn from Context.Frame, so --no-anim reaches it like it
+// reaches every other screen.
+func TestOutputPaneObeysTheAnimationSwitch(t *testing.T) {
+	c := newLoadedContext(t)
+	o := newOutputScreen("Validate")
+
+	c.Anim = false
+	if got := o.View(c); strings.Contains(got, spinnerAt(0)) {
+		t.Fatalf("the pane spun with animation off:\n%s", got)
+	}
+
+	c.Anim = true
+	first := o.View(c)
+	if !strings.Contains(first, spinnerAt(c.Frame)) {
+		t.Fatalf("the pane did not draw the shared spinner glyph:\n%s", first)
+	}
+	c.Frame++
+	if second := o.View(c); second == first {
+		t.Fatal("the pane rendered an identical frame after the clock advanced")
 	}
 }

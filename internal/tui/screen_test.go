@@ -42,19 +42,11 @@ func TestLoadingScreenTitle(t *testing.T) {
 	}
 }
 
-func TestLoadingScreenViewWithoutNote(t *testing.T) {
+func TestLoadingScreenViewWithoutAnimation(t *testing.T) {
 	l := loadingScreen{}
 	v := l.View(&Context{Width: 80})
 	if !strings.Contains(v, "Building the fleet snapshot") {
 		t.Fatalf("View() = %q, want the base message", v)
-	}
-}
-
-func TestLoadingScreenViewWithNote(t *testing.T) {
-	l := loadingScreen{note: "test note"}
-	v := l.View(&Context{Width: 80})
-	if !strings.Contains(v, "Building the fleet snapshot") || !strings.Contains(v, "test note") {
-		t.Fatalf("View() = %q, want the base message and the note", v)
 	}
 }
 
@@ -102,34 +94,15 @@ func TestLoadingScreenViewNarrow(t *testing.T) {
 	}
 }
 
-func TestLoadingScreenUpdateWithDepResolvedMsg(t *testing.T) {
+// TestLoadingScreenUpdateIsInert covers the whole of Update: the screen is up
+// only until the first snapshot lands, so there is no message it can act on.
+func TestLoadingScreenUpdateIsInert(t *testing.T) {
 	l := loadingScreen{}
-	c := &Context{}
-	next, cmd := l.Update(c, depResolvedMsg{id: 0})
+	next, cmd := l.Update(&Context{}, tea.WindowSizeMsg{})
 	if cmd != nil {
-		t.Fatal("Update with depResolvedMsg returned a command, want nil")
+		t.Fatal("Update returned a command, want nil")
 	}
-	nextLoading, ok := next.(loadingScreen)
-	if !ok {
+	if _, ok := next.(loadingScreen); !ok {
 		t.Fatalf("Update returned %T, want loadingScreen", next)
-	}
-	if nextLoading.note != "resolved a dependency" {
-		t.Fatalf("note = %q, want %q", nextLoading.note, "resolved a dependency")
-	}
-}
-
-func TestLoadingScreenUpdateWithOtherMsg(t *testing.T) {
-	l := loadingScreen{note: "existing"}
-	c := &Context{}
-	next, cmd := l.Update(c, tea.WindowSizeMsg{})
-	if cmd != nil {
-		t.Fatal("Update with other msg returned a command, want nil")
-	}
-	nextLoading, ok := next.(loadingScreen)
-	if !ok {
-		t.Fatalf("Update returned %T, want loadingScreen", next)
-	}
-	if nextLoading.note != "existing" {
-		t.Fatal("note was modified on unhandled message")
 	}
 }

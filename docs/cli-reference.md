@@ -120,8 +120,8 @@ pacto completion [flags]
 
 ## `pacto dashboard`
 
-Launches an operational dashboard that aggregates data from all
-available sources (local filesystem, Kubernetes, OCI registries).
+Launches an operational dashboard over the fleet snapshot: the same
+operational graph the CLI's `pacto fleet` commands query, served as a web UI.
 
 The dashboard is the exploration and observability layer of the Pacto system.
 It visualizes the same contracts the CLI manages and the operator verifies,
@@ -134,24 +134,18 @@ Each positional argument is a pacto source reference:
 
 When no arguments are given, sources are auto-detected:
   - local: enabled if pacto.yaml is found in the working directory
-  - k8s:   enabled if a valid kubeconfig is found and the cluster is reachable
-  - oci:   auto-discovered from K8s status.contract.resolvedRef, or via PACTO_DASHBOARD_REPO env var
+  - cache: enabled if the OCI bundle cache (~/.cache/pacto/oci) holds bundles
+  - k8s:   enabled if a kubeconfig or in-cluster config resolves
+  - oci:   from the positional arguments, the PACTO_DASHBOARD_REPO env var, or
+           the status.contract.resolvedRef of the cluster's Pacto resources
 
-Materialized bundles on disk (~/.cache/pacto/oci) are used internally by the
-OCI source to enrich version data (hash, classification, timestamps) without
-appearing as a separate source. The --no-cache flag skips pre-existing cache
-at startup but still allows same-session materialization (e.g. fetch-all-versions).
+When running alongside the Kubernetes operator, OCI repositories are
+automatically discovered from the status.contract.resolvedRef fields of Pacto
+CRD resources, on every refresh rather than once at startup. That gives a hybrid
+view: runtime truth from the operator combined with contract truth from OCI.
 
-When running alongside the Kubernetes operator, OCI repositories are automatically
-discovered from the status.contract.resolvedRef fields of Pacto CRD resources. This provides full
-contract bundles, version history, interfaces, and diffs — without needing
-explicit OCI arguments. The result is a hybrid view: runtime truth from the
-operator combined with contract truth from OCI.
-
-Services are grouped by name across sources and merged using priority rules:
-  - Kubernetes for runtime state (contract status, checks, endpoints)
-  - OCI for contract content and version history
-  - Local for in-progress contract changes
+Every source contributes to one snapshot, rebuilt in the background, and each
+answer carries the as-of time and the completeness of the sources behind it.
 
 ```
 pacto dashboard [sources...] [flags]
@@ -183,7 +177,6 @@ pacto dashboard [sources...] [flags]
 
 ```
       --cors-origin string         explicit cross-origin allowed to call the API (default: same-origin only)
-      --diagnostics                enable source diagnostics panel in the dashboard UI
   -h, --help                       help for dashboard
       --host string                bind address for the dashboard server (default "127.0.0.1")
       --namespace string           Kubernetes namespace (empty = all namespaces)
@@ -676,16 +669,21 @@ pacto impact <old> <new> [flags]
 **Flags:**
 
 ```
+      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --freshness duration         mark target evidence older than this as stale (0 disables)
   -h, --help                       help for impact
       --include-observed           let observed (runtime) relationships raise consumer confidence
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --new-set stringArray        set a value on the new contract (e.g. --new-set service.version=2.0.0)
       --new-values stringArray     values file to merge into the new contract (can be repeated)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --old-set stringArray        set a value on the old contract (e.g. --old-set service.version=1.0.0)
       --old-values stringArray     values file to merge into the old contract (can be repeated)
       --root stringArray           contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
       --traces string              OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
 ```
 
@@ -838,6 +836,8 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server instead exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so a registry tag that moves later does not change the session. Roots that do not resolve stay visible as partial knowledge. Discovery is not authorization and nothing in the catalog executes.
 
+With --fleet, the server instead exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags — --local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose that snapshot and are read in --fleet mode only.
+
 A bundle reference, --root and --fleet select different servers and cannot be combined.
 
 ```
@@ -870,19 +870,19 @@ pacto mcp [bundle-ref] [flags]
       --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
       --auth stringArray           credential for a security scheme as name=value (repeatable)
       --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --cache                      include the local OCI cache as offline baseline revisions (--fleet)
-      --evidence-url stringArray   base URL of an Evidence Server to consume over HTTP for --fleet (repeatable)
+      --cache                      include every bundle in the local OCI cache as an offline baseline revision
+      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --fleet                      expose read-only operational-graph (fleet) query tools
-      --freshness duration         mark target evidence older than this as stale (--fleet)
+      --freshness duration         mark target evidence older than this as stale (0 disables)
   -h, --help                       help for mcp
-      --k8s                        include live Pacto CRs from the current Kubernetes cluster (--fleet)
-      --local stringArray          local bundle root(s) for --fleet (repeatable) (default [.])
-      --namespace string           namespace for --k8s (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision for --fleet (repeatable)
+      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
       --port int                   port for HTTP transport (default 8585)
       --root stringArray           contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) for --fleet — a demo/test adapter (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges for --fleet (repeatable)
+      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
   -t, --transport string           transport type: stdio or http (default "stdio")
 ```
 

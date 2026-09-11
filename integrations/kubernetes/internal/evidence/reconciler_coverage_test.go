@@ -20,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -32,10 +31,14 @@ func newReconcilerWithInterceptors(cfg Config, funcs interceptor.Funcs, objs ...
 	if len(objs) > 0 {
 		builder = builder.WithObjects(objs...)
 	}
+	c := builder.Build()
 	return &Reconciler{
-		Client: builder.Build(),
-		Scheme: scheme,
-		Config: cfg,
+		Client: c,
+		// The fake client is uncached, so it doubles as the APIReader that
+		// cmd/main.go wires to mgr.GetAPIReader() in production.
+		APIReader: c,
+		Scheme:    scheme,
+		Config:    cfg,
 	}
 }
 
@@ -51,7 +54,7 @@ func TestEnsureNamespace_GetNonNotFoundError(t *testing.T) {
 		},
 	})
 
-	_, err := r.Reconcile(context.Background(), ctrl.Request{})
+	err := r.Sync(context.Background())
 	if err == nil {
 		t.Fatal("expected error from ensureNamespace Get failure")
 	}
@@ -71,7 +74,7 @@ func TestReconcile_DeploymentApplyError(t *testing.T) {
 			return c.Apply(ctx, obj, opts...)
 		},
 	})
-	_, err := r.Reconcile(context.Background(), ctrl.Request{})
+	err := r.Sync(context.Background())
 	if err == nil || !containsString(err.Error(), "deployment: simulated deploy apply error") {
 		t.Fatalf("expected wrapped deployment error, got: %v", err)
 	}
@@ -86,7 +89,7 @@ func TestReconcile_ServiceApplyError(t *testing.T) {
 			return c.Apply(ctx, obj, opts...)
 		},
 	})
-	_, err := r.Reconcile(context.Background(), ctrl.Request{})
+	err := r.Sync(context.Background())
 	if err == nil || !containsString(err.Error(), "service: simulated svc apply error") {
 		t.Fatalf("expected wrapped service error, got: %v", err)
 	}
@@ -103,15 +106,12 @@ func TestCleanup_GetNonNotFoundError(t *testing.T) {
 			return c.Get(ctx, key, obj, opts...)
 		},
 	})
-	result, err := r.Reconcile(context.Background(), ctrl.Request{})
+	err := r.Sync(context.Background())
 	if err == nil {
 		t.Fatal("expected error from cleanup Get failure")
 	}
 	if got := err.Error(); got != "failed to get Service: simulated cleanup get error" {
 		t.Errorf("unexpected error: %s", got)
-	}
-	if result.RequeueAfter == 0 {
-		t.Error("expected RequeueAfter set on cleanup failure")
 	}
 }
 
@@ -124,7 +124,7 @@ func TestCleanup_DeleteError(t *testing.T) {
 		},
 	}, managedService("test-ns"))
 
-	_, err := r.Reconcile(context.Background(), ctrl.Request{})
+	err := r.Sync(context.Background())
 	if err == nil {
 		t.Fatal("expected error from cleanup Delete failure")
 	}
@@ -156,12 +156,9 @@ func TestCleanup_APIReaderForbidden_Tolerated(t *testing.T) {
 		Config:    Config{Enabled: false, Namespace: "test-ns"},
 	}
 
-	result, err := r.Reconcile(context.Background(), ctrl.Request{})
+	err := r.Sync(context.Background())
 	if err != nil {
 		t.Fatalf("forbidden cleanup read should be tolerated, got: %v", err)
-	}
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected no requeue when disabled, got %v", result.RequeueAfter)
 	}
 }
 
@@ -174,12 +171,9 @@ func TestReconcile_Disabled_CleanupError(t *testing.T) {
 		},
 	}, managedDeployment("test-ns"))
 
-	result, err := r.Reconcile(context.Background(), ctrl.Request{})
+	err := r.Sync(context.Background())
 	if err == nil {
 		t.Fatal("expected error when cleanup fails")
-	}
-	if result.RequeueAfter == 0 {
-		t.Error("expected RequeueAfter set on cleanup failure")
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/contractview"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/sbom"
 	"github.com/trianalab/pacto/v3/pkg/schemax"
@@ -15,10 +15,10 @@ import (
 // ── Task 4: header / overview / runtime ────────────────────────────────
 
 func TestGenerate_HeaderOverviewRuntime(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service:  dashboard.Service{Name: "svc", Version: "1.2.0", ContractStatus: dashboard.StatusCompliant},
+	d := &contractview.ServiceDetails{
+		Service:  contractview.Service{Name: "svc", Version: "1.2.0", ContractStatus: contractview.StatusCompliant},
 		Workload: "service",
-		State:    &dashboard.StateInfo{Type: "stateless", DataCriticality: "low"},
+		State:    &contractview.StateInfo{Type: "stateless", DataCriticality: "low"},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -34,15 +34,15 @@ func TestGenerate_HeaderOverviewRuntime(t *testing.T) {
 // ── Task 5: interfaces / configuration / policies ──────────────────────
 
 func TestGenerate_InterfacesConfigPolicies(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Interfaces: []dashboard.InterfaceInfo{{
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
+		Interfaces: []contractview.InterfaceInfo{{
 			Name: "api", Type: "openapi", Visibility: "public",
-			Endpoints: []dashboard.InterfaceEndpoint{{Method: "get", Path: "/things", Summary: "list"}},
+			Endpoints: []contractview.InterfaceEndpoint{{Method: "get", Path: "/things", Summary: "list"}},
 		}},
-		Configurations: []dashboard.ConfigurationInfo{{Name: "app", HasSchema: true,
+		Configurations: []contractview.ConfigurationInfo{{Name: "app", HasSchema: true,
 			Values: []schemax.Property{{Key: "timeout", Value: "30s", Type: "string"}}}},
-		Policies: []dashboard.PolicyInfo{{Name: "org", Ref: "oci://ghcr.io/acme/policy:1"}},
+		Policies: []contractview.PolicyInfo{{Name: "org", Ref: "oci://ghcr.io/acme/policy:1"}},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -61,13 +61,13 @@ func TestGenerate_InterfacesConfigPolicies(t *testing.T) {
 // ── Task 6: dependencies / readiness / SBOM / lock / docs / metadata ────
 
 func TestGenerate_DepsReadinessSbomLockDocs(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service:      dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Dependencies: []dashboard.DependencyInfo{{Name: "db", Ref: "oci://ghcr.io/acme/db:2", Required: true, Compatibility: "^2.0.0", LockedVersion: "2.1.0"}},
-		Readiness:    &dashboard.ReadinessInfo{Score: 82, MinScore: 70, Expires: "2026-12-31", Checks: []dashboard.ReadinessCheckInfo{{ID: "runbook", Status: "done", Weight: 10}}},
+	d := &contractview.ServiceDetails{
+		Service:      contractview.Service{Name: "svc", Version: "1.0.0"},
+		Dependencies: []contractview.DependencyInfo{{Name: "db", Ref: "oci://ghcr.io/acme/db:2", Required: true, Compatibility: "^2.0.0", LockedVersion: "2.1.0"}},
+		Readiness:    &contractview.ReadinessInfo{Score: 82, MinScore: 70, Expires: "2026-12-31", Checks: []contractview.ReadinessCheckInfo{{ID: "runbook", Status: "done", Weight: 10}}},
 		SBOM:         &sbom.Document{Format: "spdx", Packages: []sbom.Package{{Name: "libfoo", Version: "1.2.3", License: "MIT"}}},
-		Lock:         &dashboard.LockInfo{Present: true, RootDigest: "sha256:abc", Dependencies: []dashboard.LockDepInfo{{Name: "db", Version: "2.1.0", Digest: "sha256:def"}}},
-		Docs:         []dashboard.DocInfo{{Path: "docs/runbook.md", Title: "Runbook", Content: "steps here"}},
+		Lock:         &contractview.LockInfo{Present: true, RootDigest: "sha256:abc", Dependencies: []contractview.LockDepInfo{{Name: "db", Version: "2.1.0", Digest: "sha256:def"}}},
+		Docs:         []contractview.DocInfo{{Path: "docs/runbook.md", Title: "Runbook", Content: "steps here"}},
 		Metadata:     map[string]string{"team": "core"},
 	}
 	md, err := Generate(d, nil)
@@ -87,53 +87,53 @@ func TestGenerate_DepsReadinessSbomLockDocs(t *testing.T) {
 
 // ── Comprehensive snapshot (no graph) ──────────────────────────────────
 
-func fullSnapshot() *dashboard.ServiceDetails {
+func fullSnapshot() *contractview.ServiceDetails {
 	score := 90
-	return &dashboard.ServiceDetails{
-		Service: dashboard.Service{
+	return &contractview.ServiceDetails{
+		Service: contractview.Service{
 			Name:           "payments-api",
 			Version:        "2.1.0",
 			Owner:          contract.Owner{Team: "team/payments"},
-			ContractStatus: dashboard.StatusCompliant,
+			ContractStatus: contractview.StatusCompliant,
 		},
-		Compliance: &dashboard.ComplianceInfo{Status: dashboard.ComplianceOK, Score: &score},
+		Compliance: &contractview.ComplianceInfo{Status: contractview.ComplianceOK, Score: &score},
 		Workload:   "service",
-		State: &dashboard.StateInfo{
+		State: &contractview.StateInfo{
 			Type:                  "stateful",
 			DataCriticality:       "high",
 			PersistenceScope:      "shared",
 			PersistenceDurability: "persistent",
 		},
-		Capabilities: []dashboard.CapabilityInfo{
+		Capabilities: []contractview.CapabilityInfo{
 			{Type: "health"},
 			{Type: "metrics"},
 		},
-		Interfaces: []dashboard.InterfaceInfo{
+		Interfaces: []contractview.InterfaceInfo{
 			{Name: "api", Type: "openapi", Visibility: "public",
-				Endpoints: []dashboard.InterfaceEndpoint{
+				Endpoints: []contractview.InterfaceEndpoint{
 					{Method: "get", Path: "/health", Summary: "Health check"},
 					{Method: "post", Path: "/payments"},
 				}},
 			{Name: "events", Type: "asyncapi"},
 		},
-		Configurations: []dashboard.ConfigurationInfo{
+		Configurations: []contractview.ConfigurationInfo{
 			{Name: "default", HasSchema: true, Values: []schemax.Property{{Key: "PORT", Value: "8080", Type: "integer"}}},
 		},
-		Policies: []dashboard.PolicyInfo{
+		Policies: []contractview.PolicyInfo{
 			{Name: "local", Schema: "policy/schema.json"},
 			{Name: "platform", Ref: "oci://ghcr.io/acme/platform-policy:1.0.0"},
 		},
-		Dependencies: []dashboard.DependencyInfo{
+		Dependencies: []contractview.DependencyInfo{
 			{Name: "auth", Ref: "ghcr.io/acme/auth-pacto@sha256:abc", Required: true, Compatibility: "^2.0.0", LockedVersion: "2.3.0", LockedDigest: "sha256:auth", DriftStatus: "locked"},
 			{Name: "notify", Ref: "ghcr.io/acme/notify-pacto:1.0.0", Required: false, Compatibility: "~1.0.0"},
 		},
-		Readiness: &dashboard.ReadinessInfo{
+		Readiness: &contractview.ReadinessInfo{
 			Score: 82, MinScore: 70, Expires: "2026-12-31",
-			Checks: []dashboard.ReadinessCheckInfo{
+			Checks: []contractview.ReadinessCheckInfo{
 				{ID: "dashboard", Type: "url", Category: "observability", Status: "done", Evidence: "https://grafana/x", Weight: 20, Description: "Main dashboard"},
 				{ID: "runbook", Type: "document", Status: "partial", Weight: 15},
 			},
-			Revisions: []dashboard.ReadinessRevisionInfo{
+			Revisions: []contractview.ReadinessRevisionInfo{
 				{Date: "2026-06-21", Version: "2.1.0", Author: "ed", Description: "Initial assessment"},
 			},
 		},
@@ -141,12 +141,12 @@ func fullSnapshot() *dashboard.ServiceDetails {
 			{Name: "libfoo", Version: "1.2.3", License: "MIT", Supplier: "ACME"},
 			{Name: "libbar", Version: "0.1.0"},
 		}},
-		Lock: &dashboard.LockInfo{
+		Lock: &contractview.LockInfo{
 			Present: true, RootDigest: "sha256:root",
-			Dependencies: []dashboard.LockDepInfo{{Name: "auth", Version: "2.3.0", Digest: "sha256:auth"}},
-			References:   []dashboard.LockRefInfo{{Kind: "config", Name: "shared-config", Version: "1.0.0", Digest: "sha256:cfg"}},
+			Dependencies: []contractview.LockDepInfo{{Name: "auth", Version: "2.3.0", Digest: "sha256:auth"}},
+			References:   []contractview.LockRefInfo{{Kind: "config", Name: "shared-config", Version: "1.0.0", Digest: "sha256:cfg"}},
 		},
-		Docs: []dashboard.DocInfo{
+		Docs: []contractview.DocInfo{
 			{Path: "docs/runbook.md", Title: "Runbook", Content: "run steps"},
 			{Path: "docs/big.md", Title: "Big", Content: "cut", Truncated: true},
 		},
@@ -244,8 +244,8 @@ func TestGenerate_TOCInSync(t *testing.T) {
 // ── Minimal snapshot: absent-section branches ──────────────────────────
 
 func TestGenerate_Minimal(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "wrapper", Version: "1.0.0"},
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "wrapper", Version: "1.0.0"},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -278,11 +278,11 @@ func TestGenerate_Minimal(t *testing.T) {
 // ── Runtime variants ───────────────────────────────────────────────────
 
 func TestGenerate_RuntimeWithCapabilities(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service:  dashboard.Service{Name: "svc", Version: "1.0.0"},
+	d := &contractview.ServiceDetails{
+		Service:  contractview.Service{Name: "svc", Version: "1.0.0"},
 		Workload: "service",
-		State:    &dashboard.StateInfo{Type: "stateless", DataCriticality: "low"},
-		Capabilities: []dashboard.CapabilityInfo{
+		State:    &contractview.StateInfo{Type: "stateless", DataCriticality: "low"},
+		Capabilities: []contractview.CapabilityInfo{
 			{Type: "health"},
 			{Type: "extension", Ref: "example.com/custom"},
 		},
@@ -304,8 +304,8 @@ func TestGenerate_RuntimeWithCapabilities(t *testing.T) {
 }
 
 func TestGenerate_RuntimeMinimal(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service:  dashboard.Service{Name: "svc", Version: "1.0.0"},
+	d := &contractview.ServiceDetails{
+		Service:  contractview.Service{Name: "svc", Version: "1.0.0"},
 		Workload: "job",
 	}
 	md, err := Generate(d, nil)
@@ -323,10 +323,10 @@ func TestGenerate_RuntimeMinimal(t *testing.T) {
 // ── interfaceHeadingByType: all branches ───────────────────────────────
 
 func TestGenerate_InterfaceHeadingTypes(t *testing.T) {
-	ep := []dashboard.InterfaceEndpoint{{Method: "get", Path: "/x"}}
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Interfaces: []dashboard.InterfaceInfo{
+	ep := []contractview.InterfaceEndpoint{{Method: "get", Path: "/x"}}
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
+		Interfaces: []contractview.InterfaceInfo{
 			{Name: "api", Type: "openapi", Endpoints: ep},
 			{Name: "g", Type: "grpc", Endpoints: ep},
 			{Name: "e", Type: "asyncapi", Endpoints: ep},
@@ -347,9 +347,9 @@ func TestGenerate_InterfaceHeadingTypes(t *testing.T) {
 }
 
 func TestGenerate_InterfaceWithoutEndpoints(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service:    dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Interfaces: []dashboard.InterfaceInfo{{Name: "api", Type: "openapi", Visibility: "internal"}},
+	d := &contractview.ServiceDetails{
+		Service:    contractview.Service{Name: "svc", Version: "1.0.0"},
+		Interfaces: []contractview.InterfaceInfo{{Name: "api", Type: "openapi", Visibility: "internal"}},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -363,9 +363,9 @@ func TestGenerate_InterfaceWithoutEndpoints(t *testing.T) {
 // ── configuration variants ─────────────────────────────────────────────
 
 func TestGenerate_ConfigVariants(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Configurations: []dashboard.ConfigurationInfo{
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
+		Configurations: []contractview.ConfigurationInfo{
 			{Name: "app", Values: []schemax.Property{{Key: "K", Value: "V", Type: "string"}}},
 			{Name: "db", Ref: "oci://ghcr.io/acme/db-config:1.0.0"},
 			{Name: "", HasSchema: true}, // empty name → "default", no values → note
@@ -390,9 +390,9 @@ func TestGenerate_ConfigVariants(t *testing.T) {
 
 func TestGenerate_ReadinessMinimal(t *testing.T) {
 	// No expires, no revisions, checks present.
-	d := &dashboard.ServiceDetails{
-		Service:   dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Readiness: &dashboard.ReadinessInfo{Score: 50, MinScore: 40, Checks: []dashboard.ReadinessCheckInfo{{ID: "x", Status: "done", Weight: 5}}},
+	d := &contractview.ServiceDetails{
+		Service:   contractview.Service{Name: "svc", Version: "1.0.0"},
+		Readiness: &contractview.ReadinessInfo{Score: 50, MinScore: 40, Checks: []contractview.ReadinessCheckInfo{{ID: "x", Status: "done", Weight: 5}}},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -407,9 +407,9 @@ func TestGenerate_ReadinessMinimal(t *testing.T) {
 }
 
 func TestGenerate_ReadinessNoChecks(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service:   dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Readiness: &dashboard.ReadinessInfo{Score: 0, MinScore: 0},
+	d := &contractview.ServiceDetails{
+		Service:   contractview.Service{Name: "svc", Version: "1.0.0"},
+		Readiness: &contractview.ReadinessInfo{Score: 0, MinScore: 0},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -424,11 +424,11 @@ func TestGenerate_ReadinessNoChecks(t *testing.T) {
 }
 
 func TestGenerate_ReadinessEscapesBackticksAndPipes(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Readiness: &dashboard.ReadinessInfo{
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
+		Readiness: &contractview.ReadinessInfo{
 			Score: 10, MinScore: 5,
-			Checks: []dashboard.ReadinessCheckInfo{{ID: "dash", Type: "url", Status: "done", Evidence: "https://x/q?a=`b`|c", Weight: 10}},
+			Checks: []contractview.ReadinessCheckInfo{{ID: "dash", Type: "url", Status: "done", Evidence: "https://x/q?a=`b`|c", Weight: 10}},
 		},
 	}
 	md, err := Generate(d, nil)
@@ -443,8 +443,8 @@ func TestGenerate_ReadinessEscapesBackticksAndPipes(t *testing.T) {
 // ── SBOM / lock absent + minimal lock ──────────────────────────────────
 
 func TestGenerate_SBOMEmptyPackages(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
 		SBOM:    &sbom.Document{Format: "spdx"},
 	}
 	md, err := Generate(d, nil)
@@ -458,9 +458,9 @@ func TestGenerate_SBOMEmptyPackages(t *testing.T) {
 
 func TestGenerate_LockMinimal(t *testing.T) {
 	// Present but no root digest, no deps, no refs → heading only.
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Lock:    &dashboard.LockInfo{Present: true},
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
+		Lock:    &contractview.LockInfo{Present: true},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -475,9 +475,9 @@ func TestGenerate_LockMinimal(t *testing.T) {
 }
 
 func TestGenerate_LockNotPresent(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Lock:    &dashboard.LockInfo{Present: false},
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
+		Lock:    &contractview.LockInfo{Present: false},
 	}
 	md, err := Generate(d, nil)
 	if err != nil {
@@ -491,12 +491,12 @@ func TestGenerate_LockNotPresent(t *testing.T) {
 // ── Mermaid fallback: dependency edges without a graph ──────────────────
 
 func TestGenerate_DependencyEdgesFallback(t *testing.T) {
-	d := &dashboard.ServiceDetails{
-		Service: dashboard.Service{Name: "svc", Version: "1.0.0"},
-		Interfaces: []dashboard.InterfaceInfo{
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "svc", Version: "1.0.0"},
+		Interfaces: []contractview.InterfaceInfo{
 			{Name: "api", Type: "openapi", Visibility: "public"},
 		},
-		Dependencies: []dashboard.DependencyInfo{
+		Dependencies: []contractview.DependencyInfo{
 			{Name: "auth", Ref: "reg/auth-pacto:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Name: "cache", Ref: "reg/cache-pacto:2.0.0", Required: false, Compatibility: "~2.0.0"},
 		},
@@ -507,7 +507,7 @@ func TestGenerate_DependencyEdgesFallback(t *testing.T) {
 	}
 	for _, want := range []string{
 		`-->|"required · ^1.0.0"|`, `-.->|"optional · ~2.0.0"|`,
-		`"auth-pacto"`, `"cache-pacto"`,
+		`dep_auth["auth"]`, `dep_cache["cache"]`,
 		// no graph → dependency table renders but no per-dep detail
 		"## 3. Dependencies",
 	} {
@@ -517,6 +517,30 @@ func TestGenerate_DependencyEdgesFallback(t *testing.T) {
 	}
 	if strings.Contains(md, "<details>") {
 		t.Errorf("did not expect per-dependency detail without a graph:\n%s", md)
+	}
+}
+
+// Untagged oci:// refs used to be split at the last colon, so the scheme became
+// the tag and every such dependency rendered as the same dep_oci["oci"] node.
+func TestGenerate_DependencyEdgesUnnamedOCIRefsStayDistinct(t *testing.T) {
+	d := &contractview.ServiceDetails{
+		Service: contractview.Service{Name: "payments-service", Version: "1.0.0"},
+		Dependencies: []contractview.DependencyInfo{
+			{Ref: "oci://ghcr.io/trianalab/pacto/postgresql", Required: true, Compatibility: "^16.0.0"},
+			{Ref: "oci://ghcr.io/trianalab/pacto/stripe-api", Required: true, Compatibility: "^2024.01.01"},
+		},
+	}
+	md, err := Generate(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`dep_postgresql["postgresql"]`, `dep_stripeapi["stripe-api"]`} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, `dep_oci["oci"]`) {
+		t.Errorf("dependencies collapsed into a single oci node:\n%s", md)
 	}
 }
 
@@ -587,9 +611,9 @@ paths:
 		},
 	}
 
-	d := &dashboard.ServiceDetails{
-		Service:      dashboard.Service{Name: "frontend", Version: "1.0.0"},
-		Dependencies: []dashboard.DependencyInfo{{Name: "backend", Ref: "reg/backend:1.0.0", Required: true, Compatibility: "^1.0.0"}},
+	d := &contractview.ServiceDetails{
+		Service:      contractview.Service{Name: "frontend", Version: "1.0.0"},
+		Dependencies: []contractview.DependencyInfo{{Name: "backend", Ref: "reg/backend:1.0.0", Required: true, Compatibility: "^1.0.0"}},
 	}
 
 	md, err := Generate(d, gr)
@@ -667,7 +691,7 @@ func TestGenerate_DuplicateEdges(t *testing.T) {
 			},
 		},
 	}
-	d := &dashboard.ServiceDetails{Service: dashboard.Service{Name: "svc", Version: "1.0.0"}}
+	d := &contractview.ServiceDetails{Service: contractview.Service{Name: "svc", Version: "1.0.0"}}
 	md, err := Generate(d, gr)
 	if err != nil {
 		t.Fatal(err)
@@ -685,7 +709,7 @@ func TestGenerate_NilEdgeNode(t *testing.T) {
 			Dependencies: []graph.Edge{{Ref: "reg/missing:1.0.0", Node: nil, Error: "not found"}},
 		},
 	}
-	d := &dashboard.ServiceDetails{Service: dashboard.Service{Name: "svc", Version: "1.0.0"}}
+	d := &contractview.ServiceDetails{Service: contractview.Service{Name: "svc", Version: "1.0.0"}}
 	md, err := Generate(d, gr)
 	if err != nil {
 		t.Fatal(err)
@@ -722,6 +746,9 @@ func TestDepName(t *testing.T) {
 		{"ghcr.io/acme/auth-service-pacto@sha256:abc123", "auth-service-pacto"},
 		{"ghcr.io/acme/notification-service-pacto:1.0.0", "notification-service-pacto"},
 		{"simple-ref", "simple-ref"},
+		{"oci://ghcr.io/trianalab/pacto/postgresql", "postgresql"},
+		{"oci://ghcr.io/trianalab/pacto/stripe-api:2024.01.01", "stripe-api"},
+		{"localhost:5000/acme/billing", "billing"},
 	}
 	for _, tt := range tests {
 		if got := depName(tt.ref); got != tt.want {

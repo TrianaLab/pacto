@@ -445,13 +445,20 @@ func TestStatusDotAndBadge(t *testing.T) {
 		t.Errorf("a reference should draw the hollow glyph, got %q", got)
 	}
 
-	badge := statusBadge(fleet.StatusNonCompliant)
+	c := &Context{}
+	badge := statusBadge(c, fleet.StatusNonCompliant)
 	if !strings.Contains(badge, glyphDot) || !strings.Contains(badge, "Non-compliant") {
 		t.Errorf("statusBadge = %q, want the glyph and the words", badge)
 	}
 	// A target with no verdict gets no badge at all rather than a bare glyph.
-	if got := statusBadge(""); got != "" {
+	if got := statusBadge(c, ""); got != "" {
 		t.Errorf("statusBadge(%q) = %q, want nothing", "", got)
+	}
+	// The one badge left is the pulsing one: a confirmed problem badged through
+	// it has to throb, or the orphan it replaced is back under a new name.
+	throb := &Context{Anim: true}
+	if statusBadge(throb, fleet.StatusNonCompliant) == badge {
+		t.Error("statusBadge rendered a confirmed problem at full brightness at the bottom of the beat")
 	}
 }
 

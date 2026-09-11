@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"reflect"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -26,7 +25,11 @@ func TestFleetSchemaNamer(t *testing.T) {
 		typ  reflect.Type
 		want string
 	}{
-		{"dashboard type keeps bare name", reflect.TypeOf(Service{}), "Service"},
+		// Both entries in unqualifiedSchemaPkgs are asserted: Service is declared
+		// in pkg/contractview and only aliased here, so it would not cover the
+		// "/pkg/dashboard" entry on its own.
+		{"contract-view type keeps bare name", reflect.TypeOf(Service{}), "Service"},
+		{"dashboard-declared type keeps bare name", reflect.TypeOf(SourceInfo{}), "SourceInfo"},
 		{"fleet type is prefixed", reflect.TypeOf(fleet.ServiceRecord{}), "Fleet.ServiceRecord"},
 		{"impact type is prefixed (no collision with dashboard/fleet)", reflect.TypeOf(impact.AffectedConsumer{}), "Impact.AffectedConsumer"},
 		{"pointer body type dereferences to its package", reflect.TypeOf(&impact.Result{}), "Impact.Result"},
@@ -39,6 +42,25 @@ func TestFleetSchemaNamer(t *testing.T) {
 				t.Errorf("fleetSchemaNamer(%s) = %q, want %q", tc.typ, got, tc.want)
 			}
 		})
+	}
+}
+
+// newPaymentBundle is the shared contract fixture the fleet, impact and document
+// tests build their snapshots from.
+func newPaymentBundle() *contract.Bundle {
+	return &contract.Bundle{
+		Contract: &contract.Contract{
+			PactoVersion: "2.0",
+			Service:      contract.Service{Name: "payment-service", Version: "2.0.0"},
+			Interfaces:   []contract.Interface{{Name: "api", Type: contract.InterfaceTypeOpenAPI}},
+			Workload:     contract.WorkloadService,
+			State: &contract.State{
+				Type:            contract.StateStateless,
+				Persistence:     contract.Persistence{Scope: contract.ScopeLocal, Durability: contract.DurabilityEphemeral},
+				DataCriticality: contract.DataCriticalityLow,
+			},
+		},
+		RawYAML: []byte("pactoVersion: \"2.0\"\nservice:\n  name: payment-service\n  version: \"2.0.0\"\ninterfaces:\n  - name: api\n    type: openapi\nworkload: service\nstate:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"),
 	}
 }
 
@@ -66,13 +88,11 @@ func demoFleetQuery(t *testing.T) *fleet.Query {
 // and an optional impact provider.
 func startFleetTestServer(t *testing.T, provider fleetProvider, impactFn impactProviderFunc) (string, context.CancelFunc) {
 	t.Helper()
-	resolved := BuildResolvedSource(map[string]DataSource{"local": newOrderServiceSource()})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
-	srv := NewResolvedServer(resolved, ui, []SourceInfo{{Type: "local", Enabled: true}}, nil)
+	srv := NewServer(testUI())
 	if provider != nil {
 		srv.SetFleetProvider(provider)
 	}
@@ -173,7 +193,7 @@ func TestCapabilities_ObservedDerivedFromSnapshot(t *testing.T) {
 		FromService: "eu/a", ToService: "eu/b", Type: fleet.RelationshipDependency,
 		Provenance: fleet.ProvenanceObserved, Resolved: true, ObservedCount: 1,
 	}}}
-	srv := NewResolvedServer(BuildResolvedSource(map[string]DataSource{"local": newOrderServiceSource()}), nil, nil, nil)
+	srv := NewServer(nil)
 	srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snap), nil })
 	out, err := srv.capabilities(context.Background(), nil)
 	if err != nil || !out.Body.Observed {
@@ -342,5 +362,141 @@ func expectStatus(t *testing.T, url string, wantStatus int) {
 	resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != wantStatus {
 		t.Fatalf("GET %s: expected %d, got %d", url, wantStatus, resp.StatusCode)
+	}
+}
+
+func TestSourcesFromFleet(t *testing.T) {
+	query := func(ss ...fleet.SourceState) *fleet.Query {
+		return fleet.NewQuery(&fleet.FleetSnapshot{Sources: ss})
+	}
+	cases := []struct {
+		name string
+		q    *fleet.Query
+		want []SourceInfo
+	}{
+		{"nil query yields no sources", nil, []SourceInfo{}},
+		{"snapshot with no sources yields no sources", query(), []SourceInfo{}},
+		{
+			"available kubernetes is remapped to the k8s the frontend knows, and says what it contributed",
+			query(fleet.SourceState{ID: "cluster", Kind: "kubernetes", Status: fleet.SourceAvailable, RevisionCount: 3, TargetCount: 7}),
+			[]SourceInfo{{Type: "k8s", Enabled: true, Reason: "3 revisions, 7 targets"}},
+		},
+		{
+			"partial stays enabled and names the status plus its cause",
+			query(fleet.SourceState{
+				ID: "ghcr", Kind: "oci", Status: fleet.SourcePartial, RevisionCount: 2,
+				Error: &fleet.SourceError{Code: "PARTIAL_LIST", Message: "some repositories could not be listed"},
+			}),
+			[]SourceInfo{{Type: "oci", Enabled: true, Reason: "partial: some repositories could not be listed"}},
+		},
+		{
+			"stale stays enabled and falls back to its counts when there is no error",
+			query(fleet.SourceState{ID: "disk", Kind: "cache", Status: fleet.SourceStale, RevisionCount: 4, TargetCount: 1}),
+			[]SourceInfo{{Type: "cache", Enabled: true, Reason: "stale, 4 revisions, 1 targets"}},
+		},
+		{
+			"unavailable is disabled and carries the sanitized message",
+			query(fleet.SourceState{
+				ID: "ghcr", Kind: "oci", Status: fleet.SourceUnavailable,
+				Error: &fleet.SourceError{Code: "AUTH_FAILED", Message: "authentication with the source failed"},
+			}),
+			[]SourceInfo{{Type: "oci", Enabled: false, Reason: "authentication with the source failed"}},
+		},
+		{
+			"unavailable with no error still gets a reason (the nav renders it unconditionally)",
+			query(fleet.SourceState{ID: "ghcr", Kind: "oci", Status: fleet.SourceUnavailable}),
+			[]SourceInfo{{Type: "oci", Enabled: false, Reason: "source unavailable"}},
+		},
+		{
+			// The kinds a Source can report are its Kind(): kubernetes, oci, cache,
+			// local, evidence-http, observation and target-state. The last three have
+			// no entry in the frontend's initial/colour/description tables, so they are
+			// exactly the pass-through cases worth pinning.
+			"the kinds outside the remap pass through unchanged",
+			query(
+				fleet.SourceState{ID: "evidence", Kind: "evidence-http", Status: fleet.SourceAvailable, RevisionCount: 1},
+				fleet.SourceState{ID: "otel", Kind: "observation", Status: fleet.SourceStale},
+				fleet.SourceState{ID: "argo", Kind: "target-state", Status: fleet.SourceAvailable, TargetCount: 5},
+			),
+			[]SourceInfo{
+				{Type: "evidence-http", Enabled: true, Reason: "1 revisions, 0 targets"},
+				{Type: "observation", Enabled: true, Reason: "stale, 0 revisions, 0 targets"},
+				{Type: "target-state", Enabled: true, Reason: "0 revisions, 5 targets"},
+			},
+		},
+		{
+			"every kind is projected, in first-appearance order",
+			query(
+				fleet.SourceState{ID: "local", Kind: "local", Status: fleet.SourceAvailable, RevisionCount: 2, TargetCount: 1},
+				fleet.SourceState{ID: "cluster", Kind: "kubernetes", Status: fleet.SourceUnavailable},
+			),
+			[]SourceInfo{
+				{Type: "local", Enabled: true, Reason: "2 revisions, 1 targets"},
+				{Type: "k8s", Enabled: false, Reason: "source unavailable"},
+			},
+		},
+		{
+			// Two sources of one kind collapse into one pill, and the healthy one must
+			// not hide the broken one: the reason counts the group and its degraded
+			// members instead of reporting whichever came first.
+			"several sources of one kind collapse into one honest pill",
+			query(
+				fleet.SourceState{ID: "ghcr", Kind: "oci", Status: fleet.SourceAvailable, RevisionCount: 6, TargetCount: 2},
+				fleet.SourceState{ID: "local", Kind: "local", Status: fleet.SourceAvailable, RevisionCount: 1},
+				fleet.SourceState{
+					ID: "quay", Kind: "oci", Status: fleet.SourceUnavailable,
+					Error: &fleet.SourceError{Code: "UNREACHABLE", Message: "the registry could not be reached"},
+				},
+			),
+			[]SourceInfo{
+				{Type: "oci", Enabled: true, Reason: "2 sources, 1 degraded, 6 revisions, 2 targets"},
+				{Type: "local", Enabled: true, Reason: "1 revisions, 0 targets"},
+			},
+		},
+		{
+			// Grouping on the raw kind would emit two pills both typed "k8s", which is
+			// the duplicate the aggregation exists to prevent -- so the remap has to
+			// happen before the group key, not after it.
+			"kubernetes and k8s are one kind, not two pills with one name",
+			query(
+				fleet.SourceState{ID: "cluster", Kind: "kubernetes", Status: fleet.SourceAvailable, RevisionCount: 3},
+				fleet.SourceState{ID: "other", Kind: "k8s", Status: fleet.SourceUnavailable},
+			),
+			[]SourceInfo{{Type: "k8s", Enabled: true, Reason: "2 sources, 1 degraded, 3 revisions, 0 targets"}},
+		},
+		{
+			"a fully healthy group reports its size without a degraded count",
+			query(
+				fleet.SourceState{ID: "ghcr", Kind: "oci", Status: fleet.SourceAvailable, RevisionCount: 6, TargetCount: 2},
+				fleet.SourceState{ID: "quay", Kind: "oci", Status: fleet.SourceAvailable, RevisionCount: 3, TargetCount: 4},
+			),
+			[]SourceInfo{{Type: "oci", Enabled: true, Reason: "2 sources, 9 revisions, 6 targets"}},
+		},
+		{
+			"a group whose every member is down is disabled",
+			query(
+				fleet.SourceState{ID: "ghcr", Kind: "oci", Status: fleet.SourceUnavailable},
+				fleet.SourceState{ID: "quay", Kind: "oci", Status: fleet.SourceUnavailable},
+			),
+			[]SourceInfo{{Type: "oci", Enabled: false, Reason: "2 sources, 2 degraded, 0 revisions, 0 targets"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sourcesFromFleet(tc.q)
+			if got == nil {
+				t.Fatal("sourcesFromFleet returned nil, want a non-nil slice")
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("sourcesFromFleet() = %+v, want %+v", got, tc.want)
+			}
+			// The nav renders "{type}: {reason}" unconditionally, so an empty reason
+			// ships a dangling colon. It must be impossible for every input.
+			for _, info := range got {
+				if info.Reason == "" {
+					t.Errorf("source %q has an empty reason", info.Type)
+				}
+			}
+		})
 	}
 }

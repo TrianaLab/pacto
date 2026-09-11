@@ -280,12 +280,7 @@ export const api = {
     unwrap(client.GET('/api/diff', {
       params: { query: { from_name: fromName, from_version: fromVersion || '', to_name: toName, to_version: toVersion || '' } },
     })),
-  resolve: (ref: string, compatibility?: string): Promise<PostResponse<'/api/resolve'>> =>
-    unwrap(client.POST('/api/resolve', { body: { ref, compatibility } })),
-  remoteVersions: (ref: string, fetchAll?: boolean): Promise<PostResponse<'/api/versions'>> =>
-    unwrap(client.POST('/api/versions', { body: { ref, fetch: fetchAll } })),
   refresh: (): Promise<PostResponse<'/api/refresh'>> => unwrap(client.POST('/api/refresh', {})),
-  debugSources: (): Promise<GetResponse<'/api/debug/sources'>> => unwrap(client.GET('/api/debug/sources')),
 
   // ── Operational graph (fleet) legacy ──
   fleetSnapshot: (): Promise<GetResponse<'/api/fleet/snapshot'>> => unwrap(client.GET('/api/fleet/snapshot')),

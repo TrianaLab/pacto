@@ -2,9 +2,8 @@ package update
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+
+	"github.com/trianalab/pacto/v3/pkg/plugin"
 )
 
 const pluginsRepo = "TrianaLab/pacto-plugins"
@@ -15,90 +14,61 @@ type PluginUpdateResult struct {
 	Version string
 }
 
-// Testability hook.
-var osReadDir = os.ReadDir
-
-// UpdatePlugins discovers installed pacto plugins and updates them to the latest version.
-func UpdatePlugins() ([]PluginUpdateResult, error) {
-	plugins, execDir, err := discoverInstalledPlugins()
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover plugins: %w", err)
-	}
+// UpdatePlugins updates every plugin the runner can execute to the latest
+// published version. Discovery goes through plugin.Installed so the binary that
+// gets rewritten is the one Run would spawn: listing the pacto binary's own
+// directory instead missed plugins installed the documented way and, when a
+// plugin existed in both places, overwrote the copy that never runs while
+// reporting success.
+func (u *Updater) UpdatePlugins() ([]PluginUpdateResult, error) {
+	plugins := plugin.Installed()
 	if len(plugins) == 0 {
 		return nil, nil
 	}
 
-	tag, err := fetchLatestRepoVersion(pluginsRepo)
+	tag, err := u.fetchLatestRepoVersion(pluginsRepo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch latest plugins version: %w", err)
 	}
 
 	// Fetch the published checksums once so every plugin binary can be verified
 	// before it is installed.
-	sums, err := fetchChecksums(checksumsURL(pluginsRepo, tag))
+	sums, err := u.fetchChecksums(u.checksumsURL(pluginsRepo, tag))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch plugin checksums: %w", err)
 	}
 
 	var results []PluginUpdateResult
-	for _, name := range plugins {
-		url := buildPluginDownloadURL(tag, name)
-		ext := ""
-		if runtimeGOOS == "windows" {
-			ext = ".exe"
-		}
-		asset := fmt.Sprintf("%s_%s_%s%s", name, runtimeGOOS, runtimeGOARCH, ext)
-		expected, ok := sums[asset]
+	for _, p := range plugins {
+		binary := pluginAssetName(p.Name)
+		expected, ok := sums[binary]
 		if !ok {
-			return results, fmt.Errorf("no checksum published for plugin %s", name)
+			return results, fmt.Errorf("no checksum published for plugin %s", p.Name)
 		}
-		targetPath := filepath.Join(execDir, name+ext)
-		if err := downloadAndInstall(url, targetPath, expected); err != nil {
-			return results, fmt.Errorf("failed to update plugin %s: %w", name, err)
+		url := u.buildPluginDownloadURL(tag, p.Name)
+		if err := u.downloadAndInstall(url, p.Path, expected); err != nil {
+			return results, fmt.Errorf("failed to update plugin %s: %w", p.Name, err)
 		}
-		results = append(results, PluginUpdateResult{Name: name, Version: tag})
+		results = append(results, PluginUpdateResult{Name: "pacto-plugin-" + p.Name, Version: tag})
 	}
 	return results, nil
 }
 
-// discoverInstalledPlugins finds pacto-plugin-* binaries in the same directory as the pacto executable.
-func discoverInstalledPlugins() ([]string, string, error) {
-	execPath, err := osExecutable()
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to determine executable path: %w", err)
-	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to resolve executable path: %w", err)
-	}
-	dir := filepath.Dir(execPath)
-
-	entries, err := osReadDir(dir)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to read directory: %w", err)
-	}
-
-	var plugins []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := strings.TrimSuffix(e.Name(), ".exe")
-		if strings.HasPrefix(name, "pacto-plugin-") {
-			plugins = append(plugins, name)
-		}
-	}
-	return plugins, dir, nil
-}
-
-// buildPluginDownloadURL constructs the download URL for a plugin binary.
-func buildPluginDownloadURL(tag, pluginName string) string {
+// pluginAssetName returns the release asset filename for a plugin on the
+// current platform, matching the names produced by the plugins release
+// workflow (pacto-plugin-<name>_<os>_<arch>[.exe]).
+func pluginAssetName(name string) string {
 	ext := ""
 	if runtimeGOOS == "windows" {
 		ext = ".exe"
 	}
+	return fmt.Sprintf("pacto-plugin-%s_%s_%s%s", name, runtimeGOOS, runtimeGOARCH, ext)
+}
+
+// buildPluginDownloadURL constructs the download URL for a plugin binary.
+func (u *Updater) buildPluginDownloadURL(tag, name string) string {
 	return fmt.Sprintf(
-		"%s/%s/releases/download/%s/%s_%s_%s%s",
-		githubDownloadURL, pluginsRepo, tag, pluginName, runtimeGOOS, runtimeGOARCH, ext,
+		"%s/%s/releases/download/%s/%s",
+		u.DownloadBaseURL, pluginsRepo, tag, pluginAssetName(name),
 	)
 }

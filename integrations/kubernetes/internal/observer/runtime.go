@@ -1039,21 +1039,20 @@ func (o *Observer) observeHealthDim(ctx context.Context, input CollectInput, cap
 
 	// targetPort is the health capability's OWNING binding port; the Tier-B readiness fallback must check
 	// that same binding, never an arbitrary InterfaceBindings[0].
-	return handleHealthProbeResult(result, subj, cap.AssertionKey(), input, prov, now, o, ctx, targetPort)
+	return o.handleHealthProbeResult(ctx, result, subj, cap.AssertionKey(), input, prov, now, targetPort)
 }
 
 // handleHealthProbeResult interprets the prober result and returns the appropriate observation/window-update.
-// Extracted for testability (can test result-handling logic without real HTTP).
+// The prober is injected (endpointProber), so this needs no HTTP to test.
 // ponytail: tier-A probe result -> satisfied/404-windowed/insufficient, then tier-B fallback.
-func handleHealthProbeResult(
+func (o *Observer) handleHealthProbeResult(
+	ctx context.Context,
 	result prober.Result,
 	subj evidence.SubjectRef,
 	assertionKey string,
 	input CollectInput,
 	prov evidence.Provenance,
 	now time.Time,
-	obs *Observer,
-	ctx context.Context,
 	owningServicePort int32,
 ) (evidence.Observation, []ObservationWindowUpdate) {
 	windowKey := fmt.Sprintf("capability/%s", assertionKey)
@@ -1103,25 +1102,21 @@ func handleHealthProbeResult(
 	}
 
 	// Active probe unreachable or disabled -> passive Tier B (READINESS-probe fallback).
-	if obs != nil {
-		hasReadinessProbe, podReady := obs.checkReadinessProbeFallbackFromInput(ctx, input, owningServicePort)
-
-		if hasReadinessProbe && podReady {
-			// Tier B satisfied (lower confidence) -> clear any stale negative window.
-			return evidence.NewCapabilityObserved(subj, true, prov), clearWindow
-		}
-		if !hasReadinessProbe {
-			// No usable Tier-B evidence (liveness-only / no-probe / tcpSocket / exec / unresolvable target)
-			// -> EVIDENCE_INSUFFICIENT (spec section 7.4), never COLLECTION_FAILED from missing evidence.
-			observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
-			return observation, nil
-		}
-		// hasReadinessProbe && !podReady falls through: a declared readiness probe whose Pod is not Ready.
+	hasReadinessProbe, podReady := o.checkReadinessProbeFallbackFromInput(ctx, input, owningServicePort)
+	switch {
+	case hasReadinessProbe && podReady:
+		// Tier B satisfied (lower confidence) -> clear any stale negative window.
+		return evidence.NewCapabilityObserved(subj, true, prov), clearWindow
+	case !hasReadinessProbe:
+		// No usable Tier-B evidence (liveness-only / no-probe / tcpSocket / exec / unresolvable target)
+		// -> EVIDENCE_INSUFFICIENT (spec section 7.4), never COLLECTION_FAILED from missing evidence.
+		observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Insufficient, prov)
+		return observation, nil
+	default:
+		// Readiness probe declared but Pod not Ready -> Failed.
+		observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
+		return observation, nil
 	}
-
-	// Readiness probe present but Pod not Ready (or extraction guard obs==nil) -> Failed.
-	observation, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, evidence.Failed, prov)
-	return observation, nil
 }
 
 // checkReadinessProbeFallbackFromInput resolves the Service and runs the Tier-B readiness fallback against
@@ -1580,8 +1575,9 @@ func parseConfigContent(content, format string) (any, error) {
 
 // validateConfigAgainstSchema validates a parsed config document against the configuration's local schema.
 // Returns (conforms, error). error != nil means schema unresolvable (remote ref / not in bundle).
+// cfg.Schema is a BUNDLE-RELATIVE PATH, not inline JSON — same reading as pkg/validation/crossfield.go.
 // ponytail: reuse pkg/validation compileConfigSchema pattern (santhosh-tekuri/jsonschema/v6), no new dep.
-func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, _ fs.FS) (bool, error) {
+func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, bundleFS fs.FS) (bool, error) {
 	// Remote ref schema -> cannot resolve -> error (Insufficient).
 	if cfg.Ref != "" {
 		return false, fmt.Errorf("remote ref schema not resolvable locally")
@@ -1590,10 +1586,19 @@ func validateConfigAgainstSchema(parsed any, cfg contract.Configuration, _ fs.FS
 		// No schema -> cannot validate -> error.
 		return false, fmt.Errorf("no schema defined")
 	}
+	// Inline contracts carry no bundle files, so the declared schema path cannot be read.
+	if bundleFS == nil {
+		return false, fmt.Errorf("no bundle filesystem to read schema %q from", cfg.Schema)
+	}
 
-	// Parse the schema string into a JSON doc (per pkg/validation/crossfield.go compileConfigSchema pattern).
+	schemaData, err := fs.ReadFile(bundleFS, cfg.Schema)
+	if err != nil {
+		return false, fmt.Errorf("failed to read schema %q: %w", cfg.Schema, err)
+	}
+
+	// Parse the schema file into a JSON doc (per pkg/validation/crossfield.go compileConfigSchema pattern).
 	var schemaDoc any
-	if err := json.Unmarshal([]byte(cfg.Schema), &schemaDoc); err != nil {
+	if err := json.Unmarshal(schemaData, &schemaDoc); err != nil {
 		return false, fmt.Errorf("failed to parse schema: %w", err)
 	}
 

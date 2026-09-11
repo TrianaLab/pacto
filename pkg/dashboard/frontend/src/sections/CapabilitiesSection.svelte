@@ -1,9 +1,10 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
+  import SectionState from './SectionState.svelte';
   import MarkdownView from '../MarkdownView.svelte';
   import { methodClass } from '../lib/format.ts';
 
-  let { capabilities = [], skills = [], open = $bindable(false), id = '', source = '' } = $props();
+  let { capabilities = [], skills = [], open = $bindable(false), id = '' } = $props();
 
   let count = $derived((capabilities?.length || 0) + (skills?.length || 0));
   let hasContent = $derived(count > 0);
@@ -15,7 +16,7 @@
 </script>
 
 {#if hasContent}
-  <CollapsibleSection title="Agent Capabilities" {count} bind:open {id} {source}>
+  <CollapsibleSection title="Agent Capabilities" {count} bind:open {id}>
     {#if capabilities?.length > 0}
       <div class="table-wrap">
       <table class="cap-table">
@@ -61,6 +62,8 @@
       </div>
     {/if}
   </CollapsibleSection>
+{:else}
+  <SectionState title="Agent Capabilities" bind:open {id} />
 {/if}
 
 <style>

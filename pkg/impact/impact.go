@@ -17,6 +17,7 @@ import (
 	"context"
 	"io/fs"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -28,6 +29,10 @@ import (
 
 // SchemaVersion identifies the impact wire model.
 const SchemaVersion = "pacto.dev/impact/v1"
+
+// limitationSource marks a limitation the analysis raised itself, as opposed to
+// one copied from the snapshot. boundEnvelope keeps these ahead of the cap.
+const limitationSource = "impact"
 
 // Confidence grades how strongly the evidence supports an affected-consumer claim.
 type Confidence string
@@ -119,7 +124,15 @@ type Result struct {
 // revision link, per non-canonical compliance value -- so on a fleet where two
 // sources merely disagree about a mutable tag the envelope is one entry per
 // target, and copying it verbatim makes the envelope most of the answer.
+//
+// The analysis's OWN limitations are moved to the front first. They are appended
+// after the snapshot's, and a fleet large enough to truncate a blast radius is a
+// fleet with hundreds of per-record limitations, so the entries that explain why
+// THIS answer is partial were exactly the ones the cap discarded.
 func (r *Result) boundEnvelope() {
+	sort.SliceStable(r.Limitations, func(i, j int) bool {
+		return r.Limitations[i].Source == limitationSource && r.Limitations[j].Source != limitationSource
+	})
 	r.Limitations, r.LimitationsTruncated = fleet.BoundLimitations(r.Limitations)
 }
 
@@ -184,10 +197,23 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		// human at all.
 		res.Completeness = fleet.CompletenessPartial
 		res.Limitations = append(res.Limitations, fleet.Limitation{
-			Code: "SERVICE_NOT_IN_FLEET", Source: "impact",
+			Code: "SERVICE_NOT_IN_FLEET", Source: limitationSource,
 			Message: "the changed service is not present in the operational graph; consumers cannot be determined",
 		})
 		return res
+	}
+	if graph.Truncated {
+		// The traversal stopped at the node cap, so the consumer list below is a
+		// deterministic PREFIX of the reachable dependents. Leaving completeness
+		// alone would let ReleaseBlocking() clear a breaking change on the strength
+		// of whichever consumers happened to sort first, and warnPartial
+		// early-returns on complete, so the cap would never reach a human.
+		res.Completeness = fleet.CompletenessPartial
+		res.Limitations = append(res.Limitations, fleet.Limitation{
+			Code: "GRAPH_TRUNCATED", Source: limitationSource,
+			Message: "the dependents traversal hit the " + strconv.Itoa(fleet.MaxGraphNodes) +
+				"-node cap; the consumer list is a prefix of the blast radius, not the whole of it",
+		})
 	}
 
 	changed := graph.Root
@@ -264,7 +290,7 @@ func resolveObservedEdges(snap *fleet.FleetSnapshot, edges []ObservedEdge, inclu
 		}
 		if !seen[reason+":"+name] {
 			seen[reason+":"+name] = true
-			lims = append(lims, fleet.Limitation{Code: ObservedIdentityUnresolved, Source: "impact",
+			lims = append(lims, fleet.Limitation{Code: ObservedIdentityUnresolved, Source: limitationSource,
 				Message: "observed service " + name + " could not be mapped to a unique fleet service (" + reason + "); it does not corroborate or affect any domain-qualified service"})
 		}
 		return false

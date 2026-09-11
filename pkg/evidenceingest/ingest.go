@@ -457,15 +457,15 @@ type Handler struct {
 // hook: it comes back from the same read that produced the targets, so the DTO
 // can never describe a read it did not perform.
 //
-// onAccept (optional) is invoked after a successful accept. Nothing in Pacto
-// passes one -- the operational graph reads the store rather than being pushed
-// at -- so it is a notification seam for an embedding host and no in-tree caller
-// exercises it.
-//
-// Deprecated: pass nil for onAccept. A host that needs to observe accepts should
+// onAccept is deprecated: pass nil. A host that needs to observe accepts should
 // wrap [Store.Commit], which fires on the durable write rather than on the HTTP
-// response and so cannot report an accept the store did not keep. The parameter
-// is removed at v4.
+// response and so cannot report an accept the store did not keep. Nothing in
+// Pacto passes one -- the operational graph reads the store rather than being
+// pushed at. The parameter is removed at v4.
+//
+// The deprecation is stated here rather than as a doc `Deprecated:` marker
+// because Go deprecates identifiers, not parameters: marking the constructor
+// would flag every correct call, including the ones already passing nil.
 func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func(context.Context) bool) *Handler {
 	sorted := append([]string(nil), producers...)
 	sort.Strings(sorted)

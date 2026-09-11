@@ -173,21 +173,11 @@ func (l *listScreen) rows(c *Context) []table.Row {
 		rows = append(rows, table.Row{
 			safeText(string(e.Kind)),
 			safeText(e.Label),
-			l.badge(c, e.Status),
+			statusBadge(c, e.Status),
 			safeText(e.Secondary),
 		})
 	}
 	return rows
-}
-
-// badge is one row's status cell: the coloured glyph and the words, pulsing if
-// the status is a confirmed problem and animation is on.
-func (l *listScreen) badge(c *Context, s string) string {
-	if s == "" {
-		return ""
-	}
-	p := statusPresentationFor(s)
-	return pulseStyle(c, s).Render(p.Glyph + " " + p.Label)
 }
 
 func (l *listScreen) refresh(c *Context) { l.load(c, l.filter()) }
@@ -382,8 +372,7 @@ func (l *listScreen) paneBody(c *Context, w int) string {
 		faintStyle.Render(string(ref.Kind)),
 	}
 	if ref.Status != "" {
-		lines = append(lines, "", pulseStyle(c, ref.Status).Render(
-			statusPresentationFor(ref.Status).Glyph+" "+statusPresentationFor(ref.Status).Label))
+		lines = append(lines, "", statusBadge(c, ref.Status))
 	}
 	fields := [][2]string{
 		{"domain", ref.Domain},

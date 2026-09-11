@@ -162,20 +162,38 @@ func interfacesPreview(ifaces []contract.Interface, tools []ToolSummary, specsRe
 	return InterfacesPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
 }
 
-// configurationsPreview projects the declared configuration scopes, attaching the
-// builder's resolution for every scope that declares a ref. resolved is keyed by
-// the DECLARED NAME, which is exactly what the reference relationship records as
-// its To, so the join needs no ref-string parsing.
-func configurationsPreview(cfgs []contract.Configuration, resolved map[string]*RefResolution) ConfigurationsPreview {
+// configurationsPreview projects the declared configuration scopes. It is called
+// ONCE per revision at Build time (see ContractRevision.configurations): each
+// scope's Values map is author-controlled and unbounded, so flattening it belongs
+// at the source boundary, not on the request path. Resolutions are joined on
+// afterwards by withConfigResolutions because they are a property of the
+// snapshot's relationships, not of the contract.
+func configurationsPreview(cfgs []contract.Configuration) ConfigurationsPreview {
 	src, total, trunc := boundSlice(cfgs, MaxDetailPreview)
 	items := make([]ConfigurationSummary, 0, len(src))
 	for _, c := range src {
 		items = append(items, ConfigurationSummary{
 			Name: c.Name, Schema: c.Schema, Ref: c.Ref, Required: c.Required,
-			Values: runtimePreview(c.Values), Resolution: resolved[c.Name],
+			Values: runtimePreview(c.Values),
 		})
 	}
 	return ConfigurationsPreview{Total: total, Count: len(items), Truncated: trunc, Items: items}
+}
+
+// withConfigResolutions returns a copy of the precomputed projection with each
+// scope's resolution attached. resolved is keyed by the DECLARED NAME, which is
+// exactly what the reference relationship records as its To, so the join needs no
+// ref-string parsing. The item slice is copied because the projection is shared
+// snapshot state: writing Resolution into it in place would publish one caller's
+// join to every later reader.
+func withConfigResolutions(p ConfigurationsPreview, resolved map[string]*RefResolution) ConfigurationsPreview {
+	items := make([]ConfigurationSummary, len(p.Items))
+	copy(items, p.Items)
+	for i := range items {
+		items[i].Resolution = resolved[items[i].Name]
+	}
+	p.Items = items
+	return p
 }
 
 func policiesPreview(ps []contract.Policy, resolved map[string]*RefResolution) PoliciesPreview {

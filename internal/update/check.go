@@ -33,20 +33,49 @@ type githubRelease struct {
 const cacheTTL = 24 * time.Hour
 const cacheFileName = "update-check.json"
 
-// Testability hooks.
-var (
-	httpClient = &http.Client{Timeout: 5 * time.Second}
-	// downloadClient is used for binary/plugin downloads, which can be many MB
-	// and must not share the short API timeout.
-	downloadClient    = &http.Client{Timeout: 5 * time.Minute}
-	timeNow           = time.Now
-	githubAPIBaseURL  = "https://api.github.com"
-	githubDownloadURL = "https://github.com"
-)
+// timeNow is the only remaining package-level seam; the cache TTL is the one
+// piece of state that is genuinely process-wide.
+var timeNow = time.Now
+
+// Updater carries everything the update path talks to: the two GitHub
+// endpoints, the two HTTP clients and the running executable. It is a value the
+// caller constructs so a test points its own copy at an httptest server instead
+// of mutating package globals through an exported setter -- which made two
+// updater tests unable to run concurrently and put the download endpoint of a
+// shipped binary one assignment away from any importer.
+type Updater struct {
+	APIBaseURL      string
+	DownloadBaseURL string
+	// Client makes GitHub API calls and carries a short timeout.
+	Client *http.Client
+	// DownloadClient fetches binaries, which can be many MB, so it must not
+	// share Client's short timeout.
+	DownloadClient *http.Client
+	// Executable reports the pacto binary to replace.
+	Executable func() (string, error)
+}
+
+// New returns an Updater pointed at github.com.
+func New() *Updater {
+	return &Updater{
+		APIBaseURL:      "https://api.github.com",
+		DownloadBaseURL: "https://github.com",
+		Client:          &http.Client{Timeout: 5 * time.Second},
+		DownloadClient:  &http.Client{Timeout: 5 * time.Minute},
+		Executable:      os.Executable,
+	}
+}
+
+// CheckForUpdate checks whether a newer version of pacto is available against
+// github.com. The startup notification needs no configuration, so it does not
+// make the caller build an Updater for it.
+func CheckForUpdate(currentVersion string) *CheckResult {
+	return New().CheckForUpdate(currentVersion)
+}
 
 // CheckForUpdate checks whether a newer version of pacto is available.
 // Returns nil if version is "dev", on any error, or if already up-to-date.
-func CheckForUpdate(currentVersion string) *CheckResult {
+func (u *Updater) CheckForUpdate(currentVersion string) *CheckResult {
 	if currentVersion == "dev" {
 		return nil
 	}
@@ -56,7 +85,7 @@ func CheckForUpdate(currentVersion string) *CheckResult {
 		return nil
 	}
 
-	latestStr, err := cachedOrFetchLatest()
+	latestStr, err := u.cachedOrFetchLatest()
 	if err != nil {
 		return nil
 	}
@@ -77,13 +106,13 @@ func CheckForUpdate(currentVersion string) *CheckResult {
 }
 
 // cachedOrFetchLatest returns the latest version, using cache when fresh.
-func cachedOrFetchLatest() (string, error) {
+func (u *Updater) cachedOrFetchLatest() (string, error) {
 	c, cachePath := readCache()
 	if c != nil && timeNow().Sub(c.CheckedAt) < cacheTTL {
 		return c.LatestVersion, nil
 	}
 
-	latest, err := fetchLatestVersion()
+	latest, err := u.fetchLatestVersion()
 	if err != nil {
 		return "", err
 	}
@@ -134,48 +163,21 @@ func writeCache(path, latestVersion string) {
 	_ = os.WriteFile(path, data, 0600)
 }
 
-// WriteCacheAfterUpdate updates the cache so a stale notification isn't shown after an update.
-func WriteCacheAfterUpdate(latestVersion string) {
-	writeCache(cachePath(), latestVersion)
-}
-
-// SetTestOverrides overrides package-level settings for external test packages.
-// Returns a cleanup function that restores the originals.
-func SetTestOverrides(client *http.Client, apiBaseURL, downloadBaseURL string, execFn func() (string, error)) func() {
-	origClient, origDownloadClient, origAPI, origDownload, origExec := httpClient, downloadClient, githubAPIBaseURL, githubDownloadURL, osExecutable
-	if client != nil {
-		httpClient = client
-		downloadClient = client
-	}
-	if apiBaseURL != "" {
-		githubAPIBaseURL = apiBaseURL
-	}
-	if downloadBaseURL != "" {
-		githubDownloadURL = downloadBaseURL
-	}
-	if execFn != nil {
-		osExecutable = execFn
-	}
-	return func() {
-		httpClient, downloadClient, githubAPIBaseURL, githubDownloadURL, osExecutable = origClient, origDownloadClient, origAPI, origDownload, origExec
-	}
-}
-
 // fetchLatestVersion fetches the latest release tag for pacto from GitHub.
-func fetchLatestVersion() (string, error) {
-	return fetchLatestRepoVersion("TrianaLab/pacto")
+func (u *Updater) fetchLatestVersion() (string, error) {
+	return u.fetchLatestRepoVersion("TrianaLab/pacto")
 }
 
 // fetchLatestRepoVersion fetches the latest release tag for the given repo from GitHub.
-func fetchLatestRepoVersion(repo string) (string, error) {
-	url := githubAPIBaseURL + "/repos/" + repo + "/releases/latest"
+func (u *Updater) fetchLatestRepoVersion(repo string) (string, error) {
+	url := u.APIBaseURL + "/repos/" + repo + "/releases/latest"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := u.Client.Do(req)
 	if err != nil {
 		return "", err
 	}

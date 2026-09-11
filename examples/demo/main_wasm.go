@@ -59,9 +59,9 @@ func main() {
 		panic(err)
 	}
 
-	// nil UI fs and nil resolver: the static host serves the UI, and the graph
-	// resolves from the embedded contracts' declared dependencies — no OCI.
-	srv := dashboard.NewServer(src, nil)
+	// nil UI fs: the static host serves the UI, and every answer comes from the
+	// fleet snapshot built below out of the embedded contracts — no OCI, no server.
+	srv := dashboard.NewServer(nil)
 	srv.SetVersion(version) // surfaced via /health → shown in the navbar
 
 	// Wire the operational graph (fleet) and impact provider from the embedded

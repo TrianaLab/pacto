@@ -156,8 +156,10 @@ test-browser:
 # only in the post-merge docs workflow: source_embed_test.go covers the same
 # fixtures under a required job, but nothing on a PR ran smoke.mjs itself, so a
 # fixture republish that updated the Go test and missed the smoke went green and
-# turned main red on the way out. Before Playwright, because a broken engine makes
-# the browser failures downstream noise.
+# turned main red on the way out. The fixture tripwire is smoke.mjs's fleet impact
+# check -- `impact <old>→<new> is BREAKING` -- which fails the moment a republish
+# stops the two compared revisions from differing incompatibly. Before Playwright,
+# because a broken engine makes the browser failures downstream noise.
 	$(MAKE) -C examples/demo smoke
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && npm run test:e2e
 e2e-dashboard-wasm: test-browser

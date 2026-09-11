@@ -162,28 +162,6 @@ func TestSpinnerAtCyclesAndNeverPanics(t *testing.T) {
 	}
 }
 
-func TestBar(t *testing.T) {
-	for _, tt := range []struct {
-		name          string
-		filled, width int
-		want          string
-	}{
-		{"empty", 0, 3, strings.Repeat(glyphBarEmpty, 3)},
-		{"partial", 1, 3, glyphBarFull + strings.Repeat(glyphBarEmpty, 2)},
-		{"full", 3, 3, strings.Repeat(glyphBarFull, 3)},
-		{"over-filled is clamped", 9, 3, strings.Repeat(glyphBarFull, 3)},
-		{"negative fill is clamped", -9, 3, strings.Repeat(glyphBarEmpty, 3)},
-		{"no width draws nothing", 2, 0, ""},
-		{"negative width draws nothing", 2, -4, ""},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := bar(tt.filled, tt.width); got != tt.want {
-				t.Errorf("bar(%d,%d) = %q, want %q", tt.filled, tt.width, got, tt.want)
-			}
-		})
-	}
-}
-
 // TestRevealLinesKeepsTheLineCount is the whole reason this is a wipe and not a
 // slide: the header and footer around it are positioned by line count, so a
 // half-revealed body must occupy exactly as many lines as a finished one.

@@ -8,6 +8,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v3/pkg/sbom"
 )
 
 // renderValidate reports the verdict from the result, never from a returned
@@ -44,30 +45,78 @@ func renderDiff(r *app.DiffResult) string {
 	} else {
 		b.WriteString(safeText(r.Classification) + "  " + safeText(r.OldPath) + " -> " + safeText(r.NewPath) + "\n")
 	}
-	if len(r.Changes) == 0 {
+	// Not sanitised: the tree arrives already coloured, so safeText would print
+	// pkg/graph's own escapes as text. It is sanitised one level down instead, in
+	// diffColors — every label RenderDiffTreeColored prints is picked from one of
+	// those four functions, so that is the only place that can tell a contract's
+	// bytes from lipgloss's.
+	graphChanges := graph.RenderDiffTreeColored(r.GraphDiff, diffColors())
+	// Every channel a diff can carry a change on, the way internal/cli/output.go
+	// tests them. Asking len(Changes) alone was the defect: internal/app/diff.go
+	// raises the overall classification off a dependency, so a root with no change
+	// of its own and one breaking dependency printed "No changes detected." under
+	// a BREAKING header, then returned before reaching the dependency, the graph
+	// or the SBOM. Dependency SBOM changes need no condition of their own —
+	// internal/app/diff.go only records a DependencyDiff that has changes or SBOM
+	// changes, so one always brings its entry with it.
+	if len(r.Changes) == 0 && len(r.DependencyDiffs) == 0 && graphChanges == "" && sbomChangeCount(r.SBOMDiff) == 0 {
 		b.WriteString("\nNo changes detected.\n")
 		return b.String()
 	}
-	section(&b, "Changes")
-	for _, c := range r.Changes {
-		fmt.Fprintf(&b, "  [%s] %s (%s): %s\n", c.Classification, safeText(c.Path), c.Type, safeText(c.Reason))
+	if len(r.Changes) > 0 {
+		section(&b, "Changes")
+		for _, c := range r.Changes {
+			fmt.Fprintf(&b, "  [%s] %s (%s): %s\n", c.Classification, safeText(c.Path), c.Type, safeText(c.Reason))
+		}
 	}
 	if len(r.DependencyDiffs) > 0 {
 		section(&b, "Dependency changes")
 		for _, dd := range r.DependencyDiffs {
-			fmt.Fprintf(&b, "  %s [%s] (%d changes)\n", safeText(dd.Name), safeText(dd.Classification), len(dd.Changes))
+			// Both counts unconditionally: a dependency whose only change is in its
+			// SBOM is recorded with an empty Changes slice, and "(0 changes)" beside
+			// it is the same lie the header used to tell.
+			fmt.Fprintf(&b, "  %s [%s] (%d changes, %d SBOM changes)\n",
+				safeText(dd.Name), safeText(dd.Classification), len(dd.Changes), sbomChangeCount(dd.SBOMDiff))
 		}
 	}
-	if r.GraphDiff != nil {
+	if graphChanges != "" {
 		section(&b, "Graph changes")
-		// Not sanitised here: the tree arrives already coloured, so safeText would
-		// print pkg/graph's own escapes as text. It is sanitised one level down
-		// instead, in diffColors — every label RenderDiffTreeColored prints is
-		// picked from one of those four functions, so that is the only place that
-		// can tell a contract's bytes from lipgloss's.
-		b.WriteString(graph.RenderDiffTreeColored(r.GraphDiff, diffColors()))
+		b.WriteString(graphChanges)
+	}
+	if sbomChangeCount(r.SBOMDiff) > 0 {
+		renderSBOMChanges(&b, r.SBOMDiff)
 	}
 	return b.String()
+}
+
+// sbomChangeCount is how many package changes an SBOM diff carries. pkg/sbom
+// returns a nil Result when neither side had an SBOM and an empty one when both
+// did and agreed, and neither is a change.
+func sbomChangeCount(r *sbom.Result) int {
+	if r == nil {
+		return 0
+	}
+	return len(r.Changes)
+}
+
+// renderSBOMChanges lists package changes in the same three shapes
+// internal/cli/output.go prints, so the pane and `pacto diff` do not describe
+// one dependency bump two ways. Modified is the default arm rather than a third
+// case: pkg/sbom has exactly three change types, and a fourth arm for the one
+// that cannot happen is a branch no input reaches.
+func renderSBOMChanges(b *strings.Builder, r *sbom.Result) {
+	section(b, fmt.Sprintf("SBOM changes (%d)", len(r.Changes)))
+	for _, c := range r.Changes {
+		switch c.Type {
+		case sbom.PackageAdded:
+			fmt.Fprintf(b, "  + %s@%s\n", safeText(c.Package), safeText(c.NewValue))
+		case sbom.PackageRemoved:
+			fmt.Fprintf(b, "  - %s@%s\n", safeText(c.Package), safeText(c.OldValue))
+		default:
+			fmt.Fprintf(b, "  ~ %s %s: %s -> %s\n",
+				safeText(c.Package), safeText(c.Field), safeText(c.OldValue), safeText(c.NewValue))
+		}
+	}
 }
 
 // renderExplain reports the contract's structure and metadata.

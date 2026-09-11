@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v3/pkg/contractview"
 	"github.com/trianalab/pacto/v3/pkg/doc"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/logging"
@@ -38,8 +38,8 @@ type DocResult struct {
 	// Details is the dashboard snapshot the Markdown was rendered from, and Graph
 	// is the resolved dependency graph. Both feed richer consumers (e.g. the
 	// static HTML export) and are not serialised.
-	Details *dashboard.ServiceDetails `json:"-"`
-	Graph   *dashboard.GlobalGraph    `json:"-"`
+	Details *contractview.ServiceDetails `json:"-"`
+	Graph   *contractview.GlobalGraph    `json:"-"`
 }
 
 // Doc generates Markdown documentation from a contract.
@@ -57,7 +57,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 	gr := graph.Resolve(ctx, bundle.Contract, fetcher)
 
 	logging.LoggerFromContext(ctx).Debug("generating markdown documentation")
-	details := dashboard.ServiceDetailsFromBundle(bundle, "local")
+	details := contractview.ServiceDetailsFromBundle(bundle, "local")
 	details.GenerateInsights()
 	markdown, err := generateDoc(details, gr)
 	if err != nil {
@@ -69,7 +69,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 		Markdown:    markdown,
 		Bundle:      bundle,
 		Details:     details,
-		Graph:       dashboard.GlobalGraphFromResult(gr, details),
+		Graph:       contractview.GlobalGraphFromResult(gr, details),
 	}
 
 	if opts.OutputDir != "" {

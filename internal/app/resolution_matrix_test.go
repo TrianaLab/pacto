@@ -24,7 +24,6 @@ import (
 	"testing/fstest"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
@@ -115,10 +114,12 @@ func mxPush(t *testing.T, client *oci.Client, host, repo, tag string, b *contrac
 	}
 }
 
-// mxService builds a Service whose BundleStore is a real OCI client with the given
-// keychain (insecure name parsing for http in-process registries).
-func mxService(kc authn.Keychain) (*Service, *oci.Client) {
-	client := oci.NewClient(kc, oci.WithNameOptions(name.Insecure))
+// mxService builds a Service whose BundleStore is a real OCI client with the
+// given keychain. The in-process registries speak plain HTTP, and each is named
+// here so that only they are reached that way: a ref this harness did not set up
+// still has to be https.
+func mxService(kc authn.Keychain, plainHTTP ...string) (*Service, *oci.Client) {
+	client := oci.NewClient(kc, oci.WithInsecureRegistries(plainHTTP...))
 	return &Service{BundleStore: client}, client
 }
 
@@ -195,7 +196,7 @@ func TestResolutionMatrix_OrderIndependence(t *testing.T) {
 	regA := mxPlainRegistry(t)
 	regAuth := mxAuthRegistry(t, "robot", "s3cret")
 	kc := mxHostKeychain{creds: map[string]authn.AuthConfig{regAuth: {Username: "robot", Password: "s3cret"}}}
-	svc, client := mxService(kc)
+	svc, client := mxService(kc, regA, regAuth)
 
 	refD := "oci://" + regA + "/svc/d"
 	refE := "oci://" + regAuth + "/svc/e"
@@ -272,7 +273,7 @@ func TestResolutionMatrix_LinearMultiRegistryChain(t *testing.T) {
 	regA := mxPlainRegistry(t)
 	regAuth := mxAuthRegistry(t, "u", "p")
 	kc := mxHostKeychain{creds: map[string]authn.AuthConfig{regAuth: {Username: "u", Password: "p"}}}
-	svc, client := mxService(kc)
+	svc, client := mxService(kc, regA, regAuth)
 
 	refB := "oci://" + regAuth + "/svc/b"
 	refC := "oci://" + regA + "/svc/c"
@@ -303,7 +304,7 @@ func TestResolutionMatrix_LinearMultiRegistryChain(t *testing.T) {
 // Diamond dependency dedups to a single lock entry reached through multiple paths.
 func TestResolutionMatrix_DiamondDedup(t *testing.T) {
 	regA := mxPlainRegistry(t)
-	svc, client := mxService(mxHostKeychain{})
+	svc, client := mxService(mxHostKeychain{}, regA)
 	refD := "oci://" + regA + "/svc/d"
 	mxPush(t, client, regA, "svc/d", "1.0.0", mxBundle(t, "d", "1.0.0"))
 	mxPush(t, client, regA, "svc/a", "1.0.0", mxBundle(t, "a", "1.0.0", mxDep{"d", refD, "^1.0.0"}))
@@ -330,7 +331,7 @@ func TestResolutionMatrix_DiamondDedup(t *testing.T) {
 // Cycle detection: A->B->A is reported as a cycle and fails the lock closed.
 func TestResolutionMatrix_CycleDetection(t *testing.T) {
 	regA := mxPlainRegistry(t)
-	svc, client := mxService(mxHostKeychain{})
+	svc, client := mxService(mxHostKeychain{}, regA)
 	refA := "oci://" + regA + "/svc/a"
 	refB := "oci://" + regA + "/svc/b"
 	mxPush(t, client, regA, "svc/a", "1.0.0", mxBundle(t, "a", "1.0.0", mxDep{"b", refB, "^1.0.0"}))
@@ -352,8 +353,8 @@ func TestResolutionMatrix_TransitiveAuthFailure(t *testing.T) {
 	regA := mxPlainRegistry(t)
 	regAuth := mxAuthRegistry(t, "u", "p")
 	// Keychain intentionally has NO creds for regAuth.
-	svc, client := mxService(mxHostKeychain{})
-	authClient := oci.NewClient(mxHostKeychain{creds: map[string]authn.AuthConfig{regAuth: {Username: "u", Password: "p"}}}, oci.WithNameOptions(name.Insecure))
+	svc, client := mxService(mxHostKeychain{}, regA, regAuth)
+	authClient := oci.NewClient(mxHostKeychain{creds: map[string]authn.AuthConfig{regAuth: {Username: "u", Password: "p"}}}, oci.WithInsecureRegistries(regAuth))
 
 	refB := "oci://" + regAuth + "/svc/b"
 	mxPush(t, authClient, regAuth, "svc/b", "1.0.0", mxBundle(t, "b", "1.0.0"))
@@ -374,7 +375,7 @@ func TestResolutionMatrix_TransitiveAuthFailure(t *testing.T) {
 func TestResolutionMatrix_UnreachableTransitiveRegistry(t *testing.T) {
 	regA := mxPlainRegistry(t)
 	regDead, stop := mxClosableRegistry(t)
-	svc, client := mxService(mxHostKeychain{})
+	svc, client := mxService(mxHostKeychain{}, regA, regDead)
 	refB := "oci://" + regDead + "/svc/b:1.0.0"
 	mxPush(t, client, regA, "svc/a", "1.0.0", mxBundle(t, "a", "1.0.0", mxDep{"b", refB, "^1.0.0"}))
 	root := mxBundle(t, "root", "1.0.0", mxDep{"a", "oci://" + regA + "/svc/a", "^1.0.0"})
@@ -393,7 +394,7 @@ func TestResolutionMatrix_UnreachableTransitiveRegistry(t *testing.T) {
 // Artifact-not-found on a transitive hop propagates and fails closed.
 func TestResolutionMatrix_ArtifactNotFoundPropagation(t *testing.T) {
 	regA := mxPlainRegistry(t)
-	svc, client := mxService(mxHostKeychain{})
+	svc, client := mxService(mxHostKeychain{}, regA)
 	refGhost := "oci://" + regA + "/svc/ghost:1.0.0" // never pushed
 	mxPush(t, client, regA, "svc/a", "1.0.0", mxBundle(t, "a", "1.0.0", mxDep{"ghost", refGhost, "^1.0.0"}))
 	root := mxBundle(t, "root", "1.0.0", mxDep{"a", "oci://" + regA + "/svc/a", "^1.0.0"})
@@ -411,7 +412,7 @@ func TestResolutionMatrix_ArtifactNotFoundPropagation(t *testing.T) {
 // digests, and a ^1.0.0 edge selects the highest matching version (1.2.0).
 func TestResolutionMatrix_LockDigestEqualityAndSemverRange(t *testing.T) {
 	regA := mxPlainRegistry(t)
-	svc, client := mxService(mxHostKeychain{})
+	svc, client := mxService(mxHostKeychain{}, regA)
 	for _, v := range []string{"1.0.0", "1.1.0", "1.2.0", "2.0.0"} {
 		mxPush(t, client, regA, "svc/a", v, mxBundle(t, "a", v))
 	}
@@ -440,7 +441,7 @@ func TestResolutionMatrix_LockDigestEqualityAndSemverRange(t *testing.T) {
 // single fetched node (single-flight), validated under -race.
 func TestResolutionMatrix_ConcurrentSharedArtifactSingleFlight(t *testing.T) {
 	regA := mxPlainRegistry(t)
-	svc, client := mxService(mxHostKeychain{})
+	svc, client := mxService(mxHostKeychain{}, regA)
 	refShared := "oci://" + regA + "/svc/shared"
 	mxPush(t, client, regA, "svc/shared", "1.0.0", mxBundle(t, "shared", "1.0.0"))
 
