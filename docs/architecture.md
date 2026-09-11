@@ -273,7 +273,7 @@ Performs async version checking against the GitHub releases API. Started in a ba
 2. **Strict layering** -- CLI → App → Core (`pkg/`) → Domain (`pkg/contract`)
 3. **Declaration separated from observation** -- the contract is stable intent (`pkg/contract`); runtime facts are separate evidence (`pkg/evidence`) collected outside the core by a collector (any component that produces a valid `EvidenceSet`; the Kubernetes collector is the first shipped one). The pure `Evaluate` function in `pkg/validation` reasons over both and never observes or acts itself
 4. **No global state** -- all instances are created in the composition root (`main.go`); even the logger is built per invocation and carried on the command context (`pkg/logging`), never installed as a process global
-5. **Interface-based** -- engines depend on interfaces (`DataSource`, `BundleStore`, `ContractFetcher`, `PluginRunner`), not concrete implementations
+5. **Interface-based** -- engines depend on interfaces (`BundleStore`, `ContractFetcher`), not concrete implementations
 6. **Out-of-process plugins** -- language-agnostic, version-independent
 7. **Embedded schemas** -- JSON Schema compiled into the binary
 8. **Deterministic validation** -- no configurable rules; same input, same result

@@ -174,7 +174,6 @@ Key API operations:
 | `/api/refresh` | POST | Force-refresh all sources |
 | `/api/resolve` | POST | Lazy-resolve a remote dependency |
 | `/api/versions` | POST | List registry tags, optionally fetch all |
-| `/api/debug/*` | GET | Diagnostics (requires `--diagnostics` flag) |
 
 When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically discovers OCI repositories from CRD `resolvedRef` fields, enabling full contract bundles, version history and diffs without explicit OCI arguments.
 

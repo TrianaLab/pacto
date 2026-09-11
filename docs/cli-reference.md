@@ -185,7 +185,7 @@ pacto dashboard [sources...] [flags]
       --traces stringArray         OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
-It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached), and `--diagnostics` to expose the `/api/debug/*` endpoints.
+It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).
 
 For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Dashboard architecture](dashboard-architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).
 
@@ -1228,7 +1228,6 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | `PACTO_DASHBOARD_HOST` | `--host` | Bind address (default: `127.0.0.1`) |
 | `PACTO_DASHBOARD_PORT` | `--port` | HTTP port (default: `3000`) |
 | `PACTO_DASHBOARD_NAMESPACE` | `--namespace` | Kubernetes namespace filter (empty = all) |
-| `PACTO_DASHBOARD_DIAGNOSTICS` | `--diagnostics` | Boolean. Expose the `/api/debug/*` endpoints and the source diagnostics panel |
 | `PACTO_DASHBOARD_CORS_ORIGIN` | `--cors-origin` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | `PACTO_DASHBOARD_TRACES` | `--traces` | OTLP/JSON trace files to fold observed dependencies from |
 | `PACTO_DASHBOARD_TRACE_SOURCES` | `--trace-source` | Named offline trace sources as `NAME=PATH` |
