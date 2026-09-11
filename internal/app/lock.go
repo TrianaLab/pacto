@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/lock"
@@ -234,12 +233,18 @@ func (s *Service) verifyLockIfPresent(ctx context.Context, ref string, bundle *c
 	return compareLocks(existing, fresh)
 }
 
-// lockCode extracts the LOCK_* code prefix from a pkg/lock error so Validate can
+// lockCode reads the machine-readable code off a pkg/lock error so Validate can
 // surface it as a ValidationError code (consistent with PARSE_ERROR handling).
+//
+// It asks the error for its code rather than splitting the rendered message on
+// the first colon. verifyLockIfPresent also returns raw os.ReadFile and
+// lock.Parse errors, and splitting those emitted a code like
+// "open /home/me/svc/pacto" -- a user's directory layout in a field CI and the
+// operator branch on. Anything that does not carry a code is LOCK_ERROR.
 func lockCode(err error) string {
-	msg := err.Error()
-	if i := strings.IndexByte(msg, ':'); i > 0 {
-		return msg[:i]
+	var c interface{ Code() string }
+	if errors.As(err, &c) {
+		return c.Code()
 	}
 	return "LOCK_ERROR"
 }

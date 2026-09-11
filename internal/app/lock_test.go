@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -600,6 +602,27 @@ func TestLockCode(t *testing.T) {
 	}
 	if got := lockCode(errors.New("no colon here")); got != "LOCK_ERROR" {
 		t.Errorf("lockCode fallback: got %q", got)
+	}
+	// A wrapped lock error still reports its own code: verifyLockIfPresent's
+	// callers wrap, and a code that survives one %w is the point of errors.As.
+	wrapped := fmt.Errorf("verifying lock: %w", &lock.MissingError{Path: "pacto.lock"})
+	if got := lockCode(wrapped); got != "LOCK_MISSING" {
+		t.Errorf("lockCode wrapped: got %q, want LOCK_MISSING", got)
+	}
+}
+
+// verifyLockIfPresent also returns raw os.ReadFile and lock.Parse errors. Those
+// carry no code, and deriving one from the rendered message put the user's
+// directory layout -- or a YAML parser's prose -- into a field CI and the
+// operator branch on.
+func TestLockCode_UncodedErrorsNeverLeakTheirMessage(t *testing.T) {
+	for _, err := range []error{
+		&fs.PathError{Op: "open", Path: "/home/me/svc/pacto.lock", Err: fs.ErrPermission},
+		errors.New("yaml: line 3: mapping values are not allowed in this context"),
+	} {
+		if got := lockCode(err); got != "LOCK_ERROR" {
+			t.Errorf("lockCode(%v) = %q, want LOCK_ERROR", err, got)
+		}
 	}
 }
 
