@@ -256,7 +256,8 @@ artifact-drift:
 	node release/scripts/build-release-plan.mjs
 	node release/scripts/apply-release-plan.mjs
 	@git diff --quiet -- release/release-manifest.json release/release-plan.json \
-		integrations/kubernetes/go.mod integrations/kubernetes/integration.yaml \
+		integrations/kubernetes/go.mod integrations/kubernetes/go.sum \
+		integrations/kubernetes/integration.yaml \
 		integrations/kubernetes/charts/pacto-operator/Chart.yaml \
 		integrations/kubernetes/charts/pacto-operator/values.yaml \
 		integrations/kubernetes/charts/pacto-operator/README.md \

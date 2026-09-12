@@ -6,7 +6,9 @@
 // so re-running produces a byte-identical tree: run twice -> the second `git diff`
 // is empty. It also emits release/release-manifest.json (every release unit ->
 // {version, coordinate, tag, artifactKind}).
-import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync, mkdtempSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -56,6 +58,120 @@ function assert(cond, msg) {
   if (assertNoReplace) {
     assert(!/^\s*replace(\s|\()/m.test(after),
       `${rel}: a replace directive is present — release state must have none`);
+  }
+}
+
+// ---- 1a. integration go.sum: carry checksums for the core version we just pinned ----
+// The operator is consumed STANDALONE — go.work's replace does not travel with it — so
+// its committed go.sum must hold the checksums for the exact core version the require
+// above names. Bumping the require without the sums leaves a module that cannot be built
+// with the default `-mod=readonly`: `go build ./...` fails with "missing go.sum entry" for
+// every pacto/v3 package. That is not hypothetical. Between 2026-09-07 and 2026-09-11 the
+// require said v3.3.0 then v3.3.1 while the sums still said v3.2.7, and it shipped that way
+// in the published integrations/kubernetes/v5.4.0 tag, because this script moved the pin
+// and nothing moved the sums.
+//
+// Nothing downstream noticed: the operator Dockerfile, verify-standalone.sh and
+// verify-k8s-standalone.sh all run with GOFLAGS=-mod=mod and GONOSUMDB for
+// github.com/trianalab/*, which tells go to WRITE whatever entries are missing and skip the
+// checksum database. Held by TestOperatorGoSumCoversThePinnedCoreVersion, which reads the
+// two committed files and compares them with no flags in the way.
+//
+// The version being pinned is normally NOT published yet — this runs while generating the
+// Version PR, before the tag exists — so the checksums cannot be fetched. They do not need
+// to be: a go.sum hash is derived from module CONTENT, not from the commit or the tag, and
+// the tree here is byte-identical to the tree the release will tag (squash-merge preserves
+// it). So we tag the current HEAD locally, point git at this repository through a
+// PROCESS-SCOPED config (never the user's global), and let `go mod download` compute the
+// same hashes the proxy will later serve. Same technique as verify-standalone.sh, verified
+// against the published v3.3.1: the local staging tag reproduced the proxy's h1 exactly.
+//
+// That equivalence holds only while HEAD is the tree the version will be tagged from, which
+// is the release case and not the backfill case: pinning a version that is ALREADY published
+// from an unrelated HEAD would mint a hash the proxy disagrees with, turning "missing go.sum
+// entry" into a checksum MISMATCH — a security error, and a worse failure than the one this
+// section exists to prevent. So the published module wins when it exists. The staging tag is
+// the fallback, taken only when the proxy genuinely does not have this version.
+//
+// Skipped entirely when the entry is already present, which is every run between releases —
+// including ci.mk's artifact-drift idempotency check, which re-runs this script and demands
+// a byte-identical tree. Deterministic input, deterministic hash, so the re-run is a no-op.
+// Precondition: the pin has to name a module version that can EXIST. Go's import-compat
+// rule ties the two halves together — a `/vN` path carries only vN.y.z, and an unsuffixed
+// path only v0/v1 — so `.../v3` at v4.0.0 is not a version whose checksum is merely missing,
+// it is a coordinate no registry can serve. That combination is what a major core bump
+// currently produces, because the plan advances the version and leaves the module path
+// alone; the path rename is a separate, deliberate step. Skip rather than fail: the broken
+// require is section 1's to answer for, and failing here would only relabel it.
+const majorOf = (v) => Number(/^v(\d+)\./.exec(v)?.[1] ?? NaN);
+const pathMajor = Number(/\/v(\d+)$/.exec(pin.module)?.[1] ?? 1);
+const pinIsCoherent = pathMajor >= 2
+  ? majorOf(pin.version) === pathMajor
+  : majorOf(pin.version) <= 1;
+{
+  const rel = 'integrations/kubernetes/go.sum';
+  const before = readFileSync(R(rel), 'utf8');
+  if (!pinIsCoherent) {
+    console.warn(`apply-release-plan: WARNING — ${pin.module} cannot carry ${pin.version} ` +
+      `(a /v${pathMajor} path requires v${pathMajor}.y.z). Skipping the go.sum update: the ` +
+      `module path must be renamed to /v${majorOf(pin.version)} before this version can be pinned. ` +
+      `Note that section 1 has already written this require, and go cannot parse it.`);
+  } else if (!before.includes(`${pin.module} ${pin.version} h1:`)) {
+    const opDir = R('integrations', 'kubernetes');
+    // Section 1 already pinned the require, so go.mod is at its final state here.
+    // `-mod=mod` below licenses go to rewrite it; nothing about resolving one
+    // already-required module should, so treat any rewrite as a bug rather than
+    // letting go quietly restate the operator's requirements mid-release.
+    const goModBefore = readFileSync(R('integrations', 'kubernetes', 'go.mod'), 'utf8');
+    const run = (cmd, args, opts = {}) =>
+      execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts });
+    // A throwaway module cache per attempt: a hash must come from the source this run
+    // resolved, never from whatever a previous run happened to leave behind.
+    const download = (extra) => run('go', ['mod', 'download', pin.module], {
+      cwd: opDir,
+      env: {
+        ...process.env,
+        GOWORK: 'off', GOFLAGS: '-mod=mod',
+        GOMODCACHE: mkdtempSync(join(tmpdir(), 'aprp-mod-')),
+        ...extra,
+      },
+    });
+
+    let published = true;
+    try {
+      // Authoritative path: the real proxy with the checksum database ON. Anything
+      // inherited that would bypass either is cleared, so a published version can only
+      // produce the hash the rest of the world will verify against.
+      download({ GOPRIVATE: '', GONOPROXY: '', GONOSUMDB: '', GONOSUMCHECK: '' });
+    } catch {
+      published = false;
+    }
+    if (!published) {
+      const gitConfig = join(mkdtempSync(join(tmpdir(), 'aprp-git-')), 'config');
+      writeFileSync(gitConfig,
+        `[url "file://${root}"]\n\tinsteadOf = https://github.com/trianalab/pacto\n`);
+      // Unpublished, so the tag should not exist. If one does, it is the source of truth
+      // for its own version — resolve through it rather than clobbering it.
+      const staged = run('git', ['-C', root, 'tag', '-l', pin.version]).trim() !== '';
+      try {
+        if (!staged) run('git', ['-C', root, 'tag', pin.version, 'HEAD']);
+        download({
+          GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_SYSTEM: '/dev/null',
+          GOPRIVATE: 'github.com/trianalab/*', GONOSUMDB: 'github.com/trianalab/*',
+        });
+      } finally {
+        if (!staged) { try { run('git', ['-C', root, 'tag', '-d', pin.version]); } catch { /* best effort */ } }
+      }
+    }
+    assert(readFileSync(R('integrations', 'kubernetes', 'go.mod'), 'utf8') === goModBefore,
+      'integrations/kubernetes/go.mod: rewritten by `go mod download`; only its go.sum may move here');
+    const after = readFileSync(R(rel), 'utf8');
+    assert(after.includes(`${pin.module} ${pin.version} h1:`),
+      `${rel}: no checksum for ${pin.module} ${pin.version} after go mod download`);
+    assert(after.includes(`${pin.module} ${pin.version}/go.mod h1:`),
+      `${rel}: no go.mod checksum for ${pin.module} ${pin.version} after go mod download`);
+    // go rewrote the file on disk; record it the same way edit() would.
+    if (after !== before) changed.push(rel);
   }
 }
 
