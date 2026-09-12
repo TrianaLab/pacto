@@ -6,6 +6,7 @@
 # git config (never the user's global) + a throwaway module cache. No network, no publish.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$ROOT/release/scripts/staging-tags.sh"
 # NEXT core version = current @pacto/core version bumped by the strongest pending changeset.
 NEXT="$(node -e '
 const fs=require("fs"),path=require("path");
@@ -33,7 +34,11 @@ if [ "$NEXT" = "$(node -e 'console.log(require("'"$ROOT"'/release/units/pacto-co
   echo "note: no pending core bump — current core already published + proven standalone; skipping"
   exit 0
 fi
-git -C "$ROOT" tag -f "v${NEXT}" HEAD >/dev/null 2>&1   # reproducible local staging tag (deleted at end)
+# Everything below can fail — a build error, a proxy timeout, a ^C — and the only
+# tag deletion used to be the last line of the script, so any of those leaked the
+# staging tag into the maintainer's clone. Trap the restore before staging.
+trap restore_staged_tags EXIT
+stage_tag "$ROOT" "v${NEXT}"                            # reproducible local staging tag
 TMPGIT="$(mktemp)"; printf '[url "file://%s"]\n\tinsteadOf = https://github.com/trianalab/pacto\n' "$ROOT" > "$TMPGIT"
 WORK="$(mktemp -d)"; mkdir -p "$WORK/op"; tar -C "$ROOT/integrations/kubernetes" --exclude=bin --exclude=.github --exclude=node_modules -cf - . | tar -C "$WORK/op" -xf -
 perl -i -pe "s{github.com/trianalab/pacto/v3 v[0-9][0-9.]*}{github.com/trianalab/pacto/v3 v${NEXT}}" "$WORK/op/go.mod"
@@ -45,4 +50,3 @@ echo "go mod download (external, GOWORK=off)..."; bash "$ROOT"/release/scripts/r
 echo "go build ./... (standalone operator, no go.work, no replace)..."
 go build ./... && go build -o /dev/null ./cmd
 echo "STANDALONE-VERIFY OK: operator module builds against published core v${NEXT}, GOWORK=off, replace=0"
-git -C "$ROOT" tag -d "v${NEXT}" >/dev/null 2>&1 || true
