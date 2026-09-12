@@ -296,9 +296,15 @@ jobs:
 
   release-dry-run:
     needs: changes
+    # Gated on `release` as well as `e2e`, because the dry run READS the pending
+    # changesets: verify-standalone.sh computes the next core version from them and
+    # build-release-plan.mjs turns them into the plan it rehearses. The `e2e` filter
+    # has no '.changeset/**' entry on purpose — a changeset cannot affect the kind or
+    # Compose legs — so gating this job on `e2e` alone made the one PR class that
+    # OPENS a release transaction the one class the dry run never rehearsed (#370).
     # Skip on the changesets Version PR: its changesets are already consumed, so the
     # dry-run's "pending bump" scenarios do not apply (feature-PR / main gate only).
-    if: (needs.changes.outputs.e2e == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !startsWith(github.head_ref, 'changeset-release/')
+    if: (needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

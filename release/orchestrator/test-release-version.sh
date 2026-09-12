@@ -44,24 +44,31 @@ else
   echo "  A: feature PR / post-release (unchanged committed transaction) publishes nothing"
 fi
 
-# --- B: run the REAL version command with a pending major core changeset. ---
-# Consume ONLY a controlled changeset: drop the repo's pending entries so the
-# bump is deterministic (config.json + README.md stay).
-find .changeset -name '*.md' ! -name 'README.md' -delete
-cat > .changeset/test-major.md <<'MD'
+# stage_changeset <dir> <bump> — replace the repo's pending changesets with one
+# controlled entry, so the bump is deterministic (config.json + README.md stay).
+stage_changeset() {
+  find "$1/.changeset" -name '*.md' ! -name 'README.md' -delete
+  cat > "$1/.changeset/test-bump.md" <<MD
 ---
-"@pacto/core": major
+"@pacto/core": $2
 ---
 
 Test: exercise the real release:version transaction path.
 MD
+}
+
+# --- B: run the REAL version command with a pending minor core changeset. ---
+# Minor, not major: a major bump is REFUSED until the module path is renamed to
+# match (case D below), and every invariant B checks — consumption, the fixed
+# group, the transaction, manifestSha — is bump-size independent.
+stage_changeset . minor
 npm run release:version >/dev/null 2>&1 || fail "npm run release:version errored"
 
 # changeset consumed
-[ -f .changeset/test-major.md ] && fail "changeset was not consumed"
-# versions bumped (core major: prev major +1 . 0 . 0)
+[ -f .changeset/test-bump.md ] && fail "changeset was not consumed"
+# versions bumped (core minor: prev major . prev minor +1 . 0)
 new_core="$(jq -r '.units.core.version' release/release-manifest.json)"
-want_core="$(( ${prev_core%%.*} + 1 )).0.0"
+want_core="${prev_core%%.*}.$(( $(echo "$prev_core" | cut -d. -f2) + 1 )).0"
 eq "$new_core" "$want_core" "core version bump"
 # k8s unchanged (core-only changeset)
 eq "$(jq -r '.units["k8s-module"].version' release/release-manifest.json)" "$prev_k8s" "k8s version unchanged"
@@ -85,20 +92,32 @@ echo "  B: real release:version -> ready transaction, detect release=true"
 # in an independent run (no clock/random; item 1 "second invocation byte-identical").
 cp release/release-transaction.json "$WORK/txn1.json"
 C2="$WORK/clone2"; git clone -q "$ROOT" "$C2"; ln -s "$ROOT/node_modules" "$C2/node_modules"
-(
-  cd "$C2"
-  find .changeset -name '*.md' ! -name 'README.md' -delete
-  cat > .changeset/test-major.md <<'MD'
----
-"@pacto/core": major
----
-
-Test: exercise the real release:version transaction path.
-MD
-  npm run release:version >/dev/null 2>&1
-)
+stage_changeset "$C2" minor
+( cd "$C2" && npm run release:version >/dev/null 2>&1 )
 diff -q "$WORK/txn1.json" "$C2/release/release-transaction.json" >/dev/null \
   || fail "transaction not deterministic across independent runs"
 echo "  C: same changesets -> byte-identical transaction across independent runs"
+
+# --- D: a major bump is REFUSED while the module path still carries the old major. ---
+# Go binds a module's version to its path (/vN carries only vN.y.z), and a major
+# changeset moves the version without moving the path — the rename is a separate,
+# deliberate commit. Emitting the plan anyway wrote `github.com/trianalab/pacto/v3
+# v4.0.0` into the operator's go.mod, a require go refuses to parse, discovered only
+# after the Version PR existed. release:version must fail loudly instead, naming the
+# rename. Run in a third clone so B and C's consumed state is untouched.
+C3="$WORK/clone3"; git clone -q "$ROOT" "$C3"; ln -s "$ROOT/node_modules" "$C3/node_modules"
+stage_changeset "$C3" major
+if ( cd "$C3" && npm run release:version ) > "$WORK/major.out" 2>&1; then
+  fail "a major core bump was accepted while the module path still carries the old major"
+fi
+grep -q 'refuses to emit' "$WORK/major.out" \
+  || fail "major bump failed for the wrong reason: $(tail -3 "$WORK/major.out")"
+grep -q 'Rename it to github.com/trianalab/pacto/v4' "$WORK/major.out" \
+  || fail "the refusal does not name the rename that unblocks it"
+# The refusal has to land BEFORE the operator go.mod is touched: a require go cannot
+# parse is worse than no bump at all.
+git -C "$C3" diff --quiet -- integrations/kubernetes/go.mod \
+  || fail "operator go.mod was modified by a refused major bump"
+echo "  D: major core bump refused, module-path rename named, operator go.mod untouched"
 
 echo "RELEASE-VERSION-TEST OK"

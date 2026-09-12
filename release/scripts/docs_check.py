@@ -798,6 +798,11 @@ def check_unreleased_versions() -> None:
         if v not in post_mortem:
             problems.append(f"{v} is listed as unreleased but docs/maintainers/releases.md never explains it")
 
+    # Each record links to its OWN post-mortem -- they are separate transactions --
+    # so the anchors must resolve. Not checked here: mkdocs.yml sets
+    # validation.links.anchors=warn and check (c) builds --strict, so a heading that
+    # stops producing one of these anchors already fails the build.
+
     # The converse: a version the post-mortem calls abandoned must be disclosed.
     for v in re.findall(r"Abandoned transaction[^\n]*?\(([0-9./ ]+)\)", post_mortem):
         for ver in re.findall(r"\d+\.\d+\.\d+", v):
@@ -806,7 +811,7 @@ def check_unreleased_versions() -> None:
 
     ok = not problems
     record(ok, "(o) unreleased versions are disclosed on the Changelog",
-           f"{len(_UNRELEASED_VERSIONS)} tagged-but-unreleased versions disclosed"
+           f"{len(_UNRELEASED_VERSIONS)} abandoned versions disclosed, each linked to its post-mortem"
            if ok else " ; ".join(problems[:5]))
 
 

@@ -175,6 +175,31 @@ its tools, and distinguishes a genuine 404 from a registry it could not read at 
 Callers must assign its output to a variable before testing it: inside `[ "$(…)" ]`
 the exit status is discarded, so a failed read reads as an empty one.
 
+## A major bump needs the module path renamed first
+
+Go binds a module's version to its import path: a path ending `/vN` carries only
+`vN.y.z`, and an unsuffixed path only v0 and v1. Both Go modules here publish on a
+suffixed path — `github.com/trianalab/pacto/v3` and
+`github.com/trianalab/pacto/integrations/kubernetes/v5` — so the major in the path
+and the major in the version are the same number, always.
+
+A major changeset moves the version. It does not move the path, and it cannot: the
+rename touches the import path, every importer in the tree, `go.work`'s replace, the
+`coordinate` in `release/units/*/package.json` and the operator's own `module` line.
+That is a deliberate first commit of a major release, not something the version
+script should infer. Landing the changeset without it used to produce a require go
+refuses to parse:
+
+```
+go.mod:79:2: require github.com/trianalab/pacto/v3: version "v4.0.0" invalid: should be v3, not v4
+```
+
+`build-release-plan.mjs` now refuses to emit a plan whose version does not fit its
+path, and `apply-release-plan.mjs` refuses to write the require, so the release stops
+before the Version PR exists rather than mid-transaction. **Rename the path, merge
+that, then land the major changeset.** `tests/release/k8s_module_path_test.go` holds
+the Kubernetes half of the rename to every declared coordinate.
+
 ## Abandoned transaction `522e9507410f16fc` (3.2.0 / 5.2.0)
 
 This transaction published four units and then failed. v3.2.0 and v5.2.0 are
@@ -191,3 +216,23 @@ follow, and they are permanent:
   3.2.1 / 5.2.1. Its ledger entries are permanent, so a recovery dispatch for
   that transaction id stays armed and still refuses to double-publish the four
   units that completed.
+
+## Abandoned transaction `3bf445d36fd2c3fc` (5.2.2)
+
+This one published **nothing** — no module tag, no operator image, no chart — and
+reported success. Run 32647472671 on `be20e3b3` (#319) is green in the Actions list.
+`detect` resolved correctly (`release=true`, the four Kubernetes units), `core-ready`
+succeeded, and then `ledger-init` and every publisher below it skipped.
+
+The cause was skip propagation through `needs`. A Kubernetes-only transaction has no
+core unit, so `core-tag` skips by design. `core-ready` carried `always()` and ran, but
+`always()` exempts only the job that declares it: the skip still reached everything
+downstream of `core-tag`, and `ledger-init` — which did not declare it — skipped with
+its `if:` satisfied and both of its `needs` green. A skipped job is not a failed job,
+so the run's conclusion stayed `success`. Fixed in #361 and #362.
+
+5.2.2 is therefore unlike 3.2.0 / 5.2.0: there is no tag, so nothing resolves through
+the module proxy either, and no artifact exists to be adopted or conflicted with. It
+was superseded by **5.2.3**, which published in full. Nothing needs recovering, and a
+recovery dispatch for this transaction id would rebuild from a commit whose versions
+have since been republished — do not send one.

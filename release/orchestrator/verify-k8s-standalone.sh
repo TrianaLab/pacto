@@ -8,10 +8,11 @@
 #
 # Non-invasive, mirrors verify-standalone.sh: local staging tags on the current
 # tree, a process-scoped git config (never the user's global) that rewrites the
-# public repo URL to this checkout, and a throwaway GOMODCACHE. The tags are
-# deleted on exit. No publish, no production coordinate.
+# public repo URL to this checkout, and a throwaway GOMODCACHE. The tags are put
+# back as they were found on exit. No publish, no production coordinate.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$ROOT/release/scripts/staging-tags.sh"
 
 # The nested-module tag baseline for the /v5 path comes straight from the release
 # plan (build-release-plan.mjs derives it from the module PATH major, so a /v5
@@ -27,14 +28,16 @@ echo "consume ${MODULE}@v${K8S_VER} (tag ${K8S_TAG}); core pin ${CORE_PIN}"
 TMPGIT="$(mktemp)"; WORK="$(mktemp -d)"; MODCACHE="$(mktemp -d)"
 printf '[url "file://%s"]\n\tinsteadOf = https://github.com/trianalab/pacto\n' "$ROOT" > "$TMPGIT"
 
-git -C "$ROOT" tag -f "$K8S_TAG" HEAD >/dev/null 2>&1    # reproducible local staging tags
-git -C "$ROOT" tag -f "$CORE_PIN" HEAD >/dev/null 2>&1
+# Both names are REAL published tags between releases, so stage_tag records where
+# each one pointed and restore_staged_tags puts it back — deleting only what it
+# created. Trap first: the restore matters most when the check below fails.
 cleanup() {
-  git -C "$ROOT" tag -d "$K8S_TAG" >/dev/null 2>&1 || true
-  git -C "$ROOT" tag -d "$CORE_PIN" >/dev/null 2>&1 || true
+  restore_staged_tags
   rm -rf "$WORK" "$MODCACHE" "$TMPGIT" 2>/dev/null || true
 }
 trap cleanup EXIT
+stage_tag "$ROOT" "$K8S_TAG"    # reproducible local staging tags
+stage_tag "$ROOT" "$CORE_PIN"
 
 # A throwaway consumer module: nothing from the workspace reaches it.
 mkdir -p "$WORK/consumer"

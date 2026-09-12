@@ -28,6 +28,7 @@ import glob
 import json
 import os
 import re
+from collections import namedtuple
 
 import yaml
 from mkdocs.structure.files import File
@@ -69,28 +70,51 @@ def _pages(docs_dir: str):
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _HEADING = re.compile(r"^#{1,6}\s")
 
-# Versions whose Changesets entry exists -- the version bump succeeded -- but
-# whose publishing transaction was abandoned, so no GitHub Release was ever cut.
-# The Changesets files below are the historical record and must not be rewritten
-# to hide them, so the assembled page says it instead. Keep in step with the
-# post-mortem on docs/maintainers/releases.md, which docs-check (o) enforces.
-_UNRELEASED_VERSIONS = ("3.2.0", "5.2.0")
-_SUPERSEDED_BY = ("3.2.1", "5.2.1")
+# Versions whose Changesets entry exists -- the version bump succeeded -- but whose
+# publishing transaction was abandoned, so the version was never released. The
+# Changesets files are the historical record and must not be rewritten to hide them,
+# so the assembled page says it instead. Keep in step with the post-mortems on
+# docs/maintainers/releases.md, which docs-check (o) enforces in both directions.
+#
+# One record per version, not one shared paragraph. They did not fail the same way:
+# 3.2.0 and 5.2.0 are tagged and resolve through the module proxy, while 5.2.2 was
+# never tagged at all, so prose saying "their tags resolve" and "neither has a GitHub
+# Release" is wrong for the third and cannot stretch to a fourth. Each record carries
+# its own supersedor and its own post-mortem anchor, because they are two transactions.
+_Ghost = namedtuple("_Ghost", "version superseded_by what_happened anchor")
+
+_PROXY_ONLY = (
+    "tagged and resolvable through the Go module proxy, but never given a GitHub "
+    "Release"
+)
+_ANCHOR_320_520 = "abandoned-transaction-522e9507410f16fc-320-520"
+
+_UNRELEASED = (
+    _Ghost("3.2.0", "3.2.1", _PROXY_ONLY, _ANCHOR_320_520),
+    _Ghost("5.2.0", "5.2.1", _PROXY_ONLY, _ANCHOR_320_520),
+    _Ghost(
+        "5.2.2",
+        "5.2.3",
+        "never published at all — no module tag, no operator image, no chart — "
+        "because every publisher skipped while the run still reported success",
+        "abandoned-transaction-3bf445d36fd2c3fc-522",
+    ),
+)
+
+_UNRELEASED_VERSIONS = tuple(g.version for g in _UNRELEASED)
 
 _UNRELEASED_NOTE = (
-    '!!! warning "{ghosts} have release notes below, but were never released"\n\n'
-    "    Their version bump succeeded and their tags resolve through the Go "
-    "module proxy, but the transaction that would have published them was "
-    "abandoned part-way through. Neither has a GitHub Release, and both "
-    "`pacto update` and the installer script's `--version` resolve releases "
-    "through the GitHub API — so neither version is installable by either "
-    "route. Use **{fixed}** instead: they supersede {ghosts} and contain "
-    "everything listed under them. The "
-    "[release ledger](maintainers/releases.md"
-    "#abandoned-transaction-522e9507410f16fc-320-520) has the post-mortem."
-).format(
-    ghosts=" and ".join(_UNRELEASED_VERSIONS),
-    fixed=" and ".join(_SUPERSEDED_BY),
+    '!!! warning "Some versions have release notes below, but were never released"\n\n'
+    "    A version bump can succeed and its publishing transaction still be abandoned "
+    "part-way through. `pacto update` and the installer script's `--version` both "
+    "resolve releases through the GitHub API, so none of the versions below is "
+    "installable by either route. Use the superseding version instead: it contains "
+    "everything listed under the version it replaces.\n\n"
+    + "".join(
+        "    - **{g.version}** — {g.what_happened}. Superseded by **{g.superseded_by}** "
+        "([post-mortem](maintainers/releases.md#{g.anchor})).\n".format(g=g)
+        for g in _UNRELEASED
+    )
 )
 
 _CHANGELOG_INTRO = (
