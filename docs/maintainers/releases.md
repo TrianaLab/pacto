@@ -175,6 +175,31 @@ its tools, and distinguishes a genuine 404 from a registry it could not read at 
 Callers must assign its output to a variable before testing it: inside `[ "$(…)" ]`
 the exit status is discarded, so a failed read reads as an empty one.
 
+## A major bump needs the module path renamed first
+
+Go binds a module's version to its import path: a path ending `/vN` carries only
+`vN.y.z`, and an unsuffixed path only v0 and v1. Both Go modules here publish on a
+suffixed path — `github.com/trianalab/pacto/v3` and
+`github.com/trianalab/pacto/integrations/kubernetes/v5` — so the major in the path
+and the major in the version are the same number, always.
+
+A major changeset moves the version. It does not move the path, and it cannot: the
+rename touches the import path, every importer in the tree, `go.work`'s replace, the
+`coordinate` in `release/units/*/package.json` and the operator's own `module` line.
+That is a deliberate first commit of a major release, not something the version
+script should infer. Landing the changeset without it used to produce a require go
+refuses to parse:
+
+```
+go.mod:79:2: require github.com/trianalab/pacto/v3: version "v4.0.0" invalid: should be v3, not v4
+```
+
+`build-release-plan.mjs` now refuses to emit a plan whose version does not fit its
+path, and `apply-release-plan.mjs` refuses to write the require, so the release stops
+before the Version PR exists rather than mid-transaction. **Rename the path, merge
+that, then land the major changeset.** `tests/release/k8s_module_path_test.go` holds
+the Kubernetes half of the rename to every declared coordinate.
+
 ## Abandoned transaction `522e9507410f16fc` (3.2.0 / 5.2.0)
 
 This transaction published four units and then failed. v3.2.0 and v5.2.0 are

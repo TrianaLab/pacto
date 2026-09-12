@@ -14,6 +14,38 @@ import { createHash } from 'node:crypto';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const unitsDir = join(root, 'release', 'units');
 
+// Go's import-compatibility rule binds a module's version to its path: a path
+// ending `/vN` carries only vN.y.z, and an unsuffixed path only v0 and v1. So
+// pathMajor is the ONLY major a coordinate can publish — 1 when unsuffixed.
+const pathMajorOf = (coordinate) => Number(coordinate.match(/\/v(\d+)$/)?.[1] ?? 1);
+
+// A major bump advances the unit version; it does NOT rename the module path,
+// which is a separate and deliberate first step of a major release (every import
+// in the tree moves with it). Emitting the plan regardless produced coordinates
+// that cannot exist — `github.com/trianalab/pacto/v3` at `v4.0.0` is not a
+// version whose artifact is merely missing, it is a require go refuses to parse:
+//
+//	go.mod:79:2: require github.com/trianalab/pacto/v3: version "v4.0.0" invalid:
+//	should be v3, not v4
+//
+// and apply-release-plan.mjs wrote exactly that into the operator's go.mod. Refuse
+// to emit the plan instead. The release stops here, before the Version PR exists,
+// with the missing step named — rather than mid-transaction with tags pushed.
+function assertVersionFitsPath(what, coordinate, version, pathFix) {
+  const pathMajor = pathMajorOf(coordinate);
+  const verMajor = Number(String(version).replace(/^v/, '').split('.')[0]);
+  const fits = pathMajor >= 2 ? verMajor === pathMajor : verMajor <= 1;
+  if (fits) return;
+  const carries = pathMajor >= 2 ? `v${pathMajor}.y.z` : 'v0.y.z and v1.y.z';
+  throw new Error(
+    `release plan refuses to emit: ${what} would publish ${coordinate} at v${String(version).replace(/^v/, '')}, ` +
+    `but that module path carries only ${carries}.\n` +
+    `A major bump does not rename the module path. Rename it to ` +
+    `${coordinate.replace(/\/v\d+$/, '')}/v${verMajor} first — the import path, every importer, ` +
+    `${pathFix} — then land the major changeset. See docs/maintainers/releases.md.`,
+  );
+}
+
 function readUnits() {
   const out = {};
   for (const id of readdirSync(unitsDir).sort()) {
@@ -33,10 +65,12 @@ function buildPlan(u) {
   // compatibility from the PATH major, not the un-bumped unit version — this
   // keeps the go.work dev build + apply-release-plan on a valid vN and lands
   // exactly on vN.0.0 when the major changeset applies.
-  const pathMajor = Number((u['core'].coordinate.match(/\/v(\d+)$/) || [, core.split('.')[0]])[1]);
+  const pathMajor = pathMajorOf(u['core'].coordinate);
   const coreMajor = Number(core.split('.')[0]);
   const pinVersion = pathMajor > coreMajor ? `v${pathMajor}.0.0` : `v${core}`;
   const compatMajor = Math.max(pathMajor, coreMajor);
+  assertVersionFitsPath('the core group', u['core'].coordinate, pinVersion,
+    'the /vN suffix in this coordinate, and go.work\'s replace');
   // The Kubernetes Go module path carries its OWN major (.../integrations/
   // kubernetes/vN). A Go module tag must live on the module path's major, so the
   // nested-module tag has to track the PATH major, not the un-bumped unit version
@@ -45,10 +79,12 @@ function buildPlan(u) {
   // baseline from the path major so a /v5 module never gets a v4 tag; it lands on
   // the real v5.x when the major changeset bumps the unit. The image, chart and
   // docs stay on the unit version (they are OCI/doc versions, not Go modules).
-  const k8sPathMajor = Number((u['k8s-module'].coordinate.match(/\/v(\d+)$/) || [, k8s.split('.')[0]])[1]);
+  const k8sPathMajor = pathMajorOf(u['k8s-module'].coordinate);
   const k8sMajor = Number(k8s.split('.')[0]);
   const k8sModuleVersion = k8sPathMajor > k8sMajor ? `${k8sPathMajor}.0.0` : k8s;
   const k8sModuleTag = `integrations/kubernetes/v${k8sModuleVersion}`;
+  assertVersionFitsPath('the kubernetes group', u['k8s-module'].coordinate, k8sModuleVersion,
+    'the directory suffix in the module tag, and the operator\'s own module line');
   // Fixed groups: core line and k8s line move as a unit.
   const plan = {
     schema: 'pacto-release-plan/v1',

@@ -49,6 +49,21 @@ function assert(cond, msg) {
 // assertNoReplace declares the release-state invariant: a replace directive must
 // NOT survive into a published go.mod. This is enforcement, not removal — a stray
 // replace is a mistake to surface loudly, never something to silently rewrite.
+//
+// The pin has to name a version that CAN exist. Go's import-compat rule ties the
+// halves together — a `/vN` path carries only vN.y.z, an unsuffixed path only
+// v0/v1 — so `.../v3` at `v4.0.0` is not a require whose module is missing, it is
+// one go refuses to parse. A major core bump produced exactly that, because the
+// version advances and the module path does not; renaming the path is a separate,
+// deliberate step. build-release-plan.mjs now refuses to emit such a plan, so this
+// is unreachable through the release path and guards the hand-edited one.
+const majorOf = (v) => Number(/^v(\d+)\./.exec(v)?.[1] ?? NaN);
+const pathMajor = Number(/\/v(\d+)$/.exec(pin.module)?.[1] ?? 1);
+assert(pathMajor >= 2 ? majorOf(pin.version) === pathMajor : majorOf(pin.version) <= 1,
+  `release plan pins ${pin.module} at ${pin.version}, which that module path cannot carry ` +
+  `(a /v${pathMajor} path requires v${pathMajor}.y.z). Rename the module path to ` +
+  `/v${majorOf(pin.version)} before pinning this version — writing the require anyway ` +
+  'produces a go.mod go cannot parse.');
 {
   const rel = 'integrations/kubernetes/go.mod';
   const after = edit(rel, (s) =>
@@ -96,27 +111,12 @@ function assert(cond, msg) {
 // Skipped entirely when the entry is already present, which is every run between releases —
 // including ci.mk's artifact-drift idempotency check, which re-runs this script and demands
 // a byte-identical tree. Deterministic input, deterministic hash, so the re-run is a no-op.
-// Precondition: the pin has to name a module version that can EXIST. Go's import-compat
-// rule ties the two halves together — a `/vN` path carries only vN.y.z, and an unsuffixed
-// path only v0/v1 — so `.../v3` at v4.0.0 is not a version whose checksum is merely missing,
-// it is a coordinate no registry can serve. That combination is what a major core bump
-// currently produces, because the plan advances the version and leaves the module path
-// alone; the path rename is a separate, deliberate step. Skip rather than fail: the broken
-// require is section 1's to answer for, and failing here would only relabel it.
-const majorOf = (v) => Number(/^v(\d+)\./.exec(v)?.[1] ?? NaN);
-const pathMajor = Number(/\/v(\d+)$/.exec(pin.module)?.[1] ?? 1);
-const pinIsCoherent = pathMajor >= 2
-  ? majorOf(pin.version) === pathMajor
-  : majorOf(pin.version) <= 1;
+// Section 1 has already proved the pin names a version this module path can carry, so the
+// coordinate resolved below is one the proxy can actually be asked about.
 {
   const rel = 'integrations/kubernetes/go.sum';
   const before = readFileSync(R(rel), 'utf8');
-  if (!pinIsCoherent) {
-    console.warn(`apply-release-plan: WARNING — ${pin.module} cannot carry ${pin.version} ` +
-      `(a /v${pathMajor} path requires v${pathMajor}.y.z). Skipping the go.sum update: the ` +
-      `module path must be renamed to /v${majorOf(pin.version)} before this version can be pinned. ` +
-      `Note that section 1 has already written this require, and go cannot parse it.`);
-  } else if (!before.includes(`${pin.module} ${pin.version} h1:`)) {
+  if (!before.includes(`${pin.module} ${pin.version} h1:`)) {
     const opDir = R('integrations', 'kubernetes');
     // Section 1 already pinned the require, so go.mod is at its final state here.
     // `-mod=mod` below licenses go to rewrite it; nothing about resolving one
