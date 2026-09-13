@@ -3,7 +3,7 @@ module github.com/trianalab/pacto/integrations/kubernetes/v5
 go 1.26.6
 
 require (
-	github.com/google/go-containerregistry v0.22.0
+	github.com/google/go-containerregistry v0.22.1
 	github.com/onsi/ginkgo/v2 v2.32.1
 	github.com/onsi/gomega v1.43.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3

@@ -9,7 +9,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/danielgtaylor/huma/v2 v2.39.1
-	github.com/google/go-containerregistry v0.22.0
+	github.com/google/go-containerregistry v0.22.1
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
