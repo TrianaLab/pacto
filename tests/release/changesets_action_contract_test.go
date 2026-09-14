@@ -32,8 +32,8 @@ import (
 // treat as part of the reference — and pairs it with the Changesets CLI major the
 // action drives, since the action and the CLI are two halves of one contract.
 
-// The accepted v2 pin: a full commit, never a tag. changesets/action v2.1.1.
-const changesetsActionPin = "changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1"
+// The accepted v2 pin: a full commit, never a tag. changesets/action v2.1.2.
+const changesetsActionPin = "changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51"
 
 // The canonical version command. It is not `changeset version`: the repository's
 // script chains the transaction builder, the plan applier and the version-derived
