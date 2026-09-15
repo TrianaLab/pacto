@@ -62,7 +62,7 @@ metadata:
 !!! note
     RabbitMQ's AMQP is a message-oriented protocol, so the `amqp` interface uses `type: asyncapi` with an AsyncAPI document (see [interface types](../contract-reference/sections.md#interface-types)). The management REST API is `openapi`, and the Prometheus metrics endpoint is a separate `openapi` interface the `metrics` capability binds to.
 
-### Key decisions
+## Key decisions
 
 - **`dataCriticality: high`** — message loss can cause data integrity issues across the system
 - **`state.type: stateful` with `durability: persistent`** — queues and messages must survive restarts

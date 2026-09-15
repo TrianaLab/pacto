@@ -6,7 +6,7 @@
 
 **Layout.**
 
-```
+```text
 pactos/my-service-api/
 ├── pacto.yaml
 └── overrides/

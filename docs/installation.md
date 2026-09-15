@@ -15,20 +15,17 @@ Pacto in your browser with nothing to download, and the
 
 ## Via installer script
 
-You need a POSIX shell, `curl` or `wget`, and either the ability to `sudo` into
-`/usr/local/bin` or a writable directory of your own (see [Installing without
-sudo](#installing-without-sudo)). Linux and macOS run it directly; on Windows use
-Git Bash, MSYS2 or Cygwin. The script downloads `checksums.txt` alongside the
-binary and verifies SHA-256 with `sha256sum` or `shasum`; if the checksums file
-or both tools are missing it prints `Warning: ... skipping verification` and
-installs anyway.
+You need a POSIX shell, `curl` or `wget`, and either `sudo` into
+`/usr/local/bin` or a [writable directory of your own](#installing-without-sudo).
+Linux and macOS run it directly; on Windows use Git Bash, MSYS2 or Cygwin.
 
-Note that the two paths differ here: [`pacto update`](#updating) aborts rather
-than replace a binary it could not verify, while the installer proceeds. On a
-machine with neither `sha256sum` nor `shasum`, a first install is therefore
-unverified. If you need it to fail closed instead, take a
+The script downloads `checksums.txt` alongside the binary and verifies SHA-256
+with `sha256sum` or `shasum`. If the checksums file or both tools are missing it
+prints `Warning: ... skipping verification` and installs anyway — unlike
+[`pacto update`](#updating), which aborts rather than replace a binary it could
+not verify. To fail closed on a first install, take a
 [release binary](https://github.com/TrianaLab/pacto/releases) and check it
-against the release's `checksums.txt` yourself.
+against `checksums.txt` yourself.
 
 Install with one command:
 
@@ -38,10 +35,10 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 
 This installs into `/usr/local/bin`: `pacto`, `pacto-plugin-schema-infer` and
 `pacto-plugin-openapi-infer` (see [Plugins](plugins.md)). Plugin installation is
-best-effort — if it fails, the script prints a warning, installs `pacto` anyway
-and still exits 0. Re-run the script to retry the plugins.
+best-effort: if it fails the script warns, installs `pacto` anyway and exits 0.
+Re-run it to retry the plugins.
 
-Pass `--version` to install a specific release instead of the latest:
+Pass `--version` for a specific release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh \
@@ -51,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 !!! warning "If the script cannot find a version (GitHub API rate limit)"
     The script resolves the version through the anonymous GitHub API, which
     allows 60 requests per hour per IP address. On a shared or NAT'd address it
-    can run out and exit without installing anything, reporting
+    can run out and exit without installing, reporting
     `Failed to fetch latest version` or `Version <tag> not found in TrianaLab/pacto releases`.
     Set `GH_TOKEN` (or `GITHUB_TOKEN`) to any GitHub token — no scopes needed —
     and re-run:
@@ -61,7 +58,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
       | GH_TOKEN="$(gh auth token)" bash
     ```
 
-    `gh auth token` just prints the token the [GitHub CLI](https://cli.github.com/)
+    `gh auth token` prints the token the [GitHub CLI](https://cli.github.com/)
     already holds. Without `gh`, create a fine-grained personal access token with
     no permissions selected at
     [github.com/settings/tokens](https://github.com/settings/tokens) and pass it
@@ -260,4 +257,3 @@ make clean    # Delete $GOBIN/pacto and the coverage files
 
 Next: [Quickstart](quickstart.md). For what changed in the version you just
 installed, see the [changelog](changelog.md).
-

@@ -1,0 +1,44 @@
+// Markdown syntax gate for the Pacto documentation (`make docs-lint`).
+//
+// Rules only -- no `globs` here on purpose. release/scripts/docs_lint.py owns
+// which files are gated and hands markdownlint an explicit list, so the scope
+// is defined in exactly one place. Opening any Markdown file in an editor still
+// picks these rules up.
+//
+// Everything is on by default. The three rules turned off below are each a
+// mismatch between markdownlint's Markdown and the MkDocs Material dialect this
+// site is actually written in, not a problem being hidden.
+{
+  "config": {
+    "default": true,
+
+    // Prose here is written one paragraph per line and reflowed by the theme.
+    // Enforcing a column limit would rewrap ~1160 lines and change no rendering.
+    "MD013": false,
+
+    // A Material admonition body (`!!! note` + 4-space indent) is indistinguishable
+    // from an indented code block to markdownlint, so this rule reports every
+    // admonition in the site as a style violation.
+    "MD046": false,
+
+    // Pages legitimately open with YAML front matter, a badge row, or a
+    // `--8<--` snippet include rather than an H1.
+    "MD041": false,
+
+    // markdownlint slugs headings the GitHub way; this site is slugged by
+    // python-markdown's toc, which collapses runs of punctuation differently
+    // (`## --no-cache semantics` -> `#-no-cache-semantics`, not `#--no-cache-...`)
+    // and honours attr_list anchors (`## Update the CLI { #updating }`). Every
+    // fragment it reports here resolves correctly in the built site. Anchors are
+    // still gated: mkdocs.yml sets validation.links.anchors and docs_check.py
+    // builds with --strict, which checks them with the site's own slugger.
+    "MD051": false,
+
+    // The only two elements with no Markdown equivalent in this theme: Material's
+    // button class, and the hidden H1 that docs/index.md documents in its front matter.
+    "MD033": { "allowed_elements": ["a", "h1"] },
+
+    // One bullet character across the site.
+    "MD004": { "style": "dash" }
+  }
+}

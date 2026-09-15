@@ -72,11 +72,16 @@ func TestDocsCheckPathsCoverDemoTranscripts(t *testing.T) {
 //     them and only prose carries them here.
 func TestTheDemoTourTeachesEveryRecordedCommand(t *testing.T) {
 	root := repoRoot(t)
-	tour, err := os.ReadFile(filepath.Join(root, "docs", "examples", "demo-tour.md"))
-	if err != nil {
-		t.Fatalf("read demo-tour.md: %v", err)
+	// The tour is two pages; coverage is a property of the tour, not of either
+	// file, so read them as one document.
+	var doc string
+	for _, name := range []string{"demo-tour.md", "demo-tour-agents.md"} {
+		page, err := os.ReadFile(filepath.Join(root, "docs", "examples", name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		doc += string(page)
 	}
-	doc := string(tour)
 
 	generated, err := filepath.Glob(filepath.Join(root, "examples", "demo", "generated", "_beat-*.md"))
 	if err != nil {
@@ -90,7 +95,7 @@ func TestTheDemoTourTeachesEveryRecordedCommand(t *testing.T) {
 	for _, m := range regexp.MustCompile(`--8<-- "(examples/demo/generated/[^"]+)"`).FindAllStringSubmatch(doc, -1) {
 		included[m[1]] = true
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(m[1]))); err != nil {
-			t.Errorf("demo-tour.md includes %s, which does not exist: the page renders a broken snippet", m[1])
+			t.Errorf("the tour includes %s, which does not exist: the page renders a broken snippet", m[1])
 		}
 	}
 	for _, g := range generated {
@@ -107,12 +112,12 @@ func TestTheDemoTourTeachesEveryRecordedCommand(t *testing.T) {
 		"pacto dashboard examples/demo/bundles",
 	} {
 		if !strings.Contains(doc, cmd) {
-			t.Errorf("demo-tour.md never shows %q; the acceptance script asserts it and no transcript covers it", cmd)
+			t.Errorf("the tour never shows %q; the acceptance script asserts it and no transcript covers it", cmd)
 		}
 	}
 
 	// Must link to compose-demo.md rather than restating the run command
 	if !strings.Contains(doc, "compose-demo.md") {
-		t.Errorf("demo-tour.md never links compose-demo.md; it should point there for the real-stack journey")
+		t.Errorf("the tour never links compose-demo.md; it should point there for the real-stack journey")
 	}
 }

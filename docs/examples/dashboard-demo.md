@@ -48,7 +48,7 @@ It showcases the full UI against a realistic set of services:
   distribution over every revision in the snapshot on the **Contract revisions**
   inventory (with a filter for each of its buckets) and a section on the revision
   itself. `payments-service` 2.1.1 declares a
-  [readiness gate](../contract-reference/sections.md#readiness) that fails: one
+  [readiness gate](../contract-reference/dependencies-and-state.md#readiness) that fails: one
   claim worth 30 of the 100 declared weight — the large-language-model safety
   evaluation suite — is `not-done`, so the revision scores 70 against its
   `minScore` of 80. `orders-service` 1.2.0 passes its own gate and still runs on

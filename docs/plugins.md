@@ -1,9 +1,11 @@
 # Plugin Development
+
 Pacto uses an out-of-process plugin architecture for artifact generation. A plugin is a standalone executable that receives a contract via JSON on stdin and writes generated file descriptions to stdout.
 
 A plugin can turn a contract into any artifact — Helm charts, Terraform, Kubernetes manifests — in any language.
 
 ---
+
 ## Official plugins
 
 Pacto has two official plugins:
@@ -97,7 +99,7 @@ For example, `pacto generate schema-infer` looks for:
 Neither found is an error, not a no-op — `pacto generate helm` on a machine with
 no `pacto-plugin-helm` exits 1 and says so:
 
-```
+```text
 plugin "helm" not found (looked for pacto-plugin-helm in $PATH and ~/.config/pacto/plugins/)
 ```
 

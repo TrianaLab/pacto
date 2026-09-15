@@ -59,7 +59,7 @@ metadata:
   tier: critical
 ```
 
-### Key decisions
+## Key decisions
 
 - **`type: grpc`** — the gRPC service descriptor is bundled in the OCI artifact, so the API contract travels with the service version. The `ref` file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types))
 - **Health as a capability with no binding** — a `health` capability without an HTTP binding declares the service implements the [gRPC Health Checking Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) rather than an HTTP probe (see [capabilities](../contract-reference/sections.md#capabilities))

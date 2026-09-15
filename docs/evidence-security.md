@@ -88,7 +88,7 @@ pacto evidence send envelope.json --url https://ingest.example.com
 `send` POSTs the signed envelope to `POST /api/evidence/v1/envelopes` at the
 target host. This is the only outbound call a producer makes. The host verifies
 and evaluates the envelope and returns `202 Accepted` on success or a status that
-names the failure category (see the [protocol status codes](evidence-protocol.md#ingestion-api)).
+names the failure category (see the [protocol status codes](evidence-ingestion-api.md#post-status-codes)).
 
 ---
 
@@ -128,7 +128,7 @@ keys:
 
 Loading validates the schema version, the identifier grammar, duplicate key ids,
 contradictory producer bindings for one key file, missing/traversing key files
-and malformed subject/repo patterns. Because `publicKeyFile` resolves relative to
+and malformed subject/repository patterns. Because `publicKeyFile` resolves relative to
 the config's directory, a Kubernetes Secret mounted as a directory containing the
 config plus its `.pub` files can be pointed at directly. The bare-`.pub` mode
 remains supported but stays deliberately limited to producer binding — it does not

@@ -1,4 +1,5 @@
 # Contract Reference (v2.0)
+
 A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, capabilities and readiness. This page covers every section, field, validation rule and change classification rule.
 
 Each `interfaces`, `configurations` and `policies` entry points at a schema you already have — an OpenAPI document, an AsyncAPI event definition, a gRPC service descriptor, a JSON Schema. Every referenced file must parse as JSON or YAML; see [interface types](sections.md#interface-types).
@@ -17,7 +18,7 @@ It is the single tracked schema and applies to every contract, which must declar
 
 A Pacto bundle is a self-contained directory (or OCI artifact) with the following layout:
 
-```
+```text
 /
 ├── pacto.yaml
 ├── interfaces/              ← optional
@@ -178,4 +179,3 @@ service:
 This is useful for lightweight dependency declarations, shared libraries, or contracts where runtime semantics are managed externally.
 
 ---
-

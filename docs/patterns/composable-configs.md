@@ -54,6 +54,6 @@ configurations:
 !!! info
     Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` (with `values`) or a `ref` (schema-only) — omitting `required` is rejected with a `PARSE_ERROR` naming the missing property. Inline `values` require a local `schema`; a `ref`-based entry carries neither.
 
-**Cross-links:** [`configurations`](../contract-reference/sections.md#configurations) · [Contract overrides](../contract-reference/overrides.md#contract-overrides) · [Environment-specific values files](../contract-reference/overrides.md#environment-specific-values-files)
+**Cross-links:** [`configurations`](../contract-reference/configuration-and-policy.md#configurations) · [Contract overrides](../contract-reference/overrides.md#contract-overrides) · [Environment-specific values files](../contract-reference/overrides.md#environment-specific-values-files)
 
 ---

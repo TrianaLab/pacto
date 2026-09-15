@@ -39,6 +39,21 @@ jobs:
               - 'mkdocs.yml'
               - 'overrides/**'
               - 'MANIFEST.md'
+              # The docs-lint gate covers the root Markdown a reader meets on
+              # GitHub as well as the site, so a README-only PR must run it.
+              # Listing the files explicitly (not '*.md') keeps the filter honest
+              # about what scope() in docs_lint.py actually reads.
+              - 'README.md'
+              - 'CONTRIBUTING.md'
+              - 'MIGRATION.md'
+              - 'SECURITY.md'
+              - 'CODE_OF_CONDUCT.md'
+              # The gate's own rules. Loosening a rule must re-run the gate that
+              # rule guards, otherwise a weakened style ships unchecked.
+              - '.vale.ini'
+              - '.vale/**'
+              - '.markdownlint-cli2.jsonc'
+              - 'release/scripts/docs_lint.py'
               - 'integrations/**/docs/**'
               - 'integrations/**/integration.yaml'
               - 'release/scripts/gen_integration_docs.py'
@@ -133,6 +148,12 @@ jobs:
       # also depends on mermaid-check, so the gate holds even if this step is removed.
       - name: Mermaid syntax gate
         run: make mermaid-check
+      # Blocking documentation quality gate: Markdown syntax, prose and structural
+      # budgets, all deterministic. Same command a contributor runs locally. Listed
+      # standalone for fast, clearly-labeled feedback; docs-check also depends on
+      # docs-lint, so the gate holds even if this step is removed.
+      - name: Documentation quality gate
+        run: make docs-lint
       # Full documentation gate: regenerate + zero-drift + strict build + validate
       # every fenced contract / CR example / flag / chart / artifact coordinate, and
       # prove docs-generate is deterministic (twice = no diff). See docs_check.py.

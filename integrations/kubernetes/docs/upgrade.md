@@ -51,7 +51,7 @@ reconciles it in place. That holds because **`spec` is additive**: v5 adds
 `spec.target.configBindings` and `spec.target.interfaceBindings` and removes
 nothing, so a contract resource written for v4 still validates unchanged.
 
-`status` is a different story, and it is the one that surprises people.
+### Status is redesigned, not extended
 
 !!! warning "The upgrade drops v4 status observations on sight"
     `status` was redesigned, not extended: v5 removes 51 status paths and adds 35.
@@ -71,7 +71,9 @@ nothing, so a contract resource written for v4 still validates unchanged.
     lost for good only once something writes `status` again. Nothing you need to
     do — just do not read that window as a failed migration.
 
-Confirm the migration before and after:
+### Confirming the migration
+
+Before and after the upgrade:
 
 ```bash
 kubectl get crd pactos.pacto.trianalab.io \

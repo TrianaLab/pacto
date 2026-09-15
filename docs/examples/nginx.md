@@ -53,9 +53,9 @@ metadata:
   edge: true
 ```
 
-### Key decisions
+## Key decisions
 
-See the [state reference](../contract-reference/sections.md#state) for what each enum value means; the notes below cover why NGINX picks these.
+See the [state reference](../contract-reference/dependencies-and-state.md#state) for what each enum value means; the notes below cover why NGINX picks these.
 
 - **`state.type: stateless`** — any instance can serve any request
 - **`durability: ephemeral`** — no persistent storage needed

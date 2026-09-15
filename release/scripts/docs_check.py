@@ -790,13 +790,13 @@ def check_unreleased_versions() -> None:
                f"cannot import the changelog assembler: {exc}")
         return
 
-    post_mortem = read(os.path.join(REPO_ROOT, "docs", "maintainers", "releases.md"))
+    post_mortem = read(os.path.join(REPO_ROOT, "docs", "maintainers", "releases-abandoned.md"))
     problems = []
     for v in _UNRELEASED_VERSIONS:
         if v not in _CHANGELOG_INTRO:
             problems.append(f"{v} is listed as unreleased but the Changelog intro never names it")
         if v not in post_mortem:
-            problems.append(f"{v} is listed as unreleased but docs/maintainers/releases.md never explains it")
+            problems.append(f"{v} is listed as unreleased but docs/maintainers/releases-abandoned.md never explains it")
 
     # Each record links to its OWN post-mortem -- they are separate transactions --
     # so the anchors must resolve. Not checked here: mkdocs.yml sets
@@ -807,7 +807,7 @@ def check_unreleased_versions() -> None:
     for v in re.findall(r"Abandoned transaction[^\n]*?\(([0-9./ ]+)\)", post_mortem):
         for ver in re.findall(r"\d+\.\d+\.\d+", v):
             if ver not in _UNRELEASED_VERSIONS:
-                problems.append(f"releases.md documents {ver} as abandoned but the Changelog does not warn about it")
+                problems.append(f"releases-abandoned.md documents {ver} as abandoned but the Changelog does not warn about it")
 
     ok = not problems
     record(ok, "(o) unreleased versions are disclosed on the Changelog",

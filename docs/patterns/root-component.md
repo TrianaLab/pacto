@@ -4,13 +4,13 @@
 
 **Primitives.**
 
-- **Multiple bundles in one repo**, each with its own `pacto.yaml`
+- **Multiple bundles in one repository**, each with its own `pacto.yaml`
 - **Root contract** — declares the application boundary and lists components as `dependencies[]`
 - **Component contracts** — declare workload, state, interfaces, and configurations for a single deployable
 
 **Layout.**
 
-```
+```text
 my-service/
 ├── charts/
 │   └── my-service/                         # service chart (one per repo)
@@ -97,8 +97,8 @@ configurations:
     required: true
 ```
 
-**Why this works.** A one-component repo pays almost nothing for this layout, and adding a second component is one new bundle dir plus one root dependency. The root maps to a single deployment unit; each component is validated and versioned independently. The root is a lean aggregator — it carries only `service` and `dependencies[]` (plus any `policies`), deliberately omitting `workload`, `state`, `interfaces` and `configurations`. Your own tooling can distinguish a root from a component by naming convention (e.g. a `-root` suffix) or structurally — `dependencies[]` present, `configurations` absent — since Pacto itself does not key off the name.
+**Why this works.** A one-component repository pays almost nothing for this layout, and adding a second component is one new bundle dir plus one root dependency. The root maps to a single deployment unit; each component is validated and versioned independently. The root is a lean aggregator — it carries only `service` and `dependencies[]` (plus any `policies`), deliberately omitting `workload`, `state`, `interfaces` and `configurations`. Your own tooling can distinguish a root from a component by naming convention (e.g. a `-root` suffix) or structurally — `dependencies[]` present, `configurations` absent — since Pacto itself does not key off the name.
 
-**Cross-links:** [`workload`](../contract-reference/sections.md#workload) · [`dependencies`](../contract-reference/sections.md#dependencies)
+**Cross-links:** [`workload`](../contract-reference/dependencies-and-state.md#workload) · [`dependencies`](../contract-reference/dependencies-and-state.md#dependencies)
 
 ---

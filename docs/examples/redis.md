@@ -51,13 +51,13 @@ metadata:
 !!! note
     Redis's RESP wire protocol is not an `openapi`/`asyncapi`/`grpc` spec, so it is not declared as an interface — the only declared interface is the HTTP endpoint the metrics exporter exposes, which the `health` and `metrics` capabilities bind to (see [interface types](../contract-reference/sections.md#interface-types)).
 
-### Key decisions
+## Key decisions
 
 - **`state.type: stateful`** with **`durability: persistent`** — Redis with AOF/RDB persistence enabled needs durable storage
 - **`dataCriticality: medium`** — data is important but can be rebuilt from source if needed
 - **Capabilities over ports** — health and metrics are declared as [capabilities](../contract-reference/sections.md#capabilities) bound to the exporter interface, not as ports
 
-### Variant: Ephemeral cache
+## Variant: Ephemeral cache
 
 For a pure cache without persistence:
 

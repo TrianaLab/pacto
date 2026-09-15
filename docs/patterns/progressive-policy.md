@@ -23,6 +23,6 @@ A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules 
 
 **Coordinate with `pacto validate`.** When a service ref-bumps from `2.0.0` to `3.0.0`, `pacto diff` reports the changed policy ref; `pacto validate` resolves the new policy and fails *before* merge if the contract does not satisfy it — the team sees the gap and either fixes it or stays on `2.0.0`.
 
-**Cross-links:** [`policies`](../contract-reference/sections.md#policies) · [Change classification — Policy](../contract-reference/diff.md#policy)
+**Cross-links:** [`policies`](../contract-reference/configuration-and-policy.md#policies) · [Change classification — Policy](../contract-reference/diff.md#policy)
 
 ---

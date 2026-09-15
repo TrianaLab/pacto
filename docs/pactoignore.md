@@ -48,7 +48,7 @@ Ignoring a file that is referenced by the contract makes `pacto validate`, `pact
 
 For example, if your contract references `interfaces/openapi.yaml` and your `.pactoignore` contains:
 
-```
+```text
 interfaces/openapi.yaml
 ```
 
@@ -60,7 +60,7 @@ The same rule applies to `configurations[].schema`, `policies[].schema` and any 
 
 ## Example `.pactoignore`
 
-```
+```text
 # Build artifacts
 dist/
 build/

@@ -31,7 +31,7 @@ The dashboard exposes up to **four source types**:
 
 `OCISource` runs a **continuous background loop** (not one-shot):
 
-1. **Shallow scan** (synchronous, at first `ListServices` call) -- one `ListTags` + `Pull` per configured repo. Fast.
+1. **Shallow scan** (synchronous, at first `ListServices` call) -- one `ListTags` + `Pull` per configured repository. Fast.
 2. **Deep discovery** (background goroutine) -- a breadth-first search across dependency refs, prefetching all semver versions. Closes `s.done` after the first cycle, ending the "discovering" UI state.
 3. **Periodic rediscovery** -- after the first cycle, re-runs every 60 seconds (`ociRediscoverInterval`). Picks up new services, dependencies and versions pushed since the last scan. Each cycle rescans the internal cache and invalidates in-memory caches so enrichment data (hash, classification) surfaces immediately.
 
@@ -43,14 +43,14 @@ Sources are divided into two categories with different roles:
 
 **Contract sources** (`local`, `oci`, `cache`) provide the authoritative service definition -- interfaces, configuration, dependencies, version, owner. Exactly one contract snapshot wins per service. Priority: `local` > `oci` > `cache` (explicit dev intent wins over the registry baseline, which wins over the offline disk cache). `cache` only participates when no live `oci` source is configured.
 
-**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, observed runtime and readiness. Runtime data **never overrides contract content** (config and policy *content* always comes from the declared contract). The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies k8s-specific fields but preserves contract fields. The one computed exception is the `Validation` summary, which is derived (not declarable) and is recomputed from runtime state when k8s data is present — `computeSectionMeta` attributes that section to `k8s` in the section provenance.
+**Runtime source** (`k8s`) enriches the contract with live cluster state -- contract status, conditions, endpoints, resources, observed runtime and readiness. Runtime data **never overrides contract content** (config and policy *content* always comes from the declared contract). The `enrichWithRuntime()` function in `source_resolver.go` enforces this boundary: it copies Kubernetes-specific fields but preserves contract fields. The one computed exception is the `Validation` summary, which is derived (not declarable) and is recomputed from runtime state when Kubernetes data is present — `computeSectionMeta` attributes that section to `k8s` in the section provenance.
 
 ## Resolution model
 
 `ResolvedSource` (`source_resolver.go`) is the central aggregation layer. It combines contract and runtime sources into a unified view:
 
 1. **Contract resolution** -- iterates contract sources in priority order (`local`, then `oci`, then `cache`). The first source that has the service wins. This produces one authoritative contract snapshot.
-2. **Runtime enrichment** -- if k8s is available and has data for the service, runtime fields are layered on top of the contract snapshot without replacing any contract content.
+2. **Runtime enrichment** -- if Kubernetes is available and has data for the service, runtime fields are layered on top of the contract snapshot without replacing any contract content.
 3. **Service list** -- all sources are queried concurrently. Services are grouped by name across sources, merged using `mergeServiceEntry()`. The `Sources` array on each service lists all source types where that service was found.
 
 `BuildResolvedSource()` constructs the `ResolvedSource` from the map of detected sources, automatically separating contract sources from the runtime source.
@@ -59,10 +59,10 @@ Sources are divided into two categories with different roles:
 
 Version history is merged across sources in a defined order (`resolverVersionSources` in `source_resolver.go` — `["k8s", "oci", "local", "cache"]`):
 
-1. **k8s** -- PactoRevision CRDs are most authoritative (deployed versions with timestamps)
-2. **oci** -- registry tags provide the full version catalog
-3. **local** -- current on-disk version
-4. **cache** -- the offline disk-cache baseline, consulted last
+1. **`k8s`** -- PactoRevision CRDs are most authoritative (deployed versions with timestamps)
+2. **`oci`** -- registry tags provide the full version catalog
+3. **`local`** -- current on-disk version
+4. **`cache`** -- the offline disk-cache baseline, consulted last
 
 When a live OCI registry is configured, `OCISource.GetVersions()` already enriches its bare tag listings with hash, createdAt and classification from materialized bundles, so the separate `cache` entry contributes nothing extra. When no live registry is configured, the `cache` source supplies the version catalog from disk.
 
@@ -105,7 +105,7 @@ blank. Each section reports a `state` and a `source`:
 `SectionInfo` also carries `OverriddenBy` (the source that overrode a contract
 value, e.g. `"k8s"` for the deployed `version`/`owner`) and a `Reason` note for
 non-present states. `computeSectionMeta` (`sectionmeta.go`) derives the map from
-what the resolver assembled; `markRuntimeOverrides` flags fields the k8s overlay
+what the resolver assembled; `markRuntimeOverrides` flags fields the Kubernetes overlay
 replaced. The top-level `RuntimeEvaluated` flag is true only when a Kubernetes
 runtime overlay was actually applied, which lets the UI distinguish "no runtime
 data yet" from "runtime evaluated, nothing to report". `SectionMeta` is populated
@@ -118,11 +118,11 @@ provenance table — the dashboard and operator attribute fields identically:
 | Field / section | Authority | Notes |
 |-----------------|-----------|-------|
 | interfaces, configurations, policies, dependencies, workload, state, capabilities, readiness, metadata | Declared contract (`local` > `oci` > `cache`) | Config & policy **content** always comes from the declared contract — even for reference-only contracts (the operator extracts schema content into status). |
-| `version` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
-| `owner` | k8s overrides contract when deployed | `OverriddenBy: "k8s"`. |
-| namespace, `resolvedRef` | k8s only | Deployed-state fields; absent off-cluster. |
-| contract status, conditions, endpoints, observed runtime, resources, ports | k8s only (runtime overlay) | `not_applicable` for reference-only contracts off-cluster. |
-| `Validation` summary | Recomputed from runtime when k8s present | The one computed (non-declarable) field; `SectionMeta` attributes it to `k8s`. |
+| `version` | `k8s` overrides contract when deployed | `OverriddenBy: "k8s"`. |
+| `owner` | `k8s` overrides contract when deployed | `OverriddenBy: "k8s"`. |
+| namespace, `resolvedRef` | `k8s` only | Deployed-state fields; absent off-cluster. |
+| contract status, conditions, endpoints, observed runtime, resources, ports | `k8s` only (runtime overlay) | `not_applicable` for reference-only contracts off-cluster. |
+| `Validation` summary | Recomputed from runtime when `k8s` present | The one computed (non-declarable) field; `SectionMeta` attributes it to `k8s`. |
 
 ## `--no-cache` semantics
 
@@ -181,12 +181,12 @@ When running alongside the Kubernetes operator, `EnrichFromK8s()` automatically 
 
 The dashboard computes version tracking semantics from two sources:
 
-- **Version policy** (`versionPolicy`): the preferred source is the operator's `status.contract.resolutionPolicy` field (`Latest` → `"tracking"`, `PinnedTag` → `"pinned-tag"`, `PinnedDigest` → `"pinned-digest"`), normalized by `normalizeResolutionPolicy()`. When unavailable (non-K8s sources, older operators), `classifyVersionPolicy()` provides a conservative fallback that only classifies unambiguous cases (digest, explicit semver tag) and returns empty for ambiguous refs.
+- **Version policy** (`versionPolicy`): the preferred source is the operator's `status.contract.resolutionPolicy` field (`Latest` → `"tracking"`, `PinnedTag` → `"pinned-tag"`, `PinnedDigest` → `"pinned-digest"`), normalized by `normalizeResolutionPolicy()`. When unavailable (non-Kubernetes sources, older operators), `classifyVersionPolicy()` provides a conservative fallback that only classifies unambiguous cases (digest, explicit semver tag) and returns empty for ambiguous refs.
 - **Latest available** (`latestAvailable`): the highest semver version from the existing version list. Computed by `computeLatestAvailable()`.
 - **Update available** (`updateAvailable`): true when `latestAvailable` is a higher semver than the current `version`. Computed by `isUpdateAvailable()`. This is informational -- it does **not** affect contract compliance status.
 - **Current version marker** (`isCurrent`): set on the `Version` entry matching `ServiceDetails.Version` via `markCurrentVersion()`.
 
-Operator-provided `resolutionPolicy` is propagated through the K8s source (`serviceDetailsFromK8sStatus`), carried forward by `enrichWithRuntime()` and preserved by the index/detail enrichment in `server.go`, which applies the fallback only when no policy is already set.
+Operator-provided `resolutionPolicy` is propagated through the Kubernetes source (`serviceDetailsFromK8sStatus`), carried forward by `enrichWithRuntime()` and preserved by the index/detail enrichment in `server.go`, which applies the fallback only when no policy is already set.
 
 These fields are populated during the service-index cache rebuild in `server.go` and surfaced through the existing `/api/services` and `/api/services/{name}` endpoints.
 
@@ -197,7 +197,7 @@ These rules must be preserved by future changes; the codebase-wide ones live in
 
 | Invariant | Rationale |
 |-----------|-----------|
-| K8s enriches runtime only, never overrides contract content | Contract is the source of truth for interfaces, config, dependencies, version. K8s provides live state (contract status, conditions, endpoints), and config/policy *content* always comes from the declared contract. The computed `Validation` summary is the one runtime-recomputed field, and `SectionMeta` attributes it to `k8s` so provenance stays honest. |
+| Kubernetes enriches runtime only, never overrides contract content | Contract is the source of truth for interfaces, config, dependencies, version. Kubernetes provides live state (contract status, conditions, endpoints), and config/policy *content* always comes from the declared contract. The computed `Validation` summary is the one runtime-recomputed field, and `SectionMeta` attributes it to `k8s` so provenance stays honest. |
 | Cache is a public source only as an offline fallback | When a live `oci` source is configured the disk cache stays internal to it (exposed under the `"oci"` key). Only when no live registry is configured is the cache promoted to a distinct `cache` source. A session shows `oci` **or** `cache` for the registry baseline, never both — so users are never confused about which is authoritative. |
 | Contract source priority is `local` > `oci` > `cache` | Explicit dev intent beats the registry baseline, which beats the offline disk cache. `cache` only participates when `oci` is absent. |
 | `resolverVersionSources` is `["k8s", "oci", "local", "cache"]` | Version history is merged in this order (see [Version history](#version-history)). |
@@ -205,7 +205,7 @@ These rules must be preserved by future changes; the codebase-wide ones live in
 | `--no-cache` skips startup scanning, not same-session materialization | Cold-start mode ensures deterministic initial state. `DisableCache()` skips disk reads but never disk writes, so bundles fetched during the session are persisted for enrichment (see [`--no-cache` semantics](#-no-cache-semantics)). |
 | `SectionMeta` is populated on every service-detail path | Both the resolved (multi-source) path and the single-source `getService` path compute `SectionMeta`, so the UI can always distinguish `present` / `empty` / `not_applicable` / `unavailable` and label each section's `source`. |
 | OCI discovery is continuous, not one-shot | New services and versions pushed after startup must surface without restarting the dashboard. The background loop re-runs discovery every 60 seconds. |
-| K8s enrichment retries stop on permanent errors | If the Pacto CRD is not installed (`ListServices` returns "resource not found"), `EnrichFromK8s` nils the K8s source so the retry loop exits immediately instead of waiting 30 seconds. |
+| Kubernetes enrichment retries stop on permanent errors | If the Pacto CRD is not installed (`ListServices` returns "resource not found"), `EnrichFromK8s` nils the Kubernetes source so the retry loop exits immediately instead of waiting 30 seconds. |
 | UI data refresh must not disrupt user state | DOM morphing preserves scroll position, form values, `<details>` open/closed state and D3-managed containers. Debug panels use `patchDOM` instead of `innerHTML` replacement. |
 | OpenAPI is the only wire truth for the dashboard | Huma generates the OpenAPI contract from the Go handlers; the TypeScript request/response types are generated from that contract into `pkg/dashboard/frontend/src/lib/generated/` and committed with a DO NOT EDIT notice. Handwritten frontend code may add ergonomics but must never redeclare a DTO field or build an `/api/...` URL by hand — a third, hand-maintained copy of the wire schema drifts silently. Enforced by `make check-dashboard-sdk-drift`, which regenerates them and fails on any diff. |
 

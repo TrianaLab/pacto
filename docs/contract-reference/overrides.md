@@ -96,7 +96,7 @@ pacto doc my-service --set service.unknownField=value
 
 A common pattern is to maintain per-environment values files that override configuration for each deployment target. The base `pacto.yaml` defines defaults, and each values file layers environment-specific settings on top.
 
-```
+```text
 my-service/
 ├── pacto.yaml
 ├── values/
@@ -144,4 +144,3 @@ pacto validate my-service --set configurations[0].values.DB_PORT=not-a-number
 ```
 
 ---
-

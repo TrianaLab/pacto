@@ -52,7 +52,7 @@ metadata:
 !!! note
     PostgreSQL's binary wire protocol is not an `openapi`/`asyncapi`/`grpc` spec, so it is not declared as an interface — the only declared interface is the HTTP endpoint the metrics exporter exposes, which the `health` and `metrics` capabilities bind to (see [interface types](../contract-reference/sections.md#interface-types)).
 
-### Key decisions
+## Key decisions
 
 - **`state.type: stateful`** with **`durability: persistent`** — persistent storage survives pod restarts
 - **`dataCriticality: high`** — backups and strict disruption budgets expected

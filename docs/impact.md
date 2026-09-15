@@ -15,7 +15,8 @@ come from: the CLI takes contract sources only ([which sources, exactly](#cli)),
 server and the dashboard can also be pointed at a cluster or a live fleet.
 `impact` is the name of the CLI command, the MCP tool and the Go package; in the
 dashboard the same analysis is presented as the **Change analysis** workspace,
-alongside the semantic diff it composes with.
+alongside the semantic diff it composes with. This page is the CLI; the other
+two surfaces are in [Impact on the other surfaces](impact-surfaces.md).
 
 ---
 
@@ -94,7 +95,7 @@ Two rules follow directly from this model and are load-bearing:
 > **An inferred path is not a confirmed runtime impact.** A transitive consumer is
 > reached through the graph. It tells you where to *look*, not that the consumer
 > will break. Treat `inferred` as a lead to verify, never as a settled fact.
-
+>
 > **Observed evidence only raises confidence when you opt in.** Without
 > `--include-observed` the analysis is declared-only. Runtime observations then
 > let a direct edge become `observed` or `corroborated`.
@@ -188,6 +189,8 @@ $ echo $?
 1
 ```
 
+#### Gating in CI
+
 In CI that means one of two deliberate choices. Gate on the exit code and you are
 gating on *deployed* impact, which is what you want in a promotion pipeline — but
 only if the job actually supplies targets. Gate on the JSON instead
@@ -196,52 +199,9 @@ on the contract alone, which is what you want before anything is deployed at all
 That JSON carries `schemaVersion: pacto.dev/impact/v1` — the compatibility
 contract to branch on before reading any other field.
 The file `--target-state` expects is documented under
-[target-state fixtures](operational-graph.md#what-a-target-state-fixture-looks-like);
+[target-state fixtures](fleet-sources.md#what-a-target-state-fixture-looks-like);
 `pacto impact` accepts no source that observes where things run, so that file is the only way
 to make the exit code mean anything.
-
----
-
-## MCP tool: `pacto_impact`
-
-The same analysis is exposed to agents as the read-only `pacto_impact` MCP tool.
-It belongs to the **fleet query** family — see
-[MCP integration](mcp-integration.md#three-tool-families-and-their-boundaries) —
-and shares that family's boundaries: it projects the operational graph, observes
-nothing, changes nothing and authorizes nothing. An agent uses `pacto_impact` to
-*understand* a proposed change's blast radius before recommending a review, never
-to act on it. Every answer carries `asOf`, `completeness` and `limitations`, so an
-agent can tell how much of the system the answer actually covers.
-
-It is the one fleet tool that does not serve a frozen snapshot: it resolves its
-two refs and rebuilds the graph on every call, so its `asOf` advances while the
-`pacto_fleet_*` tools' stays at the value they were started with. When the two
-disagree they are describing two moments, not two systems — see
-[what a session freezes](mcp-integration.md#what-a-session-freezes-and-what-it-does-not).
-
----
-
-## Dashboard: Change analysis
-
-In the dashboard this analysis is one half of the **Change analysis** workspace,
-served by the `/api/fleet/impact` endpoint and returning the same result model the
-CLI and MCP tool produce. The workspace answers both halves of a single question
-on one screen: *what changed* between two revisions of a service, and *what that
-change affects*.
-
-Change analysis is contextual: it is entered from the service or revision you are
-already looking at (the **Compare revisions** action), the revision selectors are
-populated from that service's known revisions, and the analyzed pair is in the URL
-so the answer itself is shareable. It analyzes the **currently published**
-snapshot — the same one the Operational Graph shows — so the answer's `snapshotId`
-matches the graph, never a divergent rebuild. Breaking and potentially-breaking
-changes are shown separately, and each consumer carries its path to the changed
-service, compatibility range and verdict, and confidence with an explanation.
-
-Because observed evidence must have a real source, the dashboard's
-**include-observed** control is enabled only when the host declares an observation
-source (reported by `GET /api/capabilities`); otherwise it is disabled — the
-dashboard never ships a control that would have no effect.
 
 ---
 

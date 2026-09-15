@@ -231,7 +231,7 @@ The following v1 fields are REMOVED in v2 (out of contract scope):
 
 ## Compliance Model Changes
 
-Pacto 2.0 introduces a comprehensive compliance evaluation framework. Contracts are now evaluated against runtime evidence to determine compliance status.
+Pacto 2.0 evaluates contracts against runtime evidence to determine compliance status.
 
 ### Contract Status
 

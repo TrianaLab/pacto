@@ -11,6 +11,8 @@ How the Pacto monorepo releases its artifacts. This describes the system as it i
 the mechanisms, invariants and manual steps a maintainer needs. The implementation
 lives in `release/` and `.github/workflows/release.yml`; code comments there link
 back here for the broader picture.
+Two transactions were abandoned part-way and their versions never released; both
+are recorded in [Abandoned release transactions](releases-abandoned.md).
 
 ## Release units and fixed groups
 
@@ -19,8 +21,8 @@ groups (a group releases together or not at all):
 
 | Group | Units | Coordinate kind |
 |-------|-------|-----------------|
-| **core** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles`, `demo-compose` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles, OCI demo artifact |
-| **kubernetes** | `k8s-module`, `operator-image`, `operator-chart`, `k8s-docs` | Go module tag, OCI image, Helm/OCI chart, versioned docs |
+| **`core`** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles`, `demo-compose` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles, OCI demo artifact |
+| **`kubernetes`** | `k8s-module`, `operator-image`, `operator-chart`, `k8s-docs` | Go module tag, OCI image, Helm/OCI chart, versioned docs |
 
 `release/release-manifest.json` is the source of truth for the units, their
 coordinates and versions; `release/release-plan.json` is the derived plan (regenerated
@@ -32,8 +34,8 @@ Versioning is **changeset-driven**, never inferred from a file diff or a PR titl
 
 1. A feature PR includes a `.changeset/*.md` describing the bump per package.
 2. Merging it to `main` runs the `changesets` job, which opens/updates the **Version
-   PR** (`release:version` = `changeset version` + `build-release-plan.mjs --transaction`
-   + `apply-release-plan.mjs`). This consumes the changesets, bumps versions, and
+   PR** (`release:version` = `changeset version` + `build-release-plan.mjs --transaction` +
+   `apply-release-plan.mjs`). This consumes the changesets, bumps versions, and
    regenerates the manifest, plan and the **release transaction**.
 3. Merging the **Version PR** is what publishes. A plain feature merge publishes
    nothing.
@@ -62,12 +64,12 @@ exact transaction commit. `tests/release/source_sha_test.go` enforces this.
 
 ## Dependency ordering
 
-The core Go module tag is created first (the kubernetes module's `go.mod` pins the
+The core Go module tag is created first (the Kubernetes module's `go.mod` pins the
 published core). A `core-ready` barrier always runs for a release: if core changed it
 requires `core-tag` to have succeeded; if not it verifies the pinned core tag already
-exists — so a **kubernetes-only** release still has a resolvable core dependency.
+exists — so a **Kubernetes-only** release still has a resolvable core dependency.
 
-Go module tag conventions: root/core `vX.Y.Z`; the nested kubernetes module
+Go module tag conventions: root/core `vX.Y.Z`; the nested Kubernetes module
 `integrations/kubernetes/vX.Y.Z` (its own major line, currently v5).
 
 ## Durable per-unit ledger
@@ -124,7 +126,7 @@ by proving the remote artifact is this transaction's.
 The staging dry-run (`make release-dry-run`, `release/orchestrator/dry-run.sh`) runs
 the real artifacts against a disposable local registry through the **same** adapters
 production uses — only coordinates, credentials, signing mode and transport differ.
-It proves transaction selection (core-only / k8s-only / coordinated / recovery),
+It proves transaction selection (core-only / Kubernetes-only / coordinated / recovery),
 per-line partial-failure + resume, concurrency, crash-window recovery, digest
 idempotency and fail-closed conflict.
 
@@ -190,7 +192,7 @@ That is a deliberate first commit of a major release, not something the version
 script should infer. Landing the changeset without it used to produce a require go
 refuses to parse:
 
-```
+```text
 go.mod:79:2: require github.com/trianalab/pacto/v3: version "v4.0.0" invalid: should be v3, not v4
 ```
 
@@ -199,40 +201,3 @@ path, and `apply-release-plan.mjs` refuses to write the require, so the release 
 before the Version PR exists rather than mid-transaction. **Rename the path, merge
 that, then land the major changeset.** `tests/release/k8s_module_path_test.go` holds
 the Kubernetes half of the rename to every declared coordinate.
-
-## Abandoned transaction `522e9507410f16fc` (3.2.0 / 5.2.0)
-
-This transaction published four units and then failed. v3.2.0 and v5.2.0 are
-**tagged and resolvable through the Go module proxy but were never released**:
-neither has a GitHub Release, and `releases/latest` — which the CLI's update
-check and `scripts/get-pacto.sh` both read — correctly skips them. Two rules
-follow, and they are permanent:
-
-- **Never create a back-dated GitHub Release for either version.** GitHub picks
-  `latest` by creation time, so it would advertise them as newer than whatever
-  has shipped since.
-- **Never expect the transaction to resume.** Every publisher checks out
-  `ref: source_sha`, and that commit cannot publish. It was superseded by
-  3.2.1 / 5.2.1. Its ledger entries are permanent, so a recovery dispatch for
-  that transaction id stays armed and still refuses to double-publish the four
-  units that completed.
-
-## Abandoned transaction `3bf445d36fd2c3fc` (5.2.2)
-
-This one published **nothing** — no module tag, no operator image, no chart — and
-reported success. Run 32647472671 on `be20e3b3` (#319) is green in the Actions list.
-`detect` resolved correctly (`release=true`, the four Kubernetes units), `core-ready`
-succeeded, and then `ledger-init` and every publisher below it skipped.
-
-The cause was skip propagation through `needs`. A Kubernetes-only transaction has no
-core unit, so `core-tag` skips by design. `core-ready` carried `always()` and ran, but
-`always()` exempts only the job that declares it: the skip still reached everything
-downstream of `core-tag`, and `ledger-init` — which did not declare it — skipped with
-its `if:` satisfied and both of its `needs` green. A skipped job is not a failed job,
-so the run's conclusion stayed `success`. Fixed in #361 and #362.
-
-5.2.2 is therefore unlike 3.2.0 / 5.2.0: there is no tag, so nothing resolves through
-the module proxy either, and no artifact exists to be adopted or conflicted with. It
-was superseded by **5.2.3**, which published in full. Nothing needs recovering, and a
-recovery dispatch for this transaction id would rebuild from a commit whose versions
-have since been republished — do not send one.

@@ -17,7 +17,7 @@ enough to allow privilege escalation, and turning the managed components off
 removes them -- read [RBAC](rbac.md) before installing into a cluster where that
 matters. The Evidence Server is the operator's other managed component; it is
 **off** at chart defaults and needs `evidence.enabled=true` plus a trust store
-and a subject list (see [Install the Kubernetes operator](installation.md#the-evidence-server-is-off-by-default)).
+and a subject list (see [The Evidence Server](evidence-server.md)).
 
 ## Where it fits
 
@@ -86,7 +86,7 @@ observation dimensions are documented in
 vocabulary, which is a statement about an **answer** rather than a service: see
 [Core concepts — Knowledge](../../concepts.md#knowledge) for the six words Pacto
 uses for how much of the world an answer saw, and
-[A contract status is not a knowledge state](../../concepts.md#boundaries) for why
+[A contract status is not a knowledge state](../../concepts-boundaries.md#a-contract-status-is-not-a-knowledge-state) for why
 these two never mix.
 
 Alongside the status the operator exports five Prometheus gauges. The names,

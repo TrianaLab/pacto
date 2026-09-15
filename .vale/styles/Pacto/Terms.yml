@@ -1,0 +1,22 @@
+extends: substitution
+message: "Use '%s' instead of '%s'."
+level: error
+ignorecase: false
+# One spelling per thing. Case-sensitive, because the drift this catches is
+# almost always a casing slip. Inline code and fenced blocks are skipped by
+# Vale, so `k8s.io` hostnames and `--output json` flags never reach this rule.
+#
+# The API-name swaps carry [-\w] guards so a hyphenated identifier written as
+# prose -- pacto-plugin-openapi-infer is a real binary -- is not "corrected"
+# into something that does not exist. A bare github.com is likewise left alone:
+# a URL used as its own link text is not a casing slip.
+swap:
+  '(?:K8s|k8s|K8S)': Kubernetes
+  '(?:kubernetes)': Kubernetes
+  '(?<![-\w])(?:OpenApi|openapi|Openapi)(?![-\w])': OpenAPI
+  '(?<![-\w])(?:AsyncApi|asyncapi|Asyncapi)(?![-\w])': AsyncAPI
+  '(?:Mkdocs|mkdocs)': MkDocs
+  '(?<![-\w])repo(?![-\w])': repository
+  '(?<![-\w])repos(?![-\w])': repositories
+  '(?<![-\w])docker(?![-\w])': Docker
+  '(?<![-\w])helm(?![-\w])': Helm

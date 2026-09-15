@@ -65,7 +65,7 @@ metadata:
   cache-strategy: write-through
 ```
 
-### Key decisions
+## Key decisions
 
 - **`state.type: hybrid`** — the service caches product data locally for fast reads, but can reconstruct the cache from the upstream inventory service on restart
 - **`durability: persistent`** — persisting the cache across restarts avoids cold-start latency, but the service still works without it (it just warms up first)
@@ -73,6 +73,6 @@ metadata:
 - **Capabilities over ports** — health binds to the public `rest-api` interface and metrics to a separate internal interface (see [capabilities](../contract-reference/sections.md#capabilities))
 - **Secret reference** — the API key for the upstream service uses `secret://` so credentials never appear in the contract
 
-### When to use `hybrid`
+## When to use `hybrid`
 
-Choose `hybrid` (not `stateless`) when you persist local state across restarts to avoid warm-up but the service still functions after losing it — a purely in-memory cache rebuilt on every start is `stateless`/`ephemeral`. See the [state.type table](../contract-reference/sections.md#state) in the contract reference for the full `stateless` vs `stateful` vs `hybrid` breakdown.
+Choose `hybrid` (not `stateless`) when you persist local state across restarts to avoid warm-up but the service still functions after losing it — a purely in-memory cache rebuilt on every start is `stateless`/`ephemeral`. See the [state.type table](../contract-reference/dependencies-and-state.md#state) in the contract reference for the full `stateless` vs `stateful` vs `hybrid` breakdown.
