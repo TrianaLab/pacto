@@ -1,0 +1,47 @@
+extends: existence
+message: "'%s' is marketing register. State what it does, or delete the adjective."
+level: error
+ignorecase: true
+# Only words with no technical sense in this corpus, so a hit is always a real
+# hit. Words that read as marketing but carry meaning here are deliberately
+# absent: `first-class` (a Pacto state and a source promotion), `actually`
+# (the declared-vs-observed distinction the product is built on), `simply` and
+# `just` (used in the restrictive "merely/only" sense, not the dismissive one --
+# Filler.yml catches the dismissive imperative instead).
+tokens:
+  - seamless(?:ly)?
+  - effortless(?:ly)?
+  - blazing(?:ly)?
+  - lightning[- ]fast
+  - turnkey
+  - world[- ]class
+  - best[- ](?:in[- ]class|of[- ]breed)
+  - (?:cutting|bleeding)[- ]edge
+  - state[- ]of[- ]the[- ]art
+  - industry[- ]leading
+  - enterprise[- ]grade
+  - next[- ]gen(?:eration)?
+  - game[- ]chang(?:er|ing)
+  - revolutionary
+  - groundbreaking
+  - paradigm shift
+  - (?:super|turbo)charge[ds]?
+  - unparalleled
+  - unmatched
+  - rock[- ]solid
+  - battle[- ]tested
+  - one[- ]stop
+  - robust
+  - powerful
+  - comprehensive
+  - holistic
+  - synerg(?:y|ies|istic)
+  - delightful
+  - magical
+  - elegant
+  - beautiful
+  - stunning
+  - awesome
+  - amazing
+  - incredible
+  - rich (?:documentation|feedback|experience|set|ecosystem)

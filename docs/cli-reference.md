@@ -910,7 +910,7 @@ The default server exposes the authoring tools above. Three flags select a diffe
 
 `--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.
 
-See [MCP Integration](mcp-integration.md) for detailed setup with Claude and other AI tools, [Agent capabilities](mcp-integration.md#agent-capabilities) for serving a bundle's operations as tools, and [Contract catalog discovery](mcp-integration.md#contract-catalog-discovery) for the catalog surface.
+See [MCP Integration](mcp-integration.md) for detailed setup with Claude and other AI tools, [Agent capabilities](mcp-agent-capabilities.md) for serving a bundle's operations as tools, and [Contract catalog discovery](mcp-catalog-discovery.md) for the catalog surface.
 
 ---
 
@@ -1170,7 +1170,7 @@ pacto validate [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment — individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). See the [readiness reference](contract-reference/sections.md#readiness) for the score and gate semantics.
+The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment — individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). See the [readiness reference](contract-reference/dependencies-and-state.md#readiness) for the score and gate semantics.
 
 **Exit code:** Non-zero if validation fails.
 

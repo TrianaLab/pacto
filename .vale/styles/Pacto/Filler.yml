@@ -1,0 +1,30 @@
+extends: existence
+message: "'%s' is filler. Cut it -- the sentence means the same without it."
+level: error
+ignorecase: true
+# Phrases that carry no information in any context, plus the dismissive
+# imperative ("simply run ...", "just add ..."), which tells a reader who is
+# stuck that their problem is easy. The restrictive senses of `simply` and
+# `just` are left alone on purpose; only the verb-leading form is caught.
+tokens:
+  - in order to
+  - due to the fact that
+  - for the purpose of
+  - it (?:is|should be) (?:important|worth) (?:to note|noting)
+  - it should be noted
+  - please note
+  - needless to say
+  - as you can see
+  - at the end of the day
+  - first and foremost
+  - that being said
+  - when it comes to
+  - the fact of the matter
+  - a wide (?:variety|range) of
+  - in today's
+  - basically
+  - obviously
+  - of course
+  - simply put
+  - easy to (?:use|understand)
+  - (?:simply|just) (?:run|add|use|set|call|install|point|drop|copy|paste|type|open|edit)

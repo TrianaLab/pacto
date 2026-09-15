@@ -60,6 +60,6 @@ configurations:
 
 **One bundle, versioned.** The same JSON Schema validates the contract at CI time *and* the chart values at install time.
 
-**Cross-links:** [Configuration Schema Ownership Models](configuration-schema-ownership.md) · [`policies`](../contract-reference/sections.md#policies) · [Policy as a contract](../platform-engineers.md#policy-enforcing-contract-standards)
+**Cross-links:** [Configuration Schema Ownership Models](configuration-schema-ownership.md) · [`policies`](../contract-reference/configuration-and-policy.md#policies) · [Policy as a contract](../platform-engineers.md#policy-enforcing-contract-standards)
 
 ---

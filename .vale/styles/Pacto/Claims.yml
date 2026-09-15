@@ -1,0 +1,31 @@
+extends: existence
+message: "'%s' is a claim the code does not support. See .vale/styles/Pacto/Claims.yml."
+level: error
+ignorecase: true
+# Capability claims this repository has already decided are false, each checked
+# against the source before being listed here:
+#
+#   pacto enforce      no such command -- policy is a layer inside `validate`
+#   blocks breaking    only BREAKING exits non-zero; POTENTIAL_BREAKING exits 0
+#   enforces policy    Pacto reports; OPA/Kyverno decide. MANIFEST.md says so.
+#   guardrail          implies an admission path; no webhook is registered
+#   signed contracts   Ed25519 signing covers evidence envelopes, not contracts
+#   four-layer         validation is three layers
+#   context graph      occupied term of art; the noun here is operational graph
+#   knowledge plane    same
+#   is a standard      one schema file, no conformance suite, no second impl
+#
+# Two near misses are deliberately NOT listed. "Policy enforcement" as a noun is
+# the real name of validation Layer 3 (validation.md has the heading), and
+# "admission control" is what the docs disclaim -- a page cannot say Pacto is not
+# an admission controller if the word is banned. Only the verb claim is caught.
+tokens:
+  - pacto enforce
+  - block(?:s|ing)? breaking
+  - enforce[sd]? (?:the )?polic(?:y|ies)
+  - guardrails?
+  - signed contracts?
+  - four[- ]layer
+  - context graph
+  - knowledge plane
+  - (?:is|as) an? (?:open )?standard for

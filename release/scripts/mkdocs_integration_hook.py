@@ -112,7 +112,7 @@ _UNRELEASED_NOTE = (
     "everything listed under the version it replaces.\n\n"
     + "".join(
         "    - **{g.version}** — {g.what_happened}. Superseded by **{g.superseded_by}** "
-        "([post-mortem](maintainers/releases.md#{g.anchor})).\n".format(g=g)
+        "([post-mortem](maintainers/releases-abandoned.md#{g.anchor})).\n".format(g=g)
         for g in _UNRELEASED
     )
 )

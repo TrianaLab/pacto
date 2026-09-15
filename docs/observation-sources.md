@@ -21,6 +21,8 @@ Identity and location are deliberately separate. Reordering the configuration
 never renames a source; moving the file never renames it either; and two sources
 whose files happen to share a basename stay two sources.
 
+### One namespace for every Data Source
+
 A name must be unique across **every** Data Source the dashboard assembles, not
 just among the trace sources. The live Kubernetes source, the OCI and local-cache
 sources, local bundle roots, target-state fixtures, evidence stores and Evidence
@@ -41,6 +43,8 @@ there is no snapshot to serve, so the operational-graph endpoints answer with th
 collision error until the names are distinct and a refresh succeeds. The one
 outcome that never happens is the ambiguous snapshot: no snapshot ever publishes a
 Data Source key owned by two sources.
+
+### A source reads only inside its own directory
 
 A named source may read **only inside the directory its file sits in**. That
 directory is the source's root, and the read is resolved through it, so a symlink
@@ -70,18 +74,17 @@ The operator mounts each declared backing **read-only** at
 `<mount>/<file>` under the name `<name>`. Nothing is scanned: Pacto opens the
 files you declared and no others, never recursively, and never writes to them.
 Changing a source changes the pod template, so Kubernetes rolls the dashboard;
-reordering the list does not, because order is not identity.
+reordering does not, because order is not identity.
 
 `file` is a plain file name, not a path: no `/`, no whitespace and no comma
 (the character that separates fields on the controller's flag). Give a source
-its own backing and mount its export at the top of it, rather than reaching into
-a subdirectory — which also makes the mount the read root, with nothing above it
-in reach. `existingClaim` and `configMap` must be valid Kubernetes object names,
-checked when the values are read rather than left to fail at admission after the
-Deployment is already being applied. Every value the chart accepts survives the
-trip through the controller's flag unchanged; a
+its own backing and mount its export at the top of it rather than in a
+subdirectory — which also makes the mount the read root, with nothing above it in
+reach. `existingClaim` and `configMap` must be valid Kubernetes object names,
+checked when the values are read rather than at admission. Every value the chart
+accepts survives the trip through the controller's flag unchanged; a
 [Helm-rendering test](https://github.com/TrianaLab/pacto/blob/main/integrations/kubernetes/internal/dashboard/observation_wire_test.go)
-parses the actual rendered argument rather than a second copy of the grammar.
+parses the rendered argument rather than a second copy of the grammar.
 
 Exactly one backing supplies each source:
 
@@ -92,13 +95,14 @@ Exactly one backing supplies each source:
 
 Storage ownership stays outside Pacto. Whoever owns the claim or the ConfigMap
 owns producing, sizing, rotating and deleting the trace export; Pacto is a reader
-with no retention policy and no opinion about how the file got there.
+with no retention policy.
 
-This is configuration of **offline** input. Pacto still ships **no live OTLP
-receiver**: nothing listens on 4317 or 4318, there is no `/v1/traces` endpoint,
-and no collector is deployed as part of the dashboard. If you need live
-collection, run a Collector you own and point one of these sources at whatever
-file it exports. Two architecture gates hold the line —
+### Offline input only
+
+Pacto ships **no live OTLP receiver**: nothing listens on 4317 or 4318, there is
+no `/v1/traces` endpoint, and no collector ships with the dashboard. For live
+collection, run a Collector you own and point a source at whatever file it
+exports. Two architecture gates hold the line —
 `TestOTelObserverStaysOffline` on the analyzer and
 `TestOperatorObservationPackagingStaysOffline` on the packaging.
 
@@ -111,7 +115,7 @@ independent questions:
   unreadable mount, a read that would leave the mount or malformed OTLP/JSON
   makes that source explicitly
   `unavailable`, with a `SOURCE_UNAVAILABLE` limitation naming it. It is never
-  silently absent, and a failing source never takes the dashboard down: the k8s,
+  silently absent, and a failing source never takes the dashboard down: the Kubernetes,
   OCI, local and evidence sources keep answering, and any other healthy trace
   source keeps contributing.
 - **Evidence freshness** — how recent is what the file witnessed? A perfectly

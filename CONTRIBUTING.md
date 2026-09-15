@@ -53,7 +53,7 @@ To build and test the Go engine:
 
    This runs the same gates GitHub Actions runs on a pull request — formatting, vetting, cyclomatic complexity, linting, unit tests at 100% total coverage, the CLI integration suite, the frontend suite, the operator's envtest suite and the chart gates. **Always run `make ci` before pushing** to catch issues early. The kind, Compose and browser acceptances are not part of it; they need a Docker daemon and run in their own CI jobs.
 
-   You can also run individual targets:
+   Individual targets:
 
    ```bash
    make test              # unit tests
@@ -64,7 +64,7 @@ To build and test the Go engine:
 
    `make e2e` is a deprecated alias for `make test-integration`.
 
-   Acceptance scenarios can be run one at a time (thin aliases over the
+   Acceptance scenarios run one at a time (thin aliases over the
    `test-acceptance-*` targets):
 
    ```bash
@@ -153,7 +153,7 @@ Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues
 
 5. **Write a clear commit message** following the project's convention:
 
-   ```
+   ```text
    feat: add support for gRPC interface validation
    fix(oci): resolve $ref in nested configuration schemas
    feat!: rename the readiness gate field
@@ -167,7 +167,7 @@ Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues
 
 ### Project Structure
 
-```
+```text
 pacto/
   cmd/pacto/          # CLI entrypoint (bootstrap only)
   cmd/gendocs/        # CLI docs generator
@@ -249,6 +249,7 @@ Docker-dependent legs — `ci-e2e-compose` and the `test-acceptance-kind-*` scen
 - Documentation lives in `docs/` and is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) (`mkdocs.yml`), versioned with [mike](https://github.com/jimporter/mike).
 - Run `make docs` to build the site, then `make docs-serve` to preview it locally.
 - CLI reference docs are auto-generated. Run `make gen-cli-docs` if you add or change CLI commands.
+- Run `make docs-lint` before pushing. It is the gate CI runs over Markdown syntax, prose and page structure, and it is deterministic — no model judges your writing. Rules live in `.markdownlint-cli2.jsonc`, `.vale/styles/Pacto/` and `release/scripts/docs_lint.py`.
 
 ### Operator (Kubernetes integration)
 
@@ -272,7 +273,7 @@ make helm-upgrade   # rebuild + upgrade the existing release
 make helm-uninstall # remove the release
 ```
 
-The operator's `make ci` adds a Helm chart gate (`ci-chart`: helm lint, template rendering, unit tests, schema validation, docs drift) on top of the standard fmt/vet/lint/test gates.
+The operator's `make ci` adds a Helm chart gate (`ci-chart`: `helm lint`, template rendering, unit tests, schema validation, docs drift) on top of the standard fmt/vet/lint/test gates.
 
 ## Pull Request Process
 

@@ -76,6 +76,10 @@ func TestDocsDoNotConflateOrOverclaimCollectors(t *testing.T) {
 		"README.md", "MANIFEST.md",
 		"docs/index.md", "docs/model.md", "docs/architecture.md", "docs/collectors.md",
 		"docs/concepts.md", "docs/platform-engineers.md",
+		// Split out of the three pages above under the documentation word budget.
+		// Without them the scan silently covers less prose than it used to: the
+		// read below skips a file it cannot find rather than failing.
+		"docs/architecture-tooling.md", "docs/concepts-boundaries.md", "docs/fleet-tools.md",
 	}
 	engineConflation := regexp.MustCompile(`(?i)kubernetes (collector|operator)[^.\n]{0,30}\bis the engine\b`)
 	overclaim := regexp.MustCompile(`(?i)\b(ECS|Nomad|Terraform)\b[^.\n]{0,40}\b(collector|shipped|supported|implemented)\b`)

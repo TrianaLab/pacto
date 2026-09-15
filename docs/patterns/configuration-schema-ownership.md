@@ -3,7 +3,7 @@
 Guidance for choosing who owns a `configurations[]` schema and how it maps to a
 running system. This is architectural/organizational guidance; the normative
 `configurations` field definition lives in the
-[Contract reference](../contract-reference/sections.md#configurations).
+[Contract reference](../contract-reference/configuration-and-policy.md#configurations).
 
 A `configurations[]` entry declares a **named configuration input** the service's
 operational contract requires or accepts. The schema is a JSON Schema document; its

@@ -74,19 +74,18 @@ snippet above should transfer unchanged, but it is not covered here.
 ## Argo CD
 
 Argo picks a health check from a fixed list of built-in kinds and returns nothing
-for everything else, and the roll-up that turns resource health into Application
-health starts at Healthy and ignores that nothing. A Pacto object is therefore
-not unhealthy to Argo — it is invisible, and nothing reports that a check is
-missing.
+for everything else; the roll-up into Application health starts at Healthy and
+ignores that nothing. A Pacto object is therefore not unhealthy to Argo but
+invisible, and nothing reports the missing check.
 
-A resource health customization in `argocd-cm` supplies the missing check:
+A resource health customization in `argocd-cm` supplies it:
 
 ```yaml
 --8<-- "tests/acceptance/kind/fixtures/gitops/argocd-cm-pacto-health.yaml"
 ```
 
-Apply it as a merge patch. `argocd-cm` holds Argo's own configuration and a plain
-`kubectl apply` of the manifest above would drop it:
+Apply it as a merge patch: `argocd-cm` holds Argo's own configuration, and a
+plain `kubectl apply` would drop it:
 
 ```bash
 kubectl -n argocd patch configmap argocd-cm --type merge \
@@ -94,12 +93,12 @@ kubectl -n argocd patch configmap argocd-cm --type merge \
 kubectl -n argocd rollout restart statefulset/argocd-application-controller
 ```
 
-The restart is not optional housekeeping. The application controller reads health
-customizations into its resource cache when it starts, and that cached verdict is
-what it compares to decide whether a changed object is worth re-examining. Until
-the controller has the customization, a Pacto's health is cached as nothing, every
-verdict the operator writes compares equal to the last one and the Application
-only catches up on the next periodic resync. On an install without `argocd-server`
+The restart is not optional. The application controller reads health
+customizations into its resource cache at startup, and that cached verdict is
+what it compares to decide whether a changed object needs re-examining. Until it
+has the customization, a Pacto's health is cached as nothing, every verdict the
+operator writes compares equal to the last, and the Application only catches up
+on the next periodic resync. On an install without `argocd-server`
 — Argo's core install — a restart is the *only* way in: hot reload of `argocd-cm`
 needs `server.secretkey`, which only `argocd-server` creates.
 
@@ -117,13 +116,13 @@ needs `server.secretkey`, which only `argocd-server` creates.
   rest are not, and reaching for one fails at runtime rather than at load.
 
 That snippet is not an illustration either. `tests/acceptance/kind/gitops-argocd.sh`
-runs **that exact file** twice. Once with no cluster at all, through
+runs **that exact file** twice. Once with no cluster, through
 `argocd admin settings resource-overrides health`, which puts every contract
-status through Argo's own Lua sandbox — including the states a running cluster
-passes through too quickly to catch, like a verdict that has not caught up with
-the contract yet. Then inside a kind cluster running Argo CD, where an
-Application must go `Degraded` naming the finding while the contract is violated
-and back to `Healthy` once it is corrected.
+status through Argo's Lua sandbox — including states a running cluster passes
+through too quickly to catch, like a verdict that has not caught up with the
+contract. Then inside a kind cluster running Argo CD, where an Application must
+go `Degraded` naming the finding while the contract is violated and back to
+`Healthy` once corrected.
 
 ### Check that it took
 

@@ -71,17 +71,30 @@ func modelTopLevelFields() map[string]bool {
 	return out
 }
 
-// docH2Headings returns every `## <name>` heading (backticks stripped) in the
-// contract-reference sections page.
+// sectionCatalogue is every contract-reference page that documents top-level
+// contract sections as H2s. It outgrew one page under the documentation word
+// budget, so all three are read together: a field documented on the wrong one of
+// them would otherwise read as undocumented. The other pages in that directory
+// (index, validation, overrides, diff) are excluded deliberately — their H2s are
+// concepts, and the second half of the parity check rejects an H2 that is not a
+// field.
+var sectionCatalogue = []string{"sections.md", "configuration-and-policy.md", "dependencies-and-state.md"}
+
+var h2Pattern = regexp.MustCompile(`(?m)^## (.+)$`)
+
+// docH2Headings returns every `## <name>` heading (backticks stripped) across the
+// contract-reference pages that catalogue the top-level sections.
 func docH2Headings(t *testing.T, root string) []string {
 	t.Helper()
-	doc, err := os.ReadFile(filepath.Join(root, "docs", "contract-reference", "sections.md"))
-	if err != nil {
-		t.Fatalf("read sections.md: %v", err)
-	}
 	var out []string
-	for _, m := range regexp.MustCompile(`(?m)^## (.+)$`).FindAllStringSubmatch(string(doc), -1) {
-		out = append(out, strings.Trim(strings.TrimSpace(m[1]), "`"))
+	for _, name := range sectionCatalogue {
+		doc, err := os.ReadFile(filepath.Join(root, "docs", "contract-reference", name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		for _, m := range h2Pattern.FindAllStringSubmatch(string(doc), -1) {
+			out = append(out, strings.Trim(strings.TrimSpace(m[1]), "`"))
+		}
 	}
 	return out
 }

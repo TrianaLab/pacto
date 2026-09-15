@@ -66,15 +66,14 @@ tag scheme.
 !!! warning "GHCR cannot host Pacto evidence"
     GitHub Container Registry returns `404 MANIFEST_UNKNOWN` from the referrers
     endpoint, so the Evidence Server stays permanently not-ready against it.
-    This is worth calling out because GHCR is where the rest of this
-    documentation publishes *contracts*, and it works fine for that — contracts
-    are ordinary OCI artifacts and need no referrers support. Only evidence does.
+    GHCR is where the rest of this documentation publishes *contracts*, and it
+    works fine for that — contracts are ordinary OCI artifacts and need no
+    referrers support. Only evidence does.
 
-    Note what that implies. A record is attached to its contract revision **in
-    the same repository**, so this is not a matter of pointing evidence somewhere
-    else: a contract you want to carry evidence has to be published to a
-    conformant registry in the first place. Contracts you only validate, diff and
-    resolve can stay in GHCR.
+    A record is attached to its contract revision **in the same repository**, so
+    this is not a matter of pointing evidence elsewhere: a contract you want to
+    carry evidence has to be published to a conformant registry. Contracts you
+    only validate, diff and resolve can stay in GHCR.
 
 ### Permissions
 

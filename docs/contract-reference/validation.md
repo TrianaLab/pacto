@@ -92,4 +92,3 @@ cycle only when it reappears in its own resolution chain (`A → B → A`); two
 sibling policies pointing at the same `ref` resolve independently.
 
 ---
-

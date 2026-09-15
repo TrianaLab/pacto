@@ -1,6 +1,6 @@
 # Infrastructure contracts
 
-**Problem.** Your platform offers a fixed set of infrastructure types — Postgres, Redis, object storage, secrets — provisioned by some declarative tool (Crossplane, Terraform, an internal operator). You want each infrastructure type to be self-describing, governed like services, and machine-readable by the tool that turns claims into real resources.
+**Problem.** Your platform offers a fixed set of infrastructure types — Postgres, Redis, object storage, secrets — provisioned by some declarative tool (Crossplane, Terraform, an internal operator). You want each type to be self-describing, governed like services, and machine-readable by the tool that turns claims into real resources.
 
 **Primitives.**
 
@@ -38,7 +38,7 @@ configurations:
 
 **The provisioning schema** validates "did the team write a sensible claim?" — instances in range, valid size enum, schedule cron syntax, etc.
 
-Pacto doesn't invent this schema — it's derived from the provisioning claim's own OpenAPI schema (a Crossplane XRD, a Terraform module's variables), the team-controllable subset of the claim. The configuration a team writes through the contract *is* the configuration that feeds the underlying claim — validated once, with no second definition to drift out of sync. The contract adds what the claim can't express on its own — an owner, a version, a policy and a stable ref other contracts depend on.
+Pacto doesn't invent this schema: it's derived from the provisioning claim's own OpenAPI schema (a Crossplane XRD, a Terraform module's variables). The configuration a team writes through the contract *is* the configuration that feeds the underlying claim — validated once, with no second definition to drift. The contract adds what the claim can't express on its own — an owner, a version, a policy and a stable ref other contracts depend on.
 
 ```json
 {
@@ -61,6 +61,6 @@ Pacto doesn't invent this schema — it's derived from the provisioning claim's 
 
 **Versioning the contract is versioning the platform interface.** A bump from `postgres:17.0.0` to `postgres:18.0.0` lets services migrate at their own pace by ref-pinning, and the policy can tighten with each major version (see [pattern 5](progressive-policy.md)).
 
-**Cross-links:** [`metadata`](../contract-reference/sections.md#metadata) · [`policies`](../contract-reference/sections.md#policies) · [`configurations`](../contract-reference/sections.md#configurations)
+**Cross-links:** [`metadata`](../contract-reference/sections.md#metadata) · [`policies`](../contract-reference/configuration-and-policy.md#policies) · [`configurations`](../contract-reference/configuration-and-policy.md#configurations)
 
 ---

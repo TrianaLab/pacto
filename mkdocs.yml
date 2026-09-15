@@ -177,27 +177,33 @@ nav:
       - Runnable demo (Docker Compose): examples/compose-demo.md
       # Third on purpose: nothing installed, then a stack, then driving it.
       - Guided tour: examples/demo-tour.md
+      - "Guided tour: traffic and agents": examples/demo-tour-agents.md
   - Get started:
       - Installation: installation.md
       - Quickstart: quickstart.md
   - Guides:
       - For developers: developers.md
       - For platform engineers: platform-engineers.md
+      - Fleet tools: fleet-tools.md
   - Concepts:
       - The Pacto model: model.md
       - Core concepts: concepts.md
+      - Evidence and boundaries: concepts-boundaries.md
       - Manifesto: manifesto.md
   - Operational graph:
       - operational-graph.md
+      - Fleet sources and freshness: fleet-sources.md
+      - Fleet query semantics: fleet-queries.md
       - Impact analysis: impact.md
+      - Impact on the other surfaces: impact-surfaces.md
       - Collectors and the evidence boundary: collectors.md
       - Observation sources: observation-sources.md
-      # Grouped rather than promoted to a tab: three pages on one subject that a
+      # Grouped rather than promoted to a tab: pages on one subject that a
       # reader searches for by name ("evidence"), not by the graph that consumes it.
       - External evidence:
           - Evidence protocol: evidence-protocol.md
           - Evidence in the registry: evidence-oci-storage.md
-          - Evidence security and tooling: evidence-security.md
+          - Evidence tooling, ingestion and security: evidence-security.md
   - Patterns:
       - patterns/index.md
       - Root + component contracts: patterns/root-component.md
@@ -205,24 +211,19 @@ nav:
       - Composable configurations: patterns/composable-configs.md
       - Policy + schema contract: patterns/policy-schema.md
       - Progressive policy versioning: patterns/progressive-policy.md
-      - Override files: patterns/override-files.md
-      # Last on purpose: the six above are numbered 1-6 on the index and the
+      # Last on purpose: the five above are numbered 1-5 on the index and the
       # stacking diagram cites those numbers, so the sidebar has to count the
       # same way. This one is organizational guidance, not a composition.
       - Configuration schema ownership: patterns/configuration-schema-ownership.md
   - Examples:
       - Example contracts: examples/index.md
-      - Cron worker: examples/cron-worker.md
-      - Event processor: examples/event-processor.md
-      - gRPC service: examples/grpc-service.md
-      - Hybrid cache: examples/hybrid-cache.md
-      - Nginx: examples/nginx.md
-      - PostgreSQL: examples/postgresql.md
-      - RabbitMQ: examples/rabbitmq.md
-      - Redis: examples/redis.md
   - Integrations:
       - GitHub Actions: github-actions.md
-      - MCP integration: mcp-integration.md
+      - MCP:
+          - MCP integration: mcp-integration.md
+          - Authoring tools: mcp-authoring-tools.md
+          - Agent capabilities: mcp-agent-capabilities.md
+          - Contract catalog discovery: mcp-catalog-discovery.md
       # Kubernetes pages are owned by integrations/kubernetes/docs and assembled
       # into this site by release/scripts/mkdocs_integration_hook.py. Reference
       # pages (crd/helm/rbac/operator-config/contract-bindings/runtime-observations/
@@ -230,6 +231,7 @@ nav:
       - Kubernetes:
           - Kubernetes overview: integrations/kubernetes/overview.md
           - Install the operator: integrations/kubernetes/installation.md
+          - Evidence Server: integrations/kubernetes/evidence-server.md
           - Upgrade the operator: integrations/kubernetes/upgrade.md
           - GitOps promotion gates: integrations/kubernetes/gitops.md
           - Contract bindings: integrations/kubernetes/contract-bindings.md
@@ -247,6 +249,8 @@ nav:
       - Contract reference:
           - contract-reference/index.md
           - Contract sections: contract-reference/sections.md
+          - Configuration and policy: contract-reference/configuration-and-policy.md
+          - Dependencies, state and readiness: contract-reference/dependencies-and-state.md
           - Validation layers: contract-reference/validation.md
           - Contract overrides: contract-reference/overrides.md
           - Diff and change classification: contract-reference/diff.md
@@ -258,12 +262,16 @@ nav:
   # map, the test suite and the release pipeline.
   - Project internals:
       - Architecture: architecture.md
+      - Tooling and adapters: architecture-tooling.md
       - Dashboard architecture: dashboard-architecture.md
       - Testing architecture: maintainers/testing.md
+      - Harness code and ownership: maintainers/testing-harness.md
+      - Compose demo claims: maintainers/testing-compose-demo.md
       # Path stays under examples/ on purpose: there is no redirect plugin, so
       # moving the file would permanently break every existing inbound URL.
       - Compliance scenarios: examples/compliance-scenarios.md
       - Release architecture: maintainers/releases.md
+      - Abandoned release transactions: maintainers/releases-abandoned.md
   # changelog.md is assembled at build time from release/units/*/CHANGELOG.md
   # by release/scripts/mkdocs_integration_hook.py (Changesets-generated history).
   - Changelog: changelog.md

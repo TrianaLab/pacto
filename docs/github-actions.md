@@ -1,4 +1,5 @@
 # GitHub Actions Integration
+
 Automate contract validation, breaking-change detection and publishing in your CI/CD pipeline using the official [Pacto CLI](https://github.com/marketplace/actions/pacto-cli) GitHub Action.
 
 ---
@@ -39,7 +40,7 @@ The [quick start](#quick-start) already runs `pacto validate .` on every pull re
 
 ### Detect breaking changes
 
-Compare the PR contract against the published version and block breaking changes. `pacto diff` takes the old contract first and the new one second, and exits non-zero on a `BREAKING` result (see [change classification rules](contract-reference/diff.md#change-classification-rules)):
+Compare the PR contract against the published version and fail the job on a breaking change. `pacto diff` takes the old contract first and the new one second, and exits non-zero on a `BREAKING` result (see [change classification rules](contract-reference/diff.md#change-classification-rules)):
 
 ```yaml
       - name: Check for breaking changes

@@ -191,7 +191,7 @@ other inner difference (a property added, a type or constraint changed) is
 
 Change paths use a hierarchical format that pinpoints the exact location, for example:
 
-```
+```text
 openapi.paths[/users].methods[GET].parameters[filter:query]
 openapi.paths[/users].methods[POST].request-body.content.application/json.schema.required[email]
 openapi.paths[/users].methods[GET].responses[200].content.application/json.schema.properties.email
@@ -225,7 +225,7 @@ Only `channels` and `operations` are compared. `info`, `servers`, `components` a
 
 Change paths pinpoint the exact location, for example:
 
-```
+```text
 asyncapi.channels[payment.completed]
 asyncapi.channels[payment.refunded].publish.message.payload.required[charge_id]
 asyncapi.operations[sendOrder].action
@@ -252,7 +252,7 @@ proto3 has no `required`, so an added rpc, message or field is always wire-compa
 
 Change paths pinpoint the exact location, for example:
 
-```
+```text
 grpc.services[FraudService]
 grpc.rpcs[FraudService.EvaluateTransaction]
 grpc.messages[EvaluateTransactionRequest].fields[metadata]

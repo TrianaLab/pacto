@@ -3,15 +3,12 @@
 A single contract tells you what one service is. Most questions worth asking span
 many: *what depends on payments-api, which revision is running in `production-eu`,
 is any of it non-compliant, and how sure are we?* The **Pacto Operational Graph**
-answers those questions. It composes many independent contracts, contract
-revisions and operational targets into one versioned, navigable, verifiable read
-model that humans, CLIs, platforms and agents can reason over.
+composes many contracts, revisions and operational targets into one versioned,
+verifiable read model that humans, CLIs, platforms and agents can query.
 
-It is framework-independent (`pkg/fleet`), pure and read-only. It observes no
-environment and evaluates nothing on its own — it is a query model built *around*
-the sources and evaluations Pacto already produces. Internally the immutable read
-model is a **Fleet Snapshot** and the pure query layer over it is a **Fleet
-Query**; the sections below use those terms wherever precision matters.
+It is framework-independent (`pkg/fleet`), pure and read-only: it observes no
+environment and evaluates nothing itself. Internally the immutable read model is a
+**Fleet Snapshot** and the pure query layer over it a **Fleet Query**.
 
 ---
 
@@ -26,9 +23,6 @@ a revision and a running instance are different questions with different answers
 | **Contract revision** | An immutable resolved revision — what it declares and how it differs from another revision. Identity is the service plus a content digest: the source's immutable digest, or one derived from the whole bundle when the source has none. Never a ref, never a version; a revision that can be neither pinned nor hashed is omitted rather than given a weaker identity. | `payments-api@sha256:…` |
 | **Operational target** | A concrete place a revision runs, generic as `scope/kind/name`. | `production-eu/customer-a → kubernetes-workload payments/payments-api` |
 
-Keeping them separate is what lets the graph answer "which *revision* runs
-*where*, and is *that instance* compliant" without guessing.
-
 ### How certainly a target is matched to a revision
 
 Knowing a target exists is not the same as knowing which revision it runs, so
@@ -41,11 +35,9 @@ every target records **how** the link was made. Four outcomes:
 | `ambiguous` | Several revisions match that mutable reference. **No link is made** — a guess is never presented as fact — and the target carries a `REVISION_LINK_AMBIGUOUS` limitation. |
 | `unresolved` | Nothing matched, or the target's identity contradicts itself (a recorded digest that disagrees with its digest-pinned reference). No link, and a limitation on the target saying so. |
 
-The bottom two are not a failure to report. They *are* the report, and they sit
-on the target itself so a consumer can classify a link without parsing
-snapshot-level messages.
-
-The two read surfaces spell this differently, and the CLI's spelling has a trap:
+The bottom two are not a failure to report: they sit on the target itself, so a
+consumer can classify a link without parsing snapshot-level messages. The two read
+surfaces spell this differently, and the CLI's spelling has a trap:
 
 - **Snapshot and `pacto fleet get --target` JSON** carry `revisionMatch`, which
   is `omitempty` and only ever `exact` or `inferred`. **An absent
@@ -55,13 +47,11 @@ The two read surfaces spell this differently, and the CLI's spelling has a trap:
   dashboard reads) carries `linkState`, always present, with all four values
   spelled out.
 
-Two things this axis is *not*. It is not whether Pacto can fetch that revision's
-content: an `exact` match can name content sitting in a registry Pacto cannot
-read, and that is an honest outcome rather than a contradiction ([match
-certainty is not content retrievability](concepts.md#identity)). And its
-`inferred` is a different word from the `inferred` relationship provenance
-below — one is how a *target* was matched to a revision, the other is how an
-*edge* was derived.
+This axis is not content retrievability: an `exact` match can name content in a
+registry Pacto cannot read ([match certainty is not content
+retrievability](concepts.md#identity)). Its `inferred` is also a different word
+from the `inferred` relationship provenance below — one is how a *target* was
+matched to a revision, the other how an *edge* was derived.
 
 ---
 
@@ -83,350 +73,6 @@ never ambiguous:
   observation. The neighborhood projection merges the two adjacency indexes for
   display and emits this combined value, so a consumer branching on provenance
   must handle all four.
-
----
-
-## Sources
-
-The graph is assembled from **sources** — a framework-neutral ingestion seam. Each
-source observes what it can right now and contributes revisions and targets.
-(The dashboard lists these as **Data sources**. They are not the same thing as an
-evidence [collector](collectors.md), which produces compliance evidence *for* a
-source to carry.)
-
-- **Local bundles** (`--local`) — the revision a developer is editing, before it
-  is pushed. The scan defaults to the working directory, descends 8 levels and
-  skips hidden directories, `node_modules` and `vendor`. A directory the
-  operating system refuses is reported as a gap and stepped over, so pointing
-  `--local` at a home directory still finds the bundles below the privacy-guarded
-  paths it meets on the way; past 10 refusals the rest are summarised as a count.
-- **A contract root and its closure** (`--root <path|oci://ref>`) — the root you
-  name *plus every revision it declares*, followed transitively. The other
-  definition sources stop at what someone listed: a local scan finds the bundles
-  in a directory and `--oci` pulls exactly the references you typed, so a bundle
-  depending on `oci://ghcr.io/acme/payments:2.1.0` leaves a dangling edge unless
-  that reference is passed separately. `--root` follows the declaration instead.
-  It is the same discovery [`pacto mcp --root`](mcp-integration.md) freezes into
-  a catalog, through the same resolver, so the two cannot disagree about what a
-  reference means. Roots and dependencies that do not resolve stay visible as
-  limitations rather than vanishing.
-- **Contracts in OCI** (`--oci <ref>`) — the published revision catalogue,
-  resolved cache-first so a pulled ref works offline.
-- **Local OCI cache** (`--cache`) — every bundle already pulled to disk, as an
-  offline baseline. Opt-in, unlike the dashboard, which picks the cache up while
-  it boots. A snapshot is built from the sources you name, and on a machine that
-  has been pulling contracts for months the cache is a record of everything
-  anyone ever fetched — other fleets, one-off comparisons, test fixtures — which
-  is an offline baseline worth asking for and a fleet nobody operates. Reach for
-  it when the registry is unreachable, not to fill an empty screen.
-- **Live Kubernetes** (`--k8s [--namespace]`) — Pacto CRs read straight from a
-  running cluster: which revision runs in which target and its operator-computed
-  compliance, findings, coverage and observed runtime.
-- **Ingested external evidence** (`--evidence-url <url>`) — a remote
-  environment's signed, versioned [EvidenceSet report](evidence-protocol.md),
-  verified and evaluated at ingestion by the
-  [Evidence Server](evidence-protocol.md#durable-storage-in-the-registry) and
-  published to the contract registry, then exposed as an operational target.
-  `--evidence-url` consumes a running Evidence Server's read-only contribution
-  over HTTP — the only way in, because the store is a registry the CLI has no
-  business holding a credential for.
-- **Offline target-state fixtures** (`--target-state`) — an unsigned demo and
-  test adapter for supplying targets without a cluster.
-
-Offline trace exports are Data Sources too, claiming names in the same namespace,
-but they supply observed dependency edges rather than revisions and targets — see
-[Observation sources](observation-sources.md).
-
-Every source flag above is shared by `pacto fleet` and the MCP fleet server, so
-the same graph is reachable from either. `pacto impact` reads a narrower set —
-`--local`, `--root` and `--target-state` only, alongside `--freshness`, a
-single-file `--traces` and `--include-observed` — so a blast-radius question is
-answered from an offline graph. No source leaks its transport
-into the graph: a Kubernetes-backed source, an OCI-backed source, a local source
-and the dashboard adapter each implement the same small interface, so the read
-model stays free of Kubernetes, MCP and dashboard code.
-
-**What a source sent is not what it contributed.** A source's record counts
-(`revisionCount`, `targetCount`) are the raw records it supplied, counted as
-ingested. The product entities attributable to it (`contributed`, broken down by
-kind) are a different and usually larger set, so the two are reported side by side
-and never reconciled into one number. A revision that two sources both reported is
-one record in each of their counts and one shared entity contributed by both. A
-*service* is derived from the revisions and targets a source reported — no source
-ever sends a service record — so a source whose records are entirely revisions
-still contributes services, and the same service is attributable to several
-sources at once. Both counts are computed over the complete population, never over
-the bounded entity preview beside them.
-
-### What a target-state fixture looks like
-
-`--target-state` is the only source you have to author yourself, so here is the
-whole format. It is a single YAML or JSON document — JSON is a subset of YAML, so
-one parser reads both — and the decoder is strict: a second `---` document, an
-unknown field or a `schemaVersion` other than `pacto.dev/fleet-targets/v1` is
-rejected and the whole file contributes nothing.
-
-```yaml
-schemaVersion: pacto.dev/fleet-targets/v1
-targets:
-  - service: orders-service          # required: the service this target runs
-    name: commerce/orders-service    # required: unique within the scope
-    scope: production-eu             # the environment, e.g. a cluster
-    kind: kubernetes-workload        # what sort of target it is
-    labels: { env: production, region: eu }
-    requestedRef: oci://ghcr.io/acme/orders-service:1.2.0
-    resolvedRef: oci://ghcr.io/acme/orders-service:1.2.0
-    digest: sha256:…
-    compliance: NonCompliant
-    coverage: { evaluated: 5, required: 5 }
-    evidenceAt: 2026-07-29T09:40:00Z     # when the evidence was gathered
-    reconciledAt: 2026-07-29T09:41:00Z   # when the target was last reconciled
-    observedRuntime: { replicas: 3 }     # free-form; surfaced as a bounded preview
-    findings:
-      - code: STATELESS_PERSISTENT_CONFLICT   # required within a finding
-        severity: error
-        category: RuntimeDrift
-        subjectKind: state
-        subjectName: orders-db
-        message: declared stateless but the observed workload mounts a volume
-state:                               # optional: the source's own health
-  status: available
-  message: ""
-```
-
-Only `service` and `name` are required on a target — everything else may be
-omitted, and an omitted `evidenceAt` is exactly how you model a target the
-collector could not observe. The enumerations are closed:
-
-| Field | Accepted values |
-| --- | --- |
-| `compliance` | `Compliant`, `NonCompliant`, `Unknown`, `Warning`, `Invalid`, `Reference`, `NotEvaluated`, or omitted |
-| `findings[].severity` | `error`, `warning`, `info`, `unknown`, or omitted |
-| `state.status` | `available`, `partial`, `stale`, `unavailable` (anything else reads as `available`) |
-
-A file may declare at most 5000 targets. An individual entry that fails
-validation is skipped with a `SOURCE_RECORD_INVALID` limitation and the rest of
-the file is kept; a failure of the *file* — missing, unparseable, wrong schema
-version, unknown field — drops the whole source with a `SOURCE_UNAVAILABLE`
-limitation and marks the snapshot `partial`.
-
-!!! warning "A malformed fixture is reported the same way as a missing one"
-    Both produce exactly `SOURCE_UNAVAILABLE`: *source target-state is
-    unavailable; its records are missing from this snapshot*. The parse error
-    itself is not surfaced, and `-v` does not add it, so a typo in a field name
-    looks identical to a path that does not exist. If the source drops and the
-    path is right, suspect the file: check `schemaVersion` first, then field
-    spelling.
-
-[`examples/demo/fleet-targets.yaml`](https://github.com/TrianaLab/pacto/blob/main/examples/demo/fleet-targets.yaml)
-is a complete worked fixture — compliant, non-compliant, unknown and stale
-targets across two scopes — and it is the file the live demo runs on.
-
----
-
-## Freshness and completeness
-
-Incompleteness is always explicit. A source reports its state; a snapshot and
-every query answer carry an **as-of** time, a **completeness** and a list of
-**limitations**. Two rules are absolute:
-
-> **An unavailable source is never an empty result.** If a registry is unreachable
-> or a cluster is disconnected, its records are *missing*, and the answer says so —
-> it is never rendered as "nothing is there".
-
-> **Absence of telemetry is not evidence of absence.** A missing observation under
-> partial coverage is uncertainty, not a confirmed "no".
-
-One case does not carry the envelope, and it is the case where you most want it.
-`get`, `graph` and `explain` name a single subject, and a subject that is not in
-the snapshot is a *failure*, not an answer: `pacto fleet get ghost` exits 1 with
-`service "ghost" not found in the fleet snapshot` on stderr and nothing on stdout
-whatever `--output-format` said, and the
-[MCP equivalents](mcp-integration.md#fleet-query-safety) return the same string as
-a tool error. There is no `meta` on it, so there is no `completeness` telling you
-whether the snapshot that missed was whole. Get that reading from `search` or
-`status` on the same snapshot before you read a subject miss as an absence.
-
-Every source reports one status, and the snapshot rolls those up into one
-completeness value:
-
-| Term | Where it applies | Meaning |
-|------|------------------|---------|
-| **available** | source | Reachable and current. |
-| **partial** | source and snapshot | The source returned some but not all of its records, or at least one source is degraded. Treat the answer as incomplete knowledge. |
-| **stale** | source | The most recent data is older than the freshness window. |
-| **unavailable** | source | The source could not be observed at all; its records are absent, not empty. |
-| **complete** | snapshot | Every source was available and current. |
-| **empty** | snapshot | Every source was available and produced no record. A genuine empty, not a hidden failure. |
-
-The dashboard uses a matching per-section vocabulary — `present`, `empty`,
-`not_applicable`, `unavailable`, defined term by term under [Section
-provenance](dashboard-architecture.md#section-provenance-sectionmeta) — for the same
-reason: a blank must always explain *why* it is blank. When a source fails, its error is sanitized to a category code
-(`AUTH_FAILED`, `NOT_FOUND`, `UNAVAILABLE`, `CANCELLED`) and a generic message, so
-credentials, tokens and host names never leak to a consumer.
-
-A query answer's `meta` lists every source in the snapshot. The **product
-answers** the dashboard reads — the `/api/fleet/*` envelope, schema version
-`pacto.dev/fleet-product/v1` — cap that list at 50 sources, least healthy first,
-and flag the cut with `sourcesTruncated`. Because the list is capped there, a
-product answer also carries `sourceCounts`: every source in the snapshot tallied
-by health state, over the complete population the list was cut from. Counting the
-sources a consumer received would understate the fleet precisely when it matters,
-because the capped list is deliberately biased toward the least healthy. A status
-the read model does not recognize is never folded into a bucket — `total` simply
-stays above the sum of the buckets, rather than the tally adding up perfectly and
-being wrong.
-
----
-
-## Query semantics
-
-The read model answers five kinds of question, each a pure operation. None
-performs I/O; a single snapshot serves concurrent queries. **Every answer
-carries a `meta`
-envelope with `schemaVersion`, `snapshotId`, `asOf`, `completeness`,
-`limitations` and `sources`** — a consumer can always tell how much of the system
-the answer actually covers. `schemaVersion` (`pacto.dev/fleet/v1`) is the
-compatibility contract to branch on; `snapshotId` is the content digest that
-proves two answers came from the same system view.
-
-| Query | Answers |
-|-------|---------|
-| **search** | Which logical services match this filter (owner, label, status, compliance, capability, dependency, readiness). Bounded and deterministically ordered. |
-| **get** | Everything about one service (its revisions, targets, declared dependencies, dependents, tools and skills) or one target. |
-| **graph** | Traverse dependencies or dependents from a service — direct or transitive, cycle-safe, with unresolved edges surfaced. |
-| **status** | What needs attention: non-compliant or unknown targets, invalid contracts, stale evidence, missing readiness, unresolved dependencies. |
-| **explain** | Deterministic, structured reasons for a subject's state. Pacto embeds no model — it hands an agent structured reasons to turn into prose. |
-
-A `not found` under `partial` completeness is not proof the thing does not exist —
-the answer's `meta.completeness` tells the caller whether absence is trustworthy.
-Two more operations sit beside the five and are not queries: `snapshot` emits
-the whole read model as one document, and `reconcile` reports declared
-dependencies against observed ones ([Observed dependencies and
-reconciliation](#observed-dependencies-and-reconciliation)).
-
-Errors are typed: a missing identity is a not-found, an ambiguous one lists its
-matches.
-
-A `pacto fleet search --output-format json` answer over a local bundle root with
-an unreachable OCI source:
-
-```json
-{
-  "meta": {
-    "schemaVersion": "pacto.dev/fleet/v1",
-    "snapshotId": "sha256:c81df8fd572ecaa7c884968e728daff5b47c40b8e8c5cbcf1926c19740db95a9",
-    "asOf": "2026-07-29T10:00:00Z",
-    "completeness": "partial",
-    "limitations": [
-      { "code": "SOURCE_UNAVAILABLE", "source": "oci",
-        "message": "source oci is unavailable; its records are missing from this snapshot" }
-    ],
-    "sources": [
-      { "id": "local", "kind": "local", "status": "available",
-        "lastSuccessfulSync": "2026-07-29T10:00:00Z",
-        "observedAt": "2026-07-29T10:00:00Z",
-        "revisionCount": 25, "targetCount": 0 },
-      { "id": "oci", "kind": "oci", "status": "unavailable",
-        "error": { "code": "UNAVAILABLE", "message": "the source is unavailable" },
-        "revisionCount": 0, "targetCount": 0 }
-    ]
-  },
-  "total": 1,
-  "count": 1,
-  "services": [
-    { "key": "payments-service", "name": "payments-service",
-      "owner": "team/payments", "status": "NotEvaluated",
-      "revisionCount": 6, "targetCount": 0, "sources": ["local"] }
-  ]
-}
-```
-
-`total` is the whole matched population; `count` is how many rows this page
-carries. `key` is the service's canonical identity — match on it, not on `name`,
-which is not unique across domains. `owner` here is the authored owner label, not
-the canonical owner key (see [ownership](#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole)).
-
----
-
-## Aggregates: what a bounded list can still tell you about the whole
-
-Every list answer is bounded, so the rows a consumer receives are one slice of the
-population its filter matched. Alongside them the read model returns an
-**aggregate computed over the complete matched population, before paging** —
-computed in the backend, because a distribution drawn from the rows would present
-the first page as the fleet.
-
-The matched population is heterogeneous by design — one query can match services,
-revisions and targets at once — so **every tally names the population it
-partitions** instead of sharing one denominator, and the per-kind counts are
-reported rather than derived by summing buckets, so a disagreement between a
-denominator and its buckets stays visible.
-
-| Tally | Partitions | Buckets |
-|-------|-----------|---------|
-| **serviceCompliance** | matched services | the compliance states, rolled up from each service's targets |
-| **targetCompliance** | matched operational targets | the compliance states as observed per target |
-| **ownership** | matched services | `consistent` · `conflicting` · `unowned` |
-| **readiness** | matched contract revisions | `passing` · `belowThreshold` · `expired` · `notDeclared` |
-
-`serviceCompliance` and `targetCompliance` are never summed: a service status is
-already a roll-up of its targets, so adding them counts the same operational
-reality twice.
-
-**Ownership** is a property of revisions agreeing, not of one field somebody set —
-`service.owner` is authored on each contract revision. A service is `consistent`
-when every revision that declares an owner declares the *same* one; a revision
-that declares none is silence, not a contradiction. `conflicting` is never folded
-into `unowned`: "two teams claim this" and "nobody claims this" need opposite
-fixes. Neither is folded into `consistent`, because the owner shown on a service
-is a documented tie-break, and counting a conflicted service as owned would
-present that tie-break as agreement.
-
-Beside the partition, an aggregate carries a **bounded ranking** of the
-consistently owned services by owner (`byOwner`), largest first. It is explicitly
-not a partition: conflicted and unowned services have no single owner to rank
-under, `beyondRanking` holds the services whose owner fell past the bound,
-`unidentifiedOwnership` holds the consistently owned services whose declared owner
-resolves to no canonical identity and `distinctOwners` says how many owners exist
-in total — so
-`sum(byOwner.services) + beyondRanking + unidentifiedOwnership == ownership.consistent`,
-and a consumer can state exactly what the ranking omits.
-
-An owner identity is **namespaced**: `team:payments` and `dri:payments` are two
-owners that happen to print the same word. A ranking row whose human label is
-shared by an owner of the other kind is flagged `ambiguous`, and a consumer must
-show the namespace for it. Ambiguity is decided over the complete population of
-distinct owner keys, never over the rows that survived the ranking cut — otherwise
-the same owner would read one way when its collider ranked second and another way
-when it ranked two hundredth, and a canonical identity would depend on where the
-bound happened to fall.
-
-A revision's declared **contact points** — an email address, a chat channel or a
-URL — travel with its ownership as bounded metadata and are never identity: no owner
-key, no link and no ranking row is derivable from one. That is what
-`unidentifiedOwnership` exists to count. A contract naming a mailing list but no
-Team or DRI *has* declared an owner, so folding it into `unowned` would report a
-governance gap the team already closed, and minting an owner key out of the
-address would invent an identity nobody authored. The contacts preview is a
-pointer: its absence means "not carried here", never "none declared".
-
-**Readiness** is bucketed per contract revision and never per service, per target
-or per fleet: readiness is the authored preparedness of one immutable contract,
-assessed against the threshold that contract set for itself. It is orthogonal to
-compliance — a revision whose readiness passes can be running on a target observed
-to violate its contract, and a revision nobody assessed can be running perfectly.
-`notDeclared` is its own bucket because "nobody wrote an assessment" is not the
-same answer as "the assessment does not pass", and `expired` is its own bucket
-because an assessment past its `expires` date earns no weight and cannot be read
-as current.
-
-The overview carries the same two tallies over the whole snapshot rather than over
-a filtered population. They sit there, and not in the attention backlog, because
-neither is an operational failure: "is ownership declared at all" and "is anyone
-assessing readiness" are systemic questions about how the fleet is organized and
-authored.
 
 ---
 
@@ -469,7 +115,8 @@ flowchart LR
   know: an operational target links to the dependency **service** it depends on,
   never to each peer target — a full target-to-target mesh would assert runtime
   routing the snapshot never observed, so it is never drawn. Its overview and its
-  list pages draw every figure from the aggregate above, so a figure and the rows
+  list pages draw every figure from the [aggregate](fleet-queries.md#aggregates-what-a-bounded-list-can-still-tell-you-about-the-whole),
+  so a figure and the rows
   beneath it always describe the same population: narrowing the filter narrows
   both, and a bucket of a figure is a link to the rows it counted. The **data
   sources** everything above was built from are a product surface of their own
@@ -485,7 +132,7 @@ flowchart LR
 - **MCP fleet tools** — `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status` and `pacto_fleet_explain` give an
   agent read-only understanding of the operational system, and
-  [`pacto_impact`](impact.md#mcp-tool-pacto_impact) is the sixth tool of the same
+  [`pacto_impact`](impact-surfaces.md#mcp-tool-pacto_impact) is the sixth tool of the same
   family — the one that re-reads its sources on every call. They are one of three
   MCP tool families — see [MCP integration](mcp-integration.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.
@@ -494,11 +141,11 @@ flowchart LR
 
 ## A read model around many evaluations, not a new evaluator
 
-The operational graph does not replace the engine. Compliance is still the pure
-`Evaluate(Contract, EvidenceSet)` function producing findings for one service in
-one environment (see [Collectors and the evidence boundary](collectors.md)). The
-graph is the read/query model *around* many such evaluations — it references each
-target's findings and coverage rather than re-computing them.
+Compliance is still the pure `Evaluate(Contract, EvidenceSet)` function
+producing findings for one service in one environment (see [Collectors and the
+evidence boundary](collectors.md)). The graph is the read/query model *around*
+many such evaluations — it references each target's findings and coverage rather
+than re-computing them.
 
 ```mermaid
 flowchart TB
@@ -518,65 +165,54 @@ flowchart TB
 ## Impact analysis, built on this substrate
 
 The graph maintains a reverse-dependency index: for any service, which services
-declare a required dependency on it. **[Impact analysis](impact.md)** builds
-directly on that index. `pacto impact <old> <new>` composes a semantic contract
-diff with this graph to answer "if this revision ships, what is the transitive
-blast radius" — direct and transitive affected consumers, active targets, owners,
-a compatibility verdict and a per-consumer confidence grade. No new data, a new
-question over the same graph the dashboard and CLI already query — shipped today
-on the CLI, as an MCP tool and, under the name **Change analysis**, in the
-dashboard. See [Impact analysis](impact.md) for the full model.
+declare a required dependency on it. **[Impact analysis](impact.md)** builds on
+it. `pacto impact <old> <new>` composes a semantic contract diff with the graph to
+answer "if this revision ships, what is the transitive blast radius" — affected
+consumers direct and transitive, active targets, owners, a compatibility verdict
+and a per-consumer confidence grade. It ships on the CLI, as an MCP tool and,
+under the name **Change analysis**, in the dashboard.
 
 ---
 
 ## External evidence ingestion
 
-Runtime evidence no longer has to come only from a cluster the operator watches.
-The source seam is deliberately environment-neutral, so a **remote or
-disconnected environment** can participate without Pacto reaching into it: the
-remote side produces a signed, versioned `EvidenceSet`, reports it outbound to an
-ingestion endpoint, and the platform verifies the signature, evaluates the
-evidence and exposes the result as an operational target. The freshness rules
-hold across the boundary — a target goes `stale` when its evidence ages past the
-window and its source becomes `unavailable` when it stops reporting, never a
-silent empty and never deleted. This is the shipped
-[external evidence protocol](evidence-protocol.md); for keys and CLI usage see
-[evidence security and tooling](evidence-security.md).
+The source seam is environment-neutral, so a **remote or disconnected
+environment** can participate without Pacto reaching into it: the remote side
+reports its signed, versioned `EvidenceSet` outbound to an ingestion endpoint.
+Freshness rules hold across the boundary — a target goes `stale` when its evidence
+ages past the window and its source `unavailable` when it stops reporting, never
+deleted. This is the [external evidence protocol](evidence-protocol.md); for keys
+and CLI usage see [evidence security and tooling](evidence-security.md).
 
 Ingested evidence is backed by the **Evidence Server**, a stateless boundary in
 front of your contract registry. Every accepted envelope is published as an OCI
 1.1 referrer of the exact contract revision it reports on before it becomes a
 target, so replay protection and latest-target state survive a restart with no
-local state at all — see
-[evidence in the registry](evidence-oci-storage.md). The Evidence Server is an
-optional operator-managed component of the `pacto-operator` Helm chart
-(`evidence.enabled=true`), and it runs the same way outside Kubernetes via
-`pacto evidence serve`. There is no standalone evidence chart. When both the
-dashboard and the Evidence Server are enabled, the operator wires the dashboard
-to the server over HTTP; the dashboard consumes its read-only contribution and
-never holds a registry credential. The
-[deployment topology](evidence-protocol.md#deployment) keeps the responsibility
-split clean: the Evidence Server owns ingestion, verification, evaluation and
-publication, the dashboard consumes the read-only contribution and the operator
-manages the Kubernetes lifecycle.
+local state at all — see [evidence in the
+registry](evidence-oci-storage.md). It is an optional operator-managed component
+of the `pacto-operator` Helm chart (`evidence.enabled=true`) and runs the same way
+outside Kubernetes via `pacto evidence serve`; there is no standalone evidence
+chart. With both it and the dashboard enabled, the operator wires them over HTTP
+and the dashboard never holds a registry credential. The [deployment
+topology](evidence-protocol.md#deployment) splits the responsibility: the Evidence
+Server owns ingestion, verification, evaluation and publication, the operator the
+Kubernetes lifecycle.
 
 ---
 
 ## Observed dependencies and reconciliation
 
-Declared intent is only half the picture; the other half is what traffic
-actually does. The **OTel observer** (`pacto otel observe <traces.json>`) is an
-offline analyzer: it reads an exported OTLP/JSON trace file and derives the
-caller-to-callee reachability edges its outbound spans prove. It is not a
-receiver or a live collector — there is no OTLP endpoint and nothing is
-deployed; it processes a file you hand it. It reports only what it saw and never
-asserts a dependency is absent — an unseen dependency is uncertainty, not a
-confirmed "no".
+Declared intent is half the picture; the other half is what traffic actually does.
+The **OTel observer** (`pacto otel observe <traces.json>`) is an offline analyzer:
+it reads an exported OTLP/JSON trace file and derives the caller-to-callee
+reachability edges its outbound spans prove. It is not a receiver or a live
+collector — no OTLP endpoint, nothing deployed — and it never asserts a dependency
+is absent.
 
 Those observed edges meet the declared graph in three places:
 
 - **The snapshot itself** — `pacto fleet --traces <file>` adds an *observation
-  source*, and [building the snapshot](#sources) resolves each raw observed
+  source*, and [building the snapshot](fleet-sources.md#sources) resolves each raw observed
   endpoint name to a
   **unique domain-qualified service** and folds resolved edges into the snapshot
   as `observed` relationships. `pacto dashboard --traces` folds the same edges
@@ -601,6 +237,8 @@ Those observed edges meet the declared graph in three places:
   declared-only analysis would miss. A shadow consumer must itself be a registered
   fleet service; an unknown caller name is preserved as an unresolved limitation,
   never a phantom default-domain consumer.
+
+### Emitting observed dependencies as evidence
 
 The OTel observer can also emit signable EvidenceSets
 (`pacto otel observe --evidence`), so observed dependencies can travel the same
@@ -639,26 +277,25 @@ and hand it a set with no `ContractRef` and it answers
 `invalid evidence set: contract ref is empty`. Both are the tool asking for the
 one thing the traces could not supply.
 
+### Reconciliation in the dashboard
+
 In the dashboard's Operational Graph the declared/observed split is the
 **Knowledge** control: **Expected** (contract-declared intent), **Observed**
-(backed by runtime observation) and **Differences** (where the two diverge). When
-a snapshot carries no observation data the graph says so — the edges come back
-`insufficient` and the knowledge banner states what is missing — rather than
-drawing an empty Observed view that would read as "there is no traffic".
+(backed by runtime observation) and **Differences** (where the two diverge). A
+snapshot with no observation data says so — the edges come back `insufficient` and
+the knowledge banner states what is missing — rather than drawing an empty
+Observed view that would read as "there is no traffic".
 
 Reconciliation is an **explicit backend fact**, not a frontend guess. Every
-declared dependency edge in a snapshot carries a `reconciliation` state computed
-against the snapshot's observed edges: **matched** (an observed edge corroborates
-it), **declared-not-observed** (observation data exists but did not witness this
-edge) or **insufficient** (no observation data at all — so it cannot be
-reconciled). The dashboard's *reconciled* layer shows only `matched` edges and
-never infers reconciliation from name resolution or from whether a provider is
-deployed. Feeding observation data to the normal dashboard — so its Operational
-Graph, reconciliation and Change analysis see observed edges — means configuring
-[observation sources](observation-sources.md): the offline OTLP/JSON trace files
-it reads, how they are named, and how they are wired under Kubernetes. The
-observed capability the UI advertises is derived from the published snapshot,
-never a hardcoded flag.
+declared dependency edge carries a `reconciliation` state computed against the
+snapshot's observed edges: **matched** (an observed edge corroborates it),
+**declared-not-observed** (observation data exists but did not witness this edge)
+or **insufficient** (no observation data at all). The dashboard's *reconciled*
+layer shows only `matched` edges and never infers reconciliation from name
+resolution or from whether a provider is deployed. Feeding observation data to the
+normal dashboard means configuring [observation
+sources](observation-sources.md); the observed capability the UI advertises is
+derived from the published snapshot, never a hardcoded flag.
 
 ---
 
@@ -666,8 +303,7 @@ never a hardcoded flag.
 
 There is **no `kind: Fleet`** and **no `fleet:` section** in a contract. The graph
 is *discovered* from the sources you already have — published contracts, local
-bundles and runtime evidence — not declared in a new document a team would have to
-author and keep in sync. Adding a fleet manifest would recreate the exact problem
+bundles and runtime evidence. Adding a fleet manifest would recreate the exact problem
 Pacto exists to remove: a hand-maintained aggregate that drifts from reality the
 moment a service is added or a revision ships. The fleet is a *view*, computed on
 demand, versioned by its as-of time — not a thing anyone writes down.
@@ -688,15 +324,17 @@ are bounded and deliberate: it **declares** intent, **resolves** references,
   with policy and IAM systems (OPA, Kyverno, admission control, your identity
   provider). The graph never grants, scopes or revokes a permission.
 
-This is why the fleet query tools are read-only and why a `partial` answer is
-labelled as incomplete knowledge rather than a decision. Pacto supplies the
-verifiable operational meaning that controllers act on and that authorization
+Pacto supplies the verifiable operational meaning that controllers act on and that authorization
 systems reason about — it is not either of them.
 
 ---
 
 ## See also
 
+- [Fleet sources and freshness](fleet-sources.md) — where the graph gets its
+  facts, and how it reports the parts it could not see
+- [Fleet query semantics](fleet-queries.md) — the five queries, their `meta`
+  envelope and the aggregates over a bounded answer
 - [Concepts](concepts.md) — the index of distinctions this page's model rests on,
   each one stated in a sentence
 - [MCP integration](mcp-integration.md) — the three MCP tool families, including

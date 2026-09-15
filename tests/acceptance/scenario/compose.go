@@ -151,7 +151,7 @@ func ComposePorts() []ComposePort {
 // of them and emulate it everywhere else. The two are indistinguishable as
 // strings, which is exactly how they get confused — this repository has already
 // paid for that once, in the `kind load` failure documented in
-// docs/maintainers/testing.md, where sha256:46faa9a1… is the amd64 CHILD of this
+// docs/maintainers/testing-harness.md, where sha256:46faa9a1… is the amd64 CHILD of this
 // same image. The local acceptance re-derives it: it asserts the pulled registry
 // image is the host's own architecture, which a child digest could not be.
 //

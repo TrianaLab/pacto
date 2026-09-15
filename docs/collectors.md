@@ -6,7 +6,7 @@ some of them.
 
 A collector is *not* what the dashboard calls a **data source**. A data source is an
 ingestion seam that contributes revisions and targets to the
-[operational graph](operational-graph.md#sources); a collector produces the
+[operational graph](fleet-sources.md#sources); a collector produces the
 compliance evidence a source can then carry.
 
 The stable extension boundary is the **`EvidenceSet`**, not a collector interface.

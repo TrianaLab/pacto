@@ -156,9 +156,8 @@ Platforms, CI systems, controllers, automation and agents consume the same inter
 
 ## Why this matters more every year
 
-A contract pays for itself at the second consumer, and it did so long before anything called an agent existed. What changed is the number of consumers and the cost of a wrong answer: software that operates software multiplies the readers of these facts and removes the fallback of asking a colleague. Agents do not justify the contract; they raise the cost of not having one.
-
-This is also why `Unknown` is a first-class state rather than a rounding error. A person reading "no findings" under a broken collector will usually smell something wrong. A program will not.
+Software that operates software multiplies the readers of these facts, which is
+why `Unknown` is a first-class state rather than a rounding error. A person reading "no findings" under a broken collector will usually smell something wrong. A program will not.
 
 ---
 
@@ -185,13 +184,13 @@ Pacto composes the interface tools it sits between (OpenAPI, config schemas) and
 - **Transitive policy** — governance rules evaluated across the dependency closure, fail-closed
 - **Runtime verify** — running workloads checked against an independently declared contract; reconciling toward the tool's own desired state is Partial
 - **Orchestrator-agnostic** — ✅ means the tool needs no Kubernetes control plane of its own. This is the softest column: between ✅ and —, Partial is a judgement of degree
-- **Deploys?** — whether getting workloads running is part of the product's own job, even when a GitOps agent performs the apply. Kargo scores No on its own documentation: "Promotions are different from _deployments_ … The job of _deploying_ … is left to a GitOps agent like Argo CD"
+- **Deploys?** — whether getting workloads running is part of the product's own job, even when a GitOps agent performs the apply. Kargo scores No on its own documentation: "Promotions are different from *deployments* … The job of *deploying* … is left to a GitOps agent like Argo CD"
 
-Several of these are complementary rather than competing: a contract can gate a Kargo promotion, feed a Backstage card or front a Crossplane provisioner. The point is the combination. Other rows do one or two of these well — Radius computes a transitive application graph, Crossplane resolves package dependencies through a `Lock` CRD, KubeVela re-checks applied resources for configuration drift, Kargo verifies Freight before promoting it — but Pacto is the only row that does all of it over one versioned artifact: diffed for breaking changes, resolved into a service graph, validated against recursively resolved policy that fails closed on an unresolvable reference and verified against what is actually running, with no control plane of its own and no deployment decisions.
+Several of these are complementary rather than competing: a contract can gate a Kargo promotion, feed a Backstage card or front a Crossplane provisioner. Other rows do one or two of these well — Radius computes a transitive application graph, Crossplane resolves package dependencies through a `Lock` CRD, KubeVela re-checks applied resources for configuration drift, Kargo verifies Freight before promoting it — but Pacto is the only row that does all four over one versioned artifact.
 
 **What Pacto is NOT:**
 
-- Not a deployment tool — Kubernetes, Helm, Crossplane, Argo CD and Terraform still schedule, template, provision and deploy. Pacto adds the operational meaning they act on and makes zero deployment decisions, which keeps it complementary to engines like KubeVela, Radius and Kratix rather than competing with them. It is not an IDP, a portal or an authorization system either: a human portal and an agent can consume the same Pacto graph
+- Not a deployment tool — Kubernetes, Helm, Crossplane, Argo CD and Terraform still schedule, template, provision and deploy; Pacto adds the operational meaning they act on, which keeps it complementary to KubeVela, Radius and Kratix rather than competing with them. Not an IDP or an authorization system either: a human portal and an agent consume the same Pacto graph
 - Not a registry — it publishes to the OCI registries you already run (GHCR, ECR, ACR, Docker Hub, Harbor)
 - Not a service catalog or portal — the dashboard renders ownership, SBOM and readiness *from* contracts and runtime, and the same structured data is what a catalog (Backstage, Port, Cortex) could consume instead of a hand-maintained entry
 

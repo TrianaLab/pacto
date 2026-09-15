@@ -16,6 +16,7 @@ You need the Pacto CLI (step 1) and, from step 6 onwards,
 registry. Step 9 deletes everything this page creates.
 
 ---
+
 ## 1. Install Pacto
 
 ```bash
@@ -127,17 +128,14 @@ my-service is valid
 
 The gate is opt-in because the result is time-dependent — an assessment past its
 `expires:` date scores 0. See
-[Contract Reference](contract-reference/sections.md#readiness) for the scoring
+[Contract Reference](contract-reference/dependencies-and-state.md#readiness) for the scoring
 rules, including how `partial` claims earn part of their weight.
 
 ## 6. Publish to a registry
 
-Start a throwaway
-registry so you can do the whole round trip with no account:
-
-Docker has to be **running**, not just installed: if the daemon (or Docker
-Desktop) is down, `docker run` fails with a connection error naming the Docker
-socket rather than anything about Pacto.
+Start a throwaway registry so the whole round trip needs no account. Docker has
+to be **running**, not just installed: with the daemon down, `docker run` fails
+with a connection error naming the Docker socket, not Pacto.
 
 ```bash
 $ docker run -d --rm -p 127.0.0.1:5001:5000 --name pacto-registry registry:3
@@ -146,11 +144,9 @@ $ docker run -d --rm -p 127.0.0.1:5001:5000 --name pacto-registry registry:3
 
 `registry:3` is the official `registry` image — CNCF Distribution
 (`github.com/distribution/distribution/v3`), the reference OCI registry. Docker
-pulls it the first time and prints download progress, then prints the container
-ID as above; yours will differ. It holds nothing on disk and disappears in
-step 9. Port 5001 rather than 5000 because macOS binds 5000 for AirPlay, and
-`127.0.0.1:` rather than a bare `5001:` because the registry accepts anonymous
-writes — published wide, anything on your network could push to it.
+pulls it the first time, then prints the container ID as above; yours will
+differ. It disappears in step 9. Port 5001 because macOS binds 5000 for AirPlay;
+`127.0.0.1:` because the registry accepts anonymous writes.
 
 ```bash
 # Auto-tags with service.version; skips if that tag already exists (--force overwrites)
@@ -159,13 +155,13 @@ Pushed my-service@0.1.0 -> localhost:5001/demo/my-service-pacto:0.1.0
 Digest: sha256:<64 hex characters>
 ```
 
-The digest is the full 64-character hash, and it is content-addressed: yours
-will differ from anyone else's the moment you edit the contract.
+The digest is the full 64-character hash, content-addressed: yours differs from
+anyone else's the moment you edit the contract.
 
-No `pacto login` here — a local registry needs no credentials. A real registry
-needs two things you have to arrange yourself: an account you can publish to
-(`your-org` must be a GitHub user or organisation you own) and, for GHCR, a
-personal access token carrying the `write:packages` scope. With both in hand:
+No `pacto login` here — a local registry needs no credentials. A real one needs
+an account you can publish to (`your-org` must be a GitHub user or organisation
+you own) and, for GHCR, a personal access token with the `write:packages`
+scope:
 
 ```bash
 $ pacto login ghcr.io -u your-username
@@ -174,17 +170,17 @@ Login succeeded for ghcr.io
 $ pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
-Paste the token at the `Password:` prompt; it is not echoed. `login` stores the
+Paste the token at the `Password:` prompt; it is not echoed. `login` stores
 credentials in `~/.config/pacto/config.json` without contacting the registry, so
-`Login succeeded` only means they were saved — a wrong token or a missing scope
+`Login succeeded` only means they were saved: a wrong token or missing scope
 surfaces on the `push`.
 
 !!! note "`pacto pack` is not a step on this path"
     `pacto pack my-service` writes `my-service-0.1.0.tar.gz`, a bundle you can
     hand to someone with no registry access. `pacto push` reads the directory
     directly and rejects a tarball (`my-service-0.1.0.tar.gz is not a
-    directory`), so packing before pushing does nothing. No other Pacto command
-    reads the archive either — whoever receives it extracts it first.
+    directory`), so packing first does nothing. No other Pacto command reads the
+    archive — whoever receives it extracts it first.
 
 ## 7. Read it back
 
@@ -276,14 +272,14 @@ against `main` in CI.
 Removing an API path is one rule out of the full table:
 [Change classification](contract-reference/diff.md) lists every field `pacto diff`
 compares and the verdict it reaches for each. See
-[Detecting breaking changes](developers.md#detecting-breaking-changes) and the
+[Breaking change detection](platform-engineers.md#breaking-change-detection) and the
 [GitHub Actions](github-actions.md) integration for wiring it into a pipeline.
 
 ## 9. Clean up
 
 ```bash
-$ docker rm -f pacto-registry
-$ rm -rf my-service pulled my-service-0.1.0.tar.gz
+docker rm -f pacto-registry
+rm -rf my-service pulled my-service-0.1.0.tar.gz
 ```
 
 Nothing published to `localhost:5001` outlives the container. Two things do
@@ -304,6 +300,6 @@ survive, both outside this directory:
 | Consume contracts for deployment | [For Platform Engineers](platform-engineers.md) |
 | See contracts for real services | [Examples](examples/index.md) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more) |
 | Integrate with CI/CD | [GitHub Actions](github-actions.md) |
-| Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph, or [`pacto tui`](platform-engineers.md#the-terminal-ui) to stay in the terminal |
+| Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph, or [`pacto tui`](fleet-tools.md#the-terminal-ui) to stay in the terminal |
 | Runtime compliance in Kubernetes | [Kubernetes Operator](integrations/kubernetes/overview.md) |
 | Build a generation plugin | [Plugin Development](plugins.md) |

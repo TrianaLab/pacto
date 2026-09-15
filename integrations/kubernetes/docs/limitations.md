@@ -54,12 +54,11 @@ in-cluster request surface:
 See [Operator configuration](operator-configuration.md) for these flags.
 
 !!! warning "The chart does not expose these flags"
-    All three are controller command-line flags, and the Helm chart renders a
-    fixed argument list with no `extraArgs` value. On the documented install
-    path there is currently **no way to turn any of them on**: `helm template`
-    the chart and the container's `args` contain none of them, and no value adds
-    them. Treat these as not-yet-available through Helm rather than as switches
-    you can flip.
+    All three are controller command-line flags, and the chart renders a fixed
+    argument list with no `extraArgs` value. On the documented install path
+    there is **no way to turn any of them on**: `helm template` the chart and
+    the container's `args` contain none of them. Treat these as
+    not-yet-available through Helm rather than as switches you can flip.
 
     The only way to turn one on today is to add the flag to the running
     Deployment yourself, accepting that it is not managed state:
@@ -71,8 +70,8 @@ See [Operator configuration](operator-configuration.md) for these flags.
     ```
 
     **This does not survive `helm upgrade`.** Helm re-renders `args` from the
-    template and your addition disappears, silently — the operator comes back
-    with the feature off and nothing reports that it changed. Re-apply the patch
+    template and your addition disappears silently: the operator comes back with
+    the feature off and nothing reports the change. Re-apply the patch
     after every upgrade, or do not rely on the feature yet.
 
     Metrics observation needs one more thing: the operator's ServiceAccount has
