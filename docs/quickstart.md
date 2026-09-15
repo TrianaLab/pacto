@@ -272,7 +272,7 @@ against `main` in CI.
 Removing an API path is one rule out of the full table:
 [Change classification](contract-reference/diff.md) lists every field `pacto diff`
 compares and the verdict it reaches for each. See
-[Detecting breaking changes](developers-day-to-day.md#detecting-breaking-changes) and the
+[Breaking change detection](platform-engineers.md#breaking-change-detection) and the
 [GitHub Actions](github-actions.md) integration for wiring it into a pipeline.
 
 ## 9. Clean up

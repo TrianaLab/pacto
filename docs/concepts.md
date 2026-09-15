@@ -1,10 +1,7 @@
 # Concepts
 
-Pacto is an operational contract system: a service declares its operational facts
-in one versioned file, publishes it to an OCI registry as an immutable revision,
-and the engine compares that declaration against the previous revision, against
-the constraints it must satisfy and against evidence collected where the service
-runs. [The Pacto model](model.md) is how those comparisons are made.
+[The Pacto model](model.md) is how a declaration is compared against the
+previous revision, against its constraints and against evidence.
 
 That comparison rests on a small number of distinctions Pacto refuses to
 collapse. Each one exists because collapsing it produces an answer that is

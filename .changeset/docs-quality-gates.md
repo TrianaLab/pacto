@@ -41,14 +41,24 @@ integration hook copies `integrations/*/docs` into it, so those were covered;
 the six files at the repository root were outside `docs_dir` and gated by
 nothing.
 
-**Thirteen pages were split into thirty-one to fit the page budget** —
-architecture, concepts, contract-reference/sections, developers,
-evidence-protocol, impact, mcp-integration, operational-graph,
-platform-engineers, the demo tour, the release and testing pages under
-`maintainers/`, and the Kubernetes installation page. Each split promoted its
-extracted sections to a new page, added the `mkdocs.yml` nav entry and rewrote
-every inbound link. This repository has no
-`mkdocs-redirects`, so **a heading that moved to a new page is a permanently
-dead deep link** for anyone who bookmarked it; `mike` keeps prior versions live
-at their own URL prefixes, and each origin page names where its content went.
-Everything else came off by deleting prose, not by moving it.
+**Eleven pages were split into twenty-seven to fit the page budget** —
+architecture, concepts, contract-reference/sections, impact, mcp-integration,
+operational-graph, platform-engineers, the demo tour, the release and testing
+pages under `maintainers/`, and the Kubernetes installation page. Each split
+promoted its extracted sections to a new page, added the `mkdocs.yml` nav entry
+and rewrote every inbound link. Everything else came off by deleting prose, not
+by moving it.
+
+**Eleven pages were removed and what they said survives on the page that
+already owned the subject.** The eight one-contract example stubs are now
+sections of [Example contracts](https://pacto.run/latest/examples/); the
+ingestion endpoints are a section of evidence tooling, ingestion and security;
+override files are a section of configurations as composable claims; and the
+developer day-to-day page repeated the contract reference, the breaking-change
+section of the platform-engineer guide and the MCP page, so it is gone and the
+three links point at those.
+
+This repository has no `mkdocs-redirects`, so **a page that was removed and a
+heading that moved to a new page are both permanently dead deep links** for
+anyone who bookmarked them. `mike` keeps prior versions live at their own URL
+prefixes, and each origin page names where its content went.

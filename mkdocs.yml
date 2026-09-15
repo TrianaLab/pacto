@@ -183,7 +183,6 @@ nav:
       - Quickstart: quickstart.md
   - Guides:
       - For developers: developers.md
-      - Day-to-day with Pacto: developers-day-to-day.md
       - For platform engineers: platform-engineers.md
       - Fleet tools: fleet-tools.md
   - Concepts:
@@ -199,13 +198,12 @@ nav:
       - Impact on the other surfaces: impact-surfaces.md
       - Collectors and the evidence boundary: collectors.md
       - Observation sources: observation-sources.md
-      # Grouped rather than promoted to a tab: three pages on one subject that a
+      # Grouped rather than promoted to a tab: pages on one subject that a
       # reader searches for by name ("evidence"), not by the graph that consumes it.
       - External evidence:
           - Evidence protocol: evidence-protocol.md
-          - Evidence ingestion API: evidence-ingestion-api.md
           - Evidence in the registry: evidence-oci-storage.md
-          - Evidence security and tooling: evidence-security.md
+          - Evidence tooling, ingestion and security: evidence-security.md
   - Patterns:
       - patterns/index.md
       - Root + component contracts: patterns/root-component.md
@@ -213,21 +211,12 @@ nav:
       - Composable configurations: patterns/composable-configs.md
       - Policy + schema contract: patterns/policy-schema.md
       - Progressive policy versioning: patterns/progressive-policy.md
-      - Override files: patterns/override-files.md
-      # Last on purpose: the six above are numbered 1-6 on the index and the
+      # Last on purpose: the five above are numbered 1-5 on the index and the
       # stacking diagram cites those numbers, so the sidebar has to count the
       # same way. This one is organizational guidance, not a composition.
       - Configuration schema ownership: patterns/configuration-schema-ownership.md
   - Examples:
       - Example contracts: examples/index.md
-      - Cron worker: examples/cron-worker.md
-      - Event processor: examples/event-processor.md
-      - gRPC service: examples/grpc-service.md
-      - Hybrid cache: examples/hybrid-cache.md
-      - Nginx: examples/nginx.md
-      - PostgreSQL: examples/postgresql.md
-      - RabbitMQ: examples/rabbitmq.md
-      - Redis: examples/redis.md
   - Integrations:
       - GitHub Actions: github-actions.md
       - MCP:

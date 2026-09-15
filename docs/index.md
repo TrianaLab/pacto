@@ -64,7 +64,7 @@ No sidecars. No new distribution plane. The CLI runs at build time and CI time.
 
 ### The model underneath
 
-Underneath them is [one model](model.md): the contract declares intent, a **collector** observes an environment and emits **evidence** — observed facts about a running system, never written into the contract — a pure engine evaluates one against the other, and consumers surface or act on the result. The operator hosts the first shipped collector; anything that produces valid evidence can be one. An environment Pacto cannot watch signs and reports its own evidence inbound over the [external evidence protocol](evidence-protocol.md), which the Evidence Server accepts and [stores in the registry](evidence-oci-storage.md). See [Collectors and the evidence boundary](collectors.md).
+Underneath them is [one model](model.md): the contract declares intent, a **collector** observes an environment and emits **evidence** — observed facts about a running system, never written into the contract — a pure engine evaluates one against the other, and consumers surface or act on the result. The operator hosts the first shipped collector; anything that produces valid evidence can be one. See [Collectors and the evidence boundary](collectors.md).
 
 The rule that engine holds to, and the reason its answers are safe to automate
 against: **a confirmed contradiction is an error; an inability to observe is

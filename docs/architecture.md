@@ -123,7 +123,7 @@ A pure data package with zero external dependencies: no knowledge of collectors,
 
 ### Collectors -- Evidence is the boundary
 
-There is intentionally **no `pkg/collector.Collector` interface**. Different environments need different collector inputs (the Kubernetes collector needs CR bindings and temporal windows; another environment may need build results or cloud resource identifiers), so forcing them through one speculative input signature would either leak platform concepts into the core or be an abstraction only for symmetry. Instead, the stable extension boundary is the **`EvidenceSet`** (`pkg/evidence`): a *collector* is any component that observes a real system and produces a valid, validated `EvidenceSet` that `Evaluate(contract, evidence)` consumes. Concrete collector APIs live in their integrations (the Kubernetes observer in `integrations/kubernetes/internal/observer`); the pure engine never imports them. This is modularity through a stable Evidence schema — not a dynamically pluggable collector runtime.
+There is intentionally **no `pkg/collector.Collector` interface**. Different environments need different collector inputs (the Kubernetes collector needs CR bindings and temporal windows; another environment may need build results or cloud resource identifiers), so forcing them through one speculative input signature would either leak platform concepts into the core or be an abstraction only for symmetry. Concrete collector APIs live in their integrations (the Kubernetes observer in `integrations/kubernetes/internal/observer`); the pure engine never imports them.
 
 ### `pkg/capability` -- Agent tool projection
 

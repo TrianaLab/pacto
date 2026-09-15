@@ -251,16 +251,17 @@ Each common shape has a ready-made worked example you can copy:
 
 | Pattern | `state.type` | Worked example |
 |---------|-------------|----------------|
-| Stateless HTTP API | `stateless` | [nginx](examples/nginx.md) |
-| Stateful service (database, cache) | `stateful` | [postgresql](examples/postgresql.md) |
-| API with local cache | `hybrid` | [hybrid-cache](examples/hybrid-cache.md) |
-| Scheduled job | `stateless` (workload `scheduled`) | [cron-worker](examples/cron-worker.md) |
+| Stateless HTTP API | `stateless` | [nginx](examples/index.md#nginx) |
+| Stateful service (database, cache) | `stateful` | [postgresql](examples/index.md#postgresql) |
+| API with local cache | `hybrid` | [hybrid-cache](examples/index.md#hybrid-cache-api) |
+| Scheduled job | `stateless` (workload `scheduled`) | [cron-worker](examples/index.md#cron-worker) |
 
 See [state](contract-reference/dependencies-and-state.md#state) for the full field spec.
 
-Overriding contract values, diffing before a release, driving Pacto from an AI
-assistant and shipping `docs/` and `sbom/` in the bundle are in
-[Day-to-day with Pacto](developers-day-to-day.md).
+Overriding contract values is in [Contract overrides](contract-reference/overrides.md),
+shipping `docs/` and `sbom/` in the bundle is in the
+[Contract Reference](contract-reference/index.md#bundle-structure), and driving
+Pacto from an AI assistant is in [MCP Integration](mcp-integration.md).
 
 ---
 

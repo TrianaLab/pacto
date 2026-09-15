@@ -141,5 +141,5 @@ Nothing durable lives in the cluster: there is no PersistentVolumeClaim and no
 data volume, because the registry is the store. Delete and recreate the
 Deployment and the accepted evidence is still there.
 [Evidence in OCI](../../evidence-oci-storage.md) covers what is written and
-where; [the ingestion API](../../evidence-ingestion-api.md) lists all five
-endpoints.
+where; [the ingestion API](../../evidence-security.md#the-ingestion-endpoints) lists all
+five endpoints.

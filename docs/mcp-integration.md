@@ -38,8 +38,7 @@ lookup tool of the fourth server mode, [catalog discovery](mcp-catalog-discovery
 Not in the surface: inspecting a registry contract, resolving a dependency graph,
 diffing revisions, generating docs, and the two non-query `pacto fleet`
 operations — `reconcile` (declared dependencies against observed traffic) and
-`snapshot` (the whole read model as one document). These stay
-[CLI-only](developers-day-to-day.md#ai-assisted-workflow). No tool pushes, pulls or deploys
+`snapshot` (the whole read model as one document). These stay CLI-only. No tool pushes, pulls or deploys
 anything. [Server modes](cli-reference.md#server-modes) lists which tools each
 invocation registers; [Boundaries](concepts-boundaries.md#boundaries) tells the MCP surface,
 the catalog and the fleet apart.

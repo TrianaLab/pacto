@@ -17,7 +17,6 @@ Numbered so the stacking diagram below can refer to them.
 3. **[Configurations as composable claims](composable-configs.md)**
 4. **[Platform-published policy + schema contract](policy-schema.md)**
 5. **[Progressive policy versioning](progressive-policy.md)**
-6. **[Override files as the deployment surface](override-files.md)**
 
 Alongside them, **[Configuration schema ownership](configuration-schema-ownership.md)**
 covers who owns a `configurations[]` schema and when an existing schema can be
@@ -34,14 +33,12 @@ flowchart TD
     infra["Pattern 2<br/>Infrastructure contracts<br/>(postgres, redis, secrets)"]
     monorepo["Pattern 1<br/>Root + component contracts<br/>(per service)"]
     composable["Pattern 3<br/>Configurations as<br/>composable claims"]
-    overrides["Pattern 6<br/>Override files as<br/>deployment surface"]
     progressive["Pattern 5<br/>Progressive policy<br/>versioning"]
 
     monorepo -->|"refs"| plat
     composable -->|"refs"| infra
     monorepo --> composable
-    composable --> overrides
     plat -.->|"governs"| progressive
 ```
 
-A platform team publishes its policy + chart schema (4) and one contract per infrastructure type (2). Each service is a monorepo with a root + component contracts (1). Components compose deployment + infrastructure configurations into a single override file per environment (3 + 6). The policy versions tighten over time without forcing migrations (5).
+A platform team publishes its policy + chart schema (4) and one contract per infrastructure type (2). Each service is a monorepo with a root + component contracts (1). Components compose deployment + infrastructure configurations into a single override file per environment (3). The policy versions tighten over time without forcing migrations (5).

@@ -11,9 +11,8 @@ operational target in the [operational graph](operational-graph.md).
 
 The wire format is a versioned, Ed25519-signed envelope — `pacto.dev/evidence/v1`
 — defined once in `pkg/evidenceenvelope` and shared by producers, the CLI and the
-ingestion host. This page is the protocol reference. The HTTP surface is in
-[Evidence ingestion API](evidence-ingestion-api.md); for key handling and the
-CLI, see [evidence security and tooling](evidence-security.md).
+ingestion host. This page is the protocol reference. For the HTTP surface, key handling and
+the CLI, see [evidence tooling, ingestion and security](evidence-security.md).
 
 ---
 

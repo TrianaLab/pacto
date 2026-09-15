@@ -156,9 +156,8 @@ Platforms, CI systems, controllers, automation and agents consume the same inter
 
 ## Why this matters more every year
 
-A contract pays for itself at the second consumer, and it did so long before anything called an agent existed. What changed is the number of consumers and the cost of a wrong answer: software that operates software multiplies the readers of these facts and removes the fallback of asking a colleague. Agents do not justify the contract; they raise the cost of not having one.
-
-This is also why `Unknown` is a first-class state rather than a rounding error. A person reading "no findings" under a broken collector will usually smell something wrong. A program will not.
+Software that operates software multiplies the readers of these facts, which is
+why `Unknown` is a first-class state rather than a rounding error. A person reading "no findings" under a broken collector will usually smell something wrong. A program will not.
 
 ---
 
