@@ -1,13 +1,58 @@
 version: 2
+
+# Everything is grouped. An ungrouped weekly run on this tree opens five PRs
+# nobody reads, and a dependency bot that gets ignored is worse than none — it
+# trains you to ignore the one that matters. The gomod entry covers both
+# modules in the workspace: `go.work` uses `.` and `./integrations/kubernetes`,
+# so a bump lands in whichever `go.mod` actually requires it.
 updates:
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "weekly"
     rebase-strategy: "auto"
+    open-pull-requests-limit: 5
+    groups:
+      # A dependency matches the first group it fits, so the sets that must
+      # move together are declared before the catch-all.
+      #
+      # The Kubernetes libraries are one release train: client-go, apimachinery
+      # and controller-runtime pass each other's types, and a bump of one alone
+      # is a compile error in the operator. One PR for the set or none.
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+        update-types:
+          - major
+          - minor
+          - patch
+      # Same story for Charm: bubbletea, bubbles and lipgloss share the v2
+      # model/renderer contract.
+      charm:
+        patterns:
+          - "charm.land/*"
+          - "github.com/charmbracelet/*"
+        update-types:
+          - major
+          - minor
+          - patch
+      gomod-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    # Majors outside the two pinned sets arrive one PR at a time, on purpose:
+    # each one is a read of a changelog, not a merge button.
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     rebase-strategy: "auto"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
