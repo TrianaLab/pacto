@@ -62,11 +62,11 @@ Edges carry a **provenance** discriminator so a fact's origin is never ambiguous
 
 ## Sources
 
-The graph is assembled from **sources**, a framework-neutral ingestion seam. Each
-contributes the revisions and targets it can observe right now. The dashboard
-lists them as **Data sources**; a source is where the graph reads records *from*,
-which is not a [collector](model.md#collectors-and-the-evidence-boundary),
-which produces the compliance evidence a source then carries.
+The graph is assembled from **sources**, each contributing the revisions and
+targets it can observe right now. The dashboard lists them as **Data sources**. A
+source is where the graph reads records *from*, not a
+[collector](model.md#collectors-and-the-evidence-boundary), which produces the
+compliance evidence a source then carries.
 
 - **Local bundles** (`--local`) — the revision a developer is editing. The scan
   defaults to the working directory, descends 8 levels and skips hidden
@@ -97,10 +97,11 @@ which produces the compliance evidence a source then carries.
   collector ships with the dashboard. Run a Collector you own and point a source
   at the file it exports.
 
-Every source flag above is shared by `pacto fleet`, `pacto impact` and
-`pacto mcp --fleet`, with two exceptions: `impact` takes a single `--traces` file
-rather than a repeatable one, and `--trace-source` belongs to `pacto dashboard`
-alone.
+`pacto fleet` and `pacto impact` read every source flag above. `pacto mcp
+--fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
+and cannot be combined with `--fleet`. Two are narrower: `impact` takes one
+`--traces` file, not a repeatable list, and `--trace-source` is `pacto dashboard`
+only.
 
 ### What a target-state fixture looks like
 
@@ -190,9 +191,9 @@ performs I/O, and a single snapshot serves concurrent queries.
 | **status** | What needs attention: non-compliant or unknown targets, invalid contracts, stale evidence, missing readiness, unresolved dependencies. |
 | **explain** | Deterministic, structured reasons for a subject's state. Pacto embeds no model — it hands an agent structured reasons to turn into prose. |
 
-Two more operations sit beside the five and are not queries: `snapshot` emits the
-whole read model as one document, and `reconcile` reports declared dependencies
-against observed ones. Every answer carries a `meta` envelope, here from a
+Two more operations are not queries: `snapshot` emits the whole read model as one
+document, `reconcile` reports declared dependencies against observed ones. Every
+answer carries a `meta` envelope, here from
 `pacto fleet search --output-format json` with an unreachable OCI source:
 
 ```json
@@ -233,8 +234,8 @@ unique across domains. A bounded preview nested in a `get` answer is the
 exception: it omits `total` when the walk was itself bounded, so an absent
 `total` means "we stopped counting", never "there are none".
 
-Every aggregate is computed over the complete matched population before paging,
-never from the rows:
+Beside the rows, the dashboard's entity list and the TUI carry an aggregate over
+the complete matched population, computed before paging:
 
 | Tally | Partitions | Buckets |
 |-------|-----------|---------|
@@ -246,8 +247,8 @@ never from the rows:
 `notDeclared` is its own readiness bucket because "nobody wrote an assessment" is
 not "the assessment does not pass".
 
-One case does not carry the envelope: `get`, `graph` and `explain` name a single
-subject, and a missing subject is a *failure*. `pacto fleet get ghost` exits 1
+`get`, `graph` and `explain` name a single subject and carry no envelope: a
+missing subject is a *failure*. `pacto fleet get ghost` exits 1
 with `service "ghost" not found in the fleet snapshot` on stderr. With no `meta`
 there is no `completeness`, so read that from `search` before reading a subject
 miss as an absence.
