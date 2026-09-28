@@ -8,8 +8,8 @@ search:
 # Abandoned release transactions
 
 Two transactions in the release pipeline stopped part-way: one published some of
-its units, the other published none. Neither version is installable, and these
-are the records of what each one left behind.
+its units, the other published none. None of the three versions they span is
+installable, and these are the records of what each one left behind.
 
 ## Abandoned transaction `522e9507410f16fc` (3.2.0 / 5.2.0)
 

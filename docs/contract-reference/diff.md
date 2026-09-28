@@ -266,7 +266,7 @@ The comparison is a text scan of proto3 source, not a protobuf compile. In pract
 - **Nested messages and `oneof` bodies are not descended into.** Their fields are skipped rather than misread as fields of the enclosing message, so a change inside one produces no change entry.
 - **Identity is the declared name.** A renamed field or rpc reads as a removal plus an addition even when the field number is unchanged.
 - **Type identity is textual.** The scanner does not resolve names against `package` or `import`, so fully qualifying a type (`Inner` → `pkg.v1.Inner`) reads as a modified field even though the descriptor is unchanged.
-- **Inline field options are ignored.** Adding or removing `[deprecated = true]` is not a change, while a retype behind one still is. A field whose option block contains braces (a nested text-format value such as `[(validate.rules).string = {min_len: 1}]`) is skipped entirely, on both sides, so it never appears in the compared surface.
+- **Inline field options are ignored.** Adding or removing `[deprecated = true]` is not a change, while a retype behind one still is. A field whose option block contains braces (a nested text-format value such as `[(validate.rules).string = {min_len: 1}]`) is dropped from the revision that carries it, and only from that one — so adding such an option to an existing field reads as a removal and is classified **BREAKING**.
 - **Comments and string literals are inert.** A `//`, a `}` or a `/*` inside a string literal — a URL in an `option` line, say — neither truncates the line nor closes a block early nor opens a comment.
 
 ## JSON Schema (configuration & policy schemas)

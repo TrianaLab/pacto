@@ -306,9 +306,10 @@ flowchart LR
 ```
 
 - **Dashboard** — the visual front door. It builds one snapshot from every source
-  it detects and serves the graph and change analysis through `/api/fleet/*`,
-  whose answers carry their own `schemaVersion`, `pacto.dev/fleet-product/v1`,
-  so a UI versions independently of the snapshot export above. The
+  it detects and serves the graph and change analysis through `/api/fleet/*`.
+  The endpoints the UI reads — overview, entities, neighborhood, attention —
+  carry their own `schemaVersion`, `pacto.dev/fleet-product/v1`, so a UI
+  versions independently of the `pacto.dev/fleet/v1` snapshot export above. The
   Operational Graph view offers three **perspectives** — Services, Revisions and
   Operational targets — and a **Knowledge** control (Expected · Observed ·
   Differences). It is honest about what it cannot know. An operational target

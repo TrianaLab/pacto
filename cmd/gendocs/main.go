@@ -206,7 +206,7 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 		"`metadata` is carried by `--output-format json` only; the text output omits it.\n\n" +
 		"**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: \"2.0\"` feature), `explain` adds a Readiness block: " +
 		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, " +
-		"the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table " +
+		"the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state) and a per-check table " +
 		"showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight and `evidence`. " +
 		"The Readiness block also includes a revision-history table when `history[]` is present. " +
 		"`--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount` and `expired` (boolean). " +

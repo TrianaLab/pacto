@@ -78,9 +78,10 @@ graph TD
     class APP,CLI,MCP,MAIN,UPDATE internal
 ```
 
-The diagram shows the main edges, not every import: `pkg/catalog`, `pkg/fleet`,
-`pkg/impact` and `pkg/openapi` are direct imports of `internal/app` and
-`internal/mcp`, and are left out to keep it readable. Dependencies flow
+The diagram shows the main edges, not every import: `pkg/catalog`, `pkg/fleet`
+and `pkg/impact` are direct imports of both `internal/app` and `internal/mcp`,
+`pkg/openapi` of `internal/mcp` alone, and all four are left out to keep it
+readable. Dependencies flow
 **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable
 by external consumers such as the Kubernetes operator in
 `integrations/kubernetes`. So are the engine packages that operator consumes —
