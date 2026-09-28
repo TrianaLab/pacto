@@ -1,34 +1,21 @@
 # GitOps promotion gates
 
-The operator reaches a verdict on every reconcile and writes it to
-`status.contractStatus`. Neither Flux nor Argo CD reads that field on its own, so
-a Kustomization holding a `NonCompliant` Pacto reports healthy and a violated
-contract cannot turn an Argo Application red. Both tools have an extension point
-for exactly this. This page is the two snippets that close the gap.
+Nothing here blocks a deploy. By the time the operator has a verdict the pods
+are already serving; what these snippets buy is that **the next step stops** —
+the Kustomization goes unready, the dependent one never starts, the Argo
+Application goes Degraded. For catching a breaking change *before* it lands, the
+tool is [`pacto impact`](../../cli-reference.md) in the pull request.
 
-Nothing here changes the operator, the CRD or your contracts. It is configuration
-you add to the delivery tool you already run.
-
-## What the gate buys you
-
-The operator observes; it never writes to your workloads. By the time a verdict
-exists the pods are already serving. What these snippets buy is that **the next
-step stops**: the Kustomization goes unready, the dependent one never starts, the
-Argo Application goes Degraded and whatever alerting you already point at
-unhealthy resources picks it up.
-
-For catching a breaking change *before* it lands, the tool is
-[`pacto impact`](../../cli-reference.md) in the pull request. A promotion gate is
-the second line, not the first.
+Neither tool reads `status.contractStatus` on its own, so a Kustomization
+holding a `NonCompliant` Pacto reports healthy. Both have an extension point for
+exactly this; this page is the two snippets that use it.
 
 ## Flux
 
-Flux decides whether a resource is healthy using kstatus, which recognises three
-condition names: `Ready`, `Reconciling` and `Stalled`. Pacto publishes
-`ContractValid`, `RuntimeObserved` and `ReadinessSatisfied`, so kstatus discards
-all three unread and the object falls through to `Current`. The gate looks
-configured and gates nothing.
-
+Flux decides health with kstatus, which recognises only `Ready`, `Reconciling`
+and `Stalled`. Pacto publishes `ContractValid`, `RuntimeObserved` and
+`ReadinessSatisfied`, so kstatus discards all three and the object falls through
+to `Current`: the gate looks configured and gates nothing.
 `spec.healthCheckExprs` (kustomize-controller v1.5.0, flux2 v2.5.0 and later)
 replaces the guess with a CEL expression:
 
@@ -36,56 +23,37 @@ replaces the guess with a CEL expression:
 --8<-- "tests/acceptance/kind/fixtures/gitops/flux-kustomization.yaml"
 ```
 
-`sourceRef` is whatever you already use — `GitRepository`, `OCIRepository` or
-`Bucket`. The gate does not care where the manifests came from, only what the
-operator says about them once they are applied.
-
-Four things about that snippet are worth knowing, each checked against
-`fluxcd/pkg` `runtime/cel/status_evaluator.go`:
+`sourceRef` is whatever you already use. Three things about that snippet, each
+checked against `fluxcd/pkg` `runtime/cel/status_evaluator.go`:
 
 - **There is no `inProgress` expression, deliberately.** When no expression
-  matches, Flux falls through to in-progress. So `Unknown`, `NotEvaluated` and
-  any verdict added in a later release hold the deploy and time out rather than
-  going falsely green. The gate fails closed.
-- **There is no hand-written generation guard, deliberately.** Flux already
-  compares `status.observedGeneration` to `metadata.generation` before any
-  expression runs. Writing your own is redundant, and it throws on an object that
-  has no status yet.
+  matches, Flux falls through to in-progress, so an unrecognised verdict holds
+  the deploy and times out rather than going falsely green. It fails closed.
 - **`Warning` sits in the passing set.** Move that one word to `failed` if you
   want contract warnings to block promotions. That is the whole knob.
-- **`timeout` must exceed the operator's stabilization window.** Set it lower and
-  a real violation reaches you as an ambiguous timeout instead of a clean
-  failure. See [Timing](#timing) below.
+- **`timeout` must exceed the operator's stabilization window**, or a real
+  violation reaches you as an ambiguous timeout. See [Timing](#timing).
 
-A Pacto that has just been created has no `status` at all, and the expression
-errors while that is true. Flux treats the error as not-yet-healthy and keeps
-polling, so the first few seconds of a fresh apply are noisy in the logs and
-harmless in the outcome.
+A freshly created Pacto has no `status` and the expression errors while that is
+true; Flux treats the error as not-yet-healthy and keeps polling.
 
-That snippet is not an illustration. `tests/acceptance/kind/gitops-flux.sh`
-applies **that exact file** to a kind cluster running Flux, publishes a contract
-that contradicts the workload that ships, and asserts the dependent
-Kustomization's own manifest never reaches the cluster — then corrects the
-contract and asserts it does.
-
-`HelmRelease` gained the same field in helm-controller v1.5.0 / flux2 v2.8.0. The
-snippet above should transfer unchanged, but it is not covered here.
+That snippet is not an illustration: `tests/acceptance/kind/gitops-flux.sh`
+applies **that exact file** to a kind cluster and asserts the dependent
+Kustomization never reaches it while the contract is violated.
 
 ## Argo CD
 
-Argo picks a health check from a fixed list of built-in kinds and returns nothing
-for everything else; the roll-up into Application health starts at Healthy and
-ignores that nothing. A Pacto object is therefore not unhealthy to Argo but
-invisible, and nothing reports the missing check.
-
-A resource health customization in `argocd-cm` supplies it:
+Argo picks a health check from a fixed list of built-in kinds, returns nothing
+for everything else, and the roll-up into Application health ignores that
+nothing: a Pacto is not unhealthy to Argo but invisible. A resource health
+customization in `argocd-cm` supplies the missing check:
 
 ```yaml
 --8<-- "tests/acceptance/kind/fixtures/gitops/argocd-cm-pacto-health.yaml"
 ```
 
-Apply it as a merge patch: `argocd-cm` holds Argo's own configuration, and a
-plain `kubectl apply` would drop it:
+Apply it as a merge patch — `argocd-cm` holds Argo's own configuration and a
+plain `kubectl apply` would drop it — and then restart the controller:
 
 ```bash
 kubectl -n argocd patch configmap argocd-cm --type merge \
@@ -93,42 +61,27 @@ kubectl -n argocd patch configmap argocd-cm --type merge \
 kubectl -n argocd rollout restart statefulset/argocd-application-controller
 ```
 
-The restart is not optional. The application controller reads health
+**The restart is not optional.** The application controller reads health
 customizations into its resource cache at startup, and that cached verdict is
 what it compares to decide whether a changed object needs re-examining. Until it
-has the customization, a Pacto's health is cached as nothing, every verdict the
-operator writes compares equal to the last, and the Application only catches up
-on the next periodic resync. On an install without `argocd-server`
-— Argo's core install — a restart is the *only* way in: hot reload of `argocd-cm`
-needs `server.secretkey`, which only `argocd-server` creates.
+has the customization, every verdict the operator writes compares equal to the
+last and the Application only catches up on the next periodic resync. On a core
+install, without `argocd-server`, a restart is the *only* way in: hot reload of
+`argocd-cm` needs `server.secretkey`, which only `argocd-server` creates.
 
-- **Argo has no built-in generation check**, so the script does its own. Be
-  precise about what that proves: `observedGeneration` here is the Pacto object's
-  own generation, so it says the operator has seen the current *contract* — not
-  the current workload.
-- **The findings loop puts the reason in the Argo UI** instead of a bare red dot.
-- **Nothing maps to Argo's `Unknown`.** It ranks worse than `Degraded` in the
-  roll-up, so it would mask genuinely broken workloads in the same Application,
-  and it does not fire the on-degraded trigger. Anything unrecognised becomes
-  `Progressing` and times out.
-- **The Lua runs with the string library disabled.** Concatenation, comparison,
-  `ipairs` and `tostring()` are available; `string.format`, `s:gsub()` and the
-  rest are not, and reaching for one fails at runtime rather than at load.
+Two properties of the Lua: **nothing maps to Argo's `Unknown`**, which ranks
+worse than `Degraded` and would mask genuinely broken workloads, so anything
+unrecognised becomes `Progressing`; and **the string library is disabled**, so
+`string.format` and `s:gsub()` fail at runtime rather than at load.
 
-That snippet is not an illustration either. `tests/acceptance/kind/gitops-argocd.sh`
-runs **that exact file** twice. Once with no cluster, through
-`argocd admin settings resource-overrides health`, which puts every contract
-status through Argo's Lua sandbox — including states a running cluster passes
-through too quickly to catch, like a verdict that has not caught up with the
-contract. Then inside a kind cluster running Argo CD, where an Application must
-go `Degraded` naming the finding while the contract is violated and back to
-`Healthy` once corrected.
+`tests/acceptance/kind/gitops-argocd.sh` runs **that exact file** through the
+Lua sandbox with no cluster, and then inside a kind cluster where an Application
+must go `Degraded` naming the finding and back to `Healthy` once corrected.
 
 ### Check that it took
 
-Argo ignores a `data` key it does not recognise, and an ignored key looks exactly
-like having configured nothing. Confirm the customization is live before you rely
-on it:
+Argo ignores a `data` key it does not recognise, and an ignored key looks
+exactly like having configured nothing:
 
 ```bash
 # The key must read back exactly, group and kind included.
@@ -136,27 +89,11 @@ kubectl -n argocd get cm argocd-cm \
   -o jsonpath='{.data.resource\.customizations\.health\.pacto\.trianalab\.io_Pacto}'
 ```
 
-Then ask Argo what it makes of a real object. `argocd admin settings` evaluates
-the customization against files on disk, in the same Lua sandbox the controller
-uses, so it answers without waiting for a sync:
-
-```bash
-kubectl -n argocd get cm argocd-cm -o yaml > /tmp/argocd-cm.yaml
-kubectl -n <namespace> get pacto <name> -o yaml > /tmp/pacto.yaml
-
-argocd admin settings resource-overrides health /tmp/pacto.yaml \
-  --argocd-cm-path /tmp/argocd-cm.yaml
-```
-
-A `Compliant` Pacto prints `STATUS: Healthy` and `MESSAGE: contract satisfied`.
-A key that did not take prints `Health script is not configured for
-'pacto.trianalab.io/Pacto'` instead — and prints it while **exiting 0**, so read
-the output rather than the exit code if you wire this into a check.
-
-Both checks read the ConfigMap, not the controller. They will pass on an instance
-whose controller started before the patch and still has no idea the customization
-exists. The one that answers that question is the Application itself: it should
-change health within seconds of a verdict changing, not minutes.
+`argocd admin settings resource-overrides health` evaluates it in the same
+sandbox the controller uses; a key that did not take prints `Health script is
+not configured` while **exiting 0**, so read the output, not the exit code. Both
+checks read the ConfigMap rather than the controller, so they pass on an
+instance that started before the patch.
 
 ## Timing
 
@@ -168,48 +105,28 @@ at the same speed.
 | A mismatch — workload, persistence or configuration conformance | The first reconcile after the workload is observed |
 | An absence — a missing interface, capability, dependency, Secret or ConfigMap | After the [stabilization window](limitations.md#stabilization-delay) (default two minutes) plus one requeue interval |
 
-That split is why `timeout` has a floor. A five-minute timeout against the
-default two-minute window leaves room for the window, one requeue and the apply
-itself.
+That split is why `timeout` has a floor: five minutes against the default
+two-minute window leaves room for the window, one requeue and the apply.
 
-There is one gap worth naming. kstatus will not call a Deployment current until
-its controller writes `observedGeneration` back, and that same write is the watch
-event that queues the Pacto reconcile. So the re-check is guaranteed *queued*
-before Flux can first see the workload as current. It is not guaranteed
-*finished*. The gap is one reconcile.
-
-Every row above is about how fast the verdict lands. When the GitOps tool *looks*
-is a separate question, and only Argo has an answer worth knowing. It re-examines
-a Pacto when the health status the customization returns changes — `Healthy` to
-`Degraded` and back shows up in about a second. A change that lands on the same
-status does not: one `NonCompliant` reason replaced by another is still
-`Degraded`, so the Application keeps showing the old message until the next
-periodic resync, two to five minutes out. The red dot is prompt. The wording
-behind it is not always.
+Argo re-examines a Pacto when its health status *changes*, so `Healthy` to
+`Degraded` shows up in about a second — but one `NonCompliant` reason replaced
+by another keeps the stale message until the next periodic resync. The red dot
+is prompt; the wording is not.
 
 ## Limits
 
-- **Argo health customizations are instance-global.** They live in `argocd-cm`,
-  so one Argo serving several teams cannot give one team a blocking `Warning` and
-  another a passing one.
-- **Neither tool can refuse an artifact for what is inside it.** Flux's only
-  pre-apply gate is a signature check. "Reject this because its contract breaks
-  three consumers" is not something a health gate can express — that is a pull
-  request check.
-- **The verdict is about the contract, not the rollout.** A Pacto reporting
-  `Compliant` says the running workload matches its declared contract. It says
-  nothing about request errors, saturation or anything else your normal
-  progressive-delivery signals cover.
-- **`status.lastReconciledAt` cannot be used as a freshness gate.** Flux hands
-  the expression the custom resource and nothing else; Argo hands the Lua only
-  `obj`. Neither has a clock to compare it against.
+- **Argo health customizations are instance-global.** One Argo serving several
+  teams cannot give one a blocking `Warning` and another a passing one.
+- **Neither tool can refuse an artifact for what is inside it.** "Reject this
+  because its contract breaks three consumers" is a pull-request check.
+- **The verdict is about the contract, not the rollout.** `Compliant` says the
+  workload matches its contract, nothing about request errors or saturation.
+- **`status.lastReconciledAt` cannot gate on freshness.** Neither tool hands the
+  expression a clock.
 
 ## Related
 
 - [Troubleshooting](troubleshooting.md#reading-the-events) — the events the
-  operator emits when a verdict changes, and why a `Count` above 1 means the
-  status actually flapped.
-- [Limitations](limitations.md) — what the operator declines to judge, and why
-  those cases read `Unknown` rather than `NonCompliant`.
-- [CRD reference](crd-reference.md) — the full `status` schema the expressions
-  above read from.
+  operator emits when a verdict changes.
+- [Limitations](limitations.md) — what the operator declines to judge.
+- [CRD reference](crd-reference.md) — the full `status` schema.

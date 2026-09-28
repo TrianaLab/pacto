@@ -2,21 +2,20 @@
 
 The dashboard is the only managed component a default install deploys.
 `evidence.enabled` is `false`, and turning it on has three requirements the
-chart will not guess for you. Settle the first one before you publish anything,
-because it decides where the contract itself has to live.
+chart will not guess. Settle the first before you publish anything: it decides
+where the contract itself has to live.
 
 ## Check the registry serves the native Referrers API
 
-Evidence is stored as an
-OCI 1.1 referrer of the contract revision it reports on, in that contract's own
-repository, and Pacto does not fall back to the tag-based scheme. So the registry
-holding the contract must implement Referrers discovery. **GHCR does not
-qualify** — which matters here more than anywhere else on this site, because every
-other page publishes to `ghcr.io` — and neither does CNCF distribution
-(`registry:2`, `registry:3`). See [Evidence in
-OCI](../../evidence.md#registry-conformance) for the registries this was checked against.
-Publishing the contract to a conformant registry is a decision to make before
-`pacto push`, not after `helm install`.
+Evidence is stored as an OCI 1.1 referrer of the contract revision it reports
+on, in that contract's own repository, and Pacto does not fall back to the
+tag-based scheme. So the registry holding the contract must implement Referrers
+discovery. **GHCR does not qualify** — which matters here more than anywhere
+else on this site, because every other page publishes to `ghcr.io` — and neither
+does CNCF distribution (`registry:2`, `registry:3`); see
+[Evidence in OCI](../../evidence.md#registry-conformance). Publishing the
+contract to a conformant registry is a decision to make before `pacto push`, not
+after `helm install`.
 
 ## Create the trust store
 
@@ -88,15 +87,13 @@ helm install pacto-operator \
 
 If that registry is private, there is a fourth thing you create yourself: a
 `kubernetes.io/dockerconfigjson` Secret named by
-`evidence.registry.credentialsSecret`. It is mounted read-only as a
-`DOCKER_CONFIG` directory, so the server authenticates exactly the way
-`pacto pull` does — there is no second credential model. Leave the value empty
-for an anonymous or in-cluster registry. Whatever name you pick is the one
-[Uninstall](installation.md#uninstall) asks you to delete.
+`evidence.registry.credentialsSecret`, mounted read-only as a `DOCKER_CONFIG`
+directory so the server authenticates the way `pacto pull` does. Leave the value
+empty for an anonymous or in-cluster registry.
 
-See the [Helm reference](helm-reference.md) for the full value list and the
-[Operator configuration](operator-configuration.md) page for the underlying
-controller flags each value maps to.
+See the [Helm reference](helm-reference.md) for the full value list and
+[Operator configuration](operator-configuration.md) for the controller flags
+each value maps to.
 
 ## Verifying the install
 
@@ -110,19 +107,19 @@ pacto-evidence    1/1     1            1           14s
 pacto-operator    1/1     1            1           21s
 ```
 
-`1/1` here means more than "the process started". Readiness is
-`GET /api/evidence/v1/ready`, which answers `503` until **every** subject in
-`evidence.registry.subjects` resolves in the registry *and* answers native
-Referrers discovery. So a `pacto-evidence` stuck at `0/1` is nearly always a
-subject the cluster cannot pull or a registry without the Referrers API — read
-its own log, not the controller's:
+`1/1` means more than "the process started". Readiness is
+`GET /api/evidence/v1/ready`, which answers `503` until **every** subject
+resolves in the registry *and* answers native Referrers discovery. A
+`pacto-evidence` stuck at `0/1` is nearly always a subject the cluster cannot
+pull or a registry without the Referrers API — read its own log, not the
+controller's:
 
 ```bash
 kubectl -n pacto-operator-system logs deploy/pacto-evidence
 ```
 
 The Service is `pacto-evidence` on port `8686`. Producers inside the cluster
-POST signed envelopes to its ingestion endpoint:
+POST signed envelopes to it:
 
 ```text
 http://pacto-evidence.pacto-operator-system.svc:8686/api/evidence/v1/envelopes
@@ -137,9 +134,9 @@ kubectl port-forward -n pacto-operator-system svc/pacto-evidence 8686:8686 &
 pacto fleet search --evidence-url http://127.0.0.1:8686
 ```
 
-Nothing durable lives in the cluster: there is no PersistentVolumeClaim and no
-data volume, because the registry is the store. Delete and recreate the
-Deployment and the accepted evidence is still there.
-[Evidence in OCI](../../evidence.md#registry-conformance) covers what is written and
-where; [the ingestion API](../../evidence.md#ingestion-http-api) lists all
+Nothing durable lives in the cluster: no PersistentVolumeClaim, no data volume,
+because the registry is the store. Delete and recreate the Deployment and the
+accepted evidence is still there.
+[Evidence in OCI](../../evidence.md#registry-conformance) covers what is written
+and where; [the ingestion API](../../evidence.md#ingestion-http-api) lists all
 five endpoints.
