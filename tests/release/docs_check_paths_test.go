@@ -72,10 +72,9 @@ func TestDocsCheckPathsCoverDemoTranscripts(t *testing.T) {
 //     them and only prose carries them here.
 func TestTheDemoTourTeachesEveryRecordedCommand(t *testing.T) {
 	root := repoRoot(t)
-	// The tour is two pages; coverage is a property of the tour, not of either
-	// file, so read them as one document.
+	// The tour is one page covering all six stories.
 	var doc string
-	for _, name := range []string{"demo-tour.md", "demo-tour-agents.md"} {
+	for _, name := range []string{"demo-tour.md"} {
 		page, err := os.ReadFile(filepath.Join(root, "docs", "examples", name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)

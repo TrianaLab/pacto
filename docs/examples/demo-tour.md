@@ -10,23 +10,13 @@ Six things people actually need from a fleet they did not build, answered agains
 one fixture, in the order the questions arrive. Each story is one or two commands
 and what its output means.
 
-Stories 1 to 5 are terminal commands whose transcripts were produced by running
-the command shown above them. `make gen-demo-transcripts` regenerates them and
-`make docs-check` compares them against the committed tree, so a change in what
-the CLI prints fails a gate rather than quietly making this page fiction. Story 6
-shows output copied in by hand, because no generator covers a server that holds
-stdin open. Every command in the tour runs in
-`tests/acceptance/local/demo-arc.sh`, which asserts on the bytes.
-
 ## Before you start
 
 Everything here is offline except `pacto dashboard`. No cluster, no registry, no
 running service and no network — the fixture is committed to the repository, so
-it works on a plane. The dashboard probes for a kubeconfig and for OCI
-repositories while it boots; it runs without either.
+it works on a plane.
 
-You need the [Pacto CLI](../installation.md) on your `PATH`, and a clone, because
-the fixture lives in it:
+You need the [Pacto CLI](../installation.md) on your `PATH` and a clone:
 
 ```bash
 git clone https://github.com/TrianaLab/pacto.git && cd pacto
@@ -34,15 +24,12 @@ git clone https://github.com/TrianaLab/pacto.git && cd pacto
 
 Every command below is written to be pasted from the repository root.
 
-To drive a real stack instead — an OCI registry with published revisions, an
-Evidence Server ingesting a signed envelope and the dashboard on top — see the
-[Docker Compose demo](compose-demo.md), which needs no clone and no CLI. To point
-your own MCP client at one of these bundles, see
-[Connecting to a bundle](../mcp-agent-capabilities.md#connecting-to-a-bundle).
+To drive a real stack instead, see the [Docker Compose demo](compose-demo.md),
+which needs no clone and no CLI.
 
 ## The fleet
 
-Sixteen services are in the snapshot. These eight carry the stories:
+Sixteen services are in the snapshot. Five carry the stories:
 
 | Service | Owner | Its part |
 |---------|-------|----------|
@@ -50,49 +37,10 @@ Sixteen services are in the snapshot. These eight carry the stories:
 | `orders-service` | commerce-team | declares a dependency on payments, and is observed calling it |
 | `api-gateway` | platform-foundations | declares the same dependency, and has an expired readiness assessment |
 | `auth-service` | identity-team | deployed, but never observed — the Unknown target |
-| `fraud-service` | payments-team | evidenced and conformant — the Compliant target |
 | `audit-log` | platform-foundations-security | calls payments and declares nothing — the shadow consumer |
-| `frontend` | frontend-team | reaches payments transitively, through the gateway |
-| `pacto-demo` | platform-foundations | one more hop out, so the blast radius has depth |
 
 A contract says what a service exposes, what it needs and how it behaves — never
-how it is deployed. Here is the shape of the one story 3 refuses,
-[`payments-service` at 2.0.1](https://github.com/TrianaLab/pacto/blob/main/examples/demo/bundles/payments-service/v2.0.1/pacto.yaml):
-
-```yaml
-pactoVersion: '2.0'
-service:
-  name: payments-service
-  version: 2.0.1
-  owner: { team: team/payments }
-interfaces:
-- { name: http, type: openapi, ref: interfaces/openapi.json, visibility: internal }
-- { name: events, type: asyncapi, ref: interfaces/events.json, visibility: internal }
-capabilities:
-- type: health
-  binding: { type: http, interface: http, path: /healthz }
-configurations:
-- { name: platform, ref: 'oci://ghcr.io/trianalab/pacto/platform-app-config', required: true }
-policies:
-- { name: http-security, ref: 'oci://ghcr.io/trianalab/pacto/platform-http-policy' }
-dependencies:
-- { name: postgresql, ref: 'oci://ghcr.io/trianalab/pacto/postgresql', required: true, compatibility: ^16.0.0 }
-- { name: fraud-service, ref: 'oci://ghcr.io/trianalab/pacto/fraud-service', required: true, compatibility: ^1.0.0 }
-workload: service
-state:
-  type: stateful
-  persistence: { scope: shared, durability: persistent }
-  dataCriticality: high
-metadata:
-  tier: domain
-  criticality: high
-  summary: Payment Intents API with mandatory fraud detection - BREAKING from v1.x
-    charges API
-```
-
-Nothing above says how the service is deployed, and `metadata` is not decoration:
-the `http-security` policy this contract references requires it, which is why
-abridging it any further would fail validation. The
+how it is deployed. The
 [contract reference](../contract-reference/sections.md) has every section.
 
 ## Story 1 — "I inherited this fleet and I do not know what is in it"
@@ -103,12 +51,10 @@ abridging it any further would fail validation. The
 
 Sixteen services, each with its owner, how many contract revisions it has
 published and how many deployed targets are running it. `NotEvaluated` is not a
-verdict: no evidence source is wired up, so nothing has been evaluated against
-anything.
+verdict: no evidence source is wired up, so nothing has been evaluated.
 
 `--target-state` folds in what a platform observed about the running deployments.
-The fixture is one file, and it models what an evidence pipeline would ingest —
-three of its targets, abridged:
+Three of its targets, abridged:
 
 ```yaml
 schemaVersion: pacto.dev/fleet-targets/v1
@@ -139,9 +85,7 @@ targets:
 
 Four states in one screen. `Compliant` is a verdict backed by evidence,
 `NonCompliant` is a confirmed contradiction, `Unknown` is evidence that never
-arrived and `NotEvaluated` means nobody is deployed there to evaluate. The
-distinction that matters is between the middle two: one is a problem with the
-service, the other is a problem with your ability to see it.
+arrived and `NotEvaluated` means nobody is deployed there to evaluate.
 
 ## Story 2 — "Something says Unknown and I need to know whether that is bad"
 
@@ -149,14 +93,10 @@ service, the other is a problem with your ability to see it.
 
 --8<-- "examples/demo/generated/_beat-03.md"
 
-Targets can be addressed by their unique name or by their canonical key, which
-escapes slashes as `%2F`.
-
-`EVIDENCE_MISSING` is a fact about the observer, not about the service. The
-second command is the same lesson from the other side: `api-gateway` declares
-five readiness claims, every one marked `done` with evidence attached, and the
-assessment earns zero because it expired on 2025-01-01. An assertion nobody has
-re-checked is not a passing check. Pacto fails closed on both.
+`EVIDENCE_MISSING` is a fact about the observer, not about the service.
+`api-gateway` declares five readiness claims, every one marked `done` with
+evidence attached, and the assessment earns zero because it expired on
+2025-01-01. Pacto fails closed on both.
 
 A confirmed violation reads differently:
 
@@ -174,22 +114,14 @@ declaration, not a score.
 
 --8<-- "examples/demo/generated/_beat-05.md"
 
-Thirty-nine changes, one verdict, and a non-zero exit so CI can gate on it. The
-interesting part is the spread: two API paths removed, two event channels
-withdrawn, a required request field swapped for a differently-named one, two
-configuration keys becoming required, a capability dropped, an optional
-dependency becoming mandatory and one SBOM package version moving. All of it is
-one contract compared with another — no running service was consulted. The
+Thirty-nine changes, one verdict, and a non-zero exit so CI can gate on it. Two
+API paths removed, two event channels withdrawn, a required request field
+swapped for a differently-named one, two configuration keys becoming required, a
+capability dropped, an optional dependency becoming mandatory and one SBOM
+package version moving. All of it is one contract compared with another — no
+running service was consulted. The
 [classification rules](../contract-reference/diff.md#change-classification-rules)
 are a published table, not a heuristic.
-
-The event surface is in that list because Pacto compares AsyncAPI content, not
-just the `ref`: `payment.completed` and `payment.failed` are gone outright, and
-`payment.refunded` swapped `charge_id` for `payment_intent_id` in both its
-payload properties and its `required` set. What Pacto does not compare is
-[a published table too](../contract-reference/diff.md#not-currently-compared),
-because a coverage gap you can read is worth more than one you infer from a clean
-result.
 
 Not every release is a break. The same service, one pair earlier:
 
@@ -209,20 +141,17 @@ the wrong ones.
 
 Four consumers. `confidence=contractual` means the consumer declared this
 dependency in its own contract; `confidence=inferred` means it was reached
-transitively through one that did. `compat=incompatible` is a second, independent
-judgement: the consumer's declared version range does not admit 2.0.1. A consumer
-graded `unknown` is not safe — it is unassessed.
+transitively. `compat=incompatible` is a second judgement: the consumer's
+declared version range does not admit 2.0.1.
 
 Contracts only find consumers that wrote one down. Add observed traffic:
 
 --8<-- "examples/demo/generated/_beat-08.md"
 
-Five now. `audit-log` calls `payments-service` in production and declares nothing
-about it, so no amount of reading contracts would ever have found it — it arrives
-as `confidence=observed`. And `orders-service`, which both declared the dependency
-and was seen using it, is upgraded to `confidence=corroborated`. Declaration and
-observation are separate evidence, and Pacto keeps them separate instead of
-averaging them into a number.
+Five now. `audit-log` calls `payments-service` in production and declares
+nothing, so no amount of reading contracts would ever have found it — it arrives
+as `confidence=observed`. `orders-service`, which both declared the dependency
+and was seen using it, is upgraded to `confidence=corroborated`.
 
 Then ask where the change actually lands:
 
@@ -234,6 +163,51 @@ consumers, and `payments-service` itself — so this is not hypothetical, and th
 command exits non-zero. Story 3 refused a change for what it is. This refuses it
 for where it lands.
 
-The last two stories -- what observed traffic says about the declared graph, and
-serving the fleet to an agent -- are in
-[Guided tour: traffic and agents](demo-tour-agents.md).
+## Story 5 — "My architecture diagram and my traffic disagree"
+
+*Reconcile the edges contracts declare against the edges something observed.*
+
+--8<-- "examples/demo/generated/_beat-10.md"
+
+Three verdicts. `observed-not-declared` is the shadow dependency from story 4,
+stated as a reconciliation result. `declared-not-observed` is the opposite risk
+— an edge in the diagram that no traffic has ever taken.
+
+## Story 6 — "I want an agent on this, without handing it write access"
+
+*Serve a contract as MCP tools, and check what the default withholds.*
+
+`pacto mcp` turns a bundle's OpenAPI interface into MCP tools. By default it
+turns only the safe half. Point a human and an agent at one process:
+
+```bash
+pacto dashboard examples/demo/bundles --port 8899
+```
+
+Then open <http://127.0.0.1:8899/#/fleet>. The dashboard is itself a Pacto
+bundle with a real OpenAPI contract, so the agent's tools are generated from the
+contract of the very server the human is looking at. The tools come from the
+dashboard's OpenAPI interface, one per read-only operation. Beside the interface
+operations the server always registers Pacto's own authoring tools —
+`pacto_create` and `pacto_edit` write contract files to disk.
+
+Mutating operations are withheld by default. Five mutating operations — every
+`POST`, `PUT`, `PATCH` and `DELETE` the interface declares — are dropped with a
+warning on stderr:
+
+```bash
+pacto mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1
+```
+
+Add `--allow-writes` and both the warning and the restriction disappear.
+`--allow-writes` governs the interface half only; withhold the authoring tools
+by not registering this server where you do not want contracts written. See
+[MCP integration](../mcp-integration.md) for the full wiring.
+
+## Next
+
+The [Quickstart](../quickstart.md) takes an empty directory to a published
+contract in about five minutes. The
+[contract reference](../contract-reference/sections.md) is the complete list of
+sections, and [`pacto diff`](../contract-reference/diff.md#change-classification-rules)
+is the complete table of what counts as a breaking change.
