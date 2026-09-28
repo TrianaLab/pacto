@@ -50,7 +50,7 @@ For each dependent the analysis records:
 | **depth / direct / path** | `depth` 1 is a direct dependent, `>1` is transitive. `path` is the dependency chain from the consumer to the changed service. |
 | **required** | Whether the consumer declared this dependency as required. |
 | **compatibility** | The consumer's declared compatibility range against the changed service. |
-| **compatibilityVerdict** | Whether the new version satisfies that range. `compatible` and `incompatible` both need a declared range; without one the verdict is `unknown`, because absence of a range is uncertainty rather than a pass. |
+| **compatibilityVerdict** | Whether the new version satisfies that range. `compatible` and `incompatible` both need a declared range *and* a range and version `semver` can parse; without all three the verdict is `unknown`, because an unreadable or absent range is uncertainty rather than a pass. |
 | **provenance** | Where the edge came from: `declared`, `observed`, `declared+observed` or `inferred`. |
 | **confidence** | How strongly the evidence supports the claim (see below). |
 | **status / targets** | The consumer's aggregate status and the operational targets it runs in. |
@@ -79,6 +79,10 @@ Two rules follow from this model and are load-bearing:
 > `--include-observed` the analysis is declared-only. Runtime observations then
 > let a direct edge become `observed` or `corroborated`.
 
+None of this overstates certainty. A `partial` snapshot is incomplete knowledge,
+an `unknown` verdict is uncertainty and an `inferred` consumer is a lead to
+verify — none of them is a confirmed runtime impact.
+
 Observed edges come from OpenTelemetry traces via `--traces <file>`. Beyond
 corroborating declared consumers, traces surface **observed-only (shadow)
 consumers** — services seen calling the changed service that never declared the
@@ -94,12 +98,10 @@ pacto impact <old> <new> --local .
 `<old>` and `<new>` are the two revisions to compare — bundle paths or refs. They
 are separate from the fleet snapshot and may be `oci://` references either way.
 
-`pacto impact` accepts the same source flags
-[`pacto fleet`](operational-graph.md#sources) does — `--local` (repeatable,
-defaults to `.`), `--root`, `--oci`, `--cache`, `--k8s`, `--namespace`,
-`--evidence-url` and `--target-state` — with one difference: `--traces` takes a
-single file here rather than a repeatable list. Point it only at offline sources
-and the whole analysis stays offline.
+`pacto impact` reads the fleet through the same
+[source flags](operational-graph.md#sources) `pacto fleet` does, `--local`
+included, which defaults to `.`. Point it only at offline sources and the whole
+analysis stays offline.
 
 Turn on runtime corroboration with `--include-observed`, or supply an OTLP/JSON
 trace export with `--traces`, which implies it:
@@ -183,20 +185,6 @@ shareable. It reads the **currently published** snapshot — the same one the
 Operational Graph shows — so its `snapshotId` matches the graph rather than a
 divergent rebuild. The **include-observed** control is enabled only when the host
 declares an observation source, because observed evidence needs a real source.
-
-## It recommends review, it does not act
-
-Impact analysis lists **what to review**. It never recommends or performs an
-autonomous action, and it never authorizes one.
-
-- **It does not act.** Rolling back, blocking a deploy, paging an owner or
-  gating a pipeline is done by external controllers and delivery systems. Impact
-  tells them what is affected and how sure it is.
-- **It does not authorize.** Whether a change *may* proceed stays with policy and
-  IAM systems. Impact supplies evidence for that decision, not the decision.
-- **It never overstates certainty.** A `partial` snapshot is incomplete
-  knowledge, an `unknown` verdict is uncertainty and an `inferred` consumer is a
-  lead to verify — none of them is a confirmed runtime impact.
 
 ## See also
 

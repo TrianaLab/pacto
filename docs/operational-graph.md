@@ -91,17 +91,16 @@ which produces the compliance evidence a source then carries.
   remote environment's signed `EvidenceSet` reports as operational targets.
 - **Offline target-state fixtures** (`--target-state`) — an unsigned demo and
   test adapter for supplying targets without a cluster.
-- **Offline trace exports** (`--traces`, or `--trace-source NAME=PATH`) — observed
-  dependency edges rather than revisions and targets. Pacto ships **no live OTLP
-  receiver**: nothing listens on 4317 or 4318, and no collector ships with the
-  dashboard. Run a Collector you own and point a source at the file it exports.
+- **Offline trace exports** (`--traces`, or `--trace-source NAME=PATH` on `pacto
+  dashboard` only) — observed dependency edges rather than revisions and targets.
+  Pacto ships **no live OTLP receiver**: nothing listens on 4317 or 4318, and no
+  collector ships with the dashboard. Run a Collector you own and point a source
+  at the file it exports.
 
-Every source flag above is shared by `pacto fleet`, `pacto impact` and the MCP
-fleet server, except that `impact` takes a single `--traces` file rather than a
-repeatable one. **What a source sent is not what it
-contributed:** its record counts are the raw records it supplied, the product
-entities attributable to it are a different and usually larger set, and the two
-are reported side by side.
+Every source flag above is shared by `pacto fleet`, `pacto impact` and
+`pacto mcp --fleet`, with two exceptions: `impact` takes a single `--traces` file
+rather than a repeatable one, and `--trace-source` belongs to `pacto dashboard`
+alone.
 
 ### What a target-state fixture looks like
 
@@ -194,8 +193,7 @@ performs I/O, and a single snapshot serves concurrent queries.
 Two more operations sit beside the five and are not queries: `snapshot` emits the
 whole read model as one document, and `reconcile` reports declared dependencies
 against observed ones. Every answer carries a `meta` envelope, here from a
-`pacto fleet search --output-format json` over a local root with an unreachable
-OCI source:
+`pacto fleet search --output-format json` with an unreachable OCI source:
 
 ```json
 {
@@ -228,11 +226,25 @@ OCI source:
 ```
 
 `schemaVersion` is the compatibility contract to branch on and `snapshotId` the
-content digest that proves two answers came from the same system view. `total` is
-the whole matched population, `count` how many rows this page carries, and `key`
-the canonical identity to match on — `name` is not unique across domains. Any
-aggregate beside a bounded list is computed over the complete matched population
-before paging, never from the rows.
+content digest that proves two answers came from the same system view. On this
+envelope `count` is how many rows the page carries and `total` the whole matched
+population; `key` is the canonical identity to match on because `name` is not
+unique across domains. A bounded preview nested in a `get` answer is the
+exception: it omits `total` when the walk was itself bounded, so an absent
+`total` means "we stopped counting", never "there are none".
+
+Every aggregate is computed over the complete matched population before paging,
+never from the rows:
+
+| Tally | Partitions | Buckets |
+|-------|-----------|---------|
+| `serviceCompliance` | matched services | compliance states, rolled up from each service's targets |
+| `targetCompliance` | matched operational targets | compliance states as observed per target |
+| `ownership` | matched services | `consistent` · `conflicting` · `unowned` |
+| `readiness` | matched contract revisions | `passing` · `belowThreshold` · `expired` · `notDeclared` |
+
+`notDeclared` is its own readiness bucket because "nobody wrote an assessment" is
+not "the assessment does not pass".
 
 One case does not carry the envelope: `get`, `graph` and `explain` name a single
 subject, and a missing subject is a *failure*. `pacto fleet get ghost` exits 1
@@ -344,15 +356,14 @@ Those observed edges meet the declared graph in three places:
   relationships. A name that matches zero or more than one service is **never**
   coerced to a domain; it is preserved as an `OBSERVED_IDENTITY_UNRESOLVED`
   limitation, so observed traffic can never be misattributed across domains.
-  `pacto mcp --fleet` has no `--traces` flag: its snapshot is declared-only.
 - **Reconciliation** — `pacto fleet reconcile --traces <file>` labels each
   dependency **matched**, **declared-not-observed** (dormant or simply unseen in
   the window) or **observed-not-declared** (a *shadow* dependency the contract
   never mentions). Anything unresolvable is reported in a distinct **unresolved**
   category rather than force-fit to the default domain.
-- **Impact** — `pacto impact --traces <file>` lets observed traffic raise a
-  declared consumer to **corroborated** confidence and surface shadow consumers a
-  declared-only analysis would miss.
+- **Impact** — `pacto impact --traces <file>` feeds the same observed edges into
+  a blast radius; the [confidence model](impact.md#confidence-model) has what
+  they change there.
 
 Reconciliation is an explicit backend fact, not a frontend guess: every declared
 edge carries a state computed against the snapshot's observed edges. A snapshot

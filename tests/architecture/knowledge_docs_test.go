@@ -56,7 +56,8 @@ func readDoc(t *testing.T, parts ...string) string {
 
 // knowledgeSection returns the "## Knowledge" section of the graph page, so the
 // vocabulary table is compared against and not against some other table on the page
-// (the bounded-total table below it is a different four-state vocabulary).
+// (`## Query semantics` carries an aggregate tally table whose readiness buckets
+// are a different four-word vocabulary).
 func knowledgeSection(t *testing.T, doc string) string {
 	t.Helper()
 	const heading = "\n## Knowledge\n"
@@ -128,8 +129,9 @@ func TestKnowledgeVocabularyIsDocumentedInFull(t *testing.T) {
 
 	// No spelled-out count in the sentence introducing the table: it is a second copy
 	// of the vocabulary's size that this gate cannot keep true, and it was wrong
-	// before this gate existed. Scoped to the intro, because the bounded-total table
-	// further down the same section counts its own (different, genuinely four) states.
+	// before this gate existed. Scoped to the intro so that a sentence *after* the
+	// table, which may legitimately count a subset (the three wire values), is not
+	// read as a miscount of the vocabulary.
 	intro := section
 	if i := strings.Index(intro, "| Word | Claim |"); i >= 0 {
 		intro = intro[:i]
