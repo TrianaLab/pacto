@@ -271,7 +271,7 @@ The comparison is a text scan of proto3 source, not a protobuf compile. In pract
 
 ## JSON Schema (configuration & policy schemas)
 
-Schema files referenced by `configurations[].schema`, `policies[].schema`, or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
+Schema files referenced by `configurations[].schema`, `policies[].schema` or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
 
 | Field | Change | Classification |
 |-------|--------|----------------|

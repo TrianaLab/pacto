@@ -35,7 +35,7 @@ func newOTelObserveCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			"With --evidence it emits one EvidenceSet per calling service -- a JSON " +
 			"array, and each set's ContractRef is empty because traces do not name a " +
 			"contract revision. Signing is therefore not a pipe: pacto evidence sign " +
-			"reads one EvidenceSet from a file, so write the array out, split it, and " +
+			"reads one EvidenceSet from a file, so write the array out, split it and " +
 			"set each ContractRef to the revision it describes before signing " +
 			"(pacto evidence sign) and reporting (pacto evidence send).",
 		Example: `  pacto otel observe traces.json

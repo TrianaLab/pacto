@@ -183,7 +183,7 @@ No credentials are ever stored in contract files.
 // details, output examples, and cross-references that cannot be derived
 // from the cobra command definition alone.
 var commandNotes = map[string]string{
-	"init": `Scaffolds three files: a valid ` + "`pacto.yaml`" + `, a placeholder OpenAPI spec at ` + "`interfaces/openapi.yaml`" + `, and a configuration JSON Schema at ` + "`configuration/schema.json`" + `.
+	"init": `Scaffolds three files: a valid ` + "`pacto.yaml`" + `, a placeholder OpenAPI spec at ` + "`interfaces/openapi.yaml`" + ` and a configuration JSON Schema at ` + "`configuration/schema.json`" + `.
 
 ` + "`<name>`" + ` is the service name, not a path: it becomes the directory *and* ` + "`service.name`" + `, which must match ` + "`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`" + `. ` + "`pacto init fleet/checkout-web`" + ` therefore scaffolds a bundle that does not validate — ` + "`service.name`" + ` gets the whole path and fails ` + "`SCHEMA_VIOLATION`" + `. To scaffold inside a directory, ` + "`cd`" + ` there first and pass the bare name.
 
@@ -207,15 +207,15 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 		"**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: \"2.0\"` feature), `explain` adds a Readiness block: " +
 		"the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, " +
 		"the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table " +
-		"showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight, and `evidence`. " +
+		"showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight and `evidence`. " +
 		"The Readiness block also includes a revision-history table when `history[]` is present. " +
-		"`--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount`, and `expired` (boolean). " +
+		"`--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount` and `expired` (boolean). " +
 		"Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.",
 
 	"pack": "The contract is validated before packing. If validation fails, no archive is created.\n\n" +
 		"Files matched by `.pactoignore` are excluded from the archive — see [Packaging ignore](pactoignore.md).",
 
-	"generate": "`pacto generate <plugin>` invokes the `pacto-plugin-<plugin>` binary. See [Plugins](plugins.md) for plugin discovery, the plugin registry, and the official plugins bundled with Pacto.",
+	"generate": "`pacto generate <plugin>` invokes the `pacto-plugin-<plugin>` binary. See [Plugins](plugins.md) for plugin discovery, the plugin registry and the official plugins bundled with Pacto.",
 
 	"lock": "See [Lockfile](lockfile.md) for the lock model and how `.pactoignore` keeps a `pacto.lock` out of a pushed bundle.",
 
@@ -225,17 +225,17 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 
 	"diff": `**Exit code:** ` + "`1`" + ` when the overall classification is ` + "`BREAKING`" + ` — and also ` + "`1`" + ` when the diff could not be produced at all, so a non-zero exit is not by itself a contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A ` + "`POTENTIAL_BREAKING`" + ` result exits ` + "`0`" + `, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
 
-The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. The optional ` + "`docs/`" + ` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
+The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level. The optional ` + "`docs/`" + ` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
 
-When both bundles include an ` + "`sbom/`" + ` directory with recognized SBOM files (` + "`.spdx.json`" + ` or ` + "`.cdx.json`" + `), ` + "`pacto diff`" + ` reports package-level changes — added, removed, or modified packages (version and license). SBOM changes are informational and do not affect the overall classification or exit code.
+When both bundles include an ` + "`sbom/`" + ` directory with recognized SBOM files (` + "`.spdx.json`" + ` or ` + "`.cdx.json`" + `), ` + "`pacto diff`" + ` reports package-level changes — added, removed or modified packages (version and license). SBOM changes are informational and do not affect the overall classification or exit code.
 
-When dependencies change between the old and new contracts (version upgrades, additions, or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
+When dependencies change between the old and new contracts (version upgrades, additions or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 
 See [Change Classification](contract-reference/diff.md#change-classification-rules) for the full rules.`,
 
 	"graph": `Dependencies resolved from local paths are annotated with ` + "`[local]`" + `. Shared dependencies (referenced by multiple parents) are annotated with ` + "`(shared)`" + `.
 
-Reports cycles, version conflicts, and unreachable dependencies.
+Reports cycles, version conflicts and unreachable dependencies.
 
 Sibling dependencies are resolved in parallel. OCI bundles are cached locally in ` + "`~/.cache/pacto/oci/`" + ` for faster subsequent operations. Use ` + "`--no-cache`" + ` to bypass the cache.`,
 

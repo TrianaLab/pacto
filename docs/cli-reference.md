@@ -126,7 +126,7 @@ operational graph the CLI's `pacto fleet` commands query, served as a web UI.
 The dashboard is the exploration and observability layer of the Pacto system.
 It visualizes the same contracts the CLI manages and the operator verifies,
 organised around four workflows: an operational Overview, the Services
-inventory, the Operational Graph, and Change analysis.
+inventory, the Operational Graph and Change analysis.
 
 Each positional argument is a pacto source reference:
   - oci://registry/repo  → OCI registry source (can be repeated)
@@ -221,11 +221,11 @@ pacto diff <old> <new> [flags]
 
 **Exit code:** `1` when the overall classification is `BREAKING` — and also `1` when the diff could not be produced at all, so a non-zero exit is not by itself a contract verdict. See [Exit codes](#exit-codes) for how to tell the two apart. A `POTENTIAL_BREAKING` result exits `0`, so a CI gate that wants to stop on it has to read the classification rather than the exit code.
 
-The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level. The optional `docs/` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
+The diff engine performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level. The optional `docs/` directory is ignored entirely — documentation changes never produce diff entries or affect compatibility classification.
 
-When both bundles include an `sbom/` directory with recognized SBOM files (`.spdx.json` or `.cdx.json`), `pacto diff` reports package-level changes — added, removed, or modified packages (version and license). SBOM changes are informational and do not affect the overall classification or exit code.
+When both bundles include an `sbom/` directory with recognized SBOM files (`.spdx.json` or `.cdx.json`), `pacto diff` reports package-level changes — added, removed or modified packages (version and license). SBOM changes are informational and do not affect the overall classification or exit code.
 
-When dependencies change between the old and new contracts (version upgrades, additions, or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
+When dependencies change between the old and new contracts (version upgrades, additions or removals), a dependency graph diff section is displayed showing the tree of affected nodes.
 
 See [Change Classification](contract-reference/diff.md#change-classification-rules) for the full rules.
 
@@ -422,7 +422,7 @@ pacto explain [dir | oci://ref] [flags]
 
 **What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. It does **not** render `configurations` or `policies` — read those with `pacto doc`, or from `pacto.yaml` directly. `metadata` is carried by `--output-format json` only; the text output omits it.
 
-**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: "2.0"` feature), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight, and `evidence`. The Readiness block also includes a revision-history table when `history[]` is present. `--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount`, and `expired` (boolean). Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.
+**Readiness output.** When the contract declares a `readiness` section (a `pactoVersion: "2.0"` feature), `explain` adds a Readiness block: the derived **Score**, the **Gate** result (`PASS`/`FAIL` with `score / minScore`), **Earned** and **Total Weight**, the partial credit multiplier, the assessment `expires` date with countdown (or an Expired state), and a per-check table showing each check's declared `status` (`done`/`partial`/`not-done`/`deferred`), `category`, weight, earned weight and `evidence`. The Readiness block also includes a revision-history table when `history[]` is present. `--output-format json` includes the same data plus `doneCount`, `partialCount`, `notDoneCount`, `deferredCount` and `expired` (boolean). Readiness status is time-dependent — the score is 0 when the current date is past the assessment-level `expires`.
 
 ---
 
@@ -586,7 +586,7 @@ pacto fleet status [flags]
 
 ## `pacto generate`
 
-Invokes a pacto-plugin-&lt;name&gt; binary to generate deployment manifests, documentation, or other artifacts from a contract directory or oci:// reference.
+Invokes a pacto-plugin-&lt;name&gt; binary to generate deployment manifests, documentation or other artifacts from a contract directory or oci:// reference.
 
 ```
 pacto generate <plugin> [dir | oci://ref] [flags]
@@ -608,13 +608,13 @@ pacto generate <plugin> [dir | oci://ref] [flags]
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-`pacto generate <plugin>` invokes the `pacto-plugin-<plugin>` binary. See [Plugins](plugins.md) for plugin discovery, the plugin registry, and the official plugins bundled with Pacto.
+`pacto generate <plugin>` invokes the `pacto-plugin-<plugin>` binary. See [Plugins](plugins.md) for plugin discovery, the plugin registry and the official plugins bundled with Pacto.
 
 ---
 
 ## `pacto graph`
 
-Resolves the dependency tree from a pacto.yaml in the given directory (or oci:// reference) and displays the graph, cycles, and version conflicts.
+Resolves the dependency tree from a pacto.yaml in the given directory (or oci:// reference) and displays the graph, cycles and version conflicts.
 
 ```
 pacto graph [dir | oci://ref] [flags]
@@ -640,7 +640,7 @@ pacto graph [dir | oci://ref] [flags]
 
 Dependencies resolved from local paths are annotated with `[local]`. Shared dependencies (referenced by multiple parents) are annotated with `(shared)`.
 
-Reports cycles, version conflicts, and unreachable dependencies.
+Reports cycles, version conflicts and unreachable dependencies.
 
 Sibling dependencies are resolved in parallel. OCI bundles are cached locally in `~/.cache/pacto/oci/` for faster subsequent operations. Use `--no-cache` to bypass the cache.
 
@@ -709,7 +709,7 @@ pacto init <name> [flags]
   -h, --help   help for init
 ```
 
-Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml`, and a configuration JSON Schema at `configuration/schema.json`.
+Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.
 
 `<name>` is the service name, not a path: it becomes the directory *and* `service.name`, which must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. `pacto init fleet/checkout-web` therefore scaffolds a bundle that does not validate — `service.name` gets the whole path and fails `SCHEMA_VIOLATION`. To scaffold inside a directory, `cd` there first and pass the bare name.
 
@@ -945,7 +945,7 @@ pacto otel [flags]
 
 ### `pacto otel observe`
 
-Reads an OTLP/JSON trace export and derives the service dependency edges its outbound spans prove. By default it prints the observed edges as text; add --output-format json for machine-readable output. With --evidence it emits one EvidenceSet per calling service -- a JSON array, and each set's ContractRef is empty because traces do not name a contract revision. Signing is therefore not a pipe: pacto evidence sign reads one EvidenceSet from a file, so write the array out, split it, and set each ContractRef to the revision it describes before signing (pacto evidence sign) and reporting (pacto evidence send).
+Reads an OTLP/JSON trace export and derives the service dependency edges its outbound spans prove. By default it prints the observed edges as text; add --output-format json for machine-readable output. With --evidence it emits one EvidenceSet per calling service -- a JSON array, and each set's ContractRef is empty because traces do not name a contract revision. Signing is therefore not a pipe: pacto evidence sign reads one EvidenceSet from a file, so write the array out, split it and set each ContractRef to the revision it describes before signing (pacto evidence sign) and reporting (pacto evidence send).
 
 ```
 pacto otel observe <traces.json> [flags]
@@ -1026,7 +1026,7 @@ pacto pull <ref> [flags]
 
 ## `pacto push`
 
-Validates the contract (including remote policy and config refs), builds an OCI artifact, and pushes it to the specified registry reference.
+Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference.
 
 ```
 pacto push <ref> [flags]
@@ -1151,7 +1151,7 @@ Notifications are suppressed when:
 
 ## `pacto validate`
 
-Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field, and policy.
+Validates a pacto.yaml in the given directory (or oci:// reference) against the specification, running the three validation layers: structural, cross-field and policy.
 
 ```
 pacto validate [dir | oci://ref] [flags]
