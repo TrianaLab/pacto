@@ -18,12 +18,12 @@ The whole engine ships to your browser, so the first visit downloads about
 the loading strip counts the seconds and names the size, and the browser caches
 it afterwards.
 
-Two things about the fixture are deliberate: **it opens on a degraded-source
-banner** (one source unavailable, one partial, because a view that only ever
-shows complete knowledge teaches you nothing about the day it isn't) and
-**`platform-app-config` appears twice** (two different services from two
-different sources that share a name — a name is not an identity, so the graph
-keeps them apart).
+Two things about the fixture are deliberate. **It opens on a degraded-source
+banner** — one source unavailable, one partial, because a view that only shows
+complete knowledge teaches you nothing about the day it isn't.
+**`platform-app-config` appears twice** — two different services from two
+sources that share a name. A name is not an identity, so the graph keeps them
+apart.
 
 The demo deliberately shows no runtime states. There is no cluster observing
 workloads, so a runtime status would be fiction.
@@ -34,8 +34,8 @@ Look at:
   and external tiers. Open it on the degraded sources and the duplicate name
   described above.
 - **One service's dependency graph** — `payments-service` spans six published
-  revisions. Resolves from each contract's declared dependencies, with
-  blast-radius highlighting.
+  revisions. Resolves from each contract's declared dependencies and highlights
+  what a change would reach.
 - **Data sources panel** — shows one source degraded and one unavailable. The
   operational graph reports what it knows and what it cannot know, and the day
   everything reports complete is not every day.
@@ -47,7 +47,7 @@ To run the dashboard against your own services, see
 in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo).
 
 Next: the [Docker Compose demo](compose-demo.md) runs the same UI against a real
-registry and Evidence Server on your machine, the
+registry and Evidence Server on your machine. The
 [guided tour](demo-tour.md) reaches the same facts from the command line in
-six offline user stories or go straight to the
+six offline user stories. Or go straight to the
 [Quickstart](../quickstart.md) and publish a contract of your own.

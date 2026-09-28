@@ -73,14 +73,11 @@ func TestDocsCheckPathsCoverDemoTranscripts(t *testing.T) {
 func TestTheDemoTourTeachesEveryRecordedCommand(t *testing.T) {
 	root := repoRoot(t)
 	// The tour is one page covering all six stories.
-	var doc string
-	for _, name := range []string{"demo-tour.md"} {
-		page, err := os.ReadFile(filepath.Join(root, "docs", "examples", name))
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		doc += string(page)
+	page, err := os.ReadFile(filepath.Join(root, "docs", "examples", "demo-tour.md"))
+	if err != nil {
+		t.Fatalf("read demo-tour.md: %v", err)
 	}
+	doc := string(page)
 
 	generated, err := filepath.Glob(filepath.Join(root, "examples", "demo", "generated", "_beat-*.md"))
 	if err != nil {

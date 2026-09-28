@@ -6,9 +6,9 @@ search:
 
 # Runnable demo (Docker Compose)
 
-A complete Pacto fleet running on your machine: an OCI registry holding real
-published contract revisions, an Evidence Server ingesting a signed envelope
-from a "remote" environment and the dashboard showing the operational graph
+A complete Pacto fleet running on your machine. An OCI registry holds real
+published contract revisions, an Evidence Server ingests a signed envelope
+from a "remote" environment and the dashboard shows the operational graph
 they add up to.
 
 There is no repository to clone, nothing to build and no file to download. The
@@ -17,8 +17,8 @@ demo is published as an OCI artifact that Docker Compose owns and runs directly.
 ## Run it
 
 You need [Docker Compose](https://docs.docker.com/compose/) 2.34 or newer —
-nothing else, not even the Pacto CLI. 2.34 is the release that added
-`docker compose publish` and `-f oci://…`; older versions cannot run this
+nothing else, not even the Pacto CLI. That release added
+`docker compose publish` and `-f oci://…`. Older versions cannot run this
 artifact at all, and the application says so itself in
 `x-pacto-demo.minimum-compose-version`. The demo's registry is public, so no
 login is needed; against a private registry, `docker login <registry>` first.
@@ -46,15 +46,15 @@ Then open <http://localhost:8080/#/fleet>.
 
 ## What you get
 
-Three services: `checkout` with two published revisions (1.1.0 drops an API path
-1.0.0 exposed), `orders` (declares `checkout` and is observed calling it,
-declares `payments` and is never seen calling it) and `payments` (reaches the
-fleet as signed evidence from a remote environment; `checkout` is observed
-calling it with no contract declaring so).
+Three services. `checkout` has two published revisions — 1.1.0 drops an API path
+1.0.0 exposed. `orders` declares `checkout` and is observed calling it, declares
+`payments` and is never seen calling it. `payments` reaches the fleet as signed
+evidence from a remote environment; `checkout` is observed calling it with no
+contract declaring so.
 
 The three edges are deliberately one of each: matched, declared but never
-observed, and observed but never declared. Follow the graph from `orders` to
-`checkout`, open a revision to read its contract, and compare `checkout` 1.0.0
+observed and observed but never declared. Follow the graph from `orders` to
+`checkout`, open a revision to read its contract and compare `checkout` 1.0.0
 with 1.1.0 to see a change analysed.
 
 For the same moves at the command line — six user stories from "what is out

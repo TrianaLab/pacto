@@ -114,11 +114,11 @@ declaration, not a score.
 
 --8<-- "examples/demo/generated/_beat-05.md"
 
-Thirty-nine changes, one verdict, and a non-zero exit so CI can gate on it. Two
+Thirty-nine changes, one verdict and a non-zero exit so CI can gate on it. Two
 API paths removed, two event channels withdrawn, a required request field
-swapped for a differently-named one, two configuration keys becoming required, a
-capability dropped, an optional dependency becoming mandatory and one SBOM
-package version moving. All of it is one contract compared with another — no
+swapped for a differently-named one, two configuration keys becoming required.
+A capability dropped, an optional dependency became mandatory and one SBOM
+package version moved. All of it is one contract compared with another — no
 running service was consulted. The
 [classification rules](../contract-reference/diff.md#change-classification-rules)
 are a published table, not a heuristic.
