@@ -6,9 +6,9 @@ Rebuild the documentation around what a reader is trying to do, and cut it in ha
 
 The site used to be organised by subsystem, so finding out what Pacto does meant
 reading about how it is built. Twelve top-level navigation sections are now
-eight — the homepage, the changelog and six that carry the reading path, in the
-order a reader arrives in: **Try it**, **Get started**, **Guides**, **How Pacto
-decides**, **Reference**, **Integrations**. Concepts and
+eight: the homepage, the changelog and the six a reader moves through in order —
+**Try it**, **Get started**, **Guides**, **How Pacto decides**, **Reference**,
+**Integrations**. Concepts and
 the operational graph merged into How Pacto decides, patterns moved under
 Guides, examples split across the two entry sections and Project internals left
 the site altogether.
@@ -32,7 +32,7 @@ owned the subject.** Nothing was silently dropped:
   tools](https://pacto.run/latest/fleet-tools/).
 - Six pattern pages are one page, [platform
   patterns](https://pacto.run/latest/patterns/), and the developer and
-  platform-engineer guides no longer restate them.
+  platform-engineer guides no longer restate those patterns.
 - Three evidence pages — the OCI storage layout, the protocol and the security
   model — are one page, [evidence](https://pacto.run/latest/evidence/).
 - Three MCP pages — agent capabilities, authoring tools and catalog discovery —
