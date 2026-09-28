@@ -27,6 +27,8 @@ See [Installation](installation.md) for other methods and for what to do if the 
 
 ## 2. Create a contract
 
+Run this from an empty directory and stay there through step 5; step 6 moves inside `my-service`.
+
 ```bash
 pacto init my-service
 ```
@@ -62,8 +64,8 @@ paths:
 ## 3. Validate
 
 ```console
-$ pacto validate .
-. is valid
+$ pacto validate my-service
+my-service is valid
 ```
 
 Validation runs three layers: structural, cross-field and policy checks. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
@@ -163,7 +165,7 @@ The steps above need no registry. To see the full round trip, start a local regi
 
 ```bash
 docker run -d --rm -p 127.0.0.1:5001:5000 --name pacto-registry registry:3
-pacto push oci://localhost:5001/demo/my-service-pacto -p my-service
+pacto push oci://localhost:5001/demo/my-service-pacto -p .
 ```
 
 Port 5001 because macOS binds 5000 for AirPlay. `127.0.0.1:` because the registry accepts anonymous writes.
