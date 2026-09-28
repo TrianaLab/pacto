@@ -123,9 +123,8 @@ _CHANGELOG_INTRO = (
     "[Changesets](https://github.com/changesets/changesets). The core group "
     "(engine, CLI and dashboard) and the Kubernetes integration are versioned "
     "independently, so each release unit has its own section below.\n\n"
-    "This site is published only by a release, at the exact core version it "
-    "released. A merge to `main` validates the documentation but does not "
-    "deploy it, so what you are reading always matches a released version."
+    "This site is published only by a release. A merge to `main` validates the "
+    "documentation but does not deploy it."
     "\n\n" + _UNRELEASED_NOTE
 )
 

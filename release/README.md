@@ -2,7 +2,7 @@
 
 The transaction-driven release pipeline for the Pacto monorepo. This file is the
 design and the invariants as well as the map: the implementation is here and in
-`.github/workflows/release.yml`, and code comments in both link back to it.
+`.github/workflows/release.yml`.
 
 Two transactions were abandoned part-way and their versions never released; both
 are recorded in

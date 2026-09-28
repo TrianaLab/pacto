@@ -55,7 +55,8 @@ ci-engine: ci-test test-integration test-acceptance-local
 # pull it BY DIGEST into an empty directory outside the checkout, start it there
 # and prove the same canonical fixture the Kind vertical proves — minus the
 # capability Compose declares it does not have. See the header of
-# tests/acceptance/local/compose-demo.sh.
+# tests/acceptance/local/compose-demo.sh for the run, and
+# tests/acceptance/scenario/surface.go for the declared capability gap.
 #
 # test-browser-compose rather than test-acceptance-compose: same script, browser
 # leg on. The Playwright run costs a couple of minutes on top of a bring-up that

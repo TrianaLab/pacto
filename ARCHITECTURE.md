@@ -1,8 +1,7 @@
 # Architecture
 
 How the Pacto codebase is arranged, for contributors and plugin authors.
-Dependencies flow predominantly in one direction; the deliberate exceptions are
-listed below.
+Dependencies flow in one direction.
 
 **Four things stay apart, and this layout exists to keep them apart.** A
 *contract* is declared operational intent. *Evidence* is what a collector
