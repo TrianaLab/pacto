@@ -60,7 +60,7 @@ After the PR merges, publish to your OCI registry:
 - name: Push contract
   run: pacto push oci://ghcr.io/acme/my-service-pacto -p .
   env:
-    PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+    PACTO_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 `pacto push` tags the bundle with `service.version`. If that tag exists, the command skips the push unless you pass `--force`.

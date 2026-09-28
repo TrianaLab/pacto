@@ -7,9 +7,9 @@ search:
 
 # Abandoned release transactions
 
-Two transactions in the release pipeline published part-way and
-stopped. Their versions are not installable, and these are the records of what
-each one left behind.
+Two transactions in the release pipeline stopped part-way: one published some of
+its units, the other published none. Neither version is installable, and these
+are the records of what each one left behind.
 
 ## Abandoned transaction `522e9507410f16fc` (3.2.0 / 5.2.0)
 

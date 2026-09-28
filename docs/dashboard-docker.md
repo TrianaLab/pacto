@@ -68,8 +68,9 @@ see [offline trace sources](integrations/kubernetes/installation.md#offline-trac
 
 `PACTO_CACHE_DIR` sets only the directory the dashboard **scans**. The **write**
 location is `XDG_CACHE_HOME`, so persisting the cache means mounting a volume at
-`~/.cache/pacto/oci`, as the [Kubernetes example](#kubernetes-deployment) does;
-the container default works because `HOME=/home/pacto` makes the two coincide.
+`~/.cache/pacto/oci`; the container default works because `HOME=/home/pacto`
+makes the two coincide. The Kubernetes example below mounts an `emptyDir` there
+instead, so its cache is rebuilt on every restart.
 The CLI reference lists [every variable](cli-reference.md#environment-variables).
 
 ## Data Sources

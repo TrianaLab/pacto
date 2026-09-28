@@ -76,9 +76,10 @@ Three things about them are easy to misread:
   counts, not the reason.
 - **Every event except `RevisionCreated` and `TagOverwritten` is transition-gated.**
   A contract that stays broken emits one event, not one per reconcile, so a
-  `Count` above 1 means the status actually flapped. `TagOverwritten` is the
-  exception that still repeats: see
-  [Choosing a reference form](contract-bindings.md#choosing-a-reference-form).
+  `Count` above 1 means the status flapped, or the same reason recurred after a
+  recovery. Two exceptions still repeat without either: `TagOverwritten` (see
+  [Choosing a reference form](contract-bindings.md#choosing-a-reference-form))
+  and a revision-mirror failure, which is recorded once per reconcile pass.
 - **Events expire**, after the API server's `--event-ttl` of one hour by
   default. An absent event is not evidence that it never fired: conditions and
   `status` are the durable record.

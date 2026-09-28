@@ -106,9 +106,8 @@ only.
 ### What a target-state fixture looks like
 
 `--target-state` is the only source you author yourself: a single YAML or JSON
-document, read by a strict decoder. A second `---` document, an unknown field or a
-`schemaVersion` other than `pacto.dev/fleet-targets/v1` is rejected and the whole
-file contributes nothing.
+document. A second `---` document, an unknown field or a `schemaVersion` other
+than `pacto.dev/fleet-targets/v1` is rejected.
 
 ```yaml
 schemaVersion: pacto.dev/fleet-targets/v1
@@ -143,12 +142,20 @@ you model a target the collector could not observe. A file may declare at most
 5000 targets. An entry that fails validation is skipped with a
 `SOURCE_RECORD_INVALID` limitation and the rest is kept; a failure of the *file*
 drops the whole source with `SOURCE_UNAVAILABLE` and marks the snapshot
-`partial`.
+`partial`. Three fields are closed sets:
+
+- `compliance` — `Compliant`, `NonCompliant`, `Unknown`, `Invalid`, `Reference`,
+  `NotEvaluated`, `Warning` or empty
+- `findings[].severity` — `error`, `warning`, `info`, `unknown` or empty
+- `state.status` — `available`, `stale`, `partial` or `unavailable`. Unlike the
+  other two, a value outside this set is **silently coerced to `available`**, so
+  a typo here reads as a healthy source rather than a skipped record
 
 !!! warning "A malformed fixture is reported the same way as a missing one"
     Both produce exactly `SOURCE_UNAVAILABLE`, and the parse error itself is not
     surfaced — `-v` does not add it. If the source drops and the path is right,
-    suspect the file: check `schemaVersion` first, then field spelling.
+    suspect the file: check `schemaVersion` first, then field spelling and the
+    closed sets above.
 
 [`examples/demo/fleet-targets.yaml`](https://github.com/TrianaLab/pacto/blob/main/examples/demo/fleet-targets.yaml)
 is a complete worked fixture, and it is the file the live demo runs on.
@@ -299,7 +306,9 @@ flowchart LR
 ```
 
 - **Dashboard** — the visual front door. It builds one snapshot from every source
-  it detects and serves the graph and change analysis through `/api/fleet/*`. The
+  it detects and serves the graph and change analysis through `/api/fleet/*`,
+  whose answers carry their own `schemaVersion`, `pacto.dev/fleet-product/v1`,
+  so a UI versions independently of the snapshot export above. The
   Operational Graph view offers three **perspectives** — Services, Revisions and
   Operational targets — and a **Knowledge** control (Expected · Observed ·
   Differences). It is honest about what it cannot know. An operational target

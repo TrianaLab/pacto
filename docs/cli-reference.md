@@ -923,7 +923,7 @@ The arguments each fleet query tool takes, since none of them is required except
 | `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |
 | `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
 
-Argument names are not flag names: the substring filter is `text`, not `query`, and an unrecognised key is ignored rather than rejected, so a wrong guess reads as an unfiltered answer rather than an error.
+Argument names are not flag names: the substring filter is `text`, not `query`, and every tool above closes its schema, so a wrong guess is rejected as an error rather than dropped into an unfiltered answer.
 
 See [MCP Integration](mcp-integration.md) for detailed setup, serving a bundle's operations as tools and the catalog surface.
 

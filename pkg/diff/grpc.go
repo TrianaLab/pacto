@@ -327,8 +327,9 @@ func extractRPCs(body string) map[string]string {
 // Anything inside braces is skipped: a nested message, enum or `oneof` body is
 // not descended into, and a field whose inline option block carries a
 // text-format value (`[(validate.rules).string = {min_len: 1}]`) is dropped
-// along with it. The skip is symmetric, so such a field is simply absent from
-// the compared surface on both sides rather than reported as added or removed.
+// along with it. The skip is per-revision, not symmetric: only the side whose
+// statement carries the inline option loses the field, so adding such an option
+// to an existing field reads as a removal.
 func extractFields(body string) map[string]string {
 	out := make(map[string]string)
 	var stmt strings.Builder

@@ -11,7 +11,7 @@ Pacto uses an out-of-process plugin architecture for artifact generation. A plug
 | **pacto-plugin-schema-infer** | Infers a JSON Schema from sample configuration files (JSON, YAML, TOML) |
 | **pacto-plugin-openapi-infer** | Extracts OpenAPI 3.1 specs from source code (FastAPI, Huma) |
 
-Both run *inward*: they derive interfaces you already have rather than asking you to hand-author a schema. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides. Without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found`.
+Both run *inward*: they derive interfaces you already have rather than asking you to hand-author a schema. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides. Without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found (looked for pacto-plugin-helm in $PATH and ~/.config/pacto/plugins/)` — the second of those two directories is the other place to put it.
 
 See [Installation](installation.md#installing-the-official-plugins) for how to install them. Refer to each plugin's README for usage:
 

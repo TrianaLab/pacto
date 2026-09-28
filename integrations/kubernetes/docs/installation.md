@@ -98,8 +98,10 @@ read as exactly `<mount>/<file>` — no directory scanning, no writes. Give each
 source either `existingClaim` (real exports, written by some other workload) or
 `configMap` (small static exports), never both. `name` is the Data Source
 identity and must be unique across *every* source the dashboard assembles, so
-`k8s`, `oci`, `cache` and `local` are already taken; a collision is refused,
-naming both claimants. Whoever owns the storage owns producing and rotating the
+`local`, `catalog`, `target-state`, `evidence-http`, `oci` and `cache` are
+already taken, as is the Kubernetes source's identity — your current kube
+context name, or `k8s` when no context is set. A collision is refused, naming
+both claimants. Whoever owns the storage owns producing and rotating the
 exports: Pacto ships **no OTLP receiver**, so nothing listens on 4317 or 4318.
 
 [Sources](../../operational-graph.md#sources) lists every source the graph reads,

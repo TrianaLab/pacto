@@ -294,7 +294,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |\n" +
 		"| `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |\n" +
 		"| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |\n\n" +
-		"Argument names are not flag names: the substring filter is `text`, not `query`, and an unrecognised key is ignored rather than rejected, so a wrong guess reads as an unfiltered answer rather than an error.\n\n" +
+		"Argument names are not flag names: the substring filter is `text`, not `query`, and every tool above closes its schema, so a wrong guess is rejected as an error rather than dropped into an unfiltered answer.\n\n" +
 		"See [MCP Integration](mcp-integration.md) for detailed setup, serving a bundle's operations as tools and the catalog surface.",
 }
 

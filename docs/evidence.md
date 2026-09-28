@@ -65,7 +65,7 @@ A full envelope on the wire:
 
 | Command | Side | Purpose |
 |---------|------|---------|
-| `pacto evidence keygen` | producer | Mint an Ed25519 signing keypair. Writes `<keyId>.key` (secret, `0600`) and `<producer>__<keyId>.pub` (public key, filename binds the key to that producer). |
+| `pacto evidence keygen` | producer | Mint an Ed25519 signing keypair. Writes `<keyId>.key` (secret, `0600`) and the public key. `--producer` is optional: with it the public key is `<producer>__<keyId>.pub`, binding the key to that producer; without it, a bare `<keyId>.pub` binds it to a producer named after the key id. |
 | `pacto evidence sign` | producer | Wrap an `EvidenceSet` in a signed envelope. Reads the EvidenceSet JSON, validates it, wraps it and signs with `--key`, `--key-id`, `--producer`, `--sequence`. Default `--ttl 24h`; `--ttl 0` disables expiry. |
 | `pacto evidence send` | producer | Report a signed envelope outbound to an ingestion endpoint. POSTs to `POST /api/evidence/v1/envelopes`. |
 | `pacto evidence verify` | either | Verify a signed envelope against a trust store. Checks signature, freshness, producer authorization and trust. Exits non-zero on failure. |
@@ -111,7 +111,7 @@ The ingestion host mounts five endpoints under `/api/evidence/v1`.
 oras discover --distribution-spec v1.1-referrers-api <repo>@sha256:<digest>
 ```
 
-A conformant registry answers `GET /v2/<name>/referrers/<digest>` with **HTTP 200** and an OCI image index.
+A conformant registry answers `GET /v2/<name>/referrers/<digest>` with **HTTP 200** and an OCI image index. A non-conformant one answers `404 MANIFEST_UNKNOWN`.
 
 | Registry | Referrers API |
 |---|---|
@@ -137,6 +137,8 @@ A conformant registry answers `GET /v2/<name>/referrers/<digest>` with **HTTP 20
 | **partial** (bad artifact) | Every subject resolved, some referrer unreadable. | `200` | `200` with `health.status: partial` |
 | **partial** (bad subject) | Some subject failed, others read. | `503` | `200` with `health.status: partial` |
 | **unavailable** | No subject readable. | `503` | `503` `registry_unavailable` |
+
+Beside `status`, the `health` block carries the counts that say which half of a `partial` you have: `subjects`, `failedSubjects` and `invalidArtifacts`.
 
 ---
 
