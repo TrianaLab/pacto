@@ -93,8 +93,8 @@ and leaves your `Pacto` resources untouched; re-apply any
 [hand-patched controller flags](#upgrade-with-helm) afterwards. **Across** a
 major it is not that clean: Helm does not manage `crds/` in either direction, so
 a rollback leaves the new CRD in place and the old controller writes v4-only
-status fields the apiserver prunes while returning success — a real return to
-the previous major means rolling the chart back *and* server-side applying the
+status fields the apiserver prunes while returning success. A real return to the
+previous major means rolling the chart back *and* server-side applying the
 previous release's CRDs, the mirror image of step 1.
 
 ## Turning on the Evidence Server during an upgrade

@@ -99,7 +99,7 @@ jobs:
 
 ## Action reference
 
-Every input and output is documented in the
+Every input is documented in the
 [pacto-actions](https://github.com/TrianaLab/pacto-actions) repository, which
 owns the action and its version history.
 

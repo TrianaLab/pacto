@@ -54,7 +54,9 @@ To build the image from a checkout instead, `make docker-build` and
 | `PACTO_REGISTRY_PASSWORD` | Registry authentication password | `""` |
 | `PACTO_REGISTRY_TOKEN` | Registry authentication token | `""` |
 
-Each `PACTO_DASHBOARD_*` variable maps to the CLI flag of the same name.
+Most `PACTO_DASHBOARD_*` variables map to the CLI flag of the same name. Two do
+not: `PACTO_DASHBOARD_REPO` is the repository positional argument, and
+`PACTO_DASHBOARD_TRACE_SOURCES` maps to `--trace-source`, singular.
 
 The two trace variables are the container's only way to feed observed
 dependencies into the operational graph as

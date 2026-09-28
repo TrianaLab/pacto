@@ -89,9 +89,21 @@ kubectl -n argocd get cm argocd-cm \
   -o jsonpath='{.data.resource\.customizations\.health\.pacto\.trianalab\.io_Pacto}'
 ```
 
-`argocd admin settings resource-overrides health` evaluates it in the same
-sandbox the controller uses; a key that did not take prints `Health script is
-not configured` while **exiting 0**, so read the output, not the exit code. Both
+Then ask Argo what it makes of a real object. `argocd admin settings` evaluates
+the customization against files on disk, in the same Lua sandbox the controller
+uses, so it answers without waiting for a sync:
+
+```bash
+kubectl -n argocd get cm argocd-cm -o yaml > /tmp/argocd-cm.yaml
+kubectl -n <namespace> get pacto <name> -o yaml > /tmp/pacto.yaml
+
+argocd admin settings resource-overrides health /tmp/pacto.yaml \
+  --argocd-cm-path /tmp/argocd-cm.yaml
+```
+
+A `Compliant` Pacto prints `STATUS: Healthy` and `MESSAGE: contract satisfied`.
+A key that did not take prints `Health script is not configured` instead — and
+prints it while **exiting 0**, so read the output, not the exit code. Both
 checks read the ConfigMap rather than the controller, so they pass on an
 instance that started before the patch.
 
@@ -123,10 +135,3 @@ is prompt; the wording is not.
   workload matches its contract, nothing about request errors or saturation.
 - **`status.lastReconciledAt` cannot gate on freshness.** Neither tool hands the
   expression a clock.
-
-## Related
-
-- [Troubleshooting](troubleshooting.md#reading-the-events) — the events the
-  operator emits when a verdict changes.
-- [Limitations](limitations.md) — what the operator declines to judge.
-- [CRD reference](crd-reference.md) — the full `status` schema.

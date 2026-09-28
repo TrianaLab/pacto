@@ -7,9 +7,9 @@ The operator ships as a Helm chart and a controller image. Coordinates are on th
 ## Prerequisites
 
 - A Kubernetes cluster (the operator watches cluster-wide by default). The
-  chart declares no `kubeVersion` floor, so clusters older than the default
-  [kind](https://kind.sigs.k8s.io/) node image the acceptance suite runs against
-  are untested rather than blocked.
+  chart declares no `kubeVersion` floor. The acceptance suite runs on whatever
+  [kind](https://kind.sigs.k8s.io/) ships by default, so older clusters are
+  untested rather than blocked.
 - Helm 3.8 or newer (OCI registry support).
 - Cluster-admin permissions to install the CRDs and the operator's `ClusterRole`
   (see [RBAC](rbac.md)).
@@ -33,7 +33,9 @@ operator-managed dashboard.
     and `clusterrolebindings` — enough to grant itself anything in the cluster.
     Its *observation* of your workloads is read-only; the install as a whole is
     not. Use `--set dashboard.enabled=false` if that does not fit your threat
-    model. [RBAC](rbac.md) lists every rule, generated from the chart.
+    model, and deploy the dashboard yourself from the
+    [container manifest](../../dashboard-docker.md#kubernetes-deployment).
+    [RBAC](rbac.md) lists every rule, generated from the chart.
 
 ```bash
 helm install pacto-operator \
@@ -64,8 +66,8 @@ helm install pacto-operator \
 - `dashboard.enabled` toggles the operator-managed dashboard.
 
 Metrics observation, active health probing and name-match discovery are
-controller flags the chart cannot render:
-[Opt-in features](limitations.md#opt-in-features) has what that costs you.
+controller flags the chart does not expose:
+[Opt-in features](limitations.md#opt-in-features) explains what that costs you.
 
 !!! warning "The dashboard has no authentication — do not expose it"
 
@@ -96,8 +98,8 @@ read as exactly `<mount>/<file>` — no directory scanning, no writes. Give each
 source either `existingClaim` (real exports, written by some other workload) or
 `configMap` (small static exports), never both. `name` is the Data Source
 identity and must be unique across *every* source the dashboard assembles, so
-`k8s`, `oci` and `local` are already taken; a collision is refused, naming both
-claimants. Whoever owns the storage owns producing and rotating the exports:
+`k8s`, `oci`, `cache` and `local` are already taken; a collision is refused,
+naming both claimants. Whoever owns the storage owns producing and rotating the exports:
 Pacto ships **no OTLP receiver**, so nothing listens on 4317 or 4318.
 
 [Sources](../../operational-graph.md#sources) lists every source the graph reads,
@@ -261,58 +263,28 @@ observations](runtime-observations.md) for how a finding maps to a status.
 helm uninstall pacto-operator --namespace pacto-operator-system
 ```
 
-That removes the controller and everything it manages: the dashboard's and the
-Evidence Server's objects are owner-referenced to the controller Deployment, so
-Kubernetes garbage-collects them. Five things survive.
+That removes the controller and everything owner-referenced to it, dashboard and
+Evidence Server included. Five things survive, in any order:
 
-**The CRDs and your `Pacto` resources.** Helm never deletes CRDs, and removing
-them deletes every `Pacto` and `PactoRevision` with them. The operator sets no
-finalizers, so this returns immediately even with resources bound:
-
-```bash
-kubectl delete crd pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io
-```
-
-**The dashboard's cluster-scoped RBAC.** A cluster-scoped object cannot be owned
-by a namespaced one, so these outlive the release and nothing removes them:
+- **The CRDs and your `Pacto` resources.** Helm never deletes CRDs, and deleting
+  them takes every `Pacto` and `PactoRevision` with them. No finalizers, so it
+  returns immediately.
+- **The dashboard's cluster-scoped RBAC**, which a namespaced owner cannot own.
+- **Anything you created by hand** — the Evidence Server's trust Secret, your
+  registry-credentials Secret, the `metrics-observation-role` ClusterRole.
+- **The leader-election Lease** `a4917283.pacto.io`, inert once the controller
+  is gone and reused on reinstall.
+- **The namespace**, if `--create-namespace` created it.
 
 ```bash
-kubectl delete clusterrole pacto-dashboard
-kubectl delete clusterrolebinding pacto-dashboard
-```
-
-**Anything you created by hand.** Helm only owns what Helm rendered:
-
-```bash
-# Only if you enabled the Evidence Server
-kubectl delete secret pacto-evidence-trust -n pacto-operator-system
-
-# Only if you set evidence.registry.credentialsSecret. That Secret is one you
-# already had, so delete it by its own name, not the placeholder below.
-kubectl delete secret YOUR_REGISTRY_CREDENTIALS_SECRET -n pacto-operator-system
-
-# Only if you granted metrics observation (see Limitations)
-kubectl delete clusterrole metrics-observation-role
-kubectl delete clusterrolebinding metrics-observation-rolebinding
-```
-
-**The leader-election Lease.** controller-runtime created it at startup, with no
-owner to garbage-collect it. It is inert once the controller is gone and a
-reinstall reuses it, so it only matters if the namespace stays:
-
-```bash
-kubectl delete lease a4917283.pacto.io -n pacto-operator-system
-```
-
-**The namespace**, if `--create-namespace` created it: `kubectl delete namespace
-pacto-operator-system`. Deleting it takes the Lease with it.
-
-Order does not matter. To see what is left, ask before deleting the namespace:
-
-```bash
+# Look first: everything that answers is on the list above, plus Kubernetes'
+# own default ServiceAccount and kube-root-ca.crt ConfigMap.
 kubectl get all,sa,secret,lease,role,rolebinding -n pacto-operator-system
 kubectl get clusterrole,clusterrolebinding | grep pacto
-```
 
-Everything that answers is on the list above, plus Kubernetes' own `default`
-ServiceAccount and `kube-root-ca.crt` ConfigMap.
+kubectl delete crd pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io
+kubectl delete clusterrole,clusterrolebinding pacto-dashboard
+kubectl delete clusterrole metrics-observation-role              # if you granted it
+kubectl delete clusterrolebinding metrics-observation-rolebinding
+kubectl delete namespace pacto-operator-system   # takes the Lease and Secrets
+```

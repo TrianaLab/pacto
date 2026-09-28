@@ -9,8 +9,8 @@ kubectl get pacto <name> -o yaml                   # the whole object
 kubectl get pacto <name> -o yaml | yq '.status'    # just the status, if you have yq
 ```
 
-The finding codes below are defined on
-[Runtime observations](runtime-observations.md).
+[Runtime observations](runtime-observations.md) lists every finding code
+referenced below.
 
 ## Reading the conditions
 
@@ -39,8 +39,9 @@ Two absences are meaningful:
   `readiness:` block.
 
 Conditions are sticky: each keeps its `lastTransitionTime` while its status is
-unchanged and carries the `observedGeneration` it was set from, so one behind
-`metadata.generation` was not re-evaluated on the latest spec.
+unchanged, and carries the `observedGeneration` it was set from. A condition
+whose `observedGeneration` is behind `metadata.generation` was not re-evaluated
+on the latest spec.
 
 ## Reading the events
 
@@ -114,9 +115,18 @@ your registry. Cluster status is a live reading, not a log.
 ## Status is `Unknown`
 
 A required assertion could not be evaluated — not a violation. The finding code
-says why: `EVIDENCE_MISSING`, `OBSERVATION_UNSUPPORTED` or `COLLECTION_FAILED`,
-each defined on [Runtime observations](runtime-observations.md). A contract that
-could not be obtained transiently also reads `Unknown` rather than `Invalid`.
+says why:
+
+- **`EVIDENCE_MISSING`** — nothing was collected. The target may not exist yet,
+  or `spec.target.serviceName` does not match a real Service.
+- **`OBSERVATION_UNSUPPORTED`** — the dimension cannot be observed here: an
+  `ExternalName` dependency, or a metrics capability while
+  `--enable-metrics-observation` is off.
+- **`COLLECTION_FAILED`** — the cluster query errored. Check the
+  `RuntimeObserved` condition and the operator logs.
+
+A contract that could not be obtained transiently also reads `Unknown` rather
+than `Invalid`.
 
 ## Status is `Invalid`
 
