@@ -14,7 +14,7 @@ import (
 const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the operational graph: " +
 	"pacto_fleet_search, pacto_fleet_get, pacto_fleet_graph, pacto_fleet_status and " +
 	"pacto_fleet_explain, plus pacto_impact — a fourth read-only capability that projects a " +
-	"semantic contract diff (old→new revision) onto the graph to report which consumers a " +
+	"semantic contract diff (old→new revision) onto the graph to answer which consumers a " +
 	"change really affects. It reports the semantic classification, breaking changes, affected " +
 	"consumers with confidence and compatibility, active targets and owners to review. " +
 	"Distinguish the three tool families: authoring tools " +
