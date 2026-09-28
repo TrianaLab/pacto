@@ -13,8 +13,29 @@ A service's operational facts are scattered. Ownership is in a wiki. The API is
 an OpenAPI file in another repository. What it depends on is implied by Helm
 values and a Service name. What breaks if you change it is in someone's memory.
 
-Pacto puts those facts in one YAML file, published to the container registry you
-already run.
+Pacto is an operational contract system. It puts those facts in one YAML file,
+published to the container registry you already run.
+
+```yaml title="pacto.yaml"
+pactoVersion: "2.0"
+
+service:
+  name: checkout
+  version: 4.2.0
+  owner: { team: commerce, dri: alice }
+
+interfaces:
+  - name: rest-api
+    type: openapi
+    ref: interfaces/openapi.yaml       # the OpenAPI document you already maintain
+    visibility: public
+
+dependencies:
+  - name: auth
+    ref: oci://ghcr.io/acme/auth-pacto
+    required: true
+    compatibility: "^2.0.0"            # the range this revision accepts
+```
 
 ## What a service catalog does not do
 
@@ -35,9 +56,12 @@ Affected consumers (2):
 ```
 
 `checkout` accepts `^2.0.0` and 3.0.0 falls outside it. `reporting` accepts
-`>=2.0.0 <4.0.0` and 3.0.0 is inside. One file, checked when you write it,
-compared against the previous revision, then compared against what is actually
-running.
+`>=2.0.0 <4.0.0` and 3.0.0 is inside. `direct` means each one declares auth
+itself rather than reaching it through another service, and `contractual` means
+the dependency is declared with a usable range and nothing observed it running.
+
+One file, checked when you write it, compared against the previous revision,
+then compared against what is actually running.
 
 When Pacto cannot observe something it says `Unknown`. It never reports it as a
 pass.
@@ -56,8 +80,8 @@ the second consumer.
 
 ## Where to start
 
-- [Try the live demo](examples/dashboard-demo.md) — the dashboard running in
-  your browser against a fixture fleet, nothing to install
+- [What the live demo shows](examples/dashboard-demo.md) — the dashboard runs
+  in your browser against a fixture fleet, nothing to install
 - [Quickstart](quickstart.md) — an empty directory to a published bundle, about
   five minutes
 - [Put it in your repository](github-actions.md) — validate and diff on every

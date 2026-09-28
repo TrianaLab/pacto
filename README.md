@@ -59,40 +59,40 @@ browser or a terminal.
 
 ## What a contract declares
 
+This is the `checkout` contract from the run above:
+
 ```yaml
 pactoVersion: "2.0"
 
 service:
-  name: payments-api
-  version: 2.1.0
-  owner:
-    team: payments
-    dri: alice
+  name: checkout
+  version: 4.2.0
+  owner: { team: commerce, dri: alice }
 
 interfaces:
   - name: rest-api
     type: openapi
-    ref: interfaces/openapi.yaml   # points at your existing OpenAPI spec
+    ref: interfaces/openapi.yaml       # the OpenAPI document you already maintain
     visibility: public
 
 dependencies:
   - name: auth
-    ref: oci://ghcr.io/acme/auth-pacto:2.0.0
+    ref: oci://ghcr.io/acme/auth-pacto
     required: true
-    compatibility: "^2.0.0"
+    compatibility: "^2.0.0"            # the range this revision accepts
 ```
 
-Only `pactoVersion` and `service` are required, everything else is opt-in, and
-an unknown field is rejected rather than ignored. There is no port, image,
+Only `pactoVersion` and `service` are required. Everything else is opt-in. An
+unknown field is rejected rather than ignored. There is no port, image,
 replicas or namespace field: those are delivery decisions, and leaving them out
-is what keeps one contract true across every cluster the service runs in. Every
-`ref` points at a schema you already own.
+keeps one contract true in every cluster. Each interface's `ref` points at a
+schema you already own.
 
 ## How Pacto compares
 
 Pacto composes the interface tools it sits between (OpenAPI, config schemas) and
 complements the deploy tools (Helm, Terraform). It gets compared to the
-orchestrators and portals that *act on* a service, and it is not one of them: it
+orchestrators and portals that *act on* a service; it is not one of them and
 makes zero deployment decisions.
 
 | | Versioned artifact | Semantic diff | Dependency graph | Transitive policy | Runtime verify | Orchestrator-agnostic | Deploys? |
@@ -108,12 +108,16 @@ makes zero deployment decisions.
 
 ✅ first-class · Partial adjacent or limited · — not in scope. Verified against
 each project's own documentation, August 2026; these projects move fast, so
-re-check the cells before relying on them. Orchestrator-agnostic is the softest
-column — between ✅ and —, Partial is a judgement of degree.
+re-check the cells before relying on them. The contested columns:
+
+- **Semantic diff** — changes classified by compatibility impact, not rendered as text; a line-based diff is Partial
+- **Transitive policy** — governance rules evaluated across the dependency closure, fail-closed
+- **Runtime verify** — workloads checked against an independently declared contract; reconciling toward the tool's own desired state is Partial
+- **Orchestrator-agnostic** — the tool needs no Kubernetes control plane of its own. The softest column: between ✅ and —, Partial is a judgement of degree
 
 Several of these are complementary rather than competing: a contract can gate a
 Kargo promotion, feed a Backstage card or front a Crossplane provisioner. Pacto
-is the only row that does all of it over one versioned artifact.
+is the only row that scores first-class on all six capability columns.
 
 ## Installation
 
@@ -131,9 +135,9 @@ git clone https://github.com/TrianaLab/pacto.git && cd pacto && make build
 The installer script also installs the two official plugins and leaves a
 version-stamped binary that `pacto update` can upgrade in place. `go install`
 and `make build` install `pacto` alone into `$GOBIN`, and a `go install` build
-reports its version as `dev` because the stamp is applied at release time. The
-[Installation guide](https://pacto.run/latest/installation) covers pinning a
-version, installing without `sudo` and uninstalling.
+reports its version as `dev` because the stamp is applied at release time.
+[Installing](https://pacto.run/latest/installation) covers pinning a version,
+installing without `sudo` and uninstalling.
 
 ## Documentation
 

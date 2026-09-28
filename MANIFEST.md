@@ -6,10 +6,10 @@ A service's operational knowledge is real, but it has no home.
 
 The API surface has an OpenAPI spec. The container has a registry. The
 deployment has a Helm chart. The service *as an operating thing* is written down
-nowhere: what it is, what it exposes, how it is configured, what it depends on,
-what compatibility it guarantees and whether reality still matches any of that.
-Those facts are scattered across artifacts that were never designed to describe
-a service and do not talk to each other:
+nowhere. Not what it is, what it exposes, how it is configured, what it depends
+on, what compatibility it guarantees or whether reality still matches any of
+that. Those facts are scattered across artifacts that were never designed to
+describe a service and do not talk to each other:
 
 - OpenAPI describes one HTTP interface. It says nothing about the service that serves it.
 - Helm charts encode deployment mechanics for one orchestrator. They are not the service's intent.
@@ -18,11 +18,11 @@ a service and do not talk to each other:
 - Dependencies live in Slack threads and in the heads of the people who wired them.
 - READMEs go stale the day they are written.
 
-Every consumer that needs to understand a service — a platform, a CI pipeline, a
-controller, an on-call engineer, increasingly a program acting on someone's
-behalf — reassembles that picture from those fragments and fills the gaps with
-assumptions. It is expensive to rebuild, different every time it is rebuilt and
-wrong the moment any fragment drifts.
+Every consumer that needs to understand a service reassembles that picture from
+those fragments and fills the gaps with assumptions. The consumers: a platform,
+a CI pipeline, a controller, an on-call engineer, increasingly a program acting
+on someone's behalf. The picture is expensive to rebuild, different every time
+it is rebuilt and wrong the moment any fragment drifts.
 
 ## A contract is version-shaped; a catalog entry is not
 
