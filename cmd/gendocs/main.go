@@ -198,7 +198,7 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 
 	"validate": "The `--readiness` gate is **opt-in** because it is time-dependent: it compares the assessment's single `readiness.expires` date against the run time, which would make plain `validate` non-deterministic. Expiry is declared once for the whole assessment — individual claims carry no `expires` field, and adding one fails to load with `PARSE_ERROR`. " +
 		"Without the flag, validation only checks the contract's structure and rules (readiness checks are still validated for shape, but the freshness gate is not enforced). " +
-		"See the [readiness reference](contract-reference/dependencies-and-state.md#readiness) for the score and gate semantics.\n\n" +
+		"See the [readiness reference](contract-reference/readiness.md#readiness) for the score and gate semantics.\n\n" +
 		"**Exit code:** Non-zero if validation fails.",
 
 	"explain": "**What it covers.** The text output summarises identity, workload, state, capabilities, interfaces, dependencies and readiness. " +

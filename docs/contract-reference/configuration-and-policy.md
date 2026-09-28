@@ -1,12 +1,13 @@
 # Configuration and policy
 
 How a service declares the configuration it accepts and the rules it is held to.
-The other sections are in [Contract sections](sections.md) and
-[Dependencies, state and readiness](dependencies-and-state.md).
+The other sections are in [Contract sections](sections.md),
+[Dependencies and state](dependencies-and-state.md) and
+[Readiness](readiness.md).
 
 ## `configurations`
 
-Declares the named configuration **inputs** the service consumes at runtime — distinct from a platform provisioning API, Helm deployment values, or a raw Kubernetes ConfigMap/Secret: these are related but **not automatically interchangeable** (see [Configuration schema ownership](../patterns/index.md#configuration-schema-ownership)). Optional — a service with no configuration input may omit this section.
+Declares the named configuration **inputs** the service consumes at runtime — not a platform provisioning API, Helm deployment values or a Kubernetes ConfigMap, which are related but not interchangeable (see [Reusing a schema you already have](#reusing-a-schema-you-already-have)). Optional — a service with no configuration input may omit this section.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -23,11 +24,11 @@ Required configuration keys are derived from the JSON Schema's `required` array.
 The optional `values` field provides default configuration values validated against the local `schema`. A `ref:` entry carries no `values`; to attach values, vendor a local `schema:`. Values document expected defaults or provide environment-specific overrides via the `--set` and `--values` flags (see [Contract overrides](overrides.md#contract-overrides)).
 
 !!! tip
-    All files referenced by the contract — including the configuration schema — are packaged into the bundle when you run `pacto push`. The bundle is a self-contained OCI artifact.
+    `pacto push` packages every file the contract references, the configuration schema included, into a self-contained OCI artifact.
 
 ### External configuration schema reference
 
-Instead of vendoring a configuration schema into the bundle, you can reference another Pacto contract that owns it. By convention the referenced bundle keeps that schema at `configuration/schema.json`, which is where `pacto init` scaffolds it — Pacto records the reference and pins the referenced bundle, and reading the schema out of it is the consumer's job:
+Instead of vendoring a configuration schema into the bundle, reference another Pacto contract that owns it. By convention the referenced bundle keeps that schema at `configuration/schema.json`, which is where `pacto init` scaffolds it:
 
 ```yaml
 configurations:
@@ -36,16 +37,13 @@ configurations:
     required: true
 ```
 
-This enables centralized configuration management — a platform team publishes a single configuration contract, and all services reference it. [`pacto lock`](../lockfile.md) follows the chain: if the referenced contract itself has a `configurations[].ref`, the whole transitive closure is resolved and pinned (with cycle detection), using the same OCI resolution and caching infrastructure as dependencies.
+A platform team publishes one configuration contract and every service references it. [`pacto lock`](../lockfile.md) follows the chain with cycle detection, so a referenced contract that has its own `configurations[].ref` is resolved and pinned to the end of the closure.
 
 !!! tip
-    Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges. Use `pacto graph --with-references` to visualize them, or `pacto graph --only-references` to show only reference edges. In the dashboard graph, reference edges appear as dashed lines. The graph records reference edges, it does not walk them — only `dependencies[].ref` is traversed, so a service coupled to another purely through a shared configuration schema shows no dependents. The lockfile is where the reference closure is resolved.
+    Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges: `pacto graph --with-references` shows them alongside dependencies, `--only-references` shows them alone, and the dashboard graph draws them dashed. The graph records these edges without walking them — only `dependencies[].ref` is traversed, so a service coupled to another purely through a shared configuration schema shows no dependents; [`pacto.lock`](../lockfile.md) is where the transitive reference closure is resolved and pinned.
 
 !!! warning
-    Local configuration references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local configuration refs — all refs must use `oci://` before publishing.
-
-!!! tip
-    Configuration references are pinned in `pacto.lock` alongside dependencies. The full transitive reference closure (N-hop config/policy jumps) is resolved and verified. See [Lockfile](../lockfile.md).
+    `pacto push` rejects local configuration references (`file://` and bare paths) — they are for development only, and every ref must use `oci://` before publishing.
 
 ### Secret references
 
@@ -78,15 +76,40 @@ Your configuration JSON Schema should declare secret fields as strings:
 }
 ```
 
-Schema ownership, reusing a Helm `values.schema.json` and what the Kubernetes
-collector validates against a bound ConfigMap/Secret are covered in
-[Configuration schema ownership](../patterns/index.md#configuration-schema-ownership).
+### Reusing a schema you already have
+
+These artifacts are **related but not interchangeable**, and two of them being
+JSON Schema does not make them the same schema:
+
+| Artifact | Describes |
+|----------|-----------|
+| Service runtime configuration | keys the running service reads (e.g. a ConfigMap it mounts) |
+| Platform provisioning API | inputs to a provisioning claim |
+| Helm deployment values | inputs to `helm install`/`upgrade` |
+| Kubernetes ConfigMap/Secret content | the runtime configuration object itself |
+
+A Helm chart's `values.schema.json` may be reused as a `configurations[].schema`
+**only when** the named scope has the same semantic shape as those values, **or**
+when an explicit mapping exists between them. Who should own that schema — the
+service or the platform — is in
+[Composition patterns](../patterns/index.md#configuration-schema-ownership).
+
+### What the Kubernetes collector validates
+
+When the Kubernetes integration binds a `configurations[]` scope to a runtime
+object via the Pacto CR's `spec.target.configBindings`, it validates the
+**decoded content of the bound ConfigMap key** against the declared schema — the
+whole decoded JSON/YAML value at that key, not the ConfigMap object. For a
+`Secret` it verifies existence only; Secret values are never read. A `required`
+scope whose bound object or key is confirmed absent is a violation
+(NonCompliant), and so is a schema mismatch on observed content; a binding that
+cannot be observed at all is insufficient evidence (Unknown), not a violation.
 
 ---
 
 ## `policies`
 
-Defines or references policy constraints for the contract. Optional — services not subject to a policy may omit this section entirely. A policy is a JSON Schema that validates the contract itself, enabling platform teams to enforce organizational standards (e.g., require a health capability, enforce interface visibility rules, mandate a declared owner or a readiness gate).
+Defines or references policy constraints for the contract. Optional — services not subject to a policy may omit this section entirely. A policy is a JSON Schema that validates the contract itself, so an organization can state its standards as rules: require a health capability, require a declared owner, restrict interface visibility or require a readiness gate.
 
 When present, each entry must have a `name` and either `schema` or `ref` specified.
 
@@ -134,7 +157,7 @@ Example policy schema (`policy/schema.json`) requiring every contract to declare
 
 A policy schema validates the contract itself, so it can require any contract
 field — for example a [health capability](sections.md#capabilities) via a `capabilities`
-`contains` rule, or a [readiness](dependencies-and-state.md#readiness) gate. A contract is always checked
+`contains` rule, or a [readiness](readiness.md#readiness) gate. A contract is always checked
 against its own inline `schema` policies, so this policy contract satisfies the
 rule above by declaring `service.owner`.
 
@@ -148,19 +171,16 @@ policies:
     ref: oci://ghcr.io/acme/platform-policy-pacto:1.0.0
 ```
 
-When a consumer references a policy contract, Pacto uses conditional resolution: if the referenced contract explicitly declares `policies[]` entries, those schemas are used directly (supporting custom paths and multiple schemas). If the referenced contract has no `policies[]` entries, Pacto falls back to reading the fixed path `policy/schema.json`. The reference supports recursive resolution: if the referenced contract itself has a `policies[].ref`, Pacto follows the chain (with cycle detection) using the same OCI resolution and caching infrastructure as dependencies.
+The `ref` row above says which schemas a referenced contract contributes. Which commands walk that chain, and what happens when a link in it cannot be fetched, is in [Layer 3](validation.md#layer-3-policy-checks).
 
 !!! tip
-    Like `configurations[].ref`, policy references create **reference edges** in the dependency graph. Use `pacto graph --with-references` to see them alongside dependencies.
+    Like `configurations[].ref`, policy references create **reference edges** in the dependency graph (`pacto graph --with-references`) and are pinned in [`pacto.lock`](../lockfile.md) alongside dependencies.
 
 !!! warning
-    Local policy references (`file://` and bare paths) are only allowed during development. `pacto push` rejects contracts with local `policies[].ref` — all refs must use `oci://` before publishing.
+    `pacto push` rejects local `policies[].ref` values (`file://` and bare paths) — they are for development only, and every ref must use `oci://` before publishing.
 
 !!! info
-    `pacto push` resolves and enforces all remote `policies[].ref` entries before publishing. If the contract violates any referenced policy schema, the push is rejected. This ensures non-compliant contracts are never published to the registry.
-
-!!! tip
-    Policy references are pinned in `pacto.lock` alongside dependencies and config references. The full transitive reference closure is resolved and verified. See [Lockfile](../lockfile.md).
+    `pacto push` resolves every remote `policies[].ref` before publishing and rejects the push if the contract violates one of those schemas.
 
 A policy author's own bundle carries the schema at `policy/schema.json`, the
 fixed path a `policies[].ref` resolves against; see

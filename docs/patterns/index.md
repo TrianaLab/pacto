@@ -201,7 +201,7 @@ configurations:
 !!! info
     Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` (with `values`) or a `ref` (schema-only) — omitting `required` is rejected. Inline `values` require a local `schema`; a `ref`-based entry carries neither.
 
-**Precedence:** Contract inline `values` → `-f overrides/values.<env>.yaml` → `--set` (wins). See [Precedence](../contract-reference/overrides.md#precedence) and [Environment-specific values files](../contract-reference/overrides.md#environment-specific-values-files) for the full chain.
+**Precedence:** Contract inline `values` → `-f overrides/values.<env>.yaml` → `--set` (wins). See [Precedence](../contract-reference/overrides.md#precedence) for the full chain.
 
 ---
 

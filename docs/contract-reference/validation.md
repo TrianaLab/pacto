@@ -67,9 +67,9 @@ Layer 1 rejects the contract first and reports `SCHEMA_VIOLATION`. Layer 2 has
 its own check for each of those, but no contract survives Layer 1 to reach it,
 so do not build a CI rule on a code that is not in this table.
 
-## Layer 3: Policy enforcement
+## Layer 3: Policy checks
 
-Resolves and enforces all declared policies against the contract. Policies are applied with strict **AND semantics** — the contract must satisfy every resolved policy. Contradictory policies naturally fail; no precedence or override logic is applied.
+Resolves every declared policy and checks the contract against it. Policies apply with strict **AND semantics** — the contract must satisfy all of them. Contradictory policies simply fail; there is no precedence or override logic.
 
 | Condition | Code |
 |---|---|
@@ -78,7 +78,7 @@ Resolves and enforces all declared policies against the contract. Policies are a
 | Contract violates a policy constraint | `POLICY_VIOLATION` |
 | `policies[].ref` was skipped because no resolver was configured | `POLICY_REF_NOT_ENFORCED` (warning) |
 
-`POLICY_REF_UNRESOLVED` is a **hard error** — validation fails closed when a referenced policy cannot be resolved. This ensures that missing or unreachable policies are never silently skipped.
+`POLICY_REF_UNRESOLVED` is a **hard error** — validation fails closed when a referenced policy cannot be resolved, so a missing or unreachable policy is never silently skipped.
 
 **When ref-based policies are resolved.** Recursive resolution of
 `policies[].ref` happens only when a resolver is configured. `pacto validate` and
