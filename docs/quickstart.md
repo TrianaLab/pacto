@@ -77,7 +77,7 @@ cp -r my-service checkout
 cp -r my-service reporting
 ```
 
-In `checkout/pacto.yaml`, replace the commented-out `dependencies:` block with:
+In `checkout/pacto.yaml`, set `service.name: checkout` and replace the commented-out `dependencies:` block with:
 
 ```yaml
 dependencies:
@@ -87,7 +87,7 @@ dependencies:
     compatibility: "^1.0.0"
 ```
 
-In `reporting/pacto.yaml`, use a wider range:
+In `reporting/pacto.yaml`, set `service.name: reporting` and use a wider range:
 
 ```yaml
 dependencies:

@@ -91,6 +91,26 @@ pacto update v3.1.4       # specific version
 
 This verifies the new binary's SHA-256 before replacing the current one. A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v3/cmd/pacto@latest` instead.
 
+## Uninstall
+
+Pacto has no uninstaller. Remove the binaries, then the state they wrote:
+
+```bash
+# 1. The binaries (adjust the directory if you set PACTO_INSTALL_DIR, or use
+#    ~/go/bin if you installed with `go install` or `make build`).
+sudo rm -f /usr/local/bin/pacto \
+           /usr/local/bin/pacto-plugin-schema-infer \
+           /usr/local/bin/pacto-plugin-openapi-infer
+
+# 2. Registry credentials and the update-check timestamp.
+rm -rf ~/.config/pacto
+
+# 3. The pulled-bundle cache.
+rm -rf ~/.cache/pacto
+```
+
+The last two follow `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` where you set them. Removing `~/.config/pacto` deletes stored registry credentials; run [`pacto logout <registry>`](cli-reference.md#pacto-logout) first if you would rather drop them one registry at a time.
+
 ## Supply chain: what is signed and what is not
 
 Pacto's release pipeline signs some artifacts and not others. A signature you assume exists is worse than one you know does not:
@@ -125,4 +145,4 @@ shasum -a 256 -c checksums.txt --ignore-missing
 
 ---
 
-Next: [Quickstart](quickstart.md). For uninstall steps, see [CONTRIBUTING.md](https://github.com/TrianaLab/pacto/blob/main/CONTRIBUTING.md).
+Next: [Quickstart](quickstart.md).

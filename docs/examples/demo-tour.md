@@ -191,13 +191,17 @@ dashboard's OpenAPI interface, one per read-only operation. Beside the interface
 operations the server always registers Pacto's own authoring tools —
 `pacto_create` and `pacto_edit` write contract files to disk.
 
-Mutating operations are withheld by default. Five mutating operations — every
-`POST`, `PUT`, `PATCH` and `DELETE` the interface declares — are dropped with a
+Mutating operations are withheld by default, in every bundle. Serve the demo's
+payments service instead and its five mutating operations — every `POST`, `PUT`,
+`PATCH` and `DELETE` *that* bundle's interface declares — are dropped with a
 warning on stderr:
 
 ```bash
 pacto mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.0.1:1
 ```
+
+The base URL is deliberately a dead address: the tools are registered and listed
+without anything ever being called.
 
 Add `--allow-writes` and both the warning and the restriction disappear.
 `--allow-writes` governs the interface half only; withhold the authoring tools

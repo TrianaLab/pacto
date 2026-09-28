@@ -55,6 +55,8 @@ pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 pacto validate my-service --set interfaces[0].visibility=internal
 ```
 
+A worked per-environment layout — one values file per environment, the array-replacement caveat and this precedence rule applied end to end — is in [Configurations as composable claims](../patterns/index.md#configurations-as-composable-claims).
+
 ## Diff overrides
 
 `diff` and `impact` each take two contract references — an old one and a new one — so they carry no plain `--values`/`--set`. To override each side independently, use prefixed flags:
