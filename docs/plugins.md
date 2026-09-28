@@ -1,8 +1,6 @@
 # Plugin Development
 
-Pacto uses an out-of-process plugin architecture for artifact generation. A plugin is a standalone executable that receives a contract via JSON on stdin and writes generated file descriptions to stdout.
-
-A plugin can turn a contract into any artifact — Helm charts, Terraform, Kubernetes manifests — in any language.
+Pacto uses an out-of-process plugin architecture for artifact generation. A plugin is a standalone executable that receives a contract via JSON on stdin and writes generated file descriptions to stdout. A plugin can turn a contract into any artifact — Helm charts, Terraform, Kubernetes manifests — in any language.
 
 ---
 
@@ -12,32 +10,12 @@ Pacto has two official plugins:
 
 | Plugin | Description |
 |--------|-------------|
-| **pacto-plugin-schema-infer** | Infers a JSON Schema from sample configuration files (JSON, YAML, TOML) for use in Pacto contracts. |
-| **pacto-plugin-openapi-infer** | Auto-detects web frameworks and extracts OpenAPI 3.1 specs from source code. Currently supports FastAPI and Huma. |
+| **pacto-plugin-schema-infer** | Infers a JSON Schema from sample configuration files (JSON, YAML, TOML) |
+| **pacto-plugin-openapi-infer** | Extracts OpenAPI 3.1 specs from source code (FastAPI, Huma) |
 
-Both `*-infer` plugins are the composition on-ramp: they derive the interfaces you already have — a service's HTTP API from its source, its config shape from real config files — instead of asking you to hand-author a schema. Compose what already exists rather than reinvent it.
+Both run *inward*: they derive interfaces you already have rather than asking you to hand-author a schema. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides. Without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found`.
 
-Those two are the whole official set, and both run *inward*. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides — without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found`. The rest of this page is how to build that plugin.
-
-### Installing them
-
-They are separate binaries maintained in the
-[pacto-plugins](https://github.com/TrianaLab/pacto-plugins) repository, not part
-of the `pacto` binary, so how you installed Pacto decides whether you have them:
-
-| Install method | Plugins |
-|----------------|---------|
-| [Installer script](installation.md#via-installer-script) (`get-pacto.sh`) | Installed alongside the CLI — best-effort. If the plugin release cannot be fetched the script prints `Warning: failed to fetch latest plugins version, skipping plugin installation` and continues, so a successful Pacto install does not guarantee them. |
-| [`go install`](installation.md#via-go) | Not installed |
-| [From source](installation.md#from-source-manual-build) (`make build`) | Not installed |
-
-Without them, `pacto generate schema-infer` and `pacto generate openapi-infer`
-fail with `plugin "<name>" not found`. To install them by hand, download the
-binaries for your platform from the [pacto-plugins releases](https://github.com/TrianaLab/pacto-plugins/releases),
-make them executable and put them on your `PATH` or in
-`~/.config/pacto/plugins/` (see [Plugin discovery](#plugin-discovery)).
-
-Refer to each plugin's README for detailed usage and options:
+See [Installation](installation.md#installing-the-official-plugins) for how to install them. Refer to each plugin's README for usage:
 
 - [pacto-plugin-schema-infer](https://github.com/TrianaLab/pacto-plugins/tree/main/plugins/pacto-plugin-schema-infer)
 - [pacto-plugin-openapi-infer](https://github.com/TrianaLab/pacto-plugins/tree/main/plugins/pacto-plugin-openapi-infer)
@@ -236,67 +214,15 @@ Make it executable and place it in your `$PATH`:
 ```bash
 chmod +x pacto-plugin-readme
 mv pacto-plugin-readme /usr/local/bin/
-
-# Use it
 pacto generate readme my-service
-```
-
----
-
-## Example: Plugin in Python
-
-```python
-#!/usr/bin/env python3
-"""pacto-plugin-env — Generates a .env.example from the contract's configuration schema."""
-
-import json
-import sys
-
-def main():
-    request = json.load(sys.stdin)
-    contract = request["contract"]
-    name = contract["service"]["name"]
-
-    # Read the first configuration schema from the bundle
-    configs = contract.get("configurations", [])
-    if not configs or "schema" not in configs[0]:
-        response = {"files": [], "message": "No configurations section found"}
-        json.dump(response, sys.stdout)
-        return
-
-    schema_path = f"{request['bundleDir']}/{configs[0]['schema']}"
-    try:
-        with open(schema_path) as f:
-            schema = json.load(f)
-    except FileNotFoundError:
-        print(f"Schema file not found: {schema_path}", file=sys.stderr)
-        sys.exit(1)
-
-    # Generate .env.example from schema properties
-    lines = [f"# Configuration for {name}", ""]
-    for prop, details in schema.get("properties", {}).items():
-        desc = details.get("description", "")
-        comment = f"  # {desc}" if desc else ""
-        lines.append(f"{prop.upper()}={comment}")
-
-    content = "\n".join(lines) + "\n"
-
-    response = {
-        "files": [{"path": ".env.example", "content": content}],
-        "message": f"Generated .env.example for {name}",
-    }
-    json.dump(response, sys.stdout)
-
-if __name__ == "__main__":
-    main()
 ```
 
 ---
 
 ## Guidelines
 
-- **Read only from `bundleDir`.** Don't access files outside the bundle.
-- **Write only to stdout.** Don't write files directly; return them in the response. Pacto handles file creation.
-- **Follow the protocol.** Return clean relative paths, write errors to stderr and exit non-zero on failure — see [Path safety](#path-safety) and [Errors](#errors) above for what Pacto enforces.
+- **Read only from `bundleDir`.** Do not access files outside the bundle.
+- **Write only to stdout.** Do not write files directly; return them in the response. Pacto handles file creation.
+- **Follow the protocol.** Return clean relative paths, write errors to stderr and exit non-zero on failure.
 - **Be deterministic.** Given the same input, produce the same output.
 - **Handle missing optional fields.** Only `pactoVersion` and `service` are required — not all contracts have `workload`, `state`, `configurations`, `dependencies` or `capabilities`.

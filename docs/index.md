@@ -84,7 +84,7 @@ the second consumer.
   in your browser against a fixture fleet, nothing to install
 - [Quickstart](quickstart.md) — an empty directory to a published bundle, about
   five minutes
-- [Put it in your repository](github-actions.md) — validate and diff on every
+- [Put it in your repository](ci.md) — validate and diff on every
   pull request
 - [Contract reference](contract-reference/index.md) — every field and every
   validation rule
