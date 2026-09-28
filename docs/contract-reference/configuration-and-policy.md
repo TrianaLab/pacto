@@ -97,8 +97,9 @@ service or the platform — is in
 ### What the Kubernetes collector validates
 
 The Kubernetes integration binds a `configurations[]` scope to a runtime object
-via the Pacto CR's `spec.target.configBindings`. It then validates the **decoded
-content of the bound ConfigMap key** against the declared schema — the whole
+only when the Pacto CR sets `spec.target.configBindings`. When it does, it
+validates the **decoded content of the bound ConfigMap key** against the
+declared schema — the whole
 decoded JSON/YAML value at that key, not the ConfigMap object. For a
 `Secret` it verifies existence only; Secret values are never read. A `required`
 scope whose bound object or key is confirmed absent is a violation

@@ -40,7 +40,7 @@ The assistant works through the tool interface.
 Two tools sit outside these families: `pacto_skill` and `pacto_catalog_revision`.
 
 Not in the surface: inspecting a registry contract, resolving a dependency graph,
-diffing revisions and generating docs. Nor the two non-query `pacto fleet`
+diffing revisions, generating docs and the two non-query `pacto fleet`
 operations — `reconcile` (declared dependencies against observed traffic) and
 `snapshot` (the whole read model as one document). These stay CLI-only. No tool pushes, pulls or deploys
 anything. [Server modes](cli-reference.md#server-modes) lists which tools each

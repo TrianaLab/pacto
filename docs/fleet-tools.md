@@ -13,7 +13,7 @@ needs attention right now, the service inventory, the
 auto-detected at startup and merged per service. Running alongside the Kubernetes
 operator therefore gives the full contract experience — version history,
 interface details, configuration schemas and diffs — with no explicit OCI
-arguments. The dashboard discovers repositories from the `resolvedRef` fields in
+arguments: the dashboard discovers repositories from the `resolvedRef` fields in
 Pacto CRD statuses. See the [`pacto dashboard`
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables.

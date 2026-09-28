@@ -71,8 +71,8 @@ install, without `argocd-server`, a restart is the *only* way in: hot reload of
 
 In the Lua, **nothing maps to Argo's `Unknown`** — it ranks worse than
 `Degraded` and would mask genuinely broken workloads, so anything unrecognised
-becomes `Progressing`. The string library is also disabled, so `string.format`
-and `s:gsub()` fail at runtime rather than at load.
+becomes `Progressing`. **The string library is also disabled**, so
+`string.format` and `s:gsub()` fail at runtime rather than at load.
 
 `tests/acceptance/kind/gitops-argocd.sh` runs **that exact file** through the
 Lua sandbox with no cluster, and then inside a kind cluster where an Application

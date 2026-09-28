@@ -110,7 +110,7 @@ pacto impact ./payments-api@1.4.0 ./payments-api@2.0.0 \
   --traces ./traces.json
 ```
 
-The output reports the classification and the breaking and potentially-breaking
+The output reports the classification, then the breaking and potentially-breaking
 changes, kept separate — a potential break is never counted as a confirmed one.
 It then lists every affected consumer with its verdict and confidence, the active
 targets, the owners to notify and the snapshot's completeness.
