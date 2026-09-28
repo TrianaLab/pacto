@@ -6,8 +6,9 @@ Rebuild the documentation around what a reader is trying to do, and cut it in ha
 
 The site used to be organised by subsystem, so finding out what Pacto does meant
 reading about how it is built. Twelve top-level navigation sections are now
-eight, in the order a reader actually arrives in: **Try it**, **Get started**,
-**Guides**, **How Pacto decides**, **Reference**, **Integrations**. Concepts and
+eight — the homepage, the changelog and six that carry the reading path, in the
+order a reader arrives in: **Try it**, **Get started**, **Guides**, **How Pacto
+decides**, **Reference**, **Integrations**. Concepts and
 the operational graph merged into How Pacto decides, patterns moved under
 Guides, examples split across the two entry sections and Project internals left
 the site altogether.
