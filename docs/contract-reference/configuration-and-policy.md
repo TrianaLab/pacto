@@ -6,7 +6,7 @@ The other sections are in [Contract sections](sections.md) and
 
 ## `configurations`
 
-Declares the named configuration **inputs** the service consumes at runtime — distinct from a platform provisioning API, Helm deployment values, or a raw Kubernetes ConfigMap/Secret: these are related but **not automatically interchangeable** (see [Configuration schema ownership](../patterns/configuration-schema-ownership.md)). Optional — a service with no configuration input may omit this section.
+Declares the named configuration **inputs** the service consumes at runtime — distinct from a platform provisioning API, Helm deployment values, or a raw Kubernetes ConfigMap/Secret: these are related but **not automatically interchangeable** (see [Configuration schema ownership](../patterns/index.md#configuration-schema-ownership)). Optional — a service with no configuration input may omit this section.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -80,7 +80,7 @@ Your configuration JSON Schema should declare secret fields as strings:
 
 Schema ownership, reusing a Helm `values.schema.json` and what the Kubernetes
 collector validates against a bound ConfigMap/Secret are covered in
-[Configuration schema ownership](../patterns/configuration-schema-ownership.md).
+[Configuration schema ownership](../patterns/index.md#configuration-schema-ownership).
 
 ---
 

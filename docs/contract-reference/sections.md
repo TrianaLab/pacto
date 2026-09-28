@@ -190,7 +190,7 @@ metadata:
 `additionalProperties: false` — no extra fields allowed at any level (except inside `metadata`).
 
 !!! tip
-    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](../patterns/infrastructure-contracts.md).
+    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](../patterns/index.md#infrastructure-contracts).
 
 ---
 
