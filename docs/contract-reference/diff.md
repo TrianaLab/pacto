@@ -120,7 +120,7 @@ part of the key and is not compared, so re-pointing an existing capability's
 
 ## OpenAPI
 
-`pacto diff` performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level.
+`pacto diff` performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level.
 
 ### Paths
 
@@ -167,7 +167,7 @@ Parameters are identified by `name` + `in` (location: query, path, header, cooki
 | `openapi.responses` | Removed | **BREAKING** |
 
 Neither table has a Modified row. A request body or a status code present on
-both sides is never reported as one opaque modification: it is deep-diffed field
+both sides is never reported as one opaque modification. It is deep-diffed field
 by field and each inner difference is classified by the [JSON Schema
 rules](#json-schema-configuration-policy-schemas) below, so there is no such
 change for a Modified rule to answer.
@@ -184,7 +184,7 @@ Which side of the exchange the body belongs to changes the verdict, because a
 | response | property removed | **BREAKING** | data a consumer could read is gone |
 
 A property removed from a response is `BREAKING` whether or not it was listed in
-`required` — most response schemas have no `required` array at all, and deleting
+`required`. Most response schemas have no `required` array at all, and deleting
 a field consumers read is the commonest way a REST provider breaks them. Every
 other inner difference (a property added, a type or constraint changed) is
 `POTENTIAL_BREAKING`.
@@ -208,7 +208,7 @@ openapi.paths[/users].methods[GET].responses[200].content.application/json.schem
 | `asyncapi.channels` | Added | NON_BREAKING |
 | `asyncapi.channels` | Removed | **BREAKING** |
 
-A channel present on both sides is never reported as one opaque modification. It is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change, classified by the [JSON Schema rules](#json-schema-configuration-policy-schemas) below: a `required` change is `BREAKING`, every other inner difference is `POTENTIAL_BREAKING`. That is why there is no `asyncapi.channels` Modified row — the engine has no such change to emit.
+A channel present on both sides is never reported as one opaque modification. It is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. The [JSON Schema rules](#json-schema-configuration-policy-schemas) below classify each one: a `required` change is `BREAKING`, every other inner difference is `POTENTIAL_BREAKING`. That is why there is no `asyncapi.channels` Modified row — the engine has no such change to emit.
 
 ### Operations
 
@@ -248,7 +248,7 @@ asyncapi.operations[sendOrder].action
 | `grpc.messages.fields` | Removed | **BREAKING** |
 | `grpc.messages.fields` | Modified | **BREAKING** |
 
-proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. Everything else here is `BREAKING`: removing a service, rpc, message or field breaks every caller, and a changed rpc signature (including a switch between unary and streaming) or a field whose type or number changed breaks the wire format for clients built against the old descriptor. That is why a modified field is `BREAKING` rather than `POTENTIAL_BREAKING`.
+proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. That is why a modified field is `BREAKING` rather than `POTENTIAL_BREAKING`.
 
 Change paths pinpoint the exact location, for example:
 
@@ -266,12 +266,12 @@ The comparison is a text scan of proto3 source, not a protobuf compile. In pract
 - **Nested messages and `oneof` bodies are not descended into.** Their fields are skipped rather than misread as fields of the enclosing message, so a change inside one produces no change entry.
 - **Identity is the declared name.** A renamed field or rpc reads as a removal plus an addition even when the field number is unchanged.
 - **Type identity is textual.** The scanner does not resolve names against `package` or `import`, so fully qualifying a type (`Inner` → `pkg.v1.Inner`) reads as a modified field even though the descriptor is unchanged.
-- **Inline field options are ignored.** A field's trailing `[...]` block is parsed off and dropped, so adding or removing `[deprecated = true]` is not a change while a retype behind one still is. A field whose option block contains braces (a nested text-format value such as `[(validate.rules).string = {min_len: 1}]`) is skipped entirely, on both sides, so it never appears in the compared surface.
-- **Comments and string literals are handled by one pre-scan.** Before anything is matched, the source is walked once and every comment, along with the contents of every *closed* string literal, is blanked to spaces. Newlines survive, so the line structure and every byte offset are unchanged. A `//`, a `}` or a `/*` inside a closed string (a URL in an `option` line, say) is therefore inert: it neither truncates the line, nor closes a block early, nor opens a comment. Both quote styles and backslash escapes are understood, and the single pass settles comment-vs-string precedence, so a `/*` written inside a `//` comment does not open a block comment. A quote with no closing quote before the line break is not a proto string literal at all, since a literal cannot span a raw newline; the scan blanks from that quote to the end of the line, keeping any `;` it finds. The blanking makes the tail's braces and comment openers inert, and the surviving `;` still ends the statement, so the declaration on the next line is read normally.
+- **Inline field options are ignored.** Adding or removing `[deprecated = true]` is not a change, while a retype behind one still is. A field whose option block contains braces (a nested text-format value such as `[(validate.rules).string = {min_len: 1}]`) is dropped from the revision that carries it, and only from that one — so adding such an option to an existing field reads as a removal and is classified **BREAKING**.
+- **Comments and string literals are inert.** A `//`, a `}` or a `/*` inside a string literal — a URL in an `option` line, say — neither truncates the line nor closes a block early nor opens a comment.
 
 ## JSON Schema (configuration & policy schemas)
 
-Schema files referenced by `configurations[].schema`, `policies[].schema`, or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
+Schema files referenced by `configurations[].schema`, `policies[].schema` or the auto-detected `policy/schema.json` are compared recursively. Every structural difference — properties, types, constraints, defaults, enums, etc. — is detected and classified.
 
 | Field | Change | Classification |
 |-------|--------|----------------|
@@ -282,7 +282,7 @@ Schema files referenced by `configurations[].schema`, `policies[].schema`, or th
 | `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
 
 The same recursive comparison classifies OpenAPI request bodies and responses,
-AsyncAPI payloads and these schema files, but not identically: a `required`
+AsyncAPI payloads and these schema files — but not identically. A `required`
 entry is a promise in one direction and an obligation in the other, so the
 verdict depends on which side supplies the data.
 

@@ -34,35 +34,35 @@ func TestPublicCollectorInterfaceIsAbsentOrImplemented(t *testing.T) {
 	}
 }
 
-// TestCollectorsDocIsCanonical: docs/collectors.md exists and carries the canonical
+// TestCollectorsDocIsCanonical: docs/model.md exists and carries the canonical
 // diagrams + the collector-vs-plugin distinction, so collectors are first-class in
 // the public docs.
 func TestCollectorsDocIsCanonical(t *testing.T) {
 	root := docsRoot(t)
-	b, err := os.ReadFile(filepath.Join(root, "docs", "collectors.md"))
+	b, err := os.ReadFile(filepath.Join(root, "docs", "model.md"))
 	if err != nil {
-		t.Fatalf("docs/collectors.md missing: %v", err)
+		t.Fatalf("docs/model.md missing: %v", err)
 	}
 	doc := string(b)
 	mermaid := strings.Count(doc, "```mermaid")
 	if mermaid < 2 {
-		t.Errorf("docs/collectors.md must carry the canonical diagrams (declaration-vs-observation + collector-system); found %d mermaid blocks", mermaid)
+		t.Errorf("docs/model.md must carry the canonical diagrams (declaration-vs-observation + collector-system); found %d mermaid blocks", mermaid)
 	}
 	if !strings.Contains(doc, "Evaluate") || !strings.Contains(doc, "EvidenceSet") {
-		t.Error("docs/collectors.md must center the Contract + Evidence -> Evaluate model")
+		t.Error("docs/model.md must center the Contract + Evidence -> Evaluate model")
 	}
 	// collector != plugin must be explicit.
 	if !regexp.MustCompile(`(?i)collector.{0,40}plugin|plugin.{0,40}collector`).MatchString(doc) {
-		t.Error("docs/collectors.md must explicitly distinguish a collector from a plugin")
+		t.Error("docs/model.md must explicitly distinguish a collector from a plugin")
 	}
 	// The custom-collector Go example must be real (mirrors the compiled ExampleEvaluate
 	// in pkg/validation/collector_example_test.go), not ellipsis-based pseudocode.
 	if !strings.Contains(doc, "validation.Evaluate(c, ev)") || !strings.Contains(doc, "evidence.EvidenceSet{") {
-		t.Error("docs/collectors.md must show the real Evaluate call over an EvidenceSet (see ExampleEvaluate)")
+		t.Error("docs/model.md must show the real Evaluate call over an EvidenceSet (see ExampleEvaluate)")
 	}
 	for _, pseudo := range []string{"customCollector.Observe", "loadContract(...)"} {
 		if strings.Contains(doc, pseudo) {
-			t.Errorf("docs/collectors.md presents pseudocode %q as Go — use the compilable example", pseudo)
+			t.Errorf("docs/model.md presents pseudocode %q as Go — use the compilable example", pseudo)
 		}
 	}
 }
@@ -72,14 +72,18 @@ func TestCollectorsDocIsCanonical(t *testing.T) {
 // collector (ECS/Nomad/Terraform/cloud) as shipped/supported/implemented.
 func TestDocsDoNotConflateOrOverclaimCollectors(t *testing.T) {
 	root := docsRoot(t)
+	// The list tracks wherever the collector narrative lives, which moves as the
+	// documentation is reorganised. A deleted entry must be REPLACED by the page its
+	// prose moved to, never just dropped: the read below skips a file it cannot find
+	// rather than failing, so a stale list silently covers less prose than it used to.
+	// Entries for pages that do not exist yet are deliberate — they start working the
+	// moment the page lands.
 	files := []string{
-		"README.md", "MANIFEST.md",
-		"docs/index.md", "docs/model.md", "docs/architecture.md", "docs/collectors.md",
-		"docs/concepts.md", "docs/platform-engineers.md",
-		// Split out of the three pages above under the documentation word budget.
-		// Without them the scan silently covers less prose than it used to: the
-		// read below skips a file it cannot find rather than failing.
-		"docs/architecture-tooling.md", "docs/concepts-boundaries.md", "docs/fleet-tools.md",
+		"README.md", "MANIFEST.md", "CONTRIBUTING.md", "ARCHITECTURE.md",
+		"docs/index.md", "docs/model.md", "docs/platform-engineers.md",
+		"docs/operational-graph.md", "docs/impact.md", "docs/evidence.md",
+		"docs/quickstart.md", "docs/developers.md", "docs/fleet-tools.md",
+		"docs/mcp-integration.md", "docs/patterns/index.md",
 	}
 	engineConflation := regexp.MustCompile(`(?i)kubernetes (collector|operator)[^.\n]{0,30}\bis the engine\b`)
 	overclaim := regexp.MustCompile(`(?i)\b(ECS|Nomad|Terraform)\b[^.\n]{0,40}\b(collector|shipped|supported|implemented)\b`)

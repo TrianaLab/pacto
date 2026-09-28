@@ -1,18 +1,15 @@
 {% extends "main.html" %}
 
 {# Landing hero. Rendered only for pages with `template: home.html` metadata (docs/index.md).
-   It sits where the tabs render; the page's markdown renders below it as usual. Light &
-   airy: the hero inherits the page background and floats a soft indigo glow behind the
-   wordmark. Copy lives here — edit the headline/tagline/CTAs below. Styles: stylesheets/extra.css.
+   It sits where the tabs render; the page's markdown renders below it as usual. Copy lives
+   here — edit the headline/tagline/CTAs below. Styles: stylesheets/extra.css.
 
    Jinja comments, not HTML ones: an HTML comment inside a rendered block is served to
    every visitor. These notes are for whoever edits the template, not for the browser. #}
 {% block tabs %}
   {{ super() }}
-  {# Named, because a <section> is only a landmark once it has an accessible
-     name. Unnamed, everything below sat outside every landmark and a screen
-     reader jumping by region skipped the entire hero — headline, tagline and
-     all three calls to action. #}
+  {# Named, because a <section> is only a landmark once it has an accessible name.
+     Unnamed, a screen reader jumping by region skipped the whole hero. #}
   <section class="pacto-hero md-typeset" aria-label="Introduction">
     <div class="pacto-hero__glow" aria-hidden="true"></div>
     <div class="pacto-hero__inner">
@@ -26,69 +23,35 @@
         </svg>
         <span class="pacto-hero__wordmark">pacto</span>
       </div>
-      {# The categorising noun, and the only place above the fold that carries one.
-         Not "standard": that word promises governance, a conformance suite and a
-         second implementation, and the evidence is one schema file in this repo. #}
+      {# The categorising noun. Not "standard": that word promises governance, a
+         conformance suite and a second implementation, and the evidence is one
+         schema file in this repository. #}
       <p class="pacto-hero__eyebrow">Operational contract system</p>
-      {# This is the page's only <h1>. Material's partials/content.html injects one
-         when the rendered markdown contains no h1 element, and on this page that
-         injection lands as a meaningless "Home" below the hero — a second top-level
-         heading a screen reader announces as the document's title. docs/index.md
-         therefore opens with a `hidden` h1 whose only job is to suppress it. Change
-         the headline here and there together. #}
+      {# This is the page's only <h1>. Material injects one when the rendered markdown
+         has no h1, and here that lands as a meaningless "Home" below the hero.
+         docs/index.md therefore opens with a `hidden` h1 whose only job is to suppress
+         it. Change the headline here and there together. #}
       <h1 class="pacto-hero__title">One versioned contract per service</h1>
-      {# Plain words here, the precise term one screen down. This line is the
-         first thing anyone reads, and "OCI artifact" was landing before
-         anything on the page had expanded either word.
-
-         Both halves of the product, in order: the contract is declared AND it
-         is checked against reality. A tagline that stops at "versioned and
-         distributed" sells a YAML file. The checking is what the page's own
-         closing sentence leads with, and it belongs here instead.
-
-         The list is the answer to "a contract containing what?", and it leads
-         on the two items nothing else versions: ownership and a dependency
-         carrying a compatibility range. Naming them beats "how a service is
-         meant to behave", which a reader can fill in with anything.
-
-         The opening clause is the strategic frame the eyebrow's category noun
-         implies but does not state: what an operational contract system is FOR
-         is giving software an interface a machine can read. The list stays —
-         the frame without it is a slogan. #}
+      {# Both halves of the product, in order: the contract is declared AND it is
+         checked against reality. A tagline that stops at "published" sells a YAML file. #}
       <p class="pacto-hero__tagline">
-        A machine-readable operational interface for every service: ownership,
-        interfaces, version-ranged dependencies, policies and readiness —
-        declared in one file, published to any container registry, then
-        compared against the last revision and against what is actually
+        Ownership, interfaces, version-ranged dependencies, policies and
+        readiness go in one file. Pacto publishes it to any container registry,
+        then compares it against the last revision and against what is actually
         running.
       </p>
-      {# Each label names its true destination. "Live demo" opens the running
-         in-browser dashboard at /demo/ (built into the docs tree by
-         `make docs`; see the Makefile), not the page that describes it —
-         a reader who clicks "Live demo" wants the demo, not an interstitial.
-
-         The demo is the primary action because it is the only one that costs
-         the reader nothing: no install, no registry, no account. Quickstart is
-         the next step for someone who has decided, not the first step for
-         someone who is still deciding. #}
+      {# Each label names its true destination: "Live demo" opens the running dashboard
+         at /demo/ (built into the docs tree by `make docs`), not the page describing it.
+         It leads because it costs the reader nothing — no install, no registry, no
+         account; Quickstart is for someone who has already decided. #}
       <div class="pacto-hero__actions">
         <a href="{{ 'demo/' | url }}#/fleet" class="md-button md-button--primary">Try the live demo</a>
         <a href="{{ 'quickstart/' | url }}" class="md-button">Quickstart</a>
         <a href="{{ 'contract-reference/' | url }}" class="md-button">Contract reference</a>
       </div>
-      {# The primary CTA fires an ~11 MB download (57 MB unpacked) and used to be
-         the one route to the demo that never said so: the page that warns you,
-         examples/dashboard-demo, sits behind the smaller "Try it" nav link. Name
-         the cost next to the button that spends it.
-
-         The second sentence exists because the fold answered "what is it" and
-         nothing else — who it is for was five screens down. It keeps its full
-         section; this is the pointer.
-
-         The one invited click goes to the definition, not to the list of
-         exclusions. Non-goals disambiguate a model the reader already holds;
-         they cannot build one, and #what-pacto-is-not sent a first-time visitor
-         straight past both definitions to find out what Pacto isn't. #}
+      {# Name the cost next to the button that spends it: the primary CTA fires an
+         ~11 MB download. The second sentence points at the definition, not at the
+         list of exclusions — non-goals cannot build a model the reader lacks. #}
       <p class="pacto-hero__note">
         The demo runs entirely in your browser — about 11&nbsp;MB, nothing to install.
         Pacto is for the teams who operate many services; start with

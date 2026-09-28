@@ -34,7 +34,7 @@ operational graph the CLI's ` + "`pacto fleet`" + ` commands query, served as a 
 The dashboard is the exploration and observability layer of the Pacto system.
 It visualizes the same contracts the CLI manages and the operator verifies,
 organised around four workflows: an operational Overview, the Services
-inventory, the Operational Graph, and Change analysis.
+inventory, the Operational Graph and Change analysis.
 
 Each positional argument is a pacto source reference:
   - oci://registry/repo  → OCI registry source (can be repeated)

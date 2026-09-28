@@ -1,10 +1,10 @@
 # MCP Integration
 
-Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes contract operations as tools, so an AI assistant like Claude, Cursor or GitHub Copilot can create, edit and validate Pacto contracts directly.
+Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes contract operations as tools, so an AI assistant can create, edit and validate Pacto contracts directly.
 
-Point the server at a bundle (`pacto mcp <bundle-ref>`) and it goes further: every operation in the bundle's OpenAPI interface becomes an executable agent tool, and any `skills/*.md` domain guides the bundle ships are exposed too. See [Agent capabilities](mcp-agent-capabilities.md) below.
+Point the server at a bundle and every operation in the bundle's OpenAPI interface becomes an executable agent tool.
 
-MCP is an *integration surface*, not the definition of Pacto. The projection that turns a bundle's interface into callable tools lives in the framework-independent `pkg/capability` package; MCP is the transport this page uses to expose it.
+MCP is an integration surface. The projection that turns a bundle's interface into callable tools lives in `pkg/capability`; MCP is the transport.
 
 ---
 
@@ -18,7 +18,14 @@ flowchart LR
     MCP -->|"JSON responses"| AI
 ```
 
-The assistant works entirely through the tool interface, and Pacto returns JSON. What it reaches for depends on the mode: the [authoring tools](mcp-authoring-tools.md) touch local contract directories and nothing else, while a bundle server calls the live service, `--fleet` reads clusters, registries and Evidence Servers, and `--root` resolves contracts from a registry.
+The assistant works through the tool interface.
+
+| Mode | What it reaches |
+|------|-----------------|
+| Authoring tools | Local contract directories |
+| Bundle mode | The live service |
+| `--fleet` | Clusters and registries |
+| `--root` | Contracts from a registry |
 
 ---
 
@@ -26,22 +33,19 @@ The assistant works entirely through the tool interface, and Pacto returns JSON.
 
 | Family | Tools | What they do | Safety boundary |
 |--------|-------|--------------|-----------------|
-| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation — with a [known gap](mcp-authoring-tools.md#pacto_edit). |
+| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation — with a [known gap](#pacto_edit-can-write-a-bundle-that-pacto-validate-rejects). |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a 30-second timeout and follows no redirect at all — a 3xx comes back to the agent as the result. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact-surfaces.md#mcp-tool-pacto_impact) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report a change's blast radius. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover — read-only is not offline, and a read-only *family* is not a read-only *server*: see [Fleet query safety](#fleet-query-safety). The only server with no write tool is [`--root`](mcp-catalog-discovery.md). |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover — read-only is not offline, and a read-only *family* is not a read-only *server*: see [Fleet query safety](#fleet-query-safety). The only server with no write tool is catalog mode. |
 
-Two tools sit outside these families: `pacto_skill`, serving a bundle's
-own [domain guides](mcp-agent-capabilities.md), and `pacto_catalog_revision`, the
-lookup tool of the fourth server mode, [catalog discovery](mcp-catalog-discovery.md)
-— which also publishes two MCP *resources*, the only non-tool part of the surface.
+Two tools sit outside these families: `pacto_skill` and `pacto_catalog_revision`.
 
 Not in the surface: inspecting a registry contract, resolving a dependency graph,
-diffing revisions, generating docs, and the two non-query `pacto fleet`
+diffing revisions, generating docs and the two non-query `pacto fleet`
 operations — `reconcile` (declared dependencies against observed traffic) and
 `snapshot` (the whole read model as one document). These stay CLI-only. No tool pushes, pulls or deploys
 anything. [Server modes](cli-reference.md#server-modes) lists which tools each
-invocation registers; [Boundaries](concepts-boundaries.md#boundaries) tells the MCP surface,
-the catalog and the fleet apart.
+invocation registers; [What Pacto is not](model.md#what-pacto-is-not) tells the
+MCP surface, the catalog and the fleet apart.
 
 !!! warning "The boundary is documented, not machine-advertised"
     Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
@@ -50,88 +54,107 @@ the catalog and the fleet apart.
     `idempotentHint` — including `pacto_create`, `pacto_edit` and a generated
     tool such as `createRefund`, which moves money. A client therefore cannot
     tell a read tool from a write tool, and will not warn before a write: this
-    boundary is enforced by you, not by your client, so build allow-lists by
+    boundary is yours to hold, not your client's, so build allow-lists by
     hand. The only machine-usable signal is the
     tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
     `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
-    `pacto_edit` write contract files; generated service tools carry no `pacto_`
+    `pacto_edit` write contract files. Generated service tools carry no `pacto_`
     prefix and reach a live service, so treat every unprefixed tool as unsafe
     unless the server was started without `--allow-writes`. That holds because
-    [the `pacto_` names are reserved](mcp-agent-capabilities.md#the-pacto_-names-are-reserved):
-    a bundle cannot claim one.
+    the `pacto_` names are reserved: a bundle cannot claim one.
 
 ### Fleet query safety
 
-- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md)
-  — an immutable read model — and write nothing, to a contract, a registry or a
-  running service. Read-only is not the same as offline. The `pacto_fleet_*` tools
-  answer from the snapshot built at startup and touch nothing afterwards, but
-  `pacto_impact` re-resolves both of its refs and rebuilds the snapshot on **every**
-  call — so each invocation reaches your registry, and your cluster if `--k8s` is
-  on, using the server's own credentials. Allow-list it on that basis, not on the
-  family's.
-- **Pacto does not determine authorization.** These tools expose knowledge; they
-  never grant, scope or revoke a permission. Whether an agent *may* act stays with
-  policy and IAM systems.
-- **Partial or stale results are incomplete knowledge.** Every answer that comes
-  back as a *result* carries an `asOf` time, a `completeness` value and structured
-  `limitations`. Branch on those before trusting an answer.
-- **A missing result under partial coverage does not prove absence.** If a source
-  was unavailable, a "not found" means "not known here", not "does not exist". An
-  unavailable source is never rendered as an empty result.
-- **A subject miss is an error, and it carries no envelope.** `pacto_fleet_get`,
-  `pacto_fleet_graph` and `pacto_fleet_explain` answer an unknown service or target
-  with an MCP tool error — the bare string `service "x" not found in the fleet
-  snapshot`, with no `meta`, so no `completeness` to branch on even when the
-  snapshot is partial. The two list-shaped tools do carry it. To find out whether
-  such an absence is trustworthy, call `pacto_fleet_search` or `pacto_fleet_status`
-  on the same server and read the `completeness` from there; both are served from
-  the same frozen snapshot, so the reading applies.
-- **The snapshot is frozen for the session.** `pacto mcp --fleet` builds one
-  snapshot at startup, and every `pacto_fleet_*` answer is served from it: the same
-  `asOf` and the same `snapshotId` for the life of the process, however far the
-  cluster or the registry moves underneath. A service deployed after the server
-  started will not appear until you restart it. `pacto_impact` is the one
-  exception — it resolves its two refs and rebuilds the snapshot on every call, so
-  its `asOf` advances while the fleet tools' does not. When the two disagree, they
-  are describing two different moments, not two different worlds.
-- **It reads; it does not reconcile and does not store.** Answering is all it
-  does. Acting on a contract in a cluster is the
-  [Kubernetes operator's](integrations/kubernetes/overview.md) job, and durable
-  evidence lives in an [Evidence Server](evidence-protocol.md) someone else runs —
-  `--evidence-url` reads one, it never becomes one. Nothing survives the process.
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. The `pacto_fleet_*` tools answer from the snapshot built at startup. `pacto_impact` re-resolves both refs and rebuilds the snapshot on every call, so each invocation reaches your registry — and your cluster if `--k8s` is on — using the server's credentials.
+- **Pacto does not determine authorization.** These tools expose knowledge; they never grant, scope or revoke a permission.
+- **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
+- **A missing result under partial coverage does not prove absence.** If a source was unavailable, "not found" means "not known here", not "does not exist".
+- **The snapshot is frozen for the session.** `pacto mcp --fleet` builds one snapshot at startup, and every `pacto_fleet_*` answer is served from it. A service deployed after the server started will not appear until you restart it. `pacto_impact` is the one exception — it rebuilds the snapshot on every call.
+- **It reads; it does not reconcile and does not store.** Acting on a contract in a cluster is the [Kubernetes operator's](integrations/kubernetes/overview.md) job, and durable evidence lives in an [Evidence Server](evidence.md) someone else runs. Nothing survives the process.
 
-`--fleet` names its sources the same way `pacto fleet` does, and the flags mean
-the same things:
+`--fleet` names its sources the same way `pacto fleet` does:
 
 ```bash
 pacto mcp --fleet --k8s --oci ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
-`--local`, `--oci`, `--k8s`, `--cache`, `--evidence-url`, `--target-state`,
-`--traces`, `--namespace` and `--freshness` are all accepted, and the
-[`pacto mcp` reference](cli-reference.md#pacto-mcp) lists them with their
-defaults. The one `pacto fleet` source flag that does *not* carry over is
-`--root`: on `pacto mcp` it selects the catalog server described above, so it
-cannot be combined with `--fleet`. `pacto_impact` still accepts a per-call
-`traces` argument, and that one reads a path off the local filesystem — see the
-table below. See [The Pacto Operational Graph](operational-graph.md) for the
-read model these tools query and the query semantics they expose.
+See [`pacto mcp` reference](cli-reference.md#pacto-mcp) for source flags and [The Pacto Operational Graph](operational-graph.md) for the read model.
 
-The arguments each tool takes, since none of them is required except where marked:
+---
 
-| Tool | Arguments |
-|------|-----------|
-| `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |
-| `pacto_fleet_get` | `service` **or** `target` — one names a logical service, the other an operational target by key or name |
-| `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |
-| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |
-| `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |
-| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |
+## The authoring tools
 
-Argument names are not flag names: the substring filter is `text`, not `query`,
-and an unrecognised key is ignored rather than rejected, so a wrong guess reads as
-an unfiltered answer rather than an error.
+These four are the default server, and every mode except `--root` carries them as well.
+
+| Tool | Description |
+|------|-------------|
+| `pacto_create` | Create a new contract from intent-level inputs. Supports dry run. |
+| `pacto_edit` | Edit an existing contract. Supports dry run. |
+| `pacto_check` | Validate a contract and return errors, warnings and suggestions. |
+| `pacto_schema` | Return the full JSON Schema reference. |
+
+**Structured inputs are JSON-encoded strings.** Every input that carries structure has the MCP wire type `string`, and the value is JSON serialised into a string — not a JSON array or object:
+
+```json
+{
+  "name": "orders",
+  "interfaces": "[{\"name\":\"api\",\"type\":\"openapi\"}]"
+}
+```
+
+!!! warning
+    Passing a real JSON array or object where the JSON-encoded string is expected is a **silent no-op**. The argument is discarded, the call still succeeds, `changes` comes back `null` and nothing is written — check the result's `changes` and `summary`. `pacto_check`'s own "add an interface" suggestion carries `add_interfaces` as a real array, so an agent that forwards that tool call verbatim walks into this.
+
+### `pacto_edit` can write a bundle that `pacto validate` rejects
+
+It scaffolds a stub spec file only for `openapi` and `grpc` interfaces. An `asyncapi` interface is added to `pacto.yaml` with a derived ref and no file is created, so the tool reports success while the referenced file is missing. Create the AsyncAPI document yourself after the edit.
+
+---
+
+## Bundle capabilities
+
+Pass a bundle reference and Pacto turns that bundle's OpenAPI operations into executable agent tools:
+
+```bash
+pacto mcp ./my-service --base-url https://api.example.com
+```
+
+Each operation becomes an MCP tool named by its `operationId` (or derived as `<method>_<path>`).
+
+**The `pacto_` names are reserved.** A contract declaring `operationId: pacto_check` would take over the authoring tool. Pacto skips such operations.
+
+**Read-only by default.** Only `GET`/`HEAD` operations are exposed unless you pass `--allow-writes`. The live host comes from `--base-url`, falling back to the spec's `servers[0]` URL. When you supply credentials, `--base-url` is required.
+
+**Service authentication (`--auth`).** Credentials are supplied per OpenAPI security scheme with `--auth name=value`:
+
+| Scheme type | How the credential is applied |
+|-------------|-------------------------------|
+| `apiKey` | Sent as the declared header or query parameter |
+| `http` `bearer` (and `oauth2` / `openIdConnect`) | `Authorization: Bearer <value>` |
+| `http` `basic` | `Authorization: Basic <value>` (supply pre-encoded `user:pass`) |
+
+**`pacto_skill`.** Bundles may ship domain knowledge as `skills/*.md`. The `pacto_skill` tool lists them and returns their content.
+
+**What a session freezes.** Bundle mode, `--fleet` and `--root` resolve their inputs once at startup. To pick up changes, restart the server. Two exceptions: `pacto_skill` reads from disk on every call, and the authoring tools act on whatever is on disk.
+
+---
+
+## Catalog mode
+
+`pacto mcp --root <ref>` starts a read-only contract catalog: the roots you name, plus their dependency closure, resolved once at startup and then frozen for the life of the process.
+
+```bash
+# One published platform, one contract you are still working on
+pacto mcp \
+  --root oci://ghcr.io/acme/platform:1.4.0 \
+  --root ./experimental-platform
+```
+
+`--root` is repeatable and takes either a local bundle directory or an `oci://` reference. Nothing is discovered that you did not name: Pacto does not crawl a registry, guess repository names or read a catalog file.
+
+The surface is two MCP *resources* (`pacto://catalog` and `pacto://catalog/closure`) plus one tool (`pacto_catalog_revision`). The catalog resource answers: schema version (`pacto.dev/catalog/v1`), catalog id, generation time, bounds, completeness and every requested root — including roots that did not resolve, and why. The closure resource answers: every deduplicated revision with its content identity, rank and retained paths; every resolved dependency edge; every dependency that did not resolve; and the conflicts and cycles left visible rather than resolved.
+
+That is the whole surface. Catalog mode registers no authoring tools: a server started for read-only discovery must not be a way to modify a contract. A root or a dependency that could not be resolved stays visible — with a category such as `NOT_FOUND`, `AUTH_FAILED` or `UNAVAILABLE`, never a raw registry error — and the whole answer is marked `partial`. Treat `complete` and `partial` as different facts: under partial, a revision you cannot find here is *unknown*, not proven absent.
 
 ---
 
@@ -208,11 +231,9 @@ Every client points the same way — it runs the `pacto` binary over stdio. Pick
     }
     ```
 
-To serve a bundle's operations as executable tools, append the bundle reference and flags to `args` — see [Agent capabilities](mcp-agent-capabilities.md).
+To serve a bundle's operations as executable tools, append the bundle reference and flags to `args`.
 
-Every snippet above is the **authoring** server, and `pacto_create` and
-`pacto_edit` write files. If the agent must change nothing, use [catalog
-mode](mcp-catalog-discovery.md) instead:
+Every snippet above is the **authoring** server, and `pacto_create` and `pacto_edit` write files. If the agent must change nothing, use catalog mode instead:
 
 ```json
 {
@@ -222,8 +243,7 @@ mode](mcp-catalog-discovery.md) instead:
 }
 ```
 
-`--fleet` is not the read-only choice, despite its tools being read-only: it adds
-the fleet family *beside* the authoring tools rather than instead of them.
+`--fleet` is not the read-only choice, despite its tools being read-only: it adds the fleet family *beside* the authoring tools rather than instead of them.
 
 ### Example prompts
 
@@ -241,13 +261,7 @@ Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
         service depends on others, declare them explicitly."
 ```
 
-The first answer is the honest one.
-[Dependencies are never inferred](mcp-authoring-tools.md#pacto_create) — a description that names
-PostgreSQL still produces no `dependencies` section, which is why the second
-prompt exists. `PostgreSQL` is also not the word that made this contract
-stateful: [matching is whole-word](mcp-authoring-tools.md#pacto_create).
-Here "stateful" and "stores data" did the work. Ask for the same contract without
-those two phrases and you get a stateless one.
+The first answer is the honest one. Dependencies are never inferred — a description that names PostgreSQL still produces no `dependencies` section, which is why the second prompt exists. `PostgreSQL` is also not the word that made this contract stateful: the generator matches whole words against your description. Here "stateful" and "stores data" did the work. Ask for the same contract without those two phrases and you get a stateless one.
 
 ---
 

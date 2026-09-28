@@ -10,6 +10,16 @@
 # no local compose file anywhere on the execution path; the projected files are
 # deleted after publication and everything below that point runs without them.
 #
+# No generic OCI tool appears on either path: neither this harness nor CI
+# installs ORAS. Compose writes the artifact and Compose reads it, which is the
+# claim. And there is no bind mount in the published model — every immutable
+# fixture input (the plan, the seed script, the bundle documents, the
+# observation fixture) travels inside the application as a Compose `config`
+# with inline `content`, and only mutable runtime state (the embedded registry,
+# the Evidence Server's keys) lives in a named volume. Project identity stays
+# the user's: an explicit `-p` per copy, never a top-level `name:` that would
+# make two versions collide.
+#
 # What runs from the checkout is the JUDGE, not the subject: the Product gate and
 # the browser suite are built here and then talk to the running demo over HTTP,
 # exactly as an outside observer would. The `browser` subcommand adds the live

@@ -2,8 +2,9 @@
 
 The sections that identify a service and describe its surface. Configuration and
 policy are in [Configuration and policy](configuration-and-policy.md);
-dependencies, state and readiness are in
-[Dependencies, state and readiness](dependencies-and-state.md).
+dependencies and state are in
+[Dependencies and state](dependencies-and-state.md); readiness is in
+[Readiness](readiness.md).
 
 ## `pactoVersion`
 
@@ -44,13 +45,13 @@ contract.
     `INVALID_SEMVER`.
 
     Nothing downstream re-checks the shape, so a coerced version is what gets
-    published: `pacto push` tags the artifact with the literal string, and two
+    published. `pacto push` tags the artifact with the literal string, and two
     contracts written `1` and `1.0.0` become two different tags of the same
     version. Write the full `MAJOR.MINOR.PATCH` and skip the `v`.
 
 ### OwnerInfo
 
-Structured ownership metadata. All fields are optional but at least one must be present.
+Structured ownership metadata. All fields are optional but at least one must be present. Which field you set decides the canonical owner key the graph aggregates by — see [Ownership and the canonical owner key](../operational-graph.md#ownership-and-the-canonical-owner-key).
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -86,23 +87,6 @@ service:
   owner:
     team: payments
 ```
-
-**Dashboard integration:**
-
-The dashboard aggregates and navigates by a canonical owner key that is **namespaced by
-which field named the owner**, written `kind:name`:
-
-1. If owner has `team` → `team:<team>`
-2. If owner has `dri` (no team) → `dri:<dri>`
-3. If owner has neither (contacts only) → no canonical key. The service is still owned,
-   and the dashboard counts it as such, but there is no owner to rank or link to.
-
-The namespace is part of the identity: `team:payments` never resolves to
-`dri:payments`, and only the name is shown on screen, with a `Team` / `DRI` badge where two
-owners would otherwise be indistinguishable. The separate free-text `owner` filter is a
-human search over team, DRI and contacts — deliberately not an identity, and it may match
-several owners at once. See [ownership aggregates](../operational-graph.md) for how the
-graph counts and ranks these owners.
 
 ---
 
@@ -172,7 +156,7 @@ capabilities:
     ref: example.com/tracing
 ```
 
-A `health` or `metrics` capability may be declared with no binding: it is a valid declaration for another collector to verify, but the current Kubernetes integration cannot actively verify an unbound capability and reports it as Unsupported/Unknown. An `extension` capability requires a namespaced `ref` and must not declare a binding.
+A `health` or `metrics` capability may be declared with no binding. That is a valid declaration for another collector to verify, but the current Kubernetes integration cannot actively verify an unbound capability and reports it as Unsupported/Unknown. An `extension` capability requires a namespaced `ref` and must not declare a binding.
 
 ---
 
@@ -190,7 +174,7 @@ metadata:
 `additionalProperties: false` — no extra fields allowed at any level (except inside `metadata`).
 
 !!! tip
-    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](../patterns/infrastructure-contracts.md).
+    `metadata` is a deliberate extension point for tooling. Platform teams use it to attach signals their CI or deployment systems can read off a contract — for example, infrastructure contracts can carry `metadata.labels` like `platform/provisioner: crossplane` to drive provisioning generically. See [Composition Patterns — Infrastructure contracts](../patterns/index.md#infrastructure-contracts).
 
 ---
 

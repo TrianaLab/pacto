@@ -322,8 +322,14 @@ func extractRPCs(body string) map[string]string {
 }
 
 // extractFields pulls the direct fields out of a message body, keyed by field
-// name with "<type> = <number>" as the value. Nested message, enum and oneof
-// bodies are skipped whole rather than mis-parsed as fields.
+// name with "<type> = <number>" as the value.
+//
+// Anything inside braces is skipped: a nested message, enum or `oneof` body is
+// not descended into, and a field whose inline option block carries a
+// text-format value (`[(validate.rules).string = {min_len: 1}]`) is dropped
+// along with it. The skip is per-revision, not symmetric: only the side whose
+// statement carries the inline option loses the field, so adding such an option
+// to an existing field reads as a removal.
 func extractFields(body string) map[string]string {
 	out := make(map[string]string)
 	var stmt strings.Builder

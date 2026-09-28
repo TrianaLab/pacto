@@ -45,3 +45,5 @@ tokens:
   - amazing
   - incredible
   - rich (?:documentation|feedback|experience|set|ecosystem)
+  # "Leverage" is always "use" here. No sense of it in this corpus is technical.
+  - \bleverag\w+

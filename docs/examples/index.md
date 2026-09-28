@@ -5,7 +5,7 @@ This section provides ready-to-use Pacto contracts for common infrastructure ser
 To see the whole dashboard in your browser with nothing to install, open the [live dashboard demo](dashboard-demo.md) — its source and curated contract set live in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo). For a real fleet on your own machine — a registry, an Evidence Server and the dashboard, pulled as one OCI artifact — see the [Docker Compose demo](compose-demo.md). To drive one from the command line instead, the [guided tour](demo-tour.md) walks six user stories over a fixture fleet, offline. That same fixture opens in the [terminal UI](../fleet-tools.md#the-terminal-ui) if you would rather browse it than type paths, and `pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""` gets most of it out of the registry with no clone.
 
 !!! tip
-    These contracts represent the **operational interface** of each service — not a deployment recipe. They describe what a service exposes and how it behaves — not how to deploy it. Each one composes schemas you already have — an OpenAPI or AsyncAPI document, a gRPC service descriptor, JSON Schema for `configurations` — rather than inventing a new format; the contract is the relational layer Pacto adds around them: ownership, dependencies, compatibility, lifecycle. Every referenced spec file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types)).
+    These contracts represent the **operational interface** of each service — not a deployment recipe. They describe what a service exposes and how it behaves — not how to deploy it. Each one composes schemas you already have — an OpenAPI or AsyncAPI document, a gRPC service descriptor, JSON Schema for `configurations` — rather than inventing a new format. The contract is the relational layer Pacto adds around them — ownership, dependencies, compatibility, lifecycle. Every referenced spec file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types)).
 
 ## Available examples
 
@@ -654,7 +654,6 @@ state:
 That contract is step 1 of the [operational control loop](../model.md#the-operational-control-loop)
 — declare, read, constrain, act, observe, evaluate — which the model page states
 once, including which two steps external systems perform rather than Pacto. The
-rest of this site is that loop in detail: [`pacto explain` and MCP](../mcp-agent-capabilities.md)
-read it, the [Kubernetes collector](../integrations/kubernetes/runtime-observations.md)
-observes against it, and [compliance scenarios](compliance-scenarios.md) show
-what each verdict is proven by.
+rest of this site is that loop in detail: [`pacto explain` and MCP](../mcp-integration.md)
+read it, and the [Kubernetes collector](../integrations/kubernetes/runtime-observations.md)
+observes against it.

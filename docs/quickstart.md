@@ -7,13 +7,7 @@ search:
 
 # Quickstart
 
-Getting started with Pacto: from zero to a published contract in about five
-minutes. Everything here runs on your machine — no account, no registry of your
-own, nothing to sign up for.
-
-You need the Pacto CLI (step 1) and, from step 6 onwards,
-[Docker](https://docs.docker.com/get-started/get-docker/) to run a throwaway
-registry. Step 9 deletes everything this page creates.
+From zero to a validated contract that detects breaking changes: about five minutes. Everything runs locally with no account, no registry, nothing to sign up for.
 
 ---
 
@@ -29,265 +23,172 @@ Or via Go:
 go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 ```
 
-See [Installation](installation.md) for the other methods, for
-[installing without `sudo`](installation.md#installing-without-sudo), and for
-what to do if the script exits with `Failed to fetch latest version` — that is
-the anonymous GitHub API rate limit, not a broken release.
+See [Installation](installation.md) for other methods and for what to do if the script exits with `Failed to fetch latest version` — that is the anonymous GitHub API rate limit, not a broken release.
 
-## 2. Scaffold a contract
+## 2. Create a contract
 
-```bash
-$ pacto init my-service
-Created my-service/
-  my-service/pacto.yaml
-  my-service/interfaces/
-  my-service/configuration/
-```
-
-The argument is the service name, not a path — it becomes the directory *and*
-`service.name`, so `pacto init fleet/checkout-web` scaffolds a bundle that fails
-validation. `cd` into the directory you want and pass the bare name.
-
-Three files, all valid as they stand:
-
-| File | What it is |
-|---|---|
-| `pacto.yaml` | the contract — the only required file |
-| `interfaces/openapi.yaml` | a placeholder OpenAPI spec with one path, `/health` |
-| `configuration/schema.json` | a placeholder JSON Schema for the service's configuration |
-
-`pacto.yaml` also ships a `readiness:` block (step 5) and a `metadata:` block,
-both filled with placeholders.
-
-If your service has no interfaces or no configuration, remove the directory
-**and** the matching `interfaces:` / `configurations:` section in `pacto.yaml` —
-deleting the directory alone breaks validation. The scaffold's `health` and
-`metrics` capabilities are declared without an interface binding, so they need
-no changes.
-
-These are standard formats — OpenAPI for interfaces, JSON Schema for
-configuration — so you can drop in files you already own (for example your Helm
-chart's `values.schema.json`) instead of authoring new ones.
-
-## 3. Validate
+Run this from an empty directory and stay there through step 5; step 6 moves inside `my-service`.
 
 ```bash
-$ pacto validate my-service
-my-service is valid
+pacto init my-service
 ```
 
-Validation runs three layers — structural, cross-field and policy enforcement.
-See the [Contract Reference](contract-reference/validation.md#validation-layers)
-for the full rules.
+This writes three files: `pacto.yaml` (the contract), `interfaces/openapi.yaml` (a placeholder API spec) and `configuration/schema.json` (a placeholder config schema). The argument is the service name, not a path. It becomes the directory and `service.name`, so `pacto init fleet/checkout` creates a bundle that fails validation.
 
-## 4. Customize your contract
-
-Edit `my-service/pacto.yaml` to match your service. A minimal contract only
-requires `pactoVersion` and `service`:
-
-```yaml
-pactoVersion: "2.0"
-
-service:
-  name: my-service
-  version: 0.1.0
-  owner:
-    team: backend
-```
-
-Add sections as needed — interfaces, workload, state, capabilities,
-dependencies, configuration, policy, readiness. See the
-[Contract Reference](contract-reference/index.md) for every available field.
-
-`service.version` is the contract's version, and it becomes the registry tag in
-step 6. The scaffold starts at `0.1.0`; the rest of this page uses that value.
-
-## 5. Set the readiness claims
-
-`pacto init` scaffolds a `readiness:` block with `minScore: 80` and two claims
-that start at `not-done`: `runbook` (weight 40) and `security-review`
-(weight 60). Readiness is scored separately from validity, so plain
-`pacto validate` ignores it. Ask for it explicitly:
-
-```bash
-$ pacto validate my-service --readiness
-my-service is invalid
-  ERROR [READINESS_GATE_UNMET] readiness: score below gate: score 0, minScore 80 (0 done, 0 partial, 2 not-done, 0 deferred)
-validation failed with 1 error(s)
-```
-
-That is the gate working, not a broken scaffold: nothing is done yet, so the
-score is 0. Replace the placeholder claims with your service's real ones, then
-set each `status:` to `done`, `partial`, `not-done` or `deferred` as you go. With
-both scaffolded claims at `done`:
-
-```bash
-$ pacto validate my-service --readiness
-my-service is valid
-```
-
-The gate is opt-in because the result is time-dependent — an assessment past its
-`expires:` date scores 0. See
-[Contract Reference](contract-reference/dependencies-and-state.md#readiness) for the scoring
-rules, including how `partial` claims earn part of their weight.
-
-## 6. Publish to a registry
-
-Start a throwaway registry so the whole round trip needs no account. Docker has
-to be **running**, not just installed: with the daemon down, `docker run` fails
-with a connection error naming the Docker socket, not Pacto.
-
-```bash
-$ docker run -d --rm -p 127.0.0.1:5001:5000 --name pacto-registry registry:3
-6202c6df98fc5f50cf3b3375ea112d0928b274cb3bd6aa7b7d25d1e8e6b56aa2
-```
-
-`registry:3` is the official `registry` image — CNCF Distribution
-(`github.com/distribution/distribution/v3`), the reference OCI registry. Docker
-pulls it the first time, then prints the container ID as above; yours will
-differ. It disappears in step 9. Port 5001 because macOS binds 5000 for AirPlay;
-`127.0.0.1:` because the registry accepts anonymous writes.
-
-```bash
-# Auto-tags with service.version; skips if that tag already exists (--force overwrites)
-$ pacto push oci://localhost:5001/demo/my-service-pacto -p my-service
-Pushed my-service@0.1.0 -> localhost:5001/demo/my-service-pacto:0.1.0
-Digest: sha256:<64 hex characters>
-```
-
-The digest is the full 64-character hash, content-addressed: yours differs from
-anyone else's the moment you edit the contract.
-
-No `pacto login` here — a local registry needs no credentials. A real one needs
-an account you can publish to (`your-org` must be a GitHub user or organisation
-you own) and, for GHCR, a personal access token with the `write:packages`
-scope:
-
-```bash
-$ pacto login ghcr.io -u your-username
-Password:
-Login succeeded for ghcr.io
-$ pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
-```
-
-Paste the token at the `Password:` prompt; it is not echoed. `login` stores
-credentials in `~/.config/pacto/config.json` without contacting the registry, so
-`Login succeeded` only means they were saved: a wrong token or missing scope
-surfaces on the `push`.
-
-!!! note "`pacto pack` is not a step on this path"
-    `pacto pack my-service` writes `my-service-0.1.0.tar.gz`, a bundle you can
-    hand to someone with no registry access. `pacto push` reads the directory
-    directly and rejects a tarball (`my-service-0.1.0.tar.gz is not a
-    directory`), so packing first does nothing. No other Pacto command reads the
-    archive — whoever receives it extracts it first.
-
-## 7. Read it back
-
-`explain` takes a registry reference, so you can read what you published
-without downloading it first:
-
-```bash
-$ pacto explain oci://localhost:5001/demo/my-service-pacto:0.1.0
-Service: my-service@0.1.0
-Owner: my-team
-Pacto Version: 2.0
-
-Workload: service
-
-State:
-  Type: stateless
-  Persistence: local/ephemeral
-  Data Criticality: low
-
-Capabilities (2):
-  - health
-  - metrics
-
-Interfaces (1):
-  - api (openapi: interfaces/openapi.yaml, internal)
-
-Readiness:
-  ...
-```
-
-The `Readiness:` block is abridged above; the real output continues with the
-score, the gate result, a per-claim table and the revision history.
-
-To get the files themselves, pull the bundle. `pull` writes to a directory named
-after the service unless you say otherwise — pass `-o` so it does not overwrite
-the copy you are editing:
-
-```bash
-$ pacto pull oci://localhost:5001/demo/my-service-pacto:0.1.0 -o pulled
-Pulled my-service@0.1.0 -> pulled/
-```
-
-You can also browse a contract instead of reading it:
-
-```bash
-$ pacto doc my-service --serve
-Serving documentation at http://127.0.0.1:8484
-Press Ctrl+C to stop
-```
-
-## 8. Detect a breaking change
-
-Remove the `/health` path from `my-service/interfaces/openapi.yaml` so the file
-ends with an empty `paths:` map:
+Edit `my-service/pacto.yaml` and set `service.version: 1.0.0`. Then replace `my-service/interfaces/openapi.yaml` with an API that has required response fields:
 
 ```yaml
 openapi: "3.0.0"
 info:
   title: my-service
-  version: 0.1.0
-paths: {}
+  version: 1.0.0
+paths:
+  /orders/{id}:
+    get:
+      summary: Get an order
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, total]
+                properties:
+                  id:
+                    type: string
+                  total:
+                    type: number
 ```
 
-Then diff your working copy against the version you published:
+## 3. Validate
+
+```console
+$ pacto validate my-service
+my-service is valid
+```
+
+Validation runs three layers: structural, cross-field and policy checks. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
+
+## 4. Add consumers
+
+Two services depend on `my-service`, each with a different compatibility range. Copy the bundle twice and declare the dependencies:
 
 ```bash
-$ pacto diff oci://localhost:5001/demo/my-service-pacto:0.1.0 my-service
-Classification: BREAKING
-Changes (1):
-  [BREAKING] openapi.paths[/health] (removed): API path /health removed [- /health]
-breaking changes detected
+cp -r my-service checkout
+cp -r my-service reporting
 ```
 
-The exit code is 1 when the classification is `BREAKING` — that is the CI gate.
+In `checkout/pacto.yaml`, set `service.name: checkout` and replace the commented-out `dependencies:` block with:
 
-A `BREAKING` verdict
-means this change cannot ship under a compatible version: release it as a new
-**major** (`1.4.2` → `2.0.0`), because that is what every consumer's
-`compatibility: "^1.0.0"` range is reading. Nothing enforces that — bumping
-`service.version` is itself classified `NON_BREAKING`, so `pacto diff` will not
-notice whether you did it. What the version buys you is the consumers' side:
-pinned to a major, they keep resolving the old contract until they choose to move.
+```yaml
+dependencies:
+  - name: my-service
+    ref: ../my-service
+    required: true
+    compatibility: "^1.0.0"
+```
 
-Both sides of a diff can be local, so this check needs no registry at all:
-`pacto diff ./v1 ./v2` compares two directories and prints the same
-classification. That is the form to reach for when comparing a release branch
-against `main` in CI.
+In `reporting/pacto.yaml`, set `service.name: reporting` and use a wider range:
 
-Removing an API path is one rule out of the full table:
-[Change classification](contract-reference/diff.md) lists every field `pacto diff`
-compares and the verdict it reaches for each. See
-[Breaking change detection](platform-engineers.md#breaking-change-detection) and the
-[GitHub Actions](github-actions.md) integration for wiring it into a pipeline.
+```yaml
+dependencies:
+  - name: my-service
+    ref: ../my-service
+    required: true
+    compatibility: ">=1.0.0"
+```
 
-## 9. Clean up
+`checkout` accepts `^1.0.0` (1.x only), `reporting` accepts `>=1.0.0` (1.x and above). This difference is what makes the next step interesting.
+
+## 5. Introduce a breaking change
+
+Copy `my-service` to `v2` and delete the `total` field from the response schema:
+
+```bash
+cp -r my-service v2
+```
+
+In `v2/pacto.yaml`, set `service.version: 2.0.0`. In `v2/interfaces/openapi.yaml`, remove `total` from `required` and from `properties` so the schema becomes:
+
+```yaml
+schema:
+  type: object
+  required: [id]
+  properties:
+    id:
+      type: string
+```
+
+## 6. Diff the two versions
+
+From inside `my-service`, compare the original contract against `v2`:
+
+```console
+$ pacto diff . ../v2
+Classification: BREAKING
+Changes (3):
+  [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
+  [BREAKING] openapi.paths[/orders/{id}].methods[GET].responses[200].content.application/json.schema.properties.total (removed): openapi.paths[/orders/{id}].methods[GET].responses[200].content.application/json.schema.properties.total removed [- map[type:number]]
+  [BREAKING] openapi.paths[/orders/{id}].methods[GET].responses[200].content.application/json.schema.required[total] (removed): openapi.paths[/orders/{id}].methods[GET].responses[200].content.application/json.schema.required total removed [- total]
+breaking changes detected
+$ echo $?
+1
+```
+
+The classification is `BREAKING` and the exit code is 1. That is the CI gate: `pacto diff` exits non-zero when the change breaks consumers, so a branch-protection rule that requires passing checks blocks the merge.
+
+## 7. Find the affected consumers
+
+`pacto impact` projects the diff onto the dependency graph and reports which consumers are incompatible:
+
+```console
+$ pacto impact . ../v2 --local ..
+Impact: my-service 1.0.0 -> 2.0.0
+Classification: BREAKING
+Breaking changes: 2
+Potentially breaking changes: 0
+Affected consumers (2):
+  checkout                     direct     confidence=contractual  compat=incompatible owner=my-team
+  reporting                    direct     confidence=contractual  compat=compatible   owner=my-team
+```
+
+`checkout` and `reporting` declare the *same* edge to the *same* service and get *opposite* verdicts. `checkout` pins `^1.0.0` (1.x only) and breaks. `reporting` accepts `>=1.0.0` (any major) and survives. A catalog that records only "`checkout` depends on `my-service`" cannot tell those two apart; Pacto can, because the contract carries the compatibility range.
+
+`confidence=contractual` means the dependency is declared with a usable range and nothing observed it at runtime. `direct` means each consumer declares `my-service` itself rather than reaching it through another service.
+
+---
+
+## Optional: publish to a registry
+
+The steps above need no registry. To see the full round trip, start a local registry and push the contract:
+
+```bash
+docker run -d --rm -p 127.0.0.1:5001:5000 --name pacto-registry registry:3
+pacto push oci://localhost:5001/demo/my-service-pacto -p .
+```
+
+Port 5001 because macOS binds 5000 for AirPlay. `127.0.0.1:` because the registry accepts anonymous writes.
+
+Read it back without pulling:
+
+```bash
+pacto explain oci://localhost:5001/demo/my-service-pacto:1.0.0
+```
+
+Or pull the bundle:
+
+```bash
+pacto pull oci://localhost:5001/demo/my-service-pacto:1.0.0 -o pulled
+```
+
+Clean up:
 
 ```bash
 docker rm -f pacto-registry
-rm -rf my-service pulled my-service-0.1.0.tar.gz
 ```
 
-Nothing published to `localhost:5001` outlives the container. Two things do
-survive, both outside this directory:
-
-- resolved bundles cached under `~/.cache/pacto/oci/`, safe to delete;
-- credentials, if you ran `pacto login` against a real registry —
-  `pacto logout ghcr.io` removes them from `~/.config/pacto/config.json`.
+For a real registry like GHCR, you need `pacto login` with a personal access token. See [Installation](installation.md) for the supply-chain guarantees and [CI integration](ci.md) for what to commit to your repository.
 
 ---
 
@@ -295,11 +196,8 @@ survive, both outside this directory:
 
 | Goal | Guide |
 |------|-------|
+| Put it in your repository | [CI integration](ci.md) |
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
-| Write and maintain contracts | [For Developers](developers.md) |
-| Consume contracts for deployment | [For Platform Engineers](platform-engineers.md) |
-| See contracts for real services | [Examples](examples/index.md) (PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more) |
-| Integrate with CI/CD | [GitHub Actions](github-actions.md) |
-| Explore contracts visually | Run `pacto dashboard` to launch the web UI with dependency graph, or [`pacto tui`](fleet-tools.md#the-terminal-ui) to stay in the terminal |
+| See contracts for real services | [Examples](examples/index.md) |
+| Explore contracts visually | Run `pacto dashboard` or [`pacto tui`](fleet-tools.md#the-terminal-ui) |
 | Runtime compliance in Kubernetes | [Kubernetes Operator](integrations/kubernetes/overview.md) |
-| Build a generation plugin | [Plugin Development](plugins.md) |

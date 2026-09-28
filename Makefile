@@ -47,7 +47,8 @@ build:
 
 # ── Test levels ─────────────────────────────────────────────────────
 # Target names state the SEMANTIC LEVEL, not the feature history. The taxonomy,
-# and how to pick the right level for a new test, is docs/maintainers/testing.md.
+# and how to pick the right level for a new test, is the Testing section of
+# CONTRIBUTING.md.
 
 # Level 1 — unit.
 test:

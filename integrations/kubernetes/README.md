@@ -167,7 +167,7 @@ The reason precedence when the gate is unmet is: `Expired` when the assessment h
 
 On gate transitions it emits events sparingly: a `Warning`/`ReadinessGateUnmet` when the gate first drops and a `Normal`/`ReadinessRecovered` when it is met again. Contracts without readiness get neither `status.readiness` nor the condition.
 
-For the canonical score and gate semantics, see the [readiness reference](https://pacto.run/latest/contract-reference/#readiness) in the CLI docs.
+For the canonical score and gate semantics, see the [readiness reference](https://pacto.run/latest/contract-reference/readiness/#readiness-score-and-gate) in the CLI docs.
 
 ---
 
@@ -277,7 +277,7 @@ If the Secret is missing or cannot be read, the Pacto CR status is set to `Unkno
 
 ## Dashboard
 
-The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, readiness and compliance status across all Pacto resources in the cluster. A fleet overview surfaces compliance, readiness and high-blast-radius services at a glance, and a dedicated Service Readiness view shows per-service scores and check gaps (expired or invalid evidence).
+The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, readiness and compliance status across all Pacto resources in the cluster. A fleet overview surfaces compliance, readiness and the services that need attention at a glance, and a dedicated Service Readiness view shows per-service scores and check gaps (expired or invalid evidence).
 
 The operator handles the full dashboard lifecycle: Deployment, ClusterIP Service, ServiceAccount, and RBAC. The dashboard image is version-locked to the Pacto library bundled into the controller.
 

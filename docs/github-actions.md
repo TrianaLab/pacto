@@ -1,12 +1,16 @@
 # GitHub Actions Integration
 
-Automate contract validation, breaking-change detection and publishing in your CI/CD pipeline using the official [Pacto CLI](https://github.com/marketplace/actions/pacto-cli) GitHub Action.
+Validate contracts, detect breaking changes and publish bundles from CI with the
+official [Pacto CLI](https://github.com/marketplace/actions/pacto-cli) GitHub
+Action.
 
 ---
 
 ## Quick start
 
-The action is command-driven: `command: setup` installs the `pacto` binary for later `run:` steps, while `command: validate`, `diff`, `push` or `doc` run those operations natively.
+The action is command-driven: `command: setup` installs the `pacto` binary for
+later `run:` steps, while `command: validate`, `diff`, `push` or `doc` run those
+operations natively.
 
 ```yaml
 name: Contract CI
@@ -36,11 +40,11 @@ jobs:
 
 ## Common workflows
 
-The [quick start](#quick-start) already runs `pacto validate .` on every pull request to catch schema and cross-field errors before merge. The workflows below add breaking-change detection and publishing.
-
 ### Detect breaking changes
 
-Compare the PR contract against the published version and fail the job on a breaking change. `pacto diff` takes the old contract first and the new one second, and exits non-zero on a `BREAKING` result (see [change classification rules](contract-reference/diff.md#change-classification-rules)):
+`pacto diff` takes the old contract first and the new one second, and exits
+non-zero on a `BREAKING` result (see
+[change classification rules](contract-reference/diff.md#change-classification-rules)):
 
 ```yaml
       - name: Check for breaking changes
@@ -52,17 +56,11 @@ Compare the PR contract against the published version and fail the job on a brea
           comment-on-pr: 'true'
 ```
 
-`fail-on-breaking` defaults to `true`, so the step blocks the merge on a breaking change and `comment-on-pr` posts the diff. To gate in a plain `run:` step instead, `pacto diff oci://ghcr.io/acme/my-service-pacto .` exits non-zero on the same result.
-
-`comment-on-pr` posts as the workflow's `GITHUB_TOKEN`, which is read-only by default, so the job has to be granted the permission or the comment fails with a `403` while the diff itself passes:
-
-```yaml
-jobs:
-  validate:
-    permissions:
-      contents: read
-      pull-requests: write
-```
+`fail-on-breaking` defaults to `true`, so a breaking change fails the step, and
+`comment-on-pr` posts the diff. That comment is written as the
+workflow's `GITHUB_TOKEN`, which is read-only by default, so grant the job
+`pull-requests: write` or the comment fails with a `403` while the diff itself
+passes.
 
 ### Publish on release
 
@@ -99,45 +97,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-### Environment-specific validation
-
-Validate the contract with environment-specific overrides:
-
-```yaml
-      - name: Validate production config
-        run: pacto validate . --values values/production.yaml
-```
-
 ## Action reference
 
-The tables below cover `TrianaLab/pacto-actions@v1` (currently `v1.8.2`).
-
-### Inputs
-
-| Input | Applies to | Default | What it does |
-|---|---|---|---|
-| `command` | every command | *(required)* | `setup`, `validate`, `diff`, `push` or `doc` |
-| `version` | `setup` | `latest` | Pacto version to install (e.g. `v3.2.1`) |
-| `github-token` | every command | `${{ github.token }}` | Passed to the command as `GH_TOKEN` |
-| `cache` | every command | `true` | Reuse the OCI bundle cache (`~/.cache/pacto/oci/`) across runs |
-| `path` | `validate`, `push`, `doc` | `.` | Contract directory or `oci://` reference |
-| `old` | `diff` | — | Baseline contract: directory path or `oci://` reference |
-| `new` | `diff` | — | Updated contract: directory path or `oci://` reference |
-| `output-format` | `diff` | `text` | `text`, `json` or `markdown` |
-| `fail-on-breaking` | `diff` | `true` | Fail the step when `pacto diff` exits non-zero |
-| `ref` | `push` | — | Target OCI reference (e.g. `oci://ghcr.io/org/name:tag`) |
-| `registry` | `push` | — | Registry hostname to authenticate against (e.g. `ghcr.io`) |
-| `username` | `push` | — | Registry username |
-| `password` | `push` | — | Registry password or token |
-| `values` | `validate`, `diff`, `doc`, `push` | — | Values file(s) merged into the contract — newline-separated, last wins |
-| `set` | `validate`, `diff`, `doc`, `push` | — | Inline contract values, newline-separated (e.g. `service.version=2.0.0`) |
-| `old-values` | `diff` | — | Values file(s) merged into the old contract only |
-| `old-set` | `diff` | — | Inline values set on the old contract only |
-| `new-values` | `diff` | — | Values file(s) merged into the new contract only |
-| `new-set` | `diff` | — | Inline values set on the new contract only |
-| `output-path` | `doc` | — | File path to save the generated markdown |
-| `comment-on-pr` | `diff`, `doc` | `false` | Post the output as a pull-request comment |
-| `add-to-summary` | `doc` | `true` | Add the documentation to the GitHub step summary |
+Every input is documented in the
+[pacto-actions](https://github.com/TrianaLab/pacto-actions) repository, which
+owns the action and its version history.
 
 ### Outputs
 
@@ -171,7 +135,3 @@ it as a contract verdict. The output is written whether or not
         if: steps.contract-diff.outputs.has-breaking-changes == 'true'
         run: exit 1
 ```
-
-## Further reading
-
-For advanced configuration options, see the [pacto-actions](https://github.com/TrianaLab/pacto-actions) repository.

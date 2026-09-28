@@ -45,9 +45,13 @@ jobs:
               # about what scope() in docs_lint.py actually reads.
               - 'README.md'
               - 'CONTRIBUTING.md'
+              - 'ARCHITECTURE.md'
               - 'MIGRATION.md'
               - 'SECURITY.md'
               - 'CODE_OF_CONDUCT.md'
+              # Contributor documentation that left the site. scope() takes
+              # release/*.md and not release/units/**, so the filter matches.
+              - 'release/README.md'
               # The gate's own rules. Loosening a rule must re-run the gate that
               # rule guards, otherwise a weakened style ships unchecked.
               - '.vale.ini'
@@ -162,7 +166,7 @@ jobs:
       # What neither gate above can see: the site as a reader meets it. Builds the
       # real site, serves it, and drives Chromium at a core page, an injected
       # integration page and an instant navigation between two of them, with
-      # cross-origin requests aborted. See docs/maintainers/testing.md.
+      # cross-origin requests aborted. See the Testing section of CONTRIBUTING.md.
       - name: Browser acceptance over the built site
         run: make test-browser-docs-site
 

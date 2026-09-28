@@ -112,7 +112,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Analyze the blast radius of a change
+         * Analyze which consumers a change affects
          * @description Projects the semantic diff between an old and a new contract revision onto the operational graph: classification, breaking changes, affected consumers (with confidence and compatibility verdict), active targets and owners. Read-only.
          */
         get: operations["fleet-impact"];

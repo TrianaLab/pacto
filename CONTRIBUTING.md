@@ -51,7 +51,7 @@ To build and test the Go engine:
    make ci
    ```
 
-   This runs the same gates GitHub Actions runs on a pull request — formatting, vetting, cyclomatic complexity, linting, unit tests at 100% total coverage, the CLI integration suite, the frontend suite, the operator's envtest suite and the chart gates. **Always run `make ci` before pushing** to catch issues early. The kind, Compose and browser acceptances are not part of it; they need a Docker daemon and run in their own CI jobs.
+   This runs the same gates GitHub Actions runs on a pull request: formatting, vetting, cyclomatic complexity and linting. It also runs unit tests at 100% total coverage, the CLI integration suite, the frontend suite, the operator's envtest suite and the chart gates. **Always run `make ci` before pushing** to catch issues early. The kind, Compose and browser acceptances are not part of it; they need a Docker daemon and run in their own CI jobs.
 
    Individual targets:
 
@@ -83,11 +83,11 @@ To build and test the Go engine:
    keep a failed cluster and its namespace for inspection instead of tearing it
    down, set `KEEP_E2E_CLUSTER=1` (e.g. `KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind`).
 
-   **Test the whole product locally.** To bring up a fully-configured install
-   (operator + dashboard + Evidence Server + an in-cluster registry, with
-   reconciled Pacto CRs — including a declared dependency edge — and a signed
-   EvidenceEnvelope ingested as an external target) and leave it running so you can
-   click through the Operational Graph and Impact in a browser:
+   **Test the whole product locally.** One command brings up a fully-configured
+   install: operator, dashboard, Evidence Server and an in-cluster registry, with
+   reconciled Pacto CRs (including a declared dependency edge) and a signed
+   EvidenceEnvelope ingested as an external target. It leaves the cluster running
+   so you can click through the Operational Graph and Impact in a browser:
 
    ```bash
    make e2e-operational-graph-up      # bring it up and leave it running (prints how to reach the dashboard)
@@ -141,7 +141,7 @@ Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues
 
 2. **Make your changes.** Keep commits focused and atomic.
 
-3. **Write or update tests.** All new functionality must include tests. All bug fixes must include a regression test. The project enforces **100% total statement coverage** across the measured packages — see [Testing](#testing).
+3. **Write or update tests.** All new functionality must include tests. All bug fixes must include a regression test. The project requires **100% total statement coverage** across the measured packages — see [Testing](#testing).
 
 4. **Run the CI pipeline locally before pushing:**
 
@@ -186,7 +186,8 @@ pacto/
     mcp/              #   MCP server adapter
     update/           #   Version update checker
     testutil/         #   Shared test utilities
-  schema/             # Standalone JSON schema copy
+  integrations/       # Delivery outside the CLI
+    kubernetes/       #   The operator: a second Go module, its own go.mod
   tests/              # Tests that are not about one package
     integration/      #   CLI driven in process against a real registry
     architecture/     #   Structural rules about the repository itself
@@ -194,38 +195,77 @@ pacto/
     acceptance/kind/  #   The product against a real Kubernetes cluster
     release/          #   The release system produces what it claims
   docs/               # Documentation site (MkDocs)
+  examples/           # Runnable demos, including the Compose fleet
+  release/            # The release pipeline, its units and its scripts
   scripts/            # Build and install scripts
 ```
 
-Core domain logic lives in `pkg/` and can be imported by external projects. Infrastructure and CLI wiring lives in `internal/`.
+Core domain logic lives in `pkg/` and can be imported by external projects. Infrastructure and CLI wiring lives in `internal/`. `integrations/kubernetes` is a separate Go module with its own `go.mod`, joined to the root by `go.work` — never run `go mod tidy` there, because the workspace carries a `replace` that tidy cannot see.
+
+[ARCHITECTURE.md](ARCHITECTURE.md) explains why the tree is shaped this way: the dependency graph, the layer boundaries and the invariants a change must preserve.
 
 ### Code Style
 
 - Follow standard Go conventions and idioms.
 - Code must pass `golangci-lint` (run via `make ci`).
 - Keep functions small and focused. Cyclomatic complexity must stay at 15 or below.
-- Use meaningful names for variables, functions, and packages.
+- Use meaningful names for variables, functions and packages.
 
 ### Testing
 
-Pacto has eight test levels. A test belongs to exactly one, chosen by what it
-proves — never by filename or language. **[Testing
-architecture](docs/maintainers/testing.md) is the full guide, including how to
-pick the level for a new test.** The short version:
+Pacto has eight test levels. **A test belongs to exactly one**, chosen by what
+it proves — never by its filename, its language or the feature that happened to
+introduce it.
 
-| Level | Lives in | Run with |
-|-------|----------|----------|
-| Unit | beside the code (`_test.go`, `*.test.ts`) | `make test`, `make ci-ui` |
-| Integration | `tests/integration/`, `integrations/kubernetes/test/` | `make test-integration` |
-| Architecture / invariant | `tests/architecture/` | `make ci-gates` |
-| Local acceptance, cluster-free | `tests/acceptance/local/` | `make test-acceptance-local` |
-| Kind / system acceptance | `tests/acceptance/kind/` | `make test-acceptance-kind` |
-| Browser acceptance, deterministic | `pkg/dashboard/frontend/e2e/` | `make test-browser` |
-| Live-browser acceptance | `pkg/dashboard/frontend/e2e-live/` | `make test-browser-live` |
-| Release verification | `tests/release/`, `release/orchestrator/` | `make ci-gates`, `make ci-oci`, `make release-dry-run` |
+| # | Level | What it proves | Lives in | Language | Run with |
+|---|-------|----------------|----------|----------|----------|
+| 1 | Unit | One package, in isolation | beside the code (`*_test.go`, `*.test.ts`) | Go, TypeScript | `make test`, `make ci-ui` |
+| 2 | Integration | Several real components wired together, nothing over a network a user could reach | `tests/integration/`, `integrations/kubernetes/test/` | Go | `make test-integration`, `make ci-e2e-envtest` |
+| 3 | Architecture / invariant | Structural rules about the repository itself | `tests/architecture/` | Go | `make ci-gates` |
+| 4 | Local acceptance, cluster-free | A whole user story, with no Kubernetes | `tests/acceptance/local/` | Shell + Go | `make test-acceptance-local`, `make test-acceptance-compose` |
+| 5 | Kind / system acceptance | The product against a real Kubernetes cluster | `tests/acceptance/kind/` | Shell + Go | `make test-acceptance-kind` |
+| 6 | Browser acceptance, deterministic | A real shipped artifact over fixed data | `pkg/dashboard/frontend/e2e/` (dashboard), `pkg/dashboard/frontend/e2e-docs-site/` (documentation site) | TypeScript | `make test-browser`, `make test-browser-docs-site` |
+| 7 | Live-browser acceptance | The real frontend against a real running deployment | `pkg/dashboard/frontend/e2e-live/` | TypeScript | `make test-browser-live`, `make test-browser-compose` |
+| 8 | Release verification | The release system produces what it claims | `tests/release/`, `release/orchestrator/` | Go, Node | `make ci-gates` (Go), `make ci-oci` (the Node orchestrator tests), `make release-dry-run` |
 
-- The project enforces **100% total statement coverage**. `ci-test` measures every package except `tests/`, `testutil`, `cmd/gendocs`, `cmd/genbundle` and `examples/`, and fails if the *total* is not 100.0%.
+- The project requires **100% total statement coverage**. `ci-test` measures every package except `tests/`, `testutil`, `cmd/gendocs`, `cmd/genbundle` and `examples/`, and fails if the *total* is not 100.0%.
 - Run `make coverage` to generate a coverage report and identify uncovered lines.
+
+**Choosing a home for a new test.** Ask, in order:
+
+1. **Is it a rule about the repository rather than the product?** ("core must
+   stay Kubernetes-free", "generated artifacts are current") → level 3,
+   `tests/architecture/`.
+2. **Is it about the release system?** → level 8, `tests/release/`.
+3. **Can one package prove it?** → level 1, beside the code. Prefer this. The
+   100% coverage gate applies here.
+4. **Does it need several real components, but nothing a user could reach over a
+   network?** → level 2, `tests/integration/` (engine) or
+   `integrations/kubernetes/test/` (operator, envtest).
+5. **Is it a whole user story that needs no cluster?** → level 4,
+   `tests/acceptance/local/`.
+6. **Does it need a real Kubernetes cluster?** → level 5,
+   `tests/acceptance/kind/`, as one of the existing scenarios or a new one.
+7. **Is it browser-visible?** → level 6 if fixed data can prove it, level 7 only
+   if it genuinely needs live cluster data. At level 6, pick the suite by the
+   artifact under test: the dashboard bundle or the built documentation site.
+
+Three more rules once you have picked:
+
+- **Each Kind scenario is one boundary.** They are not merged: a merged cluster
+  run cannot say which boundary broke, and cannot be sharded across CI. If your
+  test is a new boundary, it is a new scenario with a new `make` target.
+- **A new semantic assertion goes in Go.** If you find yourself reaching for
+  `jq`, `grep` or an embedded interpreter inside a harness, the assertion belongs
+  in that scenario's Go gate — where it can have a test of its own. Shell stays
+  on thin process orchestration: bringing a cluster up, building an image,
+  forwarding a port.
+- **A shared projection needs two consumers.** When several surfaces describe
+  the same fixture, the fixture is declared once as data
+  (`tests/acceptance/scenario`) and each surface is a projection of it. A
+  projection earns its place by having a surface that reads it, and a *shared*
+  one by having two. A value with a single consumer is a property of the run and
+  stays in the harness.
 
 ### CI Quality Gates
 
@@ -233,9 +273,9 @@ pick the level for a new test.** The short version:
 
 | Leg | What it checks |
 |-----|---------------|
-| `ci-static` | `gofmt`, `go vet`, cyclomatic complexity, `golangci-lint`, the U+00A7 section-sign gate, and drift in the CLI reference, the dashboard UI build and the generated dashboard SDK — plus the operator module's own static leg |
+| `ci-static` | `gofmt`, `go vet`, cyclomatic complexity, `golangci-lint`, the U+00A7 section-sign gate and drift in the CLI reference, the dashboard UI build and the generated dashboard SDK — plus the operator module's own static leg |
 | `ci-gates` | Architecture/invariant (`tests/architecture/`) and release-verification (`tests/release/`) gates |
-| `ci-engine` | Unit tests at 100% total coverage, the in-process CLI integration suite, and the cluster-free local acceptance |
+| `ci-engine` | Unit tests at 100% total coverage, the in-process CLI integration suite and the cluster-free local acceptance |
 | `ci-dashboard` | Frontend lint and the Vitest suite |
 | `ci-integration-kubernetes` | The operator's envtest suite and the Helm chart gates (lint, template, unittest, schema, docs drift) |
 | `ci-e2e-envtest` | The operator acceptance matrix against a real API server, with no cluster |
@@ -245,7 +285,7 @@ Docker-dependent legs — `ci-e2e-compose` and the `test-acceptance-kind-*` scen
 
 ### Documentation
 
-- Update docs if your change affects user-facing behavior, CLI flags, or the contract specification.
+- Update docs if your change affects user-facing behavior, CLI flags or the contract specification.
 - Documentation lives in `docs/` and is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) (`mkdocs.yml`), versioned with [mike](https://github.com/jimporter/mike).
 - Run `make docs` to build the site, then `make docs-serve` to preview it locally.
 - CLI reference docs are auto-generated. Run `make gen-cli-docs` if you add or change CLI commands.
@@ -301,6 +341,10 @@ Maintainers cut a release by running `npm run release:version` (which runs
 `changeset version`, then builds and applies the release plan) and letting the
 release workflow (`.github/workflows/release.yml`) build, publish and sign the
 artifacts.
+
+[release/README.md](release/README.md) is the maintainer guide to that pipeline:
+what a transaction is, which publisher owns each unit and what to do when one
+stops part-way.
 
 ## Questions?
 

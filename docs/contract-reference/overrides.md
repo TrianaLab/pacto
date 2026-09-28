@@ -1,6 +1,6 @@
 # Contract overrides
 
-Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `doc`, `generate`, `graph`, `pack`, `push`, `lock`), plus the two that take a pair of them (`diff`, `impact`) via the prefixed flags in [Diff overrides](#diff-overrides). See the [CLI reference](../cli-reference.md) for the complete command and flag listing.
+Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference: `validate`, `explain`, `doc`, `generate`, `graph`, `pack`, `push` and `lock`. The two commands that take a pair of contracts (`diff`, `impact`) use the prefixed flags in [Diff overrides](#diff-overrides). See the [CLI reference](../cli-reference.md) for the complete command and flag listing.
 
 ## Override flags
 
@@ -55,6 +55,8 @@ pacto validate my-service --set configurations[0].values.DB_HOST=localhost
 pacto validate my-service --set interfaces[0].visibility=internal
 ```
 
+A worked per-environment layout — one values file per environment, the array-replacement caveat and this precedence rule applied end to end — is in [Configurations as composable claims](../patterns/index.md#configurations-as-composable-claims).
+
 ## Diff overrides
 
 `diff` and `impact` each take two contract references — an old one and a new one — so they carry no plain `--values`/`--set`. To override each side independently, use prefixed flags:
@@ -82,7 +84,7 @@ pacto impact old-service new-service --new-set service.version=2.0.0
 
 ## Schema validation
 
-All overrides are validated against the Pacto JSON Schema after they are applied. This means invalid enum values, unknown fields, and type mismatches are rejected by every command — not just `validate` and `push`.
+All overrides are validated against the Pacto JSON Schema after they are applied. This means invalid enum values, unknown fields and type mismatches are rejected by every command — not just `validate` and `push`.
 
 ```bash
 # Rejected: "invalid" is not a valid enum value for state.type
@@ -91,56 +93,3 @@ pacto explain my-service --set state.type=invalid
 # Rejected: "unknownField" is not defined in the schema
 pacto doc my-service --set service.unknownField=value
 ```
-
-## Environment-specific values files
-
-A common pattern is to maintain per-environment values files that override configuration for each deployment target. The base `pacto.yaml` defines defaults, and each values file layers environment-specific settings on top.
-
-```text
-my-service/
-├── pacto.yaml
-├── values/
-│   ├── dev.yaml
-│   ├── staging.yaml
-│   └── production.yaml
-└── configuration/
-    └── schema.json
-```
-
-```yaml
-# values/dev.yaml
-configurations:
-  - name: default
-    values:
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DB_PASSWORD: dev-password
-      LOG_LEVEL: debug
-```
-
-`staging.yaml` and `production.yaml` follow the same shape, differing only in host and secret reference. Apply one per command with `-f`:
-
-```bash
-pacto validate my-service -f values/dev.yaml
-pacto push oci://ghcr.io/acme/my-service-pacto -p my-service --values values/production.yaml --set service.version=2.1.0
-```
-
-See [Developers — values files](../developers.md) for the full per-environment workflow.
-
-## Configuration values validation
-
-Overrides can set `configurations[].values` fields. These values are validated against the JSON Schema referenced by the corresponding `configurations[].schema`. If a value has the wrong type or is not defined in the schema, validation fails.
-
-```yaml
-# pacto.yaml
-configurations:
-  - name: default
-    schema: configuration/schema.json
-```
-
-```bash
-# This will fail if DB_PORT expects an integer but receives a string
-pacto validate my-service --set configurations[0].values.DB_PORT=not-a-number
-```
-
----

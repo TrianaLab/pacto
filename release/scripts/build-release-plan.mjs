@@ -42,7 +42,7 @@ function assertVersionFitsPath(what, coordinate, version, pathFix) {
     `but that module path carries only ${carries}.\n` +
     `A major bump does not rename the module path. Rename it to ` +
     `${coordinate.replace(/\/v\d+$/, '')}/v${verMajor} first — the import path, every importer, ` +
-    `${pathFix} — then land the major changeset. See docs/maintainers/releases.md.`,
+    `${pathFix} — then land the major changeset. See release/README.md.`,
   );
 }
 

@@ -308,7 +308,7 @@ func (s *Server) registerImpactOperation(api huma.API) {
 		OperationID: "fleet-impact",
 		Method:      http.MethodGet,
 		Path:        "/api/fleet/impact",
-		Summary:     "Analyze the blast radius of a change",
+		Summary:     "Analyze which consumers a change affects",
 		Description: "Projects the semantic diff between an old and a new contract revision onto " +
 			"the operational graph: classification, breaking changes, affected consumers (with " +
 			"confidence and compatibility verdict), active targets and owners. Read-only.",

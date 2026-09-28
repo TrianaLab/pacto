@@ -14,15 +14,29 @@ ignorecase: true
 #   context graph      occupied term of art; the noun here is operational graph
 #   knowledge plane    same
 #   is a standard      one schema file, no conformance suite, no second impl
+#   policy enforcement the noun form of the same false claim; Layer 3 is now
+#                      named "Policy checks", so nothing true needs the phrase
+#   enforcement layer  same, and Pacto has no layer that acts on a live system
+#   blast radius       borrowed-from-elsewhere jargon; say which consumers are
+#                      affected, which is what the tool actually reports
 #
-# Two near misses are deliberately NOT listed. "Policy enforcement" as a noun is
-# the real name of validation Layer 3 (validation.md has the heading), and
-# "admission control" is what the docs disclaim -- a page cannot say Pacto is not
-# an admission controller if the word is banned. Only the verb claim is caught.
+# One near miss is deliberately NOT listed: "admission control" is what the docs
+# disclaim -- a page cannot say Pacto is not an admission controller if the word
+# is banned.
+#
+# The enforce family is caught by claim, never wholesale. `enforc\w*` would fire
+# on those disclaimers, on ordinary English ("a test enforces a repo rule") and
+# on negations ("the freshness gate is not enforced"), and a noisy gate is a gate
+# someone weakens. API names are not claims either: `POLICY_REF_NOT_ENFORCED` and
+# `POLICY_ENFORCEMENT_ERROR` are finding codes consumers branch on, and no token
+# here matches them.
 tokens:
   - pacto enforce
   - block(?:s|ing)? breaking
   - enforce[sd]? (?:the )?polic(?:y|ies)
+  - polic(?:y|ies) enforcement
+  - enforcement layer
+  - blast[- ]radius
   - guardrails?
   - signed contracts?
   - four[- ]layer
