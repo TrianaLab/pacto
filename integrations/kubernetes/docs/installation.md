@@ -99,8 +99,8 @@ source either `existingClaim` (real exports, written by some other workload) or
 `configMap` (small static exports), never both. `name` is the Data Source
 identity and must be unique across *every* source the dashboard assembles, so
 `k8s`, `oci`, `cache` and `local` are already taken; a collision is refused,
-naming both claimants. Whoever owns the storage owns producing and rotating the exports:
-Pacto ships **no OTLP receiver**, so nothing listens on 4317 or 4318.
+naming both claimants. Whoever owns the storage owns producing and rotating the
+exports: Pacto ships **no OTLP receiver**, so nothing listens on 4317 or 4318.
 
 [Sources](../../operational-graph.md#sources) lists every source the graph reads,
 and [Knowledge](../../operational-graph.md#knowledge) tells an unreadable source
@@ -281,10 +281,14 @@ Evidence Server included. Five things survive, in any order:
 # own default ServiceAccount and kube-root-ca.crt ConfigMap.
 kubectl get all,sa,secret,lease,role,rolebinding -n pacto-operator-system
 kubectl get clusterrole,clusterrolebinding | grep pacto
+```
 
+Then remove what is left:
+
+```bash
 kubectl delete crd pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io
 kubectl delete clusterrole,clusterrolebinding pacto-dashboard
-kubectl delete clusterrole metrics-observation-role              # if you granted it
-kubectl delete clusterrolebinding metrics-observation-rolebinding
+kubectl delete clusterrole metrics-observation-role               # if granted
+kubectl delete clusterrolebinding metrics-observation-rolebinding # if granted
 kubectl delete namespace pacto-operator-system   # takes the Lease and Secrets
 ```
