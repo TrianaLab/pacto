@@ -41,9 +41,9 @@ from [Upgrade with Helm](#upgrade-with-helm) above:
 --8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
 The API version stays `v1alpha1` across the major bump and the stored version is
-unchanged, so every existing `Pacto` resource remains stored and readable under
-the new CRD — no conversion webhook, no decode error — and the upgraded operator
-reconciles it in place. That holds because **`spec` is additive**: v5 adds
+unchanged. Every existing `Pacto` resource therefore remains stored and readable
+under the new CRD — no conversion webhook, no decode error — and the upgraded
+operator reconciles it in place. That holds because **`spec` is additive**: v5 adds
 `spec.target.configBindings` and `spec.target.interfaceBindings` and removes
 nothing, so a contract resource written for v4 still validates unchanged.
 
@@ -60,8 +60,9 @@ nothing, so a contract resource written for v4 still validates unchanged.
     `ERRORS`/`WARNINGS`.
 
     The apiserver stops serving the removed fields the moment the new CRD
-    lands, so a `kubectl get pacto -o yaml` taken between step 1 and step 2
-    shows a resource whose `spec` is intact and whose `status` looks half-empty.
+    lands. A `kubectl get pacto -o yaml` taken between step 1 and step 2
+    therefore shows a resource whose `spec` is intact and whose `status` looks
+    half-empty.
     That is the CRD, not data loss: the old values are still in etcd and are
     lost for good only once something writes `status` again. Do not read that
     window as a failed migration.
@@ -81,8 +82,8 @@ apply or the resource read fails loudly rather than silently dropping resources.
 See the [CRD reference](crd-reference.md) for the current field set.
 
 This exact flow is exercised against a real cluster by
-`tests/acceptance/kind/upgrade-v4-v5.sh` (the `upgrade` leg of CI's
-`ci-e2e-kind` job): it installs the real v4 chart with its v4 CRDs, server-side
+`tests/acceptance/kind/upgrade-v4-v5.sh`, the `upgrade` leg of CI's
+`ci-e2e-kind` job. It installs the real v4 chart with its v4 CRDs, server-side
 applies the new CRDs, then `helm upgrade`s to the current chart and asserts the
 pre-existing resource survives and reconciles.
 
@@ -91,7 +92,7 @@ pre-existing resource survives and reconciles.
 **Within** a major, `helm rollback pacto-operator` reverts what the chart owns
 and leaves your `Pacto` resources untouched; re-apply any
 [hand-patched controller flags](#upgrade-with-helm) afterwards. **Across** a
-major it is not that clean: Helm does not manage `crds/` in either direction, so
+major it is not that clean. Helm does not manage `crds/` in either direction, so
 a rollback leaves the new CRD in place and the old controller writes v4-only
 status fields the apiserver prunes while returning success. A real return to the
 previous major means rolling the chart back *and* server-side applying the

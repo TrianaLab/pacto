@@ -25,7 +25,7 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
   # JSON output
   pacto validate --output-format json my-service
 
-  # Also enforce the readiness gate (fail if score < minScore)
+  # Also check the readiness gate (fail if score < minScore)
   pacto validate --readiness my-service`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -56,7 +56,7 @@ func newValidateCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().Bool("readiness", false, "also enforce the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic")
+	cmd.Flags().Bool("readiness", false, "also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic")
 	addOverrideFlags(cmd)
 
 	return cmd

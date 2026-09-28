@@ -141,9 +141,9 @@ pacto validate oci://ghcr.io/your-org/my-service-pacto:1.2.0
 ## Status is `NonCompliant`
 
 At least one confirmed violation. The two configuration codes do not arrive at
-the same speed: a **mismatch** (`CONFIGURATION_MISMATCH`) is `NonCompliant` on
-the first reconcile that observes it, while an **absence**
-(`CONFIGURATION_ABSENT`) reads `Unknown` until the negative streak spans the
+the same speed. A **mismatch** (`CONFIGURATION_MISMATCH`) is `NonCompliant` on
+the first reconcile that observes it. An **absence** (`CONFIGURATION_ABSENT`)
+reads `Unknown` until the negative streak spans the
 [stabilization window](limitations.md#stabilization-delay).
 
 ## Status is `Reference`
@@ -168,7 +168,7 @@ controller flags the Helm chart does not expose — see
 
 With probing off, health falls back to the workload, which needs an **`httpGet`
 readiness probe** on the container behind the health capability's port plus a
-Ready endpoint for it. A liveness-only pod, an `exec` or `tcpSocket` probe, or
+Ready endpoint for it. A liveness-only pod, an `exec` or `tcpSocket` probe or
 no probe leaves nothing to read. Passive observation can confirm health but
 never contradict it, so `Unknown` is the honest answer here, not a broken one.
 

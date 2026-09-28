@@ -50,7 +50,7 @@ configurations:
 
 !!! warning "Secret leak trap"
     The plugin leaves your `config.yaml` sitting in the bundle, and **a bundle
-    directory is published whole**: `pacto pack` and `pacto push` upload every file
+    directory is published whole**. `pacto pack` and `pacto push` upload every file
     under it, so `pacto pull` hands your config values, secrets included, to anyone
     who can read the artifact. The input is not part of the contract — the schema
     inferred from it is. Delete it once the schema exists, or list it in

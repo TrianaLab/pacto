@@ -7,7 +7,7 @@ The other sections are in [Contract sections](sections.md),
 
 ## `configurations`
 
-Declares the named configuration **inputs** the service consumes at runtime — not a platform provisioning API, Helm deployment values or a Kubernetes ConfigMap, which are related but not interchangeable (see [Reusing a schema you already have](#reusing-a-schema-you-already-have)). Optional — a service with no configuration input may omit this section.
+Declares the named configuration **inputs** the service consumes at runtime. It is not a platform provisioning API, Helm deployment values or a Kubernetes ConfigMap — those are related but not interchangeable (see [Reusing a schema you already have](#reusing-a-schema-you-already-have)). Optional — a service with no configuration input may omit this section.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
@@ -17,7 +17,7 @@ Declares the named configuration **inputs** the service consumes at runtime — 
 | `ref` | string | Conditional | Non-empty. OCI or local reference to another Pacto contract. Required if `schema` is not set |
 | `values` | object | No | Must conform to the schema defined in `schema` |
 
-When `schema` is used, the configuration schema is a local file, and validation checks that it exists in the bundle and parses. When `ref` is used, the entry points at another Pacto contract instead: the reference is checked as a well-formed OCI or local reference, recorded as a reference edge in the graph and pinned by digest in [`pacto.lock`](../lockfile.md). Pacto does not fetch a schema out of the referenced bundle and does not validate anything against it — a `ref` records where the schema is owned, it does not resolve it. **`schema` and `ref` are mutually exclusive**: when `ref` is set, `schema` and `values` must not be present.
+When `schema` is used, the configuration schema is a local file, and validation checks that it exists in the bundle and parses. When `ref` is used, the entry points at another Pacto contract instead. The reference is checked as a well-formed OCI or local reference, recorded as a reference edge in the graph and pinned by digest in [`pacto.lock`](../lockfile.md). Pacto does not fetch a schema out of the referenced bundle and does not validate anything against it — a `ref` records where the schema is owned, it does not resolve it. **`schema` and `ref` are mutually exclusive**: when `ref` is set, `schema` and `values` must not be present.
 
 Required configuration keys are derived from the JSON Schema's `required` array.
 
@@ -40,7 +40,7 @@ configurations:
 A platform team publishes one configuration contract and every service references it. [`pacto lock`](../lockfile.md) follows the chain with cycle detection, so a referenced contract that has its own `configurations[].ref` is resolved and pinned to the end of the closure.
 
 !!! tip
-    Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges: `pacto graph --with-references` shows them alongside dependencies, `--only-references` shows them alone, and the dashboard graph draws them dashed. The graph records these edges without walking them — only `dependencies[].ref` is traversed, so a service coupled to another purely through a shared configuration schema shows no dependents; [`pacto.lock`](../lockfile.md) is where the transitive reference closure is resolved and pinned.
+    Configuration references create **reference edges** in the dependency graph, distinct from `dependencies[].ref` edges: `pacto graph --with-references` shows them alongside dependencies, `--only-references` shows them alone and the dashboard graph draws them dashed. The graph records these edges without walking them: only `dependencies[].ref` is traversed, so a service coupled to another purely through a shared configuration schema shows no dependents. [`pacto.lock`](../lockfile.md) is where the transitive reference closure is resolved and pinned.
 
 !!! warning
     `pacto push` rejects local configuration references (`file://` and bare paths) — they are for development only, and every ref must use `oci://` before publishing.
@@ -96,20 +96,20 @@ service or the platform — is in
 
 ### What the Kubernetes collector validates
 
-When the Kubernetes integration binds a `configurations[]` scope to a runtime
-object via the Pacto CR's `spec.target.configBindings`, it validates the
-**decoded content of the bound ConfigMap key** against the declared schema — the
-whole decoded JSON/YAML value at that key, not the ConfigMap object. For a
+The Kubernetes integration binds a `configurations[]` scope to a runtime object
+via the Pacto CR's `spec.target.configBindings`. It then validates the **decoded
+content of the bound ConfigMap key** against the declared schema — the whole
+decoded JSON/YAML value at that key, not the ConfigMap object. For a
 `Secret` it verifies existence only; Secret values are never read. A `required`
 scope whose bound object or key is confirmed absent is a violation
-(NonCompliant), and so is a schema mismatch on observed content; a binding that
+(NonCompliant), and so is a schema mismatch on observed content. A binding that
 cannot be observed at all is insufficient evidence (Unknown), not a violation.
 
 ---
 
 ## `policies`
 
-Defines or references policy constraints for the contract. Optional — services not subject to a policy may omit this section entirely. A policy is a JSON Schema that validates the contract itself, so an organization can state its standards as rules: require a health capability, require a declared owner, restrict interface visibility or require a readiness gate.
+Defines or references policy constraints for the contract. Optional — services not subject to a policy may omit this section entirely. A policy is a JSON Schema that validates the contract itself, so an organization can state its standards as rules. Examples: require a health capability, require a declared owner, restrict interface visibility or require a readiness gate.
 
 When present, each entry must have a `name` and either `schema` or `ref` specified.
 

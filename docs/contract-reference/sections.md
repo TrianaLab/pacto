@@ -45,7 +45,7 @@ contract.
     `INVALID_SEMVER`.
 
     Nothing downstream re-checks the shape, so a coerced version is what gets
-    published: `pacto push` tags the artifact with the literal string, and two
+    published. `pacto push` tags the artifact with the literal string, and two
     contracts written `1` and `1.0.0` become two different tags of the same
     version. Write the full `MAJOR.MINOR.PATCH` and skip the `v`.
 
@@ -156,7 +156,7 @@ capabilities:
     ref: example.com/tracing
 ```
 
-A `health` or `metrics` capability may be declared with no binding: it is a valid declaration for another collector to verify, but the current Kubernetes integration cannot actively verify an unbound capability and reports it as Unsupported/Unknown. An `extension` capability requires a namespaced `ref` and must not declare a binding.
+A `health` or `metrics` capability may be declared with no binding. That is a valid declaration for another collector to verify, but the current Kubernetes integration cannot actively verify an unbound capability and reports it as Unsupported/Unknown. An `extension` capability requires a namespaced `ref` and must not declare a binding.
 
 ---
 

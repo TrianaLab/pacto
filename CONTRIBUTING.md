@@ -51,7 +51,7 @@ To build and test the Go engine:
    make ci
    ```
 
-   This runs the same gates GitHub Actions runs on a pull request — formatting, vetting, cyclomatic complexity, linting, unit tests at 100% total coverage, the CLI integration suite, the frontend suite, the operator's envtest suite and the chart gates. **Always run `make ci` before pushing** to catch issues early. The kind, Compose and browser acceptances are not part of it; they need a Docker daemon and run in their own CI jobs.
+   This runs the same gates GitHub Actions runs on a pull request: formatting, vetting, cyclomatic complexity and linting. It also runs unit tests at 100% total coverage, the CLI integration suite, the frontend suite, the operator's envtest suite and the chart gates. **Always run `make ci` before pushing** to catch issues early. The kind, Compose and browser acceptances are not part of it; they need a Docker daemon and run in their own CI jobs.
 
    Individual targets:
 
@@ -83,11 +83,11 @@ To build and test the Go engine:
    keep a failed cluster and its namespace for inspection instead of tearing it
    down, set `KEEP_E2E_CLUSTER=1` (e.g. `KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind`).
 
-   **Test the whole product locally.** To bring up a fully-configured install
-   (operator + dashboard + Evidence Server + an in-cluster registry, with
-   reconciled Pacto CRs — including a declared dependency edge — and a signed
-   EvidenceEnvelope ingested as an external target) and leave it running so you can
-   click through the Operational Graph and Impact in a browser:
+   **Test the whole product locally.** One command brings up a fully-configured
+   install: operator, dashboard, Evidence Server and an in-cluster registry, with
+   reconciled Pacto CRs (including a declared dependency edge) and a signed
+   EvidenceEnvelope ingested as an external target. It leaves the cluster running
+   so you can click through the Operational Graph and Impact in a browser:
 
    ```bash
    make e2e-operational-graph-up      # bring it up and leave it running (prints how to reach the dashboard)
@@ -141,7 +141,7 @@ Have an idea? [Open a feature request](https://github.com/TrianaLab/pacto/issues
 
 2. **Make your changes.** Keep commits focused and atomic.
 
-3. **Write or update tests.** All new functionality must include tests. All bug fixes must include a regression test. The project enforces **100% total statement coverage** across the measured packages — see [Testing](#testing).
+3. **Write or update tests.** All new functionality must include tests. All bug fixes must include a regression test. The project requires **100% total statement coverage** across the measured packages — see [Testing](#testing).
 
 4. **Run the CI pipeline locally before pushing:**
 
@@ -204,12 +204,12 @@ Core domain logic lives in `pkg/` and can be imported by external projects. Infr
 - Follow standard Go conventions and idioms.
 - Code must pass `golangci-lint` (run via `make ci`).
 - Keep functions small and focused. Cyclomatic complexity must stay at 15 or below.
-- Use meaningful names for variables, functions, and packages.
+- Use meaningful names for variables, functions and packages.
 
 ### Testing
 
 Pacto has eight test levels. **A test belongs to exactly one**, chosen by what
-it proves — never by its filename, its language, or the feature that happened to
+it proves — never by its filename, its language or the feature that happened to
 introduce it.
 
 | # | Level | What it proves | Lives in | Language | Run with |
@@ -223,7 +223,7 @@ introduce it.
 | 7 | Live-browser acceptance | The real frontend against a real running deployment | `pkg/dashboard/frontend/e2e-live/` | TypeScript | `make test-browser-live`, `make test-browser-compose` |
 | 8 | Release verification | The release system produces what it claims | `tests/release/`, `release/orchestrator/` | Go, Node | `make ci-gates` (Go), `make ci-oci` (the Node orchestrator tests), `make release-dry-run` |
 
-- The project enforces **100% total statement coverage**. `ci-test` measures every package except `tests/`, `testutil`, `cmd/gendocs`, `cmd/genbundle` and `examples/`, and fails if the *total* is not 100.0%.
+- The project requires **100% total statement coverage**. `ci-test` measures every package except `tests/`, `testutil`, `cmd/gendocs`, `cmd/genbundle` and `examples/`, and fails if the *total* is not 100.0%.
 - Run `make coverage` to generate a coverage report and identify uncovered lines.
 
 **Choosing a home for a new test.** Ask, in order:
@@ -259,7 +259,7 @@ Three more rules once you have picked:
   the same fixture, the fixture is declared once as data
   (`tests/acceptance/scenario`) and each surface is a projection of it. A
   projection earns its place by having a surface that reads it, and a *shared*
-  one by having two; a value with a single consumer is a property of the run and
+  one by having two. A value with a single consumer is a property of the run and
   stays in the harness.
 
 ### CI Quality Gates
@@ -268,9 +268,9 @@ Three more rules once you have picked:
 
 | Leg | What it checks |
 |-----|---------------|
-| `ci-static` | `gofmt`, `go vet`, cyclomatic complexity, `golangci-lint`, the U+00A7 section-sign gate, and drift in the CLI reference, the dashboard UI build and the generated dashboard SDK — plus the operator module's own static leg |
+| `ci-static` | `gofmt`, `go vet`, cyclomatic complexity, `golangci-lint`, the U+00A7 section-sign gate and drift in the CLI reference, the dashboard UI build and the generated dashboard SDK — plus the operator module's own static leg |
 | `ci-gates` | Architecture/invariant (`tests/architecture/`) and release-verification (`tests/release/`) gates |
-| `ci-engine` | Unit tests at 100% total coverage, the in-process CLI integration suite, and the cluster-free local acceptance |
+| `ci-engine` | Unit tests at 100% total coverage, the in-process CLI integration suite and the cluster-free local acceptance |
 | `ci-dashboard` | Frontend lint and the Vitest suite |
 | `ci-integration-kubernetes` | The operator's envtest suite and the Helm chart gates (lint, template, unittest, schema, docs drift) |
 | `ci-e2e-envtest` | The operator acceptance matrix against a real API server, with no cluster |
@@ -280,7 +280,7 @@ Docker-dependent legs — `ci-e2e-compose` and the `test-acceptance-kind-*` scen
 
 ### Documentation
 
-- Update docs if your change affects user-facing behavior, CLI flags, or the contract specification.
+- Update docs if your change affects user-facing behavior, CLI flags or the contract specification.
 - Documentation lives in `docs/` and is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) (`mkdocs.yml`), versioned with [mike](https://github.com/jimporter/mike).
 - Run `make docs` to build the site, then `make docs-serve` to preview it locally.
 - CLI reference docs are auto-generated. Run `make gen-cli-docs` if you add or change CLI commands.

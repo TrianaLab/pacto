@@ -1,14 +1,14 @@
 # GitOps promotion gates
 
 Nothing here blocks a deploy. By the time the operator has a verdict the pods
-are already serving; what these snippets buy is that **the next step stops** —
+are already serving. What these snippets buy is that **the next step stops**:
 the Kustomization goes unready, the dependent one never starts, the Argo
 Application goes Degraded. For catching a breaking change *before* it lands, the
 tool is [`pacto impact`](../../cli-reference.md) in the pull request.
 
 Neither tool reads `status.contractStatus` on its own, so a Kustomization
 holding a `NonCompliant` Pacto reports healthy. Both have an extension point for
-exactly this; this page is the two snippets that use it.
+exactly this, and the two snippets below use it.
 
 ## Flux
 
@@ -44,7 +44,7 @@ Kustomization never reaches it while the contract is violated.
 ## Argo CD
 
 Argo picks a health check from a fixed list of built-in kinds, returns nothing
-for everything else, and the roll-up into Application health ignores that
+for everything else and the roll-up into Application health ignores that
 nothing: a Pacto is not unhealthy to Argo but invisible. A resource health
 customization in `argocd-cm` supplies the missing check:
 
@@ -69,10 +69,10 @@ last and the Application only catches up on the next periodic resync. On a core
 install, without `argocd-server`, a restart is the *only* way in: hot reload of
 `argocd-cm` needs `server.secretkey`, which only `argocd-server` creates.
 
-Two properties of the Lua: **nothing maps to Argo's `Unknown`**, which ranks
-worse than `Degraded` and would mask genuinely broken workloads, so anything
-unrecognised becomes `Progressing`; and **the string library is disabled**, so
-`string.format` and `s:gsub()` fail at runtime rather than at load.
+In the Lua, **nothing maps to Argo's `Unknown`** — it ranks worse than
+`Degraded` and would mask genuinely broken workloads, so anything unrecognised
+becomes `Progressing`. The string library is also disabled, so `string.format`
+and `s:gsub()` fail at runtime rather than at load.
 
 `tests/acceptance/kind/gitops-argocd.sh` runs **that exact file** through the
 Lua sandbox with no cluster, and then inside a kind cluster where an Application
@@ -121,8 +121,8 @@ That split is why `timeout` has a floor: five minutes against the default
 two-minute window leaves room for the window, one requeue and the apply.
 
 Argo re-examines a Pacto when its health status *changes*, so `Healthy` to
-`Degraded` shows up in about a second — but one `NonCompliant` reason replaced
-by another keeps the stale message until the next periodic resync. The red dot
+`Degraded` shows up in about a second. But one `NonCompliant` reason replaced by
+another keeps the stale message until the next periodic resync. The red dot
 is prompt; the wording is not.
 
 ## Limits

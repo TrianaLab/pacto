@@ -82,8 +82,8 @@ graph TD
     class APP,CLI,MCP,MAIN,UPDATE internal
 ```
 
-The diagram shows the load-bearing edges, not every import: the leaf packages
-each of these builds on are left out to keep it readable. Dependencies flow
+The diagram shows the main edges, not every import: the leaf packages each of
+these builds on are left out to keep it readable. Dependencies flow
 **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable
 by external consumers such as the Kubernetes operator in
 `integrations/kubernetes`. So are the engine packages that operator consumes —
@@ -117,11 +117,11 @@ and it cannot go stale.
 ## Collectors: evidence is the boundary
 
 There is intentionally **no `pkg/collector.Collector` interface**. Different
-environments need different collector inputs — the Kubernetes collector needs CR
-bindings and temporal windows, another environment may need build results or
-cloud resource identifiers — so forcing them through one speculative input
-signature would either leak platform concepts into the core or be an abstraction
-only for symmetry.
+environments need different collector inputs. The Kubernetes collector needs CR
+bindings and temporal windows; another environment may need build results or
+cloud resource identifiers. Forcing them through one speculative input signature
+would either leak platform concepts into the core or be an abstraction only for
+symmetry.
 
 A collector feeds the engine by producing a `pkg/evidence` `EvidenceSet`, and
 there is nothing else to implement. Concrete collector APIs live in their own
@@ -149,17 +149,17 @@ written there any more.
 
 `pkg/dashboard` is the largest core package: an HTTP server, multi-source
 aggregation, graph, compliance and an embedded single-page app, which the
-operator also embeds. Two rules about it are load-bearing.
+operator also embeds.
 
 Its HTTP server is built on [Huma v2](https://huma.rocks/) with typed I/O
 structs and generated OpenAPI. Static files and CORS are served on the raw
 `http.ServeMux`; only API operations go through Huma.
 
 OpenAPI is the only wire truth. Huma generates the OpenAPI contract from the Go
-handlers, the TypeScript request and response types are generated from that
+handlers. The TypeScript request and response types are generated from that
 contract into `pkg/dashboard/frontend/src/lib/generated/` and committed with a
-do-not-edit notice, and `make check-dashboard-sdk-drift` regenerates both and
-fails on any diff. Handwritten frontend code may add ergonomics but must never
+do-not-edit notice. `make check-dashboard-sdk-drift` regenerates both and fails
+on any diff. Handwritten frontend code may add ergonomics but must never
 redeclare a wire field or build an `/api/...` URL by hand, because a third,
 hand-maintained copy of the schema drifts silently.
 

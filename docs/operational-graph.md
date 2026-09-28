@@ -2,7 +2,7 @@
 
 A single contract tells you what one service is. Most questions span many: *what
 depends on payments-api, which revision runs in `production-eu`, is any of it
-non-compliant, and how sure are we?* The **Pacto Operational Graph** composes
+non-compliant and how sure are we?* The **Pacto Operational Graph** composes
 contracts, revisions and operational targets into one versioned read model that
 humans, CLIs, platforms and agents can query.
 
@@ -302,7 +302,7 @@ flowchart LR
   it detects and serves the graph and change analysis through `/api/fleet/*`. The
   Operational Graph view offers three **perspectives** — Services, Revisions and
   Operational targets — and a **Knowledge** control (Expected · Observed ·
-  Differences). It is honest about what it cannot know: an operational target
+  Differences). It is honest about what it cannot know. An operational target
   links to the dependency *service* it depends on, never to each peer target,
   because a full target-to-target mesh would assert runtime routing the snapshot
   never observed.
@@ -336,8 +336,8 @@ flowchart TB
 ```
 
 The graph also maintains a reverse-dependency index, which is what
-[impact analysis](impact.md) traverses to answer "if this revision ships, what is
-the transitive blast radius".
+[impact analysis](impact.md) traverses to answer "if this revision ships, which
+consumers are affected, directly and transitively".
 
 ## Observed dependencies and reconciliation
 
@@ -363,8 +363,8 @@ Those observed edges meet the declared graph in three places:
   never mentions). Anything unresolvable is reported in a distinct **unresolved**
   category rather than force-fit to the default domain.
 - **Impact** — `pacto impact --traces <file>` feeds the same observed edges into
-  a blast radius; the [confidence model](impact.md#confidence-model) has what
-  they change there.
+  the affected-consumer list; the [confidence model](impact.md#confidence-model)
+  has what they change there.
 
 Reconciliation is an explicit backend fact, not a frontend guess: every declared
 edge carries a state computed against the snapshot's observed edges. A snapshot
@@ -383,7 +383,7 @@ by its as-of time.
 
 - [The Pacto model](model.md) — the engine, the compliance states and the
   boundaries the graph inherits
-- [Impact analysis](impact.md) — the blast radius of a change, projected onto
+- [Impact analysis](impact.md) — the consumers a change affects, projected onto
   this graph
 - [Fleet tools](fleet-tools.md) — the dashboard, `pacto fleet` and the terminal UI
 - [MCP integration](mcp-integration.md) — the three MCP tool families

@@ -1,7 +1,7 @@
 # Validation layers
 
 `pacto validate` runs three successive layers over a contract, and so does
-anything else that has to trust one: `pack` and `push` both refuse before they
+anything else that has to trust one. `pack` and `push` both refuse before they
 write or transmit a byte, and the operator revalidates every bundle it loads.
 Each layer short-circuits — if it fails, the layers after it are skipped, which
 is why one broken field can hide the rest.
@@ -15,11 +15,11 @@ Validates against the embedded `pacto-v2.0.schema.json`:
 - Enum values are valid (e.g. interface `type` is `openapi`/`asyncapi`/`grpc`, `capabilities[].type` is `health`/`metrics`/`extension`, `policies[].target` is `contract`)
 - Fields that must carry a value are non-empty (e.g. `interfaces[].ref`, `dependencies[].compatibility`)
 - Discriminated shapes hold — a `configurations[]` entry has exactly one of `schema`/`ref`; a `capabilities[]` `extension` requires a namespaced `ref` while `health`/`metrics` must not set `ref`
-- State invariants are enforced (`stateless` requires `ephemeral` durability)
+- State invariants hold (`stateless` requires `ephemeral` durability)
 
 Structural failures report `SCHEMA_VIOLATION`.
 
-A contract that cannot be **loaded** at all — malformed YAML, an unknown field, or a
+A contract that cannot be **loaded** at all — malformed YAML, an unknown field or a
 `pactoVersion` other than `"2.0"` — fails before any layer runs and reports
 `PARSE_ERROR` instead. Loading is the parse step that turns `pacto.yaml` into a
 contract; validation only starts once it succeeds.
@@ -59,11 +59,12 @@ Validates semantic references and consistency:
 | `readiness.expires` is a strict `YYYY-MM-DD` date | `INVALID_READINESS_EXPIRES` |
 | `readiness.history[].{date,version,author,description}` are valid/non-blank | `INVALID_READINESS_REVISION` |
 
-This table lists only what you can actually see. Where the JSON Schema already
-constrains a field — the interface and capability `type` enums, a non-empty
+This table lists only what you can actually see. Layer 1 rejects the contract
+first and reports `SCHEMA_VIOLATION` wherever the JSON Schema already constrains
+a field. That covers the interface and capability `type` enums, a non-empty
 `interfaces[].ref` or `dependencies[].compatibility`, the `configurations[]`
-`schema`/`ref` choice, `policies[].target`, the stateless/ephemeral invariant —
-Layer 1 rejects the contract first and reports `SCHEMA_VIOLATION`. Layer 2 has
+`schema`/`ref` choice, `policies[].target` and the stateless/ephemeral
+invariant. Layer 2 has
 its own check for each of those, but no contract survives Layer 1 to reach it,
 so do not build a CI rule on a code that is not in this table.
 
@@ -82,10 +83,10 @@ Resolves every declared policy and checks the contract against it. Policies appl
 
 **When ref-based policies are resolved.** Recursive resolution of
 `policies[].ref` happens only when a resolver is configured. `pacto validate` and
-`pacto push` both supply one (they can reach OCI/file refs), so a `ref` policy
-that cannot be fetched fails closed with `POLICY_REF_UNRESOLVED` — this is how
-`pacto push` enforces remote policies before publishing. Local-only paths that
-pass no resolver — `pacto pack` and the **operator** — enforce only the
+`pacto push` both supply one, since they can reach OCI/file refs. A `ref` policy
+that cannot be fetched then fails closed with `POLICY_REF_UNRESOLVED`, which is
+how `pacto push` checks remote policies before publishing. Local-only paths that
+pass no resolver — `pacto pack` and the **operator** — check only the
 locally-compiled `schema`-based policies and skip `ref` policies by design (they
 never reach the unresolved error). Cycle detection is per chain: a `ref` is a
 cycle only when it reappears in its own resolution chain (`A → B → A`); two

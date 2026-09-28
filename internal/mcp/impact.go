@@ -17,7 +17,7 @@ type impactProvider func(ctx context.Context, oldRef, newRef string, includeObse
 func impactTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_impact",
-		Description: "Analyze the blast radius of a change from an old to a new contract revision, " +
+		Description: "Analyze which consumers a change affects, from an old to a new contract revision, " +
 			"projected onto the operational graph. Reports the semantic classification, breaking " +
 			"changes, affected consumers (with confidence and compatibility verdict), active targets " +
 			"and owners to review. Read-only: it lists review targets, never recommends or takes actions.",

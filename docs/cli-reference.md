@@ -648,7 +648,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 
 ## `pacto impact`
 
-Composes a semantic contract diff (old→new) with the operational graph to answer what a change's real blast radius is: which consumers are affected, how strong the evidence is and whether their declared compatibility still holds.
+Composes a semantic contract diff (old→new) with the operational graph to answer which consumers a change really affects, how strong the evidence is and whether their declared compatibility still holds.
 
 Exit status is non-zero when the change is BREAKING and at least one ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). Active means the snapshot knows of somewhere that consumer is deployed — at least one operational target. A consumer that is incompatible on paper but is running nowhere the snapshot can see does not fail the command, so a declared-only run over `--local` bundles alone exits 0 no matter how incompatible it says the consumers are. The exit is non-zero only when there exists at least one consumer that is BOTH incompatible and has at least one active target. Supply targets with --target-state (or query a live fleet with `pacto fleet`) to make the exit code mean something.
 
@@ -1172,7 +1172,7 @@ pacto validate [dir | oci://ref] [flags]
   # JSON output
   pacto validate --output-format json my-service
 
-  # Also enforce the readiness gate (fail if score < minScore)
+  # Also check the readiness gate (fail if score < minScore)
   pacto validate --readiness my-service
 ```
 
@@ -1180,7 +1180,7 @@ pacto validate [dir | oci://ref] [flags]
 
 ```
   -h, --help                 help for validate
-      --readiness            also enforce the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
+      --readiness            also check the readiness gate: fail if the derived readiness score is below the declared (or default 100) minScore. Opt-in because gate evaluation is time-dependent (check expiry is compared against the run time), which would otherwise make plain validation non-deterministic
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
   -f, --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```

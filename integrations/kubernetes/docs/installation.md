@@ -125,7 +125,7 @@ pacto-operator    1/1     1            1           21s
 Two Deployments: `pacto-operator` is the controller Helm created,
 `pacto-dashboard` is the one the controller created in turn. **With `--set
 dashboard.enabled=false` you get `pacto-operator` alone** — no dashboard
-reconciler lines in the log below, no port-forward, and [Bind your first
+reconciler lines in the log below, no port-forward and [Bind your first
 contract](#bind-your-first-contract) needs a contract of your own. Both CRDs are
 registered either way:
 
@@ -224,7 +224,7 @@ pacto-dashboard   Unknown   pacto-dashboard   3.2.1     0        0          19s 
 ```
 
 The reference carries no tag, so the operator resolved the highest semver tag
-(`3.2.1`), snapshotted every tag it saw as an immutable `PactoRevision`
+(`3.2.1`). It snapshotted every tag it saw as an immutable `PactoRevision`
 (`kubectl get pactorevisions -n pacto-operator-system`), observed the Deployment
 and Service behind `pacto-dashboard` and wrote `status.contractStatus`.
 

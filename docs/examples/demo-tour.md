@@ -110,7 +110,7 @@ declaration, not a score.
 
 ## Story 3 — "I am about to ship a change that might break someone"
 
-*Classify a change from two contracts, with nothing running, and gate CI on it.*
+*Classify a change from two contracts, with nothing running, then gate CI on it.*
 
 --8<-- "examples/demo/generated/_beat-05.md"
 

@@ -3,7 +3,7 @@
 A semantic diff tells you *how* a revision changed. The operational graph tells
 you *who depends on the service and where it runs*. **Impact analysis** composes
 the two to answer the question a reviewer actually asks before merging: *if this
-revision ships, what is the real blast radius?*
+revision ships, who is affected?*
 
 Impact is framework-independent (`pkg/impact`). It consumes the pure diff engine
 ([change classification](contract-reference/diff.md)) and the immutable
@@ -36,9 +36,9 @@ evidence Pacto actually has for that edge, and the result rolls up the **active
 targets** the change would land in and the **owners** to notify.
 
 Every answer inherits the snapshot's `asOf` time, `completeness` and
-`limitations`, so a partial fleet is never presented as a complete blast radius.
-A changed service that is not in the graph at all gets a
-`SERVICE_NOT_IN_FLEET` limitation rather than an empty blast radius.
+`limitations`, so a partial fleet is never presented as a complete list of
+affected consumers. A changed service that is not in the graph at all gets a
+`SERVICE_NOT_IN_FLEET` limitation rather than an empty consumer list.
 
 ## What an affected consumer carries
 
@@ -68,8 +68,6 @@ affected-consumer claim.
 | **corroborated** | The declared dependency and an observed one agree — the strongest grade, contract and runtime saying the same thing. |
 | **inferred** | A transitive effect reached *through* another affected service (`depth > 1`). It follows from the graph, not from a direct declaration or observation. |
 | **unknown** | A direct edge with no declaration and no observation — the effect is possible but unverified. |
-
-Two rules follow from this model and are load-bearing:
 
 > **An inferred path is not a confirmed runtime impact.** A transitive consumer is
 > reached through the graph. It tells you where to *look*, not that the consumer
@@ -112,10 +110,10 @@ pacto impact ./payments-api@1.4.0 ./payments-api@2.0.0 \
   --traces ./traces.json
 ```
 
-The output reports the classification, the breaking and potentially-breaking
-changes (kept separate — a potential break is never counted as a confirmed one),
-every affected consumer with its verdict and confidence, the active targets, the
-owners to notify and the snapshot's completeness.
+The output reports the classification and the breaking and potentially-breaking
+changes, kept separate — a potential break is never counted as a confirmed one.
+It then lists every affected consumer with its verdict and confidence, the active
+targets, the owners to notify and the snapshot's completeness.
 
 ### Exit status: what makes a consumer *active*
 
@@ -174,9 +172,9 @@ to the **fleet query**
 [family](mcp-integration.md#three-tool-families-and-their-boundaries) and shares
 that family's boundaries: it projects the operational graph, observes nothing,
 changes nothing and authorizes nothing. It is the one fleet tool that does not
-serve a frozen snapshot — it rebuilds the graph on every call, so its `asOf`
-advances while the `pacto_fleet_*` tools' stays at the value they were started
-with. When the two disagree they are describing two moments, not two systems.
+serve a frozen snapshot: it rebuilds the graph on every call. Its `asOf`
+therefore advances, while the `pacto_fleet_*` tools' stays at the value they were
+started with. When the two disagree they are describing two moments, not two systems.
 
 In the dashboard the analysis is one half of the **Change analysis** workspace,
 served by `/api/fleet/impact`. It is entered from the service or revision you are

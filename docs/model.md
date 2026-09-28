@@ -1,10 +1,10 @@
 # The Pacto model
 
 How Pacto reaches an answer: what a contract declares, what a collector observes
-and what the engine concludes from the two. One rule governs the whole model —
+and what the engine concludes from the two. One rule governs the whole model:
 **a confirmed contradiction is an error; an inability to observe is `Unknown`,
-not a contradiction** — and most of what follows is the machinery that keeps
-those two apart.
+not a contradiction**. Most of what follows is the machinery that keeps those two
+apart.
 
 ## Declaration versus observation
 

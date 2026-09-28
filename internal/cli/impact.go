@@ -19,11 +19,11 @@ import (
 func newImpactCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "impact <old> <new>",
-		Short: "Analyze the blast radius of a change across the fleet",
+		Short: "Analyze which consumers a change affects across the fleet",
 		Long: "Composes a semantic contract diff (old→new) with the operational " +
-			"graph to answer what a change's real blast radius is: which consumers " +
-			"are affected, how strong the evidence is and whether their declared " +
-			"compatibility still holds.\n\n" +
+			"graph to answer which consumers a change really affects, how strong " +
+			"the evidence is and whether their declared compatibility still " +
+			"holds.\n\n" +
 			"Exit status is non-zero when the change is BREAKING and at least one " +
 			"ACTIVE consumer is incompatible with the new version (mirrors `pacto diff`). " +
 			"Active means the snapshot knows of somewhere that consumer is deployed — " +

@@ -60,7 +60,7 @@ not: `PACTO_DASHBOARD_REPO` is the repository positional argument, and
 
 The two trace variables are the container's only way to feed observed
 dependencies into the operational graph as
-[named observation sources](operational-graph.md#sources): Pacto ships no
+[named observation sources](operational-graph.md#sources). Pacto ships no
 OpenTelemetry (OTLP) receiver, so observed evidence arrives as offline trace
 exports you mount in. Under Kubernetes the operator-managed dashboard sets
 `PACTO_DASHBOARD_TRACE_SOURCES` for you from `dashboard.observation.sources` —

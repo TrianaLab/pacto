@@ -57,7 +57,7 @@ A full envelope on the wire:
 
 **Bounds.** An envelope is capped at **1 MiB** and may carry at most **10,000 observations**. Oversized payloads are refused before parsing. Decoding rejects unknown fields and requires `apiVersion`, `kind`, `id`, `producer.id` and `producer.keyId`.
 
-**Freshness and replay.** `issuedAt` and `expiresAt` bound the validity window. Verification rejects expired or not-yet-valid envelopes. A zero `expiresAt` disables the expiry check. Each producer stamps a strictly increasing `sequence`. Ingestion rejects a repeated `id` or a non-increasing `sequence`. Replay protection is enforced inside the serialized commit over a duplicate-id set and per-producer sequence maximum re-derived from the registry on every commit, so it survives process restarts.
+**Freshness and replay.** `issuedAt` and `expiresAt` bound the validity window. Verification rejects expired or not-yet-valid envelopes. A zero `expiresAt` disables the expiry check. Each producer stamps a strictly increasing `sequence`. Ingestion rejects a repeated `id` or a non-increasing `sequence`. Replay protection runs inside the serialized commit, over a duplicate-id set and a per-producer sequence maximum. Both are re-derived from the registry on every commit, so they survive process restarts.
 
 ---
 

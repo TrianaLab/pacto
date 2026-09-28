@@ -1,6 +1,6 @@
 # Contract overrides
 
-Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference (`validate`, `explain`, `doc`, `generate`, `graph`, `pack`, `push`, `lock`), plus the two that take a pair of them (`diff`, `impact`) via the prefixed flags in [Diff overrides](#diff-overrides). See the [CLI reference](../cli-reference.md) for the complete command and flag listing.
+Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference: `validate`, `explain`, `doc`, `generate`, `graph`, `pack`, `push` and `lock`. The two commands that take a pair of contracts (`diff`, `impact`) use the prefixed flags in [Diff overrides](#diff-overrides). See the [CLI reference](../cli-reference.md) for the complete command and flag listing.
 
 ## Override flags
 
@@ -82,7 +82,7 @@ pacto impact old-service new-service --new-set service.version=2.0.0
 
 ## Schema validation
 
-All overrides are validated against the Pacto JSON Schema after they are applied. This means invalid enum values, unknown fields, and type mismatches are rejected by every command — not just `validate` and `push`.
+All overrides are validated against the Pacto JSON Schema after they are applied. This means invalid enum values, unknown fields and type mismatches are rejected by every command — not just `validate` and `push`.
 
 ```bash
 # Rejected: "invalid" is not a valid enum value for state.type

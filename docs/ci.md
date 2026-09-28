@@ -40,7 +40,7 @@ This catches structural errors, cross-field violations and policy failures. Add 
 
 ## Exit codes and what blocks a merge
 
-`pacto diff` exits 1 on a breaking change. The CI step fails, marking the pull request as failing checks. Branch protection is what prevents the merge. Pacto does not enforce this; the exit code is the signal, your repository's protection rules are the gate.
+`pacto diff` exits 1 on a breaking change. The CI step fails, marking the pull request as failing checks. Branch protection is what prevents the merge. Pacto does not do that: the exit code is the signal and your repository's protection rules are the gate.
 
 A `BREAKING` classification means the new version is incompatible with consumers pinned to the old major. Release it as a new major (`1.4.2` → `2.0.0`) so consumers can choose when to move.
 

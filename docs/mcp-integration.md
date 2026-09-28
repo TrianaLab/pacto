@@ -35,12 +35,12 @@ The assistant works through the tool interface.
 |--------|-------|--------------|-----------------|
 | **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation — with a [known gap](#pacto_edit-can-write-a-bundle-that-pacto-validate-rejects). |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a 30-second timeout and follows no redirect at all — a 3xx comes back to the agent as the result. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report a change's blast radius. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover — read-only is not offline, and a read-only *family* is not a read-only *server*: see [Fleet query safety](#fleet-query-safety). The only server with no write tool is catalog mode. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover — read-only is not offline, and a read-only *family* is not a read-only *server*: see [Fleet query safety](#fleet-query-safety). The only server with no write tool is catalog mode. |
 
 Two tools sit outside these families: `pacto_skill` and `pacto_catalog_revision`.
 
 Not in the surface: inspecting a registry contract, resolving a dependency graph,
-diffing revisions, generating docs, and the two non-query `pacto fleet`
+diffing revisions and generating docs. Nor the two non-query `pacto fleet`
 operations — `reconcile` (declared dependencies against observed traffic) and
 `snapshot` (the whole read model as one document). These stay CLI-only. No tool pushes, pulls or deploys
 anything. [Server modes](cli-reference.md#server-modes) lists which tools each
@@ -54,18 +54,18 @@ MCP surface, the catalog and the fleet apart.
     `idempotentHint` — including `pacto_create`, `pacto_edit` and a generated
     tool such as `createRefund`, which moves money. A client therefore cannot
     tell a read tool from a write tool, and will not warn before a write: this
-    boundary is enforced by you, not by your client, so build allow-lists by
+    boundary is yours to hold, not your client's, so build allow-lists by
     hand. The only machine-usable signal is the
     tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
     `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
-    `pacto_edit` write contract files; generated service tools carry no `pacto_`
+    `pacto_edit` write contract files. Generated service tools carry no `pacto_`
     prefix and reach a live service, so treat every unprefixed tool as unsafe
     unless the server was started without `--allow-writes`. That holds because
     the `pacto_` names are reserved: a bundle cannot claim one.
 
 ### Fleet query safety
 
-- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. The `pacto_fleet_*` tools answer from the snapshot built at startup, but `pacto_impact` re-resolves both refs and rebuilds the snapshot on every call — so each invocation reaches your registry (and your cluster if `--k8s` is on) using the server's credentials.
+- **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. The `pacto_fleet_*` tools answer from the snapshot built at startup. `pacto_impact` re-resolves both refs and rebuilds the snapshot on every call, so each invocation reaches your registry — and your cluster if `--k8s` is on — using the server's credentials.
 - **Pacto does not determine authorization.** These tools expose knowledge; they never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **A missing result under partial coverage does not prove absence.** If a source was unavailable, "not found" means "not known here", not "does not exist".

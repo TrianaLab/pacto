@@ -28,3 +28,7 @@ tokens:
   - simply put
   - easy to (?:use|understand)
   - (?:simply|just) (?:run|add|use|set|call|install|point|drop|copy|paste|type|open|edit)
+  # Scaffolding: an opening that announces the page instead of starting it, and
+  # a load-bearing claim that never names what the thing actually holds up.
+  - This page is (?:the|a)
+  - load[- ]bearing

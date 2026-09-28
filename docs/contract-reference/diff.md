@@ -120,7 +120,7 @@ part of the key and is not compared, so re-pointing an existing capability's
 
 ## OpenAPI
 
-`pacto diff` performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body, and response level.
+`pacto diff` performs deep comparison of referenced OpenAPI specs, detecting changes at the path, method, parameter, request body and response level.
 
 ### Paths
 
@@ -167,7 +167,7 @@ Parameters are identified by `name` + `in` (location: query, path, header, cooki
 | `openapi.responses` | Removed | **BREAKING** |
 
 Neither table has a Modified row. A request body or a status code present on
-both sides is never reported as one opaque modification: it is deep-diffed field
+both sides is never reported as one opaque modification. It is deep-diffed field
 by field and each inner difference is classified by the [JSON Schema
 rules](#json-schema-configuration-policy-schemas) below, so there is no such
 change for a Modified rule to answer.
@@ -184,7 +184,7 @@ Which side of the exchange the body belongs to changes the verdict, because a
 | response | property removed | **BREAKING** | data a consumer could read is gone |
 
 A property removed from a response is `BREAKING` whether or not it was listed in
-`required` — most response schemas have no `required` array at all, and deleting
+`required`. Most response schemas have no `required` array at all, and deleting
 a field consumers read is the commonest way a REST provider breaks them. Every
 other inner difference (a property added, a type or constraint changed) is
 `POTENTIAL_BREAKING`.
@@ -208,7 +208,7 @@ openapi.paths[/users].methods[GET].responses[200].content.application/json.schem
 | `asyncapi.channels` | Added | NON_BREAKING |
 | `asyncapi.channels` | Removed | **BREAKING** |
 
-A channel present on both sides is never reported as one opaque modification. It is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change, classified by the [JSON Schema rules](#json-schema-configuration-policy-schemas) below: a `required` change is `BREAKING`, every other inner difference is `POTENTIAL_BREAKING`. That is why there is no `asyncapi.channels` Modified row — the engine has no such change to emit.
+A channel present on both sides is never reported as one opaque modification. It is compared field by field, so a new payload property, a changed property type or a new `required` entry each surface as their own change. The [JSON Schema rules](#json-schema-configuration-policy-schemas) below classify each one: a `required` change is `BREAKING`, every other inner difference is `POTENTIAL_BREAKING`. That is why there is no `asyncapi.channels` Modified row — the engine has no such change to emit.
 
 ### Operations
 
@@ -248,7 +248,7 @@ asyncapi.operations[sendOrder].action
 | `grpc.messages.fields` | Removed | **BREAKING** |
 | `grpc.messages.fields` | Modified | **BREAKING** |
 
-proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. Everything else here is `BREAKING`: removing a service, rpc, message or field breaks every caller, and a changed rpc signature (including a switch between unary and streaming) or a field whose type or number changed breaks the wire format for clients built against the old descriptor. That is why a modified field is `BREAKING` rather than `POTENTIAL_BREAKING`.
+proto3 has no `required`, so an added rpc, message or field is always wire-compatible with existing clients. Everything else here is `BREAKING`. Removing a service, rpc, message or field breaks every caller. A changed rpc signature (including a switch between unary and streaming), or a field whose type or number changed, breaks the wire format for clients built against the old descriptor. That is why a modified field is `BREAKING` rather than `POTENTIAL_BREAKING`.
 
 Change paths pinpoint the exact location, for example:
 
@@ -282,7 +282,7 @@ Schema files referenced by `configurations[].schema`, `policies[].schema`, or th
 | `schema.*` (any other path) | Added / Removed / Modified | POTENTIAL_BREAKING |
 
 The same recursive comparison classifies OpenAPI request bodies and responses,
-AsyncAPI payloads and these schema files, but not identically: a `required`
+AsyncAPI payloads and these schema files — but not identically. A `required`
 entry is a promise in one direction and an obligation in the other, so the
 verdict depends on which side supplies the data.
 

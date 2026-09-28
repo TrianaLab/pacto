@@ -39,13 +39,13 @@ A Pacto bundle is a self-contained directory (or OCI artifact) with the followin
     └── sbom.spdx.json
 ```
 
-Only `pacto.yaml` is required. All other directories are optional — include them when your contract references files in them. Validation enforces that every file referenced by `pacto.yaml` exists within the bundle.
+Only `pacto.yaml` is required. All other directories are optional — include them when your contract references files in them. Validation checks that every file referenced by `pacto.yaml` exists within the bundle.
 
-When you run `pacto push`, the bundle is packaged as an OCI artifact — versioned, content-addressed, and distributable through any OCI registry. This is how contracts travel between teams, services, and environments.
+When you run `pacto push`, the bundle is packaged as an OCI artifact — versioned, content-addressed and distributable through any OCI registry. This is how contracts travel between teams, services and environments.
 
 ### `docs/` — Optional documentation
 
-The `docs/` directory is an optional convention for including human-readable documentation alongside the contract. Its contents are treated as **informational metadata** — they travel with the contract but have no effect on contract semantics, validation, or diff classification.
+Anything here is **informational metadata** — it travels with the contract but has no effect on contract semantics, validation or diff classification.
 
 **What documentation could include:**
 
@@ -56,7 +56,7 @@ The `docs/` directory is an optional convention for including human-readable doc
 
 ### `sbom/` — Optional Software Bill of Materials
 
-The `sbom/` directory is an optional convention for including a Software Bill of Materials alongside the contract. Like `docs/`, its contents are treated as **informational metadata** — they travel with the contract but have no effect on contract semantics or validation.
+Like `docs/`, anything here is **informational metadata** — it travels with the contract but has no effect on contract semantics or validation.
 
 Unlike `docs/`, SBOM files **are included in diff output**. When both the old and new bundles contain an SBOM, `pacto diff` reports package-level changes (added, removed, version, license or supplier modified). These changes are informational only — they never affect the overall diff classification.
 
@@ -87,6 +87,6 @@ service:
   version: 1.0.0
 ```
 
-This is useful for lightweight dependency declarations, shared libraries, or contracts where runtime semantics are managed externally.
+This is useful for lightweight dependency declarations, shared libraries or contracts where runtime semantics are managed externally.
 
 ---

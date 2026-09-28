@@ -6,8 +6,6 @@ Pacto uses an out-of-process plugin architecture for artifact generation. A plug
 
 ## Official plugins
 
-Pacto has two official plugins:
-
 | Plugin | Description |
 |--------|-------------|
 | **pacto-plugin-schema-infer** | Infers a JSON Schema from sample configuration files (JSON, YAML, TOML) |

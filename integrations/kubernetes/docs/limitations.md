@@ -13,8 +13,8 @@ report only.
 
 It is not a read-only component overall. At chart defaults it manages the Pacto
 dashboard for you, which means creating a Deployment, Service, ServiceAccount,
-Secret, ClusterRole and ClusterRoleBinding of its own — and the grants that allow
-that are broad enough to escalate privilege. [RBAC](rbac.md) has the full rule
+Secret, ClusterRole and ClusterRoleBinding of its own. The grants that allow that
+are broad enough to escalate privilege. [RBAC](rbac.md) has the full rule
 list and the flags that switch the managed components off.
 
 ## Observation boundaries
@@ -28,10 +28,10 @@ Several dimensions resolve to `Unsupported` (which reads as `Unknown`, never
 - **Non-HTTP capability bindings** -- health and metrics probing supports HTTP
   bindings only; gRPC capability probing is not implemented and returns
   `Unsupported`.
-- **Unbound interfaces and capabilities** -- when an interface has no
-  `interfaceBindings` entry (and name-match discovery is off), or a capability's
-  owning interface has no binding, the target port cannot be resolved and the
-  result is `Unsupported`.
+- **Unbound interfaces and capabilities** -- the target port cannot be resolved
+  and the result is `Unsupported`. That happens when an interface has no
+  `interfaceBindings` entry (and name-match discovery is off), or when a
+  capability's owning interface has no binding.
 
 ## Opt-in features
 
@@ -42,9 +42,9 @@ in-cluster request surface:
   metrics dimension returns `Unsupported`.
 - **Active health probing** requires `--enable-probing`: the operator issues an
   in-cluster HTTP GET against the health capability's own port and path. Without
-  it, health falls back to what the cluster already knows -- an `httpGet`
+  it, health falls back to what the cluster already knows: an `httpGet`
   readiness probe on the container behind that port, plus a Ready EndpointSlice
-  endpoint -- which observes the workload rather than the declared endpoint. The
+  endpoint. That observes the workload rather than the declared endpoint. The
   flag help and the [observation reference](runtime-observations.md) call these
   two *Tier A* and *Tier B*; nothing the operator reports uses those labels.
 - **Interface name-match discovery** requires `--interface-name-match-discovery`

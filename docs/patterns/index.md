@@ -1,6 +1,6 @@
 # Composition Patterns
 
-Pacto's primitives — bundles, references, configurations, policies, metadata — compose into platform interfaces. This page collects the compositions worth knowing: when to reach for each one, which primitives it relies on, and a minimal worked example.
+Pacto's primitives — bundles, references, configurations, policies, metadata — compose into platform interfaces. This page collects the compositions worth knowing: when to reach for each one, which primitives it relies on and a minimal worked example.
 
 Each pattern is independent. Stack what you need; ignore what you don't.
 
@@ -258,7 +258,7 @@ configurations:
 
 ## Configuration schema ownership
 
-**Who owns the schema.** A `configurations[]` entry's schema can be service-owned (the service declares what it requires) or platform-owned (the platform declares what it provides). Service-owned schemas live as local files in the bundle; platform-owned schemas are distributed either vendored (services copy the platform's schema into their bundle at build time) or referenced (services point `configurations[].ref` at the platform's configuration contract; Pacto records and pins the reference while the consumer reads the schema from that bundle, by convention at `configuration/schema.json`).
+**Who owns the schema.** A `configurations[]` entry's schema can be service-owned (the service declares what it requires) or platform-owned (the platform declares what it provides). Service-owned schemas live as local files in the bundle. Platform-owned schemas are distributed one of two ways. **Vendored**: services copy the platform's schema into their bundle at build time. **Referenced**: services point `configurations[].ref` at the platform's configuration contract, and Pacto records and pins that reference while the consumer reads the schema from that bundle, by convention at `configuration/schema.json`.
 
 Because `configurations` is an array, one entry may reference a platform schema and another define a service-specific schema. `schema` and `ref` are mutually exclusive within a single entry.
 
@@ -287,8 +287,8 @@ A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules 
 - **Backwards is checked.** A service can never silently weaken its policy — `pacto diff` flags removing or changing a policy ref as potentially breaking
 - **The version is the negotiation point.** Conversations about "should we require X?" become "should we publish v4 that requires X, with a six-month adoption window?"
 
-**Two dials.** Pinning the policy's major version (above) makes each new bar opt-in and negotiated. Alternatively, a rule layer referenced *transitively* through the platform contract can be left unpinned: republishing that one schema propagates a new rule fleet-wide immediately, with no per-service bump — at the cost of lockfile drift, since every republish changes the resolved digest and forces services to re-lock ([`pacto lock --check`](../lockfile.md) fails until they do). Pinned is opt-in and negotiated; floating is instant and unilateral but forces re-locks.
+**Two dials.** Pinning the policy's major version (above) makes each new bar opt-in and negotiated. Alternatively, a rule layer referenced *transitively* through the platform contract can be left unpinned. Republishing that one schema then propagates a new rule fleet-wide immediately, with no per-service bump. The cost is lockfile drift: every republish changes the resolved digest and forces services to re-lock, and [`pacto lock --check`](../lockfile.md) fails until they do. Pinned is opt-in and negotiated; floating is instant and unilateral but forces re-locks.
 
-**Coordinate with `pacto validate`.** When a service ref-bumps from `2.0.0` to `3.0.0`, `pacto diff` reports the changed policy ref; `pacto validate` resolves the new policy and fails *before* merge if the contract does not satisfy it — the team sees the gap and either fixes it or stays on `2.0.0`.
+**Coordinate with `pacto validate`.** When a service ref-bumps from `2.0.0` to `3.0.0`, `pacto diff` reports the changed policy ref. `pacto validate` resolves the new policy and fails *before* merge if the contract does not satisfy it, so the team sees the gap and either fixes it or stays on `2.0.0`.
 
 ---

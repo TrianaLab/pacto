@@ -66,7 +66,7 @@ $ pacto validate .
 . is valid
 ```
 
-Validation runs three layers: structural, cross-field and policy enforcement. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
+Validation runs three layers: structural, cross-field and policy checks. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
 
 ## 4. Add consumers
 

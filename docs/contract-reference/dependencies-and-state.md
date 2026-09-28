@@ -17,7 +17,7 @@ Declares dependencies on other services via their Pacto contracts.
 | `compatibility` | string | Yes | Non-empty. Valid semver constraint |
 
 !!! note
-    `true` means the service cannot function without the dependency; `false` means it degrades gracefully when the dependency is unavailable. This is declared *intent* that consumers read — the dashboard computes blast radius from it — not something Pacto checks at deployment time.
+    `true` means the service cannot function without the dependency; `false` means it degrades gracefully when the dependency is unavailable. This is declared *intent* that consumers read — the dashboard works out the affected consumers from it — not something Pacto checks at deployment time.
 
 ### Dependency reference schemes
 

@@ -77,12 +77,12 @@ helm install pacto-operator \
   short or tag-shaped reference the same way — the digest has to be all 64 hex
   characters.
 - **A trust store.** `evidence.trust.existingSecret` names the Secret you
-  created above. The chart does **not** enforce this one, so an install without
+  created above. The chart does **not** check this one, so an install without
   it succeeds and the operator then exits at startup with `evidence enabled but
   no trust secret set: signature verification is mandatory`. Verification is
   never optional.
 - **A registry that serves the native Referrers API**, as above. Nothing checks
-  it at install time: the chart installs, the operator starts, and the failure
+  it at install time: the chart installs, the operator starts and the failure
   surfaces later as an Evidence Server that never becomes ready.
 
 If that registry is private, there is a fourth thing you create yourself: a
