@@ -7,7 +7,7 @@ revision ships, who is affected?*
 
 Impact is framework-independent (`pkg/impact`). It consumes the pure diff engine
 ([change classification](contract-reference/diff.md)) and the immutable
-[operational-graph](operational-graph.md) read model, and imports no Kubernetes,
+[operational graph](operational-graph.md) read model, and imports no Kubernetes,
 OCI, dashboard, MCP or HTTP code. One analysis therefore backs the CLI command,
 the MCP tool and the dashboard's **Change analysis** workspace, and given the same
 snapshot all three return the identical answer.

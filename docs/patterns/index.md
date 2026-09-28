@@ -1,6 +1,6 @@
 # Composition Patterns
 
-Pacto's primitives — bundles, references, configurations, policies, metadata — compose into platform interfaces. This page collects the compositions worth knowing: when to reach for each one, which primitives it relies on and a minimal worked example.
+Pacto's primitives — bundles, references, configurations, policies, metadata — compose into platform interfaces. Each pattern below says when to reach for it, which primitives it relies on and how a minimal version looks.
 
 Each pattern is independent. Stack what you need; ignore what you don't.
 

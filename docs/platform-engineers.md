@@ -29,11 +29,20 @@ A private repository needs credentials first: `pacto login <registry>`, or an al
 
 ### 2. Inspect it
 
+```bash
+pacto explain oci://ghcr.io/acme/payments-api-pacto:2.1.0
+```
+
 See [`pacto explain`](cli-reference.md#pacto-explain) for the output format.
 
 ### 3. Check for breaking changes
 
-See [Diff and change classification](contract-reference/diff.md) for the full reference and worked examples. `pacto diff` exits non-zero if breaking changes are detected.
+```bash
+pacto diff oci://ghcr.io/acme/payments-api-pacto:2.0.0 \
+  oci://ghcr.io/acme/payments-api-pacto:2.1.0
+```
+
+It exits non-zero if breaking changes are detected. See [Diff and change classification](contract-reference/diff.md) for the full reference and worked examples.
 
 ### 4. Resolve the dependency graph
 

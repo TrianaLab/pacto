@@ -185,7 +185,7 @@ nav:
   - Guides:
       - For developers: developers.md
       - For platform engineers: platform-engineers.md
-      - Platform patterns: patterns/index.md
+      - Composition patterns: patterns/index.md
   - How Pacto decides:
       - The model: model.md
       - Manifesto: manifesto.md

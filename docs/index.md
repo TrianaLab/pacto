@@ -73,7 +73,7 @@ pass.
 | `pacto validate` | Is this contract legal? |
 | `pacto diff` | Did I break my own consumers? |
 | `pacto impact` | Which consumers, and where do they run? |
-| The operator | Does reality still match what was declared? |
+| The [operator](integrations/kubernetes/overview.md) | Does reality still match what was declared? |
 
 `validate` and `diff` pay off at one service; `impact` and the graph pay off at
 the second consumer.

@@ -30,7 +30,7 @@ already owned the subject; nothing was silently dropped:
   operational graph](https://pacto.run/latest/operational-graph/), [impact
   analysis](https://pacto.run/latest/impact/) and [fleet
   tools](https://pacto.run/latest/fleet-tools/).
-- Six pattern pages are one page, [platform
+- Six pattern pages are one page, [composition
   patterns](https://pacto.run/latest/patterns/), and the developer and
   platform-engineer guides no longer restate those patterns.
 - Three evidence pages — the OCI storage layout, the protocol and the security
