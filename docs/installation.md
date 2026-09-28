@@ -21,14 +21,12 @@ This installs into `/usr/local/bin`: `pacto`, `pacto-plugin-schema-infer` and `p
 Pass `--version` for a specific release: `bash -s -- --version v3.1.4`.
 
 !!! warning "If the script cannot find a version (GitHub API rate limit)"
-    The script resolves the version through the anonymous GitHub API (60 requests per hour per IP). On a shared or NAT'd address it can run out and exit with `Failed to fetch latest version`. Set `GH_TOKEN` to any GitHub token (no scopes needed) and re-run:
+    The script resolves the version through the anonymous GitHub API (60 requests per hour per IP). On a shared address it can exit with `Failed to fetch latest version`. Set `GH_TOKEN` to any GitHub token and re-run:
 
     ```bash
     curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh \
       | GH_TOKEN="$(gh auth token)" bash
     ```
-
-    `gh auth token` prints the token the [GitHub CLI](https://cli.github.com/) already holds. Without `gh`, create a fine-grained personal access token with no permissions at [github.com/settings/tokens](https://github.com/settings/tokens).
 
 ### Installing without sudo
 
@@ -49,8 +47,8 @@ go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 
 Requires [Go 1.26.6](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
 
-!!! warning "A `go install` build reports itself as `dev`"
-    Release metadata is injected at link time, which `go install` does not do. `pacto version` prints `Pacto: dev`, and `pacto update` refuses to run. Use the installer script or a [release binary](https://github.com/TrianaLab/pacto/releases) if you need version metadata.
+!!! warning "`go install` builds report as `dev`"
+    `pacto version` prints `Pacto: dev` and `pacto update` refuses to run. Use the installer script if you need version metadata.
 
 ## From source
 
@@ -74,26 +72,24 @@ The first line should match the release you installed, or say `dev` if you used 
 
 ## Installing the official plugins
 
-The two official plugins (`pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`) are separate binaries maintained in the [pacto-plugins](https://github.com/TrianaLab/pacto-plugins) repository.
+The two official plugins (`pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`) are separate binaries from the [pacto-plugins](https://github.com/TrianaLab/pacto-plugins) repository.
 
 | Install method | Plugins |
 |----------------|---------|
-| [Installer script](#via-installer-script) | Installed alongside the CLI (best-effort). If the plugin release cannot be fetched the script prints `Warning: failed to fetch latest plugins version, skipping plugin installation` and continues. |
+| [Installer script](#via-installer-script) | Installed (best-effort) |
 | [`go install`](#via-go) | Not installed |
 | [From source](#from-source) | Not installed |
 
-Without them, `pacto generate schema-infer` and `pacto generate openapi-infer` fail with `plugin "<name>" not found`. To install them by hand, download the binaries from the [pacto-plugins releases](https://github.com/TrianaLab/pacto-plugins/releases) and put them on your `PATH` or in `~/.config/pacto/plugins/`. See [Plugins](plugins.md) for the protocol and how to write your own.
+Without them, `pacto generate schema-infer` fails with `plugin "schema-infer" not found`. To install by hand, download from [pacto-plugins releases](https://github.com/TrianaLab/pacto-plugins/releases) and put them on your `PATH`. See [Plugins](plugins.md).
 
 ## Update the CLI
-
-`pacto update` works on a version-stamped binary (one from the installer script or a GitHub release). A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v3/cmd/pacto@latest` instead.
 
 ```bash
 pacto update              # latest release
 pacto update v3.1.4       # specific version
 ```
 
-This verifies the new binary's SHA-256 before replacing the current one. If verification fails, the update is aborted and the existing binary is left untouched. See the [`pacto update` reference](cli-reference.md#pacto-update) for update notifications and the `PACTO_NO_UPDATE_CHECK` environment variable.
+This verifies the new binary's SHA-256 before replacing the current one. A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v3/cmd/pacto@latest` instead.
 
 ## Supply chain: what is signed and what is not
 
