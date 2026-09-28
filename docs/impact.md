@@ -132,9 +132,12 @@ bundles declare no targets: **a declared-only run can never exit non-zero.**
 
 ```console
 $ pacto impact ./api-v1 ./api-v2 --local ./fleet
+Impact: api 1.0.0 -> 2.0.0
 Classification: BREAKING
+Breaking changes: 2
+Potentially breaking changes: 0
 Affected consumers (1):
-  web    direct   confidence=contractual  compat=incompatible  owner=frontend
+  web                          direct     confidence=contractual  compat=incompatible owner=frontend
 $ echo $?
 0
 ```
@@ -144,9 +147,12 @@ blocks:
 
 ```console
 $ pacto impact ./api-v1 ./api-v2 --local ./fleet --target-state ./targets.yaml
+Impact: api 1.0.0 -> 2.0.0
 Classification: BREAKING
+Breaking changes: 2
+Potentially breaking changes: 0
 Affected consumers (1):
-  web    direct   confidence=contractual  compat=incompatible  owner=frontend
+  web                          direct     confidence=contractual  compat=incompatible owner=frontend
 Active targets (1): [production/kubernetes-workload/shop%2Fweb]
 breaking changes affect active consumers
 $ echo $?

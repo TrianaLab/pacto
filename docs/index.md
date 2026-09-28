@@ -45,7 +45,7 @@ pins the rest of the transitive closure by digest. So when auth is about to ship
 3.0, Pacto answers per consumer:
 
 ```console
-$ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local ./services
+$ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
 Impact: auth 2.1.0 -> 3.0.0
 Classification: BREAKING
 Breaking changes: 1
