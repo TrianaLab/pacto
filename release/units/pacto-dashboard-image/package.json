@@ -1,6 +1,6 @@
 {
   "name": "@pacto/dashboard-image",
-  "version": "3.3.3",
+  "version": "3.3.4",
   "private": true,
   "pacto": {
     "releaseUnit": "dashboard-image",
