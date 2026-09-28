@@ -192,7 +192,7 @@ operations the server always registers Pacto's own authoring tools —
 `pacto_create` and `pacto_edit` write contract files to disk.
 
 Mutating operations are withheld by default, in every bundle. Serve the demo's
-payments service instead and its five mutating operations — every `POST`, `PUT`,
+payments service instead, and its five mutating operations — every `POST`, `PUT`,
 `PATCH` and `DELETE` *that* bundle's interface declares — are dropped with a
 warning on stderr:
 
