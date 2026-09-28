@@ -49,6 +49,9 @@ jobs:
               - 'MIGRATION.md'
               - 'SECURITY.md'
               - 'CODE_OF_CONDUCT.md'
+              # Contributor documentation that left the site. scope() takes
+              # release/*.md and not release/units/**, so the filter matches.
+              - 'release/README.md'
               # The gate's own rules. Loosening a rule must re-run the gate that
               # rule guards, otherwise a weakened style ships unchecked.
               - '.vale.ini'

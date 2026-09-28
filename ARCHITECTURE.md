@@ -41,10 +41,8 @@ graph TD
     CLI --> LOG[pkg/logging<br/>Contextual Logger]
     CLI --> MCP[internal/mcp<br/>MCP Server]
     CLI --> UPDATE[internal/update<br/>Update Checker]
-    MCP --> APP
     MCP --> CAP[pkg/capability<br/>Agent Tools]
     MCP --> SKILL[pkg/skills<br/>Bundle Skills]
-    DASH --> CAP
     CLI --> APP[internal/app<br/>Application Services]
     APP --> VAL[pkg/validation<br/>Validator + Evaluate]
     VAL --> FIND[pkg/finding<br/>Findings]
@@ -55,12 +53,10 @@ graph TD
     APP --> PLUG[pkg/plugin<br/>Plugin Runner]
     APP --> DOC[pkg/doc<br/>Doc Generator]
     APP --> OVER[pkg/override<br/>YAML Overrides]
-    APP --> DASH
     CLI --> DASH[pkg/dashboard<br/>Dashboard Server]
     DASH --> CONTRACT
     DOC --> DASH
     DASH --> DIFF
-    DASH --> VAL
     DASH --> GRAPH
     DASH --> OCI
     DIFF --> SBOM[pkg/sbom<br/>SBOM Parser & Differ]
@@ -82,8 +78,9 @@ graph TD
     class APP,CLI,MCP,MAIN,UPDATE internal
 ```
 
-The diagram shows the main edges, not every import: the leaf packages each of
-these builds on are left out to keep it readable. Dependencies flow
+The diagram shows the main edges, not every import: `pkg/catalog`, `pkg/fleet`,
+`pkg/impact` and `pkg/openapi` are direct imports of `internal/app` and
+`internal/mcp`, and are left out to keep it readable. Dependencies flow
 **downward only**. The OCI adapter (`pkg/oci`) is a public package, importable
 by external consumers such as the Kubernetes operator in
 `integrations/kubernetes`. So are the engine packages that operator consumes —
@@ -190,3 +187,13 @@ reason.
 | Validation is deterministic | No configurable rule sets. Same contract + same schema = same result, always. |
 | `pkg/catalog` is framework-independent | It imports `pkg/contract`, go-digest and the standard library, and nothing else, so catalog semantics can never become a property of one delivery mechanism. |
 | `pkg/fleet` is route-neutral | The operational graph owns canonical identities, query facts, completeness and limitations, and returns route-neutral entity references. Turning a reference into a navigable URL is a *transport* concern: the dashboard transport adds an href built from the canonical key through a single route builder. MCP and other non-dashboard consumers read the same facts and must never receive dashboard URLs. Enforced by `TestFleetStaysRouteNeutral` in `tests/architecture`. |
+| Every assertion needs a possible Evidence path | An assertion no collector can produce Evidence for leaves a service permanently `Unknown`. This is why `verification.conformance` was removed: nothing produces interface-conformance Evidence, so declaring an `interfaces[]` entry requires runtime *availability* Evidence instead. Conformance can return once a real observation kind and evaluator exist for it — a schema field is not enough. |
+
+## See also
+
+- [The Pacto model](docs/model.md) — the engine, the compliance states and the
+  ten roles this layout keeps apart
+- [CONTRIBUTING.md](CONTRIBUTING.md) — build, test levels and the pull-request
+  workflow
+- [release/README.md](release/README.md) — the release transaction, the
+  publishers and what to do when one stops part-way

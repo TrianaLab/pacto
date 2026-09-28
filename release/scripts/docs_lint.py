@@ -90,9 +90,11 @@ def record(ok: bool, name: str, detail: str = "") -> None:
 def scope() -> list[str]:
     """Every hand-written Markdown file the gate covers, repo-relative and sorted.
 
-    In:  docs/ (the published site), each integration's hand-written docs, and
-         the root Markdown a reader meets on GitHub.
-    Out: docs/superpowers/ (gitignored working notes, never published), and
+    In:  docs/ (the published site), each integration's hand-written docs, the
+         root Markdown a reader meets on GitHub, and release/README.md, which
+         is contributor documentation that left the site.
+    Out: docs/superpowers/ (gitignored working notes, never published),
+         release/units/*/CHANGELOG.md (shipped records, never rewritten), and
          anything generated -- docs/cli-reference.md and the per-integration
          generated/ trees are drift-gated by docs_check.py against their real
          sources, and prose rules would only fight the generator.
@@ -113,6 +115,10 @@ def scope() -> list[str]:
             if not is_generated(rel) and not os.path.basename(p).startswith("_"):
                 files.add(rel)
     for p in glob.glob(os.path.join(REPO_ROOT, "*.md")):
+        files.add(os.path.relpath(p, REPO_ROOT))
+    # Non-recursive on purpose: release/README.md is prose, the CHANGELOG.md
+    # under every release/units/ entry is a shipped record and off limits.
+    for p in glob.glob(os.path.join(REPO_ROOT, "release", "*.md")):
         files.add(os.path.relpath(p, REPO_ROOT))
     return sorted(files)
 

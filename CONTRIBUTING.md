@@ -186,7 +186,8 @@ pacto/
     mcp/              #   MCP server adapter
     update/           #   Version update checker
     testutil/         #   Shared test utilities
-  schema/             # Standalone JSON schema copy
+  integrations/       # Delivery outside the CLI
+    kubernetes/       #   The operator: a second Go module, its own go.mod
   tests/              # Tests that are not about one package
     integration/      #   CLI driven in process against a real registry
     architecture/     #   Structural rules about the repository itself
@@ -194,10 +195,14 @@ pacto/
     acceptance/kind/  #   The product against a real Kubernetes cluster
     release/          #   The release system produces what it claims
   docs/               # Documentation site (MkDocs)
+  examples/           # Runnable demos, including the Compose fleet
+  release/            # The release pipeline, its units and its scripts
   scripts/            # Build and install scripts
 ```
 
-Core domain logic lives in `pkg/` and can be imported by external projects. Infrastructure and CLI wiring lives in `internal/`.
+Core domain logic lives in `pkg/` and can be imported by external projects. Infrastructure and CLI wiring lives in `internal/`. `integrations/kubernetes` is a separate Go module with its own `go.mod`, joined to the root by `go.work` — never run `go mod tidy` there, because the workspace carries a `replace` that tidy cannot see.
+
+[ARCHITECTURE.md](ARCHITECTURE.md) explains why the tree is shaped this way: the dependency graph, the layer boundaries and the invariants a change must preserve.
 
 ### Code Style
 
@@ -336,6 +341,10 @@ Maintainers cut a release by running `npm run release:version` (which runs
 `changeset version`, then builds and applies the release plan) and letting the
 release workflow (`.github/workflows/release.yml`) build, publish and sign the
 artifacts.
+
+[release/README.md](release/README.md) is the maintainer guide to that pipeline:
+what a transaction is, which publisher owns each unit and what to do when one
+stops part-way.
 
 ## Questions?
 
