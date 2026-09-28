@@ -654,7 +654,7 @@ state:
 That contract is step 1 of the [operational control loop](../model.md#the-operational-control-loop)
 — declare, read, constrain, act, observe, evaluate — which the model page states
 once, including which two steps external systems perform rather than Pacto. The
-rest of this site is that loop in detail: [`pacto explain` and MCP](../mcp-agent-capabilities.md)
+rest of this site is that loop in detail: [`pacto explain` and MCP](../mcp-integration.md)
 read it, the [Kubernetes collector](../integrations/kubernetes/runtime-observations.md)
 observes against it, and [compliance scenarios](compliance-scenarios.md) show
 what each verdict is proven by.

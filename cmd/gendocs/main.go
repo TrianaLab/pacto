@@ -146,7 +146,7 @@ The following variables configure the dashboard when set (see also [Dashboard Co
 | ` + "`PACTO_DASHBOARD_NAMESPACE`" + ` | ` + "`--namespace`" + ` | Kubernetes namespace filter (empty = all) |
 | ` + "`PACTO_DASHBOARD_CORS_ORIGIN`" + ` | ` + "`--cors-origin`" + ` | One explicit origin allowed to call the API. Unset means same-origin only. |
 | ` + "`PACTO_DASHBOARD_TRACES`" + ` | ` + "`--traces`" + ` | OTLP/JSON trace files to fold observed dependencies from |
-| ` + "`PACTO_DASHBOARD_TRACE_SOURCES`" + ` | ` + "`--trace-source`" + ` | Named offline trace sources as ` + "`NAME=PATH`" + ` |
+| ` + "`PACTO_DASHBOARD_TRACE_SOURCES`" + ` | ` + "`--trace-source`" + ` | Named offline trace sources as ` + "`NAME=PATH`" + `, where ` + "`NAME`" + ` is the source's identity (what the fleet, the API and the dashboard's Data Source list call it) and ` + "`PATH`" + ` is the trace file location. Identity and location are deliberately separate: reordering the configuration never renames a source, moving the file never renames it either, and two sources whose files happen to share a basename stay two sources. A name must be unique across every Data Source the dashboard assembles. |
 
 !!! warning "The two list variables split on **whitespace**, not commas"
     ` + "`PACTO_DASHBOARD_TRACES`" + ` and ` + "`PACTO_DASHBOARD_TRACE_SOURCES`" + ` go through the
@@ -217,7 +217,7 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 
 	"generate": "`pacto generate <plugin>` invokes the `pacto-plugin-<plugin>` binary. See [Plugins](plugins.md) for plugin discovery, the plugin registry, and the official plugins bundled with Pacto.",
 
-	"lock": "See [Lockfile](lockfile.md) for the lock model, drift enforcement, and how `.pactoignore` keeps a `pacto.lock` out of a pushed bundle.",
+	"lock": "See [Lockfile](lockfile.md) for the lock model and how `.pactoignore` keeps a `pacto.lock` out of a pushed bundle.",
 
 	"push": "If the artifact already exists in the registry, `pacto push` prints a warning and exits successfully without pushing. Use `--force` to overwrite.\n\n" +
 		"!!! note \"`--values` has no `-f` shorthand on push\"\n" +
@@ -265,14 +265,14 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"- The `PACTO_NO_UPDATE_CHECK=1` environment variable is set",
 
 	"dashboard": "It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).\n\n" +
-		"For the source model, contract-first merge priority (`local` > `oci` > `cache`) and version-tracking design, see [Dashboard architecture](dashboard-architecture.md). For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
+		"For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
 
 	"mcp": "The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:\n\n" +
 		"| Tool | Description |\n" +
 		"|------|-------------|\n" +
 		"| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |\n" +
 		"| `pacto_edit` | Edit an existing contract — add/remove interfaces and dependencies, change runtime, update metadata. Supports dry run. |\n" +
-		"| `pacto_check` | Validate a contract and return errors, warnings, and actionable improvement suggestions. |\n" +
+		"| `pacto_check` | Validate a contract and return errors, warnings and actionable improvement suggestions. |\n" +
 		"| `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |\n\n" +
 		"These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs.\n\n" +
 		"### Server modes\n\n" +
@@ -284,7 +284,18 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"| `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |\n" +
 		"| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |\n\n" +
 		"`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.\n\n" +
-		"See [MCP Integration](mcp-integration.md) for detailed setup with Claude and other AI tools, [Agent capabilities](mcp-agent-capabilities.md) for serving a bundle's operations as tools, and [Contract catalog discovery](mcp-catalog-discovery.md) for the catalog surface.",
+		"### Fleet tool arguments\n\n" +
+		"The arguments each fleet query tool takes, since none of them is required except where marked:\n\n" +
+		"| Tool | Arguments |\n" +
+		"|------|-----------|" + "\n" +
+		"| `pacto_fleet_search` | `text`, `owner`, `status`, `compliance`, `workload`, `scope`, `source`, `ready`, `not_ready`, `has_capability`, `has_dependency`, `limit` |\n" +
+		"| `pacto_fleet_get` | `service` **or** `target` — one names a logical service, the other an operational target by key or name |\n" +
+		"| `pacto_fleet_graph` | `service`, `revision` or `target` to root the traversal, then `direction`, `transitive` and `max_depth` (`0` = unlimited) |\n" +
+		"| `pacto_fleet_status` | `needs_attention` for every category, or any of `invalid`, `non_compliant`, `unknown`, `stale`, `unresolved_deps`, `missing_readiness`; plus `limit` |\n" +
+		"| `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |\n" +
+		"| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |\n\n" +
+		"Argument names are not flag names: the substring filter is `text`, not `query`, and an unrecognised key is ignored rather than rejected, so a wrong guess reads as an unfiltered answer rather than an error.\n\n" +
+		"See [MCP Integration](mcp-integration.md) for detailed setup, serving a bundle's operations as tools and the catalog surface.",
 }
 
 func main() {
