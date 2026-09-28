@@ -87,7 +87,7 @@ compliance evidence a source then carries.
   cluster: which revision runs in which target, and its operator-computed
   compliance, findings, coverage and observed runtime.
 - **Ingested external evidence** (`--evidence-url <url>`) — a running [Evidence
-  Server](evidence-protocol.md)'s read-only contribution over HTTP, exposing a
+  Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
 - **Offline target-state fixtures** (`--target-state`) — an unsigned demo and
   test adapter for supplying targets without a cluster.
@@ -346,7 +346,7 @@ The **OTel observer** (`pacto otel observe <traces.json>`) is an offline analyze
 it reads an exported OTLP/JSON trace file and derives the caller-to-callee edges
 its outbound spans prove. It never asserts a dependency is absent. It can also
 emit signable EvidenceSets (`pacto otel observe --evidence`) so observed
-dependencies travel the same [evidence protocol](evidence-protocol.md) as any
+dependencies travel the same [evidence protocol](evidence.md) as any
 other report.
 
 Those observed edges meet the declared graph in three places:

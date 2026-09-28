@@ -98,7 +98,7 @@ MCP surface, the catalog and the fleet apart.
 - **It reads; it does not reconcile and does not store.** Answering is all it
   does. Acting on a contract in a cluster is the
   [Kubernetes operator's](integrations/kubernetes/overview.md) job, and durable
-  evidence lives in an [Evidence Server](evidence-protocol.md) someone else runs —
+  evidence lives in an [Evidence Server](evidence.md) someone else runs —
   `--evidence-url` reads one, it never becomes one. Nothing survives the process.
 
 `--fleet` names its sources the same way `pacto fleet` does, and the flags mean

@@ -124,7 +124,7 @@ findings, coverage := validation.Evaluate(c, ev)
 ```
 
 Across a trust boundary a remote environment reports a signed `EvidenceSet` over
-the [evidence protocol](evidence-protocol.md) instead.
+the [evidence protocol](evidence.md) instead.
 
 ## Distinctions the model never collapses
 
@@ -188,5 +188,5 @@ and 6 are implemented here — the CLI, the dashboard, the collector and
 - [The Pacto Operational Graph](operational-graph.md) — the read model over many
   such evaluations, and the vocabulary for how much of the world an answer saw
 - [Validation layers](contract-reference/validation.md) — whether a contract is *valid*, a separate question from whether it *matches reality*
-- [Evidence protocol](evidence-protocol.md) — reporting a signed `EvidenceSet` across a trust boundary
+- [Evidence protocol](evidence.md) — reporting a signed `EvidenceSet` across a trust boundary
 - [Impact analysis](impact.md) — the confidence model over a change

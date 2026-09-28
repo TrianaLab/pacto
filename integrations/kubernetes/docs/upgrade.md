@@ -143,7 +143,7 @@ Two things are required the first time you enable it:
    legacy referrers-tag fallback, so a registry without the endpoint leaves the
    Evidence Server permanently not-ready. Neither GHCR nor CNCF distribution
    (`registry:2`, `registry:3`) qualifies — see [Evidence in
-   OCI](../../evidence-oci-storage.md) for what was checked.
+   OCI](../../evidence.md#registry-conformance) for what was checked.
 
 ```bash
 helm upgrade pacto-operator \

@@ -160,7 +160,7 @@ configuration. Pacto computes a readiness score from claim statuses and weights.
 Readiness is a **declared self-assessment**: it is what the service's authors say
 they have done, and Pacto checks the arithmetic and the expiry, not the underlying
 work. It is therefore a different question from **compliance**, which is decided
-from observed [evidence](../evidence-protocol.md) about a running workload. The
+from observed [evidence](../evidence.md) about a running workload. The
 dashboard keeps them apart: readiness appears on a revision and as a *Needs
 attention* category, never as a compliance verdict.
 

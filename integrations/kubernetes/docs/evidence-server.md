@@ -14,7 +14,7 @@ holding the contract must implement Referrers discovery. **GHCR does not
 qualify** — which matters here more than anywhere else on this site, because every
 other page publishes to `ghcr.io` — and neither does CNCF distribution
 (`registry:2`, `registry:3`). See [Evidence in
-OCI](../../evidence-oci-storage.md) for the registries this was checked against.
+OCI](../../evidence.md#registry-conformance) for the registries this was checked against.
 Publishing the contract to a conformant registry is a decision to make before
 `pacto push`, not after `helm install`.
 
@@ -46,7 +46,7 @@ kubectl create secret generic pacto-evidence-trust \
 ```
 
 The private `.key` stays with the producer that signs; the cluster never needs
-it. [Evidence security](../../evidence-security.md) covers rotation and
+it. [Evidence security](../../evidence.md#trust-store-and-trust-config) covers rotation and
 multi-producer trust.
 
 ## Get the subject digest
@@ -140,6 +140,6 @@ pacto fleet search --evidence-url http://127.0.0.1:8686
 Nothing durable lives in the cluster: there is no PersistentVolumeClaim and no
 data volume, because the registry is the store. Delete and recreate the
 Deployment and the accepted evidence is still there.
-[Evidence in OCI](../../evidence-oci-storage.md) covers what is written and
-where; [the ingestion API](../../evidence-security.md#the-ingestion-endpoints) lists all
+[Evidence in OCI](../../evidence.md#registry-conformance) covers what is written and
+where; [the ingestion API](../../evidence.md#ingestion-http-api) lists all
 five endpoints.
