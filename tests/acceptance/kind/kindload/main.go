@@ -32,6 +32,16 @@
 // Step 5 is what lets a scenario write `imagePullPolicy: Never` and mean it: the
 // image the pod runs is provably the image this command loaded, not a same-named
 // image the node pulled from Docker Hub.
+//
+// The two failures worth recognising, by the string they print:
+//
+//   - `archive is not self-contained` — the export still carried a platform
+//     whose content is not local, and the message names both the digest and the
+//     platform. On a Docker CLI older than 28 there is no `docker save
+//     --platform` to narrow the export with, so upgrade it.
+//   - `resolves to ... not the loaded ...` — the node already holds a different
+//     image under that name. Remove it inside the node with
+//     `ctr -n k8s.io images rm` and re-run.
 package main
 
 import (

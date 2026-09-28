@@ -45,6 +45,7 @@ jobs:
               # about what scope() in docs_lint.py actually reads.
               - 'README.md'
               - 'CONTRIBUTING.md'
+              - 'ARCHITECTURE.md'
               - 'MIGRATION.md'
               - 'SECURITY.md'
               - 'CODE_OF_CONDUCT.md'
@@ -162,7 +163,7 @@ jobs:
       # What neither gate above can see: the site as a reader meets it. Builds the
       # real site, serves it, and drives Chromium at a core page, an injected
       # integration page and an instant navigation between two of them, with
-      # cross-origin requests aborted. See docs/maintainers/testing.md.
+      # cross-origin requests aborted. See the Testing section of CONTRIBUTING.md.
       - name: Browser acceptance over the built site
         run: make test-browser-docs-site
 

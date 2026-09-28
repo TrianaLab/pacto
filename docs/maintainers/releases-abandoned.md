@@ -7,7 +7,7 @@ search:
 
 # Abandoned release transactions
 
-Two transactions in the [release pipeline](releases.md) published part-way and
+Two transactions in the release pipeline published part-way and
 stopped. Their versions are not installable, and these are the records of what
 each one left behind.
 

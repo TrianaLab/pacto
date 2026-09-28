@@ -24,7 +24,6 @@ Compliant transition:
 
 - kind acceptance harness: [`tests/acceptance/kind/reconcile.sh`](../../tests/acceptance/kind/reconcile.sh)
 - operator envtest acceptance suite: `make -C integrations/kubernetes test-e2e`
-- scenario-to-proof map: [`docs/examples/compliance-scenarios.md`](../../docs/examples/compliance-scenarios.md)
 
 ## How it works
 

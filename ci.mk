@@ -54,7 +54,8 @@ ci-engine: ci-test test-integration test-acceptance-local
 # The distributed Compose demo, end to end from a registry: push the artifact,
 # pull it BY DIGEST into an empty directory outside the checkout, start it there
 # and prove the same canonical fixture the Kind vertical proves — minus the
-# capability Compose declares it does not have. See docs/maintainers/testing.md.
+# capability Compose declares it does not have. See the header of
+# tests/acceptance/local/compose-demo.sh.
 #
 # test-browser-compose rather than test-acceptance-compose: same script, browser
 # leg on. The Playwright run costs a couple of minutes on top of a bring-up that
@@ -123,7 +124,7 @@ test-acceptance-kind-observation:
 # Docker image store and on a Docker Desktop workstation alike: images reach the
 # node through tests/acceptance/kind/kindload, which narrows each export to the
 # node's own platform instead of asking containerd to import platforms this host
-# never pulled. See docs/maintainers/testing.md.
+# never pulled. See the doc comment of tests/acceptance/kind/kindload.
 test-acceptance-kind-operational-graph:
 	bash tests/acceptance/kind/operational-graph.sh browser
 

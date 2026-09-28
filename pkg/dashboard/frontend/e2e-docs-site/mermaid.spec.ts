@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
-// Level 6 of the taxonomy in docs/maintainers/testing.md, applied to the
+// Level 6 of the taxonomy in CONTRIBUTING.md, applied to the
 // documentation site instead of the dashboard: the real `mkdocs build --strict`
 // output, served over HTTP, driven in Chromium.
 //

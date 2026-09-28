@@ -69,8 +69,6 @@ could not tell" versus "nothing has looked". The Kubernetes operator only ever
 reports the former — it never emits `NotEvaluated`, though the value is in the
 CRD enum for parity with the engine (see [Kubernetes
 limitations](integrations/kubernetes/limitations.md#notevaluated-is-reserved)).
-[Compliance scenarios](examples/compliance-scenarios.md) shows where each state
-is exercised.
 
 ## Collectors and the evidence boundary
 

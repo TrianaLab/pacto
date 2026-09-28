@@ -15,8 +15,9 @@ import (
 // which was fine while the cluster was the only surface — but the Compose
 // surface configures the SAME sources under different keys, and the parity test
 // between them has to read what each surface was actually told, not what both
-// were derived from. Two consumers is the rule for a projection existing at all
-// (docs/maintainers/testing.md); this now has them.
+// were derived from. A projection exists only when it has a consumer, and a
+// SHARED projection only when it has two — the rule the Testing section of
+// CONTRIBUTING.md states. This now has them.
 //
 // What is NOT here is deliberate: the operator image, the insecure registry, the
 // enabled components and the trust Secret are this RUN's values, with one

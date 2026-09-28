@@ -74,7 +74,8 @@ _HEADING = re.compile(r"^#{1,6}\s")
 # publishing transaction was abandoned, so the version was never released. The
 # Changesets files are the historical record and must not be rewritten to hide them,
 # so the assembled page says it instead. Keep in step with the post-mortems on
-# docs/maintainers/releases.md, which docs-check (o) enforces in both directions.
+# docs/maintainers/releases-abandoned.md, which docs-check (o) enforces in both
+# directions.
 #
 # One record per version, not one shared paragraph. They did not fail the same way:
 # 3.2.0 and 5.2.0 are tagged and resolve through the module proxy, while 5.2.2 was
@@ -121,7 +122,10 @@ _CHANGELOG_INTRO = (
     "Version history for every Pacto release unit, generated from "
     "[Changesets](https://github.com/changesets/changesets). The core group "
     "(engine, CLI and dashboard) and the Kubernetes integration are versioned "
-    "independently, so each release unit has its own section below."
+    "independently, so each release unit has its own section below.\n\n"
+    "This site is published only by a release, at the exact core version it "
+    "released. A merge to `main` validates the documentation but does not "
+    "deploy it, so what you are reading always matches a released version."
     "\n\n" + _UNRELEASED_NOTE
 )
 

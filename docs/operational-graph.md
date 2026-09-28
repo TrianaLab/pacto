@@ -387,5 +387,3 @@ by its as-of time.
   this graph
 - [Fleet tools](fleet-tools.md) — the dashboard, `pacto fleet` and the terminal UI
 - [MCP integration](mcp-integration.md) — the three MCP tool families
-- [Dashboard architecture](dashboard-architecture.md) — the source model behind
-  the contract-exploration substrate

@@ -208,24 +208,59 @@ Core domain logic lives in `pkg/` and can be imported by external projects. Infr
 
 ### Testing
 
-Pacto has eight test levels. A test belongs to exactly one, chosen by what it
-proves — never by filename or language. **[Testing
-architecture](docs/maintainers/testing.md) is the full guide, including how to
-pick the level for a new test.** The short version:
+Pacto has eight test levels. **A test belongs to exactly one**, chosen by what
+it proves — never by its filename, its language, or the feature that happened to
+introduce it.
 
-| Level | Lives in | Run with |
-|-------|----------|----------|
-| Unit | beside the code (`_test.go`, `*.test.ts`) | `make test`, `make ci-ui` |
-| Integration | `tests/integration/`, `integrations/kubernetes/test/` | `make test-integration` |
-| Architecture / invariant | `tests/architecture/` | `make ci-gates` |
-| Local acceptance, cluster-free | `tests/acceptance/local/` | `make test-acceptance-local` |
-| Kind / system acceptance | `tests/acceptance/kind/` | `make test-acceptance-kind` |
-| Browser acceptance, deterministic | `pkg/dashboard/frontend/e2e/` | `make test-browser` |
-| Live-browser acceptance | `pkg/dashboard/frontend/e2e-live/` | `make test-browser-live` |
-| Release verification | `tests/release/`, `release/orchestrator/` | `make ci-gates`, `make ci-oci`, `make release-dry-run` |
+| # | Level | What it proves | Lives in | Language | Run with |
+|---|-------|----------------|----------|----------|----------|
+| 1 | Unit | One package, in isolation | beside the code (`*_test.go`, `*.test.ts`) | Go, TypeScript | `make test`, `make ci-ui` |
+| 2 | Integration | Several real components wired together, nothing over a network a user could reach | `tests/integration/`, `integrations/kubernetes/test/` | Go | `make test-integration`, `make ci-e2e-envtest` |
+| 3 | Architecture / invariant | Structural rules about the repository itself | `tests/architecture/` | Go | `make ci-gates` |
+| 4 | Local acceptance, cluster-free | A whole user story, with no Kubernetes | `tests/acceptance/local/` | Shell + Go | `make test-acceptance-local`, `make test-acceptance-compose` |
+| 5 | Kind / system acceptance | The product against a real Kubernetes cluster | `tests/acceptance/kind/` | Shell + Go | `make test-acceptance-kind` |
+| 6 | Browser acceptance, deterministic | A real shipped artifact over fixed data | `pkg/dashboard/frontend/e2e/` (dashboard), `pkg/dashboard/frontend/e2e-docs-site/` (documentation site) | TypeScript | `make test-browser`, `make test-browser-docs-site` |
+| 7 | Live-browser acceptance | The real frontend against a real running deployment | `pkg/dashboard/frontend/e2e-live/` | TypeScript | `make test-browser-live`, `make test-browser-compose` |
+| 8 | Release verification | The release system produces what it claims | `tests/release/`, `release/orchestrator/` | Go, Node | `make ci-gates` (Go), `make ci-oci` (the Node orchestrator tests), `make release-dry-run` |
 
 - The project enforces **100% total statement coverage**. `ci-test` measures every package except `tests/`, `testutil`, `cmd/gendocs`, `cmd/genbundle` and `examples/`, and fails if the *total* is not 100.0%.
 - Run `make coverage` to generate a coverage report and identify uncovered lines.
+
+**Choosing a home for a new test.** Ask, in order:
+
+1. **Is it a rule about the repository rather than the product?** ("core must
+   stay Kubernetes-free", "generated artifacts are current") → level 3,
+   `tests/architecture/`.
+2. **Is it about the release system?** → level 8, `tests/release/`.
+3. **Can one package prove it?** → level 1, beside the code. Prefer this. The
+   100% coverage gate applies here.
+4. **Does it need several real components, but nothing a user could reach over a
+   network?** → level 2, `tests/integration/` (engine) or
+   `integrations/kubernetes/test/` (operator, envtest).
+5. **Is it a whole user story that needs no cluster?** → level 4,
+   `tests/acceptance/local/`.
+6. **Does it need a real Kubernetes cluster?** → level 5,
+   `tests/acceptance/kind/`, as one of the existing scenarios or a new one.
+7. **Is it browser-visible?** → level 6 if fixed data can prove it, level 7 only
+   if it genuinely needs live cluster data. At level 6, pick the suite by the
+   artifact under test: the dashboard bundle or the built documentation site.
+
+Three more rules once you have picked:
+
+- **Each Kind scenario is one boundary.** They are not merged: a merged cluster
+  run cannot say which boundary broke, and cannot be sharded across CI. If your
+  test is a new boundary, it is a new scenario with a new `make` target.
+- **A new semantic assertion goes in Go.** If you find yourself reaching for
+  `jq`, `grep` or an embedded interpreter inside a harness, the assertion belongs
+  in that scenario's Go gate — where it can have a test of its own. Shell stays
+  on thin process orchestration: bringing a cluster up, building an image,
+  forwarding a port.
+- **A shared projection needs two consumers.** When several surfaces describe
+  the same fixture, the fixture is declared once as data
+  (`tests/acceptance/scenario`) and each surface is a projection of it. A
+  projection earns its place by having a surface that reads it, and a *shared*
+  one by having two; a value with a single consumer is a property of the run and
+  stays in the harness.
 
 ### CI Quality Gates
 

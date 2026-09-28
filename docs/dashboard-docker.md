@@ -74,9 +74,8 @@ The CLI reference lists [every variable](cli-reference.md#environment-variables)
 
 ## Data Sources
 
-The dashboard auto-detects its sources at startup. The
-[source model](dashboard-architecture.md#source-model) covers how they merge;
-the container-specific bindings are:
+The dashboard auto-detects its sources at startup. The container-specific
+bindings are:
 
 - **`oci`**: `PACTO_DASHBOARD_REPO` is set, or repositories are discovered from Kubernetes `resolvedRef` fields. Supplies bundles, version history, interfaces and diffs.
 - **`cache`**: the on-disk OCI cache, surfaced as its own source only as an offline baseline when no registry is configured.
