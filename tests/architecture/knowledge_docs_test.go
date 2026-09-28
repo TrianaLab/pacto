@@ -10,8 +10,8 @@ import (
 )
 
 // The knowledge vocabulary is the words Pacto uses to say how much of the world an
-// answer actually saw. It exists in two layers, and the public concepts page is the
-// only place a reader learns either of them:
+// answer actually saw. It exists in two layers, and the public operational-graph page
+// is the only place a reader learns either of them:
 //
 //   - the WIRE layer, pkg/fleet.Completeness, carried in every answer's
 //     `meta.completeness`;
@@ -54,7 +54,7 @@ func readDoc(t *testing.T, parts ...string) string {
 	return string(b)
 }
 
-// knowledgeSection returns the "## Knowledge" section of the concepts page, so the
+// knowledgeSection returns the "## Knowledge" section of the graph page, so the
 // vocabulary table is compared against and not against some other table on the page
 // (the bounded-total table below it is a different four-state vocabulary).
 func knowledgeSection(t *testing.T, doc string) string {
@@ -62,7 +62,7 @@ func knowledgeSection(t *testing.T, doc string) string {
 	const heading = "\n## Knowledge\n"
 	i := strings.Index(doc, heading)
 	if i < 0 {
-		t.Fatal("docs/concepts.md has no `## Knowledge` section — the knowledge vocabulary is public API for anyone branching on meta.completeness")
+		t.Fatal("docs/operational-graph.md has no `## Knowledge` section — the knowledge vocabulary is public API for anyone branching on meta.completeness")
 	}
 	rest := doc[i+len(heading):]
 	if j := strings.Index(rest, "\n## "); j >= 0 {
@@ -71,7 +71,7 @@ func knowledgeSection(t *testing.T, doc string) string {
 	return rest
 }
 
-// TestKnowledgeVocabularyIsDocumentedInFull: the words in the concepts page's
+// TestKnowledgeVocabularyIsDocumentedInFull: the words in the graph page's
 // knowledge table are exactly the dashboard's CompletenessLevel union, and the page
 // says which of them `meta.completeness` actually carries.
 func TestKnowledgeVocabularyIsDocumentedInFull(t *testing.T) {
@@ -103,14 +103,14 @@ func TestKnowledgeVocabularyIsDocumentedInFull(t *testing.T) {
 		}
 	}
 
-	section := knowledgeSection(t, readDoc(t, "docs", "concepts.md"))
+	section := knowledgeSection(t, readDoc(t, "docs", "operational-graph.md"))
 	documented := map[string]bool{}
 	for _, m := range docWordRe.FindAllStringSubmatch(section, -1) {
 		documented[m[1]] = true
 	}
 
 	if got, want := sortedKeys(documented), sortedKeys(derived); strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("docs/concepts.md documents the knowledge vocabulary as %v, the code's is %v\n"+
+		t.Errorf("docs/operational-graph.md documents the knowledge vocabulary as %v, the code's is %v\n"+
 			"An undocumented level is one a reader meets with no branch for it; a documented level the code cannot produce is a dead branch.\n"+
 			"Fix the table in the `## Knowledge` section, or the CompletenessLevel union if the level should not exist.", got, want)
 	}

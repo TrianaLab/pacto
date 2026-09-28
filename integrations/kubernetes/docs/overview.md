@@ -84,10 +84,9 @@ observation dimensions are documented in
 `Unknown` here means *evaluated, and one required assertion could not be decided*
 — a verdict about this contract. It is not the `unknown` of the wider Pacto
 vocabulary, which is a statement about an **answer** rather than a service: see
-[Core concepts — Knowledge](../../concepts.md#knowledge) for the six words Pacto
-uses for how much of the world an answer saw, and
-[A contract status is not a knowledge state](../../concepts-boundaries.md#a-contract-status-is-not-a-knowledge-state) for why
-these two never mix.
+[Knowledge](../../operational-graph.md#knowledge) for the six words Pacto uses
+for how much of the world an answer saw. A contract status and a knowledge state
+never mix.
 
 Alongside the status the operator exports five Prometheus gauges. The names,
 labels and the scrape permission you have to grant yourself are in

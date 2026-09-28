@@ -220,8 +220,8 @@ promotion, `SectionMeta` coverage, generated wire types — and are listed in
 
 - [The Pacto model](model.md) — the roles this layout keeps apart
 - [Dashboard architecture](dashboard-architecture.md) — `pkg/dashboard` in detail
-- [Collectors and the evidence boundary](collectors.md) — how evidence reaches
-  `Evaluate`
+- [Collectors and the evidence boundary](model.md#collectors-and-the-evidence-boundary)
+  — how evidence reaches `Evaluate`
 - [Testing architecture](maintainers/testing.md) — the test suite that holds the
   invariants above
 - [Release architecture](maintainers/releases.md) — how the modules are versioned

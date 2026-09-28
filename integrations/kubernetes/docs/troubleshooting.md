@@ -120,8 +120,8 @@ kubectl annotate pacto <name> reconcile-requested-at="$(date -u +%FT%TZ)" --over
 If you need observations that outlive the reconcile that made them — an audit
 trail, a signed record, something to query weeks later — that is the
 [Evidence Server](../../evidence-protocol.md), which writes to your registry
-rather than to the cluster, and the [collectors](../../collectors.md) that feed
-it. Cluster status is a live reading, not a log.
+rather than to the cluster, and the
+[collectors](../../model.md#collectors-and-the-evidence-boundary) that feed it. Cluster status is a live reading, not a log.
 
 ## Status is `Unknown`
 

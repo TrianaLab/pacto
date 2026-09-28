@@ -215,8 +215,8 @@ These rules must be preserved by future changes; the codebase-wide ones live in
 
 - [Architecture](architecture.md) — the repository layout these invariants sit inside
 - [The Pacto model](model.md) — the roles the dashboard consumes
-- [Observation sources](observation-sources.md) — configuring the sources the
-  source model above assembles
+- [Sources](operational-graph.md#sources) — configuring the sources the source
+  model above assembles
 - [Dashboard container](dashboard-docker.md) — running it outside Kubernetes
 - [Testing architecture](maintainers/testing.md) — the gates that hold the
   invariants above

@@ -73,7 +73,7 @@ freshness metadata the platform needs to trust and place it.
 | `sequence` | uint64 | Monotonic per-producer counter for replay and ordering. |
 | `issuedAt` | RFC3339 | When the envelope was signed. |
 | `expiresAt` | RFC3339 | End of the validity window. Zero disables expiry. |
-| `evidenceSet` | object | The Pacto `EvidenceSet` being reported (see [collectors](collectors.md)). |
+| `evidenceSet` | object | The Pacto `EvidenceSet` being reported. |
 | `signature` | object | `{ "algorithm": "Ed25519", "value": "<base64>" }` over the canonical bytes. |
 
 A full envelope on the wire:
@@ -270,4 +270,4 @@ use this protocol, not the fixture.
 
 - [Operational graph](operational-graph.md) — where ingested targets appear and how freshness and completeness work
 - [Evidence security and tooling](evidence-security.md) — keygen, sign, verify, serve, send and key handling
-- [Collectors and the evidence boundary](collectors.md) — how an `EvidenceSet` is produced and evaluated
+- [Collectors and the evidence boundary](model.md#collectors-and-the-evidence-boundary) — how an `EvidenceSet` is produced and evaluated

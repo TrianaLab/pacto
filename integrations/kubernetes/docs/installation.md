@@ -114,10 +114,9 @@ Use `existingClaim` for real exports (some other workload writes into the PVC) o
 owns that storage owns producing and rotating the exports: Pacto ships **no OTLP
 receiver** and deploys no collector, so nothing listens on 4317 or 4318.
 
-[Observation sources](../../observation-sources.md) is the reference for the
-rest — why `name` is an identity rather than a label, what a name collision does,
-the read root each source is confined to, and why an unreadable source and a
-stale one are different answers.
+[Sources](../../operational-graph.md#sources) lists every source the graph reads,
+and [Knowledge](../../operational-graph.md#knowledge) has the words that keep an
+unreadable source and a stale one apart.
 
 ### The Evidence Server is off by default
 
