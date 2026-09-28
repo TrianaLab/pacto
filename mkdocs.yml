@@ -164,11 +164,18 @@ extra_javascript:
   - path: javascripts/mermaid.min.js
     defer: true
 
+# Ordered as a reader's path, not as a table of contents: see it running, install
+# it, follow your role's guide, then learn the model, then look things up. The
+# theory pages under "How Pacto decides" sit AFTER the hands-on ones deliberately
+# -- a first-time visitor should be able to try Pacto before absorbing it. Every
+# label is a word a reader would search for, and no two entries share a label.
 nav:
   - Home: index.md
   - Try it:
       - Live dashboard demo: examples/dashboard-demo.md
       - Guided tour: examples/demo-tour.md
+      # Path stays under examples/ on purpose: there is no redirect plugin, so
+      # moving the file would permanently break every existing inbound URL.
       - Run it locally: examples/compose-demo.md
   - Get started:
       - Installation: installation.md
