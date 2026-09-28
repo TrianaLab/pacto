@@ -82,8 +82,8 @@ the second consumer.
 
 - [What the live demo shows](examples/dashboard-demo.md) — the dashboard runs
   in your browser against a fixture fleet, nothing to install
-- [Quickstart](quickstart.md) — an empty directory to a published bundle, about
-  five minutes
+- [Quickstart](quickstart.md) — an empty directory to a validated contract, a
+  breaking change and the consumers it reaches, about five minutes
 - [Put it in your repository](ci.md) — validate and diff on every
   pull request
 - [Contract reference](contract-reference/index.md) — every field and every

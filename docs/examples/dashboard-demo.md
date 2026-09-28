@@ -30,7 +30,7 @@ workloads, so a runtime status would be fiction.
 
 Look at:
 
-- **Fleet overview** — sixteen services spanning edge, domain, infra, platform
+- **Fleet overview** — eighteen services spanning edge, domain, infra, platform
   and external tiers. Open it on the degraded sources and the duplicate name
   described above.
 - **One service's dependency graph** — `payments-service` spans six published
@@ -50,4 +50,4 @@ Next: the [Docker Compose demo](compose-demo.md) runs the same UI against a real
 registry and Evidence Server on your machine. The
 [guided tour](demo-tour.md) reaches the same facts from the command line in
 six offline user stories. Or go straight to the
-[Quickstart](../quickstart.md) and publish a contract of your own.
+[Quickstart](../quickstart.md) and write a contract of your own.

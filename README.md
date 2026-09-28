@@ -145,7 +145,7 @@ Full documentation at **[pacto.run](https://pacto.run)**.
 
 | Guide | Description |
 |-------|-------------|
-| [Quickstart](https://pacto.run/latest/quickstart) | From zero to a published contract in about 5 minutes |
+| [Quickstart](https://pacto.run/latest/quickstart) | From zero to a validated contract and a breaking change caught, in about 5 minutes |
 | [Contract Reference](https://pacto.run/latest/contract-reference) | Every field, validation rule and change classification |
 | [For Developers](https://pacto.run/latest/developers) | Write and maintain contracts alongside your code |
 | [For Platform Engineers](https://pacto.run/latest/platform-engineers) | Consume contracts for deployment, policies and graphs |

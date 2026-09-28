@@ -110,5 +110,5 @@ removes the registry volume and the evidence with it.
 - [Dashboard container](../dashboard-docker.md) — the dashboard against your own
   services rather than a fixture.
 
-Next: the [Quickstart](../quickstart.md) takes an empty directory to a published
-contract in about five minutes.
+Next: the [Quickstart](../quickstart.md) takes an empty directory to a validated
+contract and a caught breaking change in about five minutes.

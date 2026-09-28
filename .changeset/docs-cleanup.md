@@ -21,8 +21,8 @@ optional step, because it was the first thing standing between a new reader and
 a result. Committing the contract to a repository is now its own short page, CI
 integration, rather than a section buried in installation.
 
-**Twenty-eight pages are gone and what they said lives on the page that already
-owned the subject.** Nothing was silently dropped:
+**Twenty-eight pages are gone.** Most of what they said lives on the page that
+already owned the subject; nothing was silently dropped:
 
 - Seven concept and graph pages — concepts, concept boundaries, collectors,
   observation sources, fleet queries, fleet sources and impact surfaces — are
@@ -43,10 +43,13 @@ owned the subject.** Nothing was silently dropped:
 - The separate agent walkthrough is folded back into the [guided
   tour](https://pacto.run/latest/examples/demo-tour/), which now covers both
   ways through the demo in one pass.
-- The architecture, tooling-architecture, dashboard-architecture, release,
-  testing and compliance-scenario pages were never for site readers. They are
-  contributor documentation and now sit in `ARCHITECTURE.md`, `CONTRIBUTING.md`
-  and `release/README.md` in the repository, next to the code they describe.
+- The architecture, tooling-architecture, release and testing pages were never
+  for site readers. They are contributor documentation and now sit in
+  `ARCHITECTURE.md`, `CONTRIBUTING.md` and `release/README.md` in the
+  repository, next to the code they describe.
+- The dashboard-architecture and compliance-scenario pages are **removed**, not
+  moved. `ARCHITECTURE.md` carries one short dashboard section, not the
+  fourteen the old page had, and the scenario-to-proof map is gone.
 
 The corpus falls from 71 pages to 47 and from 101,000 words to 57,000 — **-43%
 measured over everything a page contains, -47% measured over running prose
@@ -61,8 +64,10 @@ own](https://pacto.run/latest/contract-reference/readiness/), so
 `contract-reference/#readiness` no longer resolves to anything. If you have
 linked to a Pacto documentation page from a runbook or a wiki, this release is
 the one that breaks it. `mike` keeps prior versions live at their own URL
-prefixes, which is the only mitigation there is; the list above is the map from
-what was removed to the page that now carries it.
+prefixes, which is the only mitigation there is: every version deploys under
+its own number, so a bookmark to `pacto.run/latest/collectors/` still resolves
+at `pacto.run/3.3.3/collectors/`. The list above is the map from what was
+removed to the page that now carries it.
 
 **Three claims the documentation used to make are now rejected by the linter.**
 Vale gained tokens for "policy enforcement" and "enforcement layer" — Pacto

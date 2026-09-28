@@ -210,8 +210,8 @@ by not registering this server where you do not want contracts written. See
 
 ## Next
 
-The [Quickstart](../quickstart.md) takes an empty directory to a published
-contract in about five minutes. The
+The [Quickstart](../quickstart.md) takes an empty directory to a validated
+contract and a caught breaking change in about five minutes. The
 [contract reference](../contract-reference/sections.md) is the complete list of
 sections, and [`pacto diff`](../contract-reference/diff.md#change-classification-rules)
 is the complete table of what counts as a breaking change.
