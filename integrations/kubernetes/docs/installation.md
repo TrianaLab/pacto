@@ -149,7 +149,7 @@ kubectl -n pacto-operator-system logs deploy/pacto-operator
 A healthy start ends with the workers and the dashboard reconciler:
 
 ```text
-INFO  dashboard  Starting dashboard reconciler  {"enabled": true, "image": "ghcr.io/trianalab/pacto/dashboard:3.3.4", ...}
+INFO  dashboard  Starting dashboard reconciler  {"enabled": true, "image": "ghcr.io/trianalab/pacto/dashboard:3.3.5", ...}
 INFO  Starting Controller  {"controller": "pacto", "controllerKind": "Pacto"}
 INFO  Starting workers     {"controller": "pacto", "worker count": 1}
 INFO  dashboard  Dashboard resources reconciled successfully

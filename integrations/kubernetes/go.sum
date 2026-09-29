@@ -184,6 +184,8 @@ github.com/trianalab/pacto/v3 v3.3.3 h1:TnVAY3Hiar3vSLZ+Ev8NHmR6mzk+exgyUK2RBgj3
 github.com/trianalab/pacto/v3 v3.3.3/go.mod h1:aMYLD/afcs4iJHRy8nRAshpjkoBILO1Ln6taIpKJLTE=
 github.com/trianalab/pacto/v3 v3.3.4 h1:WNHb/kg8tl5SFKzd+B1+UxsFZnCVm4zU07JQONPzw1k=
 github.com/trianalab/pacto/v3 v3.3.4/go.mod h1:VlLSnbztSUcQBv4eyZm3NNqi7zF0zkopMJf0UocY9Zs=
+github.com/trianalab/pacto/v3 v3.3.5 h1:mXhEMVHUJdr10b8q9AMurXW//jjTL1JfNflm5Yzdofg=
+github.com/trianalab/pacto/v3 v3.3.5/go.mod h1:VlLSnbztSUcQBv4eyZm3NNqi7zF0zkopMJf0UocY9Zs=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
