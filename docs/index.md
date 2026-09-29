@@ -37,12 +37,11 @@ dependencies:
     compatibility: "^2.0.0"            # the range this revision accepts
 ```
 
-## What a service catalog does not do
+## Who breaks when a dependency ships a new version
 
-A catalog entry saying `dependsOn: auth` records that the edge exists. A Pacto
-dependency records that this revision accepts `auth ^2.0.0`, and `pacto.lock`
-pins the rest of the transitive closure by digest. So when auth is about to ship
-3.0, Pacto answers per consumer:
+The `compatibility` range above records which versions of `auth` this revision
+accepts, and `pacto.lock` pins the rest of the transitive closure by digest. So
+when auth is about to ship 3.0, Pacto answers per consumer:
 
 ```console
 $ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
