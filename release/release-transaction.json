@@ -36,19 +36,31 @@
     "operator-image": "ghcr.io/trianalab/pacto/operator"
   },
   "expectedTags": {
-    "cli": "v3.3.4",
-    "core": "v3.3.4",
-    "dashboard-contract-bundle": "3.3.4",
-    "dashboard-image": "3.3.4",
-    "demo-bundles": "3.3.4",
-    "demo-compose": "3.3.4",
+    "cli": "v3.3.5",
+    "core": "v3.3.5",
+    "dashboard-contract-bundle": "3.3.5",
+    "dashboard-image": "3.3.5",
+    "demo-bundles": "3.3.5",
+    "demo-compose": "3.3.5",
     "k8s-docs": "5.4.2",
     "k8s-module": "integrations/kubernetes/v5.4.2",
     "operator-chart": "5.4.2",
     "operator-image": "5.4.2"
   },
-  "manifestSha": "9e67848776b99f3bbf6df7e6ddd39017ad16a0d6c95fa459065115b46b9c1b91",
+  "manifestSha": "6f31f0b8fb22d155f01699c00d4a0ef10a43f93dd352bc5e4a6136c4983ac5f6",
   "newVersions": {
+    "cli": "3.3.5",
+    "core": "3.3.5",
+    "dashboard-contract-bundle": "3.3.5",
+    "dashboard-image": "3.3.5",
+    "demo-bundles": "3.3.5",
+    "demo-compose": "3.3.5",
+    "k8s-docs": "5.4.2",
+    "k8s-module": "5.4.2",
+    "operator-chart": "5.4.2",
+    "operator-image": "5.4.2"
+  },
+  "previousVersions": {
     "cli": "3.3.4",
     "core": "3.3.4",
     "dashboard-contract-bundle": "3.3.4",
@@ -60,22 +72,10 @@
     "operator-chart": "5.4.2",
     "operator-image": "5.4.2"
   },
-  "previousVersions": {
-    "cli": "3.3.3",
-    "core": "3.3.3",
-    "dashboard-contract-bundle": "3.3.3",
-    "dashboard-image": "3.3.3",
-    "demo-bundles": "3.3.3",
-    "demo-compose": "3.3.3",
-    "k8s-docs": "5.4.2",
-    "k8s-module": "5.4.2",
-    "operator-chart": "5.4.2",
-    "operator-image": "5.4.2"
-  },
   "ready": true,
   "schema": "pacto-release-transaction/v1",
   "sourceSha": "",
-  "transactionId": "68d2dcfdc2ecea8f",
+  "transactionId": "f7ee0829410c3ec8",
   "units": {
     "cli": {
       "status": "pending"
