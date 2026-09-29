@@ -21,7 +21,7 @@ Teams declare operational intent in a contract — workload type, state and pers
 |-----------|------|
 | [**CLI**](https://github.com/TrianaLab/pacto) | Author, validate, diff, and publish contracts to OCI registries |
 | **Operator** (this repo) | Continuously check runtime alignment between contracts and live workloads |
-| [**Dashboard**](https://github.com/TrianaLab/pacto-dashboard) | Visualize the service graph, dependency tree, and compliance status |
+| [**Dashboard**](https://pacto.run/latest/dashboard-docker/) | Visualize the service graph, dependency tree, and compliance status |
 
 The CLI is the authoring tool. The operator is the runtime feedback loop. The dashboard makes the results visible.
 
@@ -277,11 +277,11 @@ If the Secret is missing or cannot be read, the Pacto CR status is set to `Unkno
 
 ## Dashboard
 
-The operator optionally manages a [Pacto Dashboard](https://github.com/TrianaLab/pacto-dashboard) instance. The dashboard provides a visual service graph showing dependencies, contract versions, readiness and compliance status across all Pacto resources in the cluster. A fleet overview surfaces compliance, readiness and the services that need attention at a glance, and a dedicated Service Readiness view shows per-service scores and check gaps (expired or invalid evidence).
+The operator optionally manages a [Pacto Dashboard](https://pacto.run/latest/dashboard-docker/) instance. The dashboard provides a visual service graph showing dependencies, contract versions, readiness and compliance status across all Pacto resources in the cluster. A fleet overview surfaces compliance, readiness and the services that need attention at a glance, and a dedicated Service Readiness view shows per-service scores and check gaps (expired or invalid evidence).
 
 The operator handles the full dashboard lifecycle: Deployment, ClusterIP Service, ServiceAccount, and RBAC. The dashboard image is version-locked to the Pacto library bundled into the controller.
 
-Dashboard CPU/memory requests and limits can be overridden via the chart's `dashboard.resources` values (which set the controller's `--dashboard-cpu-request` / `--dashboard-cpu-limit` / `--dashboard-memory-request` / `--dashboard-memory-limit` flags). These accept standard Kubernetes [resource quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) strings — `100m`, `256Mi`, `1Gi`, and so on. Every supplied value is parsed at operator startup, so an invalid quantity fails fast (the operator refuses to start) rather than panicking during the first reconciliation.
+Dashboard CPU/memory requests and limits can be overridden via the chart's `dashboard.resources` values (which set the controller's `--dashboard-cpu-request` / `--dashboard-cpu-limit` / `--dashboard-memory-request` / `--dashboard-memory-limit` flags). These accept standard Kubernetes [resource quantity](https://kubernetes.io/docs/reference/kubernetes-api/definitions/quantity-resource/) strings — `100m`, `256Mi`, `1Gi`, and so on. Every supplied value is parsed at operator startup, so an invalid quantity fails fast (the operator refuses to start) rather than panicking during the first reconciliation.
 
 Network exposure is a chart-level concern. The Helm chart creates a separate configurable Service for external access, with optional Ingress and Gateway API HTTPRoute support. See the [chart README](charts/pacto-operator/#dashboard) for details.
 
@@ -327,7 +327,7 @@ kubectl apply -f config/prometheus/alerts.yaml
 
 ## Artifact Verification
 
-All published artifacts (controller image and Helm chart) are signed with [Cosign](https://docs.sigstore.dev/cosign/overview/) using keyless OIDC signing via GitHub Actions.
+All published artifacts (controller image and Helm chart) are signed with [Cosign](https://docs.sigstore.dev/cosign/signing/overview/) using keyless OIDC signing via GitHub Actions.
 
 Verify the controller image:
 
