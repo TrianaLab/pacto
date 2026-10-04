@@ -202,7 +202,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install ORAS
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
       - run: make ci-oci
         env:
           PACTO_STAGING_REGISTRY: localhost:5001
@@ -259,7 +259,7 @@ jobs:
       # publish the manifest artifact the delivery tool pulls the promotion from —
       # Flux's OCIRepository in one, Argo's OCI application source in the other.
       - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-')
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         run: bash release/scripts/retry.sh go install sigs.k8s.io/kind@v0.30.0
       - name: Install Helm
@@ -324,7 +324,7 @@ jobs:
         # The dry-run drives the real durable OCI-backed ledger (ledger.sh), which
         # stores + reads the ledger as an OCI artifact via oras — exactly as the
         # production publishers do.
-        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
       # The dry run rehearses the demo-compose unit, which Docker Compose publishes.
       - uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a # v2.4.0
         with:
