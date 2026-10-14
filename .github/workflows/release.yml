@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
       # Go + Python: the version command also regenerates the version-derived
@@ -107,7 +107,7 @@ jobs:
         with:
           fetch-depth: 2
           ref: ${{ github.event.inputs.source_sha }}
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
       - name: Decide release / recovery from the transaction
@@ -314,7 +314,7 @@ jobs:
           mkdir -p /tmp/digests
           d="$(jq -r '."containerimage.digest"' /tmp/meta.json)"
           touch "/tmp/digests/${d#sha256:}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dashboard-digests-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -350,7 +350,7 @@ jobs:
         uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: dashboard-digests-*
           merge-multiple: true
@@ -406,7 +406,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - name: Install crane
         uses: ./.github/actions/setup-crane
       - name: Install ORAS
@@ -695,7 +695,7 @@ jobs:
           mkdir -p /tmp/digests
           d="$(jq -r '."containerimage.digest"' /tmp/meta.json)"
           touch "/tmp/digests/${d#sha256:}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: operator-digests-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -734,7 +734,7 @@ jobs:
         uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: operator-digests-*
           merge-multiple: true
@@ -918,7 +918,7 @@ jobs:
       # after the tag is pushed. Same reason as the `release` job.
       - name: Warm the module cache (retried)
         run: bash release/scripts/retry.sh go mod download
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
       - name: Build the WASM dashboard demo
@@ -986,7 +986,7 @@ jobs:
       - name: Warm the module cache (retried)
         run: bash release/scripts/retry.sh go mod download
       - name: Install syft
-        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - name: Build reproducible binaries + checksums + SBOM
         env:
           TAG: v${{ needs.detect.outputs.core_version }}

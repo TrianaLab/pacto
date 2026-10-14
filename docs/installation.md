@@ -45,14 +45,14 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 go install github.com/trianalab/pacto/v3/cmd/pacto@latest
 ```
 
-Requires [Go 1.26.6](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
+Requires [Go 1.26.9](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
 
 !!! warning "`go install` builds report as `dev`"
     `pacto version` prints `Pacto: dev` and `pacto update` refuses to run. Use the installer script if you need version metadata.
 
 ## From source
 
-Requires Go 1.26.6 or later, `make` and `git`.
+Requires Go 1.26.9 or later, `make` and `git`.
 
 ```bash
 git clone https://github.com/TrianaLab/pacto.git
