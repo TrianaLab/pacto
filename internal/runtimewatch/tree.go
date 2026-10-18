@@ -212,7 +212,7 @@ func StartTime(p ProcFS, want func(runtimefacts.Identity) bool) (time.Time, bool
 		return time.Time{}, false
 	}
 	entries, _ := p.ReadDir(".")
-	var earliest uint64
+	var earliest int64
 	found := false
 	for _, e := range entries {
 		if pid, err := strconv.Atoi(e.Name()); err != nil || pid <= 0 {
@@ -231,8 +231,8 @@ func StartTime(p ProcFS, want func(runtimefacts.Identity) bool) (time.Time, bool
 		if len(f) < 20 {
 			continue
 		}
-		ticks, err := strconv.ParseUint(string(f[19]), 10, 64)
-		if err == nil && (!found || ticks < earliest) {
+		ticks, err := strconv.ParseInt(string(f[19]), 10, 64)
+		if err == nil && ticks >= 0 && (!found || ticks < earliest) {
 			earliest, found = ticks, true
 		}
 	}

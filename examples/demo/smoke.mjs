@@ -125,16 +125,16 @@ check("include-observed surfaces the audit-log shadow consumer",
 // the same revision the service page lands on. payments-service 2.1.1 declares a
 // readiness block that fails its gate (a stale ai-evals check drops the score to
 // 70 < 80); orders-service 1.2.0 declares an all-current block that passes. The
-// revision embeds the raw readiness.Result untagged, hence the capitalised keys.
+// revision embeds readiness.Result, whose keys are camelCase since v4.
 check("payments newest revision exposes readiness", newRev.readiness != null, newRev.version);
-check("payments readiness Score 70", newRev.readiness && newRev.readiness.Score === 70, newRev.readiness && `score ${newRev.readiness.Score}`);
-check("payments readiness gate FAIL", newRev.readiness && newRev.readiness.Passing === false);
+check("payments readiness Score 70", newRev.readiness && newRev.readiness.score === 70, newRev.readiness && `score ${newRev.readiness.score}`);
+check("payments readiness gate FAIL", newRev.readiness && newRev.readiness.passing === false);
 
 const ordRevs = (json(call("GET", "/api/fleet/service?key=orders-service")).revisions || [])
   .slice().sort(byVersion);
 const ordRev = ordRevs[ordRevs.length - 1] || {};
-check("orders newest revision readiness passes", ordRev.readiness && ordRev.readiness.Passing === true,
-  ordRev.readiness && `score ${ordRev.readiness.Score}`);
+check("orders newest revision readiness passes", ordRev.readiness && ordRev.readiness.passing === true,
+  ordRev.readiness && `score ${ordRev.readiness.score}`);
 
 // ── Product API: the demo must be RICH through the paths the product UI uses ──
 // The product UI never reads the raw snapshot above; it reads these endpoints. A
